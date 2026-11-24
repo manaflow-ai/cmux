@@ -26,170 +26,170 @@ import {
 } from "./support/firstFrameRects";
 import { COMPOSER_MD, MAIN_DOCK, MODEL_PICKER, PLUS_PICKER } from "../src/agent-session/acpmux/composerSelectors";
 
-/// The anchors, by the name the table gives them.
-const ANCHORS = {
-  "composer bottom edge": `${MAIN_DOCK} .acpmux-composer-box`,
-  "composer box": `${MAIN_DOCK} .acpmux-composer-box`,
-  "send slot": `${MAIN_DOCK} .acpmux-composer-actions`,
-  "caret line": CARET_ANCHOR,
-  /// The rail of chips is `display: contents` (composerLocation.css), so it has no box: its model chip
-  /// stands for it.
-  "model chip": `${MAIN_DOCK} ${MODEL_PICKER}`,
-  "header tools": ".acpmux-header-tools",
-  /// Movers, not anchors: proof the case's animation ran (the box's top grows or shrinks, a menu shows).
-  "composer top edge": `${MAIN_DOCK} .acpmux-composer-box`,
-  menu: ".ui-popup",
-} as const;
-type Anchor = keyof typeof ANCHORS;
-/// The edges each anchor holds: the composer grows up from its bottom edge; the caret's line is its
-/// bottom (typing moves it sideways by design); the rest hold every edge.
-const EDGES: Partial<Record<Anchor, Edge[]>> = {
-  "composer bottom edge": ["bottom"],
-  "caret line": ["bottom"],
-  "composer top edge": ["top"],
-  menu: ["top"],
-};
-
-/// 1 px or more between frames, where it should hold still, is drift.
-const DRIFT_PX = 1;
-/// Every motion token ends inside this (the longest, the dock's, is under 400 ms).
-const FRAMES_MS = 900;
-
-type Case = {
-  name: string;
-  anchors: Anchor[];
-  /// What the animation itself moves or shows, so a case that ran nothing cannot read as still:
-  /// "moves" must move 1 px or more, "shows" must be drawn by the end.
-  proof: { moves: Anchor } | { shows: Anchor };
-  /// Brings the pane to the case's resting state (focused, a draft typed, a chip pasted).
-  rest?: (page: Page) => Promise<void>;
-  /// The one action whose animation is judged.
-  act: (page: Page) => Promise<void>;
-};
-
-const DRAFT = "Check the retry policy";
-/// Well past one line at 900 px on any runner's fonts (103 characters wrapped on one CI run and not
-/// the next).
-const WRAP =
-  " and say whether the client waits longer before each retry, with random jitter, and how many times it tries before it gives up";
-/// Past PASTE_CHIP_CHARS (pastedText.ts): the paste lands as a text attachment, not in the field.
-const LONG_PASTE = Array.from({ length: 900 }, (_, n) => `Line ${n + 1} of the pasted notes`).join("\n");
-
-/// A trigger the stand-in chat does not draw fails its case in seconds, naming it.
-const TRIGGER_MS = 10_000;
-const focusField = (page: Page) => page.locator(COMPOSER_MD).first().click({ timeout: TRIGGER_MS });
-const paste = (page: Page, text: string) =>
-  page.evaluate(
-    ({ selector, text }) => {
-      const field = document.querySelector<HTMLElement>(selector)!;
-      const data = new DataTransfer();
-      data.setData("text/plain", text);
-      field.dispatchEvent(
-        new ClipboardEvent("paste", {
-          clipboardData: data,
-          bubbles: true,
-          cancelable: true,
-        }),
-      );
-    },
-    { selector: COMPOSER_MD, text },
-  );
-
-const CASES: Case[] = [
-  {
-    name: "composer grow (a new line)",
-    proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "caret line", "model chip", "header tools"],
-    rest: async (page) => {
-      await focusField(page);
-      await page.keyboard.type(DRAFT);
-    },
-    act: (page) => page.keyboard.press("Shift+Enter"),
-  },
-  {
-    name: "composer grow (typing wraps onto a second line)",
-    proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
-    rest: async (page) => {
-      await focusField(page);
-      await page.keyboard.type(DRAFT);
-    },
-    act: (page) => page.keyboard.type(WRAP),
-  },
-  {
-    name: "composer shrink (the new line deleted)",
-    proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "caret line", "model chip", "header tools"],
-    rest: async (page) => {
-      await focusField(page);
-      await page.keyboard.type(DRAFT);
-      await page.keyboard.press("Shift+Enter");
-    },
-    act: (page) => page.keyboard.press("Backspace"),
-  },
-  {
-    name: "send (Return on a two-line draft)",
-    proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
-    rest: async (page) => {
-      await focusField(page);
-      await page.keyboard.type(DRAFT);
-      await page.keyboard.press("Shift+Enter");
-      await page.keyboard.type("and the jitter");
-    },
-    act: (page) => page.keyboard.press("Enter"),
-  },
-  {
-    name: "attachment add (a long paste lands as a chip)",
-    proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
-    rest: focusField,
-    act: (page) => paste(page, LONG_PASTE),
-  },
-  {
-    name: "attachment remove (the chip's ×)",
-    proof: { moves: "composer top edge" },
-    anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
-    rest: async (page) => {
-      await focusField(page);
-      await paste(page, LONG_PASTE);
-      await page
-        .locator(`${MAIN_DOCK} :is(.acpmux-attachment-remove, .acpmux-md-inline-remove)`)
-        .first()
-        .waitFor({ timeout: TRIGGER_MS });
-    },
-    act: async (page) => {
-      const remove = page.locator(`${MAIN_DOCK} :is(.acpmux-attachment-remove, .acpmux-md-inline-remove)`).first();
-      // The × shows on hover: the pointer goes there first, at rest, so only the press is judged.
-      await remove.click({ trial: true, timeout: TRIGGER_MS });
-      await remove.click({ timeout: TRIGGER_MS });
-    },
-  },
-  {
-    name: "model menu opening",
-    proof: { shows: "menu" },
-    anchors: ["composer box", "send slot", "model chip", "header tools"],
-    act: (page) => page.locator(`${MAIN_DOCK} ${MODEL_PICKER}`).first().click({ timeout: TRIGGER_MS }),
-  },
-  {
-    name: "+ menu opening",
-    proof: { shows: "menu" },
-    anchors: ["composer box", "send slot", "model chip", "header tools"],
-    act: (page) => page.locator(`${MAIN_DOCK} ${PLUS_PICKER}`).first().click({ timeout: TRIGGER_MS }),
-  },
-];
-
-/// The cases that drift today, with the most px measured (CI run 45329703880 on
-/// fast-checks' Chromium, 2026-11-24) and the anchor. Each runs as test.failing until the animation is fixed.
-/// The mode menu is not a case: the stand-in pane draws no mode chip (CI run 45329703880 waited 10 s
-/// for one).
-const DRIFTS: Record<string, string> = {
-  /// Backspace lifts the caret to the line above a frame before the box shrinks, then the shrink
-  /// carries it back (rest 0.3 px off): the caret's line jumps a line height mid-animation.
-  "composer shrink (the new line deleted)": "caret line 22.7 px (bottom)",
-};
-
 await requireBrowserLane("tab-composer-anchor-drift.test.ts", async () => {
+  /// The anchors, by the name the table gives them.
+  const ANCHORS = {
+    "composer bottom edge": `${MAIN_DOCK} .acpmux-composer-box`,
+    "composer box": `${MAIN_DOCK} .acpmux-composer-box`,
+    "send slot": `${MAIN_DOCK} .acpmux-composer-actions`,
+    "caret line": CARET_ANCHOR,
+    /// The rail of chips is `display: contents` (composerLocation.css), so it has no box: its model chip
+    /// stands for it.
+    "model chip": `${MAIN_DOCK} ${MODEL_PICKER}`,
+    "header tools": ".acpmux-header-tools",
+    /// Movers, not anchors: proof the case's animation ran (the box's top grows or shrinks, a menu shows).
+    "composer top edge": `${MAIN_DOCK} .acpmux-composer-box`,
+    menu: ".ui-popup",
+  } as const;
+  type Anchor = keyof typeof ANCHORS;
+  /// The edges each anchor holds: the composer grows up from its bottom edge; the caret's line is its
+  /// bottom (typing moves it sideways by design); the rest hold every edge.
+  const EDGES: Partial<Record<Anchor, Edge[]>> = {
+    "composer bottom edge": ["bottom"],
+    "caret line": ["bottom"],
+    "composer top edge": ["top"],
+    menu: ["top"],
+  };
+
+  /// 1 px or more between frames, where it should hold still, is drift.
+  const DRIFT_PX = 1;
+  /// Every motion token ends inside this (the longest, the dock's, is under 400 ms).
+  const FRAMES_MS = 900;
+
+  type Case = {
+    name: string;
+    anchors: Anchor[];
+    /// What the animation itself moves or shows, so a case that ran nothing cannot read as still:
+    /// "moves" must move 1 px or more, "shows" must be drawn by the end.
+    proof: { moves: Anchor } | { shows: Anchor };
+    /// Brings the pane to the case's resting state (focused, a draft typed, a chip pasted).
+    rest?: (page: Page) => Promise<void>;
+    /// The one action whose animation is judged.
+    act: (page: Page) => Promise<void>;
+  };
+
+  const DRAFT = "Check the retry policy";
+  /// Well past one line at 900 px on any runner's fonts (103 characters wrapped on one CI run and not
+  /// the next).
+  const WRAP =
+    " and say whether the client waits longer before each retry, with random jitter, and how many times it tries before it gives up";
+  /// Past PASTE_CHIP_CHARS (pastedText.ts): the paste lands as a text attachment, not in the field.
+  const LONG_PASTE = Array.from({ length: 900 }, (_, n) => `Line ${n + 1} of the pasted notes`).join("\n");
+
+  /// A trigger the stand-in chat does not draw fails its case in seconds, naming it.
+  const TRIGGER_MS = 10_000;
+  const focusField = (page: Page) => page.locator(COMPOSER_MD).first().click({ timeout: TRIGGER_MS });
+  const paste = (page: Page, text: string) =>
+    page.evaluate(
+      ({ selector, text }) => {
+        const field = document.querySelector<HTMLElement>(selector)!;
+        const data = new DataTransfer();
+        data.setData("text/plain", text);
+        field.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData: data,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      },
+      { selector: COMPOSER_MD, text },
+    );
+
+  const CASES: Case[] = [
+    {
+      name: "composer grow (a new line)",
+      proof: { moves: "composer top edge" },
+      anchors: ["composer bottom edge", "send slot", "caret line", "model chip", "header tools"],
+      rest: async (page) => {
+        await focusField(page);
+        await page.keyboard.type(DRAFT);
+      },
+      act: (page) => page.keyboard.press("Shift+Enter"),
+    },
+    {
+      name: "composer grow (typing wraps onto a second line)",
+      proof: { moves: "composer top edge" },
+      anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
+      rest: async (page) => {
+        await focusField(page);
+        await page.keyboard.type(DRAFT);
+      },
+      act: (page) => page.keyboard.type(WRAP),
+    },
+    {
+      name: "composer shrink (the new line deleted)",
+      proof: { moves: "composer top edge" },
+      anchors: ["composer bottom edge", "send slot", "caret line", "model chip", "header tools"],
+      rest: async (page) => {
+        await focusField(page);
+        await page.keyboard.type(DRAFT);
+        await page.keyboard.press("Shift+Enter");
+      },
+      act: (page) => page.keyboard.press("Backspace"),
+    },
+    {
+      name: "send (Return on a two-line draft)",
+      proof: { moves: "composer top edge" },
+      anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
+      rest: async (page) => {
+        await focusField(page);
+        await page.keyboard.type(DRAFT);
+        await page.keyboard.press("Shift+Enter");
+        await page.keyboard.type("and the jitter");
+      },
+      act: (page) => page.keyboard.press("Enter"),
+    },
+    {
+      name: "attachment add (a long paste lands as a chip)",
+      proof: { moves: "composer top edge" },
+      anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
+      rest: focusField,
+      act: (page) => paste(page, LONG_PASTE),
+    },
+    {
+      name: "attachment remove (the chip's ×)",
+      proof: { moves: "composer top edge" },
+      anchors: ["composer bottom edge", "send slot", "model chip", "header tools"],
+      rest: async (page) => {
+        await focusField(page);
+        await paste(page, LONG_PASTE);
+        await page
+          .locator(`${MAIN_DOCK} :is(.acpmux-attachment-remove, .acpmux-md-inline-remove)`)
+          .first()
+          .waitFor({ timeout: TRIGGER_MS });
+      },
+      act: async (page) => {
+        const remove = page.locator(`${MAIN_DOCK} :is(.acpmux-attachment-remove, .acpmux-md-inline-remove)`).first();
+        // The × shows on hover: the pointer goes there first, at rest, so only the press is judged.
+        await remove.click({ trial: true, timeout: TRIGGER_MS });
+        await remove.click({ timeout: TRIGGER_MS });
+      },
+    },
+    {
+      name: "model menu opening",
+      proof: { shows: "menu" },
+      anchors: ["composer box", "send slot", "model chip", "header tools"],
+      act: (page) => page.locator(`${MAIN_DOCK} ${MODEL_PICKER}`).first().click({ timeout: TRIGGER_MS }),
+    },
+    {
+      name: "+ menu opening",
+      proof: { shows: "menu" },
+      anchors: ["composer box", "send slot", "model chip", "header tools"],
+      act: (page) => page.locator(`${MAIN_DOCK} ${PLUS_PICKER}`).first().click({ timeout: TRIGGER_MS }),
+    },
+  ];
+
+  /// The cases that drift today, with the most px measured (CI run 45329703880 on
+  /// fast-checks' Chromium, 2026-11-24) and the anchor. Each runs as test.failing until the animation is fixed.
+  /// The mode menu is not a case: the stand-in pane draws no mode chip (CI run 45329703880 waited 10 s
+  /// for one).
+  const DRIFTS: Record<string, string> = {
+    /// Backspace lifts the caret to the line above a frame before the box shrinks, then the shrink
+    /// carries it back (rest 0.3 px off): the caret's line jumps a line height mid-animation.
+    "composer shrink (the new line deleted)": "caret line 22.7 px (bottom)",
+  };
+
   setDefaultTimeout(300_000);
   let browser: Browser;
   let pane: Awaited<ReturnType<typeof papercutPane>>;
