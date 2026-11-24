@@ -46,7 +46,7 @@ const ended = (index: number, state: string, minutes: number): AcpmuxRow =>
       } as never,
     ],
   } as Partial<AcpmuxRow>);
-const shell = (index: number, minutes: number, state = "completed"): AcpmuxRow =>
+const shell = (index: number, minutes: number, state: "completed" | "failed" | "stopped" = "completed"): AcpmuxRow =>
   row("backgroundTask", minutes, {
     id: `steered-wait-${index}`,
     backgroundTask: {
