@@ -85,7 +85,7 @@ async fn a_prompt_that_does_not_ask_to_wait_is_refused_at_once_as_before() {
 }
 
 /// The new contract: held with a notice, unanswered while the link is down, and sent on once the
-/// link is back (with no transport here, the peer's own request then fails: it was tried).
+/// link is back (it then waits on the peer, which has no transport here).
 #[tokio::test]
 async fn a_prompt_that_asks_to_wait_is_held_until_the_link_is_back() {
     let (hub, peer) = hub_with_peer();
@@ -95,9 +95,14 @@ async fn a_prompt_that_asks_to_wait_is_held_until_the_link_is_back() {
     assert_eq!(held["params"]["promptId"], "p-held-1");
     assert_eq!(held["params"]["peer"], "far");
     assert!(sent.next(Duration::from_millis(1500)).await.is_none(), "not answered while down");
+    assert_eq!(peer.pending_requests().await, 0, "nothing went to the peer while down");
     hub.seed_peer_back(&peer, vec![row()]);
-    let reply = sent.next(Duration::from_secs(20)).await.expect("sent on once the link is back");
-    assert_eq!(reply.get("id"), Some(&json!(2)), "{reply}");
+    // With no transport the peer never answers, so the proof is the prompt waiting on the peer.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    while peer.pending_requests().await == 0 {
+        assert!(tokio::time::Instant::now() < deadline, "sent on once the link is back");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 /// A link that never comes back: refused as unreachable once the hold's bound is spent.
