@@ -43,7 +43,7 @@ fn set_turn(session: &Session, turn: Option<&str>) {
     });
 }
 
-fn chunk(hub: &Hub, session: &Session, message: Option<&str>, text: &str) -> String {
+fn chunk(hub: &Hub, session: &Arc<Session>, message: Option<&str>, text: &str) -> String {
     let mut update =
         json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}});
     if let Some(message) = message {
