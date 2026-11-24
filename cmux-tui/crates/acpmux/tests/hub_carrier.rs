@@ -3312,3 +3312,163 @@ mod held_ssh;
 
 #[path = "hub_carrier/move_out.rs"]
 mod move_out;
+
+/// Right after a hub move lands (`hub/transfer_pull.rs`), the target machine's own prompts to the
+/// chat are taken and run, never refused: the ring run of 2026-11-24 saw `acpmux send --no-wait`
+/// on the target refused "this harness has no reviewed asking mode for a remote WebSocket
+/// connection" for about a second after the move reported the chat landed, each refusal a lost
+/// message. `asking`: whether the target names a reviewed asking mode for the chat's harness (a
+/// bench harness names none). Each send goes the CLI's way (`_acpmux/send_queue` on the local
+/// socket) as soon as the target answered the move, before and after the source commits it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_prompt_sent_on_the_target_as_a_move_lands_is_taken_and_runs() {
+    for asking in [true, false] {
+        send_as_a_move_lands(asking).await;
+    }
+}
+
+async fn send_as_a_move_lands(asking: bool) {
+    use acpmux::mesh::InMessage;
+    use acpmux::mesh_http::MeshControlFrom;
+    use acpmux::server::mesh_relay::{ControlHook as _, MeshControlHook};
+    use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let proxy = Proxy::start(relay_address).await;
+    let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
+    let (key_a, key_b) = (random_key(), random_key());
+    let (a_key, b_key) = (public(&key_a), public(&key_b));
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier = |key: [u8; 32], peers: Vec<String>| {
+        HubCarrier::new(
+            Arc::new(FixedTickets { relay: route.clone(), peers, asked: AtomicU64::new(0) }),
+            key,
+            fast,
+        )
+    };
+    let plain_ids = || {
+        let mut cfg = config();
+        for profile in cfg.harnesses.values_mut() {
+            profile.env.insert("FAKE_SESSION_PREFIX".into(), "fake-session-".into());
+        }
+        let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        Hub::new(cfg, store)
+    };
+    let a = plain_ids();
+    let carrier_a = carrier(key_a, vec![b_key.clone()]);
+    carrier_a.set_transfer_gate(Arc::new(ConfiguredTransferGate::new(&a)));
+    a.set_mesh_book_machines(BTreeMap::from([(b_key.clone(), "machine-b".to_owned())]));
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_a.serve(nothing);
+    let b = plain_ids();
+    let home = dirs::home_dir().expect("a home directory");
+    let root = home.join(format!("acpmux-hub-move-send-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let root_text = root.to_string_lossy().into_owned();
+    {
+        let mut cfg = b.config.write().await;
+        cfg.web_roots = vec![root_text.clone()];
+        if asking {
+            cfg.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+        }
+    }
+    b.hub_carrier.set(carrier(key_b, vec![a_key.clone()]));
+    b.set_transfer_dial(Arc::new(CarrierDial::new(&b)));
+    let ledger = tempfile::tempdir().unwrap();
+    let hook = MeshControlHook::new(
+        vec![MeshControlFrom {
+            daemon_id: String::new(),
+            max_policy: None,
+            same_user: true,
+            ops: vec!["move".into()],
+        }],
+        Some(ledger.path().join("mesh-controls.json")),
+    )
+    .with_own_user(Arc::new(|| Some("user-1".to_owned())));
+
+    let mut ca = client(a.clone()).await;
+    let s =
+        ca.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    ca.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "before the move"}]}),
+    )
+    .await;
+    let begin = ca
+        .call(
+            "_acpmux/transfer_begin",
+            json!({"sessionId": id, "gatesQueueApproval": true,
+                   "to": {"hub": b_key, "host": "machine-b"}}),
+        )
+        .await;
+    let body = json!({"version": 1, "transferId": begin["transferId"], "sessionId": id,
+                      "manifest": begin, "folder": {"cwd": root_text}});
+    let message: InMessage = serde_json::from_value(json!({
+        "messageId": "m-move-send", "kind": "control", "op": "move", "mode": "now",
+        "to": {"daemonId": b_key},
+        "from": {"daemonId": a_key, "user": "user-1", "host": "machine-b-source"},
+        "body": body.to_string(),
+    }))
+    .unwrap();
+    let ack = within("B's pull over the relay", hook.control(&b, &message)).await;
+    let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
+    assert_eq!(ack["state"], "delivered", "asking {asking}: {ack}");
+
+    // The move answered: the chat is on B. B's own sends, at once, then after the commit.
+    let mut cb = client(b.clone()).await;
+    let send = |text: &str| json!({"request": {"sessionId": id, "prompt": [{"type": "text", "text": text}]}});
+    let landed = cb.call(method::MUX_SEND_QUEUE, send("sent as it landed")).await;
+    let to = json!({"host": "machine-b", "via": "hub", "sessionId": id, "cwd": root_text});
+    let committed = ca
+        .call(
+            "_acpmux/transfer_commit",
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": to, "epoch": begin["epoch"]}),
+        )
+        .await;
+    assert_eq!(committed["committed"], true, "{committed}");
+    let after = cb.call(method::MUX_SEND_QUEUE, send("sent after the commit")).await;
+    for queued in [&landed, &after] {
+        let delivery = queued["deliveryId"].as_str().expect("a delivery id").to_owned();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let status = cb
+                .call(method::MUX_SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 2000}))
+                .await;
+            assert_ne!(status["status"], "failed", "asking {asking}: refused: {status}");
+            if status["status"] == "delivered" {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "asking {asking}: {status}");
+        }
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let users = user_texts(&all_events(&mut cb, &id).await);
+        if users.iter().any(|t| t == "sent after the c")
+            && users.iter().any(|t| t == "sent as it lande")
+        {
+            assert_eq!(users.iter().filter(|t| *t == "sent as it lande").count(), 1, "{users:?}");
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "asking {asking}: never ran: {users:?}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
