@@ -894,7 +894,7 @@ public struct AgentChatBottomStack: View {
                         // and the built in keyboard"). The band runs on under the keyboard, which
                         // covers it, so it never shows an edge while the keyboard moves.
                         .background(alignment: .top) {
-                            KeyboardSkirt(shown: composerFocused && GCKeyboard.coalesced == nil)
+                            KeyboardSkirt(shown: surface.composerFocused && GCKeyboard.coalesced == nil)
                         }
                         // After the geometry reader: the entrance is render only, so the stack's
                         // measured place (the transcript's inset, the keyboard pin) is the resting one.
