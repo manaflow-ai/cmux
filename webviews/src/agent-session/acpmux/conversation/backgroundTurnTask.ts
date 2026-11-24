@@ -90,6 +90,9 @@ export function taskFromBgOutput(reply: unknown): BackgroundTurnTask {
   const text =
     tailText(reply) ??
     (plain ? { output: plain, cut: typeof raw.fromByte === "number" && raw.fromByte > 0 } : undefined);
+  const said = STATES.find((known) => known === raw.outputState);
+  // acpmux's word on its output, else what the reply shows: bytes or text read (none: it printed nothing).
+  const outputState = said ?? (text?.output ? "printed" : "data" in raw || plain !== undefined ? "empty" : undefined);
   const started = typeof raw.startedAt === "number" ? raw.startedAt : undefined;
   const ended = typeof raw.endedAt === "number" ? raw.endedAt : undefined;
   return {
@@ -98,9 +101,12 @@ export function taskFromBgOutput(reply: unknown): BackgroundTurnTask {
     ...(typeof raw.state === "string" && { state: raw.state }),
     ...(Number.isInteger(raw.exitCode) && { exitCode: raw.exitCode as number }),
     ...(text?.output && { output: text.output, cut: text.cut }),
+    ...(outputState && { outputState }),
     ...(started !== undefined && ended !== undefined && ended >= started && { tookMs: ended - started }),
   };
 }
+
+const STATES = ["printed", "empty", "gone"] as const;
 
 const READS_KEPT = 128;
 const reads = new WeakMap<BackgroundTaskOutputSource, Map<string, Promise<BackgroundTurnTask>>>();
@@ -134,9 +140,11 @@ export function readBackgroundTurnTask(
           ...(output.exitCode !== undefined && { exitCode: output.exitCode }),
           ...(output.output && { output: output.output, cut: output.cut }),
         }));
+  // No answer: acpmux no longer has the task (a restart, another machine's chat), so its output is
+  // not to be had; the card says so rather than drawing an empty box.
   const settled = read.catch(() => {
     kept.delete(key);
-    return known;
+    return { ...known, outputState: known.outputState ?? ("gone" as const) };
   });
   kept.set(key, settled);
   if (kept.size > READS_KEPT) kept.delete(kept.keys().next().value!);

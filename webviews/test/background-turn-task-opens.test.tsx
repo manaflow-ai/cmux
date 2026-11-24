@@ -12,10 +12,13 @@ import {
   backgroundTurnOpensTask,
   backgroundTurnTaskCard,
   backgroundTurnTaskId,
+  backgroundTurnTaskKnown,
   readBackgroundTurnTask,
   taskFromBgOutput,
 } from "../src/agent-session/acpmux/conversation/backgroundTurnTask";
 import { BACKGROUND_TURN } from "../src/agent-session/acpmux/conversation/backgroundTurns";
+import { CommandEndCard } from "../src/agent-session/acpmux/conversation/CommandEndCard";
+import { commandEndShows } from "../src/agent-session/acpmux/conversation/commandEnd";
 import type { AcpmuxBackgroundTurn, AcpmuxRow } from "../src/agent-session/acpmux/model";
 
 const finished: AcpmuxBackgroundTurn = {
@@ -121,4 +124,60 @@ test("opened, it shows the command, the exit and only the last lines", () => {
     cut: false,
     ended: "completed",
   });
+});
+
+// Leo, 2026-11-24, on a "Background command completed" row that opened to a Shell card with no
+// command and no output, only "Finished": "but i couldnt... do anything?". acpmux now sends the
+// command's end with the turn (hub/command_end.rs `cause.command`).
+const shellEnd = (cause: NonNullable<AcpmuxBackgroundTurn["cause"]>): AcpmuxBackgroundTurn => ({ ...finished, cause });
+
+test("a shell's turn opens to acpmux's command, exit and output with no read", async () => {
+  const turn = shellEnd({
+    kind: "shell",
+    status: "completed",
+    weight: "result",
+    origin: "toolu_1",
+    summary: 'Background command "cargo test" completed (exit code 0)',
+    command: { command: "cargo test", state: "completed", exitCode: 0, outputState: "printed", output: "12 passed" },
+  });
+  expect(backgroundTurnOpensTask(turn)).toBe(true);
+  const asked: string[] = [];
+  const reader = {
+    sessionId: "s2",
+    source: {
+      listProcesses: () => (asked.push("list"), Promise.resolve({})),
+      tailProcess: () => (asked.push("tail"), Promise.resolve({})),
+    },
+  };
+  expect(readBackgroundTurnTask(reader, turn)).toBeUndefined();
+  expect(asked).toEqual([]);
+  const card = backgroundTurnTaskCard(backgroundTurnTaskKnown(turn));
+  expect(card.end).toMatchObject({ command: "cargo test", exitCode: 0, output: "12 passed", outputState: "printed" });
+  // Opened, the card draws all three.
+  const markup = renderToStaticMarkup(createElement(CommandEndCard, { end: card.end }));
+  expect(markup).toContain("cargo test");
+  expect(markup).toContain("Exit code 0");
+  expect(markup).toContain("12 passed");
+});
+
+test("its output gone, the card says so with the command and exit; with nothing at all it does not open", () => {
+  const gone = { command: "bun run build", state: "failed", exitCode: 1, outputState: "gone" as const };
+  const markup = renderToStaticMarkup(createElement(CommandEndCard, { end: gone }));
+  expect(markup).toContain("bun run build");
+  expect(markup).toContain("Exit code 1");
+  expect(markup).toContain("Output no longer available");
+  const empty = renderToStaticMarkup(
+    createElement(CommandEndCard, { end: { command: "true", state: "completed", exitCode: 0, outputState: "empty" } }),
+  );
+  expect(empty).toContain("No output");
+  // A card with nothing to show: no command, no exit, no output.
+  const nothing = shellEnd({
+    kind: "shell",
+    status: "completed",
+    weight: "result",
+    origin: "toolu_9",
+    command: { command: "", state: "completed", outputState: "empty" },
+  });
+  expect(backgroundTurnOpensTask(nothing)).toBe(false);
+  expect(commandEndShows({ command: "", state: "completed", outputState: "empty" })).toBe(false);
 });

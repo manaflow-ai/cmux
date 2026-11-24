@@ -37,7 +37,7 @@ import {
 } from "../summary/workflowView";
 import { commandLabel, sendLabel, type BackgroundCommand } from "./processes";
 import { StopButton } from "./TasksSection";
-import { COMMAND_STATE } from "./tasksSectionModel";
+import { commandEndWord } from "./tasksSectionModel";
 import { TASK_ICONS } from "./taskIcons";
 import "./sessionInfo.css";
 import "./WorkflowTasks.css";
@@ -412,7 +412,7 @@ function CommandList({
             <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
             <span className="acpmux-session-info-task__command">{label}</span>
             {time !== undefined && <Clock className="acpmux-session-info-task__time" text={time} />}
-            {!running && <span className="acpmux-session-info-task__state">{t(COMMAND_STATE[command.state])}</span>}
+            {!running && <span className="acpmux-session-info-task__state">{commandEndWord(t, command)}</span>}
             {running && command.processId && onStop && (
               <StopButton id={command.processId} name={command.command} stop={onStop} solid />
             )}
