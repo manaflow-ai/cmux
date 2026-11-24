@@ -287,7 +287,7 @@ try {
     (window as unknown as { reconnectProbe: Probe }).reconnectProbe.t0 = performance.now();
   });
   droppedAt = Date.now();
-  for (const ws of [...sockets]) ws.close();
+  for (const ws of sockets) ws.close();
   // Wall time, not frames: the video is the record of what a reader saw.
   await new Promise((resolve) => setTimeout(resolve, WATCH_MS));
   const probe = await page.evaluate(() => {
