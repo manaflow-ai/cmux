@@ -91,7 +91,7 @@ fn stuck_says_why_in_a_few_words() {
         ),
         // Stranded: failed, and nothing will continue it.
         (
-            json!({"state": "idle", "lane": {"state": "failed"},
+            json!({"state": "idle", "status": "idle", "lane": {"state": "failed"},
                    "lastTurn": {"status": "failed", "errorText": "No space left on device (os error 28)"}}),
             "idle",
             "stranded: disk",
