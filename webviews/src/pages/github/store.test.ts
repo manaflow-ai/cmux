@@ -411,3 +411,48 @@ test("another pull request's checks are asked while the last one's ask is still 
   await settle();
   expect(store.getSnapshot().checks?.jobs.length).toBe(mockChecks.jobs.length);
 });
+
+test("a review is pinned to the head shown, then the conversation is read again", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  const reads = host.calls.filter((call) => call.op === GitHubOps.details).length;
+  expect(await store.submitReview("APPROVE", "")).toBe(true);
+  expect(host.calls.find((call) => call.op === GitHubOps.reviewSubmit)?.params).toEqual({
+    url: MOCK_URL,
+    event: "APPROVE",
+    body: "",
+    head: mockDetails.headCommit,
+  });
+  expect(store.getSnapshot().write).toEqual({ phase: "sent", what: "review" });
+  await settle();
+  expect(host.calls.filter((call) => call.op === GitHubOps.details).length).toBeGreaterThan(reads);
+});
+
+test("a thread write names its thread; an approval with no login says so; an uncounted click is no failure", async () => {
+  const host = new RichHost();
+  const store = new GitHubStore(host, () => true);
+  await store.route(route(MOCK_URL));
+  await settle();
+  const call = host.call.bind(host);
+  let error: Error | undefined;
+  host.call = <R>(op: string, params: unknown): Promise<R> => {
+    if (op === GitHubOps.threadReply || op === GitHubOps.threadResolve || op === GitHubOps.reviewSubmit) {
+      host.calls.push({ op, params });
+      return error ? Promise.reject(error) : Promise.resolve({ done: true } as R);
+    }
+    return call<R>(op, params);
+  };
+  expect(await store.resolveThread("PRRT_r2", true)).toBe(true);
+  expect(host.calls.at(-1)).toEqual({
+    op: GitHubOps.threadResolve,
+    params: { url: MOCK_URL, thread: "PRRT_r2", resolved: true },
+  });
+  error = pageError("cmux.github.gesture_required", "Click to reply");
+  expect(await store.replyThread("PRRT_r2", "Fixed in the next push.")).toBe(false);
+  expect(store.getSnapshot().write).toEqual({ phase: "idle" });
+  error = pageError("cmux.github.person_only", "an approval is the person's own");
+  expect(await store.submitReview("REQUEST_CHANGES", "Please split this.")).toBe(false);
+  expect(store.getSnapshot().write).toEqual({ phase: "failed", what: "review", message: GENERIC, personOnly: true });
+});
