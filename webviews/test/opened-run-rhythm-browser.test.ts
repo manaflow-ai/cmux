@@ -75,6 +75,11 @@ await requireBrowserLane("opened-run-rhythm-browser.test.ts", async () => {
   async function openRun(variant: "running" | "ended") {
     const page = await browser.newPage({ viewport: { width: WIDTH, height: HEIGHT }, colorScheme: "dark" });
     await installPaintedFrames(page);
+    await page.addInitScript(() => {
+      (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+        "background-turn-look": "line",
+      };
+    });
     await page.goto(
       `${base}${galleryFrame(ENTRY, { variant, theme: "Apple System Colors", colorScheme: "dark", width: WIDTH, height: HEIGHT })}`,
     );
