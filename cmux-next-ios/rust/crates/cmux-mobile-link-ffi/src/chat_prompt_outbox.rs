@@ -183,7 +183,7 @@ fn ms_duration(left: Duration) -> u64 {
 
 #[uniffi::export]
 impl ChatPromptOutbox {
-    /// `hold_ms`: how long a prompt waits for the link before it comes back. `seed`: the retry
+    /// `hold_ms`: how long a prompt may go with no progress (see `progressed`) before it comes back. `seed`: the retry
     /// jitter's (any value; a random one per source).
     #[uniffi::constructor]
     pub fn new(hold_ms: u64, seed: u64) -> Self {
@@ -220,6 +220,21 @@ impl ChatPromptOutbox {
         let mut inner = self.inner();
         let (tapped, now) = (inner.at(tapped_ms), inner.at(now_ms));
         inner.outbox.push(prompt_id, text, upload_ids, resend, tapped, now)
+    }
+
+    /// The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
+    /// taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
+    pub fn progressed(&self, now_ms: u64) {
+        let mut inner = self.inner();
+        let now = inner.at(now_ms);
+        inner.outbox.progressed(now);
+    }
+
+    /// The upload `upload_id` took a chunk at `now_ms`: its prompt keeps going.
+    pub fn upload_progressed(&self, upload_id: String, now_ms: u64) {
+        let mut inner = self.inner();
+        let now = inner.at(now_ms);
+        inner.outbox.upload_progressed(&upload_id, now);
     }
 
     /// The upload `upload_id` ended on the Mac at `mac_path`. Unknown ids are ignored.

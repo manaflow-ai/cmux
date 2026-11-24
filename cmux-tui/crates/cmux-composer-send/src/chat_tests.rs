@@ -993,3 +993,62 @@ fn uploads_and_cancels_with_todays_hold_none_doubled_none_lost() {
         check(&lossy_run_with(seed, 100, DEFAULT_HOLD, Mix { attach: 30, cancel: 4 }), 100);
     }
 }
+
+// Leo, 2026-11-24: "10s timeout for messages being sendable is a shame. if it's making good
+// progress, it should be allowed to keep going?" The hold is a stall bound, not a deadline.
+
+#[test]
+fn a_prompt_queued_behind_a_slow_write_keeps_going_while_the_link_makes_progress() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0);
+    outbox.push("b", "b", vec![], false, t0 + ms(1), t0 + ms(1));
+    assert_eq!(outbox.next_request(t0).unwrap().id, "a", "a's write is under way, slowly");
+    for second in 1..=60 {
+        outbox.progressed(t0 + Duration::from_secs(second));
+        assert!(
+            outbox.expire(t0 + Duration::from_secs(second) + ms(500)).is_empty(),
+            "b is given up at {second}s though the link is moving"
+        );
+    }
+    outbox.wrote("a");
+    outbox.progressed(t0 + Duration::from_secs(61));
+    assert_eq!(outbox.next_request(t0 + Duration::from_secs(61)).unwrap().id, "b");
+}
+
+#[test]
+fn a_stall_with_no_progress_still_gives_up_after_the_hold() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0);
+    outbox.push("b", "b", vec![], false, t0 + ms(1), t0 + ms(1));
+    outbox.next_request(t0).unwrap();
+    outbox.progressed(t0 + ms(9_000));
+    assert!(outbox.expire(t0 + ms(18_999)).is_empty(), "the stall began at the last progress");
+    assert_eq!(outbox.next_wake(t0 + ms(9_000)), Some(DEFAULT_HOLD));
+    assert_eq!(outbox.expire(t0 + ms(19_001)), vec![done("b", PromptOutcome::NotSent, "b")]);
+}
+
+#[test]
+fn other_traffic_does_not_keep_a_prompt_whose_own_write_fails() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    outbox.write_failed("a", t0 + ms(100));
+    outbox.progressed(t0 + ms(9_000));
+    assert_eq!(outbox.expire(t0 + DEFAULT_HOLD).len(), 1, "its own writes are not moving");
+}
+
+#[test]
+fn an_upload_taking_chunks_keeps_its_prompt_and_a_stalled_one_gives_up() {
+    let t0 = Instant::now();
+    let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 7);
+    outbox.push("v", "video", vec!["u1".into()], false, t0, t0);
+    for second in 1..=30 {
+        outbox.upload_progressed("u1", t0 + Duration::from_secs(second));
+        assert!(outbox.expire(t0 + Duration::from_secs(second) + ms(500)).is_empty());
+    }
+    assert!(outbox.expire(t0 + ms(39_999)).is_empty());
+    assert_eq!(outbox.expire(t0 + ms(40_000)).len(), 1, "no chunk for the hold: a stall");
+}

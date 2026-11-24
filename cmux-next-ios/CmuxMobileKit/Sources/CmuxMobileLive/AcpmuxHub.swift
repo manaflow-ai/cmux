@@ -558,6 +558,9 @@ public final class AcpmuxHub {
     }
 
     private func handle(_ notification: AcpmuxConnection.Notification) {
+        // Anything heard from the Mac is the link making progress: a prompt waiting its turn
+        // keeps going rather than coming back at a fixed 10 s (Leo, 2026-11-24).
+        for source in liveSources { source.linkProgressed() }
         let params = notification.params
         let sessionID = params["sessionId"]?.stringValue
         switch notification.method {
@@ -963,7 +966,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         var at: ContinuousClock.Instant
     }
 
-    /// How long a prompt may wait for the link before it comes back to the composer: the
+    /// How long a prompt may go with no progress on the link (nothing heard from the Mac, no
+    /// write taken) before it comes back to the composer: a stall bound, not a send deadline. The
     /// terminal's key hold (`DaemonTerminalSession.inputHoldLimit`), so a blip is ridden out
     /// the same way in both (Leo, 2026-11-12, on LTE: "thjs chatters too often with connectivity").
     var heldPromptWindow: Duration = .seconds(10) {
@@ -1033,6 +1037,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         do {
             let (connection, id) = try await hub.submit("session/prompt", Self.promptParams(prompt, session: sessionID))
             promptOutbox.wrote(promptId: prompt.promptID)
+            promptOutbox.progressed(nowMs: ChatPromptClock.milliseconds(now()))
             pumpPrompts()
             do {
                 _ = try await connection.reply(to: id)
@@ -1082,8 +1087,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private func promptsGaveUp(_ done: [ChatPromptDone]) {
         guard !done.isEmpty else { return }
         let seconds = max(1, Int(heldPromptWindow.components.seconds))
-        let reason = "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
-        log.notice("\(done.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link was down past the window")
+        let reason = hub?.isReady == true
+            ? "Not sent: the link to \(summary.macName) made no progress for \(seconds) seconds. Send again."
+            : "Not sent: \(summary.macName) was unreachable for more than \(seconds) seconds. Send again when it's back."
+        log.notice("\(done.count, privacy: .public) held prompt(s) of \(self.sessionID, privacy: .public) not sent: the link made no progress for the window")
         for prompt in done {
             guard let held = promptPayloads.removeValue(forKey: prompt.promptId) else { continue }
             emit(.promptNotSent(text: held.text, attachments: held.attachments, promptID: held.promptID, reason: reason))
@@ -1144,6 +1151,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// This phone's Full-access setting, for the chat's mode menus.
     func fullAccessChanged(_ on: Bool) { emit(.fullAccess(on)) }
+
+    /// When the link's last progress was told to the outbox: told at most every quarter second.
+    private var progressToldMs: UInt64 = 0
+
+    /// The link made progress (a message from the Mac, a write taken): the outbox's hold
+    /// bounds a stall, so prompts waiting their turn keep going (Rust decides; this only tells).
+    func linkProgressed() {
+        #if canImport(CmuxMobileLinkFFI)
+        let nowMs = ChatPromptClock.milliseconds(now())
+        guard nowMs >= progressToldMs + 250, !promptPayloads.isEmpty else { return }
+        progressToldMs = nowMs
+        promptOutbox.progressed(nowMs: nowMs)
+        schedulePromptWake(nowMs)
+        #endif
+    }
 
     /// ACP prompt content: the text, then per attachment
     /// - an image: an `image` block (base64 data and its MIME type);

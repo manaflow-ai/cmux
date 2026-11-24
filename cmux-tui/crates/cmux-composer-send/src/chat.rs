@@ -187,6 +187,11 @@ struct Entry {
     /// When it began to wait for the link (its tap, a hold, its uploads ending, the drop that
     /// lost it): its age against the hold.
     waiting_since: Instant,
+    /// The last progress toward its send since it began to wait (bytes heard on the link while
+    /// it waits its turn, an upload chunk taken): its hold runs from the later of this and
+    /// `waiting_since`, so a send that keeps moving is never given up (Leo, 2026-11-24: "if it's
+    /// making good progress, it should be allowed to keep going").
+    progress_at: Option<Instant>,
     state: State,
     /// Every attempt from now is a resend (one was written, or it came in as one).
     resend: bool,
@@ -201,6 +206,11 @@ struct Entry {
 impl Entry {
     fn uploaded(&self) -> bool {
         self.slots.iter().all(|s| matches!(s.state, UploadState::Uploaded { .. }))
+    }
+
+    /// Since when it has made no progress: its hold is measured from here.
+    fn stalled_since(&self) -> Instant {
+        self.progress_at.map_or(self.waiting_since, |at| at.max(self.waiting_since))
     }
 
     fn may_be_on_mac(&self) -> bool {
@@ -325,6 +335,7 @@ impl PromptOutbox {
             slots,
             tapped,
             waiting_since: if waits { now } else { tapped },
+            progress_at: None,
             state: State::Queued,
             resend,
             written_once: false,
@@ -336,6 +347,32 @@ impl PromptOutbox {
             self.entries.iter().position(|e| e.tapped > tapped).unwrap_or(self.entries.len());
         self.entries.insert(index, entry);
         true
+    }
+
+    /// The link made progress at `now` (bytes heard from the Mac, a channel bound, a write
+    /// taken): every unwritten prompt waiting its turn behind it is still moving, so its hold
+    /// starts over from `now`. One whose own write failed since it last took is not helped by
+    /// other traffic: it keeps its wait until a write of its own takes.
+    pub fn progressed(&mut self, now: Instant) {
+        for entry in self.entries.iter_mut().filter(|e| e.state == State::Queued && e.failures == 0)
+        {
+            if entry.progress_at.is_none_or(|at| at < now) {
+                entry.progress_at = Some(now);
+            }
+        }
+    }
+
+    /// The upload `upload` took a chunk at `now`: the prompt holding it is moving, so its hold
+    /// starts over from `now`. An id no unwritten prompt holds is ignored.
+    pub fn upload_progressed(&mut self, upload: &str, now: Instant) {
+        for entry in self.entries.iter_mut().filter(|e| {
+            e.state == State::Queued
+                && e.slots.iter().any(|s| s.id == upload && s.state == UploadState::Pending)
+        }) {
+            if entry.progress_at.is_none_or(|at| at < now) {
+                entry.progress_at = Some(now);
+            }
+        }
     }
 
     /// The upload `upload` ended on the Mac at `mac_path`. When it was a prompt's last, that
@@ -393,7 +430,7 @@ impl PromptOutbox {
         // are on the Mac (Leo, 2026-11-24: a send must never sit blocked behind a load).
         let entry = self.entries.iter_mut().find(|e| e.state == State::Queued && e.uploaded())?;
         if entry.not_before.is_some_and(|at| now < at)
-            || now.saturating_duration_since(entry.waiting_since) >= hold
+            || now.saturating_duration_since(entry.stalled_since()) >= hold
         {
             return None;
         }
@@ -417,6 +454,7 @@ impl PromptOutbox {
     }
 
     /// The prompt's write took: its answer is awaited. From now on every attempt is a resend.
+    /// A write taking is progress for the ones waiting behind it: call [`progressed`](Self::progressed).
     pub fn wrote(&mut self, id: &str) {
         if let Some(entry) = self.entry_mut(id) {
             entry.resend = true;
@@ -542,6 +580,7 @@ impl PromptOutbox {
             slots: Entry::slots_for(&attachments, &old.slots),
             tapped: old.tapped,
             waiting_since: now,
+            progress_at: None,
             state: State::Queued,
             resend: false,
             written_once: false,
@@ -577,7 +616,7 @@ impl PromptOutbox {
             if link_up && !entry.uploaded() {
                 break;
             }
-            if now.saturating_duration_since(entry.waiting_since) >= hold {
+            if now.saturating_duration_since(entry.stalled_since()) >= hold {
                 due = true;
                 break;
             }
@@ -668,7 +707,7 @@ impl PromptOutbox {
                 // As in `expire`: it and every one behind it wait for its upload, not the link.
                 break;
             }
-            earlier(entry.waiting_since + self.hold);
+            earlier(entry.stalled_since() + self.hold);
             if self.link_up
                 && first_queued
                 && let Some(retry) = entry.not_before
