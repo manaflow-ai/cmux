@@ -62,6 +62,7 @@ dependencies = [
  "cmux-server",
  "cmux-server-core",
  "cmux-session-cloud",
+ "cmux-session-pack",
  "cmux-share-approval",
  "cmux-signed-bundle",
  "cmux-source-scan",
@@ -1367,8 +1368,10 @@ dependencies = [
 name = "cmux-apps"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-process",
  "libc",
+ "png",
  "serde",
  "serde_json",
 ]
@@ -2277,6 +2280,7 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-flow-trace",
  "flate2",
  "libc",
  "rustc-demangle",
@@ -2549,6 +2553,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chacha20poly1305",
+ "cmux-session-pack",
  "getrandom 0.3.4",
  "hex",
  "reqwest",
@@ -2730,6 +2735,15 @@ dependencies = [
  "tokio",
  "url",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-terminal-find"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2997,6 +3011,7 @@ dependencies = [
  "cmux-supervise-core",
  "cmux-tasks",
  "cmux-tasks-core",
+ "cmux-terminal-find",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
  "cmux-theme-tokens",

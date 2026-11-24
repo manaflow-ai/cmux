@@ -52,6 +52,9 @@ stressors=$((4 * n))
 cd "$root/webviews" || exit 1
 [ -d node_modules ] || bash ../scripts/ci/bun-install.sh --frozen-lockfile >"$work/install.log" 2>&1 \
   || { tail -20 "$work/install.log" >&2; exit 1; }
+# The pages' generated/strings.json files are gitignored and written only by the install's best-effort postinstall,
+# so a kept node_modules (the timer's every run after the first) builds without them. Write them every run.
+bun scripts/pages/gen-strings.mjs >"$work/strings.log" 2>&1 || { tail -20 "$work/strings.log" >&2; exit 1; }
 
 # The load first, by PID (this script started it; cleanup stops only it), and enough of it to be running before the
 # replay's warm-up ends.
