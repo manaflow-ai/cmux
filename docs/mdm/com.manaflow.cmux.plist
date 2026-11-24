@@ -948,7 +948,7 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
-			<string>Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.</string>
+			<string>Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.</string>
 			<key>pfm_name</key>
 			<string>updates.installWhenIdle</string>
 			<key>pfm_title</key>
