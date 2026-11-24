@@ -251,13 +251,16 @@ public nonisolated struct SidebarListItem: Hashable, Sendable {
     public var title: String
     /// The page icon address of a link (stored on the item, else the site's own).
     public var iconAddress: String?
+    /// The stored Space for a link, tab or app, or Default for a legacy record. Shared item kinds leave it nil.
+    public var room: String?
     /// Archived in the sidebar document: the row draws dimmed. Set by `arrange`.
     public var isArchived = false
 
-    public init(id: String, ref: LayoutItemRef, title: String, iconAddress: String? = nil) {
+    public init(id: String, ref: LayoutItemRef, title: String, iconAddress: String? = nil, room: String? = nil) {
         self.id = id
         self.ref = ref
         self.title = title
         self.iconAddress = iconAddress
+        self.room = room
     }
 }
