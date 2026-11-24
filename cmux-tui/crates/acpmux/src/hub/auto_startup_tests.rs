@@ -73,12 +73,14 @@ async fn saved_auto_chats_do_no_local_work_until_the_store_confirms() {
         assert!(hub.auto_held(chat), "{} was free before the store spoke", chat.id);
     }
 
-    // The loop starts with the store unreachable: nothing is confirmed, nothing runs.
-    cloud.set_offline(true);
+    // The loop starts with the store unreachable: nothing is confirmed, nothing runs. Offline
+    // is per handle (and its clones), so it is set on the one the loop calls through.
+    let owner = cloud.as_owner();
+    owner.set_offline(true);
     let options = HolderOptions { clock: clock.clone(), network: None, new_chats: None };
     spawn_holder_with(
         hub.clone(),
-        Arc::new(cloud.as_owner()),
+        Arc::new(owner.clone()),
         Holder::device("laptop-1"),
         Arc::new(NoImport),
         options,
@@ -89,7 +91,7 @@ async fn saved_auto_chats_do_no_local_work_until_the_store_confirms() {
     assert!(hub.auto_held(&mine), "a chat ran here with the store unreachable");
 
     // The store answers: the chat another device holds stays frozen, the laptop's own is freed.
-    cloud.set_offline(false);
+    owner.set_offline(false);
     clock.advance(cmux_auto_session::consts::RENEW_MS);
     for _ in 0..100 {
         if !hub.auto_held(&mine) {
