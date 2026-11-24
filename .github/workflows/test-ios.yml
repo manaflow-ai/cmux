@@ -36,6 +36,8 @@ on:
       - "scripts/ci/pr_owned_findings.py"
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
+      - "scripts/ci/ios_simulator_inputs.py"
+      - "scripts/cmux-next/notices/**"
       - ".github/workflows/test-ios.yml"
   merge_group:
   # Every push to feat-cmux-next (the cmux-next "main") builds the iOS app and
@@ -464,9 +466,14 @@ jobs:
           # behind its new path; without it both paths are listed, so the
           # greps below stay conservative.
           git diff --name-only --no-renames HEAD^1 HEAD > "${RUNNER_TEMP}/changed-files.txt"
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/ci/ios_runner_pool\.py$|scripts/ci/select_ios_simulator\.py$|scripts/ci/ios_simulator_inputs\.py$|scripts/cmux-next/notices/|\.github/workflows/test-ios\.yml$)' "${RUNNER_TEMP}/changed-files.txt"; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
-            ios_build="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt" | sed -n 's/^run=//p')"
+            if grep -Fq 'full-ci' <<< '${{ join(github.event.pull_request.labels.*.name, ' ') }}'; then
+              ios_build=true
+              echo "Full-ci label present; retaining the simulator build."
+            else
+              ios_build="$(python3 scripts/ci/ios_simulator_inputs.py --changed-files "${RUNNER_TEMP}/changed-files.txt" | sed -n 's/^run=//p')"
+            fi
             if [ -z "$ios_build" ]; then
               echo "::warning::iOS simulator input classifier returned no verdict; running the build"
               ios_build=true
