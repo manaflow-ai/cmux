@@ -1,12 +1,12 @@
 import { errorMessage, isHostRefusal, startCancelled, switchFailedText, startErrorMessage } from "./transportErrors";
-import { isConnectionLoss, logStartFailure, startFailureCause, startFailureCode } from "./startFailure";
+import { logStartFailure, startFailureCause, startFailureCode, isConnectionLoss } from "./startFailure";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
 import { lastModel } from "./lastPick";
 import { harnessFamilyMenu } from "./harnessModes";
 import { heldOptionPick, isEffortOption } from "./heldOptions";
-import { isTrustRefusal } from "./direct";
+import { isTrustRefusal } from "./trustRefusal";
 // Outside render: the store reads the pane language when it builds a string.
 import { translate as t } from "./i18n";
 import { askStartMode, exactStartMode, onStartModeAskAgain, onStartModeKept } from "./startMode";

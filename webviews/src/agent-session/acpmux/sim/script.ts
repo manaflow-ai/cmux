@@ -7,7 +7,7 @@
 //
 // Leo, 2026-11-21: "we can do this without any real agent sessions, just simulated ones. ... we can
 // just have simulations of things that go monstrously long".
-import type { EventRecord } from "../direct";
+import type { EventRecord } from "../eventRecord";
 
 /** What the reader does between two records: the simulator's only steps that are not acpmux's. */
 export type ReaderAction = { scroll: "top" | "bottom" } | { scrollBy: number } | { open: string };
@@ -302,8 +302,16 @@ export class SimBuilder {
     return this;
   }
 
-  /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later. */
-  steer(value: string, { readMs = 600, after = 300, extra = {} as Record<string, unknown> } = {}): this {
+  /** The person's steer mid-turn (`steer: true` on the running turn), and acpmux saying the agent read it `readMs` later
+   *  (`false`: the agent has not read it yet). */
+  steer(
+    value: string,
+    {
+      readMs = 600,
+      after = 300,
+      extra = {},
+    }: { readMs?: number | false; after?: number; extra?: Record<string, unknown> } = {},
+  ): this {
     const promptId = `steer-${this.seq + 1}`;
     this.record(
       "mux",
@@ -320,6 +328,7 @@ export class SimBuilder {
       after,
       `steer: ${value.slice(0, 40)}`,
     );
+    if (readMs === false) return this;
     return this.record("mux", "steer_read", { promptId, turnId: this.turnId }, readMs, "steer_read");
   }
 
