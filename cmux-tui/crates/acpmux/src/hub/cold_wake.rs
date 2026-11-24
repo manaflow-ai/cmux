@@ -162,9 +162,9 @@ impl Hub {
     /// A turn started in `session`: its batch went in with it, unless it is the batch's own
     /// compaction, which the batch waits behind.
     pub(super) fn cold_batch_turn_started(&self, session: &Session) {
-        if !compaction_runs(session) {
-            *session.cold_batch.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        }
+        let taken = !compaction_runs(session)
+            && session.cold_batch.lock().unwrap_or_else(|e| e.into_inner()).take().is_some();
+        session.cold_batch_turn.store(taken, Ordering::SeqCst);
     }
 
     /// `/compact` ahead of a cold batch, if the chat's agent is Claude Code and it may be

@@ -2280,6 +2280,7 @@ impl Hub {
             unwritten_prompt: StdMutex::new(None),
             gathering: StdMutex::new(None),
             cold_batch: StdMutex::new(None),
+            cold_batch_turn: AtomicBool::new(false),
             person_hold: StdMutex::new(None),
             cancel_forced_result_turn: StdMutex::new(None),
             stopping: StdMutex::new(None),
