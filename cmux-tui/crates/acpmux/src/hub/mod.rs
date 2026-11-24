@@ -162,6 +162,7 @@ pub(super) mod idle;
 mod idle_census;
 mod paused_fs;
 mod person_prompt_at;
+mod turn_rules;
 pub(crate) mod unattended_presets;
 pub(crate) use idle::SessionAtWork;
 mod tool_start;
