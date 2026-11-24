@@ -242,8 +242,23 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
 
+      # Three shards of one file: alone it outlasted every other guard and set CI fast guards' wall time.
+      - name: Validate main-fix merge evidence (installed helper)
+        if: ${{ matrix.group == 'ci' }}
+        env:
+          GH_MERGE_GREEN_SHARD: installed-helper
+        run: python3 tests/test_gh_merge_green.py
+
+      - name: Validate main-fix merge evidence (merged-head checks)
+        if: ${{ matrix.group == 'ci' }}
+        env:
+          GH_MERGE_GREEN_SHARD: merged-head
+        run: python3 tests/test_gh_merge_green.py
+
       - name: Validate main-fix merge evidence
         if: ${{ matrix.group == 'ci' }}
+        env:
+          GH_MERGE_GREEN_SHARD: rest
         run: python3 tests/test_gh_merge_green.py
 
       - name: Validate the gh-merge-green fast gate
