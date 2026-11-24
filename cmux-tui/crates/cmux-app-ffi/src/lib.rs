@@ -29,6 +29,8 @@
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
 //! `launch_image` is each window's last committed frame for the launch's first
 //! frame (cmux-launch-image, include/cmux_launch_image.h).
+//! `pane_pictures` is when a pane's live thumbnail is captured again (cmux-pane-pictures,
+//! include/cmux_pane_pictures.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
 //! (cmux-sdk-ffi, include/cmux_sdk_ffi.h): the app reaches the daemon through it.
 //! `terminal_prediction` is predictive local echo for a terminal whose shell runs
@@ -79,6 +81,7 @@ pub use cmux_launch_shell::ffi as launch_shell;
 pub use cmux_layout_cache::ffi as layout_cache;
 pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
+pub use cmux_pane_pictures::ffi as pane_pictures;
 pub use cmux_rd_ffi as rd;
 pub use cmux_sdk_ffi as sdk;
 pub use cmux_terminal_prediction::ffi as terminal_prediction;
