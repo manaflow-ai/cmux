@@ -1300,6 +1300,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_triage_rules.py
 
+      - name: Validate feat-cmux-next merges close their fixed issues
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_next_closes_issues.py
+
       - name: Validate cmux-tui focused filter routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_tui_focused_filter_guard.py

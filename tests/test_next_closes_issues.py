@@ -189,7 +189,8 @@ class WorkflowTests(unittest.TestCase):
     def test_never_runs_pull_request_target(self):
         # pull_request_target fires only from the default branch's copy and would hand a write token
         # to a run started by any fork: this workflow stays on pull_request and skips forks.
-        self.assertNotIn("pull_request_target", self.text)
+        code = "\n".join(line.split("#", 1)[0] for line in self.text.splitlines())
+        self.assertNotIn("pull_request_target", code)
 
     def test_write_scope_is_issues_only(self):
         self.assertIn("permissions: {}", self.text)
