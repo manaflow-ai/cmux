@@ -193,6 +193,8 @@ struct Seen {
     churn_at: HashMap<(u64, u64), u64>,
     /// (idx, round) -> (agent receipt us, controller arrival us, arrivals)
     fanout: HashMap<(u64, u64), (u64, u64, u32)>,
+    /// (idx, round) -> the host daemon's `_meta.acpmux.at` stamp on the agent receipt, in ms.
+    fanout_at: HashMap<(u64, u64), u64>,
     methods: HashMap<String, u64>,
     lagged: u64,
 }
@@ -237,6 +239,12 @@ fn handler(seen: Arc<Mutex<Seen>>) -> rpc::Handler {
             if let (Some(i), Some(r), Some(t)) = (f.get("s"), f.get("r"), f.get("t")) {
                 let e = s.fanout.entry((*i, *r)).or_insert((*t, at, 0));
                 e.2 += 1;
+                if e.2 == 1
+                    && let Some(mux_at) =
+                        v.pointer("/params/_meta/acpmux/at").and_then(Value::as_u64)
+                {
+                    s.fanout_at.insert((*i, *r), mux_at);
+                }
             }
         }
     })
@@ -856,7 +864,11 @@ fn ramp_in<'s>(
             None => fanout_lost += 1,
         }
         ev.line(&json!({"c": idx, "seq": round, "src": "turn", "emit_us": sent, "daemon_n": 1,
-                        "reader_us": got.map(|g| g.0), "reader_n": got.map_or(0, |g| g.2)}));
+                        "reader_us": got.map(|g| g.0), "reader_n": got.map_or(0, |g| g.2),
+                        "controller_send_us": sent,
+                        "host_stamp_ms": seen.fanout_at.get(&(*idx, *round)),
+                        "agent_accept_us": got.map(|g| g.0),
+                        "controller_receive_us": got.map(|g| g.1)}));
     }
     let _ = ev.0.flush();
     let done = fanout_done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
