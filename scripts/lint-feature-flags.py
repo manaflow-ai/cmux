@@ -132,14 +132,32 @@ def collect_flags() -> tuple[list[dict], list[str]]:
     return flags, [WEB_REGISTRY_REL, *swift_registries]
 
 
+def grep_keys_files(keys: set[str]) -> dict[str, set[str]]:
+    """Map each key to the files mentioning it, from one whole-repo git grep."""
+    hits: dict[str, set[str]] = {key: set() for key in keys}
+    if not keys:
+        return hits
+    # One search for every key: -e per key, -l reports each matching file once.
+    # The matched key is recovered per line by re-checking the file content.
+    args = ["git", "grep", "-l", "--untracked", "--fixed-strings"]
+    for key in keys:
+        args += ["-e", key]
+    args += ["--", "web", "Sources", "Packages", "ios", "CLI", ":!*node_modules*"]
+    out = subprocess.run(args, cwd=REPO, capture_output=True, text=True)
+    files = {line.strip() for line in out.stdout.splitlines() if line.strip()}
+    for rel in files:
+        text = (REPO / rel).read_text(encoding="utf-8", errors="replace")
+        for key in keys:
+            if key in text:
+                hits[key].add(rel)
+    return hits
+
+
+_KEY_FILES: dict[str, set[str]] = {}
+
+
 def grep_key_files(key: str) -> set[str]:
-    out = subprocess.run(
-        ["git", "grep", "-l", "--untracked", "--fixed-strings", key, "--",
-         "web", "Sources", "Packages", "ios", "CLI",
-         ":!*node_modules*"],
-        cwd=REPO, capture_output=True, text=True,
-    )
-    return {line.strip() for line in out.stdout.splitlines() if line.strip()}
+    return _KEY_FILES.get(key, set())
 
 
 def git_ok(*args: str) -> str | None:
@@ -250,6 +268,10 @@ def main(argv: list[str] | None = None) -> int:
             for line in RETIRED.read_text().splitlines()
             if line.strip() and not line.startswith("#")
         }
+
+    _KEY_FILES.clear()
+    _KEY_FILES.update(grep_keys_files(
+        {flag["key"] for flag in flags if flag.get("key")} | retired))
 
     for flag in flags:
         key = flag.get("key")
