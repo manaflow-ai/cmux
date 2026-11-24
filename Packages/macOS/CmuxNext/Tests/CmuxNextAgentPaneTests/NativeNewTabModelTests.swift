@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextAgentPane
 import Observation
 import Testing
@@ -59,7 +60,7 @@ struct NativeNewTabModelTests {
         var empty = Self.page()
         empty.omnibar.actions = []
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
-        let model = NativeNewTabModel(page: empty, actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _, _ in }),
+        let model = NativeNewTabModel(page: empty, actions: NativeNewTabActions(submit: { _, _, _, _ in }, jump: { _, _ in }, action: { _, _ in }),
                                       paletteActions: { _, deliver in asks.append(deliver) })
         #expect(asks.isEmpty, "the page shows before the palette's actions are listed")
         model.text = "toggle side"
@@ -77,7 +78,7 @@ struct NativeNewTabModelTests {
         var empty = Self.page()
         empty.omnibar.actions = []
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
-        let actions = NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _, _ in })
+        let actions = NativeNewTabActions(submit: { _, _, _, _ in }, jump: { _, _ in }, action: { _, _ in })
         let model = NativeNewTabModel(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
         model.loadPaletteActions()
         model.adopt(page: empty, actions: actions, paletteActions: { _, deliver in asks.append(deliver) })
@@ -93,7 +94,7 @@ struct NativeNewTabModelTests {
     @Test func aListReadAgainKeepsTheHighlightedRowByItsID() throws {
         var asks: [@MainActor ([AgentPaneOmnibar.Action]) -> Void] = []
         let listed = Self.page(actions: 3).omnibar.actions
-        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }, action: { _, _ in }),
+        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _, _ in }, jump: { _, _ in }, action: { _, _ in }),
                                       paletteRefresh: { _, deliver in asks.append(deliver) })
         model.text = "action number"
         model.text = "action number "
@@ -127,7 +128,7 @@ struct NativeNewTabModelTests {
     /// row is a first use of the page: it asks for the actions again.
     @Test func onlyARunOfAnActionRowAsksForTheActionsAgain() throws {
         var asks = 0
-        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _ in }, jump: { _, _ in }),
+        let model = NativeNewTabModel(page: Self.page(actions: 3), actions: NativeNewTabActions(submit: { _, _, _, _ in }, jump: { _, _ in }),
                                       paletteRefresh: { _, _ in asks += 1 })
         model.activate(.run("ls"))
         #expect(asks == 0, "a run of a terminal row asked for the palette's actions \(asks) times")
@@ -148,7 +149,7 @@ struct NativeNewTabModelTests {
     @Test func returnAndPicksRunThroughTheActions() {
         var log: [String] = []
         let actions = NativeNewTabActions(
-            submit: { text, kind, search in log.append("submit \(kind.rawValue) \(text) \(search)") },
+            submit: { text, kind, search, _ in log.append("submit \(kind.rawValue) \(text) \(search)") },
             jump: { target, id in log.append("jump \(target.rawValue) \(id)") },
             action: { id, shown in log.append("action \(id) shown as \(shown)") }
         )
@@ -167,6 +168,19 @@ struct NativeNewTabModelTests {
             "action toggleSidebar shown as Toggle Sidebar",
             "jump tab t1",
         ])
+    }
+
+    /// Final review of #48024 (P1): the Ask row's submit carries the key or click that ran it, as the native handler gave
+    /// it, and none without one (an accessibility press), so the host never reads `NSApp.currentEvent` for it.
+    @Test func aSubmitCarriesOnlyTheEventThatRanIt() throws {
+        var events: [NSEvent?] = []
+        let model = NativeNewTabModel(page: Self.page(), actions: NativeNewTabActions(submit: { _, _, _, event in events.append(event) }))
+        let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                                characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+        model.text = "open Notes with @computer-use"
+        model.commit(event: key)
+        model.activate(.ask(model.text))
+        #expect(events.count == 2 && events[0] === key && events[1] == nil)
     }
 
     @Test func aKeystrokeRanksThePalettesActionsFast() {

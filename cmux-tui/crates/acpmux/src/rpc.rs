@@ -420,6 +420,10 @@ pub mod method {
     /// Make a new project folder with an empty git repository for a chat to start in
     /// (`server/project_new.rs`): `{name}` -> `{cwd, name, git}`.
     pub const MUX_PROJECT_NEW: &str = "_acpmux/project_new";
+    /// Where a new chat whose Where menu says Auto runs (`server/place.rs`,
+    /// `cmux_host_budget::place::decide`): `{where?, targets: [{place, headroom}]}` ->
+    /// `{placement, reason, why, targets}`.
+    pub const MUX_PLACE_CHAT: &str = "_acpmux/place_chat";
     /// Reconnect one of a Claude Code chat's MCP servers (`hub/tools.rs`):
     /// `{sessionId, server}`.
     pub const MUX_MCP_RECONNECT: &str = "_acpmux/mcp/reconnect";
@@ -436,6 +440,10 @@ pub mod method {
     /// Each caller's requests and bytes over a recent window (`caller_stats.rs`):
     /// `{sinceSecs?, top?}`; local app and unix socket only.
     pub const MUX_CALLERS: &str = "_acpmux/callers";
+    /// The felt-latency histograms (`cmux-felt`, the net graph): p50/p90/p99, count and max of what
+    /// a person feels, over the last minute and since start. No params; numbers and names only;
+    /// local app and unix socket only.
+    pub const MUX_FELT_SNAPSHOT: &str = "_acpmux/felt_snapshot";
     /// One-request v2 upgrade. The JSON-RPC reply is the last v1 message; the
     /// transport hands the same stream to the framed v2 connection afterward.
     pub const MUX_V2: &str = "_acpmux/v2";
@@ -492,6 +500,10 @@ pub mod method {
     /// Start a hibernated session's agent now, on its conversation (`hub/pause.rs`):
     /// `{sessionId}`.
     pub const MUX_WAKE: &str = "_acpmux/wake";
+    /// Hold or release a chat (`hub/session_hold.rs`).
+    pub const MUX_SESSION_HOLD: &str = "_acpmux/session_hold";
+    /// Set or read the fleet hold (`hub/session_hold.rs`).
+    pub const MUX_FLEET_HOLD: &str = "_acpmux/fleet_hold";
     pub const MUX_KEEP: &str = "_acpmux/keep";
     pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// A chat hands its Claude Code or Codex conversation to a terminal: once idle, its harness
@@ -505,6 +517,10 @@ pub mod method {
     /// `{sessionId, runId?, agentId, before?, after?, limit?}`
     /// (`claude_stdio/agent_transcript.rs`).
     pub const MUX_SUBAGENT_TRANSCRIPT: &str = "_acpmux/subagent_transcript";
+    /// Every running subagent of a session and its latest ended ones, from the hub's subagent
+    /// tree, whatever a client's page of the chat holds: `{sessionId, ended?}` →
+    /// `{running, ended, endedOmitted, seen}` (`hub/subagent_list.rs`).
+    pub const MUX_SUBAGENT_LIST: &str = "_acpmux/subagents";
     /// A chat's older turns, read from its Claude Code transcript a page at a time:
     /// `{sessionId, before}` → `{events, before, turns, read}`, `before` a `native_history`
     /// cursor (`hub/native_history.rs`).
@@ -685,6 +701,10 @@ pub mod method {
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
+    /// The harness-magic scorecard over every session log (`scorecard.rs`): tokens and leo-units
+    /// per settled pull request, steering rate, time to the first useful result, by feature;
+    /// the local unix socket only, like `MUX_STATS`.
+    pub const MUX_SCORECARD: &str = "_acpmux/scorecard";
     /// What turns cost, per session, workspace, repository, pull request, day, person, vendor,
     /// model and account (`hub/ledger`); the local unix socket and the local app only.
     pub const MUX_LEDGER: &str = "_acpmux/ledger";
@@ -726,6 +746,10 @@ pub mod method {
     pub const MUX_STASH_MOVE: &str = "_acpmux/stash_move";
     /// The person's Accept or Dismiss on a chat's memory offer (`server/memory_inbox.rs`).
     pub const MUX_MEMORY_RESOLVE: &str = "_acpmux/memory_resolve";
+    /// Session Info's carried agent memory: the head's files and the proposals waiting (`agent_home.rs`).
+    pub const MUX_AGENT_HOME: &str = "_acpmux/agent_home";
+    /// The person's Accept or Drop of carried-memory proposals, one or a batch.
+    pub const MUX_AGENT_HOME_RESOLVE: &str = "_acpmux/agent_home_resolve";
     /// The rewrite of a chat's prompt coach offer, made once (`server/prompt_coach.rs`).
     pub const MUX_PROMPT_COACH: &str = "_acpmux/prompt_coach";
     pub const MUX_ASK: &str = "_acpmux/ask";
