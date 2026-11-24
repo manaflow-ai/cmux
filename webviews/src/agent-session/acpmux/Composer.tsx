@@ -172,6 +172,7 @@ import { loadRecentCommandNames, recentCommands, rememberRecentCommand } from ".
 import { openPicker } from "./pickerOpeners";
 import type { RepickMachine } from "./cloudRepick";
 import { compactingUsage } from "./usageStats";
+import { useExperimentSwitch } from "../../experiments/switches";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
@@ -342,6 +343,11 @@ type Props = {
   /// `late`: the send resumed after a wait (files read or uploaded, dictation ended), whose key press
   /// is long gone: hold and say why, never open setup (it would spend a key pressed since).
   holdsSend?(text: string, late?: boolean): boolean;
+  /// Binds the person's key press or click to a prompt that goes now, ahead of files still
+  /// attaching (composer/sendBehind.ts): only where the send goes straight to the chat open now,
+  /// whose client draws it as sent and sends it once the files are chips. Undefined: the send
+  /// waits for its files, as before.
+  onBindSendAhead?(): SendGesture | undefined;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -721,6 +727,7 @@ function ComposerFrame({
   onSend,
   onBindSendGesture,
   holdsSend,
+  onBindSendAhead,
   onBindSideGesture,
   transcriptFollowing,
   onStop,
@@ -1039,6 +1046,7 @@ function ComposerFrame({
   // Codex's ↑ after the mic, always there, so the mic never steps (composerLook.ts; Leo
   // 2026-11-04: "our codex style composer should look like codex's/chatgpt's").
   const look = useComposerLookWithV2();
+  const buttonsVisible = useExperimentSwitch("composerButtonsVisible");
   const quietActions = plainFooter && !lookRowInBox(look);
   const usage = compactingUsage(
     snapshot.summary?.usage,
@@ -1081,6 +1089,7 @@ function ComposerFrame({
     loading,
     unsettled,
     cancel,
+    goAhead,
     retry,
     revive,
     originalFailures,
@@ -2063,10 +2072,10 @@ function ComposerFrame({
       slash !== undefined &&
       (composerCommand(words, snapshot.summary?.harness) !== undefined ||
         (commands ?? []).some((command) => command.name === slash));
-    const placed = isCommand
+    let placed = isCommand
       ? { text: words, attachments: attachments.map(({ inline: _, ...attachment }) => attachment) }
       : inText;
-    const prompt = placed.text;
+    let prompt = placed.text;
     const command = composerCommand(prompt, snapshot.summary?.harness, attachments.length);
     // Send in side chat: the draft as written is `/side`'s prompt, through the command's own path.
     const side = route === "side" ? SIDE_COMMAND : undefined;
@@ -2210,8 +2219,29 @@ function ComposerFrame({
       sentAt.current = Date.now();
       return true;
     }
-    // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
-    if (holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept)) return false;
+    // A file dropped, pasted or picked that is still attaching (its path asked of the host, its bytes
+    // streaming to the chat's machine) never holds the send: the prompt goes now with it as a
+    // stand-in, shows as sent, and reaches the agent once the file is its chip (composer/sendBehind.ts;
+    // Leo, 2026-11-17: "I CAN'T EVEN FUCKING SEND A MESSAGE WHILE THE FUCKING THING LOADS").
+    let wentAhead = false;
+    if (pending.length > 0 && !isCommand && onBindSendAhead) {
+      const gesture = kept ?? onBindSendAhead();
+      const ahead = gesture ? goAhead() : undefined;
+      // The gesture bound for this send stays its own, held or not.
+      if (gesture) kept = gesture;
+      if (ahead) {
+        const went = new Set(ahead.map((chip) => chip.id));
+        placed = placeInline(typedText.trim(), [...attachments, ...ahead], {
+          dropped: (id) => !went.has(id) && pending.some((chip) => chip.id === id),
+        });
+        prompt = placed.text;
+        holdForAttachments.cancel();
+        wentAhead = true;
+      }
+    }
+    // A file still being read for what goes in the prompt (an image's preview): the prompt waits for its chip.
+    if (!wentAhead && holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept))
+      return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
@@ -2272,6 +2302,17 @@ function ComposerFrame({
     };
     if (!(taken instanceof Promise)) {
       clear();
+      return true;
+    }
+    // Sent ahead of its files: it already shows as sent in the chat, so the composer is free now
+    // for the next message while the file still goes; a refusal fails its row there, kept
+    // (direct.ts `sendAheadOfFiles`). Only one refused before the chat's client drew it comes back.
+    if (wentAhead) {
+      clear();
+      taken.catch(() => {
+        if (!(field.current?.value() ?? "")) edit(written, written.length);
+        setAttachError(t("composer.stillSending"));
+      });
       return true;
     }
     // The prompt stays in the composer until the host takes it; a refusal keeps it there.
@@ -3204,6 +3245,7 @@ function ComposerFrame({
       composing.current = value;
     };
   });
+  const emptyQuietSlot = quietActions && !shell && !hasDraft && !listening;
   const sendOrStop =
     stop && !hasDraft && !listening ? (
       stopButton
@@ -3221,11 +3263,11 @@ function ComposerFrame({
       >
         <SendSlotGlyph glyph="play" state="queued" memory={morphMemory} scope={sessionId} />
       </button>
-    ) : remote.canSend && (!quietActions || shell || hasDraft || listening) ? (
+    ) : remote.canSend && (!emptyQuietSlot || buttonsVisible) ? (
       // One send control in both looks (Leo 2026-10-31: "THE F***ING TWO SEND
       // BUTTONS"): mid-turn the empty prompt's slot is Stop, and the first letter turns it
       // into Send, which does what Return does: it steers an agent that steers, else queues.
-      // Claude's look draws no Send at rest until there is a draft, the mic alone on the right;
+      // The quiet footer hides Send at rest unless Always Show Composer Buttons is on;
       // its one slot sits before the mic with Claude desktop's ↵, so the mic keeps the right edge
       // through a turn. Codex's look always draws its ↑ disc after the mic (quietActions off).
       // A right-click or long press on it opens its menu (composer/SendMenu.tsx).
@@ -3233,7 +3275,10 @@ function ComposerFrame({
         <button
           ref={sendButton}
           type="submit"
-          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell}
+          disabled={
+            emptyQuietSlot ||
+            (Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell)
+          }
           className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && !startHoldsSend && hasDraft) ? " acpmux-send-ready" : ""}`}
           aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
           title={
@@ -3358,6 +3403,7 @@ function ComposerFrame({
       data-composer-variant={look === "studio" ? "studio" : undefined}
       // The box inside draws the compact grid in both looks (ComposerBox.tsx, composerLocation.css).
       data-composer-grid=""
+      data-composer-buttons-visible={buttonsVisible || undefined}
       data-shell-look={shellLook}
       data-footer-controls={controlsLook}
       data-empty-height={emptyHeight}
