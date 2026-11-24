@@ -760,8 +760,6 @@ about = "coderouter is rustfmt- and clippy-clean and passes its tests on Rust 1.
 needs = ["rust", "node"]
 inputs = [
   "coderouter/**",
-  ".github/workflows/coderouter-publish-npm.yml",
-  ".github/workflows/coderouter-publish-pypi.yml",
   ".github/workflows/coderouter-release.yml",
   ".github/workflows/coderouter-verify-release.yml",
 ]

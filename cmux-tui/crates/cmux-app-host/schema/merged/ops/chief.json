@@ -77,7 +77,7 @@
     "chief.profile.delete": {
       "source": "local",
       "class": "mutation",
-      "digest": "46c5dd6d871a758b"
+      "digest": "710dc5ba9be609cc"
     },
     "chief.profile.get": {
       "source": "local",
@@ -102,7 +102,7 @@
     "chief.profile.update": {
       "source": "local",
       "class": "mutation",
-      "digest": "bac8b31d7a93e701"
+      "digest": "522e4a4efe3b5f3a"
     },
     "chief.retry": {
       "source": "local",
