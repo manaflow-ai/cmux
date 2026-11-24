@@ -3577,6 +3577,60 @@ mod tests {
         )
     }
 
+    /// With class datagrams agreed, an input-lane channel's messages cross
+    /// while the streams are dark, in order and once each, and a
+    /// latest-wins channel shows the newest; the stream copies that follow
+    /// when the network is back are dropped as duplicates.
+    #[tokio::test(start_paused = true)]
+    async fn class_datagrams_cross_a_dark_stream_once_each() {
+        let (phone, mac, dark) = gated_pair(LinkConfig::default(), LinkConfig::default());
+        let (phone_lane, mac_lane) = datagram_pair(true, true, 0);
+        phone.attach_liveness_datagrams(LivenessDatagrams { classes: true, ..phone_lane });
+        mac.attach_liveness_datagrams(LivenessDatagrams { classes: true, ..mac_lane });
+        assert!(phone.class_datagrams() && mac.class_datagrams());
+        let server = tokio::spawn({
+            let mac = mac.clone();
+            async move {
+                let keys = mac.accept().await.expect("keys");
+                let screen = mac.accept().await.expect("screen");
+                (keys.channel, screen.channel)
+            }
+        });
+        let keys = phone.open_on("keys", serde_json::json!({}), Lane::Input).await.unwrap();
+        let mut screen = phone.open_latest("screen", serde_json::json!({})).await.unwrap();
+        let (mut mac_keys, mac_screen) = server.await.unwrap();
+        dark.send_replace(true);
+        for key in 0u8..5 {
+            keys.send(Bytes::from(vec![key; 3])).await.unwrap();
+        }
+        for key in 0u8..5 {
+            match tokio::time::timeout(Duration::from_millis(100), mac_keys.recv()).await {
+                Ok(Some(ChannelEvent::Data(bytes))) => assert_eq!(&bytes[..], &[key; 3]),
+                other => panic!("key {key}: {other:?}"),
+            }
+        }
+        let (screen_tx, _screen_rx) = mac_screen.split();
+        for state in 0u8..3 {
+            screen_tx.send(Bytes::from(vec![state; 2000])).await.unwrap();
+        }
+        let mut newest = None;
+        while let Ok(Some(ChannelEvent::Data(bytes))) =
+            tokio::time::timeout(Duration::from_millis(100), screen.recv()).await
+        {
+            assert!(newest.is_none_or(|seen| bytes[0] > seen), "older state after a newer one");
+            newest = Some(bytes[0]);
+        }
+        assert_eq!(newest, Some(2), "the newest state arrived while dark");
+        dark.send_replace(false);
+        assert!(phone.ping().await.is_ok());
+        assert!(
+            tokio::time::timeout(Duration::from_millis(200), mac_keys.recv()).await.is_err(),
+            "a stream copy was delivered twice"
+        );
+        assert!(tokio::time::timeout(Duration::from_millis(200), screen.recv()).await.is_err());
+        assert!(mac.datagram_wins() >= 5 && phone.datagram_wins() >= 1);
+    }
+
     /// The Mac's stream stalls after one byte (its writes never finish):
     /// an in-stream pong would never come back.
     fn stalled_pair() -> (Link, Link) {
