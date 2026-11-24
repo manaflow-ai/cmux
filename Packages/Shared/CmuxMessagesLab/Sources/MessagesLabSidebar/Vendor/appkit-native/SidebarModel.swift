@@ -254,21 +254,25 @@ struct SidebarMetrics: Equatable {
     static let searchBottomGap: CGFloat = 10
 
     // Rows.
-    static let rowHeight: CGFloat = 72
+    // cmux: macOS 26 Messages' row, measured at 2x (the user, 2026-11-23: "EXACTLY like imessage"): 161 px.
+    static let rowHeight: CGFloat = 80.5
     static let selectionInsetX: CGFloat = 10
-    static let selectionRadius: CGFloat = 10
-    static let dotDiameter: CGFloat = 10
+    static let selectionRadius: CGFloat = 8 // cmux: Messages (macOS 26) measures 8 pt, circular
+    static let dotDiameter: CGFloat = 9 // cmux: Messages' dot is 18 px at 2x
     static let dotCenterX: CGFloat = 19
     static let avatar: CGFloat = 40
     static let avatarX: CGFloat = 28
-    static let textX: CGFloat = 80
+    static let textX: CGFloat = 74.5 // cmux: measured, 6.5 pt right of the avatar
     static let textRightInset: CGFloat = 20
-    static let nameBaseline: CGFloat = 23
-    static let previewBaseline: CGFloat = 40
-    static let previewLineHeight: CGFloat = 16
-    static let separatorInsetRight: CGFloat = 10
+    // cmux: measured in the 80.5 pt row: the name and time on 29, the preview lines on 45 and 60.
+    static let nameBaseline: CGFloat = 29
+    static let previewBaseline: CGFloat = 45
+    static let previewLineHeight: CGFloat = 15
+    /// cmux: the separator runs from half a point left of the text to 21.5 pt short of the right edge.
+    static let separatorX: CGFloat = 74
+    static let separatorInsetRight: CGFloat = 21.5
     static let nameSize: CGFloat = 13
-    static let previewSize: CGFloat = 13
+    static let previewSize: CGFloat = 12 // cmux: Messages' preview is 12 pt (measured widths)
     static let timeSize: CGFloat = 12
     static let timeGap: CGFloat = 6
 
@@ -383,9 +387,11 @@ struct SidebarPalette: Equatable {
             }
             return SidebarPalette(
                 dark: dark,
-                name: NSColor.labelColor.cgColor,
-                secondary: NSColor.secondaryLabelColor.cgColor,
-                separator: NSColor.separatorColor.cgColor,
+                // cmux: dark, Messages' vibrant sidebar text and separator as measured on its 27/255 panel
+                // (name 244, preview and time 164, separator 58): white at 95 %, 60 % and 13.6 %.
+                name: dark ? CGColor(gray: 1, alpha: 0.952) : NSColor.labelColor.cgColor,
+                secondary: dark ? CGColor(gray: 1, alpha: 0.601) : NSColor.secondaryLabelColor.cgColor,
+                separator: dark ? CGColor(gray: 1, alpha: 0.136) : NSColor.separatorColor.cgColor,
                 unread: (unreadColor ?? NSColor.systemBlue).cgColor,
                 accent: (selectionColor ?? NSColor.controlAccentColor).cgColor,
                 selectionActive: (selectionColor ?? NSColor.selectedContentBackgroundColor).cgColor,
@@ -393,8 +399,9 @@ struct SidebarPalette: Equatable {
                 selectedText: NSColor.alternateSelectedControlTextColor.cgColor,
                 pinName: NSColor.labelColor.cgColor, // cmux
                 // Contacts' monogram disc (grey gradient, white initials): to verify.
-                monogramTop: dark ? p3(132, 136, 145) : p3(166, 171, 184),
-                monogramBottom: dark ? p3(104, 108, 117) : p3(134, 139, 151),
+                // cmux: dark measured on macOS 26 Messages (2026-11-23).
+                monogramTop: dark ? p3(166, 170, 182) : p3(166, 171, 184),
+                monogramBottom: dark ? p3(135, 138, 148) : p3(134, 139, 151),
                 groupDisc: dark ? p3(72, 72, 74) : p3(209, 209, 214),
                 // Messages' incoming bubble grey (the transcript palette, dark 59/59/61) for the
                 // pinned preview bubble; light: #E9E9EB (the transcript's light link card).
