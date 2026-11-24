@@ -257,6 +257,7 @@
     ],
     "classes": [
       "control:liveness/class=3",
+      "control:liveness/screen=4",
       "frame:sequenced=6"
     ],
     "cloud-acpmux-v1": [
@@ -291,6 +292,9 @@
     "localhost-forward-v1": [
       "param:localhost#port",
       "service:localhost"
+    ],
+    "mac-display-v1": [
+      "control:surface.tab/d~"
     ],
     "needs-you-v1": [
       "service:needs-you"

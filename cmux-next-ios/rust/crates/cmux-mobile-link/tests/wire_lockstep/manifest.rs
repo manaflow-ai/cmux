@@ -102,6 +102,7 @@ pub(super) fn manifest() -> Manifest {
         [
             FrameType::Sequenced.wire_name().to_owned(),
             format!("control:liveness/class={}", cmux_mobile_link::classes::DATAGRAM_CLASS),
+            format!("control:liveness/screen={}", cmux_mobile_link::classes::DATAGRAM_SCREEN),
         ]
         .into(),
     );

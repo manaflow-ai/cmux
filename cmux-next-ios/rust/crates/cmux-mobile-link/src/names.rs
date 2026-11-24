@@ -105,6 +105,7 @@ pub const BROWSER_STREAM: &str = "browser-stream-v1";
 pub const BROWSER_VIDEO_TRACK: &str = "browser-video-track-v1";
 pub const SURFACE_STREAM: &str = "surface-stream-v1";
 pub const CLOUD_DESKTOP: &str = "cloud-desktop-v1";
+pub const MAC_DISPLAY: &str = "mac-display-v1";
 
 pub const CLOUD_MOBILE_CHAT: &str = "cloud-mobile-chat-v1";
 pub const CONVERSATION_TABS: &str = "conversation-tabs-v1";
@@ -206,6 +207,12 @@ pub const ALL: &[Capability] = &[
         // The `c~...~...` form is a distinct value of `surface.tab`. Keep it separate from
         // ordinary simulator tabs so a new desktop path cannot accidentally be treated as one.
         &["control:surface.tab/c~"],
+    ),
+    host(
+        MAC_DISPLAY,
+        "(2026-11-23) `surface` also streams this Mac's own display as rd/1 on the link, view only, on the key `d~<display>` (CGDirectDisplayID, 0 the main display); served while Share This Mac is on.",
+        // Like `c~`, the `d~...` form is a distinct value of `surface.tab`.
+        &["control:surface.tab/d~"],
     ),
     daemon(
         CLOUD_MOBILE_CHAT,
