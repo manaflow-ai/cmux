@@ -699,7 +699,14 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Attaches again after a dropped link. A no-op while attached or
     /// attaching, before `start`, and after the surface ended.
     public func reconnect() {
-        guard handler != nil, !attached, !attaching, !ended else { return }
+        guard handler != nil, !attached, !ended else { return }
+        if attaching {
+            // An attach is still out, maybe on the link that just died: if it
+            // fails, it tries again at once instead of giving up, so this
+            // reconnect (the link's return) is never lost.
+            reconnectAsked = true
+            return
+        }
         if gaveUp {
             // A fresh round of retries, from the shortest delay.
             gaveUp = false
@@ -996,6 +1003,7 @@ public final class DaemonTerminalSession: TerminalSession {
         autoReattach?.cancel()
         autoReattach = nil
         attaching = true
+        reconnectAsked = false
         awaitingReplay = false
         defer { attaching = false }
         // A history fetch: the attach it replaces is live on this daemon.
@@ -1298,6 +1306,17 @@ public final class DaemonTerminalSession: TerminalSession {
             heldEvents = nil
             lastError = Self.diagnostic(error)
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
+            if reconnectAsked, replacing == nil, handler != nil, !ended {
+                // A reconnect came while this attach was out (the link came
+                // back): attach again now, from a fresh round of retries.
+                reconnectAsked = false
+                autoReattaching = false
+                gaveUp = false
+                attachRetries = 0
+                if let client = self.client { self.client = nil; Task { await client.close() } }
+                Task { [weak self] in self?.reconnect() }
+                return
+            }
             if let old = replacing {
                 // A failed fetch of older rows: the old attach no longer
                 // feeds the screen, so this is a dropped link, retried below.
@@ -2088,6 +2107,9 @@ public final class DaemonTerminalSession: TerminalSession {
     private var attachRetries = 0
     /// The reattach retries ran out; the next keystroke tries again.
     private var gaveUp = false
+    /// ``reconnect()`` was called while an attach was out; that attach, if it
+    /// fails, attaches again at once.
+    private var reconnectAsked = false
     /// Delays before retrying a failed reattach (seconds); then the error shows.
     static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
     var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff

@@ -402,7 +402,10 @@ public final class AgentChatStore {
         self.isStarting = source.isStarting
         self.quietStatus = quietStatus
         quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
-        let stream = source.events()
+        // What the source already holds (a kept transcript) goes in now, so the chat's first
+        // frame draws it; the rest streams in.
+        let (head, stream) = source.eventsWithHead()
+        for event in head { receive(event) }
         task = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }

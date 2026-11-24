@@ -255,6 +255,10 @@ public protocol AgentSessionSource: AnyObject {
     var summary: AgentSessionSummary { get }
     /// Every record from the start of the session (history replay), then live records.
     func events() -> AsyncStream<AgentSessionEvent>
+    /// ``events()`` split into what the source already holds (a kept transcript read from
+    /// disk), which the store applies before the chat's first frame, and the stream of
+    /// everything after it. The head is not yielded again on the stream.
+    func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>)
     func send(_ intent: AgentClientIntent)
 
     // ACP parity (web UI acpmux/checkpoints and acpmux/handoff). Sources
@@ -328,6 +332,9 @@ public protocol AgentSessionSource: AnyObject {
 }
 
 extension AgentSessionSource {
+    public func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
+        ([], events())
+    }
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
     public func fullToolOutput(_ cut: ACPToolOutputCut) async -> ACPToolCallUpdate? { nil }
     public func loadEarlierHistory() {}
