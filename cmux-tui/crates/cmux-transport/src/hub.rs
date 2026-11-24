@@ -26,7 +26,7 @@
 //!
 //! Lockstep: hub rooms are joined with the [`HUB_SUBPROTOCOL`] offered; a
 //! relay without hub support has no hub route, or (a two-party `LinkRelay`)
-//! answers a kind 4 frame with `bad_frame:kind`. [`hub_join_outcome`] and
+//! answers a kind 5 frame with `bad_frame:kind`. [`hub_join_outcome`] and
 //! [`relay_error_means_no_hub`] turn either into [`HubJoin::Fallback`], and
 //! the client keeps today's per-source path.
 
@@ -368,7 +368,7 @@ pub enum HubFallback {
     Off,
     /// Upgraded without echoing [`HUB_SUBPROTOCOL`]: it is not a hub.
     NoSubprotocol,
-    /// The relay refused kind 4 frames (`bad_frame:kind`): a two-party relay.
+    /// The relay refused kind 5 frames (`bad_frame:kind`): a two-party relay.
     KindRefused,
     /// Any other refusal (401, 403, ...): the status.
     Refused(u16),

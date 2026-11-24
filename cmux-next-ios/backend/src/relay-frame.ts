@@ -15,7 +15,7 @@ export const RELAY_FRAME_MAX_PAYLOAD = 16 * 1024
 export const RELAY_FRAME_MAX = RELAY_FRAME_HEADER_LEN + RELAY_FRAME_MAX_PAYLOAD
 
 export type FrameKind = "datagrams" | "candidates" | "wake" | "hub"
-const BYTE_KIND: ReadonlyArray<FrameKind | undefined> = [undefined, "datagrams", "candidates", "wake", "hub"]
+const BYTE_KIND: ReadonlyArray<FrameKind | undefined> = [undefined, "datagrams", "candidates", "wake", undefined, "hub"]
 
 export type FrameError = "short" | "version" | "kind" | "too_large" | "bad_batch" | "bad_hub"
 

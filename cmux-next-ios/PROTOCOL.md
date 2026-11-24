@@ -596,7 +596,7 @@ are already the newest and keep flowing with no reconnect.
   the WebSocket relay) on `404`/`405` (no route), `503` (off), any other
   refusal, a `101` without the subprotocol, or the error `bad_frame:kind`,
   which is what the two-party `LinkRelay`, and so every pre-hub relay,
-  answers a kind-4 frame with (`cmux_transport::hub::hub_join_outcome`,
+  answers a kind-5 frame with (`cmux_transport::hub::hub_join_outcome`,
   `relay_error_means_no_hub`). Old clients never ask for the hub, and the
   relay they use is unchanged.
 - **Where:** one `HubRelay` Durable Object (wrangler migration `v4`) per
@@ -607,7 +607,8 @@ are already the newest and keep flowing with no reconnect.
   gets `{"type":"joined","hub":1,"sources":{"mac":bool,"vm":bool}}`; every
   socket hears `{"type":"source","role","online"}` when a source comes or
   goes (not when a newer socket of the same role replaced it).
-- **Frames:** relay frame kind `4` (`hub`), golden vectors in
+- **Frames:** relay frame kind `5` (`hub`; kind `4` is the
+  `LinkRelay`'s tagged datagrams, cmux#54189), golden vectors in
   `cmux-tui/crates/cmux-transport/tests/vectors/relay-hub-frames.json`,
   checked by the Rust crate and the backend tests. The payload is a 35-byte
   clear header and a sealed body:

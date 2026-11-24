@@ -24,7 +24,7 @@ const hubFrame = (sessionId: string, epoch: number, seq: number, source: "mac" |
   view.setBigUint64(25, BigInt(seq))
   head[33] = ROLE[source]
   head[34] = TO[to]
-  return new Uint8Array([1, 4, ...new Array(16).fill(0xee), ...head, ...body])
+  return new Uint8Array([1, 5, ...new Array(16).fill(0xee), ...head, ...body])
 }
 
 const seqOf = (frame: Uint8Array) => Number(hubHeader(frame.subarray(RELAY_FRAME_HEADER_LEN))!.seq)

@@ -10,7 +10,7 @@
 //! are WireGuard messages it cannot decrypt. The TypeScript relay checks
 //! itself against `tests/vectors/relay-frames.json`.
 //!
-//! A `Hub` payload (kind 4, RFD 0142 R6) starts with the clear hub header
+//! A `Hub` payload (kind 5, RFD 0142 R6) starts with the clear hub header
 //! of [`crate::hub`]; decoders check it after `too_large` (`bad_hub`).
 //!
 //! A `Datagrams` payload is one or more `[u16 big-endian length][datagram]`
@@ -41,7 +41,8 @@ pub enum FrameKind {
     /// end by its source (the Mac or the VM) to the session's viewers, behind
     /// a clear [`crate::hub::HubHeader`] the relay schedules on. Only a hub
     /// relay forwards it; a two-party relay answers `bad_frame:kind`.
-    Hub = 4,
+    /// Kind 4 is LinkRelay's tagged datagrams (cmux#54189); the hub is 5.
+    Hub = 5,
 }
 
 impl FrameKind {
@@ -50,7 +51,7 @@ impl FrameKind {
             1 => Some(Self::Datagrams),
             2 => Some(Self::Candidates),
             3 => Some(Self::Wake),
-            4 => Some(Self::Hub),
+            5 => Some(Self::Hub),
             _ => None,
         }
     }

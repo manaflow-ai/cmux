@@ -75,7 +75,7 @@ fn a_header_moved_onto_another_body_is_caught() {
 fn hub_frames_ride_the_relay_frame() {
     let frame = seal_frame(&key(), &header(HubRole::Mac, 1, 1), b"x").unwrap();
     let bytes = frame.encode().unwrap();
-    assert_eq!(bytes[1], 4);
+    assert_eq!(bytes[1], 5);
     assert_eq!(bytes.len(), HUB_FRAME_OVERHEAD + 1);
     let back = RelayFrame::decode(&bytes).unwrap();
     assert_eq!(back.kind, FrameKind::Hub);
@@ -132,17 +132,18 @@ fn lockstep_new_client_against_old_and_new_relays() {
     );
     assert_eq!(hub_join_outcome(503, None), HubJoin::Fallback(HubFallback::Off));
     assert_eq!(hub_join_outcome(403, None), HubJoin::Fallback(HubFallback::Refused(403)));
-    // A two-party LinkRelay refuses kind 4 with bad_frame:kind.
+    // A two-party LinkRelay refuses kind 5 with bad_frame:kind.
     assert!(relay_error_means_no_hub("bad_frame:kind"));
     assert!(!relay_error_means_no_hub("too_large"));
 }
 
 #[test]
-fn lockstep_old_decoder_sees_kind_4_as_unknown() {
-    // What a pre-hub decoder did with kind 4 is what it still does with any
-    // unknown kind: refuse it as `kind`, never misread it as datagrams.
+fn lockstep_a_kind_past_hub_is_unknown() {
+    // A pre-hub decoder refuses kind 5 as `kind`, as this one refuses any kind
+    // it does not know: never misread as datagrams (kind 4 is LinkRelay's
+    // tagged datagrams, cmux#54189, so the hub must not share it).
     let mut bytes =
         seal_frame(&key(), &header(HubRole::Mac, 1, 1), b"x").unwrap().encode().unwrap();
-    bytes[1] = 5;
-    assert_eq!(RelayFrame::decode(&bytes), Err(RelayFrameError::Kind(5)));
+    bytes[1] = 6;
+    assert_eq!(RelayFrame::decode(&bytes), Err(RelayFrameError::Kind(6)));
 }

@@ -1,4 +1,4 @@
-//! Golden vectors for hub relay frames (kind 4, RFD 0142 R6). The
+//! Golden vectors for hub relay frames (kind 5, RFD 0142 R6). The
 //! TypeScript `HubRelay` (cmux-next-ios/backend/src/hub-relay.ts) reads the
 //! same file, so the relay and the clients agree on the clear header byte for
 //! byte; the sealed cases also pin the seal (key derivation, nonce, associated
@@ -73,7 +73,7 @@ fn sealed_case(name: &str, header: HubHeader, event: &[u8]) -> String {
         hex(&SECRET),
         hex(event),
         hex(&payload),
-        hex(&frame_bytes(4, &payload))
+        hex(&frame_bytes(5, &payload))
     )
 }
 
@@ -89,7 +89,7 @@ fn clear_case(name: &str, header: HubHeader, body: &[u8]) -> String {
         role_name(header.source),
         to_name(header.to),
         hex(&payload),
-        hex(&frame_bytes(4, &payload))
+        hex(&frame_bytes(5, &payload))
     )
 }
 
@@ -112,7 +112,7 @@ fn generate() -> String {
         let mut h = good.to_vec();
         h[index] = byte;
         h.extend_from_slice(&[0xab; 8]);
-        frame_bytes(4, &h)
+        frame_bytes(5, &h)
     };
     let cases = [
         sealed_case(
@@ -136,17 +136,17 @@ fn generate() -> String {
             header(HubRole::Vm, HubTo::Source(HubRole::Mac), u64::MAX, u64::MAX),
             &[0x00],
         ),
-        invalid_case("hub header cut short", "bad_hub", &frame_bytes(4, &good[..34])),
-        invalid_case("empty hub payload", "bad_hub", &frame_bytes(4, &[])),
+        invalid_case("hub header cut short", "bad_hub", &frame_bytes(5, &good[..34])),
+        invalid_case("empty hub payload", "bad_hub", &frame_bytes(5, &[])),
         invalid_case("unknown hub header version", "bad_hub", &with(0, 2)),
         invalid_case("source role zero", "bad_hub", &with(33, 0)),
         invalid_case("unknown source role", "bad_hub", &with(33, 3)),
         invalid_case("unknown target", "bad_hub", &with(34, 9)),
         invalid_case("a source sending to itself", "bad_hub", &with(34, 1)),
-        invalid_case("kind past hub", "kind", &frame_bytes(5, &good)),
+        invalid_case("kind past hub", "kind", &frame_bytes(6, &good)),
     ];
     format!(
-        "{{\n  \"format\": \"cmux overlay relay frame kind 4 (hub, RFD 0142 R6): [u8 version=1][u8 kind=4][16-byte peer id][hub payload]; hub payload = [u8 hub header version=1][16-byte session id][u64 BE epoch][u64 BE seq][u8 source: 1 mac, 2 vm][u8 to: 0 viewers, 1 mac, 2 vm][sealed body]; the 35-byte clear header is all a relay reads; sealed body = XChaCha20-Poly1305 under key = BLAKE3 derive_key('cmux relay hub v1 session key', secret || session), nonce = [source][to][epoch BE][seq BE][6 zero bytes], associated data = the clear header, plaintext = [session][epoch BE][seq BE][source][event]; decoders check short, version, kind, too_large, then bad_hub (header short, version, source, to, a source to itself); epoch and seq are decimal strings; one case per line\",\n  \"cases\": [\n{}\n  ]\n}}\n",
+        "{{\n  \"format\": \"cmux overlay relay frame kind 5 (hub, RFD 0142 R6): [u8 version=1][u8 kind=5][16-byte peer id][hub payload]; hub payload = [u8 hub header version=1][16-byte session id][u64 BE epoch][u64 BE seq][u8 source: 1 mac, 2 vm][u8 to: 0 viewers, 1 mac, 2 vm][sealed body]; the 35-byte clear header is all a relay reads; sealed body = XChaCha20-Poly1305 under key = BLAKE3 derive_key('cmux relay hub v1 session key', secret || session), nonce = [source][to][epoch BE][seq BE][6 zero bytes], associated data = the clear header, plaintext = [session][epoch BE][seq BE][source][event]; decoders check short, version, kind, too_large, then bad_hub (header short, version, source, to, a source to itself); epoch and seq are decimal strings; one case per line\",\n  \"cases\": [\n{}\n  ]\n}}\n",
         cases.join(",\n")
     )
 }
