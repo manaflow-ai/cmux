@@ -31,6 +31,16 @@ extension TabStripView {
         let tabs = (0..<result.flexibleCount).reduce(result.reservedWidth) { $0 + share.width(at: $1) }
         return 2 * padding + windowControlsInset + tabs + (model.showsNewTabButton ? newTabLeadingGap + newTabControlsWidth : 0)
     }
+
+    /// Lays the superview (the pane) out again when the layout just made changed ``naturalWidth`` (a tab opened or
+    /// closed, a group collapsed, Full Width Tab): the room a chat's summary gets in the row follows it (#53314). Only
+    /// then, never on a title or a badge.
+    func noteNaturalWidth() {
+        let width = naturalWidth
+        guard width != reportedNaturalWidth else { return }
+        reportedNaturalWidth = width
+        superview?.needsLayout = true
+    }
 }
 
 // `debug.top_alignment`: the strip and its first pill (the topmost strip is the top row's).

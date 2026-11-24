@@ -86,6 +86,8 @@ public final class TabStripView: NSView {
         }
     }
     var windowControlsInset: CGFloat = 0
+    /// ``naturalWidth`` as the last layout told the strip's superview (``noteNaturalWidth()``).
+    var reportedNaturalWidth: CGFloat = -1
     /// The tabs' top the last layout applied (``computeTabTop()``); a move in the window that changes it lays out again.
     var appliedTabTop: CGFloat?
     /// Called after the strip's pane moved in the window (``updateWindowControlsAvoidance()``): the pane's toolbar

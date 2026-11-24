@@ -112,11 +112,14 @@ import Testing
         let pane = pane(width: 1200, tabs: 8)
         defer { pane.window.orderOut(nil); pane.window.close() }
         let strip = pane.view.stripView
-        let withChat = strip.frame.maxX
+        let withChat = strip.frame.maxX, bar = pane.toolbar.view.frame.width
         strip.model.selectedID = TabID("t1")
         pane.toolbar.update(target: "t1", kind: .terminal, paneKinds: [.terminal, .newTab])
         pane.view.show(Terminal())
         settle(pane.view)
         #expect(strip.frame.maxX >= withChat - 0.5, "the strip lost room selecting a terminal: \(strip.frame.maxX) < \(withChat)")
+        // The chat's slot kept for it is its toolbar and its tools' need, never its summary's room.
+        let kept = max(bar + pane.chat.need, pane.toolbar.view.frame.width)
+        #expect(strip.frame.maxX >= pane.view.bounds.width - kept - 0.5, "the strip ends at \(strip.frame.maxX), kept \(kept) of \(pane.view.bounds.width)")
     }
 }

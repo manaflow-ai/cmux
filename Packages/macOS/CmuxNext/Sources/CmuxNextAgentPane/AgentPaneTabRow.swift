@@ -109,7 +109,7 @@ import CmuxNextSettings
             // top; at y 0 they cut the composer's footer out of the page instead).
             let bounds = view.bounds, flipped = view.isFlipped
             let holes = shares ? nativeHoles(width: bounds.width, height: height, trailingInset: max(0, trailingInset),
-                                             tools: row.sharedWidth(zoom: zoom) ?? 0, tabs: row.tabsShown) : []
+                                             tools: min(row.sharedWidth(zoom: zoom) ?? 0, (row.sharedNeed(zoom: zoom) ?? .infinity) + row.accessoryRoom), tabs: row.tabsShown) : []
             row.holes = holes.map { hole in
                 let y = flipped ? bounds.minY + hole.minY : bounds.maxY - hole.maxY
                 return CGRect(x: bounds.minX + hole.minX, y: y, width: hole.width, height: hole.height)
@@ -127,7 +127,7 @@ import CmuxNextSettings
     /// narrowest it shows at (header/tabRow.ts TAB_ROW_ACCESSORY_MIN): the room is offered in whole CSS pixels within
     /// them, so a pane spring or a divider drag offers the row again only while the room is between the two.
     static let accessoryRoomMax: CGFloat = 320
-    static let accessoryRoomMin: CGFloat = 160
+    static let accessoryRoomMin: CGFloat = 168 // 160 and the widest gap the page takes off before its own minimum
 
     /// `css` (the accessories' room in CSS pixels) as offered to the page: nil for no limit, 0 under the narrowest summary.
     static func accessoryRoomCSS(_ css: CGFloat) -> CGFloat? {

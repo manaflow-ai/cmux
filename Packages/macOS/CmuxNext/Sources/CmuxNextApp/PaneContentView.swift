@@ -134,7 +134,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         agentTagObservation = observeAgentTag(stripModel)
         themeDidChange()
         tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.nativeRowTools.value, stripModel.hidesLoneTab, stripModel.tabs.count) }) { // the count: a summary's room (#53314)
+            for await _ in ObservationStream({ (PaneChromeMetrics.current, ChromeTunables.nativeRowTools.value, stripModel.hidesLoneTab) }) {
                 self?.needsLayout = true
                 self?.refreshBandHeight()
             }
