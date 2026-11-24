@@ -2,6 +2,7 @@
 /// the lists that draw only what shows (Leo 2026-11-18, ask-1105ee4cc6: "we draw the visible area, right?"). Pure: no
 /// AppKit, no UIKit, no views, so it runs and is tested on any platform. Every answer finds its rows by binary search and
 /// visits no row one by one: it reads O(log n) rows, at 10,000 rows as at 100. `reads` counts each row it read.
+// lint:allow namespace-type: pure index math over a caller's rows (a closure), shared by every windowed list; no receiver owns it.
 public enum RowSpans {
     /// The rows that can intersect `minY...maxY`: those whose top is in `minY - tallest ... maxY` (`tallest`: the
     /// tallest row's height, so a tall row starting above the span still counts). `top(i)`: row i's top.
