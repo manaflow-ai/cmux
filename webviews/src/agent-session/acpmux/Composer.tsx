@@ -123,6 +123,7 @@ import {
   readDurableDraftState,
   readsDurableDrafts,
   readPersistedDraft,
+  restoredPrompt,
   settlePendingDraftWrites,
   useDraftActionsVersion,
   writePersistedDraft,
@@ -1291,7 +1292,7 @@ function ComposerFrame({
     // goes after what is there (prompts a folder's trust held, sent after one already given
     // back: trustHeld.ts).
     const typed = field.current?.value() ?? "";
-    const next = !typed.trim() ? restoredText : behind ? `${typed}\n\n${restoredText}` : `${restoredText}\n\n${typed}`;
+    const next = restoredPrompt(typed, restoredText, behind);
     // A field whose editor is still starting (the chat composer that mounts as a New Tab page
     // leaves) takes it as its value, which becomes the editor's first content.
     if (!field.current?.type(next)) {
