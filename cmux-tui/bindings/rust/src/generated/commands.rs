@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR eac55c6eb9342a657fa5091445499befb917700c7ab522510e4f9ecc9e5dbe3d.
+// cmux-tui mux protocol 12, IR 013d0349a9f1fa41af25bcc8cde6bc60c90f64a31ab86de96578fe9593264497.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3585,6 +3585,8 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub api_revision: Optional<u32>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub api_version: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub capabilities: Optional<Vec<String>>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub device_id: Optional<String>,
@@ -3607,9 +3609,6 @@ pub struct SetClientInfoRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub version: Optional<String>,
 }
-
-#[rustfmt::skip]
-pub type SetClientInfoResult = T::EmptyResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5946,8 +5945,11 @@ impl CmuxClient {
         self.execute(&SET_CELL_PIXELS_METADATA, &request)
     }
 
-    pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<SetClientInfoResult> {
+    pub fn set_client_info(&mut self, request: SetClientInfoRequest) -> Result<T::SetClientInfoResult> {
         if !request.api_revision.is_missing() {
+            self.require_protocol_field("set-client-info", 12)?;
+        }
+        if !request.api_version.is_missing() {
             self.require_protocol_field("set-client-info", 12)?;
         }
         if !request.device_id.is_missing() {

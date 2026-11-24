@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR eac55c6eb9342a657fa5091445499befb917700c7ab522510e4f9ecc9e5dbe3d.
+// cmux-tui mux protocol 12, IR 013d0349a9f1fa41af25bcc8cde6bc60c90f64a31ab86de96578fe9593264497.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1059,6 +1059,8 @@ pub struct IdMapping {
 pub struct IdentifyResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub api_revision: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub api_version: Optional<String>,
     pub app: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub build_commit: Optional<String>,
@@ -1096,6 +1098,8 @@ pub struct IdentifyResult {
     pub machine_symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub min_api_revision: Optional<u32>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub min_api_version: Optional<String>,
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
@@ -2203,6 +2207,15 @@ pub enum ServerStatsWriterPhase {
 pub struct SetCellPixelsResult {
     pub failures: Vec<CellPixelFailure>,
     pub resizes: Vec<CellPixelResize>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct SetClientInfoResult {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub api_revision: Option<u32>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub api_version: Option<String>,
 }
 
 #[rustfmt::skip]
