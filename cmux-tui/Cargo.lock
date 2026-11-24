@@ -2720,6 +2720,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet-join"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tailnet-local"
 version = "0.1.0"
 dependencies = [
@@ -2908,6 +2916,7 @@ dependencies = [
  "cmux-server-core",
  "cmux-signed-bundle",
  "cmux-stack-auth",
+ "cmux-tailnet-join",
  "cmux-terminal-client",
  "cmux-theme-pack",
  "cmux-theme-tokens",
