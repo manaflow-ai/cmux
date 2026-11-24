@@ -21,7 +21,10 @@ impl Hub {
     /// `host_pressure::SAMPLE_WAIT` for a sample; with none yet, `ok` is null.
     /// Also carries the shadow admission readings (`shadow_admission.rs`).
     pub(crate) async fn host_pressure_status(&self) -> Value {
-        let verdict = Meter::shared().current().await;
+        // The power reading beside the verdict (`server/host_power.rs`, cached 5 s): the app's
+        // Auto reads memory and battery from this one object (RFD 0072), never its own sampler.
+        let (verdict, power) =
+            tokio::join!(Meter::shared().current(), crate::server::host_power::power());
         let mut v = match verdict.and_then(|v| serde_json::to_value(v).ok()) {
             Some(v) => v,
             None => {
@@ -55,6 +58,10 @@ impl Hub {
             })
             .collect();
         if let Some(obj) = v.as_object_mut() {
+            let assume = crate::server::host_power::assumed(crate::store::now_ms());
+            if let Some(power) = crate::server::host_power::power_json(power, assume.as_ref()) {
+                obj.insert("power".into(), power);
+            }
             obj.insert("local_turns".into(), json!(turns));
             obj.insert("background_processes".into(), json!(processes));
             obj.insert("top".into(), Value::Array(top));
