@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextHomeModel
+import CmuxNextWakeups
 import Observation
 
 /// The Home page's two columns with a real divider: the resize cursor over a
@@ -21,7 +22,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     public let widths: HomeSidebarWidth
     /// Half the grab area on each side of the 1 pt divider.
     public static let grab: CGFloat = 4
-    private var placed = false
+    var placed = false
     /// This view moves the divider itself (a clamp, a reset): not the user's width to keep.
     private var placing = false
     /// The list's own limits (MessagesLab's `minimumWidth`, `preferredWidth`).
@@ -34,7 +35,17 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     public var composing = false {
         didSet { if composing != oldValue { updateChatCompose() } }
     }
-    private let list: HomeSidebarView
+    let list: HomeSidebarView
+    /// The list's slide in or out while it runs (``HomeSidebarSlide``, HomeSidebarSplitView+Slide.swift).
+    var slide: HomeSidebarSlide?
+    /// The list's width for the running slide (it slides at this width, never squeezed).
+    var slideWidth: CGFloat = 0
+    /// The running slide's frames, from the window's FrameScheduler.
+    /// Out of sight (the window hidden or closed) it lands at once.
+    lazy var slideClient = FrameClient(owner: "Home.listSlide", scheduler: { [weak self] in self.map(FrameScheduler.forView) ?? .app },
+                                       settle: { [weak self] in self?.endSlide() }, dropped: { [weak self] in self?.endSlide() }) { [weak self] tick in
+        self?.slideFrame(tick) ?? false
+    }
     /// Debug Settings (`HomeTunables.loneConversationRail`); tests give their own store.
     var tunables = TunableStore.shared {
         didSet { followLoneConversationTunable() }
@@ -71,11 +82,25 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         get { widths.listShown }
         set {
             guard newValue != widths.listShown else { return }
+            // Where the list is now (mid-slide too), before the choice changes what layout places.
+            let shownNow = slide?.reveal ?? sidebarWidth
             widths.listShown = newValue
             chatColumn.chats.isOn = newValue
-            needsLayout = true
-            layoutSubtreeIfNeeded()
+            if let spring = slideSpring(open: newValue) {
+                slideList(from: shownNow, open: newValue, spring: spring)
+            } else {
+                // A slide cut short lands where the choice is now.
+                endSlide()
+                needsLayout = true
+                layoutSubtreeIfNeeded()
+            }
         }
+    }
+
+    /// A slide running when the page leaves its window lands there.
+    override public func viewWillMove(toWindow newWindow: NSWindow?) {
+        super.viewWillMove(toWindow: newWindow)
+        if newWindow == nil { endSlide() }
     }
 
     /// The Chats button: shows or folds the conversation list.
@@ -98,7 +123,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     }
 
     /// The width to show now: the saved one (else the standard), clamped to this window.
-    private var wantedWidth: CGFloat {
+    var wantedWidth: CGFloat {
         clamp(widths.width(window: windowKey()) ?? standard)
     }
 
@@ -117,6 +142,8 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     override public func layout() {
         super.layout()
         guard bounds.width > 0 else { return }
+        // The slide places both columns itself each frame (a resize mid-slide keeps its place too).
+        if slide != nil { return placeSlideFrame() }
         // The page may have moved under or out from under the traffic lights (the window's sidebar).
         list.updateWindowControlsAvoidance()
         if foldLoneConversation() { return }
@@ -169,7 +196,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     /// compose shows at the chat's top-left as for any avatar-only list. A list the person dragged
     /// to avatars keeps its column (and so the divider to drag it back); a wider column brings the
     /// list back at their width. Debug Settings can keep the column.
-    private var foldsLoneConversation: Bool {
+    var foldsLoneConversation: Bool {
         let own = widths.width(window: windowKey()) ?? standard
         // The list is the column less the panel's inset (`HomeSidebarView.panelInset`).
         let inset = HomeSidebarView.panelInset
@@ -243,7 +270,13 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         drawnRect.insetBy(dx: -Self.grab, dy: 0)
     }
 
+    override public func resizeSubviews(withOldSize oldSize: NSSize) {
+        if slide != nil { return placeSlideFrame() }
+        super.resizeSubviews(withOldSize: oldSize)
+    }
+
     public func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard slide == nil else { return }
         // Every width change (a drag too, which runs no layout pass) moves compose to or from the chat.
         updateChatCompose()
         // Only the user's drag is kept (AppKit names the divider it moved).
