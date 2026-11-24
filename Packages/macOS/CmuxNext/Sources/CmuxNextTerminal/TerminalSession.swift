@@ -89,7 +89,7 @@ public final class TerminalSession {
         }
     }
     /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
-    nonisolated let frameChanges = TerminalFrameChanges()
+    public nonisolated let frameChanges = TerminalFrameChanges()
     /// ``close()`` ran: the launch frame keeper forgets this terminal.
     private(set) var isClosed = false
 
