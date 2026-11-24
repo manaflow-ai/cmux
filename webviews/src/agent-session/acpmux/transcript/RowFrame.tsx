@@ -3,6 +3,7 @@ import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { markRecapEntrance } from "../conversation/turnEndFold";
+import { NEXT_STEP } from "../conversation/turns";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
@@ -234,7 +235,8 @@ export const RowFrame = React.memo(function RowFrame({
       return row.kind === "user" && sendPopEnabled()
         ? holdEntranceForFirstFrame(ref.current, undefined, true)
         : undefined;
-    markRecapEntrance(ref.current);
+    // Only the recap card has an entrance to mark: no other entering row reads the DOM for it.
+    if (row.kind === NEXT_STEP) markRecapEntrance(ref.current);
     return holdEntranceForFirstFrame(ref.current);
   });
   useLayoutEffect(() => holdEntranceOnMount(), []);

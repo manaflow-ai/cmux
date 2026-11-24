@@ -143,11 +143,16 @@ jobs:
   # other finding, and everything already on the base, is a warning. The CI guard group runs the same two steps on
   # pushes (ci-guards.yml), but it skips feat-cmux-next pull requests not labeled full-ci, so this job is what
   # judges them. Offline after the pinned, checksummed tool download; about 30 s on a 2 vCPU runner.
+  # A feat-cmux-next pull request runs these commands as the ci/steps.toml step `security-holes` (pr-pipeline.yml),
+  # which every change the router starts the pipeline for routes: this job skips there. The base is matched
+  # exactly. docs-only-fallback.yml's call still runs it (a docs-only change the pipeline does not start for, labeled
+  # full-ci or over 300 files). Nothing requires this job, so no rollup counts its skip.
   security-holes:
     name: workflow security holes and secrets this change adds
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && (github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
-    timeout-minutes: 10
+    # Two 5-minute checkout attempts plus about a minute of guards.
+    timeout-minutes: 16
     permissions:
       contents: read
     env:
@@ -178,8 +183,17 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
+      # The fetch can hang past the 5-minute timeout on a pool runner (run 45260382948 on #52648,
+      # 2026-11-23: `git fetch --depth=2` timed out and the action left `.git` with no worktree).
+      # The guard steps below run on `!cancelled()`, so they then ran against an empty directory and
+      # the job's three errors were `can't open file tests/test_static_analysis_ratchet.py` — the
+      # checkout's own failure was two steps up and read as a change's red. Retry once (ci-macos.yml
+      # does the same for a lost-DNS checkout), and if both tries fail say so and skip the guards:
+      # a missing worktree is not a verdict on the change. Manual test: test_ci_reused_sparse_checkout.py.
       - name: Checkout
+        id: checkout
         timeout-minutes: 5
+        continue-on-error: true
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -195,15 +209,35 @@ jobs:
             /tests/
             /.github/
 
+      - name: Discard the half-written checkout before the retry
+        if: steps.checkout.outcome == 'failure'
+        run: rm -rf "$GITHUB_WORKSPACE/.git"
+
+      - name: Retry the checkout once after a transient fetch failure
+        id: checkout-retry
+        if: steps.checkout.outcome == 'failure'
+        timeout-minutes: 5
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Fail with the checkout's own failure, not a missing file
+        if: steps.checkout.outcome == 'failure' && steps.checkout-retry.outcome == 'failure'
+        run: |
+          echo "::error::checkout failed twice on ${RUNNER_NAME:-this runner}; the guards below need a worktree, so this job says nothing about the change" >&2
+          exit 1
+
       - name: Fail on a workflow security hole this change adds (zizmor)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.checkout.outcome == 'success' || steps.checkout-retry.outcome == 'success') }}
         timeout-minutes: 3
         run: |
           python3 tests/test_static_analysis_ratchet.py
           python3 scripts/static-analysis/ratchet.py zizmor --base HEAD^1 --head HEAD
 
       - name: Fail on a secret this change commits (gitleaks)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.checkout.outcome == 'success' || steps.checkout-retry.outcome == 'success') }}
         timeout-minutes: 3
         run: python3 scripts/static-analysis/ratchet.py gitleaks --base HEAD^1 --head HEAD
 
@@ -211,7 +245,7 @@ jobs:
       # unless labeled full-ci (Tier B), so #50338 and #47936 added literal blacksmith-6vcpu-macos-26 pins unseen and
       # the push's red was never fixed forward. These take about 20 s, so every pull request runs them here.
       - name: Fail on a job pinned to one runner size (runners.json pools)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && (steps.checkout.outcome == 'success' || steps.checkout-retry.outcome == 'success') }}
         timeout-minutes: 3
         run: python3 tests/test_ci_linux_single_size.py && python3 tests/test_ci_no_single_size_pins.py
 
@@ -382,34 +416,6 @@ jobs:
           # step ends in a "timed out" verdict instead of a cancelled job.
           scripts/ci/guards-local.sh --no-stamp --keep-going --jobs "$(getconf _NPROCESSORS_ONLN)" --group release-notary --deadline 780 --results "$RUNNER_TEMP/release-notary.json" || true
           python3 scripts/ci/guards_new_reds.py --tip "$RUNNER_TEMP/release-notary.json"
-
-  # Signing jobs (the nightly notarization and iOS nightly Mac jobs) take their runner from this variable, so they must
-  # name ephemeral runners only: Blacksmith or GitHub's hosted Linux, never an owned mini
-  # (tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py rule 7). Unset falls back to a Blacksmith
-  # literal and passes. This job's own runner is a literal, so a variable at a missing label still goes red.
-  signing-runner-variables:
-    needs: coalesce
-    name: signing runner variables are ephemeral
-    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
-    # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next push runs it.
-    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 2
-    permissions: {}
-    steps:
-      - name: Runner variables that signing jobs read name ephemeral runners
-        env:
-          MACOS_RUNNER_26: ${{ vars.MACOS_RUNNER_26 }}
-        run: |
-          bad=0
-          for name in MACOS_RUNNER_26; do
-            value="${!name}"
-            case "$value" in
-              ""|blacksmith-*|ubuntu-*) echo "$name=${value:-<unset>}" ;;
-              *) echo "::error::vars.$name is '$value'; signing jobs run on it, so it must be blacksmith-* or ubuntu-*"; bad=1 ;;
-            esac
-          done
-          [ "$bad" = 0 ] || exit 1
 
   # ci-guards.yml's `ci` group (workflow lints, hook trust, runner and cache policy: scripts/ci/guards-local.sh's
   # default set) ran only in ci.yml's "CI fast guards", which skips feat-cmux-next pull requests, and ci.yml never
@@ -696,6 +702,8 @@ jobs:
     # defaults snapshot 2+1+2, page strings 2+3), so with the checkout's 5 the steps' caps sum to the job's
     # 25 and no step's stall can use up another's time. A step that times out fails and the next step still runs.
     timeout-minutes: 25
+    outputs:
+      would_skip: ${{ steps.static-verdict.outputs.would_skip }}
     steps:
       # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
       # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
@@ -730,6 +738,27 @@ jobs:
           # HEAD^1: the base tip of a pull request's merge commit, or the
           # previous commit of a push (the defaults snapshot reads it).
           fetch-depth: 2
+
+      # Traced input key, in shadow (cmuxterm-hq RFD 0148 row 9; scripts/ci/traced_inputs.py): the rows of
+      # scripts/ci/receipt-inputs/static-checks.txt are what one strace'd run of every step below read (files,
+      # directory listings, absent probes), not a hand-written glob, so a change to anything else keeps the key. A
+      # green run records an unsigned receipt under the key; a later run with the same key reports would_skip=true and
+      # still runs in full, and its own verdict is compared with the receipt's. Nothing is skipped.
+      - name: Traced input key (shadow receipt)
+        id: static-key
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: python3 scripts/ci/receipt_input_key.py key static-checks --units all --output "$GITHUB_OUTPUT"
+
+      - name: Look up a receipt (shadow)
+        id: static-receipt
+        if: ${{ !cancelled() && steps.static-key.outputs.input_key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-static-checks-${{ steps.static-key.outputs.input_key }}
+          lookup-only: true
 
       - name: vt-link-graph.json is for the libghostty-vt gitlink
         if: ${{ !cancelled() }}
@@ -795,6 +824,78 @@ jobs:
         env:
           CMUX_STRINGS_BEST_EFFORT: ""
         run: node webviews/scripts/pages/gen-strings.mjs
+
+      # The shadow comparison: a would-skip run whose own steps failed is a reuse the traced key got wrong.
+      - name: Traced reuse vs this run (shadow)
+        id: static-verdict
+        if: ${{ always() && steps.static-key.outputs.input_key != '' }}
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.static-key.outputs.input_key }}
+          HIT: ${{ steps.static-receipt.outputs.cache-hit == 'true' }}
+          STATUS: ${{ job.status }}
+        run: |
+          wrong=false
+          if [ "$HIT" = true ] && [ "$STATUS" != success ]; then wrong=true; fi
+          line="static-checks would_skip=$HIT run=$STATUS wrong_reuse=$wrong input_key=$INPUT_KEY"
+          echo "::notice title=ci-receipt shadow (traced inputs)::$line"
+          echo "ci-receipt shadow: $line" >> "$GITHUB_STEP_SUMMARY"
+          echo "would_skip=$HIT" >> "$GITHUB_OUTPUT"
+
+      - name: Record the receipt (shadow)
+        if: ${{ success() && steps.static-key.outputs.input_key != '' && steps.static-receipt.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.static-key.outputs.input_key }}
+        run: python3 scripts/ci/receipt_input_key.py record static-checks --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-receipt/receipt.json"
+
+      # Saved from feat-cmux-next pushes only: GitHub scopes a pull request's cache entries to that pull request.
+      - name: Save the receipt (shadow)
+        if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.static-key.outputs.input_key != '' && steps.static-receipt.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-static-checks-${{ steps.static-key.outputs.input_key }}
+
+  # The other half of the shadow (RFD 0148 row 9): on a feat-cmux-next push where static-checks would have been
+  # reused, run every one of its steps again under strace and name any read scripts/ci/receipt-inputs/static-checks.txt
+  # does not cover. A miss means the list is stale (regenerate it with the command in its header) and that reuse
+  # would have been unsound. It never fails the run.
+  static-checks-traced-audit:
+    needs: static-checks
+    name: cmux-next static checks traced-input audit (shadow)
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.static-checks.outputs.would_skip == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        timeout-minutes: 5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Setup Node
+        timeout-minutes: 2
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: strace
+        timeout-minutes: 3
+        run: command -v strace || sudo -n apt-get install -y -qq strace || echo "::notice::no strace on this runner; the audit reports nothing"
+
+      - name: Trace every static-checks step and audit the committed list
+        timeout-minutes: 35
+        run: |
+          python3 scripts/ci/traced_inputs.py trace-job --workflow .github/workflows/cmux-next-guards.yml \
+            --job static-checks --out "$RUNNER_TEMP/static-checks.trace.json" \
+            --inputs scripts/ci/receipt-inputs/static-checks.txt | tee "$RUNNER_TEMP/audit.txt"
+          line=$(grep '^audit=' "$RUNNER_TEMP/audit.txt" || echo 'audit=none')
+          echo "::notice title=traced-input audit::static-checks $line"
+          echo "traced-input audit: static-checks $line" >> "$GITHUB_STEP_SUMMARY"
   # The nightly-next build generates the Rust third-party notices from the
   # tree (scripts/cmux-next/generate-third-party-notices.sh --tui-source tree).
   # A new path crate it cannot map failed the nightly publish (run 38359624385,
@@ -1075,16 +1176,44 @@ jobs:
     with:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
+  # Leo, 2026-11-23: "we're drowning in our own workflow". While tooling-tests is red on feat-cmux-next, a pull
+  # request's run of it is red too and gh-merge-green excuses that red as the base's, so it is skipped
+  # (scripts/ci/base_red_skip.py: fails open, 10% of skips still run as the audit, label full-ci runs it,
+  # vars.CI_SKIP_WHILE_BASE_RED == '0' turns it off).
+  tooling-tests-base-red:
+    if: github.event_name == 'pull_request' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    timeout-minutes: 6
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      base_red: ${{ steps.decide.outputs.base_red }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # Only the script, into its own folder: a full checkout took past 3 minutes on a cold runner (run
+          # 45305463226), and sparse settings in the workspace's own .git would leak into the next job on a reused
+          # pool VM; the next job's checkout removes this folder as untracked.
+          path: .base-red-src
+          sparse-checkout: scripts/ci
+      - name: Red on the base right now?
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next-guards.yml --job "tooling-tests" >> "$GITHUB_OUTPUT"
+
   # The tests of feat-cmux-next's own CI tooling (nightly-next's App ID, the
   # cmux-tui republish path, the crash ratchet, the red-checks comment, the
   # backdrop art generator). Each is stdlib Python with fakes for the network
   # and the binaries it calls; only the web lint hook's test also needs bun.
   tooling-tests:
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER; others take the persistent cmux-linux pool.
-    needs: coalesce
+    needs: [coalesce, tooling-tests-base-red]
     # Runs on pull requests into feat-cmux-next too (it was Tier A, skipped; scripts/ci/affected-jobs.json says why it
     # is not now): setup-tooling-route below limits a pull request to the steps its diff can fail.
-    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') }}
+    if: ${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && needs.tooling-tests-base-red.outputs.base_red != 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 15
     steps:
@@ -1158,8 +1287,10 @@ jobs:
         run: |
           set -uo pipefail
           git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
+          added=(--added-deleted "$RUNNER_TEMP/added-deleted.txt")
+          git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$RUNNER_TEMP/added-deleted.txt" || added=()
           if ! python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml \
-              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" --event pull_request \
+              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" "${added[@]}" --event pull_request \
               --github-output "$RUNNER_TEMP/tooling.out" --summary "$GITHUB_STEP_SUMMARY"; then
             echo "::warning title=tooling-tests selection::tooling_steps.py failed; tooling-tests runs every step."
             printf 'tooling_all=true\ntooling_steps=\n' > "$RUNNER_TEMP/tooling.out"
@@ -1509,6 +1640,13 @@ jobs:
         run: |
           python3 scripts/measure/tests/launch-ready-summary.test.py
           bash scripts/measure/tests/launch-ready-cases.test.sh
+
+      # RFD 0134 Table 4 row 1: the installer package's postinstall pre-warms the installed copy as the console user,
+      # bounded, and never fails the install; build-pkg.sh never relocates or version-skips the app.
+      - name: cmux NEXT installer package and its pre-warm postinstall
+        id: tt-next-pkg
+        if: ${{ !cancelled() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-next-pkg ')) }}
+        run: bash scripts/cmux-next/tests/next-pkg.test.sh
 
       - name: install-zig-ci.sh installs only a reviewed Zig
         id: tt-install-zig

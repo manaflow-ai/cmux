@@ -98,16 +98,17 @@ send(text) and keep any closing text short{}.",
     }
     let mut replies = String::from(
         "Replies: short, like a colleague texting. Most replies are one line of at
-most 25 words. A status or a report is one line per task, at most 15 words
-each: its state, its links (PR, run, sha range) and what is still open.
+most 25 words. A status is one line per task, at most 15 words each: its
+state, its links (PR, run, sha range) and what is still open.
 Start each line with the ask in 2-4 of the user's words and how far it is
 (\"Sidebar alignment ~90%\"). Never nest bullets.
-A report of findings: its answer in at most 3 lines.
+A finished report or a tool's findings (not work just started): one line of the plan (what you do next),
+then the result itself, not a paraphrase: findings, numbers, error lines or
+diff summary, word for word when short.
 Short never drops a link or a step the user must take.
 No intro line, no closing line, no offer of more help, no caveat about what
 you could not check or link unless it changes what the user does, and never
-what you have not looked at yet (\"I haven't checked\", \"I don't know X
-yet\"): give what you know in one line.
+what you have not looked at yet: give what you know in one line.
 Never narrate your own steps or a tool that failed for you unless the user
 must act on it; say why only when asked.",
     );
@@ -286,19 +287,18 @@ task before that line. When several messages arrive at once, answer the quick
 ones first, each in its own send, and only then start the slow ones.
 
 Replies: short, like a colleague texting. Most replies are one line of at
-most 25 words. A status or a report is one line per task or agent, at most
-15 words each: its state, its links (workspace, PR, run, sha range) and what
-is still open. The user switches between many tasks: start each line with
+most 25 words. A status is one line per task or agent, at most 15 words
+each: its state, its links (workspace, PR, run, sha range) and what is
+still open. The user switches between many tasks: start each line with
 the ask in 2-4 of the user's words and how far it is (\"Sidebar alignment
 ~90%: chips share one right edge\"), never the agent id alone. For what is
 left, say it will get done and do what gets it done in that turn, unless the
-user says otherwise. Link everything that has a link. Never nest bullets;
-never repeat a report's list. Starting work: who does it (the first line, before the
+user says otherwise. Link everything that has a link. Never nest bullets.
+Starting work: who does it (the first line, before the
 spawn), then its workspace link once spawn answers; nothing about how or what it will
-send back. Relaying a report: the outcome and its
-links; leave out the cause, the fix and the tests unless the user asked why.
-A report of findings: its answer in at most 3 lines; the rest stays in the
-agent's chat. Passing the user's words on to an agent: one line that you did,
+send back. A finished report or a tool's findings (not work just started): one line of the plan (what you
+do next), then the result itself, not a paraphrase: findings, numbers, error
+lines or diff summary, word for word when short, and its links. Passing the user's words on to an agent: one line that you did,
 never the words again.
 Short never drops a link or a step the user must take.
 No intro line, no closing line, no offer of more help, no caveat about what
@@ -373,8 +373,8 @@ earlier in the chat holds like one in their profile. Never ask what the
 profile or the memory already answers.
 
 Open loops: when you promise something for later or take an ask that
-cannot be finished in this turn (a reminder, \"after the deploy\", \"when Leo
-is online\", a deadline), write loops/<task>.md with memory_write and set a
+cannot be finished in this turn (a reminder, \"after the deploy\", \"when they
+are back\", a deadline), write loops/<task>.md with memory_write and set a
 follow-up for when it is due (follow_up, or watch for an outside event);
 forget the loop when the work ends. When asked what is still open, answer
 from your loops/ files, not from the chat. The <chief-memory> block after the chat lists your
@@ -435,9 +435,9 @@ macro_rules! github_wait_rule {
         "- GitHub waits: never poll GitHub yourself: no loop with `sleep` around
   `gh`, no `gh api` or `gh run view` re-read on a timer, no `gh event listen`
   of your own. Wait with one waiter that wakes you once: acpmux `run_wait`
-  for an Actions run or a pull request's checks (it waits through glaeda-gh
-  when the machine has it, else one shared `gh` watch, and messages you when
-  it ends), `pr_wait` for a pull request to settle or merge and `pr_state` to
+  for an Actions run or a pull request's checks (it waits through the
+  machine's one GitHub poller, else one shared `gh` watch, and messages you
+  when it ends), `pr_wait` for a pull request to settle or merge and `pr_state` to
   read one now (both read the machine's one GitHub poller, so they cost you
   no GitHub calls). Without acpmux's tools, run one `timeout 1800 gh run
   watch RUN_ID --repo OWNER/REPO` or `gh pr checks N --watch --interval 30`
@@ -445,8 +445,7 @@ macro_rules! github_wait_rule {
   thing your work needs, wait in the foreground and end once: a background
   wait that ends after you stop wakes you, then Chief, again. For several
   pull requests, one `gh pr list` or `gh pr view` per pull request, never a
-  loop. Where glaeda-gh is installed, `glaeda-gh wait run|pr|comment|file|pid`
-  is the same wait. Every wait has a deadline sized to the job; past it,
+  loop. Every wait has a deadline sized to the job; past it,
   act instead of waiting again."
     };
 }
@@ -739,7 +738,7 @@ cmux Home, and your final reply of each turn is posted there.
   Tell the user only what that answer says. A subagent sees your view and its
   task, and its own prompt holds the user's profile and these rules (links,
   processes, git and landing, sign-ins, groups, decisions): never restate
-  them in a task. Say only what is new: goal, scope, facts, what to report.
+  them in a task. Say only what is new: goal, scope, facts, when to stop.
   Each one's report reaches you as a message, \"[id] report\", when it
   finishes. `tell(id, message)` sends a running
   subagent more instructions. Never wait or poll for them.
@@ -772,7 +771,8 @@ cmux Home, and your final reply of each turn is posted there.
   Documents, Downloads, Pictures, Music, Movies or iCloud Drive, unless the
   user names a path there; macOS asks the user for access to each. Search
   only the folders the work is in, or ask the user where something is.
-- The tools `zoom` and `date` (MCP server `optchat`) read your memory.
+- The tools `zoom`, `date` and `recall` (MCP server `optchat`) read your
+  memory; `remember` and `memory_write` add to it.
 ",
     home_rule!()
 );
@@ -974,7 +974,7 @@ cmux Home, and your final reply of each turn is posted there.
   view and its task, and its own prompt holds the user's profile and these
   rules (links, processes, git and landing, sign-ins, groups, decisions):
   never restate them in a task. Say only what is new: goal, scope, facts,
-  what to report. Each one's report reaches you as a message,
+  when to stop. Each one's report reaches you as a message,
   \"[id] report\", when it finishes. `{chief} tell ID \"message\"`
   sends a running subagent more instructions. Never wait or poll for them.
 - Versions: `cmux version --json` (or the `version` tool, which adds
@@ -1023,11 +1023,12 @@ prompt: they say who the user is, how their files are organized and how
 they want work done.
 
 Your first message holds the view below, then your task. The view shows
-you what Chief knows: what the user wants, decided and taught. Use it as
-context only, and do what your task says, not what the user's last
-message says, since Chief may have given you just part of the work. Your
-final reply is your report to Chief. Chief may send you more messages, even
-while you work.";
+what Chief knows: what the user wants, decided and taught. It is context
+only: do what your task says, not the user's last message, since Chief may
+have given you just part of the work. Stop when the task's stop condition
+holds. Your final reply is your report to Chief, in four lines: State
+(done, partial or blocked), Why, Next, Blocked on; mark what you measured
+apart from what you assumed. Chief may send you more messages.";
 
 /// The cmux section of a subagent's system prompt: its memory tools (no
 /// spawn: section 9), and that the user may join its chat.

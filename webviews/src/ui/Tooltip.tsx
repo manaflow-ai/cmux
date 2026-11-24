@@ -143,6 +143,7 @@ export function Tooltip({
             <BaseTooltip.Popup
               ref={setPopup}
               className={cx("ui-tooltip ui-glass", className)}
+              data-surface-role={wraps ? "hoverCard" : "tooltip"}
               // On the App's glass under the page (glass/hostGlass.ts): a card at the popover level, a
               // label at the chip level, the native tooltip's glass, blurring what it covers in place.
               {...(wraps
@@ -259,6 +260,7 @@ export function AnchoredCard({
             ref={setPopup}
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
+            data-surface-role="hoverCard"
             // The App's popover glass under the page (glass/hostGlass.ts); a card given `under` blurs
             // what it covers itself.
             data-host-glass="popover"

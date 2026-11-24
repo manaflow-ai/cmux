@@ -644,7 +644,7 @@ mod tests {
         list(&hub, "cmux16", "0199bbbb-2222", "deploy", "idle");
         assert_eq!(hub.key_route("deploy").unwrap().as_deref(), Some("cmux16/0199bbbb-2222"));
         let old = named(&hub, "fixer").await;
-        hub.set_status(&old, SessionStatus::Closed);
+        hub.set_status(&old, NotWaiting::Closed);
         list(&hub, "hb", "0199dddd-4444", "fixer", "idle");
         assert_eq!(hub.key_route("fixer").unwrap().as_deref(), Some("hb/0199dddd-4444"));
         // Only closed ones: still one to name, so `session info` reads a finished lane.

@@ -130,6 +130,11 @@ nonisolated extension AcpmuxPaneMethods {
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
+        // `where`: "auto" (or "here"); `targets`: the places the page can start a chat on, each a
+        // `place` name and its `headroom`, all data the page already holds (Cloud today).
+        // `parent` ({machine, fork}) and `key`: the Cloud machine the starting chat runs on and
+        // this start's key, for fork placement behind `cloud.autoCloud` (acpmux fork_place.rs).
+        "_acpmux/place_chat": (["where", "targets", "parent", "key"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
@@ -192,6 +197,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
+        "_acpmux/agent_home": (["sessionId"], []),
+        // `accept` and `drop`: proposal ids from `_acpmux/agent_home`.
+        "_acpmux/agent_home_resolve": (["sessionId", "accept", "drop"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
         "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
@@ -202,6 +210,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `ended`: how many ended subagents to list, at most 500.
+        "_acpmux/subagents": (["sessionId", "ended"], []),
         // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
         "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),

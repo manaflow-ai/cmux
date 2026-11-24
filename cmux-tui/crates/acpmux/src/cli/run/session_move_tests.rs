@@ -77,6 +77,9 @@ fn about_ok(free_gb: Option<u64>) -> RemoteDaemon {
         home: "/home/cmux".into(),
         socket: "/home/cmux/.acpmux/acpmux.sock".into(),
         disk_free: free_gb.map(|g| g * 1_000_000_000),
+        harnesses: None,
+        rate: None,
+        copy_secs: None,
     }
 }
 
@@ -111,6 +114,7 @@ fn auto_passes_over_a_host_a_fresh_ssh_cannot_reach() {
     let w = walk(
         &targets(&order.iter().map(String::as_str).collect::<Vec<_>>()),
         0,
+        "claude",
         |_| 0,
         |t| {
             asked.push(t.name.clone());
@@ -139,7 +143,13 @@ fn auto_passes_over_a_host_a_fresh_ssh_cannot_reach() {
 /// No host answers: no pick, and every host is named with why.
 #[test]
 fn auto_with_no_host_that_answers_picks_none_and_says_why_for_each() {
-    let w = walk(&targets(&["a", "b"]), 0, |_| 0, |t| Err(format!("ssh to {} failed", t.name)));
+    let w = walk(
+        &targets(&["a", "b"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Err(format!("ssh to {} failed", t.name)),
+    );
     assert!(w.pick.is_none());
     let names: Vec<&str> = w.skipped.iter().map(|(n, _)| n.as_str()).collect();
     assert_eq!(names, ["a", "b"]);
@@ -158,7 +168,9 @@ fn auto_passes_over_a_host_short_of_disk_unless_every_host_is() {
         _ => None,
     };
     let floor = |_: &str| 10 * gb;
-    let w = walk(&targets(&["tight", "roomy"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    let w = walk(&targets(&["tight", "roomy"]), 3 * gb, "claude", floor, |t| {
+        Ok(about_ok(disk(&t.name)))
+    });
     assert_eq!(w.pick.unwrap().name, "roomy");
     assert_eq!(w.skipped[0].0, "tight");
     assert!(
@@ -168,11 +180,13 @@ fn auto_passes_over_a_host_short_of_disk_unless_every_host_is() {
     );
     assert!(w.unreachable.is_empty() && w.warning.is_none());
 
-    let w = walk(&targets(&["tighter", "tight"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    let w = walk(&targets(&["tighter", "tight"]), 3 * gb, "claude", floor, |t| {
+        Ok(about_ok(disk(&t.name)))
+    });
     assert_eq!(w.pick.unwrap().name, "tight", "most free of the short ones");
     assert!(w.warning.unwrap().contains("disk floors only warn"));
 
-    let w = walk(&targets(&["unread"]), 3 * gb, floor, |t| Ok(about_ok(disk(&t.name))));
+    let w = walk(&targets(&["unread"]), 3 * gb, "claude", floor, |t| Ok(about_ok(disk(&t.name))));
     assert_eq!(w.pick.unwrap().name, "unread");
 }
 
@@ -347,9 +361,35 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
                 wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
             }
         });
+        // The target's daemon: a dry run that gets as far as a plan asks it, read-only, whether
+        // it takes the chat (`target_ask`), and nothing else.
+        let target_socket = socket_dir.path().join("target.sock");
+        let target_listener = tokio::net::UnixListener::bind(&target_socket).unwrap();
+        let target_server = tokio::spawn(async move {
+            let (stream, _) = target_listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            // The client's own initialize, then the move's (whose reply it keeps).
+            let asked = [method::INITIALIZE, method::INITIALIZE, "_acpmux/transfer_preflight"];
+            for expected in asked {
+                let line = lines.next_line().await.unwrap().unwrap();
+                let Message::Request { id, method: called, params } =
+                    Message::parse(&line).unwrap()
+                else {
+                    panic!("expected read-only request");
+                };
+                assert_eq!(called, expected, "a dry run only asks the target");
+                if called != method::INITIALIZE {
+                    assert_eq!(params.unwrap_or_default()["manifest"]["sessionId"], "chat");
+                }
+                let result = json!({"takes": true});
+                wr.write_all(Message::ok(id, result).to_line().as_bytes()).await.unwrap();
+            }
+        });
         let client = Client::connect(&socket).await.unwrap();
-        let target =
-            Target { name: "target".into(), ssh: String::new(), probed: Some(about_ok(None)) };
+        let about =
+            RemoteDaemon { socket: target_socket.to_string_lossy().into_owned(), ..about_ok(None) };
+        let target = Target { name: "target".into(), ssh: String::new(), probed: Some(about) };
         let mut targets =
             Targets::with_here("target", &json!({"peers": []}), Some(target)).unwrap();
         let args = MoveArgs {
@@ -365,6 +405,7 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             dry_run: true,
             resume_there: false,
             from: None,
+            slow_ok: false,
             from_snapshot: false,
         };
         let outcome = move_one(&client, "chat", &args, repo.path(), &mut targets).await;
@@ -379,6 +420,12 @@ async fn move_dry_run_reports_running_and_dirty_together_without_changing_the_ch
             assert_eq!(outcome.error.is_some(), expected.is_some());
         }
         server.await.unwrap();
+        if expected.is_none() && !detached {
+            target_server.await.expect("the planned dry run asked the target");
+        } else {
+            // Refused before a plan: the target was never reached.
+            target_server.abort();
+        }
     }
 }
 
@@ -459,7 +506,7 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     targets.observer = Some(observer);
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        targets.pick(&source, Path::new("/project"), 0),
+        targets.pick(&source, Path::new("/project"), 0, "claude", 0),
     )
     .await
     .expect("local placement answered");
@@ -467,6 +514,87 @@ async fn move_from_reads_placement_from_the_initiating_daemon() {
     local_server.await.unwrap();
     // Client owns a background reader; stop the fixture rather than wait for that task to close.
     remote_server.abort();
+}
+
+/// A host that lists its harnesses without the chat's is passed over for one that has it, with
+/// why; one that lists none (an older build) is still taken, and its receive decides.
+#[test]
+fn auto_passes_over_a_host_without_the_chats_harness() {
+    let with = |ids: Option<&[&str]>| RemoteDaemon {
+        harnesses: ids.map(|ids| ids.iter().map(|s| (*s).to_owned()).collect()),
+        ..about_ok(Some(100))
+    };
+    let w = walk(
+        &targets(&["fs-lane", "gcp-lane"]),
+        0,
+        "claude-sr2",
+        |_| 0,
+        |t| {
+            Ok(if t.name == "fs-lane" {
+                with(Some(&["claude"]))
+            } else {
+                with(Some(&["claude", "claude-sr2"]))
+            })
+        },
+    );
+    assert_eq!(w.pick.unwrap().name, "gcp-lane");
+    assert_eq!(w.skipped.len(), 1);
+    assert_eq!(w.skipped[0].0, "fs-lane");
+    assert!(
+        w.skipped[0].1.contains("agent \"claude-sr2\" is not configured there"),
+        "{:?}",
+        w.skipped
+    );
+    assert!(w.unreachable.is_empty(), "a missing harness is not an unreachable host");
+
+    let w = walk(&targets(&["old"]), 0, "claude-sr2", |_| 0, |_| Ok(with(None)));
+    assert_eq!(w.pick.unwrap().name, "old", "a host that lists no harnesses is not refused here");
+}
+
+/// The about script's fourth line is `acpmux harness list --json`: its ids are the harnesses.
+#[test]
+fn about_reads_the_targets_harness_ids() {
+    let out = "/home/cmux\n{\"socket\":\"/home/cmux/.acpmux/acpmux.sock\"}\n1024\n{\"diagnostics\":[],\"harnesses\":[{\"id\":\"claude\"},{\"id\":\"claude-sr2\"}]}\n";
+    let r = parse_about(out).unwrap();
+    assert_eq!(r.disk_free, Some(1024 * 1024));
+    assert_eq!(r.harnesses.as_deref(), Some(&["claude".to_owned(), "claude-sr2".to_owned()][..]));
+    assert!(r.lacks("claude-sr2").is_none());
+    assert!(r.lacks("codex").unwrap().contains("not configured there"));
+    let old = parse_about("/home/cmux\n{\"socket\":\"/s\"}\n1024\n").unwrap();
+    assert!(old.harnesses.is_none() && old.lacks("claude-sr2").is_none());
+}
+
+/// 2026-11-22: a 7 GB chat went to a host reached through a ~96 KB/s relay (about 6 h of copy)
+/// when another took about 1 MB/s. A host whose copy is estimated past `SLOW_COPY` is passed
+/// over, with why, for one that is not; when only slow hosts answer, the fastest is the pick
+/// (the move then refuses it without `--slow-ok`).
+#[test]
+fn auto_passes_over_a_host_whose_copy_takes_hours() {
+    let wire = super::link::wire_bytes(6_800_000_000);
+    let at = |rate: f64| RemoteDaemon {
+        rate: Some(rate),
+        copy_secs: Some(super::link::copy_secs(wire, rate)),
+        ..about_ok(Some(100))
+    };
+    let w = walk(
+        &targets(&["relayed", "direct"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Ok(at(if t.name == "relayed" { 96_000.0 } else { 1_000_000.0 })),
+    );
+    assert_eq!(w.pick.unwrap().name, "direct");
+    assert_eq!(w.skipped.len(), 1);
+    assert!(w.skipped[0].1.contains("96 KB/s"), "{:?}", w.skipped);
+    let w = walk(
+        &targets(&["slower", "slow"]),
+        0,
+        "claude",
+        |_| 0,
+        |t| Ok(at(if t.name == "slower" { 50_000.0 } else { 96_000.0 })),
+    );
+    assert_eq!(w.pick.unwrap().name, "slow");
+    assert!(w.warning.unwrap().contains("slow"));
 }
 
 #[test]
@@ -554,6 +682,7 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         interrupt: false,
         after_turn: true,
         turn_timeout: std::time::Duration::from_secs(1),
+        slow_ok: false,
         leave_dirty: false,
         carry_changes: false,
         cwd: Some("/srv/x".into()),
@@ -562,7 +691,8 @@ async fn after_turn_waits_at_most_its_timeout_and_names_the_chat_and_step() {
         from: None,
         from_snapshot: false,
     };
-    let e = match begin_waiting(&client, "chat", "Chat", None, &args, None).await {
+    let mut src = MoveEnd::new("source", &client, None);
+    let e = match begin_waiting(&mut src, "chat", "Chat", None, &args, None).await {
         Ok(_) => panic!("a turn that outlasts --timeout must not move"),
         Err(e) => format!("{e:#}"),
     };
@@ -846,19 +976,19 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     let client = Client::connect(&socket).await.unwrap();
     let poll = std::time::Duration::from_millis(250);
     let bound = std::time::Duration::from_secs(20);
-    let both = vec!["s1".to_owned(), "s2".to_owned()];
+    let both = vec![("t/s1".to_owned(), "s1".to_owned()), ("t/s2".to_owned(), "s2".to_owned())];
     let started = tokio::time::Instant::now();
     assert_eq!(await_arrival(&client, &both, bound, poll).await, vec![]);
     assert_eq!(started.elapsed(), 3 * poll, "one wait for both, ended when the last arrived");
     // A link that stays down: the wait ends at its bound and says why, per chat.
-    let one = vec!["s1".to_owned()];
+    let one = vec![("t/s1".to_owned(), "s1".to_owned())];
     let late = await_arrival(&client, &one, std::time::Duration::from_secs(1), poll).await;
     assert_eq!(late, vec![("s1".to_owned(), "peer reconnecting".to_owned())]);
     drop(client);
     let asked = server.await.unwrap();
     assert_eq!(
         asked[..4],
-        [json!(["s1", "s2"]), json!(["s1", "s2"]), json!(["s1"]), json!(["s1"])]
+        [json!(["t/s1", "t/s2"]), json!(["t/s1", "t/s2"]), json!(["t/s1"]), json!(["t/s1"])]
     );
     assert!((4 + 4..=4 + 5).contains(&asked.len()), "asked {} times", asked.len());
 
@@ -869,6 +999,11 @@ async fn a_move_ends_once_its_chats_are_listed_reachable_where_they_went() {
     assert_eq!(arrived(&one_row(false, "degraded"), "s1"), Ok(()));
     // Another chat's row says nothing of this one.
     assert_eq!(arrived(&one_row(false, "connected"), "s2"), Err("not listed here yet".to_owned()));
+    assert_eq!(arrived(&json!({"rows": [{"sessionId": "s1", "status": "idle"}]}), "s1"), Ok(()));
+    assert_eq!(
+        arrived(&json!({"rows": [{"sessionId": "s1", "status": "closed"}]}), "s1"),
+        Err("listed here as closed".to_owned())
+    );
 }
 
 fn outcome(name: &str, error: Option<&str>) -> Outcome {
@@ -884,6 +1019,8 @@ fn outcome(name: &str, error: Option<&str>) -> Outcome {
         error: error.map(str::to_owned),
         error_code: None,
         preflight: preflight::Preflight::default(),
+        arrival_key: None,
+        reachable: None,
     }
 }
 
