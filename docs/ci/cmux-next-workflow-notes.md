@@ -5002,17 +5002,3 @@ fleet_gateway() still keeps the job only with an idle gateway runner of its own,
 `queued` hands it back, which with the switch off waits on the owned route rather than a Blacksmith label
 no runner serves (side_lane_placement.handback()). `vars.CI_FAST_TIER_FLEET_SPILL` set to `0` turns the
 spill off; unset or any other value leaves it on.
-
-## note-556
-
-Above `app-compile-fleet: runs-on` in `.github/workflows/cmux-next.yml`.
-
-The compile check posts its result back instead of holding a runner that waits. The job compiles nothing
-itself: the controller's tip check compiles this head on the build fleet, and the job only reads its
-verdict (scripts/ci/fleet_compile_result.py) from the public results endpoint. The job's queued run asks
-the controller for that check by its name, so the check starts at once rather than in the background
-queue. Before, it held a gateway Mac mini for the whole wait and, with no verdict in 15 minutes, compiled
-the head a second time through the fleet client: 2026-11-23/24, 1,791 jobs and about 22,900 runner-minutes,
-a median of 13 minutes each, of only waiting. The check's name, its `verdict` output and its meaning stay
-the same: a pass, a compile red that fails the job, or no verdict in 40 minutes (`unavailable`), which
-fails the job too and leaves release-compile to run where mac_release sends it.
