@@ -1,6 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`. Turn rules: what a session is told at the start and the end
 //! of a turn, and when, from the person's own settings (`agents.turnRules`, an array, and the
-//! optional file `~/.config/cmux/turn-rules.json`, an array or `{"rules": [..]}`).
+//! optional file `turn-rules.json` beside the settings file, an array or `{"rules": [..]}`).
 //!
 //! Leo, 2026-11-24: "I feel like there are some times where like we can have conditional
 //! injections at starts and ends of turns, like not only for chief but also for Claude. And
@@ -243,7 +243,9 @@ fn rules_now(key: &str) -> Option<Vec<Rule>> {
         .and_then(|d| crate::user_settings::value(d, "agents.turnRules"))
         .map(|v| parse_rules(&v))
         .unwrap_or_default();
-    if let Some(path) = dirs::home_dir().map(|h| h.join(".config/cmux/turn-rules.json"))
+    // Beside the settings file, so a DEV build (its own settings file) reads its own rules.
+    if let Some(path) =
+        crate::user_settings::resolved_path().parent().map(|d| d.join("turn-rules.json"))
         && let Ok(text) = std::fs::read_to_string(path)
         && let Ok(v) = serde_json::from_str::<Value>(&text)
     {
