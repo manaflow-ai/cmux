@@ -57,6 +57,9 @@ final class PaletteFooterView: NSView {
         actionsKeys.keycaps = ["⇥"]
         actionsLabel.stringValue = PaletteStrings.actions
         divider.wantsLayer = true
+        // The primary action and Actions are quiet pills, as in Arc/Dia-style palettes; no divider between them.
+        primaryButton.fillsBackground = true
+        actionsButton.fillsBackground = true
         primaryButton.onClick = { [weak self] in self?.onPrimary?() }
         actionsButton.onClick = { [weak self] in self?.onActions?() }
         primaryButton.addSubview(primaryLabel)
@@ -80,7 +83,7 @@ final class PaletteFooterView: NSView {
         pageLabel.stringValue = pageTitle
         primaryLabel.stringValue = primaryTitle ?? ""
         primaryButton.isHidden = primaryTitle == nil
-        divider.isHidden = primaryTitle == nil
+        divider.isHidden = true
         actionsButton.alphaValue = actionsEnabled ? 1 : 0.4
         needsLayout = true
     }
@@ -103,11 +106,7 @@ final class PaletteFooterView: NSView {
         var right = bounds.maxX - padding
         right = layoutButton(actionsButton, label: actionsLabel, keys: actionsKeys, right: right)
         if !primaryButton.isHidden {
-            right -= Metrics.space4
-            let dividerHeight = Metrics.iconSize
-            divider.frame = NSRect(x: right - Metrics.dividerThickness, y: midY - dividerHeight / 2,
-                                   width: Metrics.dividerThickness, height: dividerHeight)
-            right -= Metrics.dividerThickness + Metrics.space4
+            right -= Metrics.space3
             right = layoutButton(primaryButton, label: primaryLabel, keys: primaryKeys, right: right)
         }
         if !closeButton.isHidden {
@@ -161,16 +160,17 @@ final class PaletteFooterView: NSView {
         let midY = bounds.midY
         let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: PaletteText.height(label))
         let keySize = keys.intrinsicContentSize
-        let width = labelSize.width + Metrics.space3 + keySize.width
+        let inset = (button as? PaletteClickView)?.fillsBackground == true ? Metrics.space3 : 0
+        let width = inset + labelSize.width + Metrics.space3 + keySize.width + inset / 2
         let labelY = PaletteText.capCenteredY(label, height: labelSize.height, midY: midY)
         let keysY = midY - keySize.height / 2
-        let minY = min(labelY, keysY)
-        let maxY = max(labelY + labelSize.height, keysY + keySize.height)
+        let minY = min(labelY, keysY) - inset / 2
+        let maxY = max(labelY + labelSize.height, keysY + keySize.height) + inset / 2
         button.frame = backingAlignedRect(NSRect(x: right - width, y: minY, width: width, height: maxY - minY),
                                           options: [.alignMinXNearest, .alignWidthNearest, .alignMinYOutward, .alignMaxYOutward])
         let bottom = button.frame.minY
-        label.frame = button.pixelAligned(NSRect(x: 0, y: labelY - bottom, width: labelSize.width, height: labelSize.height))
-        keys.frame = button.pixelAligned(NSRect(x: labelSize.width + Metrics.space3, y: keysY - bottom,
+        label.frame = button.pixelAligned(NSRect(x: inset, y: labelY - bottom, width: labelSize.width, height: labelSize.height))
+        keys.frame = button.pixelAligned(NSRect(x: inset + labelSize.width + Metrics.space3, y: keysY - bottom,
                                                 width: keySize.width, height: keySize.height))
         return button.frame.minX
     }

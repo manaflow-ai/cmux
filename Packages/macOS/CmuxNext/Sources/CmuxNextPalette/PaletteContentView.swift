@@ -169,9 +169,9 @@ final class PaletteContentView: NSView {
             tokens: model.pageTokens
         )
         footer.update(
-            pageTitle: model.prefixHints ?? model.pageTitle,
-            // The scope hints ("@ Tabs  # Workspaces …") draw without the page's ⌘ icon, which read as a key held
-            // with them (Leo 2026-11-22: "not even properly depicting the keys"), and keep its room for the hints.
+            // The empty root's footer stays quiet: no scope hint strip ("@ Tabs  # Workspaces …"), which read as a
+            // wall of text (Lawrence 2026-11-23); the prefixes still work when typed.
+            pageTitle: model.prefixHints == nil ? model.pageTitle : "",
             pageSymbol: model.prefixHints == nil ? model.pageSymbol : "",
             primaryTitle: model.primaryTitle,
             actionsEnabled: model.selectedItem?.isEnabled == true,
