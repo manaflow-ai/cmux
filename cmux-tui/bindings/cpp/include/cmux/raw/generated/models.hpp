@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "63518ffba76b2ddd0d4fab09c0686215b904cab4683daf8d203c07e71d2f4e11";
+inline constexpr std::string_view kProtocolIrSha256 = "005a276467f3138d99565db25d3341637ad3eda08fb30f0ea8e8a6fd264b4726";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -195,6 +195,7 @@ struct ServerStatsResult;
 struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
+struct SetClientInfoResult;
 struct SetHostSizePolicyResult;
 struct SetSizeCountsResult;
 struct SetSizePolicyResult;
@@ -3548,6 +3549,7 @@ struct MachinePlatform {
 
 struct IdentifyResult {
     Field<std::uint32_t> api_revision{};
+    Field<std::string> api_version{};
     Field<std::string> build_commit{};
     Field<std::string> build_id{};
     Field<std::uint64_t> build_time{};
@@ -3566,6 +3568,7 @@ struct IdentifyResult {
     std::optional<MachinePlatform> machine_platform{};
     std::optional<std::string> machine_symbol{};
     Field<std::uint32_t> min_api_revision{};
+    Field<std::string> min_api_version{};
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
@@ -5613,6 +5616,7 @@ struct SetCellPixelsResult {
 
 struct SetClientInfoRequest {
     Field<std::uint32_t> api_revision{};
+    Field<std::string> api_version{};
     Field<std::vector<std::string>> capabilities{};
     Field<std::string> device_id{};
     Field<std::string> device_kind{};
@@ -5625,6 +5629,12 @@ struct SetClientInfoRequest {
     Field<std::string> user_id{};
     Field<std::string> version{};
     friend bool operator==(const SetClientInfoRequest&, const SetClientInfoRequest&) = default;
+};
+
+struct SetClientInfoResult {
+    std::optional<std::uint32_t> api_revision{};
+    std::optional<std::string> api_version{};
+    friend bool operator==(const SetClientInfoResult&, const SetClientInfoResult&) = default;
 };
 
 struct SetClientSizingRequest {
@@ -7875,6 +7885,12 @@ template <>
 struct Codec<SetCellPixelsResult> {
     static Result<Json> encode(const SetCellPixelsResult& value);
     static Result<SetCellPixelsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetClientInfoResult> {
+    static Result<Json> encode(const SetClientInfoResult& value);
+    static Result<SetClientInfoResult> decode(const Json& value);
 };
 
 template <>
