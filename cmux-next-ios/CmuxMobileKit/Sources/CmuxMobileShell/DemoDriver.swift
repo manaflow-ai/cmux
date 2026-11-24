@@ -68,8 +68,8 @@ struct DemoDriver {
             shell.tab = .workspaces
             shell.store.teamDataState = .failed
         // The first-load hand-off (#48907, #48947; WorkspacesLaunchStatesUITests): the team loads,
-        // then the Macs are known and their lists still on the way, then the rows arrive, 2.5 s
-        // each, so the placeholder rows must stay on screen from the first phase to the rows.
+        // then the Macs are known and their lists still on the way, then an offline Mac's line, then
+        // the rows, 2.5 s each, so the placeholder rows must stay on screen from the first phase to the rows.
         case "retry-first-launch-handoff":
             shell.tab = .workspaces
             let store = shell.store
@@ -89,6 +89,11 @@ struct DemoDriver {
             store.tracksMacData = true
             store.teams = teams
             store.teamDataState = .loaded
+            try? await Task.sleep(for: .seconds(2.5))
+            // The Mac line (#48947): an offline Mac's rows arrive first, folded under its line, while
+            // the online Mac's list still loads, so the list's own loading rows take over from the page's.
+            let offline = Set(teams.flatMap(\.macs).filter { !$0.isOnline }.map(\.id))
+            store.workspaces = rows.filter { offline.contains($0.macID) }
             try? await Task.sleep(for: .seconds(2.5))
             store.workspaces = rows
             for id in macIDs {
