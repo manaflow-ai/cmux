@@ -11,3 +11,11 @@
 .acpmux-live-count > svg {
   flex: none;
 }
+/* A quiet state's word (StateMark.tsx): kept for screen readers, not drawn. */
+.acpmux-state-mark--quiet {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
+}

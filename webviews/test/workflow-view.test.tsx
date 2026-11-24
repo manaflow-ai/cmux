@@ -218,7 +218,8 @@ test("the card names every running phase, counts done and running, shows one clo
     <WorkflowCard node={{ ...node!, endedAt: node!.startedAt + 25 * 60_000 + 14_000 }} />,
   );
   const shown = text(html);
-  expect(shown).toContain("Running 2 done · 5 25m 14s 757.3K tokens");
+  // Running is its spinner, no word (Leo, 2026-11-23: ""running" doesn't need text").
+  expect(shown).toContain("2 done · 5 25m 14s 757.3K tokens");
   // Its last row names both running phases, then the workflow's model.
   expect(shown).toContain("Latency, Swarm research Opus 5.5");
   // Its latest line names the agent it is from: the one most recently active.

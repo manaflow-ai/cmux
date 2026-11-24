@@ -8,6 +8,7 @@ import { useMemo, useSyncExternalStore } from "react";
 import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { StateMark } from "./StateMark";
 import { rowIconSize } from "../icons/iconSize";
 import { useNow } from "../subagents/subagentGroupModel";
 import type { Subagent } from "../subagents/subagentFold";
@@ -108,7 +109,7 @@ export function WorkflowCard({
           <Icon name="disclosure.collapsed" size={ROW_ICON} row />
         </span>
         <span className="acpmux-workflow-card__meta">
-          <span>{localizedState(t, workflow.state)}</span>
+          <StateMark state={workflow.state} label={localizedState(t, workflow.state)} mark />
           {/* The selected card names its running phases on its last row, where they have room. */}
           {presentation !== "selected" && phaseNames.length > 0 && (
             <span className="acpmux-workflow-card__running">{listNames(phaseNames, language)}</span>

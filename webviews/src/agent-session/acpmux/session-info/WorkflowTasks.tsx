@@ -44,6 +44,7 @@ import "./sessionInfo.css";
 import "./WorkflowTasks.css";
 import "../summary/workflowDots.css";
 import { WindowedRows } from "./WindowedRows";
+import { StateMark } from "../summary/StateMark";
 import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
@@ -505,7 +506,7 @@ export function WorkflowAgentRow({
         </span>
         {message && <span className="acpmux-workflow-agent__doing">{message}</span>}
       </span>
-      <span className="acpmux-workflow-agent__state">{state}</span>
+      <StateMark className="acpmux-workflow-agent__state" state={agent.state} label={state} />
       <span className="acpmux-session-info-task__time">{time}</span>
     </>
   );

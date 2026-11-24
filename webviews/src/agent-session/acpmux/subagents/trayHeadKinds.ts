@@ -83,8 +83,9 @@ export function trayHead(
     else agents += 1;
   }
   const parts: (string | false)[] = [
-    working ? agents > 0 && t("subagents.count", { n: agents }) : items.length > 0 && t("bgWork.running"),
-    !working && agents > 0 && t("subagents.count", { n: agents }),
+    // Between turns too, the work is counted, never headed "Running in background" (Leo, 2026-11-23:
+    // "there's no point in even saying it's running").
+    agents > 0 && t("subagents.count", { n: agents }),
     sessions > 0 && t("turn.working.sessions", { n: sessions }),
     waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
     ...(arm === "running"
