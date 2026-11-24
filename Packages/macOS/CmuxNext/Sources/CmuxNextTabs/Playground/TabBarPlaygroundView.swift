@@ -16,7 +16,7 @@ public final class TabBarPlaygroundView: NSView {
     private let stack = NSStackView()
     private static let tabCounts = [10, 26, 50]
     private var section = TabBarPlaygroundSection.crowdedTabs
-    private var tabCount = 26
+    private var tabCount = 10
 
     override public init(frame: NSRect) {
         super.init(frame: frame)
