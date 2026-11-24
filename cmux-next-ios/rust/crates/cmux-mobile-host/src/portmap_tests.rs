@@ -5,6 +5,10 @@ use super::*;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 
+/// The tests that hold mappings share the process-wide live set that
+/// `release_all` drains: one at a time.
+static LIVE_SET: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 const PUBLIC: Ipv4Addr = Ipv4Addr::new(203, 0, 113, 7);
 const LOOPBACK: Ipv4Addr = Ipv4Addr::LOCALHOST;
 
@@ -213,6 +217,7 @@ async fn next_matching(rx: &mut mpsc::UnboundedReceiver<Asked>, wanted: impl Fn(
 
 #[tokio::test]
 async fn pcp_maps_first_and_deletes_on_drop() {
+    let _one_at_a_time = LIVE_SET.lock().await;
     let (port, mut asked) = fake_pmp(Speaks { pcp: true, natpmp: true, external: PUBLIC }).await;
     let (_quiet, ssdp) = silent().await;
     let mapper = HostMapper::with_router(move || Some(router(port, ssdp)));
@@ -230,6 +235,7 @@ async fn pcp_maps_first_and_deletes_on_drop() {
 
 #[tokio::test]
 async fn natpmp_answers_when_pcp_does_not_and_is_asked_first_next_time() {
+    let _one_at_a_time = LIVE_SET.lock().await;
     let (port, mut asked) = fake_pmp(Speaks { pcp: false, natpmp: true, external: PUBLIC }).await;
     let (_quiet, ssdp) = silent().await;
     let mapper = HostMapper::with_router(move || Some(router(port, ssdp)));
@@ -252,6 +258,7 @@ async fn natpmp_answers_when_pcp_does_not_and_is_asked_first_next_time() {
 
 #[tokio::test]
 async fn upnp_igd_maps_when_the_router_speaks_neither() {
+    let _one_at_a_time = LIVE_SET.lock().await;
     let (_quiet, pmp) = silent().await;
     let (ssdp, mut asked) = fake_igd(None).await;
     let mapper = HostMapper::with_router(move || Some(router(pmp.port(), ssdp)));
@@ -276,6 +283,7 @@ async fn upnp_igd_maps_when_the_router_speaks_neither() {
 
 #[tokio::test]
 async fn upnp_takes_a_permanent_lease_when_the_router_refuses_a_timed_one() {
+    let _one_at_a_time = LIVE_SET.lock().await;
     let (_quiet, pmp) = silent().await;
     let (ssdp, _asked) = fake_igd(Some("725")).await;
     let mapper = HostMapper::with_router(move || Some(router(pmp.port(), ssdp)));
@@ -285,6 +293,7 @@ async fn upnp_takes_a_permanent_lease_when_the_router_refuses_a_timed_one() {
 
 #[tokio::test]
 async fn a_router_that_maps_nothing_is_not_asked_again() {
+    let _one_at_a_time = LIVE_SET.lock().await;
     let (_pmp_socket, pmp) = silent().await;
     let (_ssdp_socket, ssdp) = silent().await;
     let mapper = HostMapper::with_router(move || Some(router(pmp.port(), ssdp)));
@@ -304,6 +313,7 @@ async fn a_router_that_maps_nothing_is_not_asked_again() {
 
 #[tokio::test]
 async fn a_mapping_to_a_private_or_cgnat_address_is_not_offered_and_is_deleted() {
+    let _one_at_a_time = LIVE_SET.lock().await;
     for external in [Ipv4Addr::new(100, 72, 0, 5), Ipv4Addr::new(192, 168, 0, 2)] {
         let (port, mut asked) = fake_pmp(Speaks { pcp: true, natpmp: false, external }).await;
         let (_quiet, ssdp) = silent().await;
@@ -316,6 +326,7 @@ async fn a_mapping_to_a_private_or_cgnat_address_is_not_offered_and_is_deleted()
 
 #[tokio::test]
 async fn release_all_deletes_live_mappings_at_exit() {
+    let _one_at_a_time = LIVE_SET.lock().await;
     let (port, mut asked) = fake_pmp(Speaks { pcp: true, natpmp: false, external: PUBLIC }).await;
     let (_quiet, ssdp) = silent().await;
     let mapper = HostMapper::with_router(move || Some(router(port, ssdp)));

@@ -1094,8 +1094,6 @@ pub async fn roam_session(session_id: &str, dialer: bool) -> Option<Timeline> {
     Some(session.roam().await)
 }
 
-/// Test support: the endpoints one side of `session_id` last told its peer.
-#[doc(hidden)]
 /// How a dialer's session uses its peer's router mapping now: the protocol
 /// that mapped the peer's offered endpoint, and whether the plain-UDP route
 /// goes to it (`link_stat` `portmap`). `None`: no such session, or the peer
@@ -1106,6 +1104,8 @@ pub fn portmap_use(session_id: &str) -> Option<portmap::PortmapUse> {
     lock(&session.peer_mapped).use_by(route)
 }
 
+/// Test support: the endpoints one side of `session_id` last told its peer.
+#[doc(hidden)]
 pub fn session_endpoints(session_id: &str, dialer: bool) -> Option<Vec<String>> {
     find(session_id, dialer).map(|session| lock(&session.endpoints).clone())
 }
