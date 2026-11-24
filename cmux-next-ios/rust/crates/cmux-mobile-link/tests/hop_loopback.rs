@@ -119,6 +119,23 @@ async fn echo(legacy_mac: bool) {
         }
     }
     assert_eq!(echoed, payload);
+    if !legacy_mac {
+        // Keep the same application channel across a change of outer socket
+        // on each endpoint. The phone re-BINDs its ticket to the allocation.
+        for dialer in [true, false] {
+            wireguard::roam_session(&connected.session_id, dialer).await.expect("live session");
+            let marker = if dialer { "phone roamed" } else { "host roamed" };
+            channel.send(Bytes::from_static(marker.as_bytes())).await.unwrap();
+            let mut reply = Vec::new();
+            while reply.len() < marker.len() {
+                let Some(ChannelEvent::Data(bytes)) = channel.recv().await else {
+                    panic!("channel lost on roam")
+                };
+                reply.extend_from_slice(&bytes);
+            }
+            assert_eq!(reply, marker.as_bytes());
+        }
+    }
     assert_eq!(*connected.path.borrow(), LinkPath::Hop);
     assert_eq!(*mac_path.borrow(), if legacy_mac { LinkPath::Turn } else { LinkPath::Hop });
     let (delivered, dropped) = shaped_counts();
