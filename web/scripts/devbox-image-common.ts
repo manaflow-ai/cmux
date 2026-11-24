@@ -1775,7 +1775,8 @@ export function manifestEntryEpoch(entry: Pick<DevboxManifestEntry, "epoch" | "n
  * merge under a lock) and b5f75830c15f (agent-config.sh bounds that lock's
  * wait), again with the cmux-machine-health install (the bake steps and
  * the boot script's HOUSEKEEPING_TIMERS), and again with cmux-vm-kind-sync's
- * write-only-a-fetched-kind lock and the boot's clone-reset fallback, so
+ * write-only-a-fetched-kind lock and the boot's clone-reset fallback, and
+ * again with the bake's cmux-tui taken from its signed release file, so
  * `current` is their digest. The entries live in
  * services/vms/images/awaiting-rebake.json.
  */

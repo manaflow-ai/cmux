@@ -202,7 +202,7 @@ async fn closed_summary_cache_matches_uncached_after_every_mutation() {
     hub.update_live_session_index(&child);
     hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
 
-    hub.set_status(&parent, SessionStatus::Closed);
+    hub.set_status(&parent, NotWaiting::Closed);
     cached_rows_equal_uncached(&hub); // close and the parent's folded child preview
 
     // A list build followed by the full form keeps both serialized rows coherent.
@@ -274,12 +274,12 @@ async fn closed_summary_cache_matches_uncached_after_every_mutation() {
     });
     cached_rows_equal_uncached(&hub); // concurrent metadata writers
 
-    hub.set_status(&child, SessionStatus::Closed); // child count/fold changes
+    hub.set_status(&child, NotWaiting::Closed); // child count/fold changes
     cached_rows_equal_uncached(&hub);
 
     assert!(hub.reopen(&parent, parent.stops.load(Ordering::SeqCst))); // reopen
     cached_rows_equal_uncached(&hub);
-    hub.set_status(&parent, SessionStatus::Closed);
+    hub.set_status(&parent, NotWaiting::Closed);
     cached_rows_equal_uncached(&hub);
 
     // A purge removes the serialized row even when a late metadata writer runs afterward.
@@ -467,7 +467,7 @@ async fn a_one_chat_change_rebuilds_only_its_own_closed_row() {
     let child = hub.insert_test_session(child);
     hub.subsessions.note_status(&parent.id, &child.id, SessionStatus::Ready);
     cached_rows_equal_uncached(&hub);
-    hub.set_status(&child, SessionStatus::Closed);
+    hub.set_status(&child, NotWaiting::Closed);
     cached_rows_equal_uncached(&hub);
 
     // Archiving a parent folds its children no more: their rows change with its tags.

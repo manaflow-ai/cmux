@@ -13,10 +13,10 @@ const sheet = (name: string) => fs.readFileSync(path.join(acpmux, name), "utf8")
 describe("agent pane menu highlight", () => {
   const styles = sheet("styles.css");
 
-  test("the highlight token is the native themed menu's: the accent at 20%, on :root", () => {
+  test("the highlight token is the native themed menu's: the accent at 20%, on :root, unless a look sets --menu-hover-fill", () => {
     // :root, not .acpmux-shell or .ui-positioner: the context menu portals into document.body.
     expect(styles).toContain(
-      ":root{--acpmux-menu-highlight:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 20%,transparent)}",
+      ":root{--acpmux-menu-highlight:var(--menu-hover-fill,color-mix(in srgb,var(--agent-accent,var(--agent-text)) 20%,transparent))}",
     );
   });
 

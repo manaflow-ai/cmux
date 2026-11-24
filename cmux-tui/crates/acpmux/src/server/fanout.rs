@@ -36,7 +36,7 @@ impl Flush {
     }
 }
 
-fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+pub(super) fn send_event(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     // A record a catch-up after a lap already sent goes no second time (`stream_cursor.rs`).
     if ev.remote.is_none() && !conn.stream_cursors.advance(&ev.session_id, ev.record.seq) {
         return;
@@ -54,11 +54,13 @@ async fn lapped(hub: &Arc<Hub>, conn: &Arc<Conn>, dropped: u64) {
     super::stream_cursor::catch_up(hub, conn, deliver_once).await;
 }
 
-fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
+pub(super) fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::HubEvent) {
     // Agent output shows nothing acknowledged: it raises no gate (`durable_gate.rs`).
     let _stream = durable_gate::stream_scope(&ev.record);
     #[cfg(test)]
     tests::panic_if_marked(&ev.session_id);
+    #[cfg(test)]
+    tests::count_wake(conn);
     let row = ev.row.clone();
     deliver(hub, conn, ev);
     // Queued what this connection owes for it: the last connection to get here times the
@@ -71,15 +73,14 @@ pub(super) fn start(
     conn: Arc<Conn>,
     mut flushes: mpsc::UnboundedReceiver<oneshot::Sender<()>>,
 ) -> tokio::task::JoinHandle<()> {
-    let (mut rx, seat) = hub.subscribe_fanout();
+    // Only the events routed to this connection (`interest.rs`), in broadcast order.
+    let rx = conn.interest.inbox.clone();
     let mut harnesses = hub.subscribe_harness_changes();
     let mut peer_states = hub.peer_states().subscribe();
     let mut catalog = hub.catalog.subscribe();
     let mut inventory = hub.health.inventory_changes();
     let mut presence = hub.presence.subscribe();
     tokio::spawn(async move {
-        // Counted in each event's fan-out until this task ends.
-        let _seat = seat;
         loop {
             let ev = tokio::select! {
                 ev = rx.recv() => ev,
@@ -87,7 +88,7 @@ pub(super) fn start(
                 Some(done) = flushes.recv() => {
                     loop {
                         match rx.try_recv() {
-                            Ok(ev) => send_event(&hub, &conn, ev),
+                            Ok(ev) => super::follow::event(&hub, &conn, ev).await,
                             Err(broadcast::error::TryRecvError::Lagged(n)) => {
                                 lapped(&hub, &conn, n).await
                             }
@@ -159,7 +160,7 @@ pub(super) fn start(
                 }
             };
             match ev {
-                Ok(ev) => send_event(&hub, &conn, ev),
+                Ok(ev) => super::follow::event(&hub, &conn, ev).await,
                 Err(broadcast::error::RecvError::Lagged(n)) => lapped(&hub, &conn, n).await,
                 Err(broadcast::error::RecvError::Closed) => break,
             }
@@ -217,5 +218,25 @@ pub(super) mod tests {
         if session.starts_with(PANIC_PREFIX) {
             panic!("fan-out test panic for {session}");
         }
+    }
+
+    /// A connection named with this prefix (its `initialize` `clientInfo.name`) has the hub
+    /// events its fan-out task woke for counted under that name (`fanout_interest_tests.rs`). A
+    /// name is one test's own, so parallel tests never read each other's counts.
+    pub(in crate::server) const WAKE_PREFIX: &str = "fanout-wake-";
+
+    static WAKES: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, u64>>> =
+        std::sync::LazyLock::new(Default::default);
+
+    pub(super) fn count_wake(conn: &super::Conn) {
+        let name = conn.name.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if name.starts_with(WAKE_PREFIX) {
+            *WAKES.lock().unwrap_or_else(|e| e.into_inner()).entry(name).or_default() += 1;
+        }
+    }
+
+    /// Hub events the fan-out of the connection named `name` woke for.
+    pub(in crate::server) fn wakes(name: &str) -> u64 {
+        WAKES.lock().unwrap_or_else(|e| e.into_inner()).get(name).copied().unwrap_or(0)
     }
 }

@@ -116,6 +116,12 @@ fn native(root: &Path, name: &str, acpmux: &Path, state: Option<&Path>) -> Machi
     let dir = root.join(name);
     fs::create_dir_all(dir.join("acpmux")).unwrap();
     fs::write(dir.join("acpmux/config.json"), "{\"harnesses\":{}}").unwrap();
+    // acpmux refuses a config another user can write; a 002 umask (Ubuntu's default) gives 664.
+    std::fs::set_permissions(
+        dir.join("acpmux/config.json"),
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+    )
+    .unwrap();
     let mut machine = Machine {
         socket: dir.join("mux.sock"),
         session: format!("owner-job-{name}"),

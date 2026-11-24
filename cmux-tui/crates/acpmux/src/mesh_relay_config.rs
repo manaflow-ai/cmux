@@ -66,6 +66,12 @@ fn is_on(on: &bool) -> bool {
     *on
 }
 
+/// The control op that moves a chat here from another of the person's machines
+/// (`hub/transfer_pull.rs`). Off unless an entry's `ops` lists it.
+pub const MOVE_OP: &str = "move";
+/// The control op that gives up a move a source's watch ended (`transfer_forget` here).
+pub const MOVE_FORGET_OP: &str = "move_forget";
+
 fn lifecycle_ops() -> Vec<String> {
     ["start", "resume", "stop"].map(str::to_owned).to_vec()
 }
@@ -81,6 +87,11 @@ impl MeshControlFrom {
     /// person this machine recorded at join, if any. A `read` (one page of a session, nothing
     /// changed) is granted to a sender this entry trusts with any lifecycle op, or one that lists
     /// `read`; an explicit empty list grants nothing.
+    ///
+    /// A move (`move`, and `move_forget`, which ends one) is granted only by an entry that lists
+    /// `move` itself, never by the lifecycle default or `read`, and only through `sameUser`: a
+    /// chat moves between the person's own machines alone (`hub/transfer_pull.rs`). It also
+    /// needs the sender's hub-stamped daemon id, which the target dials back for the pages.
     pub fn allows(&self, from: &crate::mesh::Sender, own_user: Option<&str>, op: &str) -> bool {
         let granted = match op {
             "start" | "resume" | "stop" => self.ops.iter().any(|allowed| allowed == op),
@@ -88,6 +99,7 @@ impl MeshControlFrom {
                 .ops
                 .iter()
                 .any(|allowed| matches!(allowed.as_str(), "start" | "resume" | "stop" | "read")),
+            MOVE_OP | MOVE_FORGET_OP => self.ops.iter().any(|allowed| allowed == MOVE_OP),
             _ => false,
         };
         if !granted {
@@ -100,6 +112,9 @@ impl MeshControlFrom {
             .is_some_and(|id| present(from.daemon_id.as_deref()) == Some(id));
         let by_user = self.same_user
             && present(own_user).is_some_and(|own| present(from.user.as_deref()) == Some(own));
+        if matches!(op, MOVE_OP | MOVE_FORGET_OP) {
+            return by_user && present(from.daemon_id.as_deref()).is_some();
+        }
         by_daemon || by_user
     }
 }

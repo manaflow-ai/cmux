@@ -1,5 +1,6 @@
 // l10n-allow-file: benchmark diagnostics, not shipped UI.
 import type { Frame, Page } from "playwright";
+import { waitForPageHook, watchPageErrors } from "./support/benchPage";
 
 type Surface = Page | Frame;
 type LoadReceipt = {
@@ -16,8 +17,10 @@ type LoadReceipt = {
 const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
 const quantile = (xs: number[], q: number) => [...xs].sort((a, b) => a - b)[Math.round((xs.length - 1) * q)] ?? null;
 
-export async function seedComposer(surface: Surface, turns: number) {
-  await surface.waitForFunction(() => "cmuxAcpmuxDebug" in window, null, { timeout: 60_000 });
+export async function seedComposer(surface: Surface, turns: number, errors?: string[]) {
+  // Not a bare waitForFunction: a page that threw while it mounted installs no hook, and the wait
+  // then reads as `Timeout ... log: []` with nothing to point at (bench/support/benchPage.ts).
+  await waitForPageHook(surface, "cmuxAcpmuxDebug", { timeout: 60_000, errors });
   const receipt = await surface.evaluate(
     (count) => (window as any).cmuxAcpmuxDebug.loadSeed(count, { light: true }),
     turns,
@@ -49,14 +52,24 @@ export async function runComposerLoad(
     gap: number;
     stream: number;
     toolLines: number;
+    /// Around the typed keys only (a CPU profile of the window the keys wait in, not the setup).
+    typing?: { start(): Promise<void>; stop(): Promise<void> };
   },
 ) {
   const { port, mode, length, keys, gap } = options;
-  await page.goto(`http://127.0.0.1:${port}/?mock`);
+  // Named apart from the acceptance `errors` list below: these are the page's own thrown/console errors,
+  // collected from the goto onward so a pane that never installs its hook reports what it held instead.
+  const pageErrors = watchPageErrors(page);
+  const response = await page.goto(`http://127.0.0.1:${port}/?mock`);
+  const status = response?.status();
+  // A static server that answers `/` with a 404 body loads as a page: without this the bench waits
+  // 60 s for hooks that page could never install (bench/support/benchPage.ts gotoBenchPage).
+  if (status !== undefined && status >= 400)
+    throw new Error(`runComposerLoad: http://127.0.0.1:${port}/?mock answered ${status}; the pane page is not there`);
   // A light turn reduces to prompt, reply and turnSummary (direct.ts turn_result).
   // Always report/check the actual model count too; the old fixture comment omits the summary.
   const requestedRows = mode === "L3" ? 100000 : length;
-  const seed = await seedComposer(page, Math.ceil(requestedRows / 3));
+  const seed = await seedComposer(page, Math.ceil(requestedRows / 3), pageErrors);
   const rows = seed.rows;
   // L3's receipt, taken before any key: the model reports the full total and its own readiness.
   // The mounted window is diagnostic only; a paged transcript may not hold the newest row locally.
@@ -164,6 +177,7 @@ export async function runComposerLoad(
   const clocksBefore = await readClocks(page, loads);
   const expected = Array.from({ length: keys }, (_, i) => "abcdefghijklmnopqrstuvwxyz"[i % 26]).join("");
   const late: number[] = [];
+  await options.typing?.start();
   const started = performance.now();
   for (let i = 0; i < keys; i++) {
     const due = started + i * gap;
@@ -175,6 +189,7 @@ export async function runComposerLoad(
   await page.evaluate(
     () => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))),
   );
+  await options.typing?.stop();
   const result = await page.evaluate(() => {
     const debug = (window as any).cmuxAcpmuxDebug;
     return { typing: debug.typingStats(), renders: debug.renders(), watch: (window as any).__finishTypingWatch() };

@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextPages
 import CmuxNextWakeups
 
 /// Display frames for ``AgentPaneFramePacer`` (the window's ``FrameScheduler``; a fake in tests).
@@ -111,18 +112,38 @@ import CmuxNextWakeups
     }
 
     /// Whether `view`'s page is hidden to its own document: out of a window, hidden, or its window minimized, not
-    /// shown or on another Space. A covered window's pages stay visible to the document
-    /// (``ChromiumPageWindowVisibility``), and such a page checks that its stream flows (direct.ts `quietCheck`), so
-    /// its stream must still come: only a page that knows it is hidden goes without it.
+    /// shown or on another Space, or parked off screen (``parkedAway(_:)``). A covered window's pages stay visible to
+    /// the document (``ChromiumPageWindowVisibility``), and such a page checks that its stream flows (direct.ts
+    /// `quietCheck`), so its stream must still come: only a page that knows it is hidden goes without it. A parked
+    /// page is told by the host instead: the first record left out comes as the `host_hidden` start marker, and the
+    /// page's stall checks stand down on it (direct.ts `hostHidden`).
     static func pageHidden(_ view: NSView) -> Bool {
         guard let window = view.window else { return true }
         return view.isHiddenOrHasHiddenAncestor || window.isMiniaturized || !window.isVisible || !window.isOnActiveSpace
+            || parkedAway(view)
     }
 
-    /// Whether nobody can see `view`: out of a window, hidden, or its window covered or minimized.
+    /// Whether nobody can see `view`: out of a window, hidden, its window covered or minimized, or parked off screen
+    /// (``parkedAway(_:)``).
     static func nobodySees(_ view: NSView) -> Bool {
         guard let window = view.window else { return true }
-        return view.isHiddenOrHasHiddenAncestor || !window.occlusionState.contains(.visible)
+        return view.isHiddenOrHasHiddenAncestor || !window.occlusionState.contains(.visible) || parkedAway(view)
+    }
+
+    /// Whether `view` waits off screen in its window, drawn but shown to nobody: a chat whose pane switched away
+    /// (``AgentPageDrawnParking``), a closed chat kept for Reopen (``AgentPageRetirer``), the New Tab spare. Such a
+    /// page is in a window, not hidden, and its window is in sight, so it read as seen and got its chat's whole
+    /// stream and every other chat's row on the renderer's one JavaScript thread (Leo: "Why should non visible thing
+    /// even affect the renderer thread anyways?"). A page drawing its first frame before it shows
+    /// (``AgentPaneView/paintParkingID``) is about to be seen and keeps its stream.
+    static func parkedAway(_ view: NSView) -> Bool {
+        if (view as? AgentPaneView)?.page?.isDrawnAway == true { return true }
+        var ancestor = view.superview
+        while let current = ancestor {
+            if current is PageOffscreenParking { return current.identifier != AgentPaneView.paintParkingID }
+            ancestor = current.superview
+        }
+        return false
     }
 
     public func schedule(_ flush: @escaping @MainActor @Sendable () -> AgentPaneFlush) {
