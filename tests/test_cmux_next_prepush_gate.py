@@ -193,7 +193,9 @@ class PrePushGateTests(unittest.TestCase):
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith("GIT_") and key not in AGENT_VARS}
         self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=str(self.global_config),
-                        HOME=str(self.root), CMUX_LINT_TOOLS_DIR=str(TOOLS))
+                        HOME=str(self.root), CMUX_LINT_TOOLS_DIR=str(TOOLS),
+                        # An idle host for the hook: on a loaded one it leaves the CI layers to CI (--defer-ci-layers).
+                        CMUX_PREPUSH_LOAD_FOR_TEST="0")
         git_fixture_env.without_auto_maintenance(self.env)
 
         git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
@@ -222,6 +224,9 @@ class PrePushGateTests(unittest.TestCase):
             "scripts/ci/workflow_job_bounds.py",
             "scripts/ci/github_release_download.py",
             "scripts/ci/deadline_http.py",
+            # The generated-file check the gate runs (GENERATED_CHECK) and the helper it imports from beside itself.
+            "scripts/ci/generated_files_guard.py",
+            "scripts/ci/ci_process_tree.py",
             "scripts/web-lint.sh",
             "scripts/merge-xcstrings.py",
             "scripts/merge-pbxproj.py",
@@ -574,8 +579,9 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("2 own commit(s)", output)
 
     def test_a_push_nothing_bounds_is_refused_with_what_to_fetch(self):
-        # No ref of the remote at all in this clone: the gate cannot tell the push's own commits, so it refuses
-        # on purpose (one line per ref, no traceback) instead of judging HEAD~1 alone.
+        # No ref of the remote at all in this clone: nothing can tell the push's own commits (one line per ref, no
+        # traceback), and nothing judges HEAD~1 alone. The cmux-next gate now warns and passes here (Leo 2026-11-22:
+        # refuse only for the pusher's own diff); the web lint, which runs first, still refuses it.
         for ref in self.git("for-each-ref", "--format=%(refname)", "refs/remotes/").stdout.split():
             self.git("update-ref", "-d", ref)
         self.git("checkout", "--quiet", "-b", "fresh")
@@ -593,6 +599,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertNotIn("Traceback", output)
 
     def test_a_snapshot_without_push_range_refuses_the_push_and_says_how_to_fix_it(self):
+        # The web lint, which runs first, refuses; the cmux-next gate alone would warn and pass (CannotDecide).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         (snapshot.resolve() / "push_range.py").unlink()
         self.kit("Fresh", NEW_CLEAN)
@@ -607,9 +614,10 @@ class PrePushGateTests(unittest.TestCase):
 
     STALE = "the installed hook is older than the checks this push needs: rerun scripts/install-git-hooks.sh"
 
-    def test_a_stale_install_refuses_and_never_runs_the_pushed_check(self):
-        # The hook never runs code the push controls. A reviewed copy older than a check must refuse with how to fix
-        # it, never fall back to the pushed head's copy of that check.
+    def test_a_stale_install_warns_and_never_runs_the_pushed_check(self):
+        # The hook never runs code the push controls. A reviewed copy older than a check says how to fix it and never
+        # falls back to the pushed head's copy of that check; the stale install is the clone's, not the push's diff,
+        # so the push goes through with that warning (Leo 2026-11-22).
         snapshot = Path(self.git("config", "--get", "core.hooksPath").stdout.strip()) / "cmux-next-checks"
         marker = self.root / "pushed-code-ran"
         payload = f"open({str(marker)!r}, 'w').close()\n"
@@ -632,9 +640,10 @@ class PrePushGateTests(unittest.TestCase):
 
                 output = result.stdout + result.stderr
                 self.assertFalse(marker.exists(), f"the hook ran the pushed {name}")
-                self.assertNotEqual(result.returncode, 0, output)
-                self.assertEqual(self.remote_head(), before)
+                self.assertEqual(result.returncode, 0, output)
+                self.assertNotEqual(self.remote_head(), before)
                 self.assertIn(self.STALE, output)
+                self.assertIn("goes through UNCHECKED", output)
                 self.assertNotIn("Traceback", output)
 
     def test_a_stale_install_never_takes_the_tool_pins_from_the_checkout(self):
@@ -667,9 +676,10 @@ class PrePushGateTests(unittest.TestCase):
         output = result.stdout + result.stderr
         self.assertFalse(marker.exists(), "the hook ran a binary the pushed lock named")
         self.assertFalse(tools.exists() and any(tools.iterdir()), "the hook downloaded what the pushed lock named")
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertEqual(self.remote_head(), before)
+        self.assertEqual(result.returncode, 0, output)
+        self.assertNotEqual(self.remote_head(), before)
         self.assertIn(self.STALE, output)
+        self.assertIn("goes through UNCHECKED", output)
         self.assertNotIn("Traceback", output)
 
     def test_a_merge_cannot_use_an_upstream_removal_to_pay_for_the_branch_s_own_debt(self):
@@ -1771,6 +1781,36 @@ let package = Package(
         self.assertEqual(self.remote_head(), before, "the conflicted file must not reach origin")
         self.assertIn("Merge conflict markers", output)
         self.assertIn("MergedTests.swift:2: <<<<<<< HEAD", output)
+
+    def test_push_that_commits_a_file_a_build_time_generator_writes_is_refused(self):
+        # 2026-11-22: #49757 committed SettingsSchema+Appearance5.generated.swift after #50929 moved the settings
+        # sources into a SwiftPM build plugin (generated-files.json: settings-sources, status "build"), and the
+        # package stopped compiling (two definitions of each setting). The guard that knew (cmux-next-guards.yml,
+        # "cmux-next no new generated files") runs on a feat-cmux-next pull request only with full-ci and on a
+        # push once per 30-minute window, so nothing judged the merge before it landed.
+        output = f"{PKG}/Sources/CmuxNextSettings/Schema/SettingsSchema+Appearance5.generated.swift"
+        shutil.copyfile(SOURCE / "scripts/ci/generated-files.json", self.repo / "scripts/ci/generated-files.json")
+        self.commit("the generated-files manifest")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        before = self.remote_head()
+        self.write(output, "// GENERATED by settings-sources. Do not edit.\nenum Appearance5 {}\n")
+        self.commit("commits a build-time output")
+
+        result = self.push()
+
+        text = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, text)
+        self.assertEqual(self.remote_head(), before, "the generated file must not reach origin")
+        self.assertIn("No new committed generated files", text)
+        self.assertIn(f"{output}: a new committed generated file", text)
+        self.assertIn("settings-sources, status build", text)
+
+        # The same push without the generated file goes through: only the file is refused.
+        self.git("rm", "--quiet", output)
+        self.write(f"{PKG}/Sources/CmuxNextSettings/Schema/Appearance5.swift", "enum Appearance5Source {}\n")
+        self.commit("the source only")
+        result = self.push()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def cargo_workspace(self):
         """A two-crate cmux-tui workspace with a matching Cargo.lock; the push env cargo needs under this HOME."""
@@ -3208,6 +3248,57 @@ class SideWorkersTests(unittest.TestCase):
         self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": "20"}, cpus=14), 14)
         for malformed in ("", "0", "-3", "five"):
             self.assertEqual(gate.side_workers({"CMUX_CI_CPU_BUDGET": malformed}, cpus=14), 14, malformed)
+
+
+class DeferredCiLayersTests(unittest.TestCase):
+    # 2026-11-22: cosmic-gray at load 163-234 on 15 cores while Leo typed, a gate starting every 7 s. On a loaded host
+    # the hook leaves the layers the PR's fast-gates job runs with the same refusal to it, for a PR branch only.
+    Z = "0" * 40
+    A = "a" * 40
+
+    def test_a_pr_branch_push_leaves_the_ci_layers_to_ci(self):
+        gate = load_gate_tools()
+        found = gate.deferred_ci_layers([f"refs/heads/x {self.A} refs/heads/lane/x {self.Z}"])
+        self.assertEqual(found, gate.CI_LAYER_CHECKS)
+        self.assertIn(gate.AST_GREP_JOB, found)
+        self.assertIn(gate.SWIFTLINT_JOB, found)
+        self.assertIn(gate.DEPS_CHECK, found)
+        # Hook-only layers never leave the hook: CI's run of the gate has no such layer to catch them.
+        for local in (gate.SWIFTFORMAT_JOB, gate.RUSTFMT_JOB, gate.CRASH_RATCHET_CHECK, gate.RESERVED_CHECK,
+                      gate.SIDEBAR_CHECK, gate.CONFLICT_CHECK, gate.WORKFLOW_CHECK, gate.HIGHLIGHTS_CHECK):
+            self.assertNotIn(local, found)
+
+    def test_an_integration_push_keeps_every_layer(self):
+        gate = load_gate_tools()
+        for ref in ("refs/heads/feat-cmux-next", "refs/heads/main", "refs/heads/perf/chrome-parity", "refs/tags/v1"):
+            lines = [f"refs/heads/x {self.A} refs/heads/lane/x {self.Z}", f"x {self.A} {ref} {self.Z}"]
+            self.assertEqual(gate.deferred_ci_layers(lines), frozenset(), ref)
+        self.assertEqual(gate.deferred_ci_layers(["not a ref line"]), frozenset())
+        self.assertEqual(gate.deferred_ci_layers([f"(delete) {self.Z} refs/heads/lane/x {self.A}"]), frozenset())
+
+    def test_a_deferred_check_is_not_run(self):
+        gate = load_gate_tools()
+        self.addCleanup(setattr, gate, "DEFERRED_CHECKS", frozenset())
+        gate.DEFERRED_CHECKS = gate.CI_LAYER_CHECKS
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            env = {**os.environ, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+            subprocess.run(["git", "init", "-q", str(repo)], check=True, env=env)
+            run = lambda *a: subprocess.run(["git", "-C", str(repo), "-c", "user.name=f", "-c", "user.email=f@x", *a],
+                                            check=True, env=env, capture_output=True, text=True).stdout.strip()
+            (repo / "a.txt").write_text("a\n")
+            run("add", "a.txt")
+            run("commit", "-qm", "base")
+            base = run("rev-parse", "HEAD")
+            (repo / PKG / "Sources/X").mkdir(parents=True)
+            (repo / PKG / "Sources/X/A.swift").write_text("let x = try! f()\n")
+            run("add", ".")
+            run("commit", "-qm", "head")
+            head = run("rev-parse", "HEAD")
+            with unittest.mock.patch.object(gate, "build_trees", side_effect=AssertionError("built trees")) as built:
+                found = gate.gate(repo, base, head, {"scanners", "ast-grep", "swiftlint"}, False)
+            self.assertEqual(found, [])
+            built.assert_not_called()  # a run whose every tree check is deferred builds no tree
 
 
 class StaleInstallTests(unittest.TestCase):

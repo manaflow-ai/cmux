@@ -78,7 +78,11 @@ fn no_layers_is_cmuxs_system_and_its_json_reads_back_as_the_same_system() {
                         "type": { "code": { "size": 12, "monospaced": true } },
                         "colors": { "warm": "accent" }, "limits": { "accents": 2 } }))
         .unwrap();
-    assert_eq!(System::cmux().merge(&mine.to_json()).unwrap(), mine);
+    // Read back, it is the same system; only the SDK helper names drop, since a role a file sets
+    // is drawn at its own size rather than by cmux's helper.
+    let back = System::cmux().merge(&mine.to_json()).unwrap();
+    assert_eq!(back.to_json(), mine.to_json());
+    assert!(back.roles.iter().all(|r| r.helper.is_none()));
     let json = resolved.to_json();
     assert_eq!(json["system"]["type"]["numeral"], json!({ "size": 34.0, "weight": "semibold" }));
     assert_eq!(json["base"], base());
@@ -195,4 +199,48 @@ fn stamp_records_cmuxs_base_and_keeps_what_the_file_sets() {
     assert_eq!(written["base"], base());
     std::fs::write(mine.person_file(), "[1]").unwrap();
     assert_eq!(stamp(&mine, true), super::super::exit::MANIFEST_INVALID);
+}
+
+/// The texts and badges a scene's create ops draw.
+fn drawn(ops: &Value, kind: &str) -> Vec<String> {
+    let ops = ops.as_array().expect("a batch of ops");
+    ops.iter()
+        .filter(|op| op["op"] == "create" && op["type"] == kind)
+        .filter_map(|op| op["props"]["text"].as_str().map(str::to_string))
+        .collect()
+}
+
+#[cfg(unix)]
+#[test]
+fn the_settings_scene_is_the_sdks_viewer_of_the_resolved_system_with_changes_marked() {
+    if super::DESIGN_VIEW.is_empty() {
+        eprintln!("SKIPPED: this build had no bun, so it packed no design view");
+        return;
+    }
+    let cmux = Resolved::from_sources(&[]);
+    let ops = cmux.scene().expect("the view draws");
+    let texts = drawn(&ops, "Text");
+    for title in ["cmux", "Type", "Spacing", "Color", "Components", "Limits"] {
+        assert!(texts.iter().any(|t| t == title), "{title} in {texts:?}");
+    }
+    assert!(texts.iter().any(|t| t.starts_with("cmux's own design system")), "{texts:?}");
+    assert!(!texts.iter().any(|t| t == "Changed in cmux"));
+
+    let mut written = base();
+    written["type"]["numeral"] = json!({ "size": 32, "weight": "semibold" });
+    let mine = Resolved::from_sources(&[Source {
+        kind: "person",
+        label: "/home/me/.config/cmux/design.json".into(),
+        doc: Some(Ok(json!({ "design": "cmux.design/1", "name": "Mine", "base": written,
+                             "type": { "code": { "size": 12, "monospaced": true } } }))),
+    }]);
+    assert_eq!(mine.note(), "Built on cmux, then design.json");
+    let ops = mine.scene().expect("the view draws");
+    let texts = drawn(&ops, "Text");
+    assert!(texts.iter().any(|t| t == "Mine"));
+    assert!(texts.iter().any(|t| t == "Changed in cmux"), "{texts:?}");
+    assert!(texts.iter().any(|t| t.starts_with("type.numeral: cmux changed it from 32 pt")));
+    let badges = drawn(&ops, "Badge");
+    assert!(badges.iter().any(|b| b == "cmux changed"), "{badges:?}");
+    assert!(badges.iter().any(|b| b == "adds"), "{badges:?}");
 }

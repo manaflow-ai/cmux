@@ -19,8 +19,11 @@ mod pack;
 mod publish;
 #[cfg(test)]
 mod publish_tests;
+#[cfg(test)]
+mod recipes_tests;
 mod scaffold;
 mod scene;
+mod scene_type;
 mod share;
 mod shot;
 mod source;
@@ -57,6 +60,8 @@ pub(super) mod exit {
     pub const BUILD_FAILED: i32 = 5;
     /// `ext shot`: it loaded and rendered, but no picture was taken.
     pub const SHOT_FAILED: i32 = 6;
+    /// `ext shot --record`: the scenes could not be written to `preview/scenes.json`.
+    pub const RECORD_FAILED: i32 = 9;
     /// `ext add`: the source could not be fetched; `ext search`: GitHub did not answer.
     pub const FETCH_FAILED: i32 = 7;
     /// `ext share`: the folder cannot be shared yet.
@@ -69,7 +74,7 @@ cmux ext: make a cmux extension and watch it change as you work.
   cmux ext new NAME [--kind K] a working extension folder ./NAME on the SDK this cmux ships;
                                K: sidebar (default, a sidebar section), session-info (a section
                                in an agent chat's Session Info), pane (a view in a tab),
-                               newtab (a whole New Tab page, picked in tabs.newTabApp),
+                               newtab (a view over the New Tab composer, picked in tabs.newTabApp),
                                widget (a New Tab and sidebar widget, small/medium/large),
                                command (a palette command, `cmux NAME ...` and an agent tool);
                                --repo OWNER/REPO (else the folder's github.com origin) makes the
@@ -84,9 +89,11 @@ cmux ext: make a cmux extension and watch it change as you work.
                                files it names) and cmux-app.v2.json in DIR/release; prints the sha256
   cmux ext dev [DIR]           load DIR into cmux, then reload it on every save (Ctrl-C stops)
   cmux ext dev --once --json   one validate + build + reload; exit 0 ok, 1 load, 3 no cmux, 4 manifest, 5 build
-  cmux ext shot [DIR] [--out PNG] [--json]
-                               one reload, then what it rendered: the view's outline and a
-                               picture of the cmux window that shows it; exit 6 no picture
+  cmux ext shot [DIR] [--out PNG] [--record] [--json]
+                               one reload, then what it rendered: the view's outline, its design
+                               warnings and a picture of the cmux window that shows it; exit 6
+                               no picture. --record writes the scene (a widget: each declared size)
+                               into DIR/preview/scenes.json; exit 9 when it cannot
   cmux ext add SOURCE [--no-install]
                                add someone's extension: a git URL, OWNER/NAME[@REF], a GitHub
                                /tree/REF/PATH link, URL#PATH, or a folder; again to update it
@@ -103,10 +110,15 @@ cmux ext: make a cmux extension and watch it change as you work.
                                system: cmux's, then the theme file's design layer, then
                                design.json beside the settings, then --system (ext dev reads
                                DIR/cmux-design.json); exit 1 on a warning
-  cmux ext design --show [DIR] [--json]
+  cmux ext design --show [DIR] [--scene] [--json]
                                that system, layer by layer, and each role cmux changed since your
-                               design.json recorded its base (what Settings > Design system draws)
+                               design.json recorded its base; --scene adds the scene Settings >
+                               Design system draws (JSON)
   cmux ext design --stamp      record cmux's current system as design.json's base
+  cmux ext design --listing DIR [--json]
+                               registry review's design check: the folder's recorded scenes
+                               (preview/scenes.json, which its files must ship) against its own
+                               system; exit 1 when a scene warns or none is recorded
   cmux ext list | remove ID    the extensions loaded this way; remove drops one
   cmux ext capabilities [--op NAME] [--json]
                                what an extension can read and do: each op's scope, risk class
@@ -129,6 +141,8 @@ pub(super) struct DevOptions {
     pub build_timeout: std::time::Duration,
     /// `bun` for the packer (found on PATH; tests set none).
     pub bun: Option<PathBuf>,
+    /// Render a widget at every size it declares (`ext shot --record`; `ext dev` renders one).
+    pub every_size: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,9 +191,14 @@ pub(super) enum Request {
     DesignShow {
         dir: Option<PathBuf>,
         system: Option<PathBuf>,
+        scene: bool,
     },
     /// `ext design --stamp`: record cmux's base in the person's design.json.
     DesignStamp,
+    /// `ext design --listing DIR`: registry review's design check of a folder.
+    DesignListing {
+        dir: PathBuf,
+    },
 }
 
 /// Parses the words after `ext` (`--json` already taken out).
@@ -246,6 +265,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 build: None,
                 build_timeout: dev::BUILD_TIMEOUT,
                 bun: None,
+                every_size: false,
             };
             let mut dir = None;
             let mut words = rest.iter();
@@ -311,6 +331,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         "shot" => {
             // One `ext dev --once` reload with no install card, plus where the picture goes.
             let mut out = None;
+            let mut record = false;
             let mut dev = vec!["dev".to_string(), "--once".into(), "--no-install".into()];
             let mut words = rest.iter();
             while let Some(word) = words.next() {
@@ -320,6 +341,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                         Some(path) if path != "-" => out = Some(PathBuf::from(path)),
                         _ => return Err(usage("--out needs a file path")),
                     },
+                    "--record" => record = true,
                     "--once" | "--keep" | "--remove-on-exit" | "--no-install" => {
                         return Err(usage(&format!(
                             "{word}: ext shot reloads once and installs nothing"
@@ -333,7 +355,10 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 }
             }
             match parse(&dev)? {
-                Request::Dev(dev) => Ok(Request::Shot(shot::ShotOptions { dev, out })),
+                Request::Dev(mut dev) => {
+                    dev.every_size = record;
+                    Ok(Request::Shot(shot::ShotOptions { dev, out, record }))
+                }
                 _ => Err(usage("ext shot")),
             }
         }
@@ -343,12 +368,20 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
             let mut system = None;
             let mut show = false;
             let mut stamp = false;
+            let mut scene = false;
+            let mut listing = None;
             let mut words = rest.iter();
             while let Some(word) = words.next() {
                 match word.as_str() {
                     "--widget" => widget = true,
                     "--show" => show = true,
                     "--stamp" => stamp = true,
+                    "--scene" => scene = true,
+                    "--listing" => {
+                        listing = Some(PathBuf::from(
+                            words.next().ok_or_else(|| usage("--listing needs a folder"))?,
+                        ));
+                    }
                     "--system" => {
                         system = Some(PathBuf::from(
                             words
@@ -363,7 +396,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 }
             }
             if stamp {
-                if show || widget || system.is_some() || !files.is_empty() {
+                if show || widget || scene || system.is_some() || !files.is_empty() {
                     return Err(usage("ext design --stamp takes no other argument"));
                 }
                 return Ok(Request::DesignStamp);
@@ -372,7 +405,18 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
                 if widget || files.len() > 1 {
                     return Err(usage("ext design --show takes one folder at most"));
                 }
-                return Ok(Request::DesignShow { dir: files.pop(), system });
+                return Ok(Request::DesignShow { dir: files.pop(), system, scene });
+            }
+            if scene {
+                return Err(usage("--scene goes with ext design --show"));
+            }
+            if let Some(dir) = listing {
+                if !files.is_empty() || widget || system.is_some() {
+                    return Err(usage(
+                        "ext design --listing DIR takes no FILE, --widget or --system: the folder's manifest and cmux-design.json say them",
+                    ));
+                }
+                return Ok(Request::DesignListing { dir });
             }
             if files.is_empty() {
                 return Err(usage("ext design needs a scene FILE"));
@@ -614,15 +658,16 @@ fn run(global: &GlobalArgs, request: Request, json_out: bool, globals: Vec<Strin
             }
             design::run(&files, surface, &resolved.system, json_out)
         }
-        Request::DesignShow { dir, system } => {
+        Request::DesignShow { dir, system, scene } => {
             let places = design_layers::Places::current();
             let dir = dir.map(absolute);
             let resolved = design_layers::Resolved::from_sources(
                 &places.sources(dir.as_deref(), system.as_deref()),
             );
-            design_layers::show(&resolved, json_out)
+            design_layers::show(&resolved, scene, json_out)
         }
         Request::DesignStamp => design_layers::stamp(&design_layers::Places::current(), json_out),
+        Request::DesignListing { dir } => design::run_listing(&absolute(dir), json_out),
         Request::Pack(mut options) => {
             options.dir = absolute(options.dir);
             options.out = options.out.map(absolute);
@@ -742,6 +787,17 @@ pub(super) fn load_customize_folder(global: &GlobalArgs, folder: &std::path::Pat
             .then(|| rejected.field("issue").as_str().unwrap_or("refused").to_owned())
     });
     refused.map_or(FolderLoad::Loaded, FolderLoad::Refused)
+}
+
+/// One daemon request on the session socket `global` names: the answer's data, or the daemon's
+/// refusal as `code: message`; `Err` when there is no daemon or it did not answer.
+pub(in crate::cli) fn daemon_call(
+    global: &GlobalArgs,
+    request: Value,
+) -> Result<Result<Value, String>, String> {
+    let (sender, wakes) = channel();
+    let mut daemon = daemon::Daemon::connect(global, sender, wakes)?;
+    daemon.call(request).map_err(|_| "the cmux daemon did not answer".to_string())
 }
 
 /// The daemon's `apps-reload` answer, or an exit code and message.

@@ -56,7 +56,7 @@ src/agent-session/acpmux/conversation/SelectionReply.tsx	1
 src/agent-session/acpmux/conversation/SentMessageLine.tsx	1
 src/agent-session/acpmux/conversation/SentUIPick.tsx	1
 src/agent-session/acpmux/conversation/skillWords.ts	1
-src/agent-session/acpmux/conversation/ThoughtRow.tsx	2
+src/agent-session/acpmux/conversation/ThoughtRow.tsx	1
 src/agent-session/acpmux/conversation/ToolGroupRow.tsx	3
 src/agent-session/acpmux/conversation/ToolOutputBody.tsx	1
 src/agent-session/acpmux/conversation/ToolRow.tsx	1
@@ -99,7 +99,6 @@ src/agent-session/acpmux/PermissionCard.tsx	1
 src/agent-session/acpmux/permissions/Panel.tsx	1
 src/agent-session/acpmux/ProjectChooser.tsx	1
 src/agent-session/acpmux/promptFocus.ts	1
-src/agent-session/acpmux/prototype/WorkspaceShell.tsx	1
 src/agent-session/acpmux/question/HatQuestions.tsx	1
 src/agent-session/acpmux/queue/QueueScreen.tsx	1
 src/agent-session/acpmux/queue/useQueue.ts	1
@@ -132,7 +131,6 @@ src/agent-session/acpmux/stableProps.ts	1
 src/agent-session/acpmux/stopThroughReconnect.ts	1
 src/agent-session/acpmux/subagents/DisclosureRow.tsx	1
 src/agent-session/acpmux/subagents/SenderIcon.tsx	1
-src/agent-session/acpmux/subagents/SubagentComposer.tsx	1
 src/agent-session/acpmux/subagents/SubagentDoneLine.tsx	1
 src/agent-session/acpmux/subagents/subagentEscape.ts	1
 src/agent-session/acpmux/subagents/SubagentTray.tsx	2
@@ -144,7 +142,6 @@ src/agent-session/acpmux/subagents/trayMotionModel.ts	1
 src/agent-session/acpmux/summary/heldWhileScrolling.ts	1
 src/agent-session/acpmux/summary/useWorkflowTranscript.ts	1
 src/agent-session/acpmux/TaskGoalStrip.tsx	1
-src/agent-session/acpmux/teamAudit/TeamAuditScreen.tsx	1
 src/agent-session/acpmux/threadMinimap/PreviewCard.tsx	1
 src/agent-session/acpmux/threadMinimap/ScrollMap.tsx	1
 src/agent-session/acpmux/threadMinimap/ThreadMinimap.tsx	2
