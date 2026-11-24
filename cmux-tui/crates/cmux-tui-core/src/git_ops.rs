@@ -15,7 +15,9 @@
 //! recipe and a worktree's setup run (`worktree_setup`). `project.actions.list`
 //! reads a project's `.cmux/actions.json` with the global actions (`project_actions`). `diff.comments.*`
 //! keeps the diff page's review comments per worktree root until they are
-//! sent (`diff_comments`). The pure git pieces (bounded runs, the repository
+//! sent (`diff_comments`). `git.review.*` reviews a GitHub pull request
+//! from its link in a worktree of its own, with those comments as its
+//! drafts (`pr_review`). The pure git pieces (bounded runs, the repository
 //! handle, parsers, diff scopes and branch refs) live in the `cmux-git`
 //! crate, which the diff sidecar links too.
 
@@ -34,6 +36,7 @@ mod fingerprint;
 mod journal;
 mod list;
 mod mutation;
+mod pr_review;
 mod project_actions;
 mod push;
 mod read_cache;
@@ -50,6 +53,8 @@ mod worktree_include;
 mod worktree_recipe;
 mod worktree_remove;
 mod worktree_setup;
+
+pub(crate) use pr_review::POST as REVIEW_POST_OPERATION;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -84,6 +89,10 @@ pub(crate) const FINGERPRINT_CAPABILITY: &str = "git-fingerprint-v1";
 /// Advertised in identify: the session host owns `diff.comments.list`,
 /// `save` and `delete`.
 pub(crate) const DIFF_COMMENTS_CAPABILITY: &str = diff_comments::CAPABILITY;
+
+/// Advertised in identify: the session host owns `git.review.start`,
+/// `comment` and `post`.
+pub(crate) const REVIEW_CAPABILITY: &str = pr_review::CAPABILITY;
 
 /// Advertised in identify: the session host answers `diff.comments.send`.
 pub(crate) const DIFF_COMMENTS_SEND_CAPABILITY: &str = diff_comments::SEND_CAPABILITY;
@@ -133,6 +142,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | ResourceOperation::ProjectActionsList
     ) || checkpoint::handles(operation)
         || diff_comments::handles(operation)
+        || pr_review::handles(operation)
 }
 
 pub(crate) fn dispatch(
@@ -147,6 +157,8 @@ pub(crate) fn dispatch(
         return diff_comments::dispatch(mux, &request);
     }
     let changed = match request.envelope.operation {
+        // A review's start fetches and makes a worktree: it moves refs too.
+        operation if pr_review::handles(operation) => Some(pr_review::dispatch(mux, &request)),
         ResourceOperation::GitCommit => Some(commit::dispatch(mux, &request)),
         ResourceOperation::GitPush => Some(push::dispatch(mux, &request)),
         ResourceOperation::GitWorktreeCreate => Some(worktree::dispatch(mux, &request)),
