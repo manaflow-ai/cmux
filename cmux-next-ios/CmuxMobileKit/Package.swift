@@ -98,6 +98,8 @@ let package = Package(
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+            // Kept row heights, keyed by row and content (ChatRowHeightMemory): Rust's RowLayoutMemory.
+            .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
         ], resources: [.process("Resources")]),
         .target(name: "CmuxMobileFeed", dependencies: [
             .product(name: "CmuxSpinner", package: "CmuxSpinner"),
