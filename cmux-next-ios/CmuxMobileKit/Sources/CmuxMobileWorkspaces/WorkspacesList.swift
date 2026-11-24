@@ -305,6 +305,8 @@ public struct WorkspacesList: View {
         if case .content(refreshFailed: true) = state, !inbox.rowMacIDs.isEmpty, liveRowMacs(inbox).isEmpty {
             return store.isOffline ? "Offline · last known" : "Couldn't refresh · last known"
         }
+        // Placeholder rows with no network: the one word for it, where the caption over the rows was.
+        if case .firstLoad(offline: true) = state { return "Offline" }
         let waiting = inbox.needsYouCount
         if waiting > 0 { return waiting == 1 ? "1 needs you" : "\(waiting) need you" }
         if macs.count > 1 { return "\(macs.filter(\.isOnline).count) of \(macs.count) Macs online" }
@@ -419,7 +421,9 @@ public struct WorkspacesList: View {
 
     /// The first load's placeholder rows, captioned with what they wait for.
     private func skeleton(_ caption: LocalizedStringKey) -> some View {
-        ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption).padding(.top, 8) }
+        // The rows sit where the list's rows will (no caption line pushing them down); what they
+        // wait for is their spoken label, and offline is the title's subtitle.
+        ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption, style: .plainList, captionPlacement: .spoken) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
     }
@@ -611,7 +615,8 @@ public struct WorkspacesList: View {
             // Its show delay keeps a quick load from flashing rows. Taking over from the page's
             // rows, already on screen, it waited with nothing shown: the rows blinked out.
             AnyView(SkeletonList(rows: 4, leadingSquare: nil,
-                                 delay: placeholdersShown ? .zero : theme.motion.skeletonDelay)
+                                 delay: placeholdersShown ? .zero : theme.motion.skeletonDelay,
+                                 style: .plainList, captionPlacement: .spoken)
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("workspaces.loading"))
         }
