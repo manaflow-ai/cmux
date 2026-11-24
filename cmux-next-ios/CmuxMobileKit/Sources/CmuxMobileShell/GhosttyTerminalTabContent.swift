@@ -720,6 +720,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
             TerminalTabAction(title: "Find…", systemImage: "magnifyingglass") { model.showFind() },
+            // Wide output on its own page (Leo, 2026-11-23): Wide on, the key row and composer away.
+            TerminalTabAction(title: "Wide View", systemImage: "arrow.left.and.right.square") { model.openWideView() },
             // The Mac's Clear Screen and Scrollback: the Mac clears the terminal, scrollback
             // included, on the Mac and every phone (`clear-history`), not a Ctrl-L to the shell.
             TerminalTabAction(title: "Clear", systemImage: "clear", isEnabled: model.canClearScreenAndScrollback) {

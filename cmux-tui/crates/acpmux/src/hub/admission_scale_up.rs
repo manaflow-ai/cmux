@@ -268,7 +268,7 @@ async fn run_provider(provider: Provider, bound: Duration) -> Answer {
 /// `bound` the child is dropped, which ends its group. A provider answers in
 /// one short stdout line (its log goes to stderr, dropped here), so the pipe
 /// never fills before it exits.
-fn run_provider_blocking(provider: &Provider, bound: Duration) -> Answer {
+pub(crate) fn run_provider_blocking(provider: &Provider, bound: Duration) -> Answer {
     use std::io::Read as _;
     let failed = |why: String| Answer::Failed { why, terminal: false };
     let Some((program, args)) = provider.argv.split_first() else {
