@@ -631,6 +631,15 @@ export const MAP: MapEntry[] = [
     open: "No scenario writes host_notice or failover records. A later page's read is checked: every scenario is also played from the turn that opens nearest its middle (test/chat-sim-map.test.ts), as the pane's pages split (before a turn's opening record). A read cut inside a turn, which no page makes, leaves the typing placeholder over the turn's rows.",
   },
   {
+    id: "busy-turn-churn",
+    when: "A busy coordinator turn: quick commands, thoughts, steers that land mid-turn, subagents in and out, another agent's message, then a prompt right after the turn settles.",
+    wrong:
+      'Leo, 2026-11-22: "this is also a crazy situation for the folding and whatever the steer and you think and messages and situations come in and subagents come in and out"; rows flickered in and out under a second.',
+    expected:
+      "Rules a, b, c at every step; in the browser lane, no layout shift above the reader's anchor mid-turn and no row drawn for under a second (`chat-sim churn --churn` counts both per minute).",
+    scenario: "churn",
+  },
+  {
     id: "limits-and-refusals",
     when: "A usage limit, a refused prompt, a superseded message (usage_limits, prompt_refused, message_superseded).",
     wrong: "A refused prompt stayed drawn as sent; a limit line drew once per retry.",
