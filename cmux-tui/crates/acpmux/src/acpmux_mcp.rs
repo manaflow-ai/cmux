@@ -64,8 +64,18 @@ const MAX_LAST: u64 = 20;
 const LS_DEFAULT_LIMIT: usize = 100;
 const LS_MAX_LIMIT: usize = 500;
 /// The fields of a session `ls` answers with in `structuredContent`; `info` has the rest.
-const LS_FIELDS: &[&str] =
-    &["name", "status", "title", "peer", "sessionId", "harness", "cwd", "updatedAt"];
+const LS_FIELDS: &[&str] = &[
+    "name",
+    "status",
+    "title",
+    "peer",
+    "sessionId",
+    "harness",
+    "cwd",
+    "updatedAt",
+    "asOfMs",
+    "via",
+];
 
 #[path = "acpmux_mcp_artifacts.rs"]
 pub(crate) mod artifacts;
@@ -503,11 +513,7 @@ async fn call_as(daemon: &Arc<Client>, params: &Value, sub: Option<&Value>) -> V
             let Some(name) = arg(&args, "name") else {
                 return error_result("name is required".to_owned());
             };
-            let id = match crate::cli::run::resolve_id(daemon, name).await {
-                Ok(id) => id,
-                Err(e) => return refusal(e),
-            };
-            match daemon.request(method::MUX_INFO, json!({"sessionId": id})).await {
+            match crate::cli::run::session_info(daemon, name, false).await {
                 Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
                 Err(e) => refusal(e),
             }
@@ -796,42 +802,36 @@ pub(crate) async fn ls_via(
     let params = if closed { json!({}) } else { json!({"excludeStatus": ["closed"]}) };
     // The closed rows are of the whole view, which holds no other machine's closed row: v1 while
     // one is listed (decision 213).
-    let remote_closed = closed
-        && list_read::closed_remote_listed(
-            daemon.request(method::MUX_STATUS, json!({})).await.ok().as_ref(),
-        );
-    let source = if remote_closed { Ok(None) } else { via.open(daemon).await };
-    let source = match source {
-        Ok(source) => source,
-        Err(e) => return refusal(e),
-    };
-    let listed = match source {
-        Some(mut source) => {
-            let view = if closed {
-                acpmux_client::wire::ListView::All
-            } else {
-                acpmux_client::wire::ListView::Live
-            };
-            let may_keep = |s: &acpmux_book::index::Summary| !closed || list_read::closed(s);
-            source.rows(view, &may_keep).await.map(|rows| json!({"sessions": rows}))
-        }
-        None => daemon.whole_list(method::MUX_SESSIONS, params).await,
-    };
-    match listed {
-        Ok(mut all) => {
-            // The other machines' sessions a host with no peer to them lists through its send
-            // relay (`cli/send_relay.rs` lsArgv), as `acpmux ls` does: by the far budget, else
-            // the last good listing's rows (`cli/ls_far.rs`).
-            let far = crate::cli::ls_far::relay_rows().await;
-            if !far.is_empty()
-                && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
-            {
-                crate::cli::send_relay::merge_rows(rows, far);
+    let local = async {
+        let remote_closed = closed
+            && list_read::closed_remote_listed(
+                daemon.request(method::MUX_STATUS, json!({})).await.ok().as_ref(),
+            );
+        let source = if remote_closed { None } else { via.open(daemon).await? };
+        match source {
+            Some(mut source) => {
+                let view = if closed {
+                    acpmux_client::wire::ListView::All
+                } else {
+                    acpmux_client::wire::ListView::Live
+                };
+                let may_keep = |s: &acpmux_book::index::Summary| !closed || list_read::closed(s);
+                source.rows(view, &may_keep).await.map(|rows| json!({"sessions": rows}))
             }
-            ls_result(&all, args)
+            None => daemon.whole_list(method::MUX_SESSIONS, params).await,
         }
-        Err(e) => refusal(e),
+    };
+    let (mut all, far) =
+        match tokio::try_join!(local, async { Ok(crate::cli::ls_far::relay_rows().await) }) {
+            Ok(rows) => rows,
+            Err(e) => return refusal(e),
+        };
+    if !far.is_empty()
+        && let Some(rows) = all.get_mut("sessions").and_then(Value::as_array_mut)
+    {
+        crate::cli::send_relay::merge_rows(rows, far);
     }
+    ls_result(&all, args)
 }
 
 /// What `ls` answers for the daemon's whole list: the sessions `status` and `query` keep (closed
