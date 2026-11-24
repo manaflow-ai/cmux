@@ -1260,6 +1260,7 @@ try {
           .map((shift) => ({ ...shift, at: shift.at - start.at })),
         copyShownMs: null,
         swapMs: null,
+        hold: null,
         copyMiss: "none: the spare draws the carried tail",
         tailAskedMs: null,
         readyAnsweredMs: null,
