@@ -18,7 +18,7 @@ issues and missing numbers are skipped. `--dry-run` reads and prints, and change
 Backfill: the workflow sees only merges after it landed (#53953, 2026-11-24), and a run that failed closes
 nothing. `--since DATE` reads the squash commits on feat-cmux-next since DATE from a local checkout instead
 (`git log --first-parent`; a squash commit carries its pull request's title, `(#N)`, and body) and closes what
-each one names, with the same comment:
+each one names, with the same comment. A pull request a later commit reverted (Revert "... (#N)") is skipped:
 
     python3 scripts/ci/next_closes_issues.py --since 2026-09-01 [--ref origin/feat-cmux-next] [--dry-run]
 """
@@ -126,11 +126,14 @@ class GitHub:
 
 
 _SUBJECT_PR = re.compile(r"\(#(\d+)\)\s*$")
+# A revert commit's subject (Revert "... (#N)") names the pull request it undid.
+_REVERTED = re.compile(r'(?m)(?:^|\x00)Revert "[^\n]*\(#(\d+)\)"')
 
 
 def plans_from_log(log: str, repo: str) -> List[Plan]:
     """One Plan per squash commit in LOG (`git log --format=%H%x00%B%x1e`) that names an issue, oldest first."""
     plans: List[Plan] = []
+    reverted = {int(n) for n in _REVERTED.findall(log)}
     for record in log.split("\x1e"):
         sha, _, message = record.strip("\n").partition("\x00")
         sha = sha.strip()
@@ -140,6 +143,8 @@ def plans_from_log(log: str, repo: str) -> List[Plan]:
         if not match:
             continue  # not a squash merge of a pull request
         pull = int(match.group(1))
+        if pull in reverted:
+            continue  # a later commit reverted this pull request: its fix is no longer on the branch
         issues = [n for n in closing_refs(message, repo) if n != pull]
         if issues:
             plans.append(Plan(pull=pull, sha=sha, issues=issues))
@@ -183,7 +188,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"))
     parser.add_argument("--dry-run", action="store_true", help="read and print, change nothing")
     parser.add_argument("--since", help="backfill: every squash commit on --ref since this date (git log --since)")
-    parser.add_argument("--ref", default=f"origin/{BASE}", help="the branch --since reads (default origin/%(default)s)")
+    parser.add_argument("--ref", default=f"origin/{BASE}", help="the branch --since reads (default %(default)s)")
     args = parser.parse_args(argv)
     if args.since:
         try:
