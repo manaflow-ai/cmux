@@ -106,13 +106,7 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         if isActive { snapshotStale = true }
     }
 
-    /// The system bar's Match Case and Full Words (Regular Expression is the controller's own).
-    func setOptions(_ newOptions: TerminalFindOptions) {
-        options.caseSensitive = newOptions.caseSensitive
-        options.wholeWord = newOptions.wholeWord
-    }
-
-    func search(_ query: String, revealing: Bool = true, nearRow: Int? = nil) {
+    fileprivate func search(_ query: String, revealing: Bool = true, nearRow: Int? = nil) {
         if !daemonUnavailable, let source = daemon() {
             return searchDaemon(query, source: source)
         }
@@ -260,6 +254,12 @@ final class TerminalFindController: NSObject, @MainActor UIFindInteractionDelega
         results.shiftRows(by: delta)
         interaction?.updateResultCount()
         redraw()
+    }
+
+    /// The system bar's Match Case and Full Words (Regular Expression is the controller's own).
+    func setOptions(_ newOptions: TerminalFindOptions) {
+        options.caseSensitive = newOptions.caseSensitive
+        options.wholeWord = newOptions.wholeWord
     }
 
     /// Lays the highlights over the drawn rows again (the page moved, the document changed).
