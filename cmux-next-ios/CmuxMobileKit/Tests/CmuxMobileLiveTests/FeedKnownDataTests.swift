@@ -55,8 +55,8 @@ extension FeedKnownDataTests {
         }
 
         live.restoreFeedForActiveTeam()
-        let first = Self.item("first")
-        let second = Self.item("second")
+        let first = Self.item("first", at: .distantPast)
+        let second = Self.item("second", at: Date(timeIntervalSince1970: 100))
         feed.replaceAll([first])
         feed.replaceAll([second, first])
 
@@ -79,19 +79,18 @@ extension FeedKnownDataTests {
         let account = "feed-team-\(UUID().uuidString)"
         let one = FeedArchive.forAccount(account, teamID: "team/one")
         let two = FeedArchive.forAccount(account, teamID: "team_two")
-        let collisionLeft = FeedArchive.forAccount("a--b", teamID: "c")
-        let collisionRight = FeedArchive.forAccount("a", teamID: "b--c")
+        let collisionLeft = FeedArchive.forAccount(account + "--b", teamID: "c")
+        let collisionRight = FeedArchive.forAccount(account, teamID: "b--c")
         defer {
             FeedArchive.removeAll(forAccount: account)
-            FeedArchive.removeAll(forAccount: "a--b")
-            FeedArchive.removeAll(forAccount: "a")
+            FeedArchive.removeAll(forAccount: account + "--b")
         }
 
         #expect(one.url != two.url)
         #expect(collisionLeft.url != collisionRight.url)
         collisionLeft.save([Self.item("left")])
         collisionRight.save([Self.item("right")])
-        FeedArchive.removeAll(forAccount: "a--b")
+        FeedArchive.removeAll(forAccount: account + "--b")
         #expect(collisionLeft.loadIfPresent() == nil)
         #expect(collisionRight.loadIfPresent()?.map(\.id) == ["right"])
         one.save([Self.item("team-one")])
@@ -103,8 +102,8 @@ extension FeedKnownDataTests {
         #expect(FeedArchive.forAccount(account, teamID: "team_two").loadIfPresent() == nil)
     }
 
-    private static func item(_ id: String) -> FeedItem {
+    private static func item(_ id: String, at date: Date = Date()) -> FeedItem {
         FeedItem(id: id, kind: .finished, workspaceID: "w", tabID: "t", agentName: "agent", harness: "claude",
-                 workspaceTitle: "workspace", markdown: "done", quote: nil, createdAt: Date())
+                 workspaceTitle: "workspace", markdown: "done", quote: nil, createdAt: date)
     }
 }
