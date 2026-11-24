@@ -40,11 +40,11 @@ use cmux_remote::link::FrameLink;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Notify, Semaphore, mpsc, oneshot};
 
-use super::CircuitService;
 use super::{
     CHUNK_BYTES, DUPLEX_BYTES, HubStream, Incoming, SERVICE_HELLO, ServiceRefusal, Stats,
     connect_session, named_service, read_service_answer, service_answer,
 };
+use super::{CircuitLane as Lane, CircuitService};
 
 const OPEN: u8 = 1;
 const ANSWER: u8 = 2;
@@ -116,6 +116,8 @@ struct Entry {
     events: mpsc::UnboundedSender<Event>,
     credit: Arc<Semaphore>,
     answer: Option<oneshot::Sender<Result<(), ServiceRefusal>>>,
+    /// `gauges.links.keptStreamsOpen`, given back when the stream leaves the circuit.
+    _open: crate::gauges::Held,
 }
 
 /// Which end of a kept circuit this is.
@@ -140,6 +142,8 @@ pub(crate) struct Mux {
     stats: Arc<Stats>,
     /// The dialer's: where the answer to its `mux` hello goes, the circuit's first record back.
     hello: Mutex<Option<oneshot::Sender<Result<(), ServiceRefusal>>>>,
+    /// `gauges.links.hubKeptOpen`: given back at `close`, or when the circuit drops unclosed.
+    open: Mutex<Option<crate::gauges::Held>>,
 }
 
 /// The answer to a kept circuit's `mux` hello.
@@ -158,6 +162,7 @@ impl Mux {
             quiet_since: Mutex::new(Instant::now()),
             stats,
             hello: Mutex::new(None),
+            open: Mutex::new(Some(crate::gauges::Held::on(&crate::gauges::links().hub_kept_open))),
         })
     }
 
@@ -191,6 +196,7 @@ impl Mux {
         for entry in streams.into_values() {
             entry.credit.close();
         }
+        self.open.lock().unwrap_or_else(|e| e.into_inner()).take();
         self.closing.notify_waiters();
         let _ = self.link.close().await;
     }
@@ -217,7 +223,8 @@ impl Mux {
         if self.is_closed() || streams.contains_key(&id) {
             return None;
         }
-        streams.insert(id, Entry { events, credit: credit.clone(), answer });
+        let _open = crate::gauges::Held::on(&crate::gauges::links().kept_streams_open);
+        streams.insert(id, Entry { events, credit: credit.clone(), answer, _open });
         Some((received, credit))
     }
 
@@ -350,7 +357,36 @@ impl Mux {
                     Err(refusal) => refuse(refusal).await,
                 }
             }
-            // The acpmux listener keeps its own circuits (it sends no hello).
+            Ok(CircuitService::MachineCall) => match incoming.machine_call(from).await {
+                Ok(local) => self.carry_admitted(id, local, events, credit).await,
+                Err(refusal) => refuse(refusal).await,
+            },
+            Ok(CircuitService::TransferSource) => match incoming.transfer(from).await {
+                Ok((local, serving)) => {
+                    tokio::join!(serving, self.carry_admitted(id, local, events, credit));
+                }
+                Err(refusal) => refuse(refusal).await,
+            },
+            // The acpmux listener, reached as a plain circuit with no hello reaches it: the
+            // peer link and its hub probe ride the pair's one kept circuit.
+            Ok(CircuitService::Acpmux)
+                if incoming.carrier.acpmux_streams.load(Ordering::SeqCst) =>
+            {
+                match tokio::net::TcpStream::connect(incoming.websocket).await {
+                    Ok(local) => {
+                        let _ = local.set_nodelay(true);
+                        self.carry_admitted(id, local, events, credit).await
+                    }
+                    Err(e) => {
+                        refuse(ServiceRefusal::new(
+                            "service.unreachable",
+                            format!("this machine's acpmux listener is not reachable: {e}"),
+                        ))
+                        .await
+                    }
+                }
+            }
+            // A daemon from before acpmux streams answered this way; its dialers go plain.
             Ok(CircuitService::Acpmux) => {
                 refuse(ServiceRefusal::new("service.unknown", "no such service")).await
             }
@@ -469,8 +505,10 @@ impl Mux {
         tokio::pin!(answer);
         let answered = match tokio::time::timeout(ANSWER_SUSPECT, &mut answer).await {
             Ok(answered) => answered,
-            Err(_) if self.heard() > sent_at => {
-                // Alive but slow to admit (a loaded machine reading its consent): wait it out.
+            // Alive but slow to admit (a loaded machine reading its consent), or this machine
+            // did not run for a whole suspect window (its timer fired that late, so its reader
+            // had no turn to hear the far side either, cmux#52200): wait it out.
+            Err(_) if self.heard() > sent_at || sent_at.elapsed() >= ANSWER_SUSPECT * 2 => {
                 match tokio::time::timeout(answer_wait.saturating_sub(ANSWER_SUSPECT), answer).await
                 {
                     Ok(answered) => answered,
@@ -494,6 +532,7 @@ impl Mux {
             Ok(Err(refusal)) => Ok(Err(refusal)),
             Ok(Ok(())) => {
                 self.stats.kept_opens.fetch_add(1, Ordering::Relaxed);
+                crate::gauges::bump(&crate::gauges::links().kept_stream_opens);
                 let (ours, theirs) = tokio::io::duplex(DUPLEX_BYTES);
                 let mux = self.clone();
                 scope().spawn_named("hub carrier kept stream", async move {
@@ -564,20 +603,23 @@ pub(crate) struct Kept {
     pub(crate) live: Option<Arc<Mux>>,
     /// Set when the machine answered the `mux` hello `service.unknown`.
     pub(crate) no_mux_until: Option<Instant>,
+    /// Set when the machine's kept circuit refused an acpmux stream `service.unknown` (it
+    /// predates them): acpmux dials go plain to it until then.
+    pub(crate) no_acpmux_until: Option<Instant>,
 }
 
-/// Every kept circuit of a carrier, by machine (`daemonId`).
+/// Every kept circuit of a carrier, by machine (`daemonId`) and [`Lane`](super::CircuitLane).
 #[derive(Default)]
 pub(crate) struct KeptCircuits {
-    by_machine: Mutex<HashMap<String, Arc<tokio::sync::Mutex<Kept>>>>,
+    by_machine: Mutex<HashMap<(String, Lane), Arc<tokio::sync::Mutex<Kept>>>>,
 }
 
 impl KeptCircuits {
-    pub(crate) fn slot(&self, daemon: &str) -> Arc<tokio::sync::Mutex<Kept>> {
+    pub(crate) fn slot(&self, daemon: &str, lane: Lane) -> Arc<tokio::sync::Mutex<Kept>> {
         self.by_machine
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .entry(daemon.to_owned())
+            .entry((daemon.to_owned(), lane))
             .or_default()
             .clone()
     }
@@ -597,11 +639,15 @@ impl KeptCircuits {
         }
     }
 
-    /// The live kept circuit to `daemon`, if one is open now.
-    pub(crate) fn live(&self, daemon: &str) -> Option<Arc<Mux>> {
-        let slot = self.by_machine.lock().unwrap_or_else(|e| e.into_inner()).get(daemon)?.clone();
-        let kept = slot.try_lock().ok()?;
-        kept.live.clone().filter(|mux| !mux.is_closed())
+    /// The live kept circuits to `daemon` open now, cheap first.
+    pub(crate) fn live(&self, daemon: &str) -> Vec<Arc<Mux>> {
+        let by_machine = self.by_machine.lock().unwrap_or_else(|e| e.into_inner());
+        [Lane::Cheap, Lane::Bulk]
+            .into_iter()
+            .filter_map(|lane| by_machine.get(&(daemon.to_owned(), lane)).cloned())
+            .filter_map(|slot| slot.try_lock().ok()?.live.clone())
+            .filter(|mux| !mux.is_closed())
+            .collect()
     }
 }
 
@@ -637,11 +683,19 @@ mod live {
             shown: relay.shown(),
         });
         let key = crate::mesh_node_key::read_noise_static(&home).unwrap();
-        let carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
+        // CARRIER_STAGES_FRESH=1: a new carrier per run, so every dial is a first one (no kept
+        // ticket, no kept circuit): the cold dial before cut 5's ticket cache.
+        let fresh = std::env::var_os("CARRIER_STAGES_FRESH").is_some();
+        let mut carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
         let ms = |d: Duration| format!("{:.0}", d.as_secs_f64() * 1e3);
         for run in 0..runs {
             // A raw TCP connect to the relay the ticket names, to split TCP from TLS+WS+allocate.
             let answer = tickets.connect(&peer).await.unwrap();
+            let now_s = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            eprintln!("CARRIER-STAGES ticket expires_at={} now={now_s}", answer.expires_at);
             let url = url::Url::parse(&answer.relay).unwrap();
             let target = format!("{}:{}", url.host_str().unwrap(), url.port().unwrap_or(443));
             let started = Instant::now();
@@ -649,6 +703,9 @@ mod live {
             let tcp_ms = started.elapsed();
             drop(tcp);
 
+            if fresh {
+                carrier = HubCarrier::new(tickets.clone(), *key, Timings::default());
+            }
             let started = Instant::now();
             let (secure, stages) = carrier.open_circuit(&peer).await.unwrap();
             let step = Instant::now();

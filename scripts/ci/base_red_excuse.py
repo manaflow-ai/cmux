@@ -1198,7 +1198,7 @@ BASE_DISPATCH_EVERY = timedelta(minutes=60)
 ROUTE_IF = re.compile(r"\$\{\{ *inputs\.(\w+) *== *'true' *\}\}")
 # A job a feat-cmux-next pull request runs as a ci/steps.toml step instead (pr-pipeline.yml): it skips only there, and
 # its rollup counts that skip as fine, so it has no route input and every other run is judged as an unrouted job's.
-STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}"
+STEP_TABLE_SKIP_IF = "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}"
 # A route report the Guard status prints: always read, even for a job the contract does not name (refused as unknown).
 ROUTE_REPORT = r"workflow-guard-[\w-]+|linux_guard_\w+"
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
@@ -6180,6 +6180,14 @@ def receipt_grammar():
     return risk_tier
 
 
+def actions_check_runs(runs, name: str) -> list[dict]:
+    """The GitHub Actions check runs called NAME in a check-runs answer: a check of the same name from another app
+    (a status bot, a third-party CI) is not the job's verdict, so its red excuses nothing."""
+    return [run for run in (runs or {}).get("check_runs") or []
+            if isinstance(run, dict) and run.get("name") == name
+            and (run.get("app") or {}).get("slug") == "github-actions"]
+
+
 def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: str, github) -> str:
     """The pull request whose head is SHA, when (1)-(4) above hold for the red job NAME; raises Refused otherwise."""
     pulls = [p for p in github.json(f"repos/{repo}/commits/{sha}/pulls?per_page=100") or []
@@ -6204,7 +6212,7 @@ def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: st
     if not receipt_grammar().signed_off(comments, reviews, sha, author, pull):
         raise Refused(f"#{number} has no independent SHIP at its exact head {sha[:12]}")
     runs = github.json(f"repos/{repo}/commits/{merge_base}/check-runs?check_name={urllib.parse.quote(name, safe='')}&filter=latest&per_page=100")
-    seen = [run for run in (runs or {}).get("check_runs") or [] if isinstance(run, dict) and run.get("name") == name]
+    seen = actions_check_runs(runs, name)
     if not any(run.get("status") == "completed" and run.get("conclusion") in ("failure", "timed_out") for run in seen):
         raise Refused(f"'{name}' has no red verdict at the merge-base {merge_base[:12]} "
                       f"({', '.join(sorted({str(r.get('conclusion') or r.get('status')) for r in seen})) or 'none'}): "
@@ -8038,6 +8046,21 @@ def list_base_runs(repo: str, base: str, workflow, github, base_runs: dict) -> N
         key=lambda run: run.get("created_at") or "", reverse=True)
 
 
+# A namesake read as a mismatch (2026-11-24, hq#20438): two workflows each ran a job 'tests' on the head, and the
+# refusal named only the base run, so the green base run of one ('lane-gh-broker tests', whose own 'tests' red was a
+# test budget overrun) was taken for the base verdict of the other ('fleet-reconcilers tests', excused as a shared base
+# red). The verdict was right; the text hid which workflow each run was. So the refusal names both runs' workflows.
+def workflow_label(run: dict, workflow=None) -> str:
+    """RUN's workflow as a refusal names it: its name and file, else WORKFLOW (an id or a file) when RUN has neither."""
+    name = run.get("name") if isinstance(run, dict) else None
+    file = workflow_file(run)
+    if name and file:
+        return f"workflow '{name}' ({file})"
+    if name or file:
+        return f"workflow '{name or file}'"
+    return f"workflow {workflow}"
+
+
 def workflow_file(run: dict) -> str | None:
     """RUN's workflow file name (`ci.yml`), the one repo-independent way to name a workflow: a workflow's id is per
     repo, so another repo's runs of the same workflow are listed by this name (Evidence.listed, list_base_runs take
@@ -9414,6 +9437,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                   "the merge-base has a verdict for it" + (f": {dispatch}" if dispatch else "")
                                   ) from None
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
+                              f"{workflow_label(base_run, base_workflow)}, the base's run of the head's red in run "
+                              f"{job.get('run_id')} ({workflow_label(workflow_info, workflow)}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
         bare = view is not UNPLACED and got.unplaced is not None

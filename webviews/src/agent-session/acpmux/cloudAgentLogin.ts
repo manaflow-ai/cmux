@@ -1,5 +1,6 @@
 import { agentKey } from "../shared/agentKey";
 import type { AcpmuxDirectClient } from "./direct";
+import type { AccountSignInTransport } from "../../pages/shared/signIn/useAccountSignIn";
 
 // A Cloud chat's own sign-in (Leo 2026-11-01, on the one-click sign-in: "yes those are important"):
 // a turn that failed because the agent on the user's Cloud machine is not signed in runs that
@@ -226,6 +227,9 @@ export type CloudSignIn = {
   /// Sends the failed prompt again under `ticket`; does nothing without one, or once `wanted`
   /// says the card that asked has gone (checked again after the prompt's attachments load).
   resend(rowId: string, prompt: string, ticket: ResendTicket | undefined, wanted?: () => boolean): Promise<void>;
+  /// GitHub's sign-in on the same machine (cloudGitHubSignIn.ts), for a chat elsewhere that names
+  /// its chat: the card offers it beside the agent's own, drawn by the shared DeviceSignInCard.
+  github?: AccountSignInTransport;
 };
 
 export type ResendTicket = { promptId: string; ticket: string };
@@ -313,6 +317,43 @@ export function refusedStartSignIn(options: {
     ...(card && { agentSignIn: card }),
     runsLogin: !options.startsElsewhere && options.loginCommand !== undefined,
   };
+}
+
+/// Whether `command`, run in a terminal on a Cloud machine, can finish while the person's browser is
+/// on their Mac: Claude Code's login (`claude /login`, `claude auth login`) shows a code to paste back,
+/// and a `--device-auth` login shows a code to type in. Codex's plain `codex login` (harnesses/codex.toml
+/// `auth.login`) waits for its browser's redirect to the machine's own `localhost:1455`, which the Mac's
+/// browser cannot reach, so it is not offered there. Leading `VAR=value` words (the account home,
+/// `CODEX_HOME=…`, harness_health) are skipped.
+export function signsInRemotely(command: string): boolean {
+  const words = command.trim().split(/\s+/);
+  const program = words.find((word) => !/^[A-Za-z_][A-Za-z0-9_]*=/.test(word));
+  if (program === undefined) return false;
+  return program.split("/").pop() === "claude" || words.includes("--device-auth");
+}
+
+/// Whether a failed turn's Sign in again runs the agent's own login command in a terminal (the
+/// chat pane's terminal opens on the chat's machine): only where the card has no in-place sign-in.
+/// A chat on this Mac or an own machine keeps it as before. A Cloud chat gets it only when its
+/// machine's acpmux runs no `agent_login` (an older machine, built before `agent-login-v1`), which
+/// otherwise left the card with Switch model alone; never on a team Cloud machine, which takes no
+/// personal login, and only for a login that finishes from another computer's browser
+/// (``signsInRemotely``). `onCloud`: the chat's machine is a Cloud one.
+export function terminalSignIn(options: {
+  connected: boolean;
+  loginCommand: string | undefined;
+  card: CloudSignIn | undefined;
+  onCloud: boolean;
+  machineSignsIn: boolean;
+  teamMachine: boolean;
+}): { runs: boolean; onCloud: boolean } {
+  const runs =
+    options.connected &&
+    options.loginCommand !== undefined &&
+    options.card === undefined &&
+    (!options.onCloud ||
+      (!options.machineSignsIn && !options.teamMachine && signsInRemotely(options.loginCommand ?? "")));
+  return { runs, onCloud: runs && options.onCloud };
 }
 
 /// The agent's own login on the chat's machine, or undefined for a chat not connected, not one of
