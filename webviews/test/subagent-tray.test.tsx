@@ -418,7 +418,9 @@ describe("the tray", () => {
       expect(text(".acpmux-agent-line__sr")).toBe("Running");
       const tooltip = lines[0]!.querySelector<HTMLElement>(".acpmux-agent-line__button")!.title;
       expect(tooltip).toContain("general-purpose");
-      expect(tooltip).toContain("Running a command");
+      // A bare shell step is neither "Bash" (Leo, 2026-11-05) nor a running word (Leo, 2026-11-23).
+      expect(tooltip).not.toContain("Bash");
+      expect(tooltip).not.toContain("Running");
       expect(text(".acpmux-agent-line__time")).toMatch(/^1m 2\ds$/);
       expect(lines[0]!.querySelector(".acpmux-lineage__icon")?.getAttribute("data-state")).toBe("running");
       const link = lines[0]!.querySelector<HTMLButtonElement>(".acpmux-agent-line__button")!;
@@ -1553,8 +1555,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
   test("only a tool call's title becomes a command; plan prose stays as written", async () => {
     const { toolDetail, doingDetail, isCommandTitle } =
       await import("../src/agent-session/acpmux/subagents/trayDetail");
-    const t = (key: string, values?: Record<string, unknown>) =>
-      key === "tools.runningCommand" ? `Running ${String(values?.command)}` : key;
+    const t = (key: string) => key;
     // ACP titles other calls in capitalized words; a shell call's title is the command as typed.
     for (const title of ["Read AgentCard.tsx", "Run cargo test -p acpmux", "Edit 2 files", "Grep retries"])
       expect(isCommandTitle(title)).toBe(false);
@@ -1574,14 +1575,14 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
     // A shell call's own title (ACP execute) is its command whatever it starts with.
     expect(isCommandTitle("cat README.md", true)).toBe(true);
     expect(isCommandTitle("terraform plan", true)).toBe(true);
-    expect(toolDetail(t as never, "cd repo && terraform plan")).toBe("Running terraform plan");
+    expect(toolDetail(t as never, "cd repo && terraform plan")).toBe("terraform plan");
     expect(toolDetail(t as never, "Read AgentCard.tsx")).toBe("Read AgentCard.tsx");
     // A plan step is prose, whatever it starts with, and is never split: only the tool part changes.
     const step = 'find the bug in `SubagentTray.tsx` · make sure --help says "a · b"';
     expect(doingDetail(t as never, step, undefined)).toBe(step);
-    expect(doingDetail(t as never, `${step} · git status`, "git status")).toBe(`${step} · Running git status`);
+    expect(doingDetail(t as never, `${step} · git status`, "git status")).toBe(`${step} · git status`);
     const quoted = 'echo "a \\" · git status"';
-    expect(doingDetail(t as never, quoted, quoted)).toBe(`Running ${quoted}`);
+    expect(doingDetail(t as never, quoted, quoted)).toBe(quoted);
     expect(doingDetail(t as never, "Check the card · Read AgentCard.tsx", "Read AgentCard.tsx")).toBe(
       "Check the card · Read AgentCard.tsx",
     );
@@ -1682,7 +1683,7 @@ describe('the tray\'s header stays (Leo 2026-10-25: "sometimes it disappears")',
       // What it does is the tooltip's, in words; the line has no subtitle.
       expect(root.querySelector(".acpmux-summary-agent__kind")).toBeNull();
       const tips = [...root.querySelectorAll<HTMLElement>(".acpmux-agent-line__button")].map((node) => node.title);
-      expect(tips[0]).toContain("Running bun test test/subagent-tray.test.tsx");
+      expect(tips[0]).toContain("bun test test/subagent-tray.test.tsx");
       expect(tips[0]).not.toContain("FOO=1");
       expect(tips[1]).toContain("find the bug in the fold");
       // The whole doing line is still the chat line's tooltip.

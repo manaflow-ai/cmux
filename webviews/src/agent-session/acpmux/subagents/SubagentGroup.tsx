@@ -131,9 +131,12 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = [
-    running(agent) ? (namedAction(t, agent.action, agent.actionShell) ?? t(label)) : t(label),
+    // Running is the avatar's spinner, never a word (Leo, 2026-11-23): a bare shell step says nothing.
+    running(agent) ? namedAction(t, agent.action, agent.actionShell) : t(label),
     ...subagentProgress(t, language, agent, { usage: false }),
-  ].join(" · ");
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const content = (
     <>
       <Avatar agent={agent} />
