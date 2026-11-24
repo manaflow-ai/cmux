@@ -38,8 +38,11 @@ public struct WelcomeView: View {
     @State private var showsEmail = false
     /// The intro has started (the lockup slot is measured).
     @State private var started: Bool
-    /// The timeline runs only while something moves.
-    @State private var animating = true
+    /// Why the timeline runs: each animation that moves adds its own reason
+    /// and takes back only its own, and the timeline pauses when none is left.
+    /// (One shared flag let the intro's end stop a reveal the picker had just
+    /// started, freezing it mid-reveal, sometimes on a blank frame.)
+    @State private var awake: Set<Wake> = [.intro]
     @State private var idleStart: Date?
     @State private var lockupMark: CGRect = .zero
     /// The sign-in icons grow with their labels (18 pt at the default size,
@@ -78,7 +81,7 @@ public struct WelcomeView: View {
     private static let launchMarkSize: CGFloat = 72
 
     public var body: some View {
-        TimelineView(.animation(paused: !animating)) { context in
+        TimelineView(.animation(paused: awake.isEmpty)) { context in
             let t = WelcomeIntroClock.shared.time(at: context.date)
             content(t: t, idle: idleTime(at: context.date), date: context.date)
         }
@@ -153,12 +156,13 @@ public struct WelcomeView: View {
     }
 
     /// Keeps the timeline running while a re-mounted hero plays its entrance.
+    /// A newer switch cancels this one and adds `.hero` again itself.
     private func runHeroEntrance() async {
         guard heroShownAt != nil else { return }
-        animating = true
+        awake.insert(.hero)
         try? await ContinuousClock().sleep(for: .seconds(hero.entranceDuration))
         guard !Task.isCancelled else { return }
-        if (WelcomeIntroClock.shared.t ?? 0) >= WelcomeArt.introDuration { animating = false }
+        awake.remove(.hero)
     }
 
     private func column(t: Double, heroT: Double, idle: Double?, fade: Double, controls: Double, showsArt: Bool, fills: Bool) -> some View {
@@ -352,7 +356,7 @@ public struct WelcomeView: View {
             try? await clock.sleep(for: .seconds(end - t))
             guard !Task.isCancelled else { return }
         }
-        animating = false
+        awake.remove(.intro)
         WelcomeIntroClock.shared.logFramePacing()
         openRequestedEmail()
         guard !reduceMotion, !WelcomeIntroClock.shared.idlePlayed else { return }
@@ -360,9 +364,9 @@ public struct WelcomeView: View {
         guard !Task.isCancelled else { return }
         WelcomeIntroClock.shared.idlePlayed = true
         idleStart = .now
-        animating = true
+        awake.insert(.idle)
         try? await clock.sleep(for: .seconds(WelcomeArt.idleDuration + 0.05))
-        animating = false
+        awake.remove(.idle)
     }
 
     /// DEBUG verification opens the sheet the way a tap would.
@@ -445,6 +449,17 @@ public struct WelcomeView: View {
         }
         return text
     }()
+}
+
+/// A reason the welcome's timeline runs (`WelcomeView.awake`).
+private enum Wake: Hashable {
+    /// The launch intro, until it settles.
+    case intro
+    /// The idle event, once, a few seconds after the intro.
+    case idle
+    /// A direction the prototype picker switched to or replayed, until its
+    /// entrance ends.
+    case hero
 }
 
 /// When this process's welcome intro started (it plays once per cold launch),
