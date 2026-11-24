@@ -271,7 +271,7 @@ fn glob(pattern: &str, text: &str) -> bool {
                 star = Some((p, t));
                 p += 1;
             }
-            Some(&c) if c == b'?' || c == text[t] => {
+            Some(&c) if c == b'?' || text.get(t) == Some(&c) => {
                 p += 1;
                 t += 1;
             }
@@ -285,7 +285,7 @@ fn glob(pattern: &str, text: &str) -> bool {
             },
         }
     }
-    pattern[p..].iter().all(|&c| c == b'*')
+    pattern.get(p..).unwrap_or_default().iter().all(|&c| c == b'*')
 }
 
 /// A listed file: where it is and what it was when listed.
@@ -430,7 +430,8 @@ fn read_at(file: &std::fs::File, offset: u64, len: u64) -> Part {
     let mut bytes = vec![0u8; usize::try_from(len).unwrap_or(0)];
     let mut done = 0;
     while done < bytes.len() {
-        match file.read_at(&mut bytes[done..], offset + done as u64) {
+        let Some(rest) = bytes.get_mut(done..) else { break };
+        match file.read_at(rest, offset + done as u64) {
             Ok(0) => break,
             Ok(read) => done += read,
             Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
