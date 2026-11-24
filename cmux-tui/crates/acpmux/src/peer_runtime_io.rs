@@ -542,7 +542,10 @@ impl Peer {
             "_meta": {"acpmux": {"compression": crate::frame_compress::offer(),
                 // Each chat's row change after the first as a patch, which the read loop makes
                 // whole again (`peer_row_patch.rs`); a peer before version 2 sends whole rows.
-                "sessionChangedDelta": crate::peer_row_patch::VERSION}}});
+                "sessionChangedDelta": crate::peer_row_patch::VERSION,
+                // What this build reads (`server/client_features.rs`): the peer sends a gated
+                // notification only once it is listed.
+                crate::server::client_features::FIELD: crate::server::client_features::own()}}});
         // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
         if self.github_broker() {
             hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));
