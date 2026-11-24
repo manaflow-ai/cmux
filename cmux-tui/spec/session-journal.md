@@ -204,9 +204,19 @@ session that ended with no stop does not refuse a rollback. For a store at
 reset holds the guard for a short time), the check reads 15 and writes
 nothing: the owner's stop writes the rows when its journal writer ends in
 time; a short holder writes none, and the next check or open does. That
-check makes no file; a
-write that fails leaves the store as it was and reads 16. When the check
-cannot ask the guard (a lock file is not there, or the lock of the
+check makes no store file; SQLite can make its 2 side files next to the
+store for the time of the write. The write changes the store file, and that
+is its price against the check's rule to leave the folder of a closed store
+as found: a second call of the reset command that comes after it refuses
+one time. A write that fails leaves the store as it was and reads 16, and
+each later read of that store by a check tries the write again, with a wait
+of 500 ms at most for the store's write lock. A store at 16 whose name is a
+link, or whose session folder is a link, gets no guard question and no
+write, and the check ends with an error: the guard has the name of the
+folder, and the write would follow the link into a file of another folder.
+The limit of that rule: the look at the 2 names and the open for the write
+are 2 steps, and a name that becomes a link between them is followed. When
+the check cannot ask the guard (a lock file is not there, or the lock of the
 session-locks directory stays busy past its bound), or when another
 connection holds the store's write lock past 500 ms, it gives no number and
 ends with an error: it did not read 16 with the guard held, so the app says
@@ -216,11 +226,14 @@ end (`.reset-<session>-<kind>-<id>.deleting`) has no guard file of its name.
 The check reads it as each other folder, and each number in it counts as it
 is, with one exception: a 16 there counts as 15, with no guard question and
 no write. So one such folder does not make each check end with an error
-until the next reset of that session deletes it. The limit: if that reset
-puts the folder back under the session's name at the same instant (its look
-after the rename failed), a check that passed in that instant gave a number
-that is too small for a build that does not know the mark; the next check
-reads the folder under its session name and asks the guard. A folder whose
+until the next reset of that session deletes it. The limit: a reset that
+runs now puts the folder back under the session's name when its look after
+the rename finds a changed folder, and a check that read the folder between
+that rename and that look gave a number that is too small for a build that
+does not know the mark. That is not chance only: the check's own plain read
+of a store that is not at rest makes or writes the 2 side files, and that is
+a change for the reset's look. The next check reads the folder under its
+session name and asks the guard. A folder whose
 name is only near that form gets the guard question as a session does.
 
 So 16 is not a plain schema

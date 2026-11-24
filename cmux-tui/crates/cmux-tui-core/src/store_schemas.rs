@@ -14,7 +14,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension};
 
 use crate::workspace_registry::is_pending_reset_dir_name;
 use crate::workspace_registry::session_journal::subject_rows::{
-    schema_of_stored_number, stored_number_for_a_rollback,
+    ROWS_DUE_SCHEMA_VERSION, schema_of_stored_number, stored_number_for_a_rollback,
 };
 
 const REGISTRY: &str = "workspace_registry";
@@ -104,8 +104,14 @@ pub enum Stored {
 /// It is a read for its caller, and it can write: the registry of a session
 /// that no daemon owns, left with journal subject rows due, gets those rows
 /// here (`stored_number_for_a_rollback`). That write changes derived rows
-/// and the stored number only, and it makes no file. When the check cannot
-/// tell whether a daemon owns such a session, that is an error too.
+/// and the stored number only, and it makes no store file: SQLite can make
+/// its 2 side files next to the store for the time of the write. A write
+/// that does not commit is tried again at each later read of that store (2
+/// reads at most in one call, and each later call), each time with a wait
+/// of 500 ms at most for the store's write lock. When the check cannot tell
+/// whether a daemon owns such a session, that is an error too, and so is
+/// such a store that is reached through a link ([`read_session`] has that
+/// rule, the price of the write and the limits).
 ///
 /// `end` is the check's end time. The caller of the check ends its process
 /// after a fixed time, and a check that is ended gives no answer. So before
@@ -377,6 +383,19 @@ fn in_reset(session: &Path) -> bool {
 /// same store in the same check asks no guard and writes nothing: one store
 /// gets that write one time at most, when the write commits.
 ///
+/// The price of the write: it changes the store file, against the rule of
+/// [`schema_version`] to leave the folder of a closed store as found. A
+/// second call of the reset command that comes after it refuses one time,
+/// and the first call gives a new text then.
+///
+/// A registry at 16 that is reached through a link gets no guard question
+/// and no write, and the check ends with an error ([`reached_with_no_link`]).
+/// The guard has the name of the session folder, and SQLite's open for the
+/// write follows a link: the write would go into a file of another folder,
+/// under a guard that is not the guard of that file. The limit: the look at
+/// the 2 names and the open for the write are 2 steps, and a name that
+/// becomes a link between them is followed.
+///
 /// A folder whose name is exactly a name that the reset command gives
 /// ([`is_pending_reset_dir_name`]: the kind and the canonical id) has no
 /// guard file of its name. The check reads it as each other folder, and each
@@ -389,11 +408,14 @@ fn in_reset(session: &Path) -> bool {
 /// gets the guard question as a session does: a 16 there is an error.
 ///
 /// The limit of the exception: a folder that a reset left with the mark 16
-/// counts as 15. If that reset puts the folder back under the session's
-/// name at the same instant (its look after the rename failed), a check that
-/// passed in that instant gave a number that is too small for a build that
-/// does not know the mark. The next check reads the folder under its session
-/// name and asks the guard.
+/// counts as 15. A reset that runs now puts the folder back under the
+/// session's name when its look after the rename finds a changed folder. A
+/// check that read the folder between that rename and that look gave a
+/// number that is too small for a build that does not know the mark. That
+/// is not chance only: the check's own plain read of a store that is not at
+/// rest makes or writes the 2 side files, and that is a change for the
+/// reset's look. The next check reads the folder under its session name and
+/// asks the guard.
 fn read_session(
     state_root: &Path,
     session: &Path,
@@ -421,6 +443,9 @@ fn read_session(
             } else if left_by_a_reset {
                 schema_of_stored_number(version)
             } else {
+                if version == ROWS_DUE_SCHEMA_VERSION {
+                    reached_with_no_link(session, &path)?;
+                }
                 stored_number_for_a_rollback(state_root, session, &path, version)?
             };
             let newest = found.entry((*name).to_string()).or_insert(version);
@@ -428,6 +453,25 @@ fn read_session(
         }
     }
     Ok(())
+}
+
+/// An error when the registry `store` at 16 of the session folder `session`
+/// is reached through a link: `session` is no directory by itself, or
+/// `store` is no plain file by itself (`symlink_metadata`: a name that is a
+/// link is neither). [`read_session`] has the reason and the limit.
+fn reached_with_no_link(session: &Path, store: &Path) -> anyhow::Result<()> {
+    let by_itself = |path: &Path| {
+        std::fs::symlink_metadata(path).with_context(|| format!("look at {}", path.display()))
+    };
+    if by_itself(session)?.is_dir() && by_itself(store)?.is_file() {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "the rollback check cannot tell whether an older build can open {}: journal subject rows \
+         are due in it, and the store or its session folder is reached through a link, so the \
+         check asks no guard and writes no rows",
+        store.display()
+    )
 }
 
 /// The name of the session folder `session`; nil when it is not UTF-8,
@@ -628,6 +672,10 @@ pub fn stored_from(
 /// other store, and each store for which that read gives an error or is not
 /// sure, gets the plain read, and the plain read's number or error is the
 /// answer. On a system that is not unix each store gets the plain read.
+///
+/// One store is not left as found, and that is a said price: a registry at
+/// 16 of a session that no daemon owns gets its subject rows, and that write
+/// changes the store file one time ([`read_session`]).
 fn schema_version(path: &Path) -> anyhow::Result<Option<i64>> {
     #[cfg(unix)]
     {

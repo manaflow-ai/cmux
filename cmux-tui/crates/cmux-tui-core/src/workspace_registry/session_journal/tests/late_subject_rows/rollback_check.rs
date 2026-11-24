@@ -125,7 +125,7 @@ fn the_rollback_check_of_a_store_at_16_that_an_owner_has_writes_nothing() {
 /// store counts as 15, the check gives the number of the sessions, and it
 /// does not open that folder's store for a write.
 #[test]
-fn the_rollback_check_does_not_take_the_folder_of_a_session_reset_that_did_not_end() {
+fn the_rollback_check_counts_a_16_as_15_with_no_write_in_the_folder_that_a_session_reset_left() {
     let crashed = crashed("rollback-reset-folder");
     let root = &crashed.store.root;
     let folder = crashed.database.parent().unwrap();

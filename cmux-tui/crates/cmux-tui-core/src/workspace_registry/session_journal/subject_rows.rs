@@ -570,6 +570,12 @@ pub(crate) fn write_rows_of_staged_records(
 /// daemon that has the session gets no write from here. Then the number is
 /// the one that the store has after the commit.
 ///
+/// The guard has the name of `session`, and the open for the write follows
+/// a link. So the caller gives a store at [`ROWS_DUE_SCHEMA_VERSION`] only
+/// when `session` is a directory by itself and `database` is a plain file by
+/// itself (`store_schemas::read_session`): with a link, the write would go
+/// into a file of another folder under a guard that is not its guard.
+///
 /// A write that fails after the store gave [`ROWS_DUE_SCHEMA_VERSION`] with
 /// the guard held reads as that number: a build that does not know the mark
 /// must not open that store. The failed write is one transaction, so the
