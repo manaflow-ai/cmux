@@ -9206,9 +9206,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         if runtimeOutcome != .openURL,
            let resolvedPoint, let terminalSurface,
            let workspace = terminalSurface.owningWorkspace(),
-           workspace.remoteConfiguration?.transport == .ssh,
-           workspace.terminalLinkIsRemoteTerminal(terminalSurface.id),
-           let panel = workspace.terminalPanel(for: terminalSurface.id),
+           let panel = workspace.remoteFilePreviewClickPanel(for: terminalSurface.id),
            let snapshot = visibleWordPathSnapshot(at: resolvedPoint, panel: panel) {
             let tokens = RemoteTerminalPathResolver().tokens(in: snapshot.line, column: snapshot.column)
             _ = openRemoteFilePreview(tokens: tokens)
