@@ -80,6 +80,7 @@ dependencies = [
  "cmux-usage-share",
  "cmux-vault-egress",
  "cmux-wg",
+ "cmux-wire-lockstep",
  "cmux-worktree-care",
  "crossterm",
  "dhat",
@@ -2441,6 +2442,7 @@ dependencies = [
  "cmux-tui-core",
  "cmux-unix-socket",
  "cmux-wg",
+ "cmux-wire-lockstep",
  "diffy",
  "flate2",
  "fs4",
@@ -2488,6 +2490,8 @@ name = "cmux-remote-protocol"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-wire-lockstep",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "uuid",
@@ -8273,6 +8277,7 @@ dependencies = [
  "schemars_derive 1.2.2",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

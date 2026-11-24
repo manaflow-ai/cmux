@@ -570,11 +570,13 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-build-space",
+ "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
  "cmux-transport",
  "cmux-wg",
+ "cmux-wire-lockstep",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -774,6 +776,14 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-wire-lockstep"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
