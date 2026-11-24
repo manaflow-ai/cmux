@@ -17,6 +17,7 @@ import { TerminalSquare } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import "./backgroundTaskCard.css";
+import { WithFacts } from "../chips/FactsHoverCard";
 
 /// How many of the last lines of output a card shows.
 const CARD_TAIL_LINES = 12;
@@ -83,6 +84,7 @@ export function BackgroundTaskCard({
   time,
   stop,
   defaultOpen,
+  openAt,
   readOutput = true,
   onOpenTerminal,
 }: {
@@ -95,27 +97,50 @@ export function BackgroundTaskCard({
   /// The surface's own Stop (it keeps its column there); none once it ended.
   stop?: ReactNode;
   defaultOpen?: boolean;
+  /// A request to open this card (its time, Session Info's row through the panel): each new one opens
+  /// it and brings it into view.
+  openAt?: number;
   readOutput?: boolean;
   onOpenTerminal?: () => void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(defaultOpen ?? state === "running");
+  const [open, setOpen] = useState(openAt !== undefined || (defaultOpen ?? state === "running"));
+  const [openedAt, setOpenedAt] = useState(openAt);
+  if (openAt !== undefined && openAt !== openedAt) {
+    setOpenedAt(openAt);
+    setOpen(true);
+  }
   const fold = useFold(open);
+  const card = useRef<HTMLDivElement>(null);
+  // Brought into view once per request, before the paint, so the list never shows it elsewhere first.
+  useLayoutEffect(() => {
+    if (openAt !== undefined) card.current?.scrollIntoView({ block: "nearest" });
+  }, [openAt]);
   return (
-    <div className="acpmux-bg-card" data-state={state} data-open={open || undefined}>
+    <div
+      ref={card}
+      className="acpmux-bg-card"
+      data-state={state}
+      data-open={open || undefined}
+      data-focused={openAt !== undefined || undefined}
+    >
       <div className="acpmux-bg-card__head">
-        <button
-          type="button"
-          className="acpmux-bg-card__toggle"
-          aria-expanded={open}
-          title={command}
-          onClick={() => setOpen(!open)}
-        >
-          <span className="acpmux-bg-card__disclosure" aria-hidden="true">
-            <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
-          </span>
-          <span className="acpmux-bg-card__title">{title}</span>
-        </button>
+        <WithFacts facts={[{ value: command, code: true }]}>
+          {(facts) => (
+            <button
+              {...facts}
+              type="button"
+              className="acpmux-bg-card__toggle"
+              aria-expanded={open}
+              onClick={() => setOpen(!open)}
+            >
+              <span className="acpmux-bg-card__disclosure" aria-hidden="true">
+                <Icon name={open ? "disclosure.expanded" : "disclosure.collapsed"} size={12} row />
+              </span>
+              <span className="acpmux-bg-card__title">{title}</span>
+            </button>
+          )}
+        </WithFacts>
         {time !== undefined && <span className="acpmux-bg-card__time">{time}</span>}
         {stop}
       </div>

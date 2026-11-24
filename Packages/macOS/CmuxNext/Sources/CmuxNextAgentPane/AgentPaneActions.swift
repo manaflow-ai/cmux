@@ -90,7 +90,8 @@ extension ActionRegistry {
 
     /// A header state with every value given (no Debug Settings read), only to ask which commands
     /// are toggles the App can read (``AgentPageCommand/isOn(in:)`` not nil).
-    private static let blankHeaderState = AgentPaneHeaderState(sessionInfo: false, headerMotion: .still)
+    private static let blankHeaderState = AgentPaneHeaderState(
+        sessionInfo: false, headerControls: .standard, headerMotion: .still, headerIcons: .standard, topRightLayout: .row)
 
     /// Binds Session Info for the invocation's pane, focused when there is no target. With
     /// `agent.sessionInfo` off the page has no Session Info, so the action refuses instead of
@@ -111,11 +112,21 @@ extension ActionRegistry {
     }
 
     /// Binds every agent pane action. `openNewChat` opens an agent tab in
-    /// the invocation's pane (the focused pane when it has no target).
+    /// the invocation's pane (the focused pane when it has no target); Customize…
+    /// runs it too, with a `draft` argument.
     /// Returns false when a descriptor is missing from the catalog.
     @discardableResult
-    public func bindAgentPane(openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
-        bind(.newAgentChat, invoke: openNewChat)
+    /// `customizeRows` says whether the right-click menus show Customize… (`customize.fromTheApp`,
+    /// off by default); the palette and the app menu always offer it.
+    public func bindAgentPane(customizeRows: @escaping @MainActor () -> Bool = { false },
+                              openNewChat: @escaping @MainActor (ActionInvocation) -> Void) -> Bool {
+        // Customize… opens the same new chat with `/customize ` in its composer (AgentPaneCustomize.swift).
+        let customize = bindEffect(.customizeOpen) { invocation in
+            openNewChat(invocation.customizing)
+            return .done
+        }
+        ActionTargetVisibility.hide(.customizeOpen, in: self) { _ in !customizeRows() }
+        return bind(.newAgentChat, invoke: openNewChat) && customize
     }
 
     /// Binds Show ACP Inspector. `toggle` toggles the inspector of the agent
@@ -134,16 +145,28 @@ extension ActionRegistry {
 }
 
 extension ActionRegistry {
+    /// Runs a page's `action.run` as the person's. A refusal goes back to the page, whose toast says it beside the
+    /// click (Move to Cloud on a chat with no first message), never dropped for a generic "couldn't start". One that
+    /// `showsInApp` (a sign-in reason, whose app toast carries Sign In) is refused again here, for the app's toast.
+    public func runPageAction(_ id: ActionID, invocation: ActionInvocation, showsInApp: (String) -> Bool) -> AgentPaneActionRun {
+        var ran = false
+        guard let reason = reportingRefusal({ ran = perform(id, invocation: invocation) }), !reason.isEmpty else { return ran ? .ran : .notRun }
+        guard showsInApp(reason) else { return .refused(reason) }
+        refuse(reason)
+        return .ran
+    }
+
     /// Opens an agent tab's changed file through `file.open` on `pane`, the
     /// path the palette and `cmux file open` take. False when the handler
     /// refused, so the page shows its notice instead of the app's beep; an
     /// editor that fails after it starts opening is not reported back.
     @discardableResult
-    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil) -> Bool {
-        let invocation = ActionInvocation(
+    public func openAgentFile(path: String, target: AgentPaneFileTarget, pane: String, machineID: String? = nil, line: Int? = nil) -> Bool {
+        var invocation = ActionInvocation(
             target: ActionTargetRef(kind: .pane, id: pane),
             arguments: ["path": .string(path), "where": .string(target.rawValue)]
         ).onMachine(machineID)
+        invocation.editorLine = line
         var performed = false
         let refusal = reportingRefusal { performed = perform(.fileOpen, invocation: invocation) }
         return performed && refusal == nil

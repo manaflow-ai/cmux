@@ -1,7 +1,8 @@
 // l10n-allow-file: deterministic, public-safe gallery chat fixtures.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { AllChatsList, AllChatsPage } from "./AllChatsList";
+import type { AllChatsList } from "./AllChatsList";
+import type { AllChatsPage } from "./allChatsListModel";
 
 const props = { onOpen: () => undefined, now: 1_800_000_000_000 };
 const pending = () => new Promise<AllChatsPage>(() => {});

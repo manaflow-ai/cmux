@@ -78,6 +78,12 @@ public struct PaletteItem: Identifiable {
     /// one of them, or its digits (`612`), puts the row first, above every text match. Not keywords,
     /// so a handle's letters never match other rows' words.
     public var handles: [String] = []
+    /// Phrases that name the row (the catalog's built-in aliases, `ActionDescriptor.paletteAliases`):
+    /// the ranker ranks the row for a query that is one of them as it ranks a `palette.aliases` match.
+    public var aliases: [String] = []
+    /// Scalar offsets into `subtitle` drawn emphasized: the words a row was found by when the subtitle
+    /// is a snippet of what matched (the chats page's match in what was said). Empty draws it plain.
+    public var subtitleHighlights: [Int] = []
     /// Whether an on/off command is on now, read when the palette opened; nil for any other row.
     /// The row shows it as ``PaletteTunables/toggleStyle`` says.
     public var toggleState: Bool?

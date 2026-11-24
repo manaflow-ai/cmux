@@ -28,6 +28,8 @@
 #include "include/cef_jsdialog_handler.h"
 #include "include/cef_load_handler.h"
 #include "include/cef_parser.h"
+#include "include/cef_request_context.h"
+#include "include/cef_request_context_handler.h"
 #include "include/cef_request_handler.h"
 #include "include/cef_resource_request_handler.h"
 #include "include/cef_task.h"
@@ -875,6 +877,72 @@ int rb_shim_open_tab(int request,
   CefRefPtr<CefWindow> window = CefWindow::CreateTopLevelWindow(
       new WindowDelegate(view, width_dip, height_dip));
   return window ? 1 : 0;
+}
+
+int rb_shim_set_tab_screen(int browser_id,
+                           int width_dip,
+                           int height_dip,
+                           double scale) {
+  if (!g_rp.set_screen || !g_rp.set_screen(width_dip, height_dip, scale)) {
+    return 0;
+  }
+  // A shared host's tabs each have their own viewer: only this tab's window
+  // takes the new size.
+  auto window = Windows().find(browser_id);
+  if (width_dip > 0 && height_dip > 0 && window != Windows().end()) {
+    window->second->SetSize(CefSize(width_dip, height_dip));
+  }
+  return 1;
+}
+
+// Opens a shared host's tab once its own request context (its profile) is
+// initialized.
+class TabContextOpener : public CefRequestContextHandler {
+ public:
+  TabContextOpener(int request, std::string url, int width, int height)
+      : request_(request), url_(std::move(url)), width_(width), height_(height) {}
+  void OnRequestContextInitialized(
+      CefRefPtr<CefRequestContext> context) override {
+    if (g_quitting) {
+      return;
+    }
+    CefBrowserSettings settings;
+    settings.background_color = 0xFFFFFFFF;
+    auto view = CefBrowserView::CreateBrowserView(
+        new Client(request_), url_, settings, nullptr, context,
+        new BrowserViewDelegate());
+    if (!view) {
+      return;
+    }
+    CefWindow::CreateTopLevelWindow(new WindowDelegate(view, width_, height_));
+  }
+
+ private:
+  const int request_;
+  const std::string url_;
+  const int width_;
+  const int height_;
+  IMPLEMENT_REFCOUNTING(TabContextOpener);
+};
+
+int rb_shim_open_tab_in(int request,
+                        const char* url,
+                        int width_dip,
+                        int height_dip,
+                        const char* cache_dir) {
+  if (!url || !cache_dir || width_dip <= 0 || height_dip <= 0) {
+    return 0;
+  }
+  // The tab's own request context: a cache path of its own (directly under
+  // the root cache path) is a profile of its own, so cookies, storage and the
+  // HTTP cache are this tab's alone, as when each tab had a host. Chrome
+  // creates an on-disk profile asynchronously: a browser view asked for
+  // before then is null, so the tab opens when its context is initialized.
+  CefRequestContextSettings context_settings;
+  CefString(&context_settings.cache_path) = cache_dir;
+  CefRefPtr<CefRequestContext> context = CefRequestContext::CreateContext(
+      context_settings, new TabContextOpener(request, url, width_dip, height_dip));
+  return context ? 1 : 0;
 }
 
 void rb_shim_close_tab(int browser_id) {

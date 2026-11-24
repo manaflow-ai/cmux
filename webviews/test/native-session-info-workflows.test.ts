@@ -1,7 +1,7 @@
 // l10n-allow-file: deterministic workflow names and failure messages in behavioral fixtures.
 import { expect, test } from "bun:test";
 import { translate } from "../src/agent-session/acpmux/i18n";
-import { compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
+import { compactTokens } from "../src/agent-session/acpmux/conversation/compactionNoteModel";
 import { NativeInfoActions } from "../src/agent-session/acpmux/session-info/native/model";
 import {
   reconcileNativeWorkflowPhases,

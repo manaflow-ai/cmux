@@ -1,9 +1,9 @@
 // Leo, 2026-11-07: "can't we make this all "appear" a lot faster". A pasted image's loading tile
-// shows the file's own picture (attachmentIntake.tsx instantPreview), but never one whose pixels
+// shows the file's own picture (attachmentIntakeModel.ts instantPreview), but never one whose pixels
 // pass the limit its preview is held to: a few hundred KB of PNG can decode to gigabytes. The file
 // still attaches; its tile just waits for the preview.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { instantPreview } from "../src/agent-session/acpmux/composer/attachmentIntake";
+import { instantPreview } from "../src/agent-session/acpmux/composer/attachmentIntakeModel";
 
 /// A minimal FileReader over Bun's Blob, for `readAsDataURL` only.
 class TestFileReader {

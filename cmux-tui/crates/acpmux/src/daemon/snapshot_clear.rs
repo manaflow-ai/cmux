@@ -9,8 +9,8 @@ pub(crate) async fn clear_peer_snapshots() -> Result<()> {
 }
 
 async fn clear_at(home: &Path, socket: &Path) -> Result<()> {
-    // timeout: an accepted socket that never completes initialization is a hung
-    // writer; after this grace the lock-protected path can safely decide.
+    // An accepted socket that never completes initialization is a hung writer.
+    // timeout: after this grace the lock-protected path can safely decide.
     const SNAPSHOT_CONNECT_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
     if let Ok(Ok(client)) =
         tokio::time::timeout(SNAPSHOT_CONNECT_BUDGET, Client::connect_without_caller(socket)).await
@@ -23,7 +23,15 @@ async fn clear_at(home: &Path, socket: &Path) -> Result<()> {
         if std::fs::canonicalize(served)? != std::fs::canonicalize(home)? {
             anyhow::bail!("refusing to clear peer snapshots belonging to another daemon home");
         }
-        client.request("_acpmux/peer_snapshots_clear", serde_json::json!({})).await?;
+        // A live daemon may accept the clear and never answer.
+        // timeout: sign-out's caller is not held forever; on expiry this fails, nothing cleared.
+        const SNAPSHOT_CLEAR_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+        tokio::time::timeout(
+            SNAPSHOT_CLEAR_BUDGET,
+            client.request("_acpmux/peer_snapshots_clear", serde_json::json!({})),
+        )
+        .await
+        .map_err(|_| anyhow!("daemon did not finish clearing peer snapshots in time"))??;
         return Ok(());
     }
     crate::config::private_state_dir(home)?;
@@ -33,17 +41,5 @@ async fn clear_at(home: &Path, socket: &Path) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn offline_peer_snapshot_clear_never_runs_beside_a_live_writer() {
-        let dir = cmux_unix_socket::short_test_dir("acpmux-clear-lock");
-        let held = acquire_lock(&dir.path().join("daemon.lock")).unwrap();
-        let socket = dir.path().join("missing.sock");
-        assert!(clear_at(dir.path(), &socket).await.is_err());
-        drop(held);
-        clear_at(dir.path(), &socket).await.unwrap();
-        assert!(!socket.exists(), "clearing must not start a daemon");
-    }
-}
+#[path = "snapshot_clear_tests.rs"]
+mod tests;

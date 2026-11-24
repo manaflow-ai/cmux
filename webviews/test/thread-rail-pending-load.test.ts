@@ -6,7 +6,8 @@
 //
 // A long chat opens with only its recent prompts held and the summary's count naming the rest. The
 // prompt index (`loadPromptIndex`, the pane client's one read of every prompt's seq and words) names
-// the pending ticks; the rail asks for it when a pending tick is hovered or clicked, at most once in
+// the pending ticks; the rail asks for it when the pointer reaches the rail (so a click that follows
+// waits on one read, not the index and then its page) or a pending tick is hovered or clicked, at most once in
 // flight however many ticks the pointer crosses, and a click then reads history straight through to
 // the prompt instead of one page per older prompt.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -127,6 +128,19 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
   }
   const settle = (page: Page) =>
     page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
+  /// The reader wheels the rail up to the oldest prompts. Sixty prompts overflow the rail's one height
+  /// (#34666), which opens on the latest ones and draws only the ticks in its view (tickWindow.ts), so
+  /// an old prompt's tick is there only once the list is scrolled to it. The wheel marks the rail as
+  /// the reader's (`railBrowsing`), so it stays where they put it (as threadMinimapUnheld.gallery.ts).
+  async function showOldest(page: Page) {
+    await page.evaluate(() => {
+      const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+      list.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true }));
+      list.scrollTop = 0;
+    });
+    await page.waitForSelector('[data-tick="0"]');
+    await settle(page);
+  }
   const tickAt = (page: Page, index: number) =>
     page.evaluate((at) => {
       const rect = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
@@ -145,6 +159,7 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
     const page = await open();
     try {
       // Prompt 3's tick: the chat holds prompts 49 to 60, and the count names the rest.
+      await showOldest(page);
       const at = await tickAt(page, 2);
       await page.mouse.move(at.x, at.y);
       await page.waitForSelector(".acpmux-minimap__card");
@@ -168,6 +183,7 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
   test("clicking a far pending tick lands on its prompt in one read, and no tick moves", async () => {
     const page = await open();
     try {
+      await showOldest(page);
       const before = await tops(page);
       const at = await tickAt(page, 4);
       await page.mouse.click(at.x, at.y);
@@ -211,6 +227,23 @@ await requireBrowserLane("thread-rail-pending-load.test.ts", async () => {
     }
   });
 
+  test("the pointer reaching the rail asks for the index before any tick is hovered", async () => {
+    const page = await open();
+    try {
+      expect(await page.evaluate(() => (window as unknown as { __indexReads: number }).__indexReads)).toBe(0);
+      // A pointer arriving from outside (no relatedTarget), which React reads as entering the rail.
+      await page.evaluate(() =>
+        document
+          .querySelector(".acpmux-minimap__list")!
+          .dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" })),
+      );
+      await settle(page);
+      expect(await page.evaluate(() => (window as unknown as { __indexReads: number }).__indexReads)).toBe(1);
+      expect(await page.evaluate(() => (window as unknown as { __loads: number[] }).__loads)).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  });
   test("a sweep across many pending ticks reads the index at most once", async () => {
     const page = await open();
     try {

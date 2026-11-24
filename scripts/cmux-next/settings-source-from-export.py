@@ -7,7 +7,7 @@ source format scripts/cmux-next/gen-settings-sources.py reads (see its docstring
 order, as {"lists": [...]}: one list per run of rows with the same section and group.
 
     python3 scripts/cmux-next/settings-source-from-export.py tabs.overflow tabs.plusButton
-    python3 scripts/cmux-next/settings-source-from-export.py --swift-type ChromePlacementSetting
+    python3 scripts/cmux-next/settings-source-from-export.py --swift-type BrowserPasswordsSetting
 
 --swift-type T picks the rows whose title catalog key is written in a CmuxNextSettings Swift file
 that declares or extends T (the hand-written rows of that type). What the export does not carry,
@@ -58,6 +58,8 @@ def draft_row(row):
             out["range"]["placeholder"] = rng["placeholder"]
     if "url_key" in row:
         out["url_key"] = row["url_key"]
+    if "shape" in row:
+        out["shape"] = row["shape"]
     out["default"] = row["default"]
     for field in ("default_label", "placeholder"):
         if row.get(field):

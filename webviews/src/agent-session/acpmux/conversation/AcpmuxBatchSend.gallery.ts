@@ -14,7 +14,7 @@ const bash = (command: string, description: string, status: string, output?: str
   tool(command.slice(0, 120), "execute", status, { command, description, ...(output !== undefined && { output }) });
 
 const FUNCTION_BATCH = bash(
-  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s gcp-lane/acpmux-owner relay-owner.md; s review-astra rereview-4182.md',
+  'cd /tmp/coord; s(){ acpmux send --no-wait --from coord "$1" "$(cat "$2")" 2>&1 | tail -1; }; s build-box/nightly escalate-nightly.md; s ci-box/acpmux-owner relay-owner.md; s review-astra rereview-4182.md',
   "Escalate legacy nightly, relay to owners",
   "completed",
   'queued\nsteered\nacpmux: no_session: no session matches "review-astra"',
@@ -88,16 +88,16 @@ const openTurn: Play = async (ctx) => {
   const group = () => ctx.document.querySelector(GROUP);
   if (ctx.document.querySelector(".cv-worked.is-toggle")) {
     await ctx.click({ selector: ".cv-worked.is-toggle" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? run() ?? group());
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? run() ?? group());
   }
-  if (!ctx.document.querySelector(".cv-sent") && run()?.getAttribute("aria-expanded") === "false") {
+  if (!ctx.document.querySelector(".cv-sent-msg") && run()?.getAttribute("aria-expanded") === "false") {
     await ctx.click({ selector: "button[data-message-run]" });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent") ?? group());
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg") ?? group());
   }
   // A run of sends is one closed group ("Sent 8 messages", SentMessageLine.tsx `SentMessageGroup`).
-  if (!ctx.document.querySelector(".cv-sent") && group()?.getAttribute("aria-expanded") === "false") {
+  if (!ctx.document.querySelector(".cv-sent-msg") && group()?.getAttribute("aria-expanded") === "false") {
     await ctx.click({ selector: GROUP });
-    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent"));
+    await ctx.waitFor(() => ctx.document.querySelector(".cv-sent-msg"));
   }
 };
 
@@ -107,14 +107,14 @@ const GROUP = ".cv-sent-group .cv-message-group__head";
 /// shell function stays at most one click away.
 const openRaw: Play = async (ctx) => {
   await openTurn(ctx);
-  await ctx.click({ selector: ".cv-sent" });
+  await ctx.click({ selector: ".cv-sent-msg .cv-agentmsg__toggle" });
   // A message whose words the transcript never held (its text read from a file) opens straight to
   // its call, with no Raw toggle (SentMessageLine.tsx); one with words keeps the call behind Raw.
-  const shell = () => ctx.document.querySelector(".cv-subsession__under .cv-shell");
-  const toggle = () => ctx.document.querySelector(".cv-subsession__under .cv-subsession__toggle");
+  const shell = () => ctx.document.querySelector(".cv-sent-msg :is(.cv-sent__raw, .cv-sent__call) [data-tool-id]");
+  const toggle = () => ctx.document.querySelector(".cv-sent-msg .cv-sent__raw > .cv-received__more");
   await ctx.waitFor(() => shell() ?? toggle());
   if (!shell()) {
-    await ctx.click({ selector: ".cv-subsession__under .cv-subsession__toggle" });
+    await ctx.click({ selector: ".cv-sent-msg .cv-sent__raw > .cv-received__more" });
     await ctx.waitFor(shell);
   }
 };

@@ -24,10 +24,13 @@ public extension AgentLaneStore {
     /// Whether a workspace still has a live local acpmux session. A purged
     /// session can leave its conversation tab in the daemon tree for a short
     /// time; it must not keep a sidebar row alive. While the watch is down,
-    /// keep rows until the next complete page so a transport gap never hides
-    /// live work.
+    /// the sessions it listed last (`beforeGap`) count as live until the next
+    /// complete page, so a transport gap never hides live work and never shows
+    /// a gone session's workspace again (ask-71821f1cda). Before the first
+    /// page every row stays.
     func keepsWorkspace(_ workspace: WorkspaceModel, turns: AgentTurnStateStore) -> Bool {
-        guard live, let host = turns.localHost else { return true }
+        let gap = live ? nil : beforeGap
+        guard live || gap != nil, let host = turns.localHost else { return true }
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let localSessions = tabs.compactMap { tab -> String? in
             guard let ref = tab.agentSession, ref.host == host else { return nil }
@@ -41,6 +44,7 @@ public extension AgentLaneStore {
             guard let ref = tab.agentSession, ref.host == host, ref.session != nil else { return true }
             return false
         }) { return true }
+        if let gap { return localSessions.contains { gap.contains($0) } }
         return localSessions.contains { sessionIsLive($0) }
     }
 }

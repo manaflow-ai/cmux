@@ -1,5 +1,6 @@
 //! A peer's refusal of a `session/new` this daemon forwarded (`acpmux new --host HOST`) says
-//! what works instead: `data.try` is a command to copy, and the message ends with it (Leo,
+//! what works instead: `data.try` is a command to copy, and the message names it between a
+//! first and a last line that both say `refused by HOST` (`refused_by`) (Leo,
 //! 2026-10-24: "we improve the instructions and the error messages and the hints"). The
 //! peer's rules (`remote_guard.rs`) stay as they are; only the way out is named:
 //!
@@ -30,7 +31,9 @@ pub(crate) const CWD_OUTSIDE_ROOTS: &str = "remote.cwd_outside_roots";
 /// `remote_guard::check_inner`. A refused remote `session/new` (`remote.*`) says how this
 /// daemon served the caller (`data.servedAs`: `peer` or `remote`), for the forwarding
 /// daemon's hint. `policy_proved`: the request is a policy raise the person proved
-/// (`hub/person/policy_grant.rs`).
+/// (`hub/person/policy_grant.rs`). `web_device`: a browser's connection holding its own device on
+/// the mesh hub (`web_device.rs`, `Conn::proof`), from the connection, never from a request.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::server) async fn check(
     hub: &std::sync::Arc<crate::hub::Hub>,
     origin: crate::server::Origin,
@@ -39,9 +42,11 @@ pub(in crate::server) async fn check(
     m: &str,
     params: &mut Value,
     policy_proved: bool,
+    web_device: bool,
 ) -> Result<(), RpcError> {
     let peer = super::control_of(origin, auth, params) == crate::hub::Control::Peer;
-    let mut result = super::check_inner(hub, origin, auth, device, m, params, policy_proved).await;
+    let mut result =
+        super::check_inner(hub, origin, auth, device, m, params, policy_proved, web_device).await;
     if m == crate::rpc::method::SESSION_NEW
         && origin.web_class()
         && let Err(e) = &mut result
@@ -157,7 +162,7 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
             )
         }
     };
-    let message = format!("{}{why}; instead: {command}", e.message);
+    let message = refused_by(&peer.name, &format!("{}{why}", e.message), &command);
     let mut data = match e.data {
         Some(Value::Object(o)) => Value::Object(o),
         _ => json!({}),
@@ -195,8 +200,18 @@ fn try_asking(host: &str, params: &Value, mut e: RpcError) -> RpcError {
     let start = Start { mode: None, ..Start::of(&p) };
     let command = command(&p, &start, Some(host), false).render(None);
     data.set("try", json!(command));
-    e.message = format!("{}; instead: {command}", e.message);
+    e.message = refused_by(host, &e.message, &command);
     e
+}
+
+/// A forwarded start's refusal by `host`, as its message reads: `refused by HOST: REASON` on the
+/// first line, then the command that works, then the refusal again, so a caller that reads only
+/// the first line or only the last (`| tail -1`) still sees nothing started. A command with a
+/// prompt file spans lines (`Retry::render`), which is why the last line says it once more.
+fn refused_by(host: &str, reason: &str, command: &str) -> String {
+    format!(
+        "refused by {host}: {reason}; nothing was started. Instead:\n{command}\nrefused by {host}: nothing was started; the command above runs it"
+    )
 }
 
 /// A start with no folder that `peer_name` refused as outside its roots, from a peer of
@@ -521,6 +536,26 @@ mod tests {
         );
         let odd = Start { cwd: Some("/tmp/a b/it's".into()), ..Start::default() };
         assert_eq!(odd.command(None), r"acpmux new --cwd '/tmp/a b/it'\''s' -d");
+    }
+
+    /// A refusal reads `refused by HOST: REASON` on its first line and again on its last, so a
+    /// caller piping through `tail -1` sees it failed, not only the end of a multi-line command.
+    #[test]
+    fn a_refusal_says_refused_by_its_host_first_and_last() {
+        let command = "printf %s 'line one\nline two' | (ssh -- vm 'acpmux new -d')";
+        let message = refused_by("vm", "a permission policy other than ask", command);
+        let lines: Vec<&str> = message.lines().collect();
+        assert_eq!(
+            lines.first().copied(),
+            Some(
+                "refused by vm: a permission policy other than ask; nothing was started. Instead:"
+            )
+        );
+        assert_eq!(lines[1..lines.len() - 1].join("\n"), command);
+        assert_eq!(
+            lines.last().copied(),
+            Some("refused by vm: nothing was started; the command above runs it")
+        );
     }
 
     fn peer(try_cwd: Option<&str>) -> Found<'_> {

@@ -54,8 +54,8 @@ fn requested_rest<'a>(args: &'a [String], launcher: &Launcher) -> Option<&'a [St
     head.iter().map(String::as_str).eq(launcher.words).then_some(rest)
 }
 
-#[cfg(test)]
-fn is_requested(args: &[String]) -> bool {
+/// Whether `args` start a launcher (it runs a checkout's script before reading `--help`).
+pub(super) fn is_requested(args: &[String]) -> bool {
     LAUNCHERS.iter().any(|launcher| requested_rest(args, launcher).is_some())
 }
 
@@ -129,27 +129,5 @@ fn validate_repository(path: PathBuf, script: &str) -> Result<PathBuf, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn strings(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| (*value).to_string()).collect()
-    }
-
-    #[test]
-    fn only_curated_surface_handles_ui_layer_command() {
-        let args = strings(&["dev", "ui-host"]);
-        assert!(is_requested(&args));
-        assert!(run_if_requested(&args, Surface::CmuxTui).is_none());
-    }
-
-    #[test]
-    fn forwards_launcher_arguments() {
-        assert!(is_requested(&strings(&["dev", "ui-host", "--watch"])));
-        assert!(is_requested(&strings(&["preview", "open", "--size", "1280x800"])));
-        assert!(!is_requested(&strings(&["preview"])));
-        assert!(!is_requested(&strings(&["open", "preview"])));
-        assert!(!is_requested(&strings(&["dev"])));
-        assert!(!is_requested(&strings(&["ui-host", "dev"])));
-    }
-}
+#[path = "dev_tests.rs"]
+mod tests;

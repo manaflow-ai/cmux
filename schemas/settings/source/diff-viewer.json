@@ -1,0 +1,264 @@
+{
+  "$comment": "HAND-EDITED source of the Appearance section's Diff Viewer rows (cx-d5b5d). scripts/cmux-next/gen-settings-sources.py writes the Swift descriptors and parser constants from it (its docstring is the row format); schemas/settings/settings-schema.json is still exported from Swift and must not change when rows move here.",
+  "lists": [
+    {
+      "name": "diffViewer",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.diffViewer",
+        "text": "Diff Viewer"
+      },
+      "note": "The diff page's display keys (diff-host S4; React UIs lead review P2-3): the toolbar toggles the page keeps (webviews/src/viewer-prefs.ts sanitizeViewerPrefs), with the page's own defaults. cmux-next reads them; an agent may set them (looks only). The files a person collapsed are not a setting: the diff host keeps them next to its viewed marks.",
+      "rows": [
+        {
+          "key": "diff.layout",
+          "title": {
+            "key": "settings.diff.layout",
+            "text": "Layout"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "auto",
+              "title": {
+                "key": "settings.choice.diffAutoLayout",
+                "text": "Auto"
+              }
+            },
+            {
+              "value": "split",
+              "title": {
+                "key": "settings.choice.diffSplit",
+                "text": "Side by Side"
+              }
+            },
+            {
+              "value": "unified",
+              "title": {
+                "key": "settings.choice.diffUnified",
+                "text": "Unified"
+              }
+            }
+          ],
+          "default": "auto",
+          "keywords": [
+            "diff",
+            "split",
+            "unified",
+            "side by side",
+            "auto",
+            "automatic"
+          ]
+        },
+        {
+          "key": "diff.diffIndicators",
+          "title": {
+            "key": "settings.diff.diffIndicators",
+            "text": "Change Markers"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "bars",
+              "title": {
+                "key": "settings.choice.diffBars",
+                "text": "Bars"
+              }
+            },
+            {
+              "value": "classic",
+              "title": {
+                "key": "settings.choice.diffClassic",
+                "text": "+ and −"
+              }
+            },
+            {
+              "value": "none",
+              "title": {
+                "key": "settings.choice.diffNone",
+                "text": "None"
+              }
+            }
+          ],
+          "default": "bars",
+          "keywords": [
+            "diff",
+            "indicators",
+            "markers",
+            "gutter"
+          ]
+        },
+        {
+          "key": "diff.colors",
+          "note": "Settings only, no toolbar toggle: added and removed lines follow the theme unless a person opts out.",
+          "title": {
+            "key": "settings.diff.colors",
+            "text": "Diff Colors"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "theme",
+              "title": {
+                "key": "settings.choice.diffColorsTheme",
+                "text": "Theme"
+              }
+            },
+            {
+              "value": "muted",
+              "title": {
+                "key": "settings.choice.diffColorsMuted",
+                "text": "Muted"
+              }
+            },
+            {
+              "value": "standard",
+              "title": {
+                "key": "settings.choice.standard",
+                "text": "Standard"
+              }
+            }
+          ],
+          "default": "theme",
+          "keywords": [
+            "diff",
+            "color",
+            "green",
+            "red",
+            "added",
+            "removed"
+          ]
+        },
+        {
+          "key": "diff.wordWrap",
+          "title": {
+            "key": "settings.diff.wordWrap",
+            "text": "Wrap Lines"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "diff",
+            "wrap",
+            "lines"
+          ]
+        },
+        {
+          "key": "diff.wordDiffs",
+          "note": "On by default (Leo, 2026-10-20: the diff viewer shows word-level changes, as a code review does).",
+          "title": {
+            "key": "settings.diff.wordDiffs",
+            "text": "Highlight Word Changes"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "diff",
+            "word",
+            "inline"
+          ]
+        },
+        {
+          "key": "diff.lineNumbers",
+          "title": {
+            "key": "settings.diff.lineNumbers",
+            "text": "Line Numbers"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "diff",
+            "line numbers",
+            "gutter"
+          ]
+        },
+        {
+          "key": "diff.showBackgrounds",
+          "title": {
+            "key": "settings.diff.showBackgrounds",
+            "text": "Change Backgrounds"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "diff",
+            "background",
+            "color"
+          ]
+        },
+        {
+          "key": "diff.expandUnchanged",
+          "title": {
+            "key": "settings.diff.expandUnchanged",
+            "text": "Expand Unchanged Lines"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "diff",
+            "unchanged",
+            "context",
+            "expand"
+          ]
+        },
+        {
+          "key": "diff.groupByKind",
+          "note": "Off by default: the familiar order is the order the diff arrived in, and a reorder nobody can turn off has no business being the default. The toolbar's toggle writes this row, so turning it on lasts past the tab (webviews/src/viewer-prefs.ts).",
+          "title": {
+            "key": "settings.diff.groupByKind",
+            "text": "Group Files by Kind"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "diff",
+            "group",
+            "kind",
+            "tests",
+            "generated",
+            "order",
+            "sort"
+          ]
+        },
+        {
+          "key": "diff.hideWhitespace",
+          "note": "Off by default: the diff shows every change, as git does. On, the diff leaves out white space changes (git diff --ignore-all-space), for the git sources only; the ... menu's Hide white space writes this row.",
+          "title": {
+            "key": "settings.diff.hideWhitespace",
+            "text": "Hide White Space"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "diff",
+            "whitespace",
+            "white space",
+            "spaces",
+            "indentation",
+            "ignore"
+          ]
+        },
+        {
+          "key": "diff.showBulkActions",
+          "note": "On by default: the floating Stage All / Revert All bar at the diff's end. Off hides it; each hunk's and file's own Stage and Revert stay.",
+          "title": {
+            "key": "settings.diff.showBulkActions",
+            "text": "Stage All and Revert All Bar"
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "diff",
+            "stage",
+            "revert",
+            "all",
+            "floating",
+            "bar",
+            "bulk",
+            "actions"
+          ]
+        }
+      ]
+    }
+  ]
+}

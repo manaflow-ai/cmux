@@ -32,6 +32,15 @@ pub fn steers_by_info(info: Option<&Value>) -> bool {
     info.and_then(|i| i.get("name")).and_then(Value::as_str) == Some(AGENT_NAME)
 }
 
+/// Whether a chat's saved `agentInfo` names this adapter with its PreToolUse policy gate
+/// (`policy_gate.rs`, registered on unix). An agent started by a build without it (a host
+/// adopted after an upgrade) says nothing: false.
+pub fn has_tool_gate(info: Option<&Value>) -> bool {
+    steers_by_info(info)
+        && info.and_then(|i| i.pointer("/_meta/acpmux/toolGate")).and_then(Value::as_bool)
+            == Some(true)
+}
+
 /// Claude Code's own permission modes, offered as ACP session modes: id
 /// (Claude Code's `--permission-mode` value), label and one-line description,
 /// in the order Claude Code's mode menu lists them. acpmux names none of its
@@ -109,7 +118,7 @@ const ALIASES: [(&str, &str); 7] = [
 static MODELS: std::sync::LazyLock<Vec<(String, String)>> = std::sync::LazyLock::new(|| {
     let mut models: Vec<(String, String)> =
         ALIASES.iter().map(|(id, name)| (id.to_string(), name.to_string())).collect();
-    let catalog = crate::catalog::schema::parse(crate::catalog::BUNDLED.as_bytes());
+    let catalog = crate::catalog::schema::parse(crate::catalog::BUNDLED.inflate().as_bytes());
     let releases =
         catalog.iter().flat_map(|catalog| &catalog.harnesses).filter(|h| h.id == "claude");
     for model in releases.flat_map(|harness| &harness.models) {
@@ -154,10 +163,18 @@ fn effort_value(effort: &str) -> &str {
 /// Claude Code alias: Claude Code sends it to the API as typed and every turn
 /// fails with "There's an issue with the selected model (opus-5-5)". It takes
 /// the prefix, as the live list's `launch_id` does. Bare aliases (`opus`,
-/// `opusplan`), full ids and other providers' names pass unchanged.
+/// `opusplan`), full ids and other providers' names pass unchanged. Any other spelling of a
+/// catalog id (`fable-5.2`, `Fable 5.2`) is that id (`model_catalog.rs`): Claude Code refused
+/// `fable-5.2` with `unrecognized_model`.
 pub fn model_id(value: &str) -> String {
     let value = value.trim();
-    let versioned = ["opus-", "sonnet-", "haiku-"].iter().any(|family| {
+    if let Some(found) = crate::model_catalog::bundled_harness("claude")
+        .and_then(|entry| crate::model_catalog::canonical_model(&entry, value).ok())
+        .filter(|c| c.changed())
+    {
+        return found.model;
+    }
+    let versioned = ["opus-", "sonnet-", "haiku-", "fable-"].iter().any(|family| {
         value
             .strip_prefix(family)
             .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
@@ -180,6 +197,14 @@ fn cli_effort(effort: &str) -> Option<&str> {
         "default" => None,
         level => Some(shown_level(level)),
     }
+}
+
+/// Whether a new chat's `effort` can go on its command line (`--effort`) instead of the live
+/// `apply_flag_settings` channel after `initialize` (`hub/lifecycle.rs` `effort_request`): a
+/// plain Reasoning level. "default" stays live (it clears an effort the person's settings set,
+/// which no flag does), as do Ultracode and the retired Ultrathink.
+pub fn takes_effort_at_spawn(effort: &str) -> bool {
+    effort != "default" && EFFORTS.iter().any(|(v, _)| *v == effort)
 }
 
 /// The `apply_flag_settings` settings for a session effort. Every level
@@ -280,7 +305,13 @@ mod edit_diff_tests;
 mod elicitation;
 #[cfg(test)]
 mod elicitation_tests;
+#[cfg(test)]
+mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
+mod dedupe;
+mod dedupe_shell;
+#[cfg(test)]
+mod dedupe_tests;
 mod foreground_work;
 #[cfg(test)]
 mod foreground_work_tests;
@@ -288,16 +319,25 @@ mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
 mod inbound;
+#[cfg(test)]
+mod initialize_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
-pub use logged_bodies::leave_out_bodies;
+pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
+// What the log keeps of Claude's raw system/init lines (`logged_init.rs`).
+mod logged_init;
+pub use logged_init::{InitSections, LoggedInit};
 mod live_name;
 #[cfg(test)]
 mod live_name_tests;
 mod loops;
 #[cfg(test)]
 mod loops_tests;
+pub(crate) mod native_messaging;
 mod outbound;
+mod policy_gate;
+#[cfg(test)]
+mod policy_gate_tests;
 pub mod prompt_cache;
 pub mod prompt_suggestions;
 #[cfg(test)]
@@ -307,8 +347,16 @@ mod result_images;
 pub(crate) use result_images::result_images;
 #[cfg(test)]
 mod result_images_tests;
+// A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
+#[cfg(test)]
+mod queued_prompt_tests;
+pub mod resume_cut;
+#[cfg(test)]
+mod resume_cut_tests;
 #[cfg(test)]
 mod steer_now_tests;
+// Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
+mod background_shells;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
 mod steer_batch;
 #[cfg(test)]
@@ -330,8 +378,11 @@ mod usage_limits;
 #[cfg(test)]
 mod usage_limits_tests;
 #[cfg(test)]
+mod workflow_shell_tests;
+#[cfg(test)]
 mod workflow_tests;
 mod workflows;
+use background_shells::{BackgroundShell, background_task_update, origin, shell_update};
 pub use usage_limits::{merge_usage_limits, usage_limit_reached};
 
 /// Longest failure text a failed subagent's end carries, in characters.
@@ -384,6 +435,12 @@ pub const RECAP: &str = "_acpmux/claude/recap";
 /// (`hub/live_name.rs`), `{sessionId, name}`: its `/rename` line between turns (`live_name.rs`).
 /// The answer is `{renamed: true}`, or `RENAME_BUSY` while a turn runs.
 pub const RENAME: &str = "_acpmux/claude/rename";
+
+/// This backend -> hub: whether the PreToolUse gate lets one tool call run (`policy_gate.rs`,
+/// `hub/policy_gate.rs`). Params as `session/request_permission`'s; the answer is
+/// `{"decision": "none"|"allow"|"ask"|"deny", "reason"?}`. A backend that has the gate says so in
+/// its `agentInfo` (`_meta.acpmux.toolGate`, [`has_tool_gate`]).
+pub const TOOL_GATE: &str = "_acpmux/claude/tool_gate";
 pub use live_name::{RENAME_BUSY, RENAME_IN_FLIGHT, RENAME_UNSUPPORTED};
 
 /// The chat's own session recap switch (`hub/away_recap.rs`): `default` follows the app's
@@ -404,11 +461,13 @@ pub const STEER_NO_TURN: &str = "steer: no turn is running";
 /// (`MUX_STEER_WITHDRAW`, `steer_withdraw.rs`).
 pub const STEER_WITHDRAWN: &str = "steer: withdrawn before the agent read it";
 
-/// What the hub's request becomes: lines for claude's stdin, or an
-/// immediate ACP reply when claude need not be asked.
+/// What the hub's request becomes: lines for claude's stdin, an immediate ACP
+/// reply when claude need not be asked, or both: lines written, then answered
+/// at once without waiting on Claude Code's answer (`initialize`).
 pub enum Outbound {
     Lines(Vec<Value>),
     Reply(Message),
+    LinesThenReply(Vec<Value>, Message),
 }
 
 #[derive(Debug, Clone)]
@@ -416,6 +475,10 @@ pub struct SpawnPlan {
     pub program: String,
     pub args: Vec<String>,
 }
+
+/// Moves Claude Code's per-machine system prompt sections into the first user message, so
+/// every chat on every folder shares one cached system prompt (`spawn_plan`).
+pub const EXCLUDE_DYNAMIC_FLAG: &str = "--exclude-dynamic-system-prompt-sections";
 
 /// Build the claude command line. `resume` reopens an existing Claude
 /// session (or forks it); `fresh_id` pins the id of a brand-new one so acpmux
@@ -473,6 +536,16 @@ pub fn spawn_plan(
         args.push("--thinking-display".into());
         args.push("summarized".into());
     }
+    // Claude Code's default system prompt carries per-machine sections (cwd, env info, memory
+    // paths, git status), so two chats in two folders shared no cached system prompt: every new
+    // chat wrote its system prompt to the prompt cache again. This flag moves those sections into
+    // the first user message, after the shared prefix. Measured with one harness (two fresh
+    // `claude -p` chats in two repos, Claude Code 2.1.312): the second chat read 24,079 tokens
+    // from cache and wrote 7,795 without it, read 25,595 and wrote 6,048 with it (Leo,
+    // 2026-11-09: "if we're doing th eproper cutting edge stuff"). A profile may pin it itself.
+    if !profile.argv.iter().any(|a| a == EXCLUDE_DYNAMIC_FLAG) {
+        args.push(EXCLUDE_DYNAMIC_FLAG.into());
+    }
     // A later --model wins over one the profile pins in its argv.
     if let Some(m) = model.filter(|m| !m.is_empty() && *m != "default") {
         args.push("--model".into());
@@ -480,21 +553,53 @@ pub fn spawn_plan(
     }
     // Lets the chat switch to bypassPermissions ("Bypass permissions") later; a
     // process that cannot take it is never given bypassPermissions at spawn.
-    let bypass = bypass_allowed(profile);
-    if bypass {
+    if bypass_allowed(profile) {
         args.push(ALLOW_BYPASS_FLAG.into());
+    }
+    if !argv_names_mode(&profile.argv) {
+        let mode = spawn_mode(profile, mode);
+        if !mode.is_empty() {
+            args.push("--permission-mode".into());
+            args.push(mode.into());
+        }
+    }
+    SpawnPlan { program, args }
+}
+
+/// The profile's argv passes `--permission-mode` itself (`--permission-mode X` or
+/// `--permission-mode=X`): `spawn_plan` then adds none.
+fn argv_names_mode(argv: &[String]) -> bool {
+    argv.iter().any(|a| a == "--permission-mode" || a.starts_with("--permission-mode="))
+}
+
+/// The `--permission-mode` value the profile's argv pins, if any.
+fn pinned_mode(argv: &[String]) -> Option<&str> {
+    argv.iter().enumerate().find_map(|(i, a)| match a.strip_prefix("--permission-mode") {
+        Some("") => argv.get(i + 1).map(String::as_str),
+        Some(rest) => rest.strip_prefix('='),
+        None => None,
+    })
+}
+
+/// The mode a Claude Code process that `spawn_plan` starts for `mode` runs in: the mode the
+/// profile's argv pins, else `mode`, with `bypassPermissions` moved to [`OWN_MODE`] when the
+/// process could not take it. The translator starts in this mode, so a chat's first answer
+/// (`session/new` is answered before Claude Code's `system/init`, which comes with the first
+/// turn) already tells the truth: a profile pinned to Manual showed Auto until then.
+pub fn spawn_mode<'a>(profile: &'a HarnessProfile, mode: &'a str) -> &'a str {
+    if let Some(pinned) = pinned_mode(&profile.argv) {
+        return pinned;
     }
     // A profile that passes a skip flag itself takes the mode as it is.
     let own_skip = profile
         .argv
         .iter()
         .any(|a| a == ALLOW_BYPASS_FLAG || a == "--dangerously-skip-permissions");
-    let mode = if mode == "bypassPermissions" && !bypass && !own_skip { OWN_MODE } else { mode };
-    if !profile.argv.iter().any(|a| a == "--permission-mode") && !mode.is_empty() {
-        args.push("--permission-mode".into());
-        args.push(mode.into());
+    if mode == "bypassPermissions" && !bypass_allowed(profile) && !own_skip {
+        OWN_MODE
+    } else {
+        mode
     }
-    SpawnPlan { program, args }
 }
 
 /// Per-process translation state.
@@ -515,9 +620,16 @@ pub struct Translator {
     /// claude control request_id -> the MCP elicitation form it asked
     /// (`elicitation.rs`), held until the answer.
     elicitations: Mutex<HashMap<String, elicitation::Form>>,
+    /// The PreToolUse gate that holds the chat's permission policy (`policy_gate.rs`).
+    gate: policy_gate::PolicyGate,
+    /// Harness magic `dedupe` (dedupe.rs).
+    dedupe: Arc<dedupe::Dedupe>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
+    pub(crate) stop_condition: AtomicBool,
+    /// Present only when this launch included cmux's local session plugin.
+    pub(crate) plugin_hook_home: std::sync::OnceLock<std::path::PathBuf>,
     mode: Mutex<String>,
     model: Mutex<String>,
     effort: Mutex<String>,
@@ -527,6 +639,9 @@ pub struct Translator {
     pub prompt_suggestions: AtomicBool,
     /// Whether this process asked Claude Code for prompt suggestions at `initialize`.
     suggestions_offered: AtomicBool,
+    /// Whether Claude Code's suggestions are paused now, as acpmux last told it
+    /// (`set_prompt_suggestions_paused`): the chat's pick, or a turn no person started.
+    suggestions_paused: AtomicBool,
     /// This chat's `RECAP_OPTION`: `default`, `on` or `off`.
     recap: Mutex<&'static str>,
     in_turn: AtomicBool,
@@ -536,6 +651,10 @@ pub struct Translator {
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// Claude Code queued the turn's prompt line behind a turn of its own (`command_lifecycle`
+    /// `queued` for the line's uuid) and has not started it yet: a model turn's result meanwhile
+    /// is that other turn's, never the prompt's (`queued_prompt_tests.rs`).
+    prompt_queued: AtomicBool,
     /// The `/rename` lines written and not yet answered, oldest first (`live_name.rs`).
     renaming: Mutex<std::collections::VecDeque<live_name::Rename>>,
     /// Prompts still unanswered when the next one went out: acpmux ended
@@ -595,6 +714,15 @@ pub struct Translator {
     /// The tokens the chat's context last held (its last `message_delta`; a
     /// compaction resets it).
     context_used: AtomicU64,
+    /// The context at the end of the main loop's last call: what it read plus
+    /// what it wrote (a compaction sets it to what the compaction kept). The
+    /// turn's result names it (`_meta.claude.contextTokens`), since Claude
+    /// Code's own `usage` adds every call's reads up (hub/turn_usage.rs).
+    context_end: AtomicU64,
+    /// The main loop's model calls since the last result
+    /// (`_meta.claude.modelCalls`); its subagents' calls are not counted, as
+    /// the result's `usage` leaves them out.
+    turn_calls: AtomicU64,
     /// The cached context count came from an untagged compaction boundary rather
     /// than a model message. The controller can fence its later result resend.
     context_from_compaction: AtomicBool,
@@ -654,32 +782,8 @@ pub struct Translator {
     loops: Mutex<loops::Loops>,
 }
 
-/// A running shell: the session its Bash call ran in, its command, Claude's
-/// task id once a task event named it, and whether it runs in the background.
-#[derive(Debug, Clone)]
-struct BackgroundShell {
-    sid: String,
-    command: String,
-    /// What the Bash call says it does (its `description`): the tray names
-    /// the process by it (webviews `session-info/commandRules.ts`).
-    description: Option<String>,
-    task: Option<String>,
-    background: bool,
-    /// Started in the background (`run_in_background`), not moved there.
-    launched: bool,
-    /// The person asked for it to go to the background (`BACKGROUND_TASKS`):
-    /// once it moves, its origin is `user_backgrounded`.
-    asked: bool,
-    /// Its `running` update went out (`inbound.rs` `running`).
-    announced: bool,
-    /// The file Claude Code writes its output to (`output_file`), once a
-    /// task event named it.
-    output: Option<String>,
-}
-
 #[derive(Debug, Clone)]
 enum Pending {
-    Initialize,
     NewOrLoad,
     Prompt,
     /// A setting change, applied to the cached value once claude accepts it.
@@ -728,19 +832,25 @@ impl Translator {
             suggestions: Mutex::new(HashMap::new()),
             inputs: Mutex::new(HashMap::new()),
             elicitations: Mutex::new(HashMap::new()),
+            gate: Default::default(),
+            dedupe: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
+            plugin_hook_home: Default::default(),
+            stop_condition: AtomicBool::new(false),
             mode: Mutex::new(mode.to_owned()),
             model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
             prompt_suggestions: AtomicBool::new(true),
             suggestions_offered: AtomicBool::new(false),
+            suggestions_paused: AtomicBool::new(false),
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),
             abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
@@ -763,6 +873,8 @@ impl Translator {
             task_plan: Mutex::new(Default::default()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            context_end: AtomicU64::new(0),
+            turn_calls: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
             cache: Default::default(),
             awaiting_summary: AtomicBool::new(false),
@@ -887,7 +999,8 @@ impl Translator {
     /// Whether Claude Code runs a subagent or a background shell: work an agent host whose
     /// daemon is gone keeps its harness for (`agent_host::OrphanExit`).
     pub async fn runs_background_work(&self) -> bool {
-        self.interrupt_ends_work().await
+        !self.subagents.lock().await.is_empty()
+            || self.background_shells.lock().await.values().any(|shell| shell.background)
     }
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
@@ -1086,7 +1199,11 @@ fn tool_title(name: &str, input: &Value) -> String {
     let s = |k: &str| input.get(k).and_then(Value::as_str).map(str::to_owned);
     match name {
         "Bash" => s("command")
-            .map(|c| c.lines().next().unwrap_or("").chars().take(120).collect())
+            .map(|c| {
+                // A subagent's command shows as it was written, without the hook's mark line.
+                let c = crate::bg_hook::without_subagent_mark(&c);
+                c.lines().next().unwrap_or("").chars().take(120).collect()
+            })
             .unwrap_or_else(|| "Bash".into()),
         "Read" | "Write" | "Edit" | "MultiEdit" => format!(
             "{name} {}",

@@ -480,6 +480,56 @@
         ],
         "type": "object"
       },
+      "CloudPreviewApiKey": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hint": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "publicationId": {
+            "type": "string"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "publicationId",
+          "name",
+          "hint",
+          "createdAt",
+          "expiresAt",
+          "revokedAt"
+        ],
+        "type": "object"
+      },
       "CloudPreviewCatalog": {
         "additionalProperties": false,
         "properties": {
@@ -552,6 +602,129 @@
           "listening",
           "previews",
           "unavailable"
+        ],
+        "type": "object"
+      },
+      "CloudPreviewDomain": {
+        "additionalProperties": false,
+        "properties": {
+          "certificateState": {
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "managed"
+            ],
+            "type": "string"
+          },
+          "publications": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "hostname": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "hostname",
+                "state"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "verificationState": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hostname",
+          "kind",
+          "verificationState",
+          "certificateState",
+          "publications"
+        ],
+        "type": "object"
+      },
+      "CloudPreviewPublication": {
+        "additionalProperties": false,
+        "properties": {
+          "accessMode": {
+            "enum": [
+              "personal"
+            ],
+            "type": "string"
+          },
+          "domainKind": {
+            "enum": [
+              "managed"
+            ],
+            "type": "string"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "port": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "protocol": {
+            "enum": [
+              "https"
+            ],
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "active"
+            ],
+            "type": "string"
+          },
+          "targetPort": {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "vmId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "hostname",
+          "url",
+          "domainKind",
+          "vmId",
+          "port",
+          "targetPort",
+          "protocol",
+          "accessMode",
+          "teamId",
+          "state"
         ],
         "type": "object"
       },
@@ -925,6 +1098,19 @@
         "additionalProperties": false,
         "description": "Machine details used to redeem a single-use join credential.",
         "properties": {
+          "capabilities": {
+            "description": "What this machine's client can do, recorded with the credential. The server decides from this list, never from a later request: `vault.proxy.v1` means its acpmux runs the vault's egress proxy, so GET /v1/vault/machine may give it proxy entries' values. Unknown names are stored and ignored.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          },
           "hostname": {
             "description": "The joining machine's reported hostname.",
             "maxLength": 256,
@@ -941,10 +1127,12 @@
             "type": "string"
           },
           "platform": {
-            "description": "The machine operating system.",
+            "description": "Where the machine joined from: its operating system, or web for a browser enrolled as its own device (it reads and sends on the mesh hub, and never heartbeats, carries or registers a mesh node).",
             "enum": [
               "macos",
-              "linux"
+              "linux",
+              "windows",
+              "web"
             ],
             "examples": [
               "linux"
@@ -1018,6 +1206,15 @@
             "description": "The owning team identifier.",
             "examples": [
               "team_01"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "userId": {
+            "description": "The person who minted the join credential (mintedBy). The machine acts as them on the team mesh, so a mesh message whose from.user equals this came from one of the same person's machines or sessions.",
+            "examples": [
+              "user_abc"
             ],
             "maxLength": 256,
             "minLength": 1,
@@ -1554,6 +1751,33 @@
         "required": [
           "machines"
         ],
+        "type": "object"
+      },
+      "MachineCredentialRotate": {
+        "additionalProperties": false,
+        "description": "Options for a rotation. Without `capabilities` the recorded list is kept; a rotation by anyone but the minter in person records none.",
+        "examples": [
+          {
+            "capabilities": [
+              "vault.proxy.v1"
+            ]
+          }
+        ],
+        "properties": {
+          "capabilities": {
+            "description": "What this machine's client can do, recorded with the credential. The server decides from this list, never from a later request: `vault.proxy.v1` means its acpmux runs the vault's egress proxy, so GET /v1/vault/machine may give it proxy entries' values. Unknown names are stored and ignored.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          }
+        },
         "type": "object"
       },
       "MachineCredentialRow": {
@@ -2395,6 +2619,87 @@
           "snapshot",
           "size",
           "change"
+        ],
+        "type": "object"
+      },
+      "MachineSelfCapabilities": {
+        "additionalProperties": false,
+        "description": "What the calling machine states it can do. It may set a list when none is recorded (it joined before capabilities were recorded) or narrow the recorded one; it can never widen it.",
+        "examples": [
+          {
+            "capabilities": [
+              "vault.proxy.v1"
+            ]
+          }
+        ],
+        "properties": {
+          "capabilities": {
+            "description": "The calling machine's capabilities. Only `vault.proxy.v1` is accepted today (its acpmux runs the vault's egress proxy); any other name is refused with 400 machine.capability_unknown. Order and repeats do not matter.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "maxLength": 64,
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array"
+          }
+        },
+        "required": [
+          "capabilities"
+        ],
+        "type": "object"
+      },
+      "MachineSelfCapabilitiesSet": {
+        "additionalProperties": false,
+        "description": "The calling machine's recorded capabilities after the call.",
+        "properties": {
+          "capabilities": {
+            "description": "The capabilities now recorded with the credential, de-duplicated and sorted.",
+            "examples": [
+              [
+                "vault.proxy.v1"
+              ]
+            ],
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "changed": {
+            "description": "Whether this call changed the recorded list; false when it was already the same.",
+            "examples": [
+              true
+            ],
+            "type": "boolean"
+          },
+          "machineId": {
+            "description": "The calling machine's identifier.",
+            "examples": [
+              "machine_01"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "teamId": {
+            "description": "The owning team identifier.",
+            "examples": [
+              "team_01"
+            ],
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "machineId",
+          "teamId",
+          "capabilities",
+          "changed"
         ],
         "type": "object"
       },
@@ -4499,6 +4804,96 @@
         ]
       }
     },
+    "/v1/cloud/domains": {
+      "get": {
+        "description": "The platform-managed preview domain. Custom domains are not offered.",
+        "operationId": "cloudPublications.domains",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "domains": {
+                      "items": {
+                        "$ref": "#/components/schemas/CloudPreviewDomain"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "domains"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "List the domains previews are served on",
+        "tags": [
+          "Machines"
+        ]
+      }
+    },
     "/v1/cloud/machines/{machine}/previews/refresh": {
       "post": {
         "description": "Discovers current TCP listeners on the caller's own new-architecture Cloud machine and reconciles private HTTPS ingress. Each returned URL authenticates before the machine wakes or receives a request. Stopped listeners lose their ingress; partial provider failures are listed by port. URLs carry short-lived credentials: keep the response private and do not cache it. Development and staging only.",
@@ -4636,6 +5031,362 @@
                     "origin",
                     "url",
                     "expiresAt"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "tags": [
+          "Machines"
+        ]
+      }
+    },
+    "/v1/cloud/machines/{machine}/previews/{port}/api-keys": {
+      "get": {
+        "operationId": "cloudPreviews.apiKeys",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "port",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "apiKeys": {
+                      "items": {
+                        "$ref": "#/components/schemas/CloudPreviewApiKey"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "apiKeys"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "tags": [
+          "Machines"
+        ]
+      },
+      "post": {
+        "description": "Mints a long-lived API key for the caller's own machine port, refreshing its preview ingress first when the port has none (409 cloud.preview.not_listening when nothing listens). The key is answered only here; the platform keeps its SHA-256 and last four characters. API clients send `cookie` on every request; the edge withholds that cookie from the machine and rechecks the key, its expiry and revocation, the current ingress rule and the creator's machine on each one. Only the creator manages keys.",
+        "operationId": "cloudPreviews.createApiKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "port",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "expiresAt": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "apiKey": {
+                      "$ref": "#/components/schemas/CloudPreviewApiKey"
+                    },
+                    "cookie": {
+                      "type": "string"
+                    },
+                    "cookieName": {
+                      "type": "string"
+                    },
+                    "publication": {
+                      "$ref": "#/components/schemas/CloudPreviewPublication"
+                    },
+                    "token": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "publication",
+                    "apiKey",
+                    "token",
+                    "cookieName",
+                    "cookie"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "Publish a machine port as an API behind a key",
+        "tags": [
+          "Machines"
+        ]
+      }
+    },
+    "/v1/cloud/machines/{machine}/previews/{port}/api-keys/{keyId}": {
+      "delete": {
+        "operationId": "cloudPreviews.revokeApiKey",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "machine",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "port",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "keyId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "apiKey": {
+                      "$ref": "#/components/schemas/CloudPreviewApiKey"
+                    }
+                  },
+                  "required": [
+                    "apiKey"
                   ],
                   "type": "object"
                 }
@@ -5620,6 +6371,96 @@
         ]
       }
     },
+    "/v1/cloud/previews": {
+      "get": {
+        "description": "Every preview ingress the caller created in the selected team (a VM install: its own machine only), as kept by refresh. Ingress made before this index existed appears after one refresh.",
+        "operationId": "cloudPublications.publications",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "previews": {
+                      "items": {
+                        "$ref": "#/components/schemas/CloudPreviewPublication"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "previews"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineBadRequestEncoded"
+                }
+              }
+            },
+            "description": "MachineBadRequest: the request or current machine state conflicts with this operation; inspect its code before retrying."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "MachineUnauthorized: a valid machine API bearer is required; authenticate and retry."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineForbiddenEncoded"
+                }
+              }
+            },
+            "description": "MachineForbidden: the current principal cannot perform this operation; check its permissions."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineNotFoundEncoded"
+                }
+              }
+            },
+            "description": "MachineNotFound: the machine or enabled API surface is absent; check the identifier and deployment."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineUnavailableEncoded"
+                }
+              }
+            },
+            "description": "MachineUnavailable: the provider or machine service cannot complete this operation; retry with the same client key."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "List the caller's machine previews",
+        "tags": [
+          "Machines"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "description": "Answers on every deployment with no auth, so call it first to check the base URL. Read-only and safe to repeat; compare `commit` with the commit you expect before relying on a recently merged change.",
@@ -6146,6 +6987,84 @@
         ]
       }
     },
+    "/v1/machines/credentials/self/capabilities": {
+      "put": {
+        "description": "Record what the calling machine's client can do, using the machine's own bearer; the machine is the one the credential belongs to, never one named in the request. Only allowlisted names (vault.proxy.v1). It may set a list when none is recorded (the credential joined before capabilities were recorded) or narrow the recorded list; widening answers 409 machine.capabilities_widen, since a list a person set (for example [] after a delegated rotation) is theirs to widen by re-joining or rotating. Changes nothing but the list. Idempotent: the same list again answers 200 with changed false. An unknown, rotated-out or expired bearer answers 401 machine.unknown, a revoked one 401 machine.revoked.",
+        "operationId": "machineRedeem.selfCapabilities",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MachineSelfCapabilities"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MachineSelfCapabilitiesSet"
+                }
+              }
+            },
+            "description": "The calling machine's recorded capabilities after the call."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinBadRequestEncoded"
+                }
+              }
+            },
+            "description": "join.malformed: the join request is malformed; correct the fields and retry. machine.capability_unknown: a machine may state only the allowlisted capabilities (vault.proxy.v1); drop the others."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinUnauthorizedEncoded"
+                }
+              }
+            },
+            "description": "machine.unknown: the machine credential is unknown. machine.revoked: the machine credential is revoked. machine.unauthorized: the replacement proof is invalid."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinConflictEncoded"
+                }
+              }
+            },
+            "description": "join.used: the join credential was already used; mint another one. machine.capabilities_widen: a machine credential cannot widen its recorded capabilities; a person must re-join the machine or rotate its credential."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinUnavailableEncoded"
+                }
+              }
+            },
+            "description": "machine.join.unavailable: machine onboarding is unavailable; retry later."
+          }
+        },
+        "security": [
+          {
+            "cmuxAccessToken": []
+          }
+        ],
+        "summary": "State the calling machine's capabilities",
+        "tags": [
+          "Machine join redemption"
+        ]
+      }
+    },
     "/v1/machines/credentials/self/revoke": {
       "post": {
         "description": "Revoke the calling machine credential using its own bearer, and drop the machine's rows from the mesh address book. Repeating it answers 401 machine.revoked. A hub that does not offer it answers 404; revoke the machine from a signed-in device instead.",
@@ -6292,7 +7211,7 @@
     },
     "/v1/machines/credentials/{machineId}/rotate": {
       "post": {
-        "description": "Issue a new credential for an enrolled machine and retire its previous credential. This mutates credential state and is not idempotent; call GET /v1/machines/credentials/self with the new credential.",
+        "description": "Issue a new credential for an enrolled machine and retire its previous credential. The body is optional. This mutates credential state and is not idempotent; call GET /v1/machines/credentials/self with the new credential.",
         "operationId": "machineJoin.rotate",
         "parameters": [
           {
@@ -6310,6 +7229,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MachineCredentialRotate"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {

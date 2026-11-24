@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextFocus
+import CmuxNextFocusUI
 
 // Resolution (plans/cmux-next/keybindings.md section 4): a key-down to its
 // binding table winner, before the tier check. The table holds the Ghostty
@@ -34,7 +35,7 @@ extension KeyRouter {
     func resolve(_ event: NSEvent, context: KeyContext, ghostty: Bool = true) -> KeyBinding? {
         let table = RegistryKeyBindings(registry).table
         let bits = context.bits
-        let accepts = Self.acceptsEntry(ghostty: ghostty, codeEditor: bits.contains(.codeEditorFocused))
+        let accepts = Self.acceptsEntry(ghostty: ghostty, codeEditor: bits.contains(.codeEditorFocused), editsText: context.editsText)
         for shortcut in ActionRegistry.shortcuts(for: event) {
             if let winner = table.resolve([shortcut], in: context, isRunnable: { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) },
                                           accepts: accepts).winner {
@@ -49,11 +50,11 @@ extension KeyRouter {
     /// keybinds (`.ghosttyFallback`) never win: they are a terminal's defaults, and they took the
     /// editor's keys after the cmux defaults stepped aside (R127): Cmd-D split the pane instead of
     /// adding the next match, Cmd-Opt-Up/Down moved focus instead of adding a cursor. A keybind the
-    /// user wrote in their Ghostty config (`.ghostty`) still wins, as everywhere.
-    nonisolated static func acceptsEntry(ghostty: Bool, codeEditor: Bool) -> @Sendable (KeyBinding) -> Bool {
+    /// user wrote in their Ghostty config (`.ghostty`) still wins, as everywhere (`KeyContext.editsText`).
+    nonisolated static func acceptsEntry(ghostty: Bool, codeEditor: Bool, editsText: Bool = false) -> @Sendable (KeyBinding) -> Bool {
         { entry in
             if !ghostty, entry.source.isGhostty { return false }
-            if codeEditor, entry.source == .ghosttyFallback { return false }
+            if entry.source == .ghosttyFallback, codeEditor || (editsText && entry.isTextUndoChord) { return false }
             return true
         }
     }
@@ -116,5 +117,16 @@ extension KeyRouter {
         guard keyWindow == .content, candidate.tier != .content else { return false }
         if case .ghostty = candidate.source, case .terminal = focus.resolved { return false }
         return allows(candidate.tier, focus: focus)
+    }
+}
+
+extension BrowserChordTable {
+    /// Whether the focus target is browser content (page, address bar, find
+    /// bar, docked DevTools).
+    nonisolated static func isBrowserContext(_ resolved: FocusState.Resolved) -> Bool {
+        switch resolved {
+        case .browserPage, .addressBar, .findBar, .devTools: true
+        default: false
+        }
     }
 }

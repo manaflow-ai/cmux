@@ -18,11 +18,10 @@ import os
 #if DEBUG
 import CmuxNextRemoteBrowser
 #endif
-
-/// Opens `cmux://history` and serves its data (plans/cmux-next/history.md
-/// 5.1). The page is a browser tab whose record URL is `cmux://history`, so
-/// it survives relaunch like any tab.
-final class HistoryPageService: HistoryPageSource {
+/// Opens `cmux://history` (plans/cmux-next/history.md 5.1). The page is a
+/// browser tab whose record URL is `cmux://history`, so it survives relaunch
+/// like any tab; the React page reads the daemon's history module itself.
+final class HistoryPageService {
     private unowned let services: AppServices
     /// The Stashed page's stashes (stash-v1), History's sibling page.
     private(set) lazy var stash = StashService(host: stashHost)
@@ -37,7 +36,7 @@ final class HistoryPageService: HistoryPageSource {
     func open() {
         guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
-            if let tab = pane.pane.tabs.first(where: { HistoryPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
+            if let tab = pane.pane.tabs.first(where: { $0.url.flatMap(URL.init(string:))?.isHistoryPage == true }) {
                 pane.select(StripTabID(tab.id))
                 return
             }
@@ -45,57 +44,11 @@ final class HistoryPageService: HistoryPageSource {
         guard let pane = window.focusedPane else { return }
         if let tab = pane.selectedTab, tab.kind == .browser, let page = services.cache.existingBrowser(tab.id)?.tab,
            BrowserNewTabPage.isNewTabPage(page.state.url) {
-            services.cache.showHistoryPage(in: tab)
+            services.cache.showAppPage(URL.historyPage, in: tab)
             return
         }
-        pane.newBrowserTab(url: HistoryPageAddress.url)
+        pane.newBrowserTab(url: URL.historyPage)
     }
-
-    // MARK: HistoryPageSource
-
-    func entries(_ query: HistoryQuery) async -> [HistoryEntry] {
-        await services.history.entries(query)
-    }
-
-    func open(_ entry: HistoryEntry, newTab: Bool) {
-        HistoryRestorer(services: services).open(entry, newTab: newTab)
-    }
-
-    func remove(_ entry: HistoryEntry) {
-        services.history.remove(entry)
-    }
-
-    func removeSite(of entry: HistoryEntry) {
-        guard case .page(let url, _) = entry.payload, let host = URL(string: url)?.host() else { return }
-        services.history.removePages(host: host)
-    }
-
-    func clear(range: HistoryRange) {
-        services.history.clear(kinds: [], range: range)
-    }
-
-    func copy(_ text: String) {
-        HistoryRestorer(services: services).copy(text)
-    }
-
-    /// The app's cookie backups (WebKit tabs' agent clears), read off the
-    /// main actor: the files are decrypted with the Keychain key.
-    func cookieBackups() async -> [HistoryCookieBackup] {
-        guard let backups = services.browserHost?.driver.cookieBackups else { return [] }
-        return await Task.detached {
-            backups.pruneExpired()
-            return backups.summaries().map { HistoryCookieBackup(id: $0.restoreID, site: $0.site, createdAt: $0.createdAt) }
-        }.value
-    }
-
-    /// The person confirmed: the backups go for good (an agent never gets here).
-    func deleteCookieBackups(_ ids: [String]) async {
-        guard let backups = services.browserHost?.driver.cookieBackups else { return }
-        let deleted = await Task.detached { ids.filter { (try? backups.remove($0)) != nil }.count }.value
-        Self.logger.info("deleted \(deleted, privacy: .public) of \(ids.count, privacy: .public) cookie backups at the person's request")
-    }
-
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cookie-backups")
 }
 
 extension TabContentCache {
@@ -160,9 +113,6 @@ extension TabContentCache {
         showAppPage(url, in: tab)
     }
 
-    /// Replaces a page with the history page.
-    func showHistoryPage(in tab: TabModel) { showAppPage(HistoryPageAddress.url, in: tab) }
-
     /// Replaces a page with the app page at `url`.
     func showAppPage(_ url: URL, in tab: TabModel) {
         guard let page = makeAppPage(url, for: tab) else { return }
@@ -170,7 +120,7 @@ extension TabContentCache {
     }
 
     static func isAppPage(_ url: URL?) -> Bool {
-        HistoryPageAddress.matches(url) || BookmarkPageAddress.matches(url) || AgentActivityPageAddress.matches(url)
+        url?.isHistoryPage == true || url?.isBookmarkPage == true || AgentActivityPageAddress.matches(url)
             || ScreenshotsPageAddress.matches(url) || VaultPageAddress.matches(url)
             || RemoteViewTabRecord.matches(url) || isRemoteBrowserPage(url) || MachineBrowserRecord.matches(url)
     }
@@ -221,12 +171,20 @@ extension TabContentCache {
                     guard let self, let tab = tabModel(key) else { return }
                     showAppPage(confirmedURL, in: tab)
                 },
-                cloudTransport: { [weak services] machine in services?.cloudDesktopTransport(machine: machine) },
                 cloudRd: { [weak services] machine in services?.cloudDesktopRdTransport(machine: machine) },
-                displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil }, loginKeychain: services.loginKeychain)
+                displayName: RemoteViewTabRecord(url: url).flatMap { $0.cloudDesktop ? services.machines.cloudMachineBadge(machine: $0.host) : nil },
+                personInput: services.chiefComputerInputReporter(machine: RemoteViewTabRecord(url: url)?.host),
+                connectionTarget: RemoteViewTabRecord(url: url).flatMap { record in record.cloudDesktop ? services.machines.cloudMachineConnectionTarget(machine: record.host) : nil }, loginKeychain: services.loginKeychain)
             page.onNavigate = { [weak self] target in
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
+            }
+            // The toolbar's Quality menu runs the palette's Set Screen Sharing Quality… on this tab; where the
+            // action does not run (Remote Hosts turned off by policy), the menu still sets the quality.
+            page.onPickQuality = { [weak services, weak page] preset in
+                let ran = services?.registry.perform("remote.setQuality", invocation: ActionInvocation(
+                    target: ActionTargetRef(kind: .tab, id: key), arguments: ["quality": .string(preset.rawValue)], origin: .user)) ?? false
+                if !ran { page?.selectQuality(preset) }
             }
             return page
         }
@@ -235,12 +193,13 @@ extension TabContentCache {
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
-        if BookmarkPageAddress.matches(url) {
+        if url?.isBookmarkPage == true {
             let page = services.bookmarkPages.makePage(key: key, engine: engine, profile: profile)
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
+            page.webPage?.onOpenExternal = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }
-        let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, source: services.historyPage,
+        let page = HistoryPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile,
                                   webPage: PageFactory(services: services).historyWebPage())
         page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
         page.webPage?.onOpenExternal = { [weak self] target in self?.leaveAppPage(key, to: target) }

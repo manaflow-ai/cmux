@@ -4,7 +4,53 @@
 //! commits before the corresponding in-memory projection and event are published, so durable,
 //! reply and event order are the same. Runtime pane/surface ids never enter this store.
 
+mod open;
+mod schema;
+mod session_guard;
+mod session_reset;
+
+#[cfg(any(windows, test))]
+pub(crate) use session_guard::session_guard_component;
+#[cfg(unix)]
+pub(crate) use session_guard::session_guard_components;
+#[cfg(all(windows, test))]
+use session_guard::session_guard_coordinator_waiter_dir;
+#[cfg(test)]
+pub(crate) use session_guard::start_session_guard_for_test;
+use session_guard::{
+    SESSION_GUARD_DIR, acquire_existing_session_guard, acquire_existing_session_reset_guard,
+    acquire_session_guard, open_session_lock_file, session_guard_lock_path,
+    validate_session_lock_file,
+};
+#[cfg(test)]
+use session_guard::{
+    SessionCoordinatorWaiter, prepare_session_guard_dir, session_guard_coordinator_path,
+};
+pub(crate) use session_guard::{
+    SessionLease, SessionOwnerPeek, SessionOwnerProbe, peek_session_owner, probe_session_owner,
+    session_owner_last_active, session_owner_mark, stored_terminal_references,
+};
+
+pub(crate) use schema::{AutoVacuumMigration, first_state_foreign_key_violation};
+use schema::{
+    backfill_workspace_public_ids, check_registry_integrity, checkpoint_and_truncate_wal,
+    create_terminal_schema, create_workspace_schema, ensure_session_public_id,
+    initialize_compatibility_active_workspace, mark_journal_auto_vacuum_migrated,
+    migrate_journal_auto_vacuum, migrate_resource_agent_hook_state_add_ended_at,
+    migrate_resource_effect_pepper, migrate_terminal_hosts_add_on_exit,
+    migrate_terminal_hosts_to_session_ownership, normalize_journal_multiview_schema,
+    normalized_workspace_resource_deltas, require_resource_effect_pepper_id,
+    resource_agent_hook_state_has_ended_at_column, terminal_hosts_has_on_exit_column,
+    terminal_hosts_has_workspace_foreign_key, upsert_workspace_resource,
+    vacuum_with_file_temp_store, workspace_upsert_delta,
+};
 mod terminal_snapshot_read;
+use session_reset::*;
+
+pub(crate) use open::{
+    open_registry_database, open_registry_database_read_only, open_registry_database_with_flags,
+    truncate_wal_after_delete,
+};
 use std::borrow::Cow;
 #[cfg(test)]
 use std::cell::Cell;
@@ -12,9 +58,9 @@ use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+pub(crate) use terminal_snapshot_read::{SessionRows, read_session_rows};
 
 use anyhow::Context;
-use fs4::FileExt;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,47 +99,60 @@ mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
 mod personal_session_icon;
 pub(crate) mod personal_store;
+pub(crate) mod premigrate;
 mod projection_size;
 use projection_size::{
     MAX_PROJECTION_BYTES, MAX_RESOURCE_API_PROJECTION_BYTES, note_projection_size,
 };
 mod host_identity;
+pub(crate) use host_identity::StoredIds;
+mod identity_load;
 mod personal_terminals;
 pub(crate) mod presentation_store;
 mod public_fold;
+pub(crate) use public_fold::volatile_fields;
 mod public_projection_store;
 mod receipt_env;
 pub(crate) mod registry_connection;
 mod root_identity;
+use identity_load::{load_or_create_machine_id, load_or_create_resource_effect_pepper};
+pub(crate) mod segment_codec;
 pub(crate) mod terminal_end_prefetch;
 pub(crate) mod wal_durability;
 pub(crate) use registry_connection::RegistryConnection;
 mod registry_intent;
-pub(crate) use registry_intent::{
-    OwnedTransactionWrite, RegistryIntent, RegistryIntentSink, RegistryReceipt, SettleState,
-};
+pub(crate) use registry_intent::{OwnedTransactionWrite, RegistryIntent, RegistryReceipt};
 mod terminal_commit_intent;
 pub(crate) use terminal_commit_intent::TerminalCommitIntent;
 mod workspace_commit_intent;
 mod workspace_rows_commit;
-use workspace_rows_commit::commit_workspace_registry_in_transaction;
+use workspace_rows_commit::{
+    commit_workspace_registry_in_transaction, commit_workspace_rows_in_transaction,
+    insert_workspace_row_in_transaction,
+};
 pub(crate) mod workspace_name_store;
-pub(crate) use workspace_commit_intent::{WorkspaceCommitIntent, WorkspaceCommitReceipt};
+pub(crate) use workspace_commit_intent::{
+    WorkspaceCommitIntent, WorkspaceCommitReceipt, WorkspaceInsert,
+};
 pub(crate) mod relaunch_store;
 mod resource_effect_commit;
 pub(crate) mod resource_store;
 pub(crate) mod screen_store;
 pub(crate) mod session_journal;
+pub mod synth;
 pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
 mod terminal_resource_close_store;
+pub(crate) mod terminal_state_end;
+pub use terminal_state_end::EndedTerminalState;
 pub(crate) mod terminal_respawn_store;
 pub(crate) mod terminal_resume_store;
 mod terminal_unplaced_store;
 mod topology_close_store;
 
 pub use crate::state::kept_tab_store::KeptTabRecord;
+pub use crate::state::tab_state_store::TabAttentionRecord;
 pub(crate) use effect_store::{
     EffectCommitFinish, EffectCommitIntent, EffectCommitReceipt, ResourceWorkspaceClose,
 };
@@ -105,6 +164,8 @@ use effect_store::{
     create_resource_effect_schema, delete_legacy_sensitive_effect_receipts,
     initialize_resource_input_receipt_retention, recover_resource_effects,
 };
+#[cfg(test)]
+pub(crate) use journal_extensions::JOURNAL_CHECKPOINTS_KEPT;
 use journal_extensions::create_journal_extensions_schema;
 pub use journal_extensions::{
     JournalAppendCommit, JournalCheckpoint, JournalContentRef, JournalEventSchema,
@@ -133,6 +194,10 @@ pub(crate) use public_projection_store::agent_projection_extra;
 #[cfg(test)]
 pub use public_projection_store::{RegistryAgentProjection, RegistryNotificationProjection};
 #[cfg(test)]
+pub(crate) use public_projection_store::{
+    agent_hook_fence_rows_read_on_this_thread, agent_projection_rows_read_on_this_thread,
+};
+#[cfg(test)]
 pub(crate) use resource_store::AGENT_HOOK_MAX_ATTEMPTS;
 pub(crate) use resource_store::validate_registry_screen_projection;
 pub(crate) use resource_store::{
@@ -154,7 +219,10 @@ use resource_store::{
     migrate_resource_tabs_to_multiview, repair_resources_at_open,
     resource_tabs_needs_multiview_normalization, validate_resource_invariants,
 };
-pub(crate) use resource_store::{load_resource_topology_scoped, load_topology_frame};
+pub(crate) use resource_store::{
+    load_live_terminal_resource_ids, load_resource_topology_scoped, load_session_panes,
+    load_session_tabs, load_terminal_tabs, load_topology_frame,
+};
 pub use screen_store::{
     SavedScreenGroupRecord, SavedScreenMember, ScreenGroupRecord, ScreenPresentationRecord,
     ScreenPresentationState, new_saved_screen_group_id, new_screen_group_id,
@@ -169,6 +237,7 @@ use session_journal::{
     migrate_resource_events_to_session_journal,
 };
 pub(crate) use session_journal::{SessionJournalReader, unix_epoch_ms};
+pub(crate) use terminal_snapshot_read::load_terminal_rows;
 pub(crate) use topology_close_store::TopologyCloseCommit;
 
 // Schema 9 shipped independently on the journal and multiview development
@@ -181,14 +250,19 @@ pub(crate) use topology_close_store::TopologyCloseCommit;
 // Version 15 normalizes legacy terminal exits to the exact public receipt shape.
 pub(crate) const SCHEMA_VERSION: i64 = 15;
 pub(crate) const RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION: u32 = 2;
-/// Every commit flushes the device cache on macOS (F_FULLFSYNC), so a crash or
-/// power loss keeps each acknowledged commit. Unit tests open hundreds of
-/// throwaway registries in one process and never cut power: there, a plain
-/// fsync (synchronous=FULL stays) keeps every commit ordering and restart
-/// result they check, while F_FULLFSYNC serialized the device across all test
-/// threads (notification_reads_survive_restart_and_eviction_prunes_them:
-/// 19.3 s on a fleet Mac, 0.18 s on Linux). Daemon binaries, including every
-/// integration test's daemon, keep F_FULLFSYNC.
+/// The registry runs with `synchronous=NORMAL` in WAL mode
+/// (`wal_durability.rs`): a commit is in the WAL when it returns, which a
+/// crash, kill or restart of the daemon keeps; only a power loss or kernel
+/// panic can take acknowledged commits back, always a suffix. `fullfsync`
+/// makes the syncs SQLite still does (each WAL checkpoint, and the close)
+/// flush the device cache on macOS (F_FULLFSYNC), so a checkpoint never
+/// copies frames into the database before they are on the disk. Unit tests
+/// open hundreds of throwaway registries in one process and never cut power:
+/// there, a plain fsync keeps every ordering and restart result they check,
+/// while F_FULLFSYNC serialized the device across all test threads
+/// (notification_reads_survive_restart_and_eviction_prunes_them: 19.3 s on a
+/// fleet Mac, 0.18 s on Linux). Daemon binaries, including every integration
+/// test's daemon, keep F_FULLFSYNC.
 #[cfg(not(test))]
 const REGISTRY_FULLFSYNC_PRAGMA: &str = "PRAGMA fullfsync=ON;";
 #[cfg(test)]
@@ -222,6 +296,12 @@ const JOURNAL_AUTO_VACUUM_META_KEY: &str = "journal_auto_vacuum_migrated";
 const RESOURCE_EFFECT_PEPPER_ID_DOMAIN: &[u8] = b"cmux.resource-effect-pepper-id.v1";
 const RESOURCE_INPUT_RECEIPT_DOMAIN: &[u8] = b"cmux.resource-input-receipt.v2";
 pub(crate) const WORKSPACE_REGISTRY_FILE: &str = "workspace-registry.sqlite3";
+/// The first part and the last part of the name that a reset gives a session
+/// folder before it deletes it: `.reset-NAME-KIND-UUID.deleting`, a direct
+/// child of the state root (session_reset.rs). The rollback check reads each
+/// folder with such a name (store_schemas.rs).
+pub(crate) const RESET_DIR_HEAD: &str = ".reset-";
+pub(crate) const RESET_DIR_TAIL: &str = ".deleting";
 
 /// An extra write that runs inside a workspace-registry commit transaction.
 pub(crate) type RegistryTransactionWrite<'a> = &'a dyn Fn(&Transaction<'_>) -> anyhow::Result<()>;
@@ -704,7 +784,7 @@ impl PersistentSessionStateResetter {
             ensure_reset_dir_fingerprint(&reset_dir.path, "pending", expected_fingerprint)?;
         }
         if let Some(lease) = &lease {
-            validate_session_lock_file(&lease.path, &lease.file)?;
+            validate_session_lock_file(&lease.path, lease.file())?;
         }
         let session_reset_dir = if session_dir_exists {
             Some(rename_session_dir_for_reset(
@@ -825,2267 +905,31 @@ pub struct WorkspaceRegistry {
     resource_projection_stats: std::sync::Arc<crate::diagnostics::ResourceProjectionStats>,
     #[cfg(test)]
     resource_patch_failures_remaining: Cell<u64>,
+    /// How many next topology snapshot reads fail (tests).
+    #[cfg(test)]
+    topology_snapshot_failures_remaining: Cell<u64>,
     pub(crate) lease: Option<SessionLease>,
     pub(crate) session_guard: Option<SessionLease>,
     /// This open swapped in a registry without stored output.
     output_cleanup_swapped: bool,
-}
-
-fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
-    platform::normalize_filesystem_path(root.join(session_storage_component(session_name)))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PendingSessionResetKind {
-    Session,
-    TerminalHosts,
-}
-
-fn pending_session_reset_kind(rest: &str) -> Option<PendingSessionResetKind> {
-    let (kind, reset_id) = if let Some(reset_id) = rest.strip_prefix("session-") {
-        (PendingSessionResetKind::Session, reset_id)
-    } else {
-        let reset_id = rest.strip_prefix("terminal-hosts-")?;
-        (PendingSessionResetKind::TerminalHosts, reset_id)
-    };
-    is_canonical_reset_uuid_v4(reset_id).then_some(kind)
-}
-
-fn is_canonical_reset_uuid_v4(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    bytes.len() == 36
-        && bytes[8] == b'-'
-        && bytes[13] == b'-'
-        && bytes[18] == b'-'
-        && bytes[23] == b'-'
-        && bytes[14] == b'4'
-        && matches!(bytes[19], b'8' | b'9' | b'a' | b'b')
-        && bytes.iter().enumerate().all(|(index, byte)| {
-            matches!(index, 8 | 13 | 18 | 23) || matches!(*byte, b'0'..=b'9' | b'a'..=b'f')
-        })
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct PendingSessionResetDir {
-    path: PathBuf,
-    kind: PendingSessionResetKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ResetConfirmationSnapshot {
-    confirm_reset: String,
-    session_fingerprint: String,
-    terminal_host_fingerprint: String,
-    pending_reset_dir_fingerprints: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ResetDirectoryManifest {
-    fingerprint: String,
-    entries: HashSet<String>,
-}
-
-fn pending_session_reset_dirs(
-    root: &Path,
-    session_name: &str,
-) -> anyhow::Result<Vec<PendingSessionResetDir>> {
-    if !workspace_state_root_exists(root)? {
-        return Ok(Vec::new());
-    }
-
-    let root_device = reset_root_device(root)?;
-    let storage_component = session_storage_component(session_name);
-    let prefix = format!(".reset-{storage_component}-");
-    let suffix = ".deleting";
-    let mut reset_dirs = Vec::new();
-    for entry in fs::read_dir(root)
-        .with_context(|| format!("read workspace state root {}", root.display()))?
-    {
-        let entry = entry?;
-        let file_name = entry.file_name();
-        let Some(file_name) = file_name.to_str() else {
-            continue;
-        };
-        if !file_name.starts_with(&prefix) || !file_name.ends_with(suffix) {
-            continue;
-        }
-        let rest = &file_name[prefix.len()..file_name.len() - suffix.len()];
-        let Some(kind) = pending_session_reset_kind(rest) else {
-            continue;
-        };
-        let path = platform::normalize_filesystem_path(entry.path());
-        let metadata = fs::symlink_metadata(&path)
-            .with_context(|| format!("inspect private reset path {}", path.display()))?;
-        if !metadata.file_type().is_dir() {
-            anyhow::bail!("private reset path is not a directory: {}", path.display());
-        }
-        ensure_reset_device_boundary(&path, root_device, reset_metadata_device(&metadata))?;
-        reset_dirs.push(PendingSessionResetDir { path, kind });
-    }
-    reset_dirs.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(reset_dirs)
-}
-
-fn workspace_state_root_exists(root: &Path) -> anyhow::Result<bool> {
-    let metadata = match fs::symlink_metadata(root) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => {
-            return Err(error)
-                .with_context(|| format!("inspect workspace state root {}", root.display()));
-        }
-    };
-    if metadata.file_type().is_symlink() {
-        anyhow::bail!("workspace state root must not be a symbolic link: {}", root.display());
-    }
-    if !metadata.file_type().is_dir() {
-        anyhow::bail!("workspace state root is not a directory: {}", root.display());
-    }
-    Ok(true)
-}
-
-fn validate_session_reset_dir(path: &Path) -> anyhow::Result<bool> {
-    validate_reset_child_dir(path, "workspace session state path")
-}
-
-fn validate_terminal_host_reset_dir(path: &Path) -> anyhow::Result<bool> {
-    validate_reset_child_dir(path, "terminal host state path")
-}
-
-fn validate_reset_child_dir(path: &Path, label: &str) -> anyhow::Result<bool> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
-        Err(error) => {
-            return Err(error).with_context(|| format!("inspect {label} {}", path.display()));
-        }
-    };
-    if !metadata.file_type().is_dir() {
-        anyhow::bail!("{label} is not a directory: {}", path.display());
-    }
-    Ok(true)
-}
-
-fn rename_session_dir_for_reset(
-    root: &Path,
-    session_name: &str,
-    session_dir: &Path,
-    expected_fingerprint: &str,
-) -> anyhow::Result<PathBuf> {
-    rename_reset_dir_for_deletion(
-        root,
-        session_name,
-        "session",
-        "workspace session state",
-        session_dir,
-        expected_fingerprint,
-    )
-}
-
-fn rename_terminal_host_dir_for_reset(
-    root: &Path,
-    session_name: &str,
-    terminal_host_root: &Path,
-    expected_fingerprint: &str,
-) -> anyhow::Result<PathBuf> {
-    rename_reset_dir_for_deletion(
-        root,
-        session_name,
-        "terminal-hosts",
-        "terminal host state",
-        terminal_host_root,
-        expected_fingerprint,
-    )
-}
-
-fn rename_reset_dir_for_deletion(
-    root: &Path,
-    session_name: &str,
-    kind: &str,
-    label: &str,
-    source: &Path,
-    expected_fingerprint: &str,
-) -> anyhow::Result<PathBuf> {
-    let storage_component = session_storage_component(session_name);
-    for _ in 0..16 {
-        let candidate = platform::normalize_filesystem_path(
-            root.join(format!(".reset-{storage_component}-{kind}-{}.deleting", try_new_uuid_v4()?)),
-        );
-        ensure_reset_dir_fingerprint(source, kind, expected_fingerprint)?;
-        match fs::rename(source, &candidate) {
-            Ok(()) => {
-                if let Err(error) =
-                    ensure_reset_dir_fingerprint(&candidate, kind, expected_fingerprint)
-                {
-                    let _ = fs::rename(&candidate, source);
-                    return Err(error);
-                }
-                sync_private_reset_rename(root, &candidate, label)?;
-                return Ok(candidate);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "move {label} {} to private reset path {}",
-                        source.display(),
-                        candidate.display()
-                    )
-                });
-            }
-        }
-    }
-    anyhow::bail!("could not allocate private reset path for {label} {}", source.display())
-}
-
-fn sync_private_reset_rename(root: &Path, candidate: &Path, label: &str) -> anyhow::Result<()> {
-    #[cfg(test)]
-    {
-        let mut failure_root = RESET_RENAME_SYNC_FAILURE_ROOT.lock().unwrap();
-        if failure_root.as_deref() == Some(root) {
-            *failure_root = None;
-            anyhow::bail!("injected private reset rename sync failure");
-        }
-    }
-    platform::sync_directory(root)
-        .with_context(|| format!("sync private reset path for {label} {}", candidate.display()))
-}
-
-fn ensure_reset_dir_fingerprint(
-    path: &Path,
-    fingerprint_label: &str,
-    expected_fingerprint: &str,
-) -> anyhow::Result<()> {
-    let mut budget = ResetFingerprintBudget::default();
-    let current = reset_dir_fingerprint(fingerprint_label, path, &mut budget)?;
-    if current == expected_fingerprint {
-        return Ok(());
-    }
-    anyhow::bail!("reset path changed during reset: {}", path.display());
-}
-
-fn require_reset_confirmation(
-    state_root: &Path,
-    session_name: &str,
-    session_dir: &Path,
-    terminal_host_root: &Path,
-    pending_reset_dirs: &[PendingSessionResetDir],
-    confirm_reset: Option<&str>,
-) -> anyhow::Result<ResetConfirmationSnapshot> {
-    let confirmation = reset_confirmation_snapshot(
-        state_root,
-        session_name,
-        session_dir,
-        terminal_host_root,
-        pending_reset_dirs,
-    )?;
-    if confirm_reset == Some(confirmation.confirm_reset.as_str()) {
-        return Ok(confirmation);
-    }
-    anyhow::bail!("reset confirmation is required");
-}
-
-fn reset_confirmation_snapshot(
-    state_root: &Path,
-    session_name: &str,
-    session_dir: &Path,
-    terminal_host_root: &Path,
-    pending_reset_dirs: &[PendingSessionResetDir],
-) -> anyhow::Result<ResetConfirmationSnapshot> {
-    let mut hash = Sha256::new();
-    let mut budget = ResetFingerprintBudget::default();
-    update_reset_confirmation_part(&mut hash, "cmux-session-reset-v1");
-    update_reset_confirmation_part(&mut hash, session_name);
-    update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(state_root));
-    update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(session_dir));
-    update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(terminal_host_root));
-    let session_fingerprint = session_reset_target_fingerprint(session_dir, &mut budget)?;
-    update_reset_confirmation_part(&mut hash, &session_fingerprint);
-    let terminal_host_fingerprint =
-        reset_dir_fingerprint("terminal-hosts", terminal_host_root, &mut budget)?;
-    update_reset_confirmation_part(&mut hash, &terminal_host_fingerprint);
-    let mut pending_reset_dir_fingerprints = Vec::with_capacity(pending_reset_dirs.len());
-    for reset_dir in pending_reset_dirs {
-        update_reset_confirmation_part(&mut hash, &canonical_reset_path_token(&reset_dir.path));
-        let fingerprint = reset_dir_fingerprint("pending", &reset_dir.path, &mut budget)?;
-        update_reset_confirmation_part(&mut hash, &fingerprint);
-        pending_reset_dir_fingerprints.push(fingerprint);
-    }
-    let digest = hash.finalize();
-    Ok(ResetConfirmationSnapshot {
-        confirm_reset: digest[..12].iter().map(|byte| format!("{byte:02x}")).collect(),
-        session_fingerprint,
-        terminal_host_fingerprint,
-        pending_reset_dir_fingerprints,
-    })
-}
-
-fn update_reset_confirmation_part(hash: &mut Sha256, value: &str) {
-    hash.update(value.len().to_le_bytes());
-    hash.update(value.as_bytes());
-}
-
-fn canonical_reset_path_token(path: &Path) -> String {
-    let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    reset_path_token(&path)
-}
-
-#[cfg(unix)]
-fn reset_path_token(path: &Path) -> String {
-    use std::os::unix::ffi::OsStrExt;
-
-    format!("unix-hex:{}", hex_bytes(path.as_os_str().as_bytes()))
-}
-
-#[cfg(windows)]
-fn reset_path_token(path: &Path) -> String {
-    use std::os::windows::ffi::OsStrExt;
-
-    let mut bytes = Vec::new();
-    for unit in path.as_os_str().encode_wide() {
-        bytes.extend_from_slice(&unit.to_le_bytes());
-    }
-    format!("windows-utf16le-hex:{}", hex_bytes(&bytes))
-}
-
-#[cfg(all(not(unix), not(windows)))]
-fn reset_path_token(path: &Path) -> String {
-    format!("display:{}", path.display())
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut encoded = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    encoded
-}
-
-fn reset_manifest_path_key(relative_path: &Path) -> String {
-    reset_path_token(relative_path)
-}
-
-fn session_reset_target_fingerprint(
-    session_dir: &Path,
-    budget: &mut ResetFingerprintBudget,
-) -> anyhow::Result<String> {
-    reset_dir_fingerprint("session", session_dir, budget)
-}
-
-fn reset_dir_fingerprint(
-    label: &str,
-    path: &Path,
-    budget: &mut ResetFingerprintBudget,
-) -> anyhow::Result<String> {
-    Ok(reset_dir_manifest(label, path, budget)?.fingerprint)
-}
-
-fn reset_dir_manifest(
-    label: &str,
-    path: &Path,
-    budget: &mut ResetFingerprintBudget,
-) -> anyhow::Result<ResetDirectoryManifest> {
-    let mut entries = Vec::new();
-    collect_reset_path_fingerprints(
-        path,
-        Path::new("."),
-        reset_ignored_root_child(label),
-        reset_stable_root_identity(label),
-        None,
-        budget,
-        &mut entries,
-    )?;
-    entries.sort();
-    let fingerprint = format!("{label}:{}", entries.join(","));
-    Ok(ResetDirectoryManifest { fingerprint, entries: entries.into_iter().collect() })
-}
-
-fn reset_ignored_root_child(label: &str) -> Option<&'static str> {
-    match label {
-        "session" => Some(SESSION_WRITER_LOCK_FILE),
-        "terminal-hosts" => Some(TERMINAL_HOST_PUBLICATION_LOCK_FILE),
-        _ => None,
-    }
-}
-
-fn reset_stable_root_identity(label: &str) -> bool {
-    matches!(label, "session" | "terminal-hosts")
-}
-
-#[derive(Default)]
-struct ResetFingerprintBudget {
-    entries: usize,
-    bytes: u64,
-    manifest_bytes: usize,
-}
-
-impl ResetFingerprintBudget {
-    fn add_entry(&mut self, path: &Path) -> anyhow::Result<()> {
-        self.entries = self.entries.saturating_add(1);
-        if self.entries > MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES {
-            return Err(reset_confirmation_scan_limit_error("paths", path));
-        }
-        Ok(())
-    }
-
-    fn add_manifest_bytes(&mut self, path: &Path, bytes: usize) -> anyhow::Result<()> {
-        self.manifest_bytes = self.manifest_bytes.saturating_add(bytes);
-        if self.manifest_bytes > MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES {
-            return Err(reset_confirmation_scan_limit_error("manifest bytes", path));
-        }
-        Ok(())
-    }
-
-    fn check_queued_child(&self, queued_children: usize, path: &Path) -> anyhow::Result<()> {
-        if self.entries.saturating_add(queued_children).saturating_add(1)
-            > MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES
-        {
-            return Err(reset_confirmation_scan_limit_error("paths", path));
-        }
-        Ok(())
-    }
-
-    fn add_file_bytes(&mut self, path: &Path, bytes: u64) -> anyhow::Result<()> {
-        self.bytes = self.bytes.saturating_add(bytes);
-        if self.bytes > MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES {
-            return Err(reset_confirmation_scan_limit_error("bytes", path));
-        }
-        Ok(())
-    }
-}
-
-fn reset_confirmation_scan_limit_error(unit: &str, path: &Path) -> anyhow::Error {
-    let limit = match unit {
-        "paths" => MAX_RESET_CONFIRMATION_FINGERPRINT_ENTRIES.to_string(),
-        "bytes" => MAX_RESET_CONFIRMATION_FINGERPRINT_BYTES.to_string(),
-        "manifest bytes" => MAX_RESET_CONFIRMATION_FINGERPRINT_MANIFEST_BYTES.to_string(),
-        _ => "configured".to_string(),
-    };
-    anyhow::anyhow!(
-        "reset confirmation scan exceeds {limit} {unit}; scoped state is too large to reset safely: {}",
-        path.display()
-    )
-}
-
-fn collect_reset_path_fingerprints(
-    path: &Path,
-    relative_path: &Path,
-    ignored_root_child: Option<&str>,
-    stable_root_identity: bool,
-    root_device: Option<u64>,
-    budget: &mut ResetFingerprintBudget,
-    entries: &mut Vec<String>,
-) -> anyhow::Result<()> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            push_reset_manifest_entry(
-                entries,
-                format!("{}=missing", reset_manifest_path_key(relative_path)),
-                budget,
-                path,
-            )?;
-            return Ok(());
-        }
-        Err(error) => {
-            return Err(error).with_context(|| format!("inspect reset path {}", path.display()));
-        }
-    };
-    let current_device = reset_metadata_device(&metadata);
-    let root_device = root_device.or(current_device);
-    ensure_reset_device_boundary(path, root_device, current_device)?;
-    budget.add_entry(path)?;
-    let entry = format!(
-        "{}={}",
-        reset_manifest_path_key(relative_path),
-        reset_path_fingerprint(
-            path,
-            &metadata,
-            budget,
-            stable_root_identity && relative_path == Path::new("."),
-        )?
-    );
-    push_reset_manifest_entry(entries, entry, budget, path)?;
-    if !metadata.file_type().is_dir() {
-        return Ok(());
-    }
-    let mut child_paths = Vec::new();
-    for entry in
-        fs::read_dir(path).with_context(|| format!("read reset path {}", path.display()))?
-    {
-        let child_path = entry?.path();
-        let child_name = child_path.file_name().ok_or_else(|| {
-            anyhow::anyhow!("reset path has no file name: {}", child_path.display())
-        })?;
-        if relative_path == Path::new(".")
-            && ignored_root_child.is_some_and(|ignored| child_name == std::ffi::OsStr::new(ignored))
-        {
-            continue;
-        }
-        budget.check_queued_child(child_paths.len(), &child_path)?;
-        child_paths.push(child_path);
-    }
-    child_paths.sort();
-    for child_path in child_paths {
-        let child_name = child_path.file_name().ok_or_else(|| {
-            anyhow::anyhow!("reset path has no file name: {}", child_path.display())
-        })?;
-        collect_reset_path_fingerprints(
-            &child_path,
-            &relative_path.join(Path::new(child_name)),
-            ignored_root_child,
-            stable_root_identity,
-            root_device,
-            budget,
-            entries,
-        )?;
-    }
-    Ok(())
-}
-
-fn push_reset_manifest_entry(
-    entries: &mut Vec<String>,
-    entry: String,
-    budget: &mut ResetFingerprintBudget,
-    path: &Path,
-) -> anyhow::Result<()> {
-    budget.add_manifest_bytes(path, entry.len())?;
-    entries.push(entry);
-    Ok(())
-}
-
-fn ensure_reset_device_boundary(
-    path: &Path,
-    root_device: Option<u64>,
-    current_device: Option<u64>,
-) -> anyhow::Result<()> {
-    if let (Some(root_device), Some(current_device)) = (root_device, current_device)
-        && current_device != root_device
-    {
-        anyhow::bail!("reset path crosses filesystem boundary: {}", path.display());
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn reset_metadata_device(metadata: &fs::Metadata) -> Option<u64> {
-    use std::os::unix::fs::MetadataExt;
-
-    Some(metadata.dev())
-}
-
-fn reset_root_device(root: &Path) -> anyhow::Result<Option<u64>> {
-    let metadata = fs::metadata(root)
-        .with_context(|| format!("inspect workspace state root {}", root.display()))?;
-    Ok(reset_metadata_device(&metadata))
-}
-
-#[cfg(not(unix))]
-fn reset_metadata_device(_metadata: &fs::Metadata) -> Option<u64> {
-    None
-}
-
-#[cfg(unix)]
-fn remove_reset_dir_all(
-    path: &Path,
-    label: &str,
-    fingerprint_label: &str,
-    expected_fingerprint: &str,
-) -> anyhow::Result<()> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-
-    let mut budget = ResetFingerprintBudget::default();
-    let manifest = reset_dir_manifest(fingerprint_label, path, &mut budget)?;
-    if manifest.fingerprint != expected_fingerprint {
-        anyhow::bail!("reset path changed during reset: {}", path.display());
-    }
-    #[cfg(test)]
-    {
-        let mut injected_file = RESET_DELETE_AFTER_MANIFEST_FILE.lock().unwrap();
-        if injected_file.as_ref().is_some_and(|(target, _)| target == path) {
-            let (_, file_path) = injected_file.take().unwrap();
-            fs::write(&file_path, b"late")
-                .with_context(|| format!("write injected reset file {}", file_path.display()))?;
-        }
-    }
-    let directory = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(path)
-        .with_context(|| format!("open {label} {}", path.display()))?;
-    let metadata =
-        directory.metadata().with_context(|| format!("inspect {label} {}", path.display()))?;
-    if !metadata.file_type().is_dir() {
-        anyhow::bail!("{label} is not a directory: {}", path.display());
-    }
-    let root_device = metadata.dev();
-    let root_inode = metadata.ino();
-    remove_reset_dir_children_from_handle(
-        &directory,
-        path,
-        Path::new("."),
-        label,
-        root_device,
-        &manifest.entries,
-        reset_ignored_root_child(fingerprint_label),
-    )?;
-    let current = fs::symlink_metadata(path)
-        .with_context(|| format!("inspect {label} {}", path.display()))?;
-    if !current.file_type().is_dir() || current.dev() != root_device || current.ino() != root_inode
-    {
-        anyhow::bail!("reset path changed during reset: {}", path.display());
-    }
-    fs::remove_dir(path).with_context(|| format!("remove {label} {}", path.display()))
-}
-
-#[cfg(unix)]
-fn remove_reset_dir_children_from_handle(
-    directory: &File,
-    display_path: &Path,
-    relative_path: &Path,
-    label: &str,
-    root_device: u64,
-    expected_entries: &HashSet<String>,
-    ignored_root_child: Option<&str>,
-) -> anyhow::Result<()> {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::fs::MetadataExt;
-
-    let mut children = reset_dir_child_names(directory, display_path, label)?;
-    children.sort();
-
-    for child_name in children {
-        let child_display = display_path.join(&child_name);
-        let child_relative = relative_path.join(&child_name);
-        let child_stat = match reset_child_stat(directory.as_raw_fd(), &child_name, &child_display)
-        {
-            Ok(child_stat) => child_stat,
-            Err(error)
-                if error
-                    .downcast_ref::<std::io::Error>()
-                    .is_some_and(|error| error.kind() == std::io::ErrorKind::NotFound) =>
-            {
-                continue;
-            }
-            Err(error) => return Err(error),
-        };
-        let child_device = reset_stat_device(&child_stat);
-        ensure_reset_device_boundary(&child_display, Some(root_device), Some(child_device))?;
-        ensure_reset_manifest_entry(
-            directory.as_raw_fd(),
-            &child_name,
-            &child_relative,
-            &child_display,
-            &child_stat,
-            expected_entries,
-            ignored_root_child,
-        )?;
-        #[cfg(test)]
-        inject_reset_delete_child_replacement(&child_display)?;
-        let staged_child = stage_reset_child_for_deletion(
-            directory.as_raw_fd(),
-            &child_name,
-            &child_display,
-            &child_stat,
-        )?;
-        if let Err(error) = ensure_reset_manifest_entry(
-            directory.as_raw_fd(),
-            &staged_child.name,
-            &child_relative,
-            &staged_child.display_path,
-            &staged_child.stat,
-            expected_entries,
-            ignored_root_child,
-        ) {
-            return Err(restore_changed_reset_child(
-                directory.as_raw_fd(),
-                &staged_child.name,
-                &child_name,
-                &staged_child.display_path,
-                &child_display,
-                error,
-            ));
-        }
-        if reset_stat_is_dir(&staged_child.stat) {
-            let child_directory = open_reset_child_dir(
-                directory.as_raw_fd(),
-                &staged_child.name,
-                &staged_child.display_path,
-            )?;
-            let opened = child_directory.metadata().with_context(|| {
-                format!("inspect {label} {}", staged_child.display_path.display())
-            })?;
-            if !opened.file_type().is_dir()
-                || opened.dev() != reset_stat_device(&staged_child.stat)
-                || opened.ino() != reset_stat_inode(&staged_child.stat)
-            {
-                anyhow::bail!(
-                    "reset path changed during reset: {}",
-                    staged_child.display_path.display()
-                );
-            }
-            remove_reset_dir_children_from_handle(
-                &child_directory,
-                &staged_child.display_path,
-                &child_relative,
-                label,
-                root_device,
-                expected_entries,
-                ignored_root_child,
-            )?;
-            let current = reset_child_stat(
-                directory.as_raw_fd(),
-                &staged_child.name,
-                &staged_child.display_path,
-            )?;
-            if !reset_stat_is_dir(&current)
-                || reset_stat_device(&current) != reset_stat_device(&staged_child.stat)
-                || reset_stat_inode(&current) != reset_stat_inode(&staged_child.stat)
-            {
-                anyhow::bail!(
-                    "reset path changed during reset: {}",
-                    staged_child.display_path.display()
-                );
-            }
-            reset_unlink_child(
-                directory.as_raw_fd(),
-                &staged_child.name,
-                &staged_child.display_path,
-                libc::AT_REMOVEDIR,
-            )?;
-        } else {
-            reset_unlink_child(
-                directory.as_raw_fd(),
-                &staged_child.name,
-                &staged_child.display_path,
-                0,
-            )?;
-        }
-    }
-    let remaining = reset_dir_child_names(directory, display_path, label)?;
-    if !remaining.is_empty() {
-        anyhow::bail!("reset path changed during reset: {}", display_path.display());
-    }
-    Ok(())
-}
-
-#[cfg(all(unix, test))]
-fn inject_reset_delete_child_replacement(path: &Path) -> anyhow::Result<()> {
-    let mut replacement = RESET_DELETE_AFTER_CHILD_VERIFY_FILE.lock().unwrap();
-    if replacement.as_ref() != Some(&path.to_path_buf()) {
-        return Ok(());
-    }
-    *replacement = None;
-    fs::remove_file(path)
-        .with_context(|| format!("remove injected reset file {}", path.display()))?;
-    fs::write(path, b"replacement")
-        .with_context(|| format!("write injected reset file {}", path.display()))?;
-    Ok(())
-}
-
-#[cfg(test)]
-fn inject_reset_recreated_session_dir_after_staging(path: &Path) -> anyhow::Result<()> {
-    let mut injected = RESET_RECREATE_SESSION_DIR_AFTER_STAGING.lock().unwrap();
-    let Some(session_dir) = injected.take() else {
-        return Ok(());
-    };
-    if session_dir != path {
-        *injected = Some(session_dir);
-        return Ok(());
-    }
-    fs::create_dir_all(&session_dir)
-        .with_context(|| format!("recreate injected session dir {}", session_dir.display()))?;
-    fs::write(session_dir.join(SESSION_WRITER_LOCK_FILE), b"recreated")
-        .with_context(|| format!("write injected session lock {}", session_dir.display()))?;
-    fs::write(session_dir.join("recreated-sidecar"), b"new")
-        .with_context(|| format!("write injected session sidecar {}", session_dir.display()))?;
-    Ok(())
-}
-
-#[cfg(unix)]
-struct ResetStagedChild {
-    name: std::ffi::OsString,
-    display_path: PathBuf,
-    stat: libc::stat,
-}
-
-#[cfg(unix)]
-fn stage_reset_child_for_deletion(
-    parent_fd: std::os::fd::RawFd,
-    name: &std::ffi::OsStr,
-    display_path: &Path,
-    expected: &libc::stat,
-) -> anyhow::Result<ResetStagedChild> {
-    for _ in 0..16 {
-        let private_name =
-            std::ffi::OsString::from(format!(".reset-delete-{}.entry", try_new_uuid_v4()?));
-        let private_display = display_path.with_file_name(&private_name);
-        match reset_rename_child_exclusive(
-            parent_fd,
-            name,
-            &private_name,
-            display_path,
-            &private_display,
-        ) {
-            Ok(()) => {
-                let stat = reset_child_stat(parent_fd, &private_name, &private_display)?;
-                if reset_stat_device(&stat) != reset_stat_device(expected)
-                    || reset_stat_inode(&stat) != reset_stat_inode(expected)
-                    || reset_stat_kind(&stat) != reset_stat_kind(expected)
-                {
-                    let error = anyhow::anyhow!(
-                        "reset path changed during reset: {}",
-                        display_path.display()
-                    );
-                    return Err(restore_changed_reset_child(
-                        parent_fd,
-                        &private_name,
-                        name,
-                        &private_display,
-                        display_path,
-                        error,
-                    ));
-                }
-                return Ok(ResetStagedChild {
-                    name: private_name,
-                    display_path: private_display,
-                    stat,
-                });
-            }
-            Err(error)
-                if error
-                    .downcast_ref::<std::io::Error>()
-                    .is_some_and(|error| error.kind() == std::io::ErrorKind::AlreadyExists) =>
-            {
-                continue;
-            }
-            Err(error) => return Err(error),
-        }
-    }
-    anyhow::bail!("could not allocate private reset path for {}", display_path.display())
-}
-
-#[cfg(unix)]
-fn restore_changed_reset_child(
-    parent_fd: std::os::fd::RawFd,
-    private_name: &std::ffi::OsStr,
-    original_name: &std::ffi::OsStr,
-    private_display: &Path,
-    original_display: &Path,
-    verification_error: anyhow::Error,
-) -> anyhow::Error {
-    match reset_rename_child_exclusive(
-        parent_fd,
-        private_name,
-        original_name,
-        private_display,
-        original_display,
-    ) {
-        Ok(()) => verification_error,
-        Err(restore_error) => anyhow::anyhow!(
-            "{verification_error:#}; failed to restore changed reset path {}: {restore_error:#}",
-            original_display.display()
-        ),
-    }
-}
-
-#[cfg(unix)]
-fn ensure_reset_manifest_entry(
-    parent_fd: std::os::fd::RawFd,
-    name: &std::ffi::OsStr,
-    relative_path: &Path,
-    display_path: &Path,
-    stat: &libc::stat,
-    expected_entries: &HashSet<String>,
-    ignored_root_child: Option<&str>,
-) -> anyhow::Result<()> {
-    if let Some(ignored) = ignored_root_child
-        && relative_path == Path::new(".").join(ignored)
-    {
-        return Ok(());
-    }
-    let mut budget = ResetFingerprintBudget::default();
-    let entry = reset_child_fingerprint_entry(
-        parent_fd,
-        name,
-        relative_path,
-        display_path,
-        stat,
-        &mut budget,
-    )?;
-    if expected_entries.contains(&entry) {
-        return Ok(());
-    }
-    anyhow::bail!("reset path changed during reset: {}", display_path.display());
-}
-
-#[cfg(unix)]
-fn reset_child_fingerprint_entry(
-    parent_fd: std::os::fd::RawFd,
-    name: &std::ffi::OsStr,
-    relative_path: &Path,
-    display_path: &Path,
-    stat: &libc::stat,
-    budget: &mut ResetFingerprintBudget,
-) -> anyhow::Result<String> {
-    let mut fingerprint = reset_stat_metadata_fingerprint(stat);
-    if reset_stat_is_file(stat) {
-        fingerprint.push_str(";sha256=");
-        fingerprint.push_str(&reset_child_file_content_sha256(
-            parent_fd,
-            name,
-            display_path,
-            stat,
-            budget,
-        )?);
-    }
-    Ok(format!("{}={fingerprint}", reset_manifest_path_key(relative_path)))
-}
-
-#[cfg(unix)]
-fn reset_child_file_content_sha256(
-    parent_fd: std::os::fd::RawFd,
-    name: &std::ffi::OsStr,
-    display_path: &Path,
-    expected: &libc::stat,
-    budget: &mut ResetFingerprintBudget,
-) -> anyhow::Result<String> {
-    let mut file = open_reset_child_file(parent_fd, name, display_path)?;
-    let opened = file
-        .metadata()
-        .with_context(|| format!("inspect reset file {}", display_path.display()))?;
-    if reset_metadata_fingerprint(&opened) != reset_stat_metadata_fingerprint(expected) {
-        anyhow::bail!("reset path changed during fingerprint: {}", display_path.display());
-    }
-    let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 8192];
-    loop {
-        let read = file.read(&mut buffer).with_context(|| {
-            format!("read reset file for fingerprint {}", display_path.display())
-        })?;
-        if read == 0 {
-            break;
-        }
-        budget.add_file_bytes(display_path, read as u64)?;
-        hash.update(&buffer[..read]);
-    }
-    let current = reset_child_stat(parent_fd, name, display_path)?;
-    if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(expected) {
-        anyhow::bail!("reset path changed during fingerprint: {}", display_path.display());
-    }
-    Ok(hex_sha256(hash.finalize().into()))
-}
-
-#[cfg(unix)]
-struct ResetDirStream(*mut libc::DIR);
-
-#[cfg(unix)]
-impl Drop for ResetDirStream {
-    fn drop(&mut self) {
-        // SAFETY: fdopendir returned this DIR pointer and ownership belongs to this guard.
-        unsafe {
-            libc::closedir(self.0);
-        }
-    }
-}
-
-#[cfg(unix)]
-fn reset_dir_child_names(
-    directory: &File,
-    display_path: &Path,
-    label: &str,
-) -> anyhow::Result<Vec<std::ffi::OsString>> {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::ffi::OsStrExt;
-
-    // SAFETY: dup only duplicates this valid directory file descriptor.
-    let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
-    if duplicate < 0 {
-        return Err(std::io::Error::last_os_error())
-            .with_context(|| format!("read {label} {}", display_path.display()));
-    }
-    // SAFETY: fdopendir takes ownership of the duplicated descriptor on success.
-    let raw_stream = unsafe { libc::fdopendir(duplicate) };
-    if raw_stream.is_null() {
-        let error = std::io::Error::last_os_error();
-        // SAFETY: fdopendir did not take ownership when it failed.
-        unsafe {
-            libc::close(duplicate);
-        }
-        return Err(error).with_context(|| format!("read {label} {}", display_path.display()));
-    }
-    let stream = ResetDirStream(raw_stream);
-    // fdopendir takes a duplicated descriptor, but dup shares the directory
-    // cursor with the original file description. Rewind every scan so repeated
-    // safety passes cannot inherit an end-of-directory cursor.
-    // SAFETY: stream owns a valid DIR pointer.
-    unsafe {
-        libc::rewinddir(stream.0);
-    }
-    let mut names = Vec::new();
-    loop {
-        set_reset_readdir_errno(0);
-        // SAFETY: stream owns a valid DIR pointer for the duration of this loop.
-        let entry = unsafe { libc::readdir(stream.0) };
-        if entry.is_null() {
-            let errno = reset_readdir_errno();
-            if errno == 0 {
-                break;
-            }
-            return Err(std::io::Error::from_raw_os_error(errno))
-                .with_context(|| format!("read {label} {}", display_path.display()));
-        }
-        // SAFETY: d_name is a nul-terminated C string for a live dirent.
-        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
-        let name = name.to_bytes();
-        if name == b"." || name == b".." {
-            continue;
-        }
-        names.push(std::ffi::OsStr::from_bytes(name).to_os_string());
-    }
-    Ok(names)
-}
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn set_reset_readdir_errno(value: libc::c_int) {
-    // SAFETY: libc returns this thread's writable errno location.
-    unsafe { *libc::__errno_location() = value };
-}
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn reset_readdir_errno() -> libc::c_int {
-    // SAFETY: libc returns this thread's readable errno location.
-    unsafe { *libc::__errno_location() }
-}
-
-#[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
-fn set_reset_readdir_errno(value: libc::c_int) {
-    // SAFETY: libc returns this thread's writable errno location.
-    unsafe { *libc::__error() = value };
-}
-
-#[cfg(any(target_vendor = "apple", target_os = "freebsd", target_os = "dragonfly"))]
-fn reset_readdir_errno() -> libc::c_int {
-    // SAFETY: libc returns this thread's readable errno location.
-    unsafe { *libc::__error() }
-}
-
-#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
-fn set_reset_readdir_errno(value: libc::c_int) {
-    // SAFETY: libc returns this thread's writable errno location.
-    unsafe { *libc::__errno() = value };
-}
-
-#[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
-fn reset_readdir_errno() -> libc::c_int {
-    // SAFETY: libc returns this thread's readable errno location.
-    unsafe { *libc::__errno() }
-}
-
-#[cfg(any(target_os = "solaris", target_os = "illumos"))]
-fn set_reset_readdir_errno(value: libc::c_int) {
-    // SAFETY: libc returns this thread's writable errno location.
-    unsafe { *libc::___errno() = value };
-}
-
-#[cfg(any(target_os = "solaris", target_os = "illumos"))]
-fn reset_readdir_errno() -> libc::c_int {
-    // SAFETY: libc returns this thread's readable errno location.
-    unsafe { *libc::___errno() }
-}
-
-#[cfg(all(
-    unix,
-    not(any(
-        target_os = "linux",
-        target_os = "android",
-        target_vendor = "apple",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "solaris",
-        target_os = "illumos"
-    ))
-))]
-fn set_reset_readdir_errno(_value: libc::c_int) {}
-
-#[cfg(all(
-    unix,
-    not(any(
-        target_os = "linux",
-        target_os = "android",
-        target_vendor = "apple",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "netbsd",
-        target_os = "openbsd",
-        target_os = "solaris",
-        target_os = "illumos"
-    ))
-))]
-fn reset_readdir_errno() -> libc::c_int {
-    0
-}
-
-#[cfg(unix)]
-fn open_reset_child_file(
-    parent_fd: std::os::fd::RawFd,
-    name: &std::ffi::OsStr,
-    display_path: &Path,
-) -> anyhow::Result<File> {
-    use std::os::fd::FromRawFd;
-
-    let name = reset_child_c_string(name, display_path)?;
-    loop {
-        // SAFETY: openat reads a nul-terminated child name relative to a valid parent directory fd.
-        let fd = unsafe {
-            libc::openat(
-                parent_fd,
-                name.as_ptr(),
-                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
-            )
-        };
-        if fd >= 0 {
-            // SAFETY: openat returned a new owned file descriptor.
-            return Ok(unsafe { File::from_raw_fd(fd) });
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Err(error).with_context(|| format!("open reset file {}", display_path.display()));
-    }
-}
-
-#[cfg(unix)]
-fn open_reset_child_dir(
-    parent_fd: std::os::fd::RawFd,
-    name: &std::ffi::OsStr,
-    display_path: &Path,
-) -> anyhow::Result<File> {
-    use std::os::fd::FromRawFd;
-
-    let name = reset_child_c_string(name, display_path)?;
-    loop {
-        // SAFETY: openat reads a nul-terminated child name relative to a valid parent directory fd.
-        let fd = unsafe {
-            libc::openat(
-                parent_fd,
-                name.as_ptr(),
-                libc::O_RDONLY | libc::O_CLOEXEC | libc::O_DIRECTORY | libc::O_NOFOLLOW,
-            )
-        };
-        if fd >= 0 {
-            // SAFETY: openat returned a new owned file descriptor.
-            return Ok(unsafe { File::from_raw_fd(fd) });
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Err(error).with_context(|| format!("open reset dir {}", display_path.display()));
-    }
-}
-
-#[cfg(unix)]
-fn reset_child_stat(
-    parent_fd: std::os::fd::RawFd,
-    name: &std::ffi::OsStr,
-    display_path: &Path,
-) -> anyhow::Result<libc::stat> {
-    let name = reset_child_c_string(name, display_path)?;
-    loop {
-        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
-        // SAFETY: fstatat writes to stat and reads a nul-terminated child name relative to parent_fd.
-        let result = unsafe {
-            libc::fstatat(parent_fd, name.as_ptr(), stat.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW)
-        };
-        if result == 0 {
-            // SAFETY: fstatat initialized stat on success.
-            return Ok(unsafe { stat.assume_init() });
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Err(error)
-            .with_context(|| format!("inspect reset path {}", display_path.display()));
-    }
-}
-
-#[cfg(unix)]
-fn reset_unlink_child(
-    parent_fd: std::os::fd::RawFd,
-    name: &std::ffi::OsStr,
-    display_path: &Path,
-    flags: i32,
-) -> anyhow::Result<()> {
-    let name = reset_child_c_string(name, display_path)?;
-    loop {
-        // SAFETY: unlinkat reads a nul-terminated child name relative to a valid parent directory fd.
-        let result = unsafe { libc::unlinkat(parent_fd, name.as_ptr(), flags) };
-        if result == 0 {
-            return Ok(());
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Err(error).with_context(|| format!("remove reset path {}", display_path.display()));
-    }
-}
-
-#[cfg(any(target_os = "ios", target_os = "macos"))]
-fn reset_rename_child_exclusive(
-    parent_fd: std::os::fd::RawFd,
-    from: &std::ffi::OsStr,
-    to: &std::ffi::OsStr,
-    from_display: &Path,
-    to_display: &Path,
-) -> anyhow::Result<()> {
-    let from = reset_child_c_string(from, from_display)?;
-    let to = reset_child_c_string(to, to_display)?;
-    loop {
-        // SAFETY: renameatx_np reads nul-terminated names relative to a valid parent directory fd.
-        let result = unsafe {
-            libc::renameatx_np(parent_fd, from.as_ptr(), parent_fd, to.as_ptr(), libc::RENAME_EXCL)
-        };
-        if result == 0 {
-            return Ok(());
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Err(error).with_context(|| {
-            format!(
-                "move reset path {} to private path {}",
-                from_display.display(),
-                to_display.display()
-            )
-        });
-    }
-}
-
-#[cfg(any(target_os = "linux", target_os = "android"))]
-fn reset_rename_child_exclusive(
-    parent_fd: std::os::fd::RawFd,
-    from: &std::ffi::OsStr,
-    to: &std::ffi::OsStr,
-    from_display: &Path,
-    to_display: &Path,
-) -> anyhow::Result<()> {
-    let from = reset_child_c_string(from, from_display)?;
-    let to = reset_child_c_string(to, to_display)?;
-    loop {
-        // SAFETY: renameat2 reads nul-terminated names relative to a valid parent directory fd.
-        let result = unsafe {
-            libc::syscall(
-                libc::SYS_renameat2,
-                parent_fd,
-                from.as_ptr(),
-                parent_fd,
-                to.as_ptr(),
-                libc::RENAME_NOREPLACE,
-            )
-        };
-        if result == 0 {
-            return Ok(());
-        }
-        let error = std::io::Error::last_os_error();
-        if error.kind() == std::io::ErrorKind::Interrupted {
-            continue;
-        }
-        return Err(error).with_context(|| {
-            format!(
-                "move reset path {} to private path {}",
-                from_display.display(),
-                to_display.display()
-            )
-        });
-    }
-}
-
-#[cfg(all(
-    unix,
-    not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
-))]
-fn reset_rename_child_exclusive(
-    _parent_fd: std::os::fd::RawFd,
-    _from: &std::ffi::OsStr,
-    _to: &std::ffi::OsStr,
-    from_display: &Path,
-    _to_display: &Path,
-) -> anyhow::Result<()> {
-    unsupported_checked_reset_deletion(from_display, "saved state")
-}
-
-#[cfg(unix)]
-fn reset_child_c_string(
-    name: &std::ffi::OsStr,
-    display_path: &Path,
-) -> anyhow::Result<std::ffi::CString> {
-    use std::os::unix::ffi::OsStrExt;
-
-    std::ffi::CString::new(name.as_bytes())
-        .with_context(|| format!("reset path has an invalid file name: {}", display_path.display()))
-}
-
-#[cfg(unix)]
-fn reset_stat_is_dir(stat: &libc::stat) -> bool {
-    stat.st_mode & libc::S_IFMT == libc::S_IFDIR
-}
-
-#[cfg(unix)]
-fn reset_stat_is_file(stat: &libc::stat) -> bool {
-    stat.st_mode & libc::S_IFMT == libc::S_IFREG
-}
-
-#[cfg(unix)]
-fn reset_stat_kind(stat: &libc::stat) -> libc::mode_t {
-    stat.st_mode & libc::S_IFMT
-}
-
-#[cfg(unix)]
-fn reset_stat_metadata_fingerprint(stat: &libc::stat) -> String {
-    let kind = if reset_stat_is_dir(stat) {
-        "dir"
-    } else if reset_stat_is_file(stat) {
-        "file"
-    } else if stat.st_mode & libc::S_IFMT == libc::S_IFLNK {
-        "symlink"
-    } else {
-        "other"
-    };
-    format!(
-        "{kind}:dev={},ino={},mode={},len={},mtime={}.{}",
-        reset_stat_device(stat),
-        reset_stat_inode(stat),
-        stat.st_mode,
-        stat.st_size,
-        reset_stat_mtime_seconds(stat),
-        reset_stat_mtime_nanoseconds(stat)
-    )
-}
-
-#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
-fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    stat.st_mtime
-}
-
-#[cfg(any(target_os = "aix", target_os = "hurd"))]
-fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    stat.st_mtim.tv_sec
-}
-
-#[cfg(all(unix, target_vendor = "apple"))]
-fn reset_stat_mtime_seconds(stat: &libc::stat) -> i64 {
-    // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
-    stat.st_mtime
-}
-
-#[cfg(all(unix, not(any(target_vendor = "apple", target_os = "aix", target_os = "hurd"))))]
-fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    stat.st_mtime_nsec
-}
-
-#[cfg(any(target_os = "aix", target_os = "hurd"))]
-fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    stat.st_mtim.tv_nsec
-}
-
-#[cfg(all(unix, target_vendor = "apple"))]
-fn reset_stat_mtime_nanoseconds(stat: &libc::stat) -> i64 {
-    // Rust libc exposes Darwin's st_mtimespec through these stable aliases.
-    stat.st_mtime_nsec
-}
-
-#[cfg(unix)]
-fn reset_stat_device(stat: &libc::stat) -> u64 {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        stat.st_dev
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "android")))]
-    {
-        stat.st_dev as u64
-    }
-}
-
-#[cfg(unix)]
-fn reset_stat_inode(stat: &libc::stat) -> u64 {
-    stat.st_ino
-}
-
-#[cfg(not(unix))]
-fn remove_reset_dir_all(
-    path: &Path,
-    label: &str,
-    _fingerprint_label: &str,
-    _expected_fingerprint: &str,
-) -> anyhow::Result<()> {
-    unsupported_checked_reset_deletion(path, label)
-}
-
-fn ensure_checked_reset_deletion_supported(root: &Path) -> anyhow::Result<()> {
-    #[cfg(test)]
-    {
-        let mut unsupported_root = RESET_UNSUPPORTED_CHECKED_DELETION_ROOT.lock().unwrap();
-        if unsupported_root.as_deref() == Some(root) {
-            *unsupported_root = None;
-            return unsupported_checked_reset_deletion(root, "saved state");
-        }
-    }
-    #[cfg(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))]
-    {
-        let _ = root;
-        Ok(())
-    }
-    #[cfg(not(any(
-        target_os = "ios",
-        target_os = "macos",
-        target_os = "linux",
-        target_os = "android"
-    )))]
-    {
-        unsupported_checked_reset_deletion(root, "saved state")
-    }
-}
-
-#[cfg(any(
-    test,
-    not(any(target_os = "ios", target_os = "macos", target_os = "linux", target_os = "android"))
-))]
-fn unsupported_checked_reset_deletion(path: &Path, label: &str) -> anyhow::Result<()> {
-    anyhow::bail!(
-        "safe saved-state reset is not supported on this platform because cmux cannot verify {label} during deletion: {}",
-        path.display()
-    )
-}
-
-fn reset_path_fingerprint(
-    path: &Path,
-    metadata: &fs::Metadata,
-    budget: &mut ResetFingerprintBudget,
-    stable_directory_identity: bool,
-) -> anyhow::Result<String> {
-    let mut fingerprint = if stable_directory_identity && metadata.file_type().is_dir() {
-        reset_stable_directory_identity_fingerprint(metadata)
-    } else {
-        reset_metadata_fingerprint(metadata)
-    };
-    if metadata.file_type().is_file() {
-        fingerprint.push_str(";sha256=");
-        fingerprint.push_str(&reset_file_content_sha256(path, metadata, budget)?);
-    }
-    Ok(fingerprint)
-}
-
-#[cfg(unix)]
-fn reset_stable_directory_identity_fingerprint(metadata: &fs::Metadata) -> String {
-    use std::os::unix::fs::MetadataExt;
-
-    format!("dir:dev={},ino={},uid={}", metadata.dev(), metadata.ino(), metadata.uid())
-}
-
-#[cfg(not(unix))]
-fn reset_stable_directory_identity_fingerprint(metadata: &fs::Metadata) -> String {
-    reset_metadata_fingerprint(metadata)
-}
-
-fn reset_metadata_fingerprint(metadata: &fs::Metadata) -> String {
-    let kind = if metadata.file_type().is_dir() {
-        "dir"
-    } else if metadata.file_type().is_file() {
-        "file"
-    } else if metadata.file_type().is_symlink() {
-        "symlink"
-    } else {
-        "other"
-    };
-    format!("{kind}:{}", metadata_identity(metadata))
-}
-
-fn reset_file_content_sha256(
-    path: &Path,
-    expected: &fs::Metadata,
-    budget: &mut ResetFingerprintBudget,
-) -> anyhow::Result<String> {
-    let mut file = open_reset_fingerprint_file(path)
-        .with_context(|| format!("open reset file {}", path.display()))?;
-    let opened =
-        file.metadata().with_context(|| format!("inspect reset file {}", path.display()))?;
-    if reset_metadata_fingerprint(&opened) != reset_metadata_fingerprint(expected) {
-        anyhow::bail!("reset path changed during fingerprint: {}", path.display());
-    }
-    let mut hash = Sha256::new();
-    let mut buffer = [0_u8; 8192];
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .with_context(|| format!("read reset file for fingerprint {}", path.display()))?;
-        if read == 0 {
-            break;
-        }
-        budget.add_file_bytes(path, read as u64)?;
-        hash.update(&buffer[..read]);
-    }
-    let current = fs::symlink_metadata(path)
-        .with_context(|| format!("inspect reset file {}", path.display()))?;
-    if reset_metadata_fingerprint(&current) != reset_metadata_fingerprint(expected) {
-        anyhow::bail!("reset path changed during fingerprint: {}", path.display());
-    }
-    Ok(hex_sha256(hash.finalize().into()))
-}
-
-#[cfg(unix)]
-fn open_reset_fingerprint_file(path: &Path) -> std::io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt;
-
-    OpenOptions::new().read(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW).open(path)
-}
-
-#[cfg(not(unix))]
-fn open_reset_fingerprint_file(path: &Path) -> std::io::Result<File> {
-    File::open(path)
-}
-
-#[cfg(unix)]
-fn metadata_identity(metadata: &fs::Metadata) -> String {
-    use std::os::unix::fs::MetadataExt;
-
-    format!(
-        "dev={},ino={},mode={},len={},mtime={}.{}",
-        metadata.dev(),
-        metadata.ino(),
-        metadata.mode(),
-        metadata.len(),
-        metadata.mtime(),
-        metadata.mtime_nsec()
-    )
-}
-
-#[cfg(not(unix))]
-fn metadata_identity(metadata: &fs::Metadata) -> String {
-    let modified = metadata
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|duration| format!("{}.{}", duration.as_secs(), duration.subsec_nanos()))
-        .unwrap_or_else(|| "unknown".into());
-    format!(
-        "readonly={},len={},modified={modified}",
-        metadata.permissions().readonly(),
-        metadata.len()
-    )
-}
-
-fn sqlite_filesystem_path(path: &Path) -> anyhow::Result<Cow<'_, Path>> {
-    #[cfg(windows)]
-    {
-        let parent =
-            path.parent().ok_or_else(|| anyhow::anyhow!("workspace state path has no parent"))?;
-        let file_name = path
-            .file_name()
-            .ok_or_else(|| anyhow::anyhow!("workspace state path has no file name"))?;
-        let parent = fs::canonicalize(parent).context("resolve workspace state directory")?;
-        Ok(Cow::Owned(parent.join(file_name)))
-    }
-    #[cfg(not(windows))]
-    {
-        Ok(Cow::Borrowed(path))
-    }
-}
-
-fn open_registry_database_with_flags(path: &Path, flags: OpenFlags) -> anyhow::Result<Connection> {
-    let path = sqlite_filesystem_path(path)?;
-    #[cfg(windows)]
-    {
-        Ok(Connection::open_with_flags_and_vfs(path.as_ref(), flags, "win32-longpath")?)
-    }
-    #[cfg(not(windows))]
-    {
-        Ok(Connection::open_with_flags(path.as_ref(), flags)?)
-    }
-}
-
-pub(crate) fn open_registry_database(path: &Path) -> anyhow::Result<Connection> {
-    open_registry_database_with_flags(path, OpenFlags::default()).map(registry_connection::hooked)
-}
-
-fn open_registry_database_read_only(path: &Path) -> anyhow::Result<Connection> {
-    open_registry_database_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-}
-
-impl std::fmt::Debug for WorkspaceRegistry {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WorkspaceRegistry")
-            .field("registry_id", &self.registry_id)
-            .field("generation", &self.generation)
-            .field("session_name", &self.session_name)
-            .finish_non_exhaustive()
-    }
-}
+    /// The client whose idle stop raised the fence
+    /// ([`Self::set_idle_stop_fence`]), while it is raised.
+    idle_stop_fence: Option<u64>,
+}
+
+/// What a terminal write gets while an idle stop's fence is raised
+/// ([`WorkspaceRegistry::set_idle_stop_fence`]). No quote: it sits in SQL.
+pub(crate) const IDLE_STOP_FENCE_ERROR: &str =
+    "the daemon is stopping because it was idle; no terminal may start until it stops";
+
+/// Prepared statements each registry connection keeps compiled
+/// (`Connection::prepare_cached`, least recently used out first). The journal
+/// append, hook and journal read paths run the same few dozen statements for
+/// every agent hook; compiling them each time was about a fifth of the
+/// daemon's SQLite time on that path. A statement costs a few KiB.
+pub(crate) const REGISTRY_STATEMENT_CACHE_CAPACITY: usize = 128;
 
 impl WorkspaceRegistry {
-    /// The registry id stored for `session_name` under the state root `root`,
-    /// read without the session's locks (its owner may be running). `None`:
-    /// no registry exists there, so no owner of that state dir is running.
-    pub fn stored_registry_id(root: &Path, session_name: &str) -> anyhow::Result<Option<String>> {
-        let root = platform::normalize_filesystem_path(root.to_path_buf());
-        let db_path = platform::normalize_filesystem_path(
-            persistent_session_state_dir(&root, session_name).join(WORKSPACE_REGISTRY_FILE),
-        );
-        if !db_path.is_file() {
-            return Ok(None);
-        }
-        let connection = open_registry_database_read_only(&db_path)?;
-        connection.busy_timeout(std::time::Duration::from_millis(500))?;
-        meta_value(&connection, "registry_id")
-    }
-
-    /// Fails with `UnsupportedWorkspaceRegistrySchema` when the session's
-    /// saved registry needs a newer build, without opening it for writing.
-    /// The owner checks this before it binds its socket (cx-n3bs), so the
-    /// recovery text still sees whether another server holds the socket.
-    pub fn check_supported_schema(root: &Path, session_name: &str) -> anyhow::Result<()> {
-        let root = platform::normalize_filesystem_path(root.to_path_buf());
-        let session_dir =
-            platform::normalize_filesystem_path(root.join(session_storage_component(session_name)));
-        let db_path =
-            platform::normalize_filesystem_path(session_dir.join(WORKSPACE_REGISTRY_FILE));
-        if db_path.is_file()
-            && let Some(error) = preflight_unsupported_schema(&db_path)
-        {
-            return Err(error.into());
-        }
-        Ok(())
-    }
-
-    pub fn in_memory(session_name: &str) -> anyhow::Result<Self> {
-        let connection = Connection::open_in_memory()?;
-        Self::initialize(
-            connection,
-            session_name.to_string(),
-            MachinePublicId::random()?,
-            ResourceEffectPepper::random()?,
-            &mut None,
-            &mut None,
-            None,
-            crate::startup_timings::StartupTimings::start(),
-        )
-    }
-
-    pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
-        Self::open_inner(root, session_name, false)
-    }
-
-    /// `roll_back_first`: an owner build on a registry swapped in by output
-    /// cleanup failed before any full start on it; the previous registry is
-    /// put back under this open's locks before the open.
-    fn open_inner(root: &Path, session_name: &str, roll_back_first: bool) -> anyhow::Result<Self> {
-        let mut timings = crate::startup_timings::StartupTimings::start();
-        let root = platform::normalize_filesystem_path(root.to_path_buf());
-        // Keep short roots in their existing spelling while giving all
-        // root-level files the same long-path handling as their descendants.
-        let session_dir =
-            platform::normalize_filesystem_path(root.join(session_storage_component(session_name)));
-        // Normalize the complete database path. The state root can be below
-        // the legacy MAX_PATH threshold while its session and database
-        // descendants exceed it.
-        let db_path =
-            platform::normalize_filesystem_path(session_dir.join(WORKSPACE_REGISTRY_FILE));
-        if db_path.is_file()
-            && let Some(error) = preflight_unsupported_schema(&db_path)
-        {
-            return Err(error.into());
-        }
-        let session_guard = acquire_session_guard(&root, session_name)?;
-        let machine_id = load_or_create_machine_id(&root)?;
-        let resource_effect_pepper = load_or_create_resource_effect_pepper(&root)?;
-        fs::create_dir_all(&session_dir).with_context(|| {
-            format!("create workspace state directory {}", session_dir.display())
-        })?;
-        platform::restrict_directory(&session_dir)?;
-        if db_path.is_file()
-            && let Some(error) = preflight_unsupported_schema(&db_path)
-        {
-            return Err(error.into());
-        }
-        let session_lock =
-            platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
-        let lease = SessionLease::acquire(&session_lock)?;
-        // A rollback an earlier start could not finish goes first.
-        output_cleanup::finish_pending_rollback(&db_path)?;
-        if roll_back_first && output_cleanup::rollback_possible(&db_path) {
-            output_cleanup::roll_back_swap(
-                &db_path,
-                &anyhow::anyhow!("the owner did not start on the new registry"),
-            )?;
-        }
-        // Before the orphan check: an interrupted swap is put back first.
-        // The swap opens the new file through `initialize` and reads its
-        // layout before the rename, so a file that cannot serve never
-        // replaces the registry.
-        let swapped = output_cleanup::swap_at_open(&db_path, &|staged: &Path| {
-            let connection = open_registry_database(staged)?;
-            let registry = Self::initialize(
-                connection,
-                session_name.to_string(),
-                load_or_create_machine_id(&root)?,
-                load_or_create_resource_effect_pepper(&root)?,
-                &mut None,
-                &mut None,
-                None,
-                crate::startup_timings::StartupTimings::start(),
-            )?;
-            registry.snapshot()?;
-            Ok(())
-        });
-        // A swap that failed after it moved the registry aside left only
-        // the backup: put it back before anything opens db_path. If that
-        // fails, refuse: an open now would create an empty registry beside
-        // the only copy of the session.
-        output_cleanup::restore_interrupted_swap(&db_path);
-        output_cleanup::refuse_open_beside_backup(&db_path)?;
-        // The locks stay held across a failed open and its rollback: no
-        // other owner can open either file in between.
-        let mut session_guard = Some(session_guard);
-        let mut lease = Some(lease);
-        let mut machine_id = Some(machine_id);
-        let mut resource_effect_pepper = Some(resource_effect_pepper);
-        let mut open_once = |session_guard: &mut Option<SessionLease>,
-                             lease: &mut Option<SessionLease>|
-         -> anyhow::Result<Self> {
-            open_guard::refuse_orphaned_journal(&db_path)?;
-            let connection = open_registry_database(&db_path)
-                .with_context(|| format!("open workspace registry {}", db_path.display()))?;
-            let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
-            platform::restrict_file(&db_path)?;
-            // A second try (after a rollback) records its own laps.
-            let mut timings = std::mem::take(&mut timings);
-            timings.lap("registry.lock_and_connect");
-            Self::initialize(
-                connection,
-                session_name.to_string(),
-                match machine_id.take() {
-                    Some(id) => id,
-                    None => load_or_create_machine_id(&root)?,
-                },
-                match resource_effect_pepper.take() {
-                    Some(pepper) => pepper,
-                    None => load_or_create_resource_effect_pepper(&root)?,
-                },
-                session_guard,
-                lease,
-                Some(db_path.clone()),
-                timings,
-            )
-        };
-        #[cfg(debug_assertions)]
-        let first =
-            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_OPEN").is_some() {
-                Err(anyhow::anyhow!("test: the swapped registry did not open"))
-            } else {
-                open_once(&mut session_guard, &mut lease)
-            };
-        #[cfg(not(debug_assertions))]
-        let first = open_once(&mut session_guard, &mut lease);
-        match first {
-            Ok(mut registry) => {
-                // Also true on a later start when the swap start never got
-                // through a full start (killed during restore).
-                registry.output_cleanup_swapped =
-                    swapped || output_cleanup::rollback_possible(&db_path);
-                if !registry.output_cleanup_swapped {
-                    output_cleanup::remove_previous_registry_when_started(&db_path);
-                }
-                Ok(registry)
-            }
-            Err(error) if swapped => {
-                // A rollback that cannot put the file back refuses this start.
-                output_cleanup::roll_back_swap(&db_path, &error)?;
-                open_once(&mut session_guard, &mut lease)
-            }
-            Err(error) => Err(error),
-        }
-    }
-
-    /// Opens the registry and builds the owner from it with `load`. When this
-    /// start swapped in a cleaned registry (output cleanup) and `load` fails,
-    /// the previous registry is put back under the session locks and `load`
-    /// runs once more on it. A full start after a swap is recorded, so the
-    /// next start removes the previous file.
-    pub(crate) fn open_with<T>(
-        root: &Path,
-        session_name: &str,
-        mut load: impl FnMut(Self) -> anyhow::Result<T>,
-    ) -> anyhow::Result<T> {
-        let registry = Self::open(root, session_name)?;
-        let swapped = registry.output_cleanup_swapped;
-        let db_path = registry.database_path.clone();
-        #[cfg(debug_assertions)]
-        let loaded =
-            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_LOAD").is_some() {
-                drop(registry);
-                Err(anyhow::anyhow!("test: the owner build failed after the swap"))
-            } else {
-                load(registry)
-            };
-        #[cfg(not(debug_assertions))]
-        let loaded = load(registry);
-        match loaded {
-            Ok(loaded) => {
-                if let Some(db_path) = db_path.as_deref() {
-                    output_cleanup::note_full_start(db_path)?;
-                }
-                Ok(loaded)
-            }
-            Err(error) if swapped && db_path.is_some() => {
-                eprintln!(
-                    "cmux-tui: output cleanup: the owner did not start on the new registry: {error:#}"
-                );
-                // The failed build released its locks with the registry. One
-                // open takes them again and holds them through the rollback
-                // and the open of the restored registry.
-                load(Self::open_inner(root, session_name, true)?)
-            }
-            Err(error) => Err(error),
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn initialize(
-        connection: Connection,
-        session_name: String,
-        machine_id: MachinePublicId,
-        resource_effect_pepper: ResourceEffectPepper,
-        session_guard: &mut Option<SessionLease>,
-        lease: &mut Option<SessionLease>,
-        database_path: Option<PathBuf>,
-        mut timings: crate::startup_timings::StartupTimings,
-    ) -> anyhow::Result<Self> {
-        connection.busy_timeout(std::time::Duration::from_secs(5))?;
-        // Before the first write, so every commit of this connection uses it.
-        connection.execute_batch(REGISTRY_FULLFSYNC_PRAGMA)?;
-        let fresh_database = connection.query_row(
-            "SELECT COUNT(*) = 0 FROM sqlite_master WHERE type = 'table'",
-            [],
-            |row| row.get::<_, bool>(0),
-        )?;
-        if fresh_database {
-            connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")?;
-        }
-        connection.execute_batch(
-            "PRAGMA foreign_keys=ON;
-             PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA wal_autocheckpoint=1000;
-             PRAGMA secure_delete=ON;
-             CREATE TABLE IF NOT EXISTS meta (
-               key TEXT PRIMARY KEY NOT NULL,
-               value TEXT NOT NULL
-             );",
-        )?;
-
-        let stored_schema = meta_value(&connection, "schema_version")?;
-        let stored_schema = stored_schema
-            .as_deref()
-            .map(str::parse::<i64>)
-            .transpose()
-            .context("workspace registry schema is invalid")?;
-        // Existing registries may carry the pre-multiview terminal-to-workspace
-        // foreign key even when a development build already stamped the
-        // current schema number. Revalidate and normalize every existing DB.
-        let migrate_existing_registry = stored_schema.is_some();
-        if migrate_existing_registry {
-            connection.execute_batch("PRAGMA foreign_keys=OFF;")?;
-        }
-        let cleanup_pending =
-            match meta_value(&connection, RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY)?.as_deref() {
-                None => false,
-                Some("1") => true,
-                Some(_) => anyhow::bail!("resource receipt pepper cleanup state is invalid"),
-            };
-        let needs_sensitive_receipt_cleanup = cleanup_pending
-            || stored_schema.is_some_and(|schema| schema < RESOURCE_EFFECT_PEPPER_SCHEMA_VERSION);
-        if needs_sensitive_receipt_cleanup {
-            connection.execute_batch("PRAGMA secure_delete=ON;")?;
-        }
-        let resource_effect_pepper_id = resource_effect_pepper.identifier();
-        match stored_schema {
-            Some(value) if value > SCHEMA_VERSION => {
-                return Err(UnsupportedWorkspaceRegistrySchema {
-                    found: value,
-                    newest_supported: SCHEMA_VERSION,
-                    registry_id: meta_value(&connection, "registry_id")?,
-                    database_path,
-                }
-                .into());
-            }
-            Some(value) if value == SCHEMA_VERSION => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                create_resource_effect_schema(&tx)?;
-                create_session_journal_schema(&tx)?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
-                    [],
-                )?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
-                    [],
-                )?;
-                ensure_session_public_id(&tx)?;
-                backfill_workspace_public_ids(&tx)?;
-                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
-                tx.commit()?;
-            }
-            Some(9..=14) => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                create_resource_effect_schema(&tx)?;
-                normalize_journal_multiview_schema(&tx)?;
-                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
-                tx.execute(
-                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-                    [SCHEMA_VERSION.to_string()],
-                )?;
-                tx.commit()?;
-            }
-            Some(8) => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                create_resource_effect_schema(&tx)?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
-                    [],
-                )?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
-                    [],
-                )?;
-                ensure_session_public_id(&tx)?;
-                backfill_workspace_public_ids(&tx)?;
-                migrate_resource_agent_projections(&tx)?;
-                normalize_journal_multiview_schema(&tx)?;
-                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
-                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
-                tx.execute(
-                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-                    [SCHEMA_VERSION.to_string()],
-                )?;
-                tx.commit()?;
-            }
-            Some(6) => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                create_resource_effect_schema(&tx)?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
-                    [],
-                )?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
-                    [],
-                )?;
-                ensure_session_public_id(&tx)?;
-                backfill_workspace_public_ids(&tx)?;
-                migrate_resource_agent_projections(&tx)?;
-                normalize_journal_multiview_schema(&tx)?;
-                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
-                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
-                tx.commit()?;
-            }
-            Some(7) => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                create_resource_effect_schema(&tx)?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
-                    [],
-                )?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
-                    [],
-                )?;
-                ensure_session_public_id(&tx)?;
-                backfill_workspace_public_ids(&tx)?;
-                migrate_resource_agent_projections(&tx)?;
-                normalize_journal_multiview_schema(&tx)?;
-                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
-                require_resource_effect_pepper_id(&tx, &resource_effect_pepper_id)?;
-                tx.execute(
-                    "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-                    [SCHEMA_VERSION.to_string()],
-                )?;
-                tx.commit()?;
-            }
-            Some(5) => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                create_resource_effect_schema(&tx)?;
-                ensure_session_public_id(&tx)?;
-                migrate_resource_agent_projections(&tx)?;
-                normalize_journal_multiview_schema(&tx)?;
-                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
-                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
-                tx.commit()?;
-            }
-            Some(4) => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                create_resource_effect_schema(&tx)?;
-                migrate_resource_browser_metadata(&tx)?;
-                ensure_session_public_id(&tx)?;
-                migrate_resource_agent_projections(&tx)?;
-                normalize_journal_multiview_schema(&tx)?;
-                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
-                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
-                tx.commit()?;
-            }
-            Some(3) => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                migrate_resource_mutations_to_session_scope(&tx)?;
-                migrate_resource_browser_metadata(&tx)?;
-                create_resource_effect_schema(&tx)?;
-                ensure_session_public_id(&tx)?;
-                migrate_resource_agent_projections(&tx)?;
-                normalize_journal_multiview_schema(&tx)?;
-                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
-                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
-                tx.commit()?;
-            }
-            Some(1 | 2) => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                create_resource_effect_schema(&tx)?;
-                migrate_resource_browser_metadata(&tx)?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('terminal_revision', '0')",
-                    [],
-                )?;
-                tx.execute(
-                    "INSERT OR IGNORE INTO meta(key, value) VALUES('resource_revision', '0')",
-                    [],
-                )?;
-                ensure_session_public_id(&tx)?;
-                backfill_workspace_public_ids(&tx)?;
-                migrate_resource_agent_projections(&tx)?;
-                normalize_journal_multiview_schema(&tx)?;
-                terminal_exit_store::migrate_legacy_terminal_exit_receipts(&tx)?;
-                migrate_resource_effect_pepper(&tx, &resource_effect_pepper_id)?;
-                tx.commit()?;
-            }
-            Some(value) => {
-                anyhow::bail!(
-                    "unsupported workspace registry schema {value}; expected 1 through {SCHEMA_VERSION}"
-                );
-            }
-            None => {
-                let tx = connection.unchecked_transaction()?;
-                create_workspace_schema(&tx)?;
-                create_terminal_schema(&tx)?;
-                create_resource_schema(&tx)?;
-                create_session_journal_schema(&tx)?;
-                tx.execute(
-                    "INSERT INTO meta(key, value) VALUES('schema_version', ?1)",
-                    [SCHEMA_VERSION.to_string()],
-                )?;
-                tx.execute("INSERT INTO meta(key, value) VALUES('revision', '0')", [])?;
-                tx.execute("INSERT INTO meta(key, value) VALUES('terminal_revision', '0')", [])?;
-                tx.execute("INSERT INTO meta(key, value) VALUES('resource_revision', '0')", [])?;
-                tx.execute(
-                    "INSERT INTO meta(key, value) VALUES('session_name', ?1)",
-                    [&session_name],
-                )?;
-                tx.execute(
-                    "INSERT INTO meta(key, value) VALUES('registry_id', ?1)",
-                    [try_new_uuid_v4()?],
-                )?;
-                tx.execute(
-                    "INSERT INTO meta(key, value) VALUES(?1, ?2)",
-                    params![RESOURCE_EFFECT_PEPPER_META_KEY, resource_effect_pepper_id],
-                )?;
-                ensure_session_public_id(&tx)?;
-                tx.commit()?;
-            }
-        }
-        if migrate_existing_registry && resource_tabs_needs_multiview_normalization(&connection)? {
-            let tx = connection.unchecked_transaction()?;
-            migrate_resource_tabs_to_multiview(&tx)?;
-            tx.commit()?;
-        }
-        timings.lap("registry.schema");
-        {
-            let tx = connection.unchecked_transaction()?;
-            resource_store::migrate_tab_name_authority(&tx)?;
-            workspace_name_store::migrate_workspace_name_authority(&tx)?;
-            tx.commit()?;
-        }
-        if terminal_hosts_has_workspace_foreign_key(&connection)? {
-            let tx = connection.unchecked_transaction()?;
-            migrate_terminal_hosts_to_session_ownership(&tx)?;
-            tx.commit()?;
-        }
-        // Probe the actual table shape instead of the stamped schema number:
-        // the column ships without a version bump so older builds keep opening
-        // this registry (they omit the column on writes and the durable
-        // default applies).
-        if !terminal_hosts_has_on_exit_column(&connection)? {
-            let tx = connection.unchecked_transaction()?;
-            migrate_terminal_hosts_add_on_exit(&tx)?;
-            tx.commit()?;
-        }
-        // Same probe-not-version rule: older builds keep opening the registry
-        // and leave the nullable column untouched on their writes.
-        if !resource_agent_hook_state_has_ended_at_column(&connection)? {
-            let tx = connection.unchecked_transaction()?;
-            migrate_resource_agent_hook_state_add_ended_at(&tx)?;
-            tx.commit()?;
-        }
-        if migrate_existing_registry {
-            connection.execute_batch("PRAGMA foreign_keys=ON;")?;
-            if first_state_foreign_key_violation(&connection)?.is_some() {
-                anyhow::bail!(
-                    "saved session data could not be loaded; start a new session or restore this session from a backup"
-                );
-            }
-        }
-        if needs_sensitive_receipt_cleanup {
-            checkpoint_and_truncate_wal(&connection)?;
-            connection.execute_batch("VACUUM;")?;
-            checkpoint_and_truncate_wal(&connection)?;
-            let tx = connection.unchecked_transaction()?;
-            tx.execute(
-                "DELETE FROM meta WHERE key = ?1",
-                [RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY],
-            )?;
-            tx.commit()?;
-        }
-        // Existing registries are migrated by the background journal
-        // maintenance worker. VACUUM can rewrite a large cloud registry, so
-        // startup only stamps fresh databases that already use incremental
-        // auto-vacuum and leaves legacy conversion for availability work after
-        // the mux is serving.
-        if fresh_database {
-            mark_journal_auto_vacuum_migrated(&connection)?;
-        }
-        let scrubbed;
-        {
-            let tx = connection.unchecked_transaction()?;
-            create_session_journal_schema(&tx)?;
-            create_resource_effect_schema(&tx)?;
-            create_journal_extensions_schema(&tx)?;
-            mutation_ledger::migrate_add_actor_columns(&tx)?;
-            recover_resource_effects(&tx)?;
-            // cx-1a6: no terminal env value rests in the exactly-once receipts.
-            scrubbed = receipt_env::scrub_stored_receipts(&tx, &resource_effect_pepper)?;
-            initialize_resource_input_receipt_retention(&tx)?;
-            initialize_resource_mutation_retention(&tx)?;
-            repair_resources_at_open(&tx)?;
-            public_projection_store::prune_stale_notification_reads_at_open(&tx)?;
-            terminal_keep_store::classify_legacy_terminals(&tx)?;
-            // Additive: also on a registry a build before the table wrote.
-            terminal_unplaced_store::create_terminal_unplaced_schema(&tx)?;
-            tx.commit()?;
-        }
-        if scrubbed {
-            // Old page images must not keep the scrubbed values (WAL, main file).
-            checkpoint_and_truncate_wal(&connection)?;
-        }
-        let stored_name = required_meta(&connection, "session_name")?;
-        if stored_name != session_name {
-            anyhow::bail!(
-                "workspace registry belongs to session {stored_name:?}, not {session_name:?}"
-            );
-        }
-        // A registry copied from another machine gets its own ids first.
-        host_identity::rehome_registry(&connection)?;
-        let registry_id = required_meta(&connection, "registry_id")?;
-        validate_identifier("registry id", &registry_id)?;
-        let session_id = SessionPublicId::parse(required_meta(&connection, "session_public_id")?)?;
-        personal_store::migrate_personal_v1(&connection, &registry_id, &session_name)?;
-        crate::state::store::migrate_saved_tab_groups_to_personal(&connection)?;
-        crate::state::window_record_store::migrate_window_projection(&connection)?;
-        // sidebar-doc-v1: once, from the old sidebar stores (which stay).
-        // One transaction: a failure rolls it back and is retried at the
-        // next open; it never stops the registry from opening (the old
-        // stores and verbs keep working without the document).
-        if let Err(error) = crate::state::sidebar_doc_store::migrate_at_open(&connection) {
-            eprintln!("cmux-tui: sidebar document migration skipped ({error:#})");
-        }
-        timings.lap("registry.migrations");
-        check_registry_integrity(&connection)?;
-        timings.lap("registry.integrity_check");
-        {
-            let tx = connection.unchecked_transaction()?;
-            initialize_compatibility_active_workspace(&tx)?;
-            validate_resource_invariants(&tx)?;
-            tx.commit()?;
-        }
-        timings.lap("registry.resource_invariants");
-        let generation = try_new_uuid_v4()?;
-        Ok(Self {
-            connection: RegistryConnection::new(connection, database_path.as_deref()),
-            database_path,
-            open_timings: timings,
-            registry_id,
-            generation,
-            session_name,
-            machine_id,
-            session_id,
-            resource_effect_pepper,
-            public_fold: None,
-            resource_projection_stats: std::sync::Arc::default(),
-            #[cfg(test)]
-            resource_patch_failures_remaining: Cell::new(0),
-            session_guard: session_guard.take(),
-            lease: lease.take(),
-            output_cleanup_swapped: false,
-        })
-    }
-
-    pub(crate) fn session_journal_database_path(&self) -> Option<PathBuf> {
-        self.database_path.clone()
-    }
-
-    /// This registry's open steps, once (later calls get none).
-    pub(crate) fn take_open_timings(&mut self) -> crate::startup_timings::StartupTimings {
-        std::mem::take(&mut self.open_timings)
-    }
-
-    pub(crate) fn resource_input_receipt_hmac(
-        &self,
-        idempotency_key: &str,
-        operation: &str,
-        canonical_fields: &[u8],
-    ) -> [u8; 32] {
-        self.resource_effect_pepper.input_receipt_hmac(idempotency_key, operation, canonical_fields)
-    }
-
     pub fn snapshot(&self) -> anyhow::Result<RegistrySnapshot> {
         registry_snapshot_in(
             &self.connection.get(),
@@ -3213,6 +1057,44 @@ impl WorkspaceRegistry {
         terminal_replay(&self.connection.get(), mutation, &fingerprint)
     }
 
+    /// Raises (for `owner`, the client whose idle stop raised it) or lowers
+    /// the idle-stop fence. An idle stop (`shutdown-daemon` with `if_idle`,
+    /// server/stop_if_idle.rs) raises it under this registry's lock once it
+    /// found no live terminal, while its handoff reservation is pending;
+    /// `Mux::settle_idle_stop_fence` lowers it once that reservation is gone.
+    /// While raised, no terminal may become launching, adopting or running,
+    /// so none starts between the check and the stop. It is two TEMP
+    /// triggers on this registry's one connection (every write to
+    /// `terminal_hosts` goes through it): a creation, adoption, respawn,
+    /// restore or resource projection is refused at its write, whatever
+    /// path it takes.
+    pub(crate) fn set_idle_stop_fence(&mut self, owner: Option<u64>) -> anyhow::Result<()> {
+        const LIVE: &str = "('launching', 'adopting', 'running')";
+        let sql = if owner.is_some() {
+            format!(
+                "CREATE TEMP TRIGGER IF NOT EXISTS cmux_idle_stop_fence_insert
+                   BEFORE INSERT ON terminal_hosts WHEN NEW.lifecycle IN {LIVE}
+                 BEGIN SELECT RAISE(ABORT, '{IDLE_STOP_FENCE_ERROR}'); END;
+                 CREATE TEMP TRIGGER IF NOT EXISTS cmux_idle_stop_fence_update
+                   BEFORE UPDATE OF lifecycle ON terminal_hosts
+                   WHEN NEW.lifecycle IN {LIVE} AND OLD.lifecycle NOT IN {LIVE}
+                 BEGIN SELECT RAISE(ABORT, '{IDLE_STOP_FENCE_ERROR}'); END;"
+            )
+        } else {
+            "DROP TRIGGER IF EXISTS temp.cmux_idle_stop_fence_insert;
+             DROP TRIGGER IF EXISTS temp.cmux_idle_stop_fence_update;"
+                .to_owned()
+        };
+        self.connection.get().execute_batch(&sql)?;
+        self.idle_stop_fence = owner;
+        Ok(())
+    }
+
+    /// The client whose idle stop raised the fence, while it is raised.
+    pub(crate) fn idle_stop_fence_owner(&self) -> Option<u64> {
+        self.idle_stop_fence
+    }
+
     /// Commits one terminal state transition and its event in a single SQLite
     /// transaction. Callers reserve a stable id in `launching` before spawning
     /// a host, then advance it through `adopting`/`running` only after the host
@@ -3322,6 +1204,7 @@ impl WorkspaceRegistry {
         )?;
         let sqlite_revision =
             i64::try_from(revision).context("terminal revision exceeds SQLite integer range")?;
+        let ids = StoredIds::load(&db)?;
         let rows = statement.query_map([sqlite_revision], |row| {
             Ok((
                 row.get::<_, i64>(0)?,
@@ -3335,6 +1218,7 @@ impl WorkspaceRegistry {
         })?;
         rows.map(|row| {
             let (revision, kind, terminal_id, workspace_key, origin, mutation_id, result) = row?;
+            let result = ids.text(result);
             Ok(TerminalRegistryEvent {
                 revision: u64::try_from(revision).context("terminal event revision is negative")?,
                 kind,
@@ -3375,13 +1259,15 @@ impl WorkspaceRegistry {
         let Some((stored_fingerprint, stored_result, revision)) = stored else {
             return Ok(None);
         };
-        if stored_fingerprint != fingerprint {
+        let ids = StoredIds::load(&self.connection.get())?;
+        if ids.fingerprint(stored_fingerprint)? != fingerprint {
             anyhow::bail!(
                 "mutation {} from {} was retried with a different payload",
                 mutation.id,
                 mutation.origin
             );
         }
+        let stored_result = ids.text(stored_result);
         Ok(Some(RegistryCommit {
             revision: u64::try_from(revision).context("stored mutation revision is negative")?,
             result: serde_json::from_str(&stored_result)?,
@@ -3503,12 +1389,22 @@ impl WorkspaceRegistry {
         )
     }
 
+    /// `(origin, mutation_id)` of the event at `revision`, if there is one.
+    pub fn event_mutation(&self, revision: u64) -> anyhow::Result<Option<(String, String)>> {
+        let Ok(revision) = i64::try_from(revision) else { return Ok(None) };
+        let db = self.connection.get();
+        let mut statement =
+            db.prepare("SELECT origin, mutation_id FROM workspace_events WHERE revision = ?1")?;
+        Ok(statement.query_row([revision], |row| Ok((row.get(0)?, row.get(1)?))).optional()?)
+    }
+
     pub fn events_after(&self, revision: u64) -> anyhow::Result<Vec<RegistryEvent>> {
         let db = self.connection.get();
         let mut statement = db.prepare(
             "SELECT revision, kind, workspace_key, origin, mutation_id, result_json
              FROM workspace_events WHERE revision > ?1 ORDER BY revision ASC",
         )?;
+        let ids = StoredIds::load(&db)?;
         let sqlite_revision =
             i64::try_from(revision).context("workspace revision exceeds SQLite integer range")?;
         let rows = statement.query_map([sqlite_revision], |row| {
@@ -3531,7 +1427,7 @@ impl WorkspaceRegistry {
                 workspace_key,
                 origin,
                 mutation_id,
-                result: serde_json::from_str(&result)?,
+                result: serde_json::from_str(&ids.text(result))?,
             })
         })
         .collect()
@@ -3618,6 +1514,9 @@ impl WorkspaceRegistry {
             )
             .optional()?
         {
+            let ids = StoredIds::load(&tx)?;
+            let stored_fingerprint = ids.fingerprint(stored_fingerprint)?;
+            let result_json = ids.text(result_json);
             if stored_fingerprint != fingerprint_digest && stored_fingerprint != fingerprint {
                 anyhow::bail!(
                     "mutation {} from {} was retried with a different payload",
@@ -3711,886 +1610,6 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(ProjectionCommit { projection: stored, replayed: unchanged, recorded: true })
     }
-}
-
-fn mark_journal_auto_vacuum_migrated(connection: &Connection) -> anyhow::Result<()> {
-    connection.execute(
-        "INSERT INTO meta(key, value) VALUES(?1, '1')
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        [JOURNAL_AUTO_VACUUM_META_KEY],
-    )?;
-    Ok(())
-}
-
-/// A legacy registry is converted to incremental auto-vacuum only while its
-/// live data is at most this many bytes. VACUUM rewrites every live page while
-/// the caller holds the registry (in WAL mode it writes them all to the WAL):
-/// a registry that grew to 10.7 GB without journal maintenance would stall
-/// its owner for minutes, so every client read "not connected" (cx-4bd8m).
-/// Above the bound the conversion is skipped; sealing still deletes archived
-/// journal rows and SQLite reuses their pages, so the file stops growing once
-/// sealing keeps up, but it does not shrink. Sealed segments stay in this
-/// database, so a large registry may never fall under the bound: giving its
-/// free pages back needs a compaction that does not hold the registry.
-const LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES: u64 = 64 * 1024 * 1024;
-
-/// Debug builds only: overrides [`LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES`], so
-/// behavior tests through the binary need no large fixture.
-#[cfg(debug_assertions)]
-const LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES_TEST_ENV: &str =
-    "CMUX_TUI_TEST_LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES";
-
-fn legacy_auto_vacuum_max_live_bytes() -> u64 {
-    #[cfg(debug_assertions)]
-    if let Some(bytes) = std::env::var(LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES_TEST_ENV)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-    {
-        return bytes;
-    }
-    LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES
-}
-
-/// The registry's live data in bytes: every page but the free ones. Reads
-/// only the database header, so it is cheap at any size.
-fn registry_live_bytes(connection: &Connection) -> anyhow::Result<u64> {
-    let pragma = |name: &str| -> anyhow::Result<u64> {
-        let value =
-            connection.query_row(&format!("PRAGMA {name}"), [], |row| row.get::<_, i64>(0))?;
-        Ok(u64::try_from(value).unwrap_or(0))
-    };
-    let pages = pragma("page_count")?.saturating_sub(pragma("freelist_count")?);
-    Ok(pages.saturating_mul(pragma("page_size")?))
-}
-
-/// What [`migrate_journal_auto_vacuum`] did.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AutoVacuumMigration {
-    /// Already incremental (now marked), or marked before.
-    NotNeeded,
-    /// Converted with one full VACUUM.
-    Converted,
-    /// A legacy registry with this many live bytes, above the bound: not
-    /// converted, and asked again on the next call.
-    Deferred { live_bytes: u64 },
-}
-
-/// Convert registries created before journal maintenance to incremental
-/// auto-vacuum once. SQLite applies the auto-vacuum mode change during VACUUM;
-/// the marker keeps reopening an existing registry from repeating that work.
-/// A legacy registry with live data above [`LEGACY_AUTO_VACUUM_MAX_LIVE_BYTES`]
-/// is not converted (`Deferred`).
-fn migrate_journal_auto_vacuum(connection: &Connection) -> anyhow::Result<AutoVacuumMigration> {
-    if meta_value(connection, JOURNAL_AUTO_VACUUM_META_KEY)?.is_some() {
-        return Ok(AutoVacuumMigration::NotNeeded);
-    }
-    let auto_vacuum = connection.query_row("PRAGMA auto_vacuum", [], |row| row.get::<_, i64>(0))?;
-    if auto_vacuum == 2 {
-        mark_journal_auto_vacuum_migrated(connection)?;
-        return Ok(AutoVacuumMigration::NotNeeded);
-    }
-    let live_bytes = registry_live_bytes(connection)?;
-    if live_bytes > legacy_auto_vacuum_max_live_bytes() {
-        return Ok(AutoVacuumMigration::Deferred { live_bytes });
-    }
-    eprintln!("cmux-tui: migrating session journal to incremental auto-vacuum");
-    connection.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")?;
-    mark_journal_auto_vacuum_migrated(connection)?;
-    Ok(AutoVacuumMigration::Converted)
-}
-
-fn require_resource_effect_pepper_id(
-    transaction: &Transaction<'_>,
-    expected: &str,
-) -> anyhow::Result<()> {
-    let stored = transaction
-        .query_row(
-            "SELECT value FROM meta WHERE key = ?1",
-            [RESOURCE_EFFECT_PEPPER_META_KEY],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    anyhow::ensure!(
-        stored.as_deref() == Some(expected),
-        "resource receipt pepper does not match this registry"
-    );
-    Ok(())
-}
-
-fn migrate_resource_effect_pepper(
-    transaction: &Transaction<'_>,
-    identifier: &str,
-) -> anyhow::Result<()> {
-    transaction.execute(
-        "INSERT INTO meta(key, value) VALUES(?1, '1')
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        [RESOURCE_EFFECT_PEPPER_CLEANUP_META_KEY],
-    )?;
-    delete_legacy_sensitive_effect_receipts(transaction)?;
-    transaction.execute(
-        "INSERT INTO meta(key, value) VALUES(?1, ?2)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![RESOURCE_EFFECT_PEPPER_META_KEY, identifier],
-    )?;
-    transaction.execute(
-        "UPDATE meta SET value = ?1 WHERE key = 'schema_version'",
-        [SCHEMA_VERSION.to_string()],
-    )?;
-    Ok(())
-}
-
-/// Converge the two development schemas which independently used version 9.
-///
-/// The pre-multiview table has a table-level UNIQUE constraint on
-/// `resource_tabs.content_id`; SQLite exposes that constraint as an index with
-/// origin `u`. The multiview browser-only partial index has origin `c`, so the
-/// distinction survives formatting and index names.
-fn normalize_journal_multiview_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let legacy_content_identity = {
-        let mut indexes = transaction.prepare("PRAGMA index_list(resource_tabs)")?;
-        let indexes = indexes
-            .query_map([], |row| Ok((row.get::<_, String>(1)?, row.get::<_, String>(3)?)))?
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut found = false;
-        for (name, origin) in indexes {
-            if origin != "u" {
-                continue;
-            }
-            let mut columns = transaction.prepare("SELECT name FROM pragma_index_info(?1)")?;
-            let columns = columns
-                .query_map([name], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            if columns == ["content_id"] {
-                found = true;
-                break;
-            }
-        }
-        found
-    };
-    if legacy_content_identity {
-        migrate_resource_tabs_to_multiview(transaction)?;
-    }
-    migrate_resource_events_to_session_journal(transaction)?;
-    create_journal_extensions_schema(transaction)?;
-    migrate_resource_api_frontend_projection_envelopes(transaction)?;
-    Ok(())
-}
-
-fn migrate_resource_api_frontend_projection_envelopes(
-    transaction: &Transaction<'_>,
-) -> anyhow::Result<()> {
-    let rows = {
-        let mut statement = transaction.prepare(
-            "SELECT subject_key, schema_version, payload
-             FROM frontend_projections
-             WHERE frontend = 'resource-api' AND scope = 'session'
-             ORDER BY subject_key",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(2)?))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    for (subject_key, schema_version, payload) in rows {
-        FrontendProjectionPublicId::parse(subject_key.clone())?;
-        if schema_version == i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION) {
-            continue;
-        }
-        anyhow::ensure!(
-            schema_version == 1,
-            "resource API frontend projection {subject_key} has unsupported schema version {schema_version}"
-        );
-        let projection: Value = serde_json::from_str(&payload).with_context(|| {
-            format!("resource API frontend projection {subject_key} contains invalid JSON")
-        })?;
-        let envelope = serde_json::json!({
-            "frontend_id":"legacy-resource-api",
-            "window_id":subject_key,
-            "generation":"legacy-schema-13",
-            "projection":projection,
-        });
-        let payload = canonical_json(&envelope)?;
-        anyhow::ensure!(
-            payload.len() <= MAX_RESOURCE_API_PROJECTION_BYTES,
-            "migrated resource API frontend projection exceeds {MAX_RESOURCE_API_PROJECTION_BYTES} bytes"
-        );
-        transaction.execute(
-            "UPDATE frontend_projections
-             SET schema_version = ?1, payload = ?2
-             WHERE frontend = 'resource-api' AND scope = 'session' AND subject_key = ?3",
-            params![
-                i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION),
-                payload,
-                subject_key,
-            ],
-        )?;
-    }
-    Ok(())
-}
-
-/// Tables that hold journal history rather than registry state. They grow
-/// with every terminal output chunk (millions of rows, gigabytes on a
-/// long-lived machine) and are append-only or sealed archives whose records
-/// are validated when they are read, so the open-time check skips them.
-const JOURNAL_HISTORY_TABLES: [&str; 7] = [
-    "session_journal",
-    "journal_subject_index",
-    "journal_event_index",
-    "journal_segments",
-    "journal_checkpoints",
-    "journal_content_blobs",
-    "journal_segment_kinds",
-];
-
-/// Idempotency ledgers: one row per committed mutation, holding its result
-/// for a retry of the same `(origin, mutation_id)`. They are read only by
-/// that key and could reach 1 GB (a nightly's `projection_mutations`), so the
-/// open-time check skips them like journal history and touches their newest
-/// row and key instead; the maintenance worker bounds and scans them
-/// (`mutation_ledger_retention`).
-/// `resource_mutations` is not one of them: it is pruned on open and its
-/// terminal-defaults rows are restored state.
-const MUTATION_LEDGER_TABLES: [&str; 3] =
-    ["mutations", "projection_mutations", "terminal_mutations"];
-
-/// Journal receipt ledgers: one row per accepted ingress append, read only
-/// by its `(producer, origin, idempotency key)` for a retry. A long-lived
-/// machine holds hundreds of thousands (588k, about 5.5 s of a cold
-/// quick_check on a 41 GB nightly registry), so the open-time checks skip
-/// them like the mutation ledgers.
-const RECEIPT_LEDGER_TABLES: [&str; 1] = ["journal_ingress_receipts"];
-
-/// Tables the open-time checks leave alone: journal history, idempotency
-/// ledgers and quarantined ledgers grow with use and are validated when read.
-fn skipped_by_open_check(table: &str) -> bool {
-    JOURNAL_HISTORY_TABLES.contains(&table)
-        || MUTATION_LEDGER_TABLES.contains(&table)
-        || RECEIPT_LEDGER_TABLES.contains(&table)
-        || mutation_ledger_retention::is_quarantined_ledger(table)
-}
-
-/// One `PRAGMA foreign_key_check` row: `(table, rowid, parent, foreign key index)`.
-pub(crate) type ForeignKeyViolation = (String, i64, Option<String>, i64);
-
-/// The first row of a registry state table whose foreign key names a missing
-/// parent: `(table, rowid, parent, foreign key index)`. The open migrates
-/// state tables with foreign keys off and validates the resource topology, so
-/// both check them; an unscoped `PRAGMA foreign_key_check` also walked every
-/// receipt ledger (about 4 s cold on a 41 GB registry) while the daemon's
-/// socket waited.
-pub(crate) fn first_state_foreign_key_violation(
-    connection: &Connection,
-) -> anyhow::Result<Option<ForeignKeyViolation>> {
-    let tables = {
-        let mut statement = connection.prepare(
-            "SELECT DISTINCT m.name FROM sqlite_master AS m, pragma_foreign_key_list(m.name)
-             WHERE m.type = 'table' ORDER BY m.name",
-        )?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
-    };
-    for table in tables.iter().filter(|table| !skipped_by_open_check(table.as_str())) {
-        let query = format!(
-            "SELECT \"table\", rowid, parent, fkid FROM pragma_foreign_key_check('{}') LIMIT 1",
-            table.replace('\'', "''")
-        );
-        let violation = connection
-            .query_row(&query, [], |row| {
-                let rowid = row.get::<_, Option<i64>>(1)?.unwrap_or_default();
-                Ok((row.get(0)?, rowid, row.get(2)?, row.get(3)?))
-            })
-            .optional()?;
-        if violation.is_some() {
-            return Ok(violation);
-        }
-    }
-    Ok(None)
-}
-
-/// Structural check of the registry state on open. An unscoped quick_check
-/// reads every page of the file, so its cost tracked total journal history;
-/// checking each state table and its indexes keeps startup proportional to
-/// the registry, not to how much output its terminals ever printed.
-fn check_registry_integrity(connection: &Connection) -> anyhow::Result<()> {
-    let tables = {
-        let mut statement = connection.prepare(
-            "SELECT name FROM sqlite_master
-             WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'
-             ORDER BY name",
-        )?;
-        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
-    };
-    // The tables that grow with use are checked in full by the maintenance
-    // worker after the daemon serves, unless it found one damaged
-    // (`history_check`).
-    let full = history_check::full_open_check_required(connection)?;
-    for table in tables.iter().filter(|table| {
-        !skipped_by_open_check(table.as_str())
-            && (full || !history_check::is_background_checked(table.as_str()))
-    }) {
-        let pragma = format!("PRAGMA quick_check('{}')", table.replace('\'', "''"));
-        let result: String = connection.query_row(&pragma, [], |row| row.get(0))?;
-        if result != "ok" {
-            anyhow::bail!("workspace registry integrity check failed: {result}");
-        }
-    }
-    if full {
-        connection.execute(
-            "DELETE FROM meta WHERE key = ?1",
-            [history_check::FULL_OPEN_CHECK_META_KEY],
-        )?;
-    } else {
-        history_check::touch_background_checked_tails(connection, &tables)?;
-    }
-    // History is validated incrementally when replayed. Touch only each
-    // table's newest indexed row during open so a corrupt tail page is caught
-    // without turning startup back into a full-journal scan.
-    for (table, order) in [
-        ("session_journal", "sequence"),
-        ("journal_subject_index", "sequence"),
-        ("journal_event_index", "sequence"),
-        ("journal_segments", "end_sequence"),
-        ("journal_checkpoints", "source_sequence"),
-        // created_at_ms has no index: ordering by it scanned and sorted every
-        // blob through its overflow pages (0.67 s cold on a 41.6 GB registry).
-        // Blobs are append-only, so the newest rowid is the newest blob.
-        ("journal_content_blobs", "rowid"),
-    ] {
-        let query = format!("SELECT 1 FROM {table} ORDER BY {order} DESC LIMIT 1");
-        let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
-    }
-    for table in MUTATION_LEDGER_TABLES {
-        if !tables.iter().any(|name| name.as_str() == table) {
-            continue;
-        }
-        for order in ["rowid DESC", "origin DESC, mutation_id DESC"] {
-            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
-            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
-        }
-    }
-    // The receipt ledgers likewise: their newest row and newest key.
-    for table in RECEIPT_LEDGER_TABLES {
-        if !tables.iter().any(|name| name.as_str() == table) {
-            continue;
-        }
-        for order in ["rowid DESC", "producer_id DESC, origin DESC, idempotency_key DESC"] {
-            let query = format!("SELECT 1 FROM {table} ORDER BY {order} LIMIT 1");
-            let _: Option<i64> = connection.query_row(&query, [], |row| row.get(0)).optional()?;
-        }
-    }
-    Ok(())
-}
-
-fn checkpoint_and_truncate_wal(connection: &Connection) -> anyhow::Result<()> {
-    let (busy, _, _): (i64, i64, i64) =
-        connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?;
-    anyhow::ensure!(busy == 0, "resource receipt cleanup could not truncate the SQLite WAL");
-    Ok(())
-}
-
-fn create_workspace_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    presentation_store::create_presentation_schema(transaction)?;
-    screen_store::create_screen_schema(transaction)?;
-    crate::state::store::create_state_schema(transaction)?;
-    transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS workspaces (
-           workspace_key TEXT PRIMARY KEY NOT NULL,
-           numeric_id INTEGER UNIQUE NOT NULL,
-           name TEXT NOT NULL,
-           group_key TEXT NOT NULL,
-           position INTEGER,
-           tombstoned INTEGER NOT NULL DEFAULT 0 CHECK(tombstoned IN (0,1)),
-           created_revision INTEGER NOT NULL,
-           updated_revision INTEGER NOT NULL,
-           deleted_revision INTEGER
-         );
-         CREATE UNIQUE INDEX IF NOT EXISTS live_workspace_position
-           ON workspaces(position) WHERE tombstoned = 0;
-         CREATE TABLE IF NOT EXISTS mutations (
-           origin TEXT NOT NULL,
-           mutation_id TEXT NOT NULL,
-           fingerprint TEXT NOT NULL,
-           result_json TEXT NOT NULL,
-           committed_revision INTEGER NOT NULL,
-           PRIMARY KEY(origin, mutation_id)
-         );
-         CREATE TABLE IF NOT EXISTS workspace_events (
-           revision INTEGER PRIMARY KEY NOT NULL,
-           kind TEXT NOT NULL,
-           workspace_key TEXT NOT NULL,
-           origin TEXT NOT NULL,
-           mutation_id TEXT NOT NULL,
-           result_json TEXT NOT NULL
-         );
-         CREATE TABLE IF NOT EXISTS frontend_projections (
-           frontend TEXT NOT NULL,
-           scope TEXT NOT NULL,
-           subject_key TEXT NOT NULL,
-           schema_version INTEGER NOT NULL,
-           projection_revision INTEGER NOT NULL,
-           payload TEXT NOT NULL,
-           PRIMARY KEY(frontend, scope, subject_key)
-         );
-         CREATE TABLE IF NOT EXISTS projection_mutations (
-           origin TEXT NOT NULL,
-           mutation_id TEXT NOT NULL,
-           fingerprint TEXT NOT NULL,
-           result_json TEXT NOT NULL,
-           PRIMARY KEY(origin, mutation_id)
-         );",
-    )?;
-    Ok(())
-}
-
-fn create_terminal_schema(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let legacy_exists: bool = transaction.query_row(
-        "SELECT EXISTS(
-           SELECT 1 FROM sqlite_master
-           WHERE type = 'table' AND name = 'terminal_placements'
-         )",
-        [],
-        |row| row.get(0),
-    )?;
-    let hosts_exist: bool = transaction.query_row(
-        "SELECT EXISTS(
-           SELECT 1 FROM sqlite_master
-           WHERE type = 'table' AND name = 'terminal_hosts'
-         )",
-        [],
-        |row| row.get(0),
-    )?;
-    anyhow::ensure!(
-        !(legacy_exists && hosts_exist),
-        "workspace registry contains both legacy terminal placements and terminal hosts"
-    );
-    if legacy_exists {
-        transaction.execute_batch("ALTER TABLE terminal_placements RENAME TO terminal_hosts;")?;
-    }
-    transaction.execute_batch(
-        "CREATE TABLE IF NOT EXISTS terminal_hosts (
-           terminal_id TEXT PRIMARY KEY NOT NULL,
-           workspace_key TEXT NOT NULL,
-           incarnation TEXT,
-           lifecycle TEXT NOT NULL CHECK(
-             lifecycle IN ('launching','adopting','running','exited','tombstoned')
-           ),
-           launch_spec_json TEXT NOT NULL,
-           exit_json TEXT,
-           on_exit TEXT NOT NULL DEFAULT 'close' CHECK(on_exit IN ('close','keep')),
-           created_revision INTEGER NOT NULL,
-           updated_revision INTEGER NOT NULL,
-           deleted_revision INTEGER
-         );
-         CREATE UNIQUE INDEX IF NOT EXISTS terminal_incarnation
-           ON terminal_hosts(incarnation) WHERE incarnation IS NOT NULL;
-         CREATE INDEX IF NOT EXISTS live_terminals_by_workspace
-           ON terminal_hosts(workspace_key, updated_revision)
-           WHERE lifecycle != 'tombstoned';
-         CREATE TABLE IF NOT EXISTS terminal_mutations (
-           origin TEXT NOT NULL,
-           mutation_id TEXT NOT NULL,
-           fingerprint TEXT NOT NULL,
-           result_json TEXT NOT NULL,
-           committed_revision INTEGER NOT NULL,
-           PRIMARY KEY(origin, mutation_id)
-         );
-         CREATE TABLE IF NOT EXISTS terminal_events (
-           revision INTEGER PRIMARY KEY NOT NULL,
-           kind TEXT NOT NULL,
-           terminal_id TEXT NOT NULL,
-           workspace_key TEXT NOT NULL,
-           origin TEXT NOT NULL,
-           mutation_id TEXT NOT NULL,
-           result_json TEXT NOT NULL
-         );
-         CREATE INDEX IF NOT EXISTS terminal_events_by_terminal
-           ON terminal_events(terminal_id, revision);",
-    )?;
-    idle_policy_store::create_terminal_idle_policy_schema(transaction)?;
-    terminal_keep_store::create_terminal_keep_schema(transaction)?;
-    terminal_unplaced_store::create_terminal_unplaced_schema(transaction)?;
-    terminal_resume_store::create_terminal_resume_schema(transaction)?;
-    relaunch_store::create_schema(transaction)?;
-    Ok(())
-}
-
-fn terminal_hosts_has_workspace_foreign_key(connection: &Connection) -> anyhow::Result<bool> {
-    let mut statement = connection.prepare("PRAGMA foreign_key_list(terminal_hosts)")?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        let table = row.get::<_, String>(2)?;
-        let from = row.get::<_, String>(3)?;
-        if table == "workspaces" && from == "workspace_key" {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn terminal_hosts_has_on_exit_column(connection: &Connection) -> anyhow::Result<bool> {
-    let mut statement = connection.prepare("PRAGMA table_info(terminal_hosts)")?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        if row.get::<_, String>(1)? == "on_exit" {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn resource_agent_hook_state_has_ended_at_column(connection: &Connection) -> anyhow::Result<bool> {
-    let mut statement = connection.prepare("PRAGMA table_info(resource_agent_hook_state)")?;
-    let mut rows = statement.query([])?;
-    while let Some(row) = rows.next()? {
-        if row.get::<_, String>(1)? == "ended_at_ms" {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-/// Add the hook fence's incarnation boundary to registries created before
-/// the column existed. Existing fences have no known boundary (NULL), which
-/// lets a same-id `SessionStart` resume an ended session.
-fn migrate_resource_agent_hook_state_add_ended_at(
-    transaction: &Transaction<'_>,
-) -> anyhow::Result<()> {
-    transaction.execute_batch(
-        "ALTER TABLE resource_agent_hook_state ADD COLUMN ended_at_ms INTEGER
-           CHECK(ended_at_ms IS NULL OR ended_at_ms >= 0);",
-    )?;
-    Ok(())
-}
-
-/// Add the per-terminal exit policy to registries created before the column
-/// existed. Every pre-existing terminal keeps today's close-on-exit behavior.
-fn migrate_terminal_hosts_add_on_exit(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    transaction.execute_batch(
-        "ALTER TABLE terminal_hosts ADD COLUMN on_exit TEXT NOT NULL DEFAULT 'close'
-           CHECK(on_exit IN ('close','keep'));",
-    )?;
-    Ok(())
-}
-
-/// Remove the legacy ownership edge from terminals to workspaces. The
-/// workspace key remains useful placement history, but terminal lifetime is
-/// session-owned and therefore survives removal of every view.
-fn migrate_terminal_hosts_to_session_ownership(
-    transaction: &Transaction<'_>,
-) -> anyhow::Result<()> {
-    transaction.execute_batch(
-        "DROP INDEX IF EXISTS terminal_incarnation;
-         DROP INDEX IF EXISTS live_terminals_by_workspace;
-         CREATE TABLE terminal_hosts_session_owned (
-           terminal_id TEXT PRIMARY KEY NOT NULL,
-           workspace_key TEXT NOT NULL,
-           incarnation TEXT,
-           lifecycle TEXT NOT NULL CHECK(
-             lifecycle IN ('launching','adopting','running','exited','tombstoned')
-           ),
-           launch_spec_json TEXT NOT NULL,
-           exit_json TEXT,
-           created_revision INTEGER NOT NULL,
-           updated_revision INTEGER NOT NULL,
-           deleted_revision INTEGER
-         );
-         INSERT INTO terminal_hosts_session_owned(
-           terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
-           exit_json, created_revision, updated_revision, deleted_revision
-         )
-         SELECT terminal_id, workspace_key, incarnation, lifecycle, launch_spec_json,
-                exit_json, created_revision, updated_revision, deleted_revision
-         FROM terminal_hosts;
-         DROP TABLE terminal_hosts;
-         ALTER TABLE terminal_hosts_session_owned RENAME TO terminal_hosts;
-         CREATE UNIQUE INDEX terminal_incarnation
-           ON terminal_hosts(incarnation) WHERE incarnation IS NOT NULL;
-         CREATE INDEX live_terminals_by_workspace
-           ON terminal_hosts(workspace_key, updated_revision)
-           WHERE lifecycle != 'tombstoned';",
-    )?;
-    Ok(())
-}
-
-fn ensure_session_public_id(transaction: &Transaction<'_>) -> anyhow::Result<SessionPublicId> {
-    let stored = transaction
-        .query_row("SELECT value FROM meta WHERE key = 'session_public_id'", [], |row| {
-            row.get::<_, String>(0)
-        })
-        .optional()?;
-    if let Some(stored) = stored {
-        return Ok(SessionPublicId::parse(stored)?);
-    }
-    let session_id = SessionPublicId::random()?;
-    transaction.execute(
-        "INSERT INTO meta(key, value) VALUES('session_public_id', ?1)",
-        [session_id.as_str()],
-    )?;
-    Ok(session_id)
-}
-
-fn backfill_workspace_public_ids(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    let rows = {
-        let mut statement = transaction.prepare(
-            "SELECT workspace_key, created_revision, updated_revision, deleted_revision
-             FROM workspaces
-             WHERE workspace_key NOT IN (SELECT workspace_key FROM resource_workspaces)
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM resource_creation_receipts creation
-                 WHERE creation.execution_kind = 'effect'
-                   AND creation.state = 'executing'
-                   AND json_extract(
-                         creation.intent_json,
-                         '$.workspace_reservation.workspace_key'
-                       ) = workspaces.workspace_key
-               )
-             ORDER BY created_revision ASC, workspace_key ASC",
-        )?;
-        statement
-            .query_map([], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, i64>(1)?,
-                    row.get::<_, i64>(2)?,
-                    row.get::<_, Option<i64>>(3)?,
-                ))
-            })?
-            .collect::<Result<Vec<_>, _>>()?
-    };
-    for (workspace_key, created_revision, updated_revision, deleted_revision) in rows {
-        let public_id = WorkspacePublicId::random()?;
-        transaction.execute(
-            "INSERT INTO resource_identities(
-               public_id, kind, created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, 'workspace', ?2, ?3, ?4)",
-            params![public_id.as_str(), created_revision, updated_revision, deleted_revision],
-        )?;
-        transaction.execute(
-            "INSERT INTO resource_workspaces(
-               public_id, workspace_key, active_screen_id,
-               created_revision, updated_revision, deleted_revision
-             ) VALUES(?1, ?2, NULL, ?3, ?4, ?5)",
-            params![
-                public_id.as_str(),
-                workspace_key,
-                created_revision,
-                updated_revision,
-                deleted_revision
-            ],
-        )?;
-    }
-    Ok(())
-}
-
-/// Seed the shared compatibility default after legacy workspace backfill.
-///
-/// Frontends keep their actual focus in client-local state. The registry still
-/// exposes one default for legacy commands and initial placement, and older
-/// registries can have live public workspaces without that metadata. Preserve
-/// any stored value so invariant validation still rejects dangling selections.
-fn initialize_compatibility_active_workspace(transaction: &Transaction<'_>) -> anyhow::Result<()> {
-    if meta_value(transaction, "active_workspace_id")?.is_some() {
-        return Ok(());
-    }
-    let active_workspace = transaction
-        .query_row(
-            "SELECT rw.public_id
-             FROM workspaces w
-             JOIN resource_workspaces rw ON rw.workspace_key = w.workspace_key
-             WHERE w.tombstoned = 0 AND rw.deleted_revision IS NULL
-             ORDER BY w.position ASC, w.workspace_key ASC
-             LIMIT 1",
-            [],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()?;
-    if let Some(active_workspace) = active_workspace {
-        transaction.execute(
-            "INSERT INTO meta(key, value) VALUES('active_workspace_id', ?1)",
-            [active_workspace],
-        )?;
-    }
-    Ok(())
-}
-
-fn upsert_workspace_resource(
-    transaction: &Transaction<'_>,
-    workspace: &RegistryWorkspace,
-    revision: i64,
-) -> anyhow::Result<()> {
-    if transaction
-        .query_row(
-            "SELECT tombstoned FROM workspaces WHERE workspace_key = ?1",
-            [&workspace.key],
-            |row| row.get::<_, i64>(0),
-        )
-        .optional()?
-        == Some(1)
-    {
-        anyhow::bail!("tombstoned workspace key cannot be reused: {}", workspace.key);
-    }
-    if let Some((stored_id, deleted_revision)) = transaction
-        .query_row(
-            "SELECT public_id, deleted_revision
-             FROM resource_workspaces WHERE workspace_key = ?1",
-            [&workspace.key],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
-        )
-        .optional()?
-    {
-        if stored_id != workspace.public_id.as_str() {
-            anyhow::bail!(
-                "workspace key {} is already bound to public id {}",
-                workspace.key,
-                stored_id
-            );
-        }
-        if deleted_revision.is_some() {
-            anyhow::bail!("tombstoned workspace id cannot be reused: {}", workspace.public_id);
-        }
-    }
-    if let Some((stored_key, deleted_revision)) = transaction
-        .query_row(
-            "SELECT workspace_key, deleted_revision
-             FROM resource_workspaces WHERE public_id = ?1",
-            [workspace.public_id.as_str()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
-        )
-        .optional()?
-    {
-        if stored_key != workspace.key {
-            anyhow::bail!(
-                "workspace public id {} is already bound to key {}",
-                workspace.public_id,
-                stored_key
-            );
-        }
-        if deleted_revision.is_some() {
-            anyhow::bail!("tombstoned workspace id cannot be reused: {}", workspace.public_id);
-        }
-    }
-    if let Some((kind, deleted_revision)) = transaction
-        .query_row(
-            "SELECT kind, deleted_revision FROM resource_identities WHERE public_id = ?1",
-            [workspace.public_id.as_str()],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?)),
-        )
-        .optional()?
-    {
-        if kind != "workspace" {
-            anyhow::bail!("public id {} has resource kind {kind}", workspace.public_id);
-        }
-        if deleted_revision.is_some() {
-            anyhow::bail!("tombstoned workspace id cannot be reused: {}", workspace.public_id);
-        }
-    }
-    transaction.execute(
-        "INSERT INTO resource_identities(
-           public_id, kind, created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, 'workspace', ?2, ?2, NULL)
-         ON CONFLICT(public_id) DO UPDATE SET
-           updated_revision=excluded.updated_revision",
-        params![workspace.public_id.as_str(), revision],
-    )?;
-    transaction.execute(
-        "INSERT INTO resource_workspaces(
-           public_id, workspace_key, active_screen_id,
-           created_revision, updated_revision, deleted_revision
-         ) VALUES(?1, ?2, NULL, ?3, ?3, NULL)
-         ON CONFLICT(public_id) DO UPDATE SET
-           updated_revision=excluded.updated_revision",
-        params![workspace.public_id.as_str(), workspace.key, revision],
-    )?;
-    Ok(())
-}
-
-fn normalized_workspace_resource_deltas(
-    session_id: &SessionPublicId,
-    workspaces: &[RegistryWorkspace],
-    active_workspace: Option<&str>,
-    before: &ResourceTopologySnapshot,
-) -> anyhow::Result<Value> {
-    let mut deltas = workspaces
-        .iter()
-        .enumerate()
-        .map(|(index, workspace)| {
-            Ok(serde_json::json!({
-                "kind":"upsert",
-                "sequence":index,
-                "resource":"workspace",
-                "id":workspace.public_id,
-                "value":{
-                    "id":workspace.public_id,
-                    "session_id":session_id,
-                    "name":workspace.name,
-                    "index":u32::try_from(index)
-                        .context("workspace index exceeds public uint32 range")?,
-                    "focused":active_workspace == Some(workspace.public_id.as_str()),
-                    "extra":crate::resource_name::workspace_name_extra(
-                        workspace.name_source,
-                        workspace.name_revision,
-                    ),
-                },
-            }))
-        })
-        .collect::<anyhow::Result<Vec<_>>>()?;
-    let live_workspaces =
-        workspaces.iter().map(|workspace| workspace.public_id.clone()).collect::<HashSet<_>>();
-    let removed_workspaces = before
-        .active_screens
-        .iter()
-        .filter(|(workspace, _)| !live_workspaces.contains(workspace))
-        .map(|(workspace, _)| workspace.clone())
-        .collect::<Vec<_>>();
-    let removed_workspace_ids = removed_workspaces.iter().cloned().collect::<HashSet<_>>();
-    let removed_screens = before
-        .screens
-        .iter()
-        .filter(|screen| removed_workspace_ids.contains(&screen.workspace_id))
-        .map(|screen| screen.public_id.clone())
-        .collect::<Vec<_>>();
-    let removed_screen_ids = removed_screens.iter().cloned().collect::<HashSet<_>>();
-    let removed_panes = before
-        .panes
-        .iter()
-        .filter(|pane| removed_screen_ids.contains(&pane.screen_id))
-        .map(|pane| pane.public_id.clone())
-        .collect::<Vec<_>>();
-    let removed_pane_ids = removed_panes.iter().cloned().collect::<HashSet<_>>();
-    let removed_tabs = before
-        .tabs
-        .iter()
-        .filter(|tab| removed_pane_ids.contains(&tab.pane_id))
-        .collect::<Vec<_>>();
-    let mut push_delete = |resource: &str, id: &str| {
-        let sequence = deltas.len();
-        deltas.push(serde_json::json!({
-            "kind":"delete",
-            "sequence":sequence,
-            "resource":resource,
-            "id":id,
-        }));
-    };
-    for tab in &removed_tabs {
-        match &tab.content_id {
-            ContentPublicId::Terminal(id) => push_delete("terminal", id.as_str()),
-            ContentPublicId::Browser(id) => push_delete("browser", id.as_str()),
-        }
-        push_delete("tab", tab.public_id.as_str());
-    }
-    for pane in &removed_panes {
-        push_delete("pane", pane.as_str());
-    }
-    for screen in &removed_screens {
-        push_delete("screen", screen.as_str());
-    }
-    for workspace in &removed_workspaces {
-        push_delete("workspace", workspace.as_str());
-    }
-    Ok(Value::Array(deltas))
 }
 
 fn terminal_close_fingerprint(
@@ -4974,7 +1993,9 @@ fn terminal_replay(
     let Some((stored_fingerprint, stored_result, revision)) = stored else {
         return Ok(None);
     };
-    if stored_fingerprint != fingerprint {
+    let ids = StoredIds::load(connection)?;
+    let stored_result = ids.text(stored_result);
+    if ids.fingerprint(stored_fingerprint)? != fingerprint {
         anyhow::bail!(
             "terminal mutation {} from {} was retried with a different payload",
             mutation.id,
@@ -5169,14 +2190,6 @@ fn transaction_terminal_revision(transaction: &Transaction<'_>) -> anyhow::Resul
 const MACHINE_ID_FILE: &str = "machine-id";
 const MACHINE_ID_LOCK_FILE: &str = "machine-id.lock";
 const SESSION_WRITER_LOCK_FILE: &str = "writer.lock";
-const SESSION_GUARD_DIR: &str = "session-locks";
-const SESSION_GUARD_COORDINATOR_FILE: &str = ".coordinator.lock";
-const SESSION_GUARD_COORDINATOR_WAITER_DIR: &str = ".coordinator.waiters";
-const SESSION_GUARD_COORDINATOR_TIMEOUT: std::time::Duration =
-    std::time::Duration::from_millis(250);
-const SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT: usize = 64;
-static SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
 const TERMINAL_HOST_PUBLICATION_LOCK_FILE: &str = ".publication.lock";
 #[cfg(test)]
 static RESET_RENAME_SYNC_FAILURE_ROOT: std::sync::Mutex<Option<PathBuf>> =
@@ -5199,74 +2212,53 @@ static RESET_UNSUPPORTED_CHECKED_DELETION_ROOT: std::sync::Mutex<Option<PathBuf>
 static RESET_RECREATE_SESSION_DIR_AFTER_STAGING: std::sync::Mutex<Option<PathBuf>> =
     std::sync::Mutex::new(None);
 
-fn acquire_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
-    fs::create_dir_all(root).with_context(|| format!("create state root {}", root.display()))?;
-    acquire_existing_session_guard(root, session_name)
-}
+#[cfg(test)]
+mod session_owner_probe_tests {
+    use super::*;
 
-fn acquire_existing_session_guard(root: &Path, session_name: &str) -> anyhow::Result<SessionLease> {
-    platform::restrict_directory(root)?;
-    acquire_session_guard_from_private_dir(root, session_name, false)
-}
+    #[test]
+    fn a_held_probe_lease_keeps_the_session_from_starting_and_a_missing_guard_is_no_lease() {
+        let root = std::env::temp_dir().join(format!("owner-probe-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let component = session_guard_component("cmux-app-gone");
+        assert!(matches!(probe_session_owner(&root, &component), SessionOwnerProbe::NoGuard));
 
-fn acquire_existing_session_reset_guard(
-    root: &Path,
-    session_name: &str,
-) -> anyhow::Result<SessionLease> {
-    acquire_session_guard_from_private_dir(root, session_name, true)
-}
-
-fn acquire_session_guard_from_private_dir(
-    root: &Path,
-    session_name: &str,
-    bounded: bool,
-) -> anyhow::Result<SessionLease> {
-    let lock_dir = prepare_session_guard_dir(root)?;
-    let coordinator_path = session_guard_coordinator_path(&lock_dir);
-    let _coordinator = if bounded {
-        SessionLease::acquire_coordinator(&coordinator_path)
-    } else {
-        SessionLease::acquire_coordinator_blocking(&coordinator_path)
+        // The session ran once: its guard file exists and is free.
+        drop(acquire_session_guard(&root, "cmux-app-gone").unwrap());
+        let SessionOwnerProbe::Unowned(lease) = probe_session_owner(&root, &component) else {
+            panic!("a free guard was not taken");
+        };
+        // A daemon starting now cannot take the session (and adopt its hosts).
+        assert!(acquire_session_guard(&root, "cmux-app-gone").is_err());
+        drop(lease);
+        // A running daemon's guard is never taken.
+        let owner = acquire_session_guard(&root, "cmux-app-gone").unwrap();
+        assert!(matches!(probe_session_owner(&root, &component), SessionOwnerProbe::Owned));
+        drop(owner);
+        let _ = fs::remove_dir_all(&root);
     }
-    .with_context(|| format!("coordinate session lock directory {}", lock_dir.display()))?;
-    let lock_path = session_guard_lock_path(&lock_dir, session_name);
-    SessionLease::acquire(&lock_path)
-}
 
-fn prepare_session_guard_dir(root: &Path) -> anyhow::Result<PathBuf> {
-    let lock_dir = platform::normalize_filesystem_path(root.join(SESSION_GUARD_DIR));
-    match fs::symlink_metadata(&lock_dir) {
-        Ok(metadata) if metadata.file_type().is_dir() => {}
-        Ok(_) => anyhow::bail!("session lock directory is not a directory: {}", lock_dir.display()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match fs::create_dir(&lock_dir) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let metadata = fs::symlink_metadata(&lock_dir)?;
-                    if !metadata.file_type().is_dir() {
-                        anyhow::bail!(
-                            "session lock directory is not a directory: {}",
-                            lock_dir.display()
-                        );
-                    }
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(error) => return Err(error.into()),
+    /// Windows: a held guard renamed away and replaced by another file at
+    /// its path no longer guards the session.
+    #[cfg(windows)]
+    #[test]
+    fn a_guard_replaced_while_held_no_longer_guards_on_windows() {
+        let root = std::env::temp_dir().join(format!("owner-probe-win-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        drop(start_session_guard_for_test(&root, "cmux-app-gone").unwrap());
+        let component = session_guard_component("cmux-app-gone");
+        let SessionOwnerProbe::Unowned(lease) = probe_session_owner(&root, &component) else {
+            panic!("a free guard was not taken");
+        };
+        assert!(lease.still_guards(), "the held guard does not guard");
+        let guard = lease.path.clone();
+        fs::rename(&guard, guard.with_extension("old")).unwrap();
+        fs::write(&guard, b"").unwrap();
+        assert!(!lease.still_guards(), "a replaced guard still counts as held");
+        drop(lease);
+        let _ = fs::remove_dir_all(&root);
     }
-    platform::restrict_directory(&lock_dir)?;
-    Ok(lock_dir)
-}
-
-fn session_guard_lock_path(lock_dir: &Path, session_name: &str) -> PathBuf {
-    platform::normalize_filesystem_path(
-        lock_dir.join(format!("{}.lock", session_storage_component(session_name))),
-    )
-}
-
-fn session_guard_coordinator_path(lock_dir: &Path) -> PathBuf {
-    platform::normalize_filesystem_path(lock_dir.join(SESSION_GUARD_COORDINATOR_FILE))
 }
 
 #[cfg(unix)]
@@ -5327,14 +2319,18 @@ fn prepare_terminal_host_root_for_reset(
 
 #[cfg(all(unix, test))]
 fn inject_legacy_terminal_host_record_removal_before_liveness(root: &Path) -> anyhow::Result<()> {
-    let mut record = RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS.lock().unwrap();
+    let mut record = RESET_REMOVE_LEGACY_HOST_RECORD_BEFORE_LIVENESS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let Some(path) = record.as_ref() else {
         return Ok(());
     };
     if path.parent() != Some(root) {
         return Ok(());
     }
-    let path = record.take().expect("record path was checked");
+    let Some(path) = record.take() else {
+        return Ok(());
+    };
     fs::remove_file(&path)
         .with_context(|| format!("remove injected terminal-host record {}", path.display()))?;
     Ok(())
@@ -5424,56 +2420,6 @@ fn prepare_terminal_host_root_for_reset(
     anyhow::bail!("terminal host liveness cannot be verified on this platform");
 }
 
-fn load_or_create_resource_effect_pepper(root: &Path) -> anyhow::Result<ResourceEffectPepper> {
-    let root = platform::normalize_filesystem_path(root.to_path_buf());
-    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(&root)?;
-    let lock_path =
-        platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE));
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
-        .with_context(|| format!("open resource receipt pepper lock {}", lock_path.display()))?;
-    platform::restrict_file(&lock_path)?;
-    FileExt::lock(&lock)
-        .with_context(|| format!("lock resource receipt pepper {}", lock_path.display()))?;
-
-    let path = platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE));
-    let result = match fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-            anyhow::ensure!(
-                metadata.file_type().is_file(),
-                "resource receipt pepper is corrupt: {}",
-                path.display()
-            );
-            platform::restrict_file(&path)?;
-            let bytes = fs::read(&path)
-                .with_context(|| format!("read resource receipt pepper {}", path.display()))?;
-            if bytes.len() < RESOURCE_EFFECT_PEPPER_BYTES {
-                root_identity::replace_cut_pepper(&root, &path, bytes)
-            } else {
-                ResourceEffectPepper::from_bytes(bytes, &path)
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            ensure_missing_pepper_can_migrate(&root, &path)?;
-            root_identity::create_pepper(&root, &path, false)
-        }
-        Err(error) => {
-            Err(error).with_context(|| format!("read resource receipt pepper {}", path.display()))
-        }
-    };
-    let _ = FileExt::unlock(&lock);
-    result
-}
-
-fn ensure_missing_pepper_can_migrate(root: &Path, pepper_path: &Path) -> anyhow::Result<()> {
-    ensure_no_registry_at(root, pepper_path, SCHEMA_VERSION)
-}
-
 /// Fails when a registry under `root` is at `schema` or later.
 fn ensure_no_registry_at(root: &Path, pepper_path: &Path, schema_floor: i64) -> anyhow::Result<()> {
     for entry in
@@ -5503,63 +2449,6 @@ fn ensure_no_registry_at(root: &Path, pepper_path: &Path, schema_floor: i64) -> 
         );
     }
     Ok(())
-}
-
-fn load_or_create_machine_id(root: &Path) -> anyhow::Result<MachinePublicId> {
-    let root = platform::normalize_filesystem_path(root.to_path_buf());
-    fs::create_dir_all(&root).with_context(|| format!("create state root {}", root.display()))?;
-    platform::restrict_directory(&root)?;
-    let lock_path = platform::normalize_filesystem_path(root.join(MACHINE_ID_LOCK_FILE));
-    let lock = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&lock_path)
-        .with_context(|| format!("open machine identity lock {}", lock_path.display()))?;
-    platform::restrict_file(&lock_path)?;
-    FileExt::lock(&lock)
-        .with_context(|| format!("lock machine identity {}", lock_path.display()))?;
-
-    let path = platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE));
-    let result = match fs::read(&path) {
-        // Cut by a full disk in an earlier build's in-place write: never
-        // handed out (returned only after its fsync), so a new id replaces it.
-        Ok(bytes) if root_identity::is_cut_machine_id(&bytes) => {
-            root_identity::create_machine_id(&root, &path, true)
-                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
-        }
-        Ok(bytes) => {
-            platform::restrict_file(&path)?;
-            parse_machine_id_file(&path, &bytes)
-                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            root_identity::create_machine_id(&root, &path, false)
-                .and_then(|id| host_identity::machine_id_for_this_host(&root, &path, id))
-        }
-        Err(error) => {
-            Err(error).with_context(|| format!("read machine identity {}", path.display()))
-        }
-    };
-    let _ = FileExt::unlock(&lock);
-    result
-}
-
-fn parse_machine_id_file(path: &Path, bytes: &[u8]) -> anyhow::Result<MachinePublicId> {
-    let content = std::str::from_utf8(bytes)
-        .with_context(|| format!("machine identity is not UTF-8: {}", path.display()))?;
-    let value = content.strip_suffix('\n').unwrap_or(content);
-    anyhow::ensure!(
-        !value.is_empty()
-            && !value.contains('\n')
-            && !value.contains('\r')
-            && value.trim() == value,
-        "machine identity file is corrupt: {}",
-        path.display()
-    );
-    MachinePublicId::parse(value)
-        .with_context(|| format!("machine identity file is corrupt: {}", path.display()))
 }
 
 fn session_storage_component(session: &str) -> String {
@@ -5622,498 +2511,6 @@ pub(crate) fn is_canonical_workspace_key(value: &str) -> bool {
         })
 }
 
-pub(crate) struct SessionLease {
-    file: File,
-    path: PathBuf,
-    coordinator_waiter_dir: Option<PathBuf>,
-}
-
-impl SessionLease {
-    fn acquire(path: &Path) -> anyhow::Result<Self> {
-        let file = open_session_lock_file(path)?;
-        restrict_session_lock_file(path, &file)?;
-        validate_session_lock_file(path, &file)?;
-        FileExt::try_lock(&file).with_context(|| {
-            format!("workspace session is already owned by another daemon: {}", path.display())
-        })?;
-        Ok(Self { file, path: path.to_path_buf(), coordinator_waiter_dir: None })
-    }
-
-    fn acquire_coordinator(path: &Path) -> anyhow::Result<Self> {
-        Self::acquire_coordinator_until(
-            path,
-            std::time::Instant::now() + SESSION_GUARD_COORDINATOR_TIMEOUT,
-        )
-    }
-
-    fn acquire_coordinator_until(
-        path: &Path,
-        deadline: std::time::Instant,
-    ) -> anyhow::Result<Self> {
-        let file = open_session_lock_file(path)?;
-        restrict_session_lock_file(path, &file)?;
-        validate_session_lock_file(path, &file)?;
-        loop {
-            match FileExt::try_lock(&file) {
-                Ok(()) => return Ok(Self::coordinator(file, path)),
-                Err(fs4::TryLockError::WouldBlock) => {
-                    if std::time::Instant::now() >= deadline {
-                        return session_coordinator_busy(path);
-                    }
-                }
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!("lock workspace session coordinator: {}", path.display())
-                    });
-                }
-            }
-
-            let waiter = SessionCoordinatorWaiter::register(path).with_context(|| {
-                format!("register workspace session coordinator waiter: {}", path.display())
-            })?;
-
-            // Registration precedes this second lock attempt. If the owner
-            // released before it saw the registration, this attempt observes
-            // the free lock and prevents a lost wakeup.
-            match FileExt::try_lock(&file) {
-                Ok(()) => return Ok(Self::coordinator(file, path)),
-                Err(fs4::TryLockError::WouldBlock) => {}
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!("lock workspace session coordinator: {}", path.display())
-                    });
-                }
-            }
-
-            if waiter.wait_until(deadline).with_context(|| {
-                format!("wait for workspace session coordinator: {}", path.display())
-            })? {
-                continue;
-            }
-
-            // The file lock remains authoritative when the owner crashes
-            // before it publishes a registered waiter signal.
-            match FileExt::try_lock(&file) {
-                Ok(()) => return Ok(Self::coordinator(file, path)),
-                Err(fs4::TryLockError::WouldBlock) => return session_coordinator_busy(path),
-                Err(error) => {
-                    return Err(error).with_context(|| {
-                        format!("lock workspace session coordinator: {}", path.display())
-                    });
-                }
-            }
-        }
-    }
-
-    fn acquire_coordinator_blocking(path: &Path) -> anyhow::Result<Self> {
-        let file = open_session_lock_file(path)?;
-        restrict_session_lock_file(path, &file)?;
-        validate_session_lock_file(path, &file)?;
-        FileExt::lock(&file)
-            .with_context(|| format!("lock workspace session coordinator: {}", path.display()))?;
-        validate_session_lock_file(path, &file)?;
-        Ok(Self::coordinator(file, path))
-    }
-
-    fn coordinator(file: File, path: &Path) -> Self {
-        Self {
-            file,
-            path: path.to_path_buf(),
-            coordinator_waiter_dir: Some(session_guard_coordinator_waiter_dir(path)),
-        }
-    }
-}
-
-fn session_coordinator_busy(path: &Path) -> anyhow::Result<SessionLease> {
-    Err(std::io::Error::from(std::io::ErrorKind::WouldBlock))
-        .with_context(|| format!("workspace session coordinator is busy: {}", path.display()))
-}
-
-struct SessionCoordinatorWaiter {
-    #[cfg(unix)]
-    signal_reader: File,
-    #[cfg(unix)]
-    _signal_anchor: File,
-    #[cfg(not(unix))]
-    socket: std::net::UdpSocket,
-    registration_path: PathBuf,
-    #[cfg(not(unix))]
-    token: String,
-}
-
-impl SessionCoordinatorWaiter {
-    fn register(coordinator_path: &Path) -> anyhow::Result<Self> {
-        use std::sync::atomic::Ordering;
-
-        let waiter_dir = session_guard_coordinator_waiter_dir(coordinator_path);
-        prepare_session_coordinator_waiter_dir(&waiter_dir)?;
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::ffi::OsStrExt;
-            use std::os::unix::fs::OpenOptionsExt;
-
-            loop {
-                let sequence =
-                    SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let token = format!("{:x}-{sequence:x}", std::process::id());
-                let registration_path =
-                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
-                let temporary_path =
-                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
-                let fifo_path = std::ffi::CString::new(temporary_path.as_os_str().as_bytes())?;
-                // SAFETY: fifo_path is a valid NUL-terminated path and mode
-                // only grants access to the current user.
-                let created = unsafe { libc::mkfifo(fifo_path.as_ptr(), 0o600) };
-                if created != 0 {
-                    let error = std::io::Error::last_os_error();
-                    if error.kind() == std::io::ErrorKind::AlreadyExists {
-                        continue;
-                    }
-                    return Err(error.into());
-                }
-
-                let mut reader_options = OpenOptions::new();
-                reader_options
-                    .read(true)
-                    .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-                let signal_reader = match reader_options.open(&temporary_path) {
-                    Ok(reader) => reader,
-                    Err(error) => {
-                        let _ = fs::remove_file(&temporary_path);
-                        return Err(error.into());
-                    }
-                };
-                let mut anchor_options = OpenOptions::new();
-                anchor_options
-                    .write(true)
-                    .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-                let signal_anchor = match anchor_options.open(&temporary_path) {
-                    Ok(anchor) => anchor,
-                    Err(error) => {
-                        let _ = fs::remove_file(&temporary_path);
-                        return Err(error.into());
-                    }
-                };
-                if let Err(error) = fs::rename(&temporary_path, &registration_path) {
-                    let _ = fs::remove_file(&temporary_path);
-                    if error.kind() == std::io::ErrorKind::NotFound {
-                        continue;
-                    }
-                    return Err(error.into());
-                }
-                return Ok(Self {
-                    signal_reader,
-                    _signal_anchor: signal_anchor,
-                    registration_path,
-                });
-            }
-        }
-
-        #[cfg(not(unix))]
-        {
-            let socket = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0))?;
-            let address = socket.local_addr()?;
-
-            loop {
-                let sequence =
-                    SESSION_GUARD_COORDINATOR_WAITER_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let token = format!("{:x}-{:x}-{:x}", std::process::id(), address.port(), sequence);
-                let registration_path =
-                    platform::normalize_filesystem_path(waiter_dir.join(format!("{token}.waiter")));
-                let temporary_path =
-                    platform::normalize_filesystem_path(waiter_dir.join(format!(".{token}.tmp")));
-                let mut options = OpenOptions::new();
-                options.create_new(true).write(true);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-                }
-                let mut registration = match options.open(&temporary_path) {
-                    Ok(registration) => registration,
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                    Err(error) => return Err(error.into()),
-                };
-                if let Err(error) = writeln!(registration, "{address} {token}") {
-                    let _ = fs::remove_file(&temporary_path);
-                    return Err(error.into());
-                }
-                if let Err(error) = registration.flush() {
-                    let _ = fs::remove_file(&temporary_path);
-                    return Err(error.into());
-                }
-                drop(registration);
-                if let Err(error) = fs::rename(&temporary_path, &registration_path) {
-                    let _ = fs::remove_file(&temporary_path);
-                    if error.kind() == std::io::ErrorKind::NotFound {
-                        continue;
-                    }
-                    return Err(error.into());
-                }
-                return Ok(Self { socket, registration_path, token });
-            }
-        }
-    }
-
-    fn wait_until(&self, deadline: std::time::Instant) -> std::io::Result<bool> {
-        #[cfg(unix)]
-        {
-            use std::os::fd::AsRawFd;
-
-            loop {
-                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                if remaining.is_zero() {
-                    return Ok(false);
-                }
-                let timeout_ms =
-                    remaining.as_millis().saturating_add(1).min(i32::MAX as u128) as i32;
-                let mut descriptor = libc::pollfd {
-                    fd: self.signal_reader.as_raw_fd(),
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
-                // SAFETY: descriptor points to one valid pollfd for the call.
-                let ready = unsafe { libc::poll(&raw mut descriptor, 1, timeout_ms) };
-                if ready == 0 {
-                    return Ok(false);
-                }
-                if ready < 0 {
-                    let error = std::io::Error::last_os_error();
-                    if error.kind() == std::io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    return Err(error);
-                }
-                if descriptor.revents & libc::POLLIN != 0 {
-                    let mut signal = [0_u8; 1];
-                    let mut signal_reader = &self.signal_reader;
-                    match signal_reader.read(&mut signal) {
-                        Ok(1) => return Ok(true),
-                        Ok(_) => {}
-                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => continue,
-                        Err(error) => return Err(error),
-                    }
-                }
-                if descriptor.revents & (libc::POLLERR | libc::POLLNVAL) != 0 {
-                    return Err(std::io::Error::other("session coordinator signal pipe failed"));
-                }
-            }
-        }
-
-        #[cfg(not(unix))]
-        {
-            let mut message = [0_u8; 128];
-            loop {
-                let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-                if remaining.is_zero() {
-                    return Ok(false);
-                }
-                self.socket.set_read_timeout(Some(remaining))?;
-                match self.socket.recv_from(&mut message) {
-                    Ok((length, sender))
-                        if sender.ip().is_loopback()
-                            && message.get(..length) == Some(self.token.as_bytes()) =>
-                    {
-                        return Ok(true);
-                    }
-                    Ok(_) => {}
-                    Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                        ) =>
-                    {
-                        return Ok(false);
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-        }
-    }
-}
-
-impl Drop for SessionCoordinatorWaiter {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.registration_path);
-    }
-}
-
-fn session_guard_coordinator_waiter_dir(coordinator_path: &Path) -> PathBuf {
-    platform::normalize_filesystem_path(
-        coordinator_path.with_file_name(SESSION_GUARD_COORDINATOR_WAITER_DIR),
-    )
-}
-
-fn prepare_session_coordinator_waiter_dir(waiter_dir: &Path) -> anyhow::Result<()> {
-    match fs::symlink_metadata(waiter_dir) {
-        Ok(metadata) if metadata.file_type().is_dir() => {}
-        Ok(_) => anyhow::bail!(
-            "session coordinator waiter path is not a directory: {}",
-            waiter_dir.display()
-        ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            match fs::create_dir(waiter_dir) {
-                Ok(()) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                    let metadata = fs::symlink_metadata(waiter_dir)?;
-                    if !metadata.file_type().is_dir() {
-                        anyhow::bail!(
-                            "session coordinator waiter path is not a directory: {}",
-                            waiter_dir.display()
-                        );
-                    }
-                }
-                Err(error) => return Err(error.into()),
-            }
-        }
-        Err(error) => return Err(error.into()),
-    }
-    platform::restrict_directory(waiter_dir)?;
-    Ok(())
-}
-
-fn publish_session_coordinator_available(waiter_dir: &Path) {
-    let Ok(entries) = fs::read_dir(waiter_dir) else {
-        return;
-    };
-    #[cfg(not(unix))]
-    let Ok(socket) = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)) else {
-        return;
-    };
-    for entry in entries.flatten().take(SESSION_GUARD_COORDINATOR_PUBLICATION_SCAN_LIMIT) {
-        let path = entry.path();
-        let Ok(metadata) = fs::symlink_metadata(&path) else {
-            continue;
-        };
-        match path.extension().and_then(|value| value.to_str()) {
-            Some("tmp") => {
-                #[cfg(unix)]
-                let is_temporary_waiter = {
-                    use std::os::unix::fs::FileTypeExt;
-
-                    metadata.file_type().is_file() || metadata.file_type().is_fifo()
-                };
-                #[cfg(not(unix))]
-                let is_temporary_waiter = metadata.file_type().is_file();
-                let is_stale = is_temporary_waiter
-                    && metadata
-                        .modified()
-                        .ok()
-                        .and_then(|modified| modified.elapsed().ok())
-                        .is_some_and(|age| age >= SESSION_GUARD_COORDINATOR_TIMEOUT);
-                if is_stale {
-                    let _ = fs::remove_file(path);
-                }
-                continue;
-            }
-            Some("waiter") => {}
-            _ => continue,
-        }
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::{FileTypeExt, OpenOptionsExt};
-
-            if !metadata.file_type().is_fifo() {
-                let _ = fs::remove_file(path);
-                continue;
-            }
-            let mut options = OpenOptions::new();
-            options.write(true).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_NONBLOCK);
-            let published =
-                options.open(&path).and_then(|mut signal| signal.write_all(&[1])).is_ok();
-            let _ = fs::remove_file(path);
-            if published {
-                break;
-            }
-            continue;
-        }
-
-        #[cfg(not(unix))]
-        if !metadata.file_type().is_file() {
-            continue;
-        }
-        #[cfg(not(unix))]
-        if let Ok(registration) = fs::read_to_string(&path) {
-            let mut fields = registration.split_whitespace();
-            let address =
-                fields.next().and_then(|value| value.parse::<std::net::SocketAddr>().ok());
-            let token = fields.next();
-            if fields.next().is_none()
-                && let (Some(address), Some(token)) = (address, token)
-                && address.ip().is_loopback()
-                && token.len() <= 128
-                && token.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
-            {
-                if socket.send_to(token.as_bytes(), address).is_ok() {
-                    let _ = fs::remove_file(path);
-                    break;
-                }
-            }
-        }
-        #[cfg(not(unix))]
-        let _ = fs::remove_file(path);
-    }
-}
-
-fn open_session_lock_file(path: &Path) -> anyhow::Result<File> {
-    let mut options = OpenOptions::new();
-    options.create(true).truncate(false).read(true).write(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
-    }
-    let file = options.open(path)?;
-    validate_session_lock_file(path, &file)?;
-    Ok(file)
-}
-
-fn validate_session_lock_file(path: &Path, file: &File) -> anyhow::Result<()> {
-    let path_metadata = fs::symlink_metadata(path)?;
-    if !path_metadata.file_type().is_file() {
-        anyhow::bail!("session lock path is not a file: {}", path.display());
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-
-        let file_metadata = file.metadata()?;
-        if path_metadata.dev() != file_metadata.dev() || path_metadata.ino() != file_metadata.ino()
-        {
-            anyhow::bail!("session lock path changed while opening: {}", path.display());
-        }
-    }
-    Ok(())
-}
-
-#[cfg(unix)]
-fn restrict_session_lock_file(_path: &Path, file: &File) -> anyhow::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    file.set_permissions(fs::Permissions::from_mode(0o600))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn restrict_session_lock_file(path: &Path, _file: &File) -> anyhow::Result<()> {
-    platform::restrict_file(path)?;
-    Ok(())
-}
-
-impl Drop for SessionLease {
-    fn drop(&mut self) {
-        if FileExt::unlock(&self.file).is_ok()
-            && let Some(waiter_dir) = &self.coordinator_waiter_dir
-        {
-            publish_session_coordinator_available(waiter_dir);
-        }
-        let _ = &self.path;
-    }
-}
-
 #[cfg(test)]
 mod tests;
 
@@ -6122,6 +2519,12 @@ mod receipt_env_tests;
 
 #[cfg(test)]
 mod open_cost_tests;
+
+#[cfg(test)]
+mod open_invariants_tests;
+
+#[cfg(test)]
+mod temp_store_tests;
 
 #[cfg(test)]
 mod personal_tests;

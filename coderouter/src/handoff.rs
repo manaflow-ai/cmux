@@ -37,7 +37,8 @@ const MAX_SOCKET_FRAME_BYTES: usize = 4 * 1024;
 const HANDOFF_CHALLENGE_BYTES: usize = 32;
 #[cfg(unix)]
 const HANDOFF_CHALLENGE_TEXT_BYTES: usize = 43;
-// macOS sockaddr_un reserves 104 bytes for a pathname, including the NUL.
+// cmux-unix-socket's PORTABLE_MAX_PATH_BYTES: macOS's 104-byte sun_path less its NUL. A copy, because
+// coderouter builds and publishes (PyPI, npm) from coderouter/ alone, with no path dependency.
 const MAX_SOCKET_PATH_BYTES: usize = 103;
 #[cfg(unix)]
 const SOCKET_TOTAL_TIMEOUT_SECS: u64 = 25;

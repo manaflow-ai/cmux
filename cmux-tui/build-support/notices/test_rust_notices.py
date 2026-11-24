@@ -479,6 +479,36 @@ class RustNoticesTest(unittest.TestCase):
         app = next(p for p in json.loads((self.tmp / "pd.json").read_text())["packages"] if p["name"] == "cmux-tui-rust-app")
         self.assertEqual(app["downloadLocation"], "git+https://example.invalid/ws@abc")
 
+    def test_a_path_crate_outside_the_workspace_brings_the_path_crates_it_inherits(self) -> None:
+        """The diff sidecar names cmux-git by `path`, and cmux-git names cmux-file-lock by
+        `cmux-file-lock.workspace = true`: that path is in the [workspace.dependencies] of
+        cmux-git's own workspace, which is no --workspace of the sidecar's section (nightly-next
+        2026-11-13: "path package cmux-file-lock 0.1.0: 0 matching manifests under --workspace")."""
+        other = self.fx.root / "other"
+        for name in ("near", "held"):
+            (other / "crates" / name).mkdir(parents=True)
+        (other / "Cargo.toml").write_text(
+            '[workspace]\nmembers = ["crates/*"]\n[workspace.package]\nversion = "0.2.0"\nlicense = "GPL-3.0-or-later"\n'
+            '[workspace.dependencies]\nheld = { path = "crates/held" }\n'
+        )
+        package = '[package]\nname = "%s"\nversion.workspace = true\nlicense.workspace = true\n'
+        (other / "crates/near/Cargo.toml").write_text(package % "near" + "[dependencies]\nheld.workspace = true\n")
+        (other / "crates/held/Cargo.toml").write_text(package % "held")
+        app = self.fx.ws / "crates/app/Cargo.toml"
+        app.write_text(app.read_text().replace('lib = "1"\n', 'lib = "1"\nnear = { path = "../../../other/crates/near" }\n', 1))
+        lock = self.fx.lock.read_text().replace(' "lib",\n', ' "lib",\n "near",\n', 1)
+        lock += '\n[[package]]\nname = "near"\nversion = "0.2.0"\ndependencies = [\n "held",\n]\n'
+        lock += '\n[[package]]\nname = "held"\nversion = "0.2.0"\n'
+        self.fx.lock.write_text(lock)
+        argv = self.fx.args("--out", str(self.tmp / "inherited.json"), "--repo-root", str(self.fx.root), "--first-party", "other/crates/*")
+        argv[argv.index("--first-party") + 1] = "ws/crates/*"
+        code, err = run(argv)
+        self.assertEqual(code, 0, err)
+        places = {p["name"]: p["downloadLocation"] for p in json.loads((self.tmp / "inherited.json").read_text())["packages"]}
+        tree_url = "https://github.com/manaflow-ai/cmux/tree/cmux-tui-src-b8feb806d6e/other/crates/"
+        self.assertEqual(places.get("cmux-tui-rust-near"), tree_url + "near")
+        self.assertEqual(places.get("cmux-tui-rust-held"), tree_url + "held")
+
     def test_extracted_texts_only_for_licenseref(self) -> None:
         doc = self.spdx()
         nolicense = next(p for p in doc["packages"] if p["name"] == "cmux-tui-rust-nolicense")

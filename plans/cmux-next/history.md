@@ -124,6 +124,7 @@ one cursor.
 | `focusHistoryBack` | Go Back | Ctrl-- | 1 (navigation) |
 | `focusHistoryForward` | Go Forward | Ctrl-Shift-- | 1 |
 | `focusHistoryLast` | Go to Last Location | none | 1 |
+| `focusHistoryBackSession` | Go Back One Session | none | 1 (4.2d) |
 | `recentlyFocused` | Location History… | none | palette page |
 
 Chord choice. Ctrl-- and Ctrl-Shift-- follow the VS Code navigation pair,
@@ -187,15 +188,16 @@ history (`browserBack`'s command), anywhere else they run `focusHistoryBack` /
 `focusHistoryForward`; a remote desktop in control mode keeps them for its
 host.
 
-The swipe is built over Chromium pages (`CEFSwipeNavigation`): a two-finger
-horizontal swipe goes Back or Forward in the page's history when the page
-cannot scroll that way. The page answers a probe for the scroller under the
-fingers, and for whether a script took the wheels (a carousel), so a gesture the
-page would scroll stays the page's. AppKit tracks the swipe
-(`trackSwipeEvent`); an accent pill with an arrow slides in from that edge, and
-with no page that way it rubber-bands and nothing happens. It needs macOS's
-"Swipe between pages". Not built: the swipe over agent chats and internal pages (no horizontal
-scroll answer from them yet; the side buttons cover their Back), and over
+The swipe over Chromium pages is Chromium's own (its history swiper, which
+Chrome style runs through `ChromeRenderWidgetHostViewMacDelegate`): it starts
+only when the renderer did not take the gesture (a scroller, a script carousel
+or `overscroll-behavior-x` keeps it), draws Chrome's round arrow at the page's
+edge, and navigates on release. cmux adds no swipe of its own there: a
+second handler (`CEFSwipeNavigation` and its accent pill, removed 2026-11-11)
+showed two arrows on every swipe and could navigate twice. It needs macOS's
+"Swipe between pages". A gesture the layout takes (Command + scroll) never
+reaches the page, so it never swipes. cmux pages swipe through
+`PageSwipeForwarder` (webviews/src/swipeNavigation). Not built: the swipe over
 WebKit pages.
 
 ### 4.2b One Back: page history first, then the trail (Leo 2026-10-06)
@@ -283,6 +285,26 @@ entry, at most 12 rows (`LocationTrail.menuSectionLimit`); every row runs `histo
 the two new layouts end with Show All History (`history.show`) and always open. With the `surface`
 scope the page's own entry menu (4.1) is the list. Agent chats are `content: other` locations, so
 they share Chats and Pages with cmux pages until the trail records a chat kind.
+
+### 4.2d Go Back One Session
+
+Go Back One Session (`focusHistoryBackSession`, palette, Window menu, a shortcut the person sets) returns
+to the agent chat the user was in before this one. It walks its own trail of agent chats
+(`LocationTrailService.sessions`, a second `LocationTrail` in memory), not the location trail:
+
+1. Every settled agent chat tab is a step, whatever `navigation.history.scope` says, so two chats
+   in one workspace are two steps (the location trail keeps one entry per workspace by default).
+   Terminals, browser pages and cmux pages are never steps.
+2. Each press steps one chat further back, in any window or workspace; a chat whose tab closed or
+   whose agent session ended is skipped and kept. Nowhere to go refuses quietly with "No earlier
+   agent session to go back to".
+3. The chat it focuses settles without a new step (the pending rule of 4.2 rule 5); opening
+   another chat after going back drops the later steps, like Back.
+4. Clear, Remove from History and the end of an incognito session clear it as they clear the
+   location trail. It is not persisted: a relaunch starts it empty.
+
+The walk is a row of the history actions table (`cmux-window-rules` `history::actions`,
+direction `backSession`); the app binds what the table lists.
 
 ### 4.3 Existing actions mapped
 

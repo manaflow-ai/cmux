@@ -296,6 +296,12 @@ fn surface_only_context_menu_omits_client_management() {
                 | Action::RenameTab
                 | Action::ScrollUp
                 | Action::ScrollDown
+                | Action::ScrollPageUp
+                | Action::ScrollPageDown
+                | Action::ScrollHalfPageUp
+                | Action::ScrollHalfPageDown
+                | Action::CopyMode
+                | Action::SearchScrollback
                 | Action::ClearHistory
                 | Action::ShowShortcuts
                 | Action::Detach

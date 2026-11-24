@@ -32,6 +32,8 @@ extension AgentPaneTransport {
         /// held anything else (R1).
         var ticket: String?
         var otherMeta = false
+        /// The names of those other `_meta` keys, for the refusal's log line (never their values).
+        var otherMetaKeys: [String] = []
         var pick: AgentPaneGesturePick?
         var sessionId: String?
         var needsGesture = false
@@ -49,9 +51,10 @@ extension AgentPaneTransport {
         var startsLocalSession = false
 
         /// No main-actor state decides this frame: it is checked, encoded and sent in one step.
+        /// A prompt never is: it goes on disk first (the prompt journal) and ends its tickets and credits.
         var free: Bool {
             ticket == nil && !needsGesture && !needsPathCheck && setting == nil && attachSession == nil && !foreignSource
-                && !harnessEnable && !startsLocalSession
+                && !harnessEnable && !startsLocalSession && method != "session/prompt"
         }
     }
 
@@ -205,6 +208,7 @@ extension AgentPaneTransport {
                 sentFirst = true
                 localAppToken = nil
             }
+            drainedBatches &+= 1
             for outcome in batch.outcomes { complete(outcome) }
             switch batch.next {
             case nil:
@@ -218,7 +222,12 @@ extension AgentPaneTransport {
             }
             if wasFirst, sentFirst {
                 let relay = promptRelay
-                await provePerson(socket: socket, ids: ids)
+                // The proof goes out second and the line goes on: its answer is never awaited here.
+                // A daemon that holds an early proof until its key lands (after an update or a cold
+                // start, under load for many seconds) would otherwise hold every frame of the page
+                // behind it. The app's own pane is the person's sender while it is unproven
+                // (acpmux `app_pane_unproven`), so nothing the page sends meanwhile is misattributed.
+                await sendPersonProof(socket: socket, ids: ids)
                 // Journal replay bypasses the page send line, so it needs the same trust barrier.
                 await finishTrustBeforeReplay(socket: socket, ids: ids)
                 if self.socket === socket, !socket.isClosed { await relay?.resend(socket: socket, ids: ids) }
@@ -228,6 +237,21 @@ extension AgentPaneTransport {
         let waiting = drainWaiters
         drainWaiters = []
         for waiter in waiting { waiter.resume() }
+    }
+
+    /// Waits until the send line is empty, as long as it keeps moving: each `quiet` window in which
+    /// the line hands over at least one batch earns another, up to `limit` in all. A line slowed by a
+    /// busy daemon is waited for; one that stops moving for `quiet` is not. True when it drained.
+    func lineDrained(quiet: Duration, limit: Duration) async -> Bool {
+        let end = ContinuousClock.now + limit
+        var seen = drainedBatches
+        // wakeup-allow: each pass waits on the drain's own signal, at most `quiet`; it ends at `limit` or when the line stops moving.
+        while true {
+            let left = ContinuousClock.now.duration(to: end)
+            if await lineDrained(within: min(quiet, max(left, .zero))) { return true }
+            guard drainedBatches != seen, ContinuousClock.now < end else { return false }
+            seen = drainedBatches
+        }
     }
 
     /// Waits until the send line is empty (every frame handed over before now sent or refused), at
@@ -250,33 +274,84 @@ extension AgentPaneTransport {
 
     /// The person proof (acpmux `hub/person.rs`, cx-fcaq), sent right after the page's first frame
     /// and before any other: the HMAC of the daemon's challenge from the `initialize` reply under
-    /// the key this app gave the daemon on ``socketPath``. The key itself never crosses the
-    /// socket. No challenge (a remote wire, an older daemon) or no key: no proof, so the pane is
-    /// not the person and the daemon refuses its allows.
-    private func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
+    /// this launch's key for ``socketPath``. The key itself never crosses the socket. No challenge
+    /// (a remote wire, an older daemon): no proof, nothing to report.
+    ///
+    /// Ordered by events, never by a clock (Leo, 2026-11-22: "surely we can think of better fixes
+    /// than random timing which can shift"). A daemon that says `reprove` holds a proof its key does
+    /// not answer yet until the app enrolls that key, so after an update the pane proves at once
+    /// under ``AcpmuxPersonKey/paneKey(for:)``:
+    /// - the key not delivered to this daemon yet: the host's lookup is asked to enroll it
+    ///   (``recoverPersonProof``), and its enroll resolves the pending proof;
+    /// - a daemon that took another key meanwhile (``AcpmuxPersonKey/whenDelivered(socketPath:_:)``):
+    ///   the pane proves that key on the same connection.
+    /// Nothing reconnects and nothing is shown. An older daemon without `reprove` refuses an early
+    /// proof: then the key is enrolled and the pane reconnects once (``personProofSettled``).
+    /// Starts ``provePerson`` and returns once its first frame is on the socket, or once it sends
+    /// none: the proof stays the connection's second request, and its answer settles off the line.
+    func sendPersonProof(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async {
+        // Ends when the proof's first frame is sent, or when provePerson ends without one.
+        let (sent, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        // task-owner: one proof per connection; it ends with its answer, the re-key cap or the socket's close
+        Task {
+            await provePerson(socket: socket, ids: ids, sent: { signal.finish() })
+            signal.finish()
+        }
+        for await _ in sent {}
+    }
+
+    func provePerson(socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds, sent: @escaping @MainActor () -> Void = {}) async {
         guard let socketPath else { return }
         guard let challenge = await socket.personChallenge() else { return }
         guard self.socket === socket else { return }
-        guard let proof = AcpmuxPersonKey.proof(socketPath: socketPath, transport: .app, nonce: challenge.nonce,
-                                                connection: challenge.connection) else {
-            Self.logger.error("agent pane transport: no person key for this daemon; allows stay refused")
-            return
+        let connection = current
+        var key = AcpmuxPersonKey.paneKey(for: socketPath)
+        if challenge.reprove, AcpmuxPersonKey.deliveredKey(for: socketPath) != key, let recover = recoverPersonProof {
+            // task-owner: one enroll request per unkeyed connection; it ends with the host's lookup
+            // main-hop-allow: one host lookup, not frame work
+            Task { @MainActor in _ = await recover() }
         }
-        let id = ids.hostID()
-        personProofID = id
-        let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/person_prove",
-                                    "params": ["proof": proof]]
-        guard let data = try? JSONSerialization.data(withJSONObject: frame), let text = String(data: data, encoding: .utf8) else { return }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            ids.whenAnswered(id) { continuation.resume() }
-            if let error = socket.send(text) {
-                ids.cancel(id)
-                continuation.resume()
-                Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+        // Each re-key proves once more on this connection, up to the proofs acpmux takes on one
+        // (`server/mod.rs` `PROVES_PER_CONNECTION`); a daemon keyed more often than that is refused.
+        for _ in 0..<Self.provesPerConnection {
+            guard let proof = AcpmuxPersonKey.proof(key: key, transport: .app, nonce: challenge.nonce,
+                                                    connection: challenge.connection) else { return }
+            let id = ids.hostID()
+            personProofID = id
+            let frame: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": "_acpmux/person_prove",
+                                        "params": ["proof": proof]]
+            guard let data = try? JSONSerialization.data(withJSONObject: frame),
+                  let text = String(data: data, encoding: .utf8) else { return }
+            let answer = await AcpmuxProveRace.first(
+                proved: key, socketPath: challenge.reprove ? socketPath : nil,
+                send: { done in
+                    ids.whenResult(id) { done($0) }
+                    defer { sent() }
+                    if let error = socket.send(text) {
+                        ids.cancel(id)
+                        done(false)
+                        Self.logger.error("agent pane transport: person proof not sent: \(error.rawValue, privacy: .public)")
+                    }
+                },
+                closed: { [weak socket] in await socket?.untilClosed() })
+            guard self.socket === socket, !socket.isClosed, connection == current else { return }
+            switch answer {
+            case let .rekeyed(next):
+                Self.logger.info("agent pane transport: this daemon took a new person key; proving it on this connection")
+                key = next
+                continue
+            case let .answered(proven):
+                if personProofID == id { personProofID = nil }
+                if !proven { Self.logger.error("agent pane transport: acpmux refused the person proof") }
+                personProofSettled(proven, connection: connection, reprove: challenge.reprove)
+                return
             }
         }
-        if self.socket === socket, personProofID == id { personProofID = nil }
+        personProofSettled(false, connection: connection, reprove: challenge.reprove)
     }
+
+    /// acpmux's `PROVES_PER_CONNECTION`: the proofs one connection may send.
+    static let provesPerConnection = 8
 
     /// The most frames one off-main pass takes (so a long line still yields between passes).
     static let framesPerPass = 256
@@ -329,6 +404,16 @@ extension AgentPaneTransport {
         return await Self.checkPaths(box, scope: scope)
     }
 
+    /// Whether a prompt is refused because the CLI, MCP or a script seeded it and the person has not
+    /// sent it (``AgentPaneUserGestures/automationSeedWaits``). The person's own Send (`personSent`, a
+    /// posted one under their grant too) ends the hold.
+    private func automationSeedHolds(_ facts: Facts, personSent: @autoclosure () -> Bool) -> Bool {
+        guard facts.method == "session/prompt", gestures.automationSeedWaits else { return false }
+        guard personSent() || gestures.consumePosted(for: "session/prompt") else { return true }
+        gestures.releaseAutomationSeed()
+        return false
+    }
+
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
         // The pane reconnected while the frame was read off the main actor: it goes nowhere, and it
@@ -372,7 +457,8 @@ extension AgentPaneTransport {
                     addedRoots += gestureRootsUsed.filter { !addedRoots.contains($0) }
                 }
             case .failure(let refusal):
-                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket)
+                let detail = refusal.reason == AgentPaneGitHubFolder.cloudOnlyReason ? AgentPaneModel.gitHubFolderCloudOnlyMessage : nil
+                return Self.refuse(.refuse(refusal.error, method: refusal.method, requestID: refusal.requestID), socket: socket, detail: detail, reason: refusal.reason)
             }
         }
         // The gesture rule: a ticket for its exact pick (R1: nothing else in `_meta`), else a live gesture.
@@ -383,7 +469,9 @@ extension AgentPaneTransport {
             if let ticket = facts.ticket {
                 if facts.otherMeta {
                     _ = gestures.redeem(ticket, connection: id, pick: nil)
-                    return Self.refuse(.refuse(.intentInvalid, method: facts.method, requestID: facts.pageID), socket: socket)
+                    let decision = Self.intentInvalid(.gestureMeta, method: facts.method, requestID: facts.pageID, session: facts.sessionId,
+                                                      cause: "gesture ticket with other _meta keys \(AgentPaneRefusalLog.names(facts.otherMetaKeys))")
+                    return Self.refuse(decision, socket: socket)
                 }
                 // B2: only set_mode, set_config_option, a prompt held for the trust answer (its
                 // promptId) and a permission answer (its session, prompt and option) redeem a
@@ -395,8 +483,10 @@ extension AgentPaneTransport {
                     credit.target.permissionID == box.param("permissionId")
                 } ?? false
                 let redeemed = redeemedQuestion || gestures.redeem(ticket, connection: id, pick: facts.pick, sessionId: facts.sessionId)
-                granted = redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
-                    && facts.sessionId.map(sessions.contains) == true
+                // A frame that needs no gesture (a Send) is never refused for a ticket that did not redeem.
+                granted = (!facts.needsGesture || (redeemed && AgentPaneGestureIntent.methods[facts.method ?? ""] != nil
+                    && (facts.method == "chat.fix_from_link" || facts.sessionId.map(sessions.contains) == true)))
+                    && !automationSeedHolds(facts, personSent: redeemed || gestures.consumeForSend())
                 ticketPick = granted
                 // A prompt that goes with its own ticket spends the start's credit too, as one
                 // without a ticket does: the credit never grants a later prompt (#23031).
@@ -432,12 +522,15 @@ extension AgentPaneTransport {
                 // The start's credit is spent by the first prompt, whatever grants it.
                 let credit = facts.method == "session/prompt"
                     && startCredit.take(connection: id, now: gestures.uptime, lifetime: Self.startCreditLifetime) == true
-                // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``).
+                // A prompt spends the person's gesture however old it is (``AgentPaneUserGestures/consumeForSend()``),
+                // though it needs none: the Send's key press must not pay for the agent's next gated frame.
+                let sent = facts.method == "session/prompt" && gestures.consumeForSend()
                 // Computer use acting as the person (``AgentPaneActAsMe``, on only by the person's own grant)
                 // backs Send, Retry and Approve, nothing else (``AgentPaneUserGestures/consumePosted(for:)``).
-                granted = redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
+                granted = !automationSeedHolds(facts, personSent: sent || credit)
+                    && (redeemedQuestion || !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures)
                     && (facts.method == "session/prompt" ? gestures.consumeForSend() : gestures.consume())) || credit
-                    || gestures.consumePosted(for: facts.method)
+                    || gestures.consumePosted(for: facts.method))
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
                 // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
@@ -535,7 +628,7 @@ extension AgentPaneTransport {
         } else {
             noteSent(facts, relayID: relayID)
             // A Sign in that took the person's click opens its page too, with no second click.
-            if facts.needsGesture, facts.method == "_acpmux/agent_login/start" {
+            if facts.needsGesture, (facts.method == "_acpmux/agent_login/start" || facts.method == "_acpmux/account/sign_in") {
                 signInPageCredit.give(connection: id, at: gestures.uptime)
             }
             // The switch's queued prompt goes out: its pick tickets end, but each other prompt
@@ -557,7 +650,7 @@ extension AgentPaneTransport {
             let retry = proved && single && !remoteWire && peerApprover?.enroll != nil ? box.encoded(id: nil) : nil
             decisions.sent(pageID: pageID, proved: proved, single: single, retry: retry)
         }
-        if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
+        if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket, ids: ids) {
             socket.pageFrameNotSent(method: facts.method)
             if answer, let pageID = facts.pageID { decisions.notSent(pageID: pageID) }
             if let relayID { ids.cancel(relayID) }

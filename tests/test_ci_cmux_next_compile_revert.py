@@ -14,6 +14,16 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_compile_revert as revert  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next.yml"
 
@@ -124,13 +134,52 @@ class RevertStep(unittest.TestCase):
                     git("commit", "-qm", "squash")
                 sha = git("rev-parse", "HEAD")
                 done = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp,
-                                      env={"MERGE_SHA": sha, "PR": "1", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"},
+                                      env=git_fixture_env.fixture_env({"MERGE_SHA": sha, "PR": "1", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}),
                                       capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertFalse(Path(tmp, "b").exists())
 
 
+class RefusedRead(unittest.TestCase):
+    def test_a_refused_read_prints_ghs_message_and_body(self):
+        # gh's message (with the HTTP status) goes to stderr and the body to stdout; both are captured,
+        # so the job log showed only "returned non-zero exit status 1" (2026-11-13, 05:14Z to 05:40Z).
+        import contextlib
+        import io
+        import subprocess
+
+        import cmux_next_push_attribution as attribution
+
+        def run(args, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, args, output='{"message":"API rate limit exceeded for installation ID 1."}',
+                stderr="gh: API rate limit exceeded for installation ID 1. (HTTP 403)")
+
+        err = io.StringIO()
+        with mock.patch.dict("os.environ", {"GH_READ_TOKEN": ""}), \
+             mock.patch.object(attribution.subprocess, "run", side_effect=run), \
+             contextlib.redirect_stderr(err), \
+             self.assertRaises(subprocess.CalledProcessError):
+            attribution.gh_api("repos/o/r/actions/runs/1/jobs?per_page=100")
+        self.assertIn("gh api repos/o/r/actions/runs/1/jobs?per_page=100 failed (exit 1)", err.getvalue())
+        self.assertIn("(HTTP 403)", err.getvalue())
+        self.assertIn("API rate limit exceeded for installation ID 1.", err.getvalue().split("body:", 1)[-1])
+
+
 class WorkflowJob(unittest.TestCase):
+    def test_the_reads_use_the_cmux_bot_read_token(self):
+        # Off the repository token's hourly budget, as push attribution reads.
+        steps = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-revert"]["steps"]
+        names = [step.get("name") for step in steps]
+        mint = steps[names.index("Mint the cmux-bot read token")]
+        self.assertLess(names.index("Mint the cmux-bot read token"), names.index("Find the one merge to revert"))
+        self.assertTrue(mint.get("continue-on-error"))
+        self.assertEqual(mint["with"]["permission-actions"], "read")
+        self.assertNotIn("permission-contents-write", mint["with"])
+        find = steps[names.index("Find the one merge to revert")]
+        self.assertEqual(find["env"]["GH_READ_TOKEN"], "${{ steps.read-token.outputs.token }}")
+        self.assertEqual(find["env"]["GH_TOKEN"], "${{ github.token }}")
+
     def test_it_runs_after_a_failed_base_push_compile_only(self):
         job_ = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile-revert"]
         self.assertEqual(job_["needs"], ["release-compile", "release-compile-fast-admission"])
@@ -139,7 +188,8 @@ class WorkflowJob(unittest.TestCase):
             self.assertIn(needle, job_["if"])
         # No write permission on the workflow token: the App token pushes and opens the revert.
         self.assertEqual(job_["permissions"], {"actions": "read", "contents": "read", "pull-requests": "read"})
-        self.assertEqual(job_["environment"], "ci-routing-agent")
+        self.assertEqual(workflow_jobs.resolve(job_, "release-compile-revert").environment,
+                         {"name": "ci-routing-agent", "deployment": False})
         run = "\n".join(step.get("run", "") for step in job_["steps"])
         self.assertIn("cmux_next_compile_revert.py", run)
         self.assertIn("git revert --no-edit", run)

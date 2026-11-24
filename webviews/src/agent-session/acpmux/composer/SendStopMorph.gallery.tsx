@@ -7,7 +7,8 @@
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import type { SendStopMorphArm } from "./sendStopMorph.experiment";
-import type { SlotGlyph } from "./SendSlotGlyph";
+import type { SlotGlyph } from "./sendSlotGlyphModel";
+import { MOTION_MS } from "../../../motion/scale.generated";
 
 type Props = { arm: SendStopMorphArm };
 
@@ -99,7 +100,7 @@ export default componentEntry<Props>({
     ),
   variants: {
     scale: {
-      note: "Shipped. The old glyph shrinks to 70% as it fades and the new one grows from 70% as it fades in, on one 180 ms ease-out. Both glyphs stay readable through the run, the shape change reads as the button changing its job, and it costs one compositor-only transform and opacity per layer.",
+      note: `Shipped. The old glyph shrinks to 70% as it fades and the new one grows from 70% as it fades in, on one ${MOTION_MS.standard} ms ease-out. Both glyphs stay readable through the run, the shape change reads as the button changing its job, and it costs one compositor-only transform and opacity per layer.`,
       props: { arm: "scale" },
       play: boxesFixed,
     },

@@ -56,7 +56,8 @@ BOT = "github-actions[bot]"
 # The attribution workflows post with the cmux-bot App's token once vars.CMUX_BOT_APP_ID is set
 # (#20858); its comments are this comment too.
 BOTS = (BOT, "cmux-bot[bot]")
-SECTIONS = ("bead", "review", "gallery", "preview", "attribution", "checks", "guards", "tour", "receipt")
+SECTIONS = ("bead", "review", "gallery", "preview", "attribution", "ran", "checks", "guards", "swift-logic", "tour",
+            "receipt")
 TITLE = "**cmux status** <sub>(one comment, edited in place; each line is updated by the job that owns it)</sub>"
 SECTION = re.compile(r"<!-- cmux-pr-status:(?P<key>[a-z-]+) -->\n(?P<text>.*?)\n<!-- /cmux-pr-status:(?P=key) -->",
                      re.S)

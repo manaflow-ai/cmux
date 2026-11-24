@@ -10,7 +10,6 @@ use std::io;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::net::UnixStream;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use cmux_holder::wire::{self, Frame, Kind, Out, Reader};
 
@@ -37,13 +36,17 @@ fn listed_payload(pid: i32) -> Vec<u8> {
     Out::default().i32(pid).u64(0).u64(0).u8(0).bytes(&[0; 16]).0
 }
 
+mod support;
+
 /// A file only this test opened: its inode names the descriptor that
-/// passed it.
+/// passed it. Its folder is this test's own, so a test running in parallel
+/// never opens, truncates or removes the same file.
 fn marker() -> std::fs::File {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    let path = std::env::temp_dir().join(format!("cmhd-{}-{stamp}", std::process::id()));
+    let dir = support::unique_dir("cmhd");
+    let path = dir.join("marker");
     let file = std::fs::File::create(&path).unwrap();
     std::fs::remove_file(&path).unwrap();
+    std::fs::remove_dir(&dir).unwrap();
     file
 }
 

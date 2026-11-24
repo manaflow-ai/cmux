@@ -3,50 +3,43 @@
 //! to paired peers only, no relay.
 
 mod access_cli;
+mod acpmux;
 mod agent_cli;
-mod cloud;
-mod cloud_broker;
+pub(crate) mod carrier_tunnel;
 mod cloud_fs;
 mod control;
 mod daemon_entry;
 pub(crate) use daemon_entry::DaemonEntryStartup;
+mod chat_cli;
 mod dial;
 mod dial_cli;
 mod enrollment;
 mod ensure;
-mod native_broker;
-mod native_route;
-// `cmux link seed plan`; `cmux link seed push|clone|pull` is [`seed_cli`].
-#[cfg_attr(not(test), allow(dead_code))]
-mod seed;
-mod seed_cli;
-mod start_chat_cli;
-mod sync_cli;
-// Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
-// map and a token format); tested now.
-#[cfg_attr(not(test), allow(dead_code))]
-mod host_inbound;
 mod inbound;
-#[cfg(target_os = "macos")]
+mod key_adoption;
+mod key_lock;
+// Also in tests elsewhere: its plist rewrite needs no launchd.
+#[cfg(any(test, target_os = "macos"))]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 mod launchd;
 mod lines;
 pub(crate) mod machine_gate;
 mod machine_pin;
 pub(crate) mod machine_update;
 mod mesh;
-mod mesh_cloud;
-#[cfg(target_os = "linux")]
-mod native_process;
-#[cfg_attr(not(test), allow(dead_code))]
-mod native_receiver;
-#[cfg(target_os = "linux")]
-mod native_supervision;
 mod paired_streams;
 mod process_exit;
-mod receiver_deadline;
-mod refusal_watch;
+// `cmux link seed plan`; `cmux link seed push|clone|pull|move` is [`seed_cli`].
+#[cfg_attr(not(test), allow(dead_code))]
+mod seed;
+mod seed_cli;
+mod spans;
+mod start_chat_cli;
 mod state;
+pub(crate) mod sync_cli;
 
+#[cfg(test)]
+mod acpmux_tests;
 #[cfg(test)]
 mod e2e_tests;
 #[cfg(test)]
@@ -64,7 +57,6 @@ use std::sync::Arc;
 use anyhow::{Context as _, anyhow, bail};
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use cmux_json::JsonSet as _;
 use cmux_link::LINK_PORT;
 use cmux_link::overlay_addr::overlay_address;
 use cmux_link::owner_session::OwnerSession;
@@ -74,6 +66,7 @@ use cmux_wg::{InterfaceAddress, WgMesh, WgMeshConfig};
 use serde_json::json;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+use self::acpmux::AcpmuxTarget;
 use self::control::{Peers, serve_local, serve_overlay};
 use self::dial::Overlay as _;
 use self::mesh::MeshOverlay;
@@ -81,8 +74,7 @@ use self::state::{LINK_MTU, LinkConfig, LinkState};
 use crate::localization::catalog;
 
 /// The data behind `mutex`, also after a panic in another holder. The link's
-/// maps (peers, Cloud records, gateways) are consistent after every single
-/// step, so a poisoned lock is safe to keep using; the link never panics on it.
+/// peer map is consistent after every single step, so a poisoned lock is safe to keep using; the link never panics on it.
 fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -99,7 +91,11 @@ pub(crate) fn start_link_entry(
     session_socket: &Path,
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
-    cloud_fs::install_if_cloud_host();
+    if cloud_fs::install_file_owner() {
+        // Frees what archived, deleted and brought-back chats left in their projections on this
+        // machine, at start and on a timer (RFD 0007, hard case 8).
+        cmux_tui_core::projection::start_reaper(crate::acp::daemon_socket_path());
+    }
     mux.set_agent_transfer_host(cloud_fs::agent_transfer_host());
     // What a stamp's `check` means is fixed here, at daemon start, from the
     // config `main` took from the environment (G4); a real verifier is
@@ -126,16 +122,41 @@ fn link_entry_gate() -> Arc<dyn cmux_tui_core::server::RemoteGate> {
 
 /// `cmux link ...` from `main`: the exit code, with any error on stderr.
 pub(crate) fn run(args: &[String]) -> i32 {
+    // `link` prints JSON only: a `--json` written before an action (`cmux
+    // --json link status` puts it there) only asks for the error object on
+    // a refusal, and never hides the action from the dispatch below.
+    let json = args.first().is_some_and(|arg| arg == "--json");
+    let args = if json { args.get(1..).unwrap_or_default() } else { args };
     // `dial` has its own exit codes and always one JSON line on stderr.
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
+    }
+    // `chat`: a Cloud machine's chats as the caller's role reaches them (one JSON object out).
+    if args.first().map(String::as_str) == Some("chat") {
+        return chat_cli::run(args.get(1..).unwrap_or_default());
     }
     // `sync` answers one JSON line on stdout and has its own exit codes too.
     if args.first().map(String::as_str) == Some("sync") {
         return sync_cli::run(&args[1..]);
     }
+    // `project`: a big folder projected onto a Cloud machine (sync_cli/project.rs).
+    if args.first().map(String::as_str) == Some("project") {
+        return sync_cli::project::run(args.get(1..).unwrap_or_default());
+    }
+    // `offload`: one local command run on a machine over this folder's view, its writes
+    // published back (sync_cli/offload.rs, RFD 0007 step 7).
+    if args.first().map(String::as_str) == Some("offload") {
+        return sync_cli::offload::run(args.get(1..).unwrap_or_default());
+    }
+    // `memory`: the person's agent memory follows them (sync_cli/memory.rs).
+    if args.first().map(String::as_str) == Some("memory") {
+        return sync_cli::memory::run(args.get(1..).unwrap_or_default());
+    }
     if args.first().map(String::as_str) == Some("seed") {
-        if matches!(args.get(1).map(String::as_str), Some("push" | "clone" | "pull")) {
+        if matches!(
+            args.get(1).map(String::as_str),
+            Some("push" | "clone" | "pull" | "fetch" | "move" | "copy-rest")
+        ) {
             return seed_cli::run(args.get(1..).unwrap_or_default());
         }
         return seed::run(&args[1..]);
@@ -161,8 +182,35 @@ pub(crate) fn run(args: &[String]) -> i32 {
         print!("{}", help_text());
         return 0;
     }
+    // `cmux link init --help`: that action's own lines. Before, `flags` read `--help` as an
+    // unknown option and exited 2 (the Cloud and remote command matrix, cmux#48221).
+    if let Some(text) = args
+        .split_first()
+        .filter(|(_, rest)| asks_help(rest))
+        .and_then(|(action, _)| verb_help(action))
+    {
+        print!("{text}");
+        return 0;
+    }
     match run_link(args) {
         Ok(()) => 0,
+        // A word or option `link` does not have: exit 2 with the help to
+        // run, like every scope (docs/cli-conventions.md in cmuxterm-hq).
+        Err(error) if error.is::<LinkUsage>() => {
+            let mut message = error.to_string();
+            if !message.contains("--help") {
+                message.push_str("; run `cmux link --help`");
+            }
+            if json || args.iter().any(|arg| arg == "--json") {
+                eprintln!(
+                    "{}",
+                    json!({"code": "usage.invalid", "message": message, "details": {}, "retryable": false})
+                );
+            } else {
+                eprintln!("{}: {message}", crate::cli::BIN);
+            }
+            2
+        }
         Err(error) => {
             eprintln!("{error}");
             1
@@ -170,8 +218,91 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
 }
 
+/// A usage error of `cmux link`: an action or option it does not have.
+#[derive(Debug)]
+struct LinkUsage(String);
+
+impl std::fmt::Display for LinkUsage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for LinkUsage {}
+
+fn link_usage(message: String) -> anyhow::Error {
+    anyhow::Error::new(LinkUsage(message))
+}
+
 fn help_text() -> String {
-    format!("{}\n{}", catalog().remote_client.link_help, enrollment::help())
+    let text = format!("{}\n{}", catalog().remote_client.link_help, enrollment::help());
+    // The cmux app's `link …` verbs too (cli/app_action_help.rs).
+    crate::cli::app_action_help::append("link", &text).unwrap_or(text)
+}
+
+/// The actions [`run_link`] parses itself, each with its own `--help` ([`verb_help`]).
+const OWN_ACTIONS: &[&str] = &[
+    "init",
+    "show",
+    "peer",
+    "serve",
+    "ensure",
+    "stop",
+    "archive",
+    "status",
+    "install-agent",
+    "uninstall-agent",
+];
+
+/// `-h` or `--help` among an action's words.
+fn asks_help(rest: &[String]) -> bool {
+    rest.iter()
+        .take_while(|word| *word != "--")
+        .any(|word| matches!(word.as_str(), "-h" | "--help"))
+}
+
+/// `cmux link <action> --help`: the usage line with the action named, the action's own lines of
+/// `cmux link --help` (its entry and the lines indented under it), and the closing note every
+/// action shares. `None` for a word that is not one of [`OWN_ACTIONS`].
+fn verb_help(action: &str) -> Option<String> {
+    verb_help_from(action, catalog().remote_client.link_help, enrollment::help())
+}
+
+fn verb_help_from(action: &str, help: &str, enrollment: &str) -> Option<String> {
+    if !OWN_ACTIONS.contains(&action) {
+        return None;
+    }
+    let mut lines = help.lines();
+    // `USAGE: cmux link <init|show|…> [OPTIONS]` becomes `USAGE: cmux link init [OPTIONS]`.
+    let first = lines.next()?;
+    // `split_once` keeps this free of byte-index slicing (the panic ratchet).
+    let usage = match first.split_once('<') {
+        Some((head, rest)) => match rest.split_once('>') {
+            Some((_, tail)) => format!("{head}{action}{tail}"),
+            None => first.to_owned(),
+        },
+        None => first.to_owned(),
+    };
+    let mut own = String::new();
+    let mut inside = false;
+    for line in lines {
+        if let Some(entry) = line.strip_prefix("  ").filter(|entry| !entry.starts_with(' ')) {
+            let word = entry.split_whitespace().next().unwrap_or_default();
+            inside = word == action;
+        } else if !line.starts_with("   ") {
+            inside = false;
+        }
+        if inside {
+            own.push_str(line);
+            own.push('\n');
+        }
+    }
+    if own.is_empty() {
+        return None;
+    }
+    let note = help.lines().rev().find(|line| !line.trim().is_empty()).unwrap_or_default();
+    let enrollment = if action == "init" { format!("\n{enrollment}") } else { String::new() };
+    Some(format!("{usage}\n\n{own}{enrollment}\n{note}\n"))
 }
 
 fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
@@ -181,11 +312,13 @@ fn tokio_runtime() -> anyhow::Result<tokio::runtime::Runtime> {
 /// `cmux link <action> ...`.
 fn run_link(args: &[String]) -> anyhow::Result<()> {
     let help = || anyhow!(help_text());
+    // `link` prints JSON only: `--json` anywhere is a no-op, never an
+    // unknown option.
+    let args: Vec<String> = args.iter().filter(|arg| *arg != "--json").cloned().collect();
+    let args = args.as_slice();
     let Some(action) = args.first().map(String::as_str) else { return Err(help()) };
     let rest = &args[1..];
     match action {
-        #[cfg(target_os = "linux")]
-        "__receive-vm" => native_process::run(&flags(rest, &["--session-socket"])?),
         "init" => {
             run_init(&flags(rest, &["--state-dir", "--install", "--port", "--server-identity"])?)
         }
@@ -193,15 +326,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
         "peer" => run_peer(rest),
         "serve" => run_serve(&flags(
             rest,
-            &[
-                "--state-dir",
-                "--session-socket",
-                "--server-config",
-                "--credential-socket",
-                "--cloud-token-file",
-                "--ready-fd",
-                "--native-cloud-broker-fd",
-            ],
+            &["--state-dir", "--session-socket", "--server-config", "--ready-fd", key_lock::FLAG],
         )?),
         "ensure" => {
             // `--handoff` is the one flag without a value.
@@ -211,15 +336,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             ensure::run_ensure(
                 &flags(
                     &rest,
-                    &[
-                        "--state-dir",
-                        "--install",
-                        "--port",
-                        "--session-socket",
-                        "--server-config",
-                        "--credential-socket",
-                        "--cloud-token-file",
-                    ],
+                    &["--state-dir", "--install", "--port", "--session-socket", "--server-config"],
                 )?,
                 handoff,
             )
@@ -237,7 +354,7 @@ fn run_link(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         "-h" | "--help" | "help" => Err(help()),
-        other => Err(anyhow!(catalog().remote_client.unknown_action("link", other))),
+        other => Err(link_usage(catalog().remote_client.unknown_action("link", other))),
     }
 }
 
@@ -250,13 +367,13 @@ fn flags(args: &[String], allowed: &[&'static str]) -> anyhow::Result<Flags> {
     while index < args.len() {
         let argument = args[index].as_str();
         let Some(name) = allowed.iter().copied().find(|name| *name == argument) else {
-            return Err(anyhow!(catalog().remote_client.unknown_option(argument)));
+            return Err(link_usage(catalog().remote_client.unknown_option(argument)));
         };
         let value = args
             .get(index + 1)
-            .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))?;
+            .ok_or_else(|| link_usage(catalog().remote_client.option_needs_value(name)))?;
         if values.insert(name, value.clone()).is_some() {
-            return Err(anyhow!(catalog().remote_client.option_once(name)));
+            return Err(link_usage(catalog().remote_client.option_once(name)));
         }
         index += 2;
     }
@@ -267,7 +384,7 @@ fn required<'a>(flags: &'a Flags, name: &str) -> anyhow::Result<&'a str> {
     flags
         .get(name)
         .map(String::as_str)
-        .ok_or_else(|| anyhow!(catalog().remote_client.option_needs_value(name)))
+        .ok_or_else(|| link_usage(catalog().remote_client.option_needs_value(name)))
 }
 
 fn state(flags: &Flags) -> anyhow::Result<LinkState> {
@@ -280,9 +397,9 @@ fn print_json(value: &serde_json::Value) {
 
 fn run_init(flags: &Flags) -> anyhow::Result<()> {
     let port = match flags.get("--port") {
-        Some(port) => port
-            .parse()
-            .map_err(|_| anyhow!(catalog().remote_client.invalid_option_value("--port", "PORT")))?,
+        Some(port) => port.parse().map_err(|_| {
+            link_usage(catalog().remote_client.invalid_option_value("--port", "PORT"))
+        })?,
         None => state::DEFAULT_PORT,
     };
     // Resolve an enrollment before opening (and creating) link state. It never
@@ -303,7 +420,11 @@ fn run_init(flags: &Flags) -> anyhow::Result<()> {
     let _ensure_lock = server_identity.as_ref().map(|_| ensure::ensure_lock(&state)).transpose()?;
     // `serve` holds this lock for its lifetime: init cannot rewrite its config.
     let _lock = server_identity.as_ref().map(|_| serve_lock(&state)).transpose()?;
+    let local = server_identity.is_none();
     state.init(&LinkConfig { install, port, server_identity })?;
+    if local {
+        key_lock::record_home(&state)?;
+    }
     run_show_state(&state)
 }
 
@@ -320,7 +441,7 @@ fn run_show_state(state: &LinkState) -> anyhow::Result<()> {
 /// and the pairing file the app watches for peer changes (`peers_file`).
 fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     let config = state.config()?;
-    let public_key = state::public_key(&*state.private_key()?);
+    let public_key = state.own_public_key()?;
     let live = ensure::live(state);
     if config.server_identity.is_some()
         && let Some(live) = &live
@@ -331,6 +452,7 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
     {
         bail!("server_link.identity_mismatch");
     }
+    let adopted = key_adoption::adopted(state)?;
     Ok(json!({
         "install": config.install,
         "public_key": STANDARD.encode(public_key),
@@ -340,6 +462,9 @@ fn show_json(state: &LinkState) -> anyhow::Result<serde_json::Value> {
         "socket": live.map(|registration| registration.socket),
         "peers_file": state.peers_path(),
         "identity_source": if config.server_identity.is_some() { "server_pairing" } else { "local" },
+        // The link key the node key replaced, and the paired peers not told yet.
+        "retired_public_key": adopted.as_ref().and_then(|adopted| adopted.retired_public_key.clone()),
+        "retiring_for": adopted.map(|adopted| adopted.pending).unwrap_or_default(),
     }))
 }
 
@@ -356,7 +481,9 @@ fn run_peer(args: &[String]) -> anyhow::Result<()> {
             )?;
             let endpoint = match flags.get("--endpoint") {
                 Some(text) => Some(text.parse::<SocketAddr>().map_err(|_| {
-                    anyhow!(catalog().remote_client.invalid_option_value("--endpoint", "IP:PORT"))
+                    link_usage(
+                        catalog().remote_client.invalid_option_value("--endpoint", "IP:PORT"),
+                    )
                 })?),
                 None => None,
             };
@@ -380,7 +507,7 @@ fn run_peer(args: &[String]) -> anyhow::Result<()> {
             print_json(&serde_json::to_value(Pairings::load(&state.peers_path())?)?);
             Ok(())
         }
-        other => Err(anyhow!(catalog().remote_client.unknown_action("link peer", other))),
+        other => Err(link_usage(catalog().remote_client.unknown_action("link peer", other))),
     }
 }
 
@@ -390,9 +517,8 @@ fn change_peers(
     change: impl FnOnce(&mut Pairings) -> std::io::Result<bool>,
 ) -> anyhow::Result<()> {
     let state = state(flags)?;
-    let mut pairings = Pairings::load(&state.peers_path())?;
-    let changed = change(&mut pairings)?;
-    pairings.save(&state.peers_path())?;
+    // Under the file's lock, which a running link's inbound rekeys take too.
+    let changed = Pairings::update(&state.peers_path(), change)?;
     let reloaded = match ensure::live(&state) {
         Some(live) => tokio_runtime()?.block_on(reload(&live.socket)),
         None => false,
@@ -412,16 +538,6 @@ async fn reload(socket: &Path) -> bool {
 }
 
 fn run_serve(flags: &Flags) -> anyhow::Result<()> {
-    let native = flags.contains_key("--native-cloud-broker-fd");
-    if native
-        && ["--credential-socket", "--cloud-token-file", "--session-socket", "--server-config"]
-            .iter()
-            .any(|flag| flags.contains_key(*flag))
-    {
-        bail!("cloud.native.scope_conflict");
-    }
-    let broker =
-        flags.get("--native-cloud-broker-fd").map(|fd| native_broker::bind(fd)).transpose()?;
     // Before any setup: an update during it is still seen (`launchd_refresh.rs`).
     #[cfg(target_os = "macos")]
     let watch = launchd::plist_path()
@@ -431,66 +547,46 @@ fn run_serve(flags: &Flags) -> anyhow::Result<()> {
     let watch: Option<AgentWatch> = None;
     let state = state(flags)?;
     let session_socket = flags.get("--session-socket").map(PathBuf::from);
-    let credential_socket = flags.get("--credential-socket").map(PathBuf::from);
-    let cloud_token_file = flags.get("--cloud-token-file").map(PathBuf::from);
     // `server.json` is read once: the owner session is parsed from, and
     // `link.status` hashes, the same bytes.
-    let config_path = if native { None } else { server_config_path(flags) };
+    let config_path = server_config_path(flags);
     let config_bytes = read_server_config(config_path.as_deref())?;
     let owner = owner_session(config_path.as_deref(), config_bytes.as_deref())?;
-    let ready = match flags.get("--ready-fd") {
+    let mut ready = match flags.get("--ready-fd") {
         Some(fd) => Some(ensure::ReadyPipe::take(fd)?),
         None => None,
     };
     // One link per state directory, for its whole life, taken before the
     // UDP bind: a second `serve` of the same state directory stops here.
     let _lock = serve_lock(&state)?;
+    // This machine's WireGuard key, for the link's whole life, before the key
+    // is read: while another process holds it, this link does not serve.
+    let explicit = flags.get(key_lock::FLAG).map(PathBuf::from);
+    // launchd gives `serve` none of the app's environment: without the flag,
+    // the lock directory below is a guess (`key_lock.rs`).
+    #[cfg(target_os = "macos")]
+    if explicit.is_none() && crate::launchd_refresh::run_by_launchd(launchd::LABEL) {
+        eprintln!(
+            "warning: launchd runs this link without {}: its WireGuard key lock directory is \
+             guessed; run `cmux link ensure` or `cmux link install-agent` from the app to fix the agent",
+            key_lock::FLAG
+        );
+    }
+    let key = key_lock::take(&state, explicit.as_deref(), &mut ready)?;
     let served = ensure::Served::of(flags, config_path, config_bytes.as_deref());
-    let cloud = match broker {
-        Some(bound) => CloudAccess::Broker(Box::new(bound)),
-        None => CloudAccess::RelayOrDirect { credential_socket, cloud_token_file },
-    };
-    tokio_runtime()?.block_on(serve(state, session_socket, cloud, owner, ready, served, watch))
+    // Shared with the Cloud tunnel (`carrier_tunnel.rs`), which keeps only a weak handle.
+    let key = Arc::new(key);
+    let runtime = tokio_runtime()?;
+    let result = runtime.block_on(serve(state, &key, session_socket, owner, ready, served, watch));
+    // A blocking call still running (the Cloud tunnel's `auth.token` ask, up to 30 s) is not
+    // waited for: `link stop` gives the link 10 s (`ensure::STOP_BUDGET`). The hub it may have
+    // started ends with this process (`wg hub --exit-with-parent`).
+    runtime.shutdown_timeout(RUNTIME_SHUTDOWN);
+    result
 }
 
-/// How a serve resolves cloud hosts: through the app's inherited native broker
-/// stream, or through the credential relay socket (none: cloud hosts fail
-/// closed as unavailable). `run_serve` refuses a broker with a relay socket.
-enum CloudAccess {
-    Broker(Box<cloud_broker::Bound>),
-    RelayOrDirect { credential_socket: Option<PathBuf>, cloud_token_file: Option<PathBuf> },
-}
-
-fn direct_source(token_file: Option<&Path>) -> Option<cloud::DirectSource> {
-    let api = std::env::var("CMUX_CLOUD_API_URL").ok();
-    let token = match token_file {
-        Some(path) => read_cloud_token_file(path).ok(),
-        None => std::env::var("CMUX_CLOUD_INSTALL_TOKEN").ok(),
-    }?;
-    let api = api?;
-    match token_file {
-        Some(path) => cloud::DirectSource::with_token_file(api, token, path.to_owned()).ok(),
-        None => cloud::DirectSource::new(api, token).ok(),
-    }
-}
-
-pub(super) fn read_cloud_token_file(path: &Path) -> anyhow::Result<String> {
-    let metadata =
-        std::fs::metadata(path).map_err(|error| anyhow!("read Cloud token file: {error}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        if metadata.permissions().mode() & 0o077 != 0 {
-            bail!("Cloud token file must be private (mode 0600): {}", path.display());
-        }
-    }
-    let token =
-        std::fs::read_to_string(path).map_err(|error| anyhow!("read Cloud token file: {error}"))?;
-    if token.trim().is_empty() {
-        bail!("Cloud token file is empty");
-    }
-    Ok(token.trim().to_owned())
-}
+/// How long the ended link waits for its runtime's blocking calls.
+const RUNTIME_SHUTDOWN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// `<state>/link.lock`, held by a running `serve` (never blocks).
 fn serve_lock(state: &LinkState) -> anyhow::Result<std::fs::File> {
@@ -553,65 +649,49 @@ fn owner_session(
 
 async fn serve(
     state: LinkState,
+    key: &Arc<cmux_link::key_holder::KeyHolder>,
     session_socket: Option<PathBuf>,
-    mut cloud: CloudAccess,
     owner: Option<Arc<OwnerSession>>,
     ready: Option<ensure::ReadyPipe>,
     served: ensure::Served,
     watch: Option<AgentWatch>,
 ) -> anyhow::Result<()> {
-    let native = matches!(&cloud, CloudAccess::Broker(bound) if bound.identity.is_some());
-    let identity = match &mut cloud {
-        CloudAccess::Broker(bound) => bound.identity.take(),
-        CloudAccess::RelayOrDirect { .. } => None,
-    };
-    let (config, private_key, native_route) = match identity {
-        Some(identity) => (identity.config, identity.key, Some(identity.route)),
-        None => (
-            state.config().context("run `cmux link init --install ID` first")?,
-            state.private_key()?,
-            None,
-        ),
-    };
-    let public_key = state::public_key(&private_key);
+    let config = state.config().context("run `cmux link init --install ID` first")?;
+    // One key per machine: the node key in this machine's acpmux home, adopted under the held
+    // key lock and the pairing file's lock (`key_adoption.rs`). The paired peers are read
+    // after it (`Peers::load` below), so a peer added during the adoption is not missed. The
+    // home is the one the app recorded (`key_lock::record_home`): launchd gives `serve` none of
+    // the app's environment, so it is never resolved here.
+    let acpmux_home = ::acpmux::cli::mesh_node_key::recorded_home(state.dir());
+    let served_key = key_adoption::serve_key(&state, key, acpmux_home.as_deref()).await?;
+    let public_key = state::public_key(&served_key.key);
+    let mut own_keys = vec![public_key];
+    own_keys.extend(served_key.retiring.as_ref().map(|retiring| state::public_key(&retiring.key)));
     let socket =
         tokio::net::UdpSocket::bind(SocketAddr::from((Ipv6Addr::UNSPECIFIED, config.port)))
             .await
             .with_context(|| format!("bind UDP port {}", config.port))?;
     let own = overlay_address(&config.install);
-    let mesh = WgMesh::start(
-        WgMeshConfig {
-            private_key: private_key.clone(),
-            addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
-            mtu: LINK_MTU,
-        },
-        socket,
-    )?;
-    let overlay = Arc::new(MeshOverlay::new(mesh, private_key).with_native_route(native_route));
-    // Cloud host ids resolve through the private credential relay owned by
-    // the signed-in app. A missing relay fails closed as unavailable.
-    let (source, broker_driver) = match cloud {
-        CloudAccess::Broker(bound) => {
-            let cloud_broker::Bound { stream, .. } = *bound;
-            stream.set_nonblocking(true)?;
-            let (source, driver) = cloud_broker::channel(tokio::net::UnixStream::from_std(stream)?);
-            (cloud::CloudSource::Broker(source), Some(driver))
-        }
-        CloudAccess::RelayOrDirect { credential_socket, cloud_token_file } => {
-            let source = match (credential_socket, direct_source(cloud_token_file.as_deref())) {
-                (Some(path), _) => cloud::CloudSource::Relay(cloud::RelaySource::socket(path)),
-                (None, Some(source)) => cloud::CloudSource::Direct(source),
-                (None, None) => cloud::CloudSource::Relay(cloud::RelaySource::unavailable()),
-            };
-            (source, None)
-        }
+    let mesh_config = WgMeshConfig {
+        private_key: served_key.key,
+        addresses: vec![InterfaceAddress { address: IpAddr::V6(own), prefix: 128 }],
+        mtu: LINK_MTU,
     };
-    let resolver = Arc::new(cloud::CloudResolver::new(source));
-    let peers = Arc::new(if native {
-        Peers::isolated(state.peers_path())
-    } else {
-        Peers::load(state.peers_path())?
-    });
+    // Peers not told the adopted key yet still reach the retired one, on this same socket.
+    let (mesh, retiring) = match served_key.retiring {
+        Some(retiring) => {
+            (WgMesh::start_retiring(mesh_config, retiring.key, socket)?, retiring.pending)
+        }
+        None => (WgMesh::start(mesh_config, socket)?, Default::default()),
+    };
+    let still_retiring = !retiring.is_empty();
+    let overlay = Arc::new(MeshOverlay::new(mesh));
+    overlay.set_retiring(retiring);
+    overlay.retiring().answer_with(public_key);
+    let peers = Arc::new(Peers::load(state.peers_path())?);
+    // A peer that adopted too and names its key over the retired one gets the node key back.
+    peers.answer_rekeys_from(overlay.retiring());
+    peers.own_keys(own_keys);
     overlay.sync_peers(&peers.snapshot()).await?;
     let listener = overlay.listen(LINK_PORT).await?;
     let socket_path = state.socket_path();
@@ -623,7 +703,7 @@ async fn serve(
             .to_string()
             .into();
     registration::write(&state.registration_dir(), &Registration::new(socket_path.clone(), pid))?;
-    let mut ready_line = json!({
+    let ready_line = json!({
         "event": "link-ready",
         "socket": socket_path,
         "pid": pid,
@@ -631,24 +711,53 @@ async fn serve(
         "udp": udp,
         "relay_available": cmux_link::dial::RELAY_AVAILABLE,
     });
-    if native {
-        ready_line.set("native", json!(true));
-        ready_line.set("wg_public_key", json!(STANDARD.encode(public_key)));
-    }
     print_json(&ready_line);
     if let Some(ready) = ready {
         ready.send(&ready_line);
     }
+    // The Cloud tunnel hub for the ssh backup carrier, on the key this link holds.
+    let tunnel =
+        carrier_tunnel::keep(state.dir().to_path_buf(), Arc::downgrade(key), acpmux_home.clone());
+    // A paired peer's `acpmux` stream goes to this user's acpmux listener.
+    let acpmux = AcpmuxTarget::for_home(acpmux_home);
     let result = tokio::select! {
-        served = serve_local(local, overlay.clone(), peers.clone(), resolver, status) => served.map_err(anyhow::Error::from),
-        () = serve_overlay(listener, peers.clone(), session_socket, owner) => Ok(()),
+        served = serve_local(local, overlay.clone(), peers.clone(), status) => served.map_err(anyhow::Error::from),
+        () = serve_overlay(listener, peers.clone(), session_socket, owner, acpmux) => Ok(()),
+        () = reload_on_rekey(&peers, &overlay) => Ok(()),
+        () = finish_then_wait(still_retiring, &state, &overlay, &peers, &public_key) => Ok(()),
+        () = tunnel => Ok(()),
         signal = shutdown_signal() => signal,
         outcome = launchd_agent_outcome(watch) => outcome,
-        broker = cloud_broker::run(broker_driver) => broker.map_err(anyhow::Error::from),
     };
     registration::remove_if_owned(&state.registration_dir(), pid);
     let _ = std::fs::remove_file(&socket_path);
     result
+}
+
+/// The end of an adoption's retirement (`key_adoption::finish_retiring`), then nothing.
+async fn finish_then_wait(
+    retiring: bool,
+    state: &LinkState,
+    overlay: &MeshOverlay,
+    peers: &Peers,
+    node_public: &[u8; 32],
+) {
+    if retiring {
+        key_adoption::finish_retiring(state, overlay, peers, node_public, key_adoption::RETRY)
+            .await;
+    }
+    std::future::pending::<()>().await;
+}
+
+/// A paired peer's link named its new key (`inbound.rs`): the pairing file
+/// changed, so the overlay takes the new key.
+async fn reload_on_rekey(peers: &Peers, overlay: &MeshOverlay) {
+    loop {
+        peers.rekeyed().await;
+        if let Err(error) = peers.reload(overlay).await {
+            eprintln!("cmux link: reload after a paired peer's rekey failed: {error}");
+        }
+    }
 }
 
 /// Bind the local socket at mode 0600 in a 0700 directory, replacing a
@@ -711,19 +820,31 @@ async fn shutdown_signal() -> anyhow::Result<()> {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn run_install_agent(flags: &Flags) -> anyhow::Result<()> {
-    let state = state(flags)?;
-    state.config().context("run `cmux link init --install ID` first")?;
+/// The launchd agent's `serve` arguments. The key lock directory is resolved
+/// here, in the app's process: launchd starts `serve` without the app's
+/// environment (`key_lock.rs`).
+#[cfg(any(test, target_os = "macos"))]
+fn agent_arguments(state: &LinkState, flags: &Flags) -> Vec<String> {
     let mut arguments = vec![
         "link".to_string(),
         "serve".to_string(),
         "--state-dir".to_string(),
         state.dir().to_string_lossy().into_owned(),
+        key_lock::FLAG.to_string(),
+        key_lock::lock_dir(state).to_string_lossy().into_owned(),
     ];
     if let Some(session) = flags.get("--session-socket") {
         arguments.extend(["--session-socket".to_string(), session.clone()]);
     }
+    arguments
+}
+
+#[cfg(target_os = "macos")]
+fn run_install_agent(flags: &Flags) -> anyhow::Result<()> {
+    let state = state(flags)?;
+    state.config().context("run `cmux link init --install ID` first")?;
+    key_lock::record_home(&state)?;
+    let arguments = agent_arguments(&state, flags);
     let program = std::env::current_exe()?;
     let path = launchd::install(&program, &arguments)?;
     print_json(&json!({"ok": true, "plist": path, "label": launchd::LABEL}));

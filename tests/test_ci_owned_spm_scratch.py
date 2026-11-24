@@ -17,6 +17,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 
 import owned_spm_scratch as scratch  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
 NEXT_WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
@@ -806,6 +813,223 @@ class Scratch(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertLess(text.index("owned_spm_scratch.py link"), text.index("run: ./scripts/ci/package-test-lane.sh run"))
 
+
+GIB = 1024**3
+
+# What provisioning writes in the seed root's parent (owned_spm_scratch.SEED_MARKER).
+SEED_MARKER = ".cmux-seed-root"
+
+
+class SeedRoot(unittest.TestCase):
+    """The fast tier's base-seed root on an owned mini (owned_spm_scratch.seed_lease): the Blacksmith seed's
+    workspace path, where the R2 seed the fast tier restores was built, so the seed is warm here too."""
+
+    # Scratch's fixture without its tests: a subclass would run every Scratch test a second time.
+    checkout = Scratch.checkout
+
+    def setUp(self):
+        Scratch.setUp(self)
+        self.checkout()
+        self.seed = Path(self.tmp.name) / "runner/_work/cmux/cmux"
+        self.seed.parent.mkdir(parents=True)  # provisioned: the mini's cmux user owns the parent
+        (self.seed.parent / SEED_MARKER).touch()  # and marks it the seed root's
+        self.free = unittest.mock.patch.object(scratch, "free_bytes", return_value=40 * GIB)
+        self.free.start()
+        self.limits = unittest.mock.patch.object(scratch, "disk_limits_gib", return_value=(30.0, 20.0))
+        self.limits.start()
+
+    def tearDown(self):
+        self.limits.stop()
+        self.free.stop()
+        scratch.release_holders()
+        Scratch.tearDown(self)
+
+    def seed_lease(self, verdict=None):
+        return scratch.seed_lease(self.workspace, self.seed, RUNNER, verdict=verdict)
+
+    def test_a_light_mini_with_32_to_48_gib_free_qualifies(self):
+        # The lease's reserve (floor 30 + growth 20 + a 16.8 GiB root, ~67 GiB) never admits a root there.
+        for free in (32, 40, 48):
+            with self.subTest(free=free), unittest.mock.patch.object(scratch, "free_bytes", return_value=free * GIB):
+                self.assertEqual(self.seed_lease(), self.seed)
+                scratch.release_holders()
+
+    def test_under_glaedas_floor_it_does_not_qualify(self):
+        with unittest.mock.patch.object(scratch, "free_bytes", return_value=25 * GIB):
+            self.assertIsNone(self.seed_lease())
+
+    def test_a_seed_bigger_than_one_jobs_growth_needs_the_difference_above_the_floor(self):
+        self.assertTrue(scratch.seed_fits(free=31 * GIB, kept=0, floor_gib=30, growth_gib=20, footprint=16 * GIB))
+        self.assertFalse(scratch.seed_fits(free=32 * GIB, kept=0, floor_gib=30, growth_gib=20, footprint=25 * GIB))
+        self.assertTrue(scratch.seed_fits(free=36 * GIB, kept=0, floor_gib=30, growth_gib=20, footprint=25 * GIB))
+        # The last seed job's kept build is replaced, so its bytes count as room.
+        self.assertTrue(scratch.seed_fits(free=20 * GIB, kept=15 * GIB, floor_gib=30, growth_gib=20,
+                                          footprint=16 * GIB))
+
+    def test_one_job_at_a_time_holds_the_seed_root(self):
+        self.assertEqual(self.seed_lease(), self.seed)
+        self.assertIsNone(self.seed_lease())  # the second job takes the shared roots instead
+        scratch.release_holders()
+        self.assertEqual(self.seed_lease(), self.seed)
+
+    def test_an_unprovisioned_mini_falls_back(self):
+        (self.seed.parent / SEED_MARKER).unlink()
+        self.seed.parent.rmdir()
+        self.assertIsNone(self.seed_lease())
+
+    def test_a_runner_workspace_at_that_path_is_never_taken(self):
+        # The nightly-next builder runs its jobs in /Users/runner/_work/cmux/cmux too: without the marker that
+        # provisioning writes, the directory is a runner's checkout, and a fast-tier job must not mirror over it.
+        (self.seed.parent / SEED_MARKER).unlink()
+        (self.seed / "nightly").mkdir(parents=True)
+        self.assertIsNone(self.seed_lease())
+        self.assertEqual(sorted(p.name for p in self.seed.iterdir()), ["nightly"])
+        self.assertFalse((self.seed.parent / scratch.SEED_LOCK).exists())
+
+    def test_a_kept_build_loses_the_last_jobs_resource_bundles(self):
+        # The last job on the seed root may have built another branch, and a package the seed does not restore keeps
+        # its .build: its String Catalog bundles must not reach this job (cmux#26961, as link and lease do).
+        config = self.seed / "Packages/macOS/B/.build/arm64-apple-macosx/debug"
+        (config / "Other.bundle").mkdir(parents=True)
+        (config / "description.json").write_text("{}")
+        self.assertEqual(self.seed_lease(), self.seed)
+        self.assertFalse((config / "Other.bundle").exists())
+        self.assertTrue((config / "description.json").is_file())
+
+    def test_the_jobs_own_workspace_is_never_the_seed_root(self):
+        self.assertIsNone(scratch.seed_lease(self.seed, self.seed, RUNNER))
+
+    def test_only_owned_runners(self):
+        self.assertIsNone(scratch.seed_lease(self.workspace, self.seed, "blacksmith-6vcpu-macos-26-x"))
+
+    def test_the_root_mirrors_the_checkout_and_keeps_real_build_directories(self):
+        (self.seed / "Packages/macOS/B/.build").mkdir(parents=True)  # the last seed job's build
+        verdict = {}
+        self.assertEqual(self.seed_lease(verdict=verdict), self.seed)
+        self.assertEqual((self.seed / "Packages/macOS/B/Sources/b.swift").read_text(), "let b = 1\n")
+        self.assertTrue((self.seed / ".git/HEAD").is_file())
+        build = self.seed / "Packages/macOS/B/.build"
+        self.assertTrue(build.is_dir() and not build.is_symlink())  # the seed restores a real one here
+        self.assertEqual((verdict["state"], verdict["reason"]), ("cold", "seed root"))
+
+    def test_the_command_takes_the_seed_root_only_when_the_setting_is_on(self):
+        temp = Path(self.tmp.name) / "runner-temp"
+        temp.mkdir()
+        output = temp / "output"
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); import owned_spm_scratch as s; "
+                "s.free_bytes = lambda p: 40 * 1024**3; s.disk_limits_gib = lambda *a: (30.0, 20.0); "
+                "s.ROOT_BYTES_UNMEASURED = 1024; s.disk_reserve_bytes = lambda *a: 0; "
+                "s.toolchain_parts = lambda w: ('x', 'y', 'z'); "
+                "code = s.main(['x', 'lease', sys.argv[2], sys.argv[3]]); "
+                "[(h.kill(), h.wait()) for h in s.HOLDERS]; sys.exit(code)")
+        for setting, seeded in (("", False), ("1", True)):
+            output.write_text("")
+            env = {**os.environ, "RUNNER_TEMP": str(temp), "RUNNER_NAME": RUNNER, "GITHUB_OUTPUT": str(output),
+                   "CMUX_FAST_TIER_OWNED_SEED": setting, "CMUX_FAST_TIER_SEED_WORKSPACE": str(self.seed),
+                   "PATH": os.environ.get("PATH", "")}
+            result = subprocess.run([sys.executable, "-c", code, str(ROOT / "scripts/ci"), str(self.workspace),
+                                     str(self.store)], env=env, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
+            with self.subTest(setting=setting):
+                if seeded:
+                    self.assertEqual((lines.get("root"), lines.get("seed")), (str(self.seed), "1"))
+                else:
+                    self.assertNotEqual(lines.get("root"), str(self.seed))
+                    self.assertNotIn("seed", lines)
+
+    def second_root(self):
+        second = Path(self.tmp.name) / "runner/_work/cmux-2/cmux"
+        second.parent.mkdir(parents=True)
+        (second.parent / SEED_MARKER).touch()
+        return second
+
+    def test_a_job_that_finds_the_seed_root_held_takes_the_second_on_a_mini_with_the_disk(self):
+        second = self.second_root()
+        roots = [(self.seed, scratch.seed_fits), (second, scratch.second_seed_fits)]
+        with unittest.mock.patch.object(scratch, "seed_roots", return_value=roots), \
+                unittest.mock.patch.object(scratch, "free_bytes", return_value=70 * GIB):
+            taken = [next(r for root, fits in roots
+                          if (r := scratch.seed_lease(self.workspace, root, RUNNER, fits=fits)) is not None)
+                     for _ in range(2)]
+        self.assertEqual(taken, [self.seed, second])
+        self.assertTrue((second / "Packages/macOS/B/Sources/b.swift").is_file())
+
+    def test_the_second_root_needs_room_to_stay_beside_the_first(self):
+        # Its build is kept after the job, so it needs the floor, the next job's growth and itself.
+        self.assertFalse(scratch.second_seed_fits(free=48 * GIB, kept=0, floor_gib=30, growth_gib=20,
+                                                  footprint=16 * GIB))
+        self.assertTrue(scratch.second_seed_fits(free=66 * GIB, kept=0, floor_gib=30, growth_gib=20,
+                                                 footprint=16 * GIB))
+        self.assertTrue(scratch.second_seed_fits(free=50 * GIB, kept=16 * GIB, floor_gib=30, growth_gib=20,
+                                                 footprint=16 * GIB))
+        second = self.second_root()
+        self.assertIsNone(scratch.seed_lease(self.workspace, second, RUNNER, fits=scratch.second_seed_fits))
+
+    def test_the_second_root_is_tried_after_the_first_and_turns_off(self):
+        self.assertEqual([root for root, _ in scratch.seed_roots({})],
+                         [scratch.SEED_WORKSPACE, scratch.SECOND_SEED_WORKSPACE])
+        self.assertEqual([root for root, _ in scratch.seed_roots({"CMUX_FAST_TIER_SECOND_SEED_ROOT": "0"})],
+                         [scratch.SEED_WORKSPACE])
+        self.assertEqual(scratch.SECOND_SEED_WORKSPACE.parent.parent, scratch.SEED_WORKSPACE.parent.parent)
+
+    def test_the_seed_workflow_builds_a_seed_at_the_second_root_behind_the_variable(self):
+        text = (ROOT / ".github/workflows/cmux-next-fast-tier-seed.yml").read_text()
+        self.assertIn(f'"workspace": "{scratch.SECOND_SEED_WORKSPACE}"', text)
+        self.assertIn("SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}", text)
+        self.assertIn('if p["pool"] != "blacksmith-root2"', text)
+        self.assertIn("CMUX_FAST_CACHE_WORKSPACE: ${{ matrix.workspace }}", text)
+        for name in ("Compute fast-tier cache keys", "Record the build's input times", "Run the fast tier",
+                     "Check that every build passed"):
+            block = text[text.index(f"- name: {name}\n"):]
+            block = block[:block.index("\n      - name:", 10)]
+            self.assertIn("working-directory: ${{ matrix.workspace }}", block, name)
+        self.assertEqual(NEXT_WORKFLOW.read_text().count(
+            "CMUX_FAST_TIER_SECOND_SEED_ROOT: ${{ vars.CI_FAST_TIER_SECOND_SEED_ROOT }}  #"), 2)
+
+    def test_a_restored_seed_is_reported_seeded(self):
+        temp = Path(self.tmp.name) / "runner-temp"
+        temp.mkdir()
+        scratch.write_seeded({"RUNNER_TEMP": str(temp), "GITHUB_RUN_ID": "9"})
+        payload = json.loads((temp / scratch.WARM_START_FILE).read_text())
+        self.assertEqual((payload["state"], payload["reason"]), ("seeded", "base seed"))
+
+    def test_the_workflow_restores_the_seed_on_an_owned_mini_behind_the_setting(self):
+        text = NEXT_WORKFLOW.read_text()
+        job = text[text.index("\n  fast-tier:\n"):text.index("\n  fast-tier-cargo:\n")]
+        self.assertIn("CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}", job)
+        for step in ("Compute fast-tier cache keys", "Restore the CmuxNext build"):
+            block = job[job.index(f"- name: {step}"):]
+            block = block[:block.index("\n      - name:", 10)]
+            self.assertIn("steps.spm-root.outputs.seed == '1'", block, step)
+        self.assertIn("format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace)",
+                      job)
+        self.assertIn("owned_spm_scratch.py seeded", job)
+
+
+    def test_generated_files_builds_and_checks_in_the_seed_root(self):
+        """note-410: generated files takes the seed root like the fast tier, restores the seed there, and
+        every step that reads the build or writes the checkout runs in that root, not the slot's workspace."""
+        text = NEXT_WORKFLOW.read_text()
+        start = text.index("\n  generated-files:\n")
+        job = text[start:text.index("\n  generated-verdict:\n", start)]
+
+        def block(name):
+            found = job[job.index(f"- name: {name}\n"):]
+            return found[:found.index("\n      - name:", 10)]
+
+        lease = block("Keep Swift package builds on this owned Mac")
+        self.assertIn("owned_spm_scratch.py lease", lease)
+        self.assertIn("CMUX_FAST_TIER_OWNED_SEED: ${{ (vars.CI_FAST_TIER_OWNED_SEED || '1') != '0' && '1' || '' }}", lease)
+        self.assertIn("steps.spm-root.outputs.seed == '1'", block("Compute the fast-tier seed keys"))
+        self.assertIn("format('{0}/Packages/macOS/CmuxNext/.build', steps.spm-root.outputs.root || github.workspace)",
+                      block("Restore the CmuxNext build the base seeded"))
+        self.assertIn("owned_spm_scratch.py seeded", block("Replay the seed's input times"))
+        for name in ("Give this job its own bun", "Install the restored web bundles", "Build the web bundles",
+                     "Build package and tests", "Check generated action catalog, surfaces and inventory",
+                     "Check the settings exports", "Pack the exports for the base autofix",
+                     "Pack the exports for the PR autofix", "Regenerate stale files"):
+            self.assertIn("steps.spm-root.outputs.root || github.workspace", block(name).split("working-directory:", 1)[-1].split("\n", 1)[0], name)
 
 if __name__ == "__main__":
     unittest.main()

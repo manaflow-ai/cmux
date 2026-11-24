@@ -3,16 +3,22 @@
 //! else as the streamed copy. The machine side is the real `FsService` and
 //! `GitSeedService` behind a socket that answers lines the way the daemon
 //! does; "GitHub" is a folder of bare repositories the service clones from
-//! (`GitSeedService::with_test_github`).
+//! (`GitSeedService::with_test_github`). With `--store`, a fake platform
+//! (`/v1/sync/*`) holds the bundle's blobs and the machine's real
+//! `BlobFetchService` fetches them from it.
 #![cfg(unix)]
 
-use std::io::{BufRead as _, BufReader, Write as _};
+use std::collections::HashMap;
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::net::TcpListener;
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
-use cmux_tui_core::fs_ops::{FsService, Roots, stream};
+use cmux_tui_core::blob_fetch::{self, BlobFetchService};
+use cmux_tui_core::fs_ops::{FsService, Roots};
 use cmux_tui_core::git_seed::{self, GitSeedService};
 use serde_json::{Value, json};
 use sha2::Digest as _;
@@ -42,8 +48,12 @@ fn write(path: &Path, text: &str) {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Serves {
     Seed,
+    /// `git-seed-v1` and the held copy's `git-seed-hold-v2`.
+    Hold,
     /// Another build without `git-seed-v1`.
     CopyOnly,
+    /// `git-seed-v1` and `blob-fetch-v2`: it fetches from the store.
+    Fetch,
 }
 
 /// One test's world: "GitHub", this Mac's working copy, the machine's home
@@ -58,6 +68,10 @@ struct World {
     socket: PathBuf,
     /// `fs.write` requests the machine answered.
     writes: &'static AtomicUsize,
+    /// Those of them that wrote a seed bundle (or its part file).
+    bundle_writes: &'static AtomicUsize,
+    /// The `git.seed.start` lines the machine was sent, as sent.
+    starts: &'static Mutex<Vec<String>>,
 }
 
 impl World {
@@ -92,8 +106,19 @@ impl World {
         std::fs::create_dir_all(home.join("work")).unwrap();
         let sockets = tempfile::Builder::new().prefix("ls").tempdir_in("/tmp").unwrap();
         let socket = sockets.path().join("m.sock");
-        let writes = serve(&socket, &home, &github, serves);
-        Self { _dir: dir, _sockets: sockets, root, github, work, home, socket, writes }
+        let (writes, bundle_writes, starts) = serve(&socket, &home, &github, serves);
+        Self {
+            _dir: dir,
+            _sockets: sockets,
+            root,
+            github,
+            work,
+            home,
+            socket,
+            writes,
+            bundle_writes,
+            starts,
+        }
     }
 
     fn remote(&self, name: &str) -> PathBuf {
@@ -102,14 +127,24 @@ impl World {
 
     /// `cmux link seed ARGS`: exit status, its answer line, its stderr lines.
     fn seed(&self, args: &[&str]) -> (bool, Value, Vec<Value>) {
-        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        self.seed_with_stdin(args, "")
+    }
+
+    /// [`Self::seed`] with `stdin` on its standard input (`--store`'s credential).
+    fn seed_with_stdin(&self, args: &[&str], stdin: &str) -> (bool, Value, Vec<Value>) {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .env("CMUX_TUI_STATE_DIR", self.root.join("state"))
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .args(["link", "seed"])
             .args(args)
-            .output()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .unwrap();
+        child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+        let output = child.wait_with_output().unwrap();
         let answer = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
             panic!(
                 "one JSON answer on stdout: {}{}",
@@ -124,6 +159,15 @@ impl World {
         (output.status.success(), answer, progress)
     }
 
+    /// A start-chat push: the chat opens at `subpath` of `local`.
+    fn push_head_first(&self, local: &Path, remote: &Path, subpath: &str) -> (bool, Value) {
+        let (socket, local, remote) =
+            (self.socket.to_str().unwrap(), local.to_str().unwrap(), remote.to_str().unwrap());
+        let (ok, answer, _) =
+            self.seed(&["push", "--socket", socket, local, remote, "--head-first", subpath]);
+        (ok, answer)
+    }
+
     fn push(&self, local: &Path, remote: &Path, since_last: bool) -> (bool, Value, Vec<Value>) {
         let mut args = vec!["push", "--socket", self.socket.to_str().unwrap()];
         args.extend([local.to_str().unwrap(), remote.to_str().unwrap()]);
@@ -134,15 +178,26 @@ impl World {
     }
 }
 
-/// Serves `fs.*` and `git.seed.*` lines (and `identify`) on `socket`, one
-/// thread per connection, until the test process ends.
-fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static AtomicUsize {
+/// Serves `fs.*`, `git.seed.*` and (for [`Serves::Fetch`]) `blob.fetch.*`
+/// lines (and `identify`) on `socket`, one thread per connection, until the
+/// test process ends. Returns the count of `fs.write` requests, and of those
+/// that wrote a bundle.
+fn serve(
+    socket: &Path,
+    home: &Path,
+    github: &Path,
+    serves: Serves,
+) -> (&'static AtomicUsize, &'static AtomicUsize, &'static Mutex<Vec<String>>) {
     let listener = UnixListener::bind(socket).unwrap();
     let roots = Roots::new([home.to_path_buf()]);
     let fs: &'static FsService = Box::leak(Box::new(FsService::new(roots.clone())));
+    let fetch: &'static BlobFetchService =
+        Box::leak(Box::new(BlobFetchService::new(roots.clone())));
     let seed: &'static GitSeedService =
         Box::leak(Box::new(GitSeedService::with_test_github(roots, github)));
     let writes: &'static AtomicUsize = Box::leak(Box::default());
+    let bundle_writes: &'static AtomicUsize = Box::leak(Box::default());
+    let starts: &'static Mutex<Vec<String>> = Box::leak(Box::default());
     std::thread::spawn(move || {
         for connection in listener.incoming() {
             let Ok(connection) = connection else { return };
@@ -156,12 +211,22 @@ fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static 
                     let reply = if cmd == "identify" {
                         let capabilities = match serves {
                             Serves::Seed => json!(["fs-v1", "git-seed-v1"]),
+                            Serves::Hold => json!(["fs-v1", "git-seed-v1", "git-seed-hold-v2"]),
                             Serves::CopyOnly => json!(["fs-v1"]),
+                            Serves::Fetch => {
+                                json!(["fs-v1", "git-seed-v1", blob_fetch::BLOB_FETCH_CAPABILITY])
+                            }
                         };
                         json!({"id": id, "ok": true, "data": {"capabilities": capabilities,
                                "build_id": "machine-build", "session_id": "machine-a"}})
+                    } else if serves == Serves::Fetch && blob_fetch::frame_command(&line).is_some()
+                    {
+                        blob_fetch::answer_line(Some(fetch), true, &line)
                     } else if git_seed::frame_command(&line).is_some() {
-                        if serves == Serves::Seed {
+                        if cmd == "git.seed.start" {
+                            starts.lock().unwrap().push(line.clone());
+                        }
+                        if serves != Serves::CopyOnly {
                             git_seed::answer_line(Some(seed), true, &line)
                         } else {
                             json!({"id": id, "ok": false, "error_code": "unknown_command",
@@ -170,8 +235,16 @@ fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static 
                     } else {
                         if cmd == "fs.write" {
                             writes.fetch_add(1, Ordering::SeqCst);
+                            if request["path"].as_str().is_some_and(|path| path.contains(".bundle"))
+                            {
+                                bundle_writes.fetch_add(1, Ordering::SeqCst);
+                            }
                         }
-                        stream::answer(&id, fs.call("local", &cmd, request))
+                        let request = request.as_object().cloned().unwrap_or_default();
+                        let seeds = (serves == Serves::Hold).then_some(seed);
+                        git_seed::held_op(seeds, &id, request, |request| {
+                            fs.call("local", &cmd, Value::Object(request))
+                        })
                     };
                     let mut text = reply.to_string();
                     text.push('\n');
@@ -182,7 +255,141 @@ fn serve(socket: &Path, home: &Path, github: &Path, serves: Serves) -> &'static 
             });
         }
     });
-    writes
+    (writes, bundle_writes, starts)
+}
+
+const CREDENTIAL: &str = "person-token-for-tests";
+const GRANT: &str = "csg_read-grant-for-tests-0123456789";
+
+/// The platform's sync store (`/v1/sync/*`), one user: the bytes uploaded to it.
+#[derive(Default)]
+struct Store {
+    blobs: Mutex<HashMap<String, Vec<u8>>>,
+    uploaded: AtomicU64,
+}
+
+fn serve_store() -> (String, Arc<Store>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+    let store = Arc::new(Store::default());
+    let shared = store.clone();
+    std::thread::spawn(move || {
+        for connection in listener.incoming() {
+            let Ok(connection) = connection else { return };
+            let store = shared.clone();
+            std::thread::spawn(move || answer_http(connection, &store));
+        }
+    });
+    (origin, store)
+}
+
+fn answer_http(mut connection: std::net::TcpStream, store: &Store) {
+    let mut reader = BufReader::new(connection.try_clone().unwrap());
+    let mut first = String::new();
+    if reader.read_line(&mut first).unwrap_or(0) == 0 {
+        return;
+    }
+    let (mut length, mut bearer) = (0usize, String::new());
+    loop {
+        let mut header = String::new();
+        if reader.read_line(&mut header).unwrap_or(0) == 0 || header == "\r\n" {
+            break;
+        }
+        let lower = header.to_ascii_lowercase();
+        if let Some(value) = lower.strip_prefix("content-length:") {
+            length = value.trim().parse().unwrap_or(0);
+        }
+        if lower.starts_with("authorization:") {
+            bearer = header.trim().rsplit(' ').next().unwrap_or("").to_string();
+        }
+    }
+    let mut body = vec![0u8; length];
+    reader.read_exact(&mut body).unwrap();
+    let mut parts = first.split(' ');
+    let (method, path) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
+    let person = bearer == CREDENTIAL;
+    let hex = |bytes: &[u8]| -> String {
+        sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+    };
+    let (status, reply): (&str, Vec<u8>) = match (method, path) {
+        _ if !(person || (method == "GET" && bearer == GRANT)) => ("401 Unauthorized", vec![]),
+        ("POST", "/v1/sync/blobs/missing") => {
+            let asked: Value = serde_json::from_slice(&body).unwrap();
+            let blobs = store.blobs.lock().unwrap();
+            let missing: Vec<&str> = asked["sha256"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter_map(Value::as_str)
+                .filter(|hash| !blobs.contains_key(*hash))
+                .collect();
+            ("200 OK", json!({ "missing": missing }).to_string().into_bytes())
+        }
+        ("POST", "/v1/sync/grants") => (
+            "200 OK",
+            json!({"grant": GRANT, "expiresAt": "2099-01-01T00:00:00Z"}).to_string().into_bytes(),
+        ),
+        ("PUT", path) => {
+            let hash = path.trim_start_matches("/v1/sync/blobs/");
+            if hex(&body) != hash {
+                ("400 Bad Request", vec![])
+            } else {
+                store.uploaded.fetch_add(body.len() as u64, Ordering::SeqCst);
+                store.blobs.lock().unwrap().insert(hash.to_string(), body);
+                ("200 OK", b"{}".to_vec())
+            }
+        }
+        ("GET", path) => {
+            let hash = path.trim_start_matches("/v1/sync/blobs/");
+            match store.blobs.lock().unwrap().get(hash) {
+                Some(blob) => ("200 OK", blob.clone()),
+                None => ("404 Not Found", vec![]),
+            }
+        }
+        _ => ("404 Not Found", vec![]),
+    };
+    let head = format!(
+        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        reply.len()
+    );
+    let _ = connection.write_all(head.as_bytes());
+    let _ = connection.write_all(&reply);
+}
+
+/// Bytes that do not compress, so a bundle carrying them is past the store's 1 MiB floor.
+fn noise(seed: u64, len: usize) -> Vec<u8> {
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    (0..len)
+        .map(|_| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state >> 24) as u8
+        })
+        .collect()
+}
+
+impl World {
+    /// An unpushed commit of a 3 MiB file the remote lacks, so the bundle carries it.
+    fn commit_big_file(&self) {
+        std::fs::create_dir_all(self.work.join("assets")).unwrap();
+        std::fs::write(self.work.join("assets/model.bin"), noise(11, 3 * 1024 * 1024)).unwrap();
+        git(&self.work, &["add", "assets/model.bin"]);
+        git(&self.work, &["commit", "-q", "-m", "big"]);
+    }
+
+    /// A full seed push, through the store at `origin` when given (`--store`).
+    fn push_through(&self, remote: &Path, origin: Option<&str>) -> (bool, Value, Vec<Value>) {
+        let mut args = vec!["push", "--socket", self.socket.to_str().unwrap()];
+        args.extend([self.work.to_str().unwrap(), remote.to_str().unwrap()]);
+        match origin {
+            Some(origin) => {
+                args.extend(["--store", origin]);
+                self.seed_with_stdin(&args, &format!("{CREDENTIAL}\n"))
+            }
+            None => self.seed(&args),
+        }
+    }
 }
 
 /// Every file below `root` but `.git`, by relative path.
@@ -238,14 +445,16 @@ fn a_full_seed_then_deltas_carry_the_working_state() {
     expected.retain(|path, _| path != ".env" && !path.starts_with("node_modules/"));
     assert_eq!(files(&remote), expected);
     // No bundle is left beside the folder; only the folder's repository sync barrier stays
-    // (`cmux_git::sync_barrier`: never unlinked, so a later seed and agent writes share its lock).
+    // (`cmux_git::sync_barrier`: never unlinked, so a later seed and agent writes share its lock),
+    // with its head and owner locks (#38084), never unlinked either.
     let mut left: Vec<_> = std::fs::read_dir(w.home.join("work"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     left.sort();
     let barrier = format!(".cmux-sync-{:x}", sha2::Sha256::digest(b"widget"));
-    assert_eq!(left, [barrier.as_str(), "widget"], "{left:?}");
+    let (head, owner) = (format!("{barrier}.head"), format!("{barrier}.owner"));
+    assert_eq!(left, [barrier.as_str(), head.as_str(), owner.as_str(), "widget"], "{left:?}");
 
     // A change since: only it goes.
     write(&w.work.join("notes/todo.md"), "untracked, edited\n");
@@ -266,6 +475,72 @@ fn a_full_seed_then_deltas_carry_the_working_state() {
     assert_eq!(same["unchanged"], json!(true), "{same}");
     assert_eq!(same["bundle_bytes"], json!(0));
     assert_eq!(w.writes.load(Ordering::SeqCst), before, "an unchanged delta uploaded");
+}
+
+#[test]
+fn a_stash_only_delta_moves_both_creation_and_deletion_without_touching_work() {
+    let w = World::new(Serves::Seed);
+    let remote = w.remote("widget");
+    let (ok, first, _) = w.push(&w.work, &remote, false);
+    assert!(ok && first["mode"] == "seed", "{first}");
+
+    // Neither HEAD, index, nor worktree changes: only refs/stash does.
+    write(&w.work.join("README.md"), "stashed on the mac\n");
+    git(&w.work, &["stash", "push", "-q", "-m", "move-me"]);
+    let stash = git(&w.work, &["rev-parse", "refs/stash"]);
+    let (ok, delta, _) = w.push(&w.work, &remote, true);
+    assert!(ok && delta["mode"] == "delta" && delta["unchanged"] == false, "{delta}");
+    assert!(delta["bundle_bytes"].as_u64().unwrap() > 0, "{delta}");
+    assert_eq!(git(&remote, &["rev-parse", "refs/stash"]), stash);
+    let (ok, stable, _) = w.push(&w.work, &remote, true);
+    assert!(ok && stable["unchanged"] == true && stable["bundle_bytes"] == 0, "{stable}");
+
+    // Stash deletion also needs a bundle, even though Git has no new object
+    // after the deletion. The synthetic marker is transient on the machine.
+    git(&w.work, &["update-ref", "-d", "refs/stash"]);
+    let (ok, removed, _) = w.push(&w.work, &remote, true);
+    assert!(ok && removed["unchanged"] == false, "{removed}");
+    assert!(removed["bundle_bytes"].as_u64().unwrap() > 0, "{removed}");
+    let ref_exists = |name: &str| {
+        Command::new("git")
+            .arg("-C")
+            .arg(&remote)
+            .args(["show-ref", "--verify", "--quiet", name])
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(!ref_exists("refs/stash"), "the Cloud machine kept a removed stash");
+    assert!(!ref_exists("refs/cmux-seed-incoming/stash-cleared"), "the marker was retained");
+    assert_eq!(git(&remote, &["rev-parse", "HEAD"]), git(&w.work, &["rev-parse", "HEAD"]));
+    assert_eq!(std::fs::read(remote.join("README.md")).unwrap(), b"widget\n");
+    let (ok, stable, _) = w.push(&w.work, &remote, true);
+    assert!(ok && stable["unchanged"] == true && stable["bundle_bytes"] == 0, "{stable}");
+}
+
+#[test]
+fn a_big_untracked_file_reaches_the_machine_and_one_past_the_cap_is_named() {
+    // RFD 0066 piece 4: an untracked file over 5 MiB used to stay on the Mac unsaid.
+    let w = World::new(Serves::Seed);
+    let model = noise(7, 6 * 1024 * 1024);
+    std::fs::create_dir_all(w.work.join("assets")).unwrap();
+    std::fs::write(w.work.join("assets/model.bin"), &model).unwrap();
+    // Past the one-file cap (100 MB); sparse, so the test writes nothing.
+    std::fs::File::create(w.work.join("assets/huge.bin")).unwrap().set_len(100_000_001).unwrap();
+    let remote = w.remote("widget");
+
+    let (ok, seeded, _) = w.push(&w.work, &remote, false);
+    assert!(ok, "{seeded}");
+    assert_eq!(seeded["mode"], json!("seed"), "{seeded}");
+    assert!(seeded["bundle_bytes"].as_u64().unwrap() > model.len() as u64, "{seeded}");
+    assert_eq!(std::fs::read(remote.join("assets/model.bin")).unwrap(), model);
+    assert!(!remote.join("assets/huge.bin").exists());
+    let skipped = seeded["skipped_files"].as_array().unwrap();
+    let huge = skipped.iter().find(|item| item["path"] == json!("assets/huge.bin"));
+    let huge = huge.unwrap_or_else(|| panic!("huge.bin not named: {seeded}"));
+    assert_eq!(huge["kind"], json!("big"), "{seeded}");
+    assert!(huge["why"].as_str().unwrap().contains("(100 MB)"), "{seeded}");
+    assert!(!skipped.iter().any(|item| item["path"] == json!("assets/model.bin")), "{seeded}");
 }
 
 #[test]
@@ -331,6 +606,52 @@ fn folders_that_cannot_be_seeded_are_copied_and_say_why() {
     assert!(w.remote("gitlab").join(".git").is_dir());
 }
 
+/// `--seed-only` (the App's chat start): a folder the seed cannot take is
+/// refused in words, with what a copy would send, and nothing goes to the
+/// machine; the person then picks the copy or not. RED before the flag: a
+/// chat start copied a 12.8 GB folder without asking when the seed was
+/// refused (a submodule with local work), and the machine's disk ran out.
+#[test]
+fn seed_only_refuses_instead_of_copying_and_says_what_a_copy_would_send() {
+    let w = World::new(Serves::Seed);
+    let plain = w.root.join("plain");
+    write(&plain.join("a.txt"), "a\n");
+    write(&plain.join("b.txt"), "bb\n");
+    let remote = w.remote("plain");
+    let socket = w.socket.to_str().unwrap();
+    let (ok, refused, _) = w.seed(&[
+        "push",
+        "--seed-only",
+        "--socket",
+        socket,
+        plain.to_str().unwrap(),
+        remote.to_str().unwrap(),
+    ]);
+    assert!(!ok, "{refused}");
+    assert_eq!(refused["error_code"], json!("seed_refused"), "{refused}");
+    assert_eq!(refused["fallback_code"], json!("not_git"), "{refused}");
+    assert_eq!(refused["copy_files"], json!(2), "{refused}");
+    assert_eq!(refused["copy_bytes"], json!(5), "{refused}");
+    let error = refused["error"].as_str().unwrap();
+    assert!(error.contains("is not a git working copy"), "{error}");
+    assert!(error.contains("2 files (5 bytes)"), "{error}");
+    assert!(!remote.exists(), "--seed-only copied");
+    assert_eq!(w.writes.load(Ordering::SeqCst), 0, "a file went");
+
+    // A folder the seed takes goes as before.
+    let widget = w.remote("widget");
+    let (ok, seeded, _) = w.seed(&[
+        "push",
+        "--seed-only",
+        "--socket",
+        socket,
+        w.work.to_str().unwrap(),
+        widget.to_str().unwrap(),
+    ]);
+    assert!(ok, "{seeded}");
+    assert_eq!(seeded["mode"], json!("seed"), "{seeded}");
+}
+
 #[test]
 fn a_repository_the_machine_cannot_clone_is_copied_and_leaves_nothing_behind() {
     let w = World::new(Serves::Seed);
@@ -361,7 +682,7 @@ fn a_clone_failure_fallback_does_not_copy_newly_skipped_secret_blobs() {
             .args(["cat-file", "-e", &format!("{secret_id}^{{blob}}")])
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .stderr(std::process::Stdio::null())
+            .stderr(Stdio::null())
             .status()
             .unwrap()
             .success()
@@ -418,4 +739,281 @@ fn seed_clone_checks_out_a_repository_with_no_folder_here() {
         w.seed(&["clone", "--socket", socket, "--repo", "acme/nothing", missing.to_str().unwrap()]);
     assert!(!ok);
     assert_eq!(failed["error_code"], json!("seed.clone_failed"), "{failed}");
+}
+
+/// A folder no seed can take: the head (`README.md`, `CLAUDE.md`, `.claude/`, and
+/// `app/`'s own files for a chat in `app`) and three files past it.
+fn plain_project(root: &Path) -> PathBuf {
+    let plain = root.join("plain");
+    write(&plain.join("README.md"), "read me\n");
+    write(&plain.join("CLAUDE.md"), "be kind\n");
+    write(&plain.join(".claude/skills/s/SKILL.md"), "a skill\n");
+    write(&plain.join("app/notes.md"), "notes\n");
+    write(&plain.join("src/a.rs"), "fn a() {}\n");
+    write(&plain.join("src/b.rs"), "fn b() {}\n");
+    write(&plain.join("app/src/c.rs"), "fn c() {}\n");
+    plain
+}
+
+#[test]
+fn a_held_copy_answers_at_its_head_and_the_rest_follows_under_the_barrier() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    let remote = w.remote("plain");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "app");
+    assert!(ok, "{copied}");
+    assert_eq!(copied["mode"], json!("copy"), "{copied}");
+    assert_eq!(copied["filling"], json!(true), "{copied}");
+    // The answer counts the head alone: the root's two files, the skill and app's own one.
+    assert_eq!(copied["copy"]["written"], json!(4), "{copied}");
+    // The rest lands while every tool waits, then the folder reads ready, whole.
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    let landed = files(&remote);
+    // The project's seven files, and the copy's own record of them.
+    assert_eq!(landed.len(), 8, "{:?}", landed.keys());
+    assert!(landed.contains_key(".cmux-sync.json"));
+    assert_eq!(std::fs::read_to_string(remote.join("app/src/c.rs")).unwrap(), "fn c() {}\n");
+    // A --since-last waits for the hold's job, then re-pushes only what changed.
+    write(&plain.join("src/d.rs"), "fn d() {}\n");
+    let (ok, again, _) = w.push(&plain, &remote, true);
+    assert!(ok, "{again}");
+    assert!(again.get("filling").is_none(), "{again}");
+    assert_eq!(again["copy"]["written"], json!(1), "{again}");
+    assert_eq!(again["copy"]["unchanged"], json!(7), "{again}");
+    // The head left no snapshot of its own: an undo to it would delete what it left out.
+    let history = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        .env("CMUX_TUI_STATE_DIR", w.root.join("state"))
+        .args(["link", "sync", "history"])
+        .args([&plain, &remote])
+        .output()
+        .unwrap();
+    let history: Value = serde_json::from_slice(&history.stdout).unwrap();
+    let snapshots = history["snapshots"].as_array().unwrap();
+    let files: Vec<usize> = snapshots
+        .iter()
+        .map(|snapshot| snapshot["files"].as_u64().unwrap_or_default() as usize)
+        .collect();
+    assert_eq!(snapshots.len(), 2, "the copy and the --since-last: {history}");
+    assert!(files.iter().all(|&count| count >= 7), "every snapshot is whole: {history}");
+}
+
+#[test]
+fn a_held_head_takes_what_its_links_point_at() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    // The instructions live in docs/, outside any head; the link to them is in the head.
+    std::fs::remove_file(plain.join("CLAUDE.md")).unwrap();
+    write(&plain.join("docs/instructions.md"), "be kind\n");
+    std::os::unix::fs::symlink("docs/instructions.md", plain.join("CLAUDE.md")).unwrap();
+    let remote = w.remote("plain");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "app");
+    assert!(ok, "{copied}");
+    assert_eq!(copied["filling"], json!(true), "{copied}");
+    // README.md, the skill, app's own file, the link and what it names: all before the answer.
+    assert_eq!(copied["copy"]["written"], json!(5), "{copied}");
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(std::fs::read_to_string(remote.join("CLAUDE.md")).unwrap(), "be kind\n");
+}
+
+#[test]
+fn a_held_head_link_through_other_links_lands_whole() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    // `..` after a link climbs from where that link leads: CLAUDE.md is other/instructions.md.
+    std::fs::remove_file(plain.join("CLAUDE.md")).unwrap();
+    write(&plain.join("other/instructions.md"), "be kind\n");
+    write(&plain.join("other/deep/more.md"), "more\n");
+    std::fs::create_dir_all(plain.join("paths")).unwrap();
+    std::os::unix::fs::symlink("../other/deep", plain.join("paths/redirect")).unwrap();
+    std::os::unix::fs::symlink("paths/redirect/../instructions.md", plain.join("CLAUDE.md"))
+        .unwrap();
+    let remote = w.remote("plain");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "app");
+    assert!(ok, "{copied}");
+    // Whatever went first, the chat's instructions are there once the folder reads ready.
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(60)).unwrap();
+    assert_eq!(std::fs::read_to_string(remote.join("CLAUDE.md")).unwrap(), "be kind\n");
+}
+
+#[test]
+fn a_held_head_that_would_start_mcp_servers_is_copied_whole_before_the_answer() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    write(&plain.join(".mcp.json"), "{}\n");
+    let remote = w.remote("plain");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "");
+    assert!(ok, "{copied}");
+    assert!(copied.get("filling").is_none(), "{copied}");
+    // The head went first, so the whole copy after it finds those four unchanged.
+    assert_eq!(copied["copy"]["written"], json!(4), "{copied}");
+    assert_eq!(copied["copy"]["unchanged"], json!(4), "{copied}");
+    // Ready already; a wait only rides out another test's fork holding a copy of a lock.
+    cmux_git::sync_barrier::wait_ready(&remote, std::time::Duration::from_secs(10)).unwrap();
+}
+
+#[test]
+fn a_git_folder_no_seed_can_take_gets_the_plain_copy() {
+    let w = World::new(Serves::Hold);
+    // In git, with no GitHub remote: a head would hold a partial `.git`.
+    git(&w.work, &["remote", "set-url", "origin", "https://gitlab.com/acme/widget.git"]);
+    let remote = w.remote("gitlab");
+    let (ok, copied) = w.push_head_first(&w.work, &remote, "");
+    assert!(ok, "{copied}");
+    assert_eq!(copied["fallback_code"], json!("not_github"), "{copied}");
+    assert!(copied.get("filling").is_none(), "{copied}");
+    assert!(remote.join(".git").is_dir());
+}
+
+#[test]
+fn a_folder_the_machine_already_has_gets_the_plain_copy() {
+    let w = World::new(Serves::Hold);
+    let plain = plain_project(&w.root);
+    let remote = w.remote("plain");
+    write(&remote.join("theirs.txt"), "the machine's\n");
+    let (ok, copied) = w.push_head_first(&plain, &remote, "");
+    assert!(ok, "{copied}");
+    assert!(copied.get("filling").is_none(), "{copied}");
+    assert_eq!(copied["copy"]["written"], json!(7), "{copied}");
+    assert_eq!(std::fs::read_to_string(remote.join("theirs.txt")).unwrap(), "the machine's\n");
+}
+
+#[test]
+fn a_seed_bundle_goes_through_the_store_when_the_machine_fetches_from_it() {
+    let w = World::new(Serves::Fetch);
+    w.commit_big_file();
+    let (origin, store) = serve_store();
+    let remote = w.remote("widget");
+
+    let (ok, seeded, progress) = w.push_through(&remote, Some(&origin));
+    assert!(ok, "{seeded}");
+    assert_eq!(seeded["mode"], json!("seed"), "{seeded}");
+    let bundle = seeded["bundle_bytes"].as_u64().unwrap();
+    assert!(bundle >= 1024 * 1024, "the bundle is under the store's floor: {seeded}");
+    // The bundle's bytes went up to the store and the machine fetched them:
+    // none of it crossed the link as `fs.write`.
+    assert!(store.uploaded.load(Ordering::SeqCst) >= bundle, "{seeded}");
+    assert_eq!(w.bundle_writes.load(Ordering::SeqCst), 0, "the bundle went over the link");
+    assert!(
+        !progress.iter().any(|line| line["store"]["used"] == json!(false)),
+        "the store was refused: {progress:?}"
+    );
+    // The seed itself is whole: the branch at HEAD and the tree.
+    assert_eq!(git(&remote, &["rev-parse", "HEAD"]), git(&w.work, &["rev-parse", "HEAD"]));
+    assert_eq!(files(&remote), files(&w.work));
+}
+
+#[test]
+fn a_seed_bundle_goes_over_the_link_without_a_store_or_a_machine_that_fetches_from_it() {
+    // A machine without `blob-fetch-v2`, with the store on; and a machine
+    // that fetches, with no store: both get the bundle over the link.
+    for (serves, store_on) in [(Serves::Seed, true), (Serves::Fetch, false)] {
+        let w = World::new(serves);
+        w.commit_big_file();
+        let (origin, store) = serve_store();
+        let remote = w.remote("widget");
+
+        let (ok, seeded, _) = w.push_through(&remote, store_on.then_some(origin.as_str()));
+        assert!(ok, "{seeded}");
+        assert_eq!(seeded["mode"], json!("seed"), "{seeded}");
+        assert!(seeded["bundle_bytes"].as_u64().unwrap() >= 1024 * 1024, "{seeded}");
+        assert_eq!(store.uploaded.load(Ordering::SeqCst), 0, "the store got the bundle");
+        assert!(w.bundle_writes.load(Ordering::SeqCst) > 0, "the bundle never crossed the link");
+        assert_eq!(git(&remote, &["rev-parse", "HEAD"]), git(&w.work, &["rev-parse", "HEAD"]));
+        assert_eq!(files(&remote), files(&w.work));
+    }
+}
+
+impl World {
+    /// `cmux link start-chat copy` of `local` with the chat at `subpath`, projection on (the
+    /// default): its answer line, and the `git.seed.start` lines it sent.
+    fn start_chat(&self, local: &Path, subpath: &str, extra: &[&str]) -> (Value, Vec<String>) {
+        let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .env("CMUX_TUI_STATE_DIR", self.root.join("state"))
+            .env("CMUX_PROJECTED_FOLDERS", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(["link", "start-chat", "copy", "--account", "leo", "--machine", "vm-a"])
+            .args(["--key", "0b0a0b0a-0b0a-4908-8706-0b0a0b0a0b0a"])
+            .arg("--socket")
+            .arg(&self.socket)
+            .arg("--local")
+            .arg(local)
+            .arg("--subpath")
+            .arg(subpath)
+            .arg("--work-root")
+            .arg(self.home.join("work"))
+            .args(extra)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let answer = stdout
+            .lines()
+            .rev()
+            .find_map(|line| serde_json::from_str::<Value>(line).ok())
+            .unwrap_or(Value::Null);
+        assert_eq!(
+            answer["ok"],
+            json!(true),
+            "start-chat copy: {stdout}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        (answer, self.starts.lock().unwrap().clone())
+    }
+}
+
+/// A machine without `projection-v1` (every one whose image predates it) gets the start's
+/// folder as before projection: a seed that asks for the chat's head first, so the chat opens
+/// while the machine fills the rest, never after the whole copy. The App's asking start
+/// (`--on-seed-refusal ask`) the same.
+#[test]
+fn a_start_the_machine_cannot_project_seeds_its_head_first_with_the_chats_subpath() {
+    for extra in [&[][..], &["--on-seed-refusal", "ask"][..]] {
+        let w = World::new(Serves::Seed);
+        write(&w.work.join("src/app/main.rs"), "fn main() {}\n");
+        // Off the head: the machine fills it after the chat opens.
+        write(&w.work.join("docs/guide.md"), "guide\n");
+        git(&w.work, &["add", "-A"]);
+        git(&w.work, &["commit", "-q", "-m", "app"]);
+        let (answer, starts) = w.start_chat(&w.work, "src/app", extra);
+        assert_eq!(answer["mode"], json!("seed"), "{extra:?}: {answer}");
+        assert_eq!(starts.len(), 1, "{starts:?}");
+        let start: Value = serde_json::from_str(&starts[0]).unwrap();
+        let params = if start.get("head_first").is_some() { &start } else { &start["params"] };
+        assert_eq!(params["head_first"], json!(true), "{extra:?}: {start}");
+        assert_eq!(params["subpath"], json!("src/app"), "{extra:?}: {start}");
+        // The whole folder is there once the fill is done.
+        let folder = PathBuf::from(answer["folder"].as_str().unwrap());
+        assert!(answer["chat"].as_str().unwrap().ends_with("/widget/src/app"), "{answer}");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        while !folder.join("docs/guide.md").exists() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        let read = |path: &str| std::fs::read_to_string(folder.join(path)).unwrap();
+        assert_eq!(read("src/app/main.rs"), "fn main() {}\n");
+        assert_eq!(read("docs/guide.md"), "guide\n");
+    }
+}
+
+/// LFS in a folder off the chat's path (`extensions/models/.gitattributes`) no
+/// longer keeps the seed from opening at its head; LFS that can name a head file still does.
+#[test]
+fn only_lfs_that_can_reach_the_head_keeps_a_start_from_its_head() {
+    for (attributes, head_first) in
+        [("extensions/models/.gitattributes", true), (".gitattributes", false)]
+    {
+        let w = World::new(Serves::Seed);
+        write(&w.work.join(attributes), "*.png filter=lfs diff=lfs merge=lfs -text\n");
+        git(&w.work, &["add", "-A"]);
+        git(&w.work, &["commit", "-q", "-m", "lfs"]);
+        let (answer, starts) = w.start_chat(&w.work, "src", &[]);
+        assert_eq!(answer["mode"], json!("seed"), "{attributes}: {answer}");
+        let start: Value = serde_json::from_str(&starts[0]).unwrap();
+        let params = if start.get("lfs").is_some() { &start } else { &start["params"] };
+        assert_eq!(params["lfs"], json!(true), "{attributes}: {start}");
+        assert_eq!(
+            params.get("head_first").is_some_and(|asked| asked == true),
+            head_first,
+            "{attributes}: {start}"
+        );
+    }
 }

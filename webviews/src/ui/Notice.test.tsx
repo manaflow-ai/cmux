@@ -204,6 +204,56 @@ test("a toast times out, but not while the stack is hovered, and gets its full t
   expect(live()).toHaveLength(0);
 });
 
+test("toasts shown at once stack, and each fades on its own timer, oldest first", () => {
+  // Leo, 2026-11-07: "They have stacked toasts." Three toasts a second apart rest together in the
+  // stack; each leaves when its own time is up, not all at once and not after the last one's.
+  let clock = 0;
+  const armed: { fire(): void; ms: number; live: boolean }[] = [];
+  const arm = (fire: () => void, ms: number) => {
+    const timer = { fire, ms, live: true };
+    armed.push(timer);
+    return () => {
+      timer.live = false;
+    };
+  };
+  const live = () => armed.filter((timer) => timer.live);
+  const queue = createNoticeQueue();
+  const closed: string[] = [];
+  const show = (id: string) =>
+    act(() => {
+      queue.show({ id, message: `Toast ${id}`, duration: 4000, onClose: (reason) => closed.push(`${id}:${reason}`) });
+    });
+  show("a");
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" now={() => clock} arm={arm} />);
+  clock = 1000;
+  show("b");
+  clock = 2000;
+  show("c");
+  const ids = () => queue.snapshot().map((entry) => entry.spec.id);
+  expect(ids()).toEqual(["a", "b", "c"]);
+  expect(doc.querySelectorAll(".ui-notice-stack .ui-notice")).toHaveLength(3);
+  // One timer, for the oldest: due at 4000, armed at 2000.
+  expect(live().map((timer) => timer.ms)).toEqual([2000]);
+
+  clock = 4000;
+  act(() => live()[0]!.fire());
+  expect(ids()).toEqual(["b", "c"]);
+  expect(doc.querySelectorAll(".ui-notice-stack .ui-notice")).toHaveLength(2);
+  // b's own time (shown at 1000) is up at 5000, not 4000 after a left.
+  expect(live().map((timer) => timer.ms)).toEqual([1000]);
+
+  clock = 5000;
+  act(() => live()[0]!.fire());
+  expect(ids()).toEqual(["c"]);
+  expect(live().map((timer) => timer.ms)).toEqual([1000]);
+
+  clock = 6000;
+  act(() => live()[0]!.fire());
+  expect(ids()).toEqual([]);
+  expect(live()).toHaveLength(0);
+  expect(closed).toEqual(["a:timeout", "b:timeout", "c:timeout"]);
+});
+
 test("the same toast shown again is one toast with a count, moved to the newest place", () => {
   const queue = createNoticeQueue();
   const closed: string[] = [];
@@ -241,20 +291,20 @@ test("the stacked deck puts the newest in front and spreads while hovered", () =
   for (const message of ["one", "two", "three"]) queue.show({ message, duration: 0 });
   const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" />);
   const cards = () => [...doc.querySelectorAll<HTMLElement>(".ui-notice-deck-card")];
-  // Newest first in the DOM: Tab reaches the front toast first.
-  expect(cards().map((card) => card.textContent)).toEqual(["three", "two", "one"]);
-  expect(cards()[0]!.hasAttribute("data-front")).toBe(true);
+  // In screen order: a bottom deck grows upward, so the front (newest) toast is last in the DOM.
+  expect(cards().map((card) => card.textContent)).toEqual(["one", "two", "three"]);
+  expect(cards()[2]!.hasAttribute("data-front")).toBe(true);
   const deck = doc.querySelector('.ui-notice-anchor[data-anchor="bottom"] > .ui-notice-deck')!;
   expect(deck.hasAttribute("data-expanded")).toBe(false);
   // Gathered: each older card a step back and smaller.
-  expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["1", "0.95", "0.9"]);
+  expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["0.9", "0.95", "1"]);
   act(() => {
-    cards()[0]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+    cards()[2]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
   });
   expect(deck.hasAttribute("data-expanded")).toBe(true);
   expect(cards().map((card) => card.style.getPropertyValue("--ui-notice-deck-scale"))).toEqual(["1", "1", "1"]);
   act(() => {
-    cards()[0]!.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: doc.body }));
+    cards()[2]!.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: doc.body }));
   });
   expect(deck.hasAttribute("data-expanded")).toBe(false);
 });
@@ -267,9 +317,9 @@ test("a gathered deck's older cards are inert and hidden from assistive tech unt
   const concealed = () =>
     cards().map((card) => card.hasAttribute("inert") && card.getAttribute("aria-hidden") === "true");
   // Gathered: only the front card can be reached; focusing it spreads the deck.
-  expect(concealed()).toEqual([false, true, true]);
+  expect(concealed()).toEqual([true, true, false]);
   act(() => {
-    cards()[0]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+    cards()[2]!.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
   });
   expect(concealed()).toEqual([false, false, false]);
 });
@@ -281,8 +331,8 @@ test("a new toast enters the deck's front; a closed one leaves (at once with no 
   act(() => void queue.show({ id: "b", message: "b", duration: 0 }));
   const cards = () => [...doc.querySelectorAll<HTMLElement>(".ui-notice-deck-card")];
   expect(cards().map((card) => [card.textContent, card.dataset.phase])).toEqual([
-    ["b", "shown"],
     ["a", "shown"],
+    ["b", "shown"],
   ]);
   act(() => queue.close("b"));
   // A test document runs no transition, so the leaving card goes in the same commit.
@@ -314,7 +364,8 @@ test("in the deck, a toast's time stops while hovered, and a persistent toast's 
   const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" now={() => clock} arm={arm} />);
   // Only the timed toast arms a timer; the persistent one never does.
   expect(live().map((timer) => timer.ms)).toEqual([4000]);
-  const stack = doc.querySelector(".ui-notice-stack")!;
+  // The pointer is on a toast, so in its deck.
+  const stack = doc.querySelector(".ui-notice-deck-card")!;
   act(() => {
     stack.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
   });
@@ -367,4 +418,44 @@ test("a held toast never times out, and one dragged past the edge is closed", ()
   pointer("pointerup", 2000, 90);
   expect(reasons).toEqual(["closed"]);
   expect(queue.snapshot()).toHaveLength(0);
+});
+
+test("a hovered deck at a top anchor (drawn in another host) keeps its toast's time stopped through a queue update", () => {
+  const armed: { fire(): void; ms: number; live: boolean }[] = [];
+  const arm = (fire: () => void, ms: number) => {
+    const timer = { fire, ms, live: true };
+    armed.push(timer);
+    return () => {
+      timer.live = false;
+    };
+  };
+  const live = () => armed.filter((timer) => timer.live);
+  const queue = createNoticeQueue();
+  queue.show({ id: "top", message: "Copied.", duration: 4000, anchor: "top" });
+  const doc = render(<main id="surface" />);
+  const host = doc.createElement("div");
+  doc.body.append(host);
+  act(() =>
+    root!.render(<NoticeStack queue={queue} dismissLabel="Dismiss" layout="stacked" topHost={host} arm={arm} />),
+  );
+  const card = host.querySelector<HTMLElement>('.ui-notice-anchor[data-anchor="top"] .ui-notice-deck-card')!;
+  act(() => {
+    card.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true, relatedTarget: doc.body }));
+  });
+  expect(live()).toHaveLength(0);
+  // Another toast arrives at the bottom while the pointer stays on the top one.
+  act(() => void queue.show({ id: "bottom", message: "Archived.", duration: 0 }));
+  expect(live()).toHaveLength(0);
+});
+
+test("a named stack is a region landmark, so a person can reach the toasts from anywhere", () => {
+  const queue = createNoticeQueue();
+  queue.show({ message: "Copied the link." });
+  const doc = render(<NoticeStack queue={queue} dismissLabel="Dismiss" label="Notifications" />);
+  const stack = doc.querySelector(".ui-notice-stack")!;
+  expect(stack.getAttribute("role")).toBe("region");
+  expect(stack.getAttribute("aria-label")).toBe("Notifications");
+  // A region with no name is no landmark: an unnamed stack stays a plain box.
+  const plain = render(<NoticeStack queue={queue} dismissLabel="Dismiss" />).querySelector(".ui-notice-stack")!;
+  expect(plain.hasAttribute("role")).toBe(false);
 });

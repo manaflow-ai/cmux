@@ -16,8 +16,16 @@ extension TabStripView: TabDropTargetProviding {
         return TabDropProposal(
             kind: .strip(stripID: target.stripID, index: target.index, groupID: target.groupID?.rawValue),
             highlightFrame: target.ghostFrame,
-            ghostFrame: target.ghostFrame
+            ghostFrame: target.ghostFrame,
+            ghostSpan: tabsScreenSpan
         )
+    }
+
+    /// The tabs area's horizontal span on screen: where an inline drag ghost may draw.
+    var tabsScreenSpan: ClosedRange<CGFloat>? {
+        guard let window else { return nil }
+        let frame = window.convertToScreen(tabsClip.convert(tabsClip.bounds, to: nil))
+        return frame.width > 0 ? frame.minX...frame.maxX : nil
     }
 
     public func dropExited() {

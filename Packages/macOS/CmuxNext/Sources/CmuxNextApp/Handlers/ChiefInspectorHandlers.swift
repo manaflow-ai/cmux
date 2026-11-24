@@ -4,7 +4,9 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import CmuxNextWindowRules
+import typealias CmuxNextBridge.StripTabID
 import Foundation
 import Observation
 
@@ -37,7 +39,9 @@ enum ChiefInspectorHandlers {
         context.services.pages.register(remotePage)
         let memory = ChiefMemoryPageService(services: context.services)
         context.services.pages.register(memory)
-        registry.bind(actionID, run: { invocation in
+        ChiefComputerPages.bind(into: registry, context: context)
+        // Not offered when the web fallback has no Chief to read here or on a paired server (as `chief.openUsage`).
+        registry.bind(actionID, unavailable: { opensWebPage && !HomeBrainHost.canStart() && remoteChief(context) == nil ? ChiefInspectorStrings.noLocalChief : nil }, run: { invocation in
             if opensWebPage {
                 try openWeb(invocation, remotePage: remotePage, context: context)
                 return
@@ -189,7 +193,9 @@ enum ChiefInspectorHandlers {
     /// Shows and selects the tab of `surface` once the mirror reports it.
     private static func reveal(_ surface: SurfaceID, context: AppActionContext) async {
         let located = try? await ControlDeadline.shared.run(method: "chief-inspector.reveal", deadline: .now + .seconds(5)) { @MainActor in
-            for await tab in ObservationStream({ context.allTabs.first { $0.tab.surface == surface } }) {
+            for await tab in ObservationStream({
+                context.daemon.store.locatedTab(surface: surface).map { LocatedTab(tab: $0.tab, pane: $0.pane, workspace: $0.workspace) }
+            }) {
                 if let tab { return tab }
             }
             return nil as LocatedTab?
@@ -277,20 +283,95 @@ nonisolated struct ChiefInspectorEndpoint: Decodable, Equatable, Sendable {
 
 enum ChiefInspectorStrings {
     static var pageTitle: String {
-        String(localized: "handlers.chief.inspector.pageTitle", defaultValue: "Chief Memory", table: "MiscHandlers", bundle: .module)
+        String(localized: "handlers.chief.inspector.pageTitle", defaultValue: "Chief Memory", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var serverOffline: String {
         String(localized: "handlers.chief.inspector.serverOffline",
-               defaultValue: "The server with this Chief is not connected.", table: "MiscHandlers", bundle: .module)
+               defaultValue: "The server with this Chief is not connected.", table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var noLocalChief: String {
         String(localized: "handlers.chief.inspector.noLocalChief",
-               defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Home), then try again.",
-               table: "MiscHandlers", bundle: .module)
+               defaultValue: "The Memory Inspector shows a Chief that runs on this Mac. Start the Chief (send it a message in Chief), then try again.",
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
     }
     static var unreachable: String {
         String(localized: "handlers.chief.inspector.unreachable",
                defaultValue: "The Chief's Memory Inspector did not answer. Restart cmux to restart the Chief, then try again.",
-               table: "MiscHandlers", bundle: .module)
+               table: "MiscHandlers", bundle: .module.inAppLanguage)
+    }
+}
+
+extension InternalPageID {
+    /// The Chief's profile page with its computer (cmux issue 31488): one pane tab per conversation.
+    nonisolated static let chiefComputer = InternalPageID(rawValue: "chief-computer")
+}
+
+/// The Chief's large computer pages (CmuxNextHostedChief's ChiefComputerPages) as the pane beside Home's
+/// internal page. The settings popover's Expand and the palette's Chief: Toggle Computer open them.
+extension ChiefComputerPages: InternalPageProvider {
+    var page: InternalPageID { .chiefComputer }
+    var title: String { HomeEngineStrings.computerPageTitle }
+    var symbol: String { "desktopcomputer" }
+    func makeView(for key: String, in window: WindowController?) -> NSView { makeView(for: key) }
+
+    static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let service = ChiefComputerPages(host: context.services)
+        service.onClose = { [weak service, weak services = context.services] in
+            if let window = services?.windows.active { _ = service?.closeShown(in: window) }
+        }
+        context.services.pages.register(service)
+        registry.bindEffect(ChiefComputerWiring.toggleActionID, requires: nil, effect: { invocation in
+            guard let window = context.services.windows.active else { return .refused(RefusalStrings.noWindowOpen) }
+            if invocation.arguments["open"]?.stringValue != "1", service.closeShown(in: window) { return .done }
+            // The palette names no conversation: the Chief Home shows first.
+            guard let conversation = invocation.arguments["conversation"]?.stringValue ?? context.services.home.defaultChiefConversation, !conversation.isEmpty,
+                  service.open(conversation, in: window, focus: invocation.allowsViewChange) != nil else {
+                return .refused(RefusalStrings.noWindowOpen)
+            }
+            return .done
+        })
+    }
+
+    @discardableResult
+    func open(_ conversation: String, in window: WindowController?, focus: Bool) -> String? {
+        guard let services = host as? AppServices, let window, let content = window.workspaceContent else { return nil }
+        for model in content.modelPanes {
+            let keys = services.pages.tabIDs(in: model.id) + model.tabs.compactMap { services.pages.storeKey(of: $0.id) }
+            if let shown = key(showing: conversation, among: keys) {
+                if focus, let pane = content.controller(for: model) {
+                    pane.select(services.pages.stripID(showing: shown, in: pane) ?? StripTabID(shown))
+                    pane.focusContent()
+                }
+                return shown
+            }
+        }
+        nextRoute = conversation
+        defer { nextRoute = nil }
+        guard services.pages.openNew(.chiefComputer, in: window, focus: focus) != nil else { return nil }
+        return key(showing: conversation)
+    }
+
+    /// Whether the workspace `window` names shows a profile tab: an observable read.
+    func isShown(in window: WindowController) -> Bool {
+        _ = window.state.workspaceID
+        guard let content = window.workspaceContent, let services = host as? AppServices else { return false }
+        let tabs = content.workspace.screens.flatMap(\.panes).flatMap(\.tabs)
+        if tabs.contains(where: { $0.page == InternalPageID.chiefComputer.rawValue }) { return true }
+        return services.pages.tab(of: .chiefComputer, inPanes: content.modelPanes.map(\.id)) != nil
+    }
+
+    /// Closes the profile tabs of the workspace `window` names; false when it shows none.
+    func closeShown(in window: WindowController) -> Bool {
+        guard let services = host as? AppServices, let content = window.workspaceContent else { return false }
+        var closed = false
+        for model in content.modelPanes {
+            guard let pane = content.controller(for: model) else { continue }
+            let store = model.tabs.filter { $0.page == InternalPageID.chiefComputer.rawValue }.map { StripTabID($0.id) }
+            let local = services.pages.tabIDs(in: model.id).filter { LocalPageTab.page(of: $0) == .chiefComputer }.map { StripTabID($0) }
+            guard !(store + local).isEmpty else { continue }
+            pane.close(store + local)
+            closed = true
+        }
+        return closed
     }
 }

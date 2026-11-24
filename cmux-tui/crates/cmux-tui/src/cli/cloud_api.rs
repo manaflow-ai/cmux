@@ -7,7 +7,7 @@
 //! read), `cmux_cloud_api::Request`'s fields:
 //!
 //! ```json
-//! {"call": "vm.resize", "api": "https://cmux.com", "auth": "stack|owner|worker",
+//! {"call": "vm.domains", "api": "https://cmux.com", "auth": "stack|owner|worker",
 //!  "credential": "…", "refresh": "…", "team": "…", "app_version": "…", "local_only": false,
 //!  "args": {…}}
 //! ```
@@ -189,6 +189,8 @@ fn failure(value: Value) -> Option<Failure> {
             message: text("message"),
             action: text("action"),
             trace_id: text("trace_id"),
+            retryable: value.get("retryable").and_then(Value::as_bool),
+            retry_after_s: value.get("retry_after_s").and_then(Value::as_u64),
         },
         "plan_required" => Failure::PlanRequired {
             message: text("message"),

@@ -2,13 +2,24 @@
 // by project. It follows the acpmux TUI sidebar (crates/acpmux/src/tui/render),
 // so a session reads the same in the terminal and in the pane.
 import { type Translate, translate } from "./i18n";
+import { withoutRelayLabel, withoutRelayLabelOfMessage } from "./conversation/relayEnvelope";
 import { readRetry, type RetryState } from "./subagents/retryState";
+import { parseSessionIcon, type HarnessIconSpec } from "../shared/harnessIcons";
+import { senderSessionName } from "./senderIdentity";
+import { replacedSince } from "./sessionIndex";
 import { type SessionUsageStats, usageStatsOf } from "./usageStats";
 
 /** A session as the sidebar sees it, cut from acpmux's session summary. */
 export type AcpmuxSessionEntry = {
   sessionId: string;
   displayTitle?: string;
+  /** The name it was given (acpmux `displayName`, "Mango"): every human-visible surface shows it
+   *  first. Absent when none was given. */
+  displayName?: string;
+  /** Its names before its renames, oldest first (acpmux `formerNames`): "fka" lines read the last. */
+  formerNames?: string[];
+  /** The icon it set (acpmux `icon`), drawn in place of its harness mark (`SessionMark`). */
+  icon?: HarnessIconSpec;
   title?: string;
   name?: string;
   harness?: string;
@@ -28,6 +39,11 @@ export type AcpmuxSessionEntry = {
   createdAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
+  /** Turns that ended while nobody showed the chat, since a person last did (`unreadTurns`). */
+  unreadTurns?: number;
+  /** The log seq the person had seen when they last left the chat (`seenSeq`): where "New since
+   *  you looked" goes. */
+  seenSeq?: number;
   /** The status dot acpmux decided (`SessionSummary.indicator`, cx-zlox); absent for none. */
   indicator?: SessionIndicator;
   /** The machine the session runs on ("This Mac", or a cloud machine's name), and which kind it is. */
@@ -50,6 +66,9 @@ export type AcpmuxSessionEntry = {
   pullRequestUrls?: string[];
   /** A line of the session's latest reply, for previews. */
   preview?: string;
+  /** Its log is in acpmux's cold archive (`coldArchive`, hub/cold_archive.rs): the row draws this
+   *  preview only, and opening the chat brings the log back. */
+  coldArchive?: ColdArchive;
   /** The latest message text from acpmux's summary, when present. */
   lastMessage?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
@@ -89,6 +108,10 @@ export type AcpmuxSessionEntry = {
    *  subsession_send.rs `waiting_on`); a summary that does not leaves it unknown. */
   waitingOn?: SessionWaiting;
   forkSeq?: number;
+  /** acpmux forks and edits it through any completed turn, not only its latest (`forksAnyTurn`:
+   *  its harness cuts a conversation at a turn, by kind, whatever its family is named). Unset
+   *  from an older acpmux. */
+  forksAnyTurn?: boolean;
   /** Completed turns, the copied ones of a fork included. */
   turnCount?: number;
   /** Nothing was sent in it yet (acpmux names no last prompt, no turn, nothing queued or waiting on
@@ -97,6 +120,9 @@ export type AcpmuxSessionEntry = {
   unsent?: boolean;
   /** Its last turn completed: its harness profile runs here (signed in, routed). */
   worked?: boolean;
+  /** When its last turn ended stopped (`lastTurn.status` `cancelled`): acpmux can carry it on from
+   *  there (subagents/resumeState.ts ``subsessionResumeRow``). */
+  stoppedAt?: number;
   /** Explicit lifecycle evidence; absent until the protocol producer supplies a validated receipt. */
   lifecycleReceipt?: LifecycleReceipt;
   /** The folder of a sub-session this chat's agent wants to start but cannot until the person trusts
@@ -113,6 +139,37 @@ export type AcpmuxSessionEntry = {
   /** What it spends: context, 24h tokens and cost, subagents (acpmux `usageStats`, usageStats.ts). */
   usageStats?: SessionUsageStats;
 };
+
+/** A cold-archived chat's preview, as acpmux keeps it in `session.json` (`ColdPreview`). */
+export type ColdArchive = {
+  archivedAt: number;
+  /** The prompts and replies its log held. */
+  messages: number;
+  bytesBefore: number;
+  bytesAfter: number;
+  /** Its last few messages, oldest first, each cut short. */
+  last: { role: string; text: string; at: number }[];
+};
+
+const coldCount = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+
+/** acpmux's `coldArchive`, else undefined. */
+export function coldArchive(value: unknown): ColdArchive | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const cold = value as Record<string, unknown>;
+  const last = (Array.isArray(cold.last) ? cold.last : []).flatMap((item) => {
+    const message = item as Record<string, unknown> | null;
+    const body = text(message?.text);
+    return body ? [{ role: text(message?.role) ?? "assistant", text: body, at: coldCount(message?.at) }] : [];
+  });
+  return {
+    archivedAt: coldCount(cold.archivedAt),
+    messages: coldCount(cold.messages),
+    bytesBefore: coldCount(cold.bytesBefore),
+    bytesAfter: coldCount(cold.bytesAfter),
+    last,
+  };
+}
 
 export type LifecycleReceipt = {
   id: string;
@@ -161,7 +218,7 @@ export function withoutChildren(entries: AcpmuxSessionEntry[]): AcpmuxSessionEnt
  * The Home inbox and the sidebar share this folding rule; acpmux may report a pending permission
  * or question before its indicator moves to "input". A lost host cannot answer its old asks.
  */
-export const folded = (entry: AcpmuxSessionEntry, parents: ReadonlySet<string>) => {
+export const folded = (entry: AcpmuxSessionEntry, parents: Pick<ReadonlySet<string>, "has">) => {
   const needsPerson =
     entry.indicator !== "lost" &&
     ((entry.pendingPermissions ?? 0) > 0 || entry.waitingOn !== undefined || entry.status === "waiting");
@@ -241,16 +298,39 @@ function doingLine(session: Record<string, any>): string | undefined {
   return step ?? tool ?? text(session.lane?.step);
 }
 
-/** What a session waits on the person for: only the person answers either, in the app. */
-export type SessionWaiting = { on: "question"; prompt?: string } | { on: "permission" };
+/** What a session waits on the person for: only the person answers any of them, in the app. acpmux
+ *  names every wait (`waitingOn`, subsession_send.rs `waiting_on`): a question, a tool's permission,
+ *  a secret's value, the password for one command as root, or an MCP server to connect. */
+export type SessionWaiting =
+  | { on: "question"; prompt?: string }
+  | { on: "permission" }
+  | { on: "secret" }
+  | { on: "elevation" }
+  | { on: "mcpConnect" };
 
 /** `waitingOn` while the session waits on the person, with a question's first prompt
  *  (`waitingPrompt`) when acpmux gives it. */
 export function sessionWaiting(session: Record<string, any>): SessionWaiting | undefined {
   if (session.waitingOn === "permission") return { on: "permission" };
+  if (session.waitingOn === "secret") return { on: "secret" };
+  if (session.waitingOn === "elevation") return { on: "elevation" };
+  if (session.waitingOn === "mcp_connect") return { on: "mcpConnect" };
   if (session.waitingOn !== "question") return undefined;
   const prompt = text(session.waitingPrompt);
   return prompt ? { on: "question", prompt } : { on: "question" };
+}
+
+/** `formerNames` as acpmux sends it (oldest first), its non-blank strings; absent for none. */
+export function formerNamesOf(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const names = value.filter((name): name is string => typeof name === "string" && name.trim() !== "");
+  return names.length > 0 ? names : undefined;
+}
+
+/** The newest of its former names ("fka claude-sr2-coord-old"), unless it is the name shown now. */
+export function formerName(entry: { formerNames?: string[]; displayTitle?: string }): string | undefined {
+  const last = entry.formerNames?.at(-1);
+  return last && last !== entry.displayTitle ? last : undefined;
 }
 
 /** What a row draws at its right edge, most urgent first. */
@@ -260,9 +340,13 @@ export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
 export function sessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
   const pending = Number(session.pendingPermissions ?? 0);
   const turn = chiefTurn(session.tags);
+  const cold = coldArchive(session.coldArchive);
   return {
     sessionId: session.sessionId,
     displayTitle: sessionTitle(session),
+    displayName: text(session.displayName),
+    formerNames: formerNamesOf(session.formerNames),
+    icon: parseSessionIcon(session.icon),
     title: session.title,
     name: session.name,
     harness: session.harness,
@@ -276,6 +360,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     createdAt: typeof session.createdAt === "number" ? session.createdAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
+    unreadTurns: count(session.unreadTurns),
+    seenSeq: count(session.seenSeq),
     indicator: INDICATORS.includes(session.indicator) ? session.indicator : undefined,
     host: text(session.host),
     peer: text(session.peer),
@@ -288,8 +374,11 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
     pullRequestUrls: pullRequestUrls(session.pullRequests),
-    preview: text(session.preview),
-    lastMessage: text(session.lastMessage?.text) ?? text(session.preview),
+    // A relayed message's text holds the broker's label for the agent (conversation/relayEnvelope.ts):
+    // a list's preview reads the message.
+    preview: shown(session.preview),
+    lastMessage: shown(session.lastMessage?.text) ?? shown(session.preview),
+    ...(cold && { coldArchive: cold }),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
     startedBy: text(session.startedBy),
@@ -307,6 +396,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     doingTool: session.lane?.state === "working" ? text(session.turn?.activity) : undefined,
     waitingOn: sessionWaiting(session),
     forkSeq: typeof session.forkSeq === "number" ? session.forkSeq : undefined,
+    ...(typeof session.forksAnyTurn === "boolean" && { forksAnyTurn: session.forksAnyTurn }),
     turnCount: typeof session.turnCount === "number" ? session.turnCount : undefined,
     unsent:
       session.lastPrompt === null &&
@@ -319,6 +409,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
       session.status !== "running" &&
       session.status !== "waiting",
     worked: session.lastTurn?.status === "completed",
+    ...(session.lastTurn?.status === "cancelled" && { stoppedAt: time(session.lastTurn.endedAt) ?? 0 }),
     lifecycleReceipt: lifecycleReceipt(session.lifecycleReceipt),
     trustPending: trustPending(session.tags),
     retry: readRetry(session.retry) ?? undefined,
@@ -328,6 +419,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   };
 }
 
+const count = (value: unknown) =>
+  typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
 const time = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
 
 /** When the person or the agent last did something in a chat, from acpmux's session summary.
@@ -410,15 +503,28 @@ export function isOpaqueName(bare: string): boolean {
 }
 
 /**
- * The title (the agent's title, else the first prompt) when the name was generated (`codex`,
+ * Its given name (acpmux `displayName`) when it has one. Else the title (the agent's title, else
+ * the first prompt) when the name was generated (`codex`,
  * `codex-3`, `codex-fork`, after the harness profile or its family), else the name the user gave. A generated
  * name is the launch profile's (`claude-sr`), so a chat with no prompt yet is a "New chat".
  */
 export function sessionTitle(
-  session: { title?: string; lastPrompt?: string; name?: string; harness?: string; family?: string; sessionId: string },
+  session: {
+    displayName?: string;
+    title?: string;
+    lastPrompt?: string;
+    name?: string;
+    peer?: string;
+    harness?: string;
+    family?: string;
+    sessionId: string;
+  },
   t: Translate = translate,
 ): string {
-  const name = session.name ?? "";
+  // The name it was given (acpmux decides it: a given handle) reads everywhere first.
+  const given = session.displayName?.trim();
+  if (given) return given;
+  const name = senderSessionName(session.name ?? "", session.peer);
   const bare = name.split("/").pop() ?? name;
   // acpmux names a session `agent` or `agent-N`, and a fork `<name>-fork`, also made unique with `-N`.
   const generatedFrom = (agent: string | undefined) =>
@@ -428,17 +534,49 @@ export function sessionTitle(
     // A name that reads as an id or a counter (`cloud-item-14`) yields to the chat's title, and
     // still beats "New chat" while it has none.
     if (!isOpaqueName(bare)) return name;
-    return session.title?.trim() || session.lastPrompt?.trim() || name;
+    return session.title?.trim() || firstPrompt(session.lastPrompt) || name;
   }
-  return session.title?.trim() || session.lastPrompt?.trim() || t("sidebar.newChat");
+  return session.title?.trim() || firstPrompt(session.lastPrompt) || t("sidebar.newChat");
 }
+
+/// How long acpmux keeps `lastPrompt` (hub/turns.rs `short_text(&line, 200)`), an ellipsis after,
+/// in characters (Rust `chars`, code points here), not UTF-16 units.
+const LAST_PROMPT_CHARS = 200;
+
+/// A chat's first prompt as its title: a lane's message the broker relayed reads as the message,
+/// never the label around it (conversation/relayEnvelope.ts). `lastPrompt` is the whole prompt on
+/// one line (acpmux hub/turns.rs), so words that only start like a label stay. One cut at acpmux's
+/// limit is a preview, which a long sender's head can run past: a head cut inside itself holds none
+/// of the message and titles nothing (cmux#38642 review).
+const firstPrompt = (prompt: string | undefined) => {
+  const line = prompt?.trim() ?? "";
+  const cut = line.endsWith("…") && Array.from(line).length > LAST_PROMPT_CHARS;
+  return (cut ? withoutRelayLabel(line) : withoutRelayLabelOfMessage(line)).trim();
+};
+
+/// A list's preview text without the broker's label; undefined when none is left.
+const shown = (value: unknown): string | undefined => {
+  const read = text(value);
+  return read === undefined ? undefined : withoutRelayLabel(read).trim() || undefined;
+};
 
 /**
  * A folderless workspace's private chat folder, `~/Library/Application Support/cmux/agent-home/<workspace-id>`
- * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE). It is not a project, so it is never shown by its id.
+ * (AGENT-CWD-FOR-FOLDERLESS-WORKSPACE), or a DEV build's own,
+ * `~/Library/Application Support/cmux-next/builds/<key>/agent-home/<workspace-id>` (BuildStatePaths `agentHome`).
+ * It is not a project, so it is never shown by its id (cmux#53226: a tagged build listed its own by UUID).
  */
 export function isAgentHome(cwd: string | undefined): boolean {
-  return /\/Library\/Application Support\/cmux\/agent-home(?:\/|$)/.test(cwd ?? "");
+  return /\/Library\/Application Support\/(?:cmux|cmux-next\/builds\/[^/]+)\/agent-home(?:\/|$)/.test(cwd ?? "");
+}
+
+/**
+ * A system temporary folder (`/tmp`, `/private/tmp`, `/var/folders`, anything under `/private/var`):
+ * a harness's scratchpad or a script's chat runs there, so it is never a project (cmux#49610: the
+ * New Tab composer started on "tmp", the folder of the newest agent chat, instead of the last one used).
+ */
+export function isTemporaryFolder(cwd: string | undefined): boolean {
+  return /^\/(?:tmp|var\/tmp|var\/folders|private\/tmp|private\/var)(?:\/|$)/.test(cwd ?? "");
 }
 
 /// The folder of the most recently used chat on this Mac (Leo 2026-10-18): where a New Tab with no
@@ -454,27 +592,193 @@ export function mostRecentProject(
   return firstProject(recentLocalFolders(sessions), home, known);
 }
 
+/// `sessions` as it was when what `fields` reads of them last changed: the same array while only
+/// other fields of a session change (a status dot, unread, a title, a cost), so a projection that
+/// reads only `fields` (a memo over it) runs again only when its input moved, and one session's
+/// change costs one entry's fields here, not the projection over every listed chat. The pane keeps
+/// an unchanged session's entry object (direct.ts `sessionEntryList`), so an entry seen last time is
+/// not read again. A session added, removed or moved in the list counts as a change.
+export class SessionsBy {
+  private kept: readonly AcpmuxSessionEntry[] | undefined;
+  private seen = new Map<string, { entry: AcpmuxSessionEntry; key: string; at: number }>();
+  private count = -1;
+  /// The list `of` was last given, which a list made from it in place (sessionIndex.ts
+  /// `noteReplaced`) is compared with at the replaced entries only.
+  private last: readonly AcpmuxSessionEntry[] | undefined;
+
+  constructor(private readonly fields: (entry: AcpmuxSessionEntry) => readonly unknown[]) {}
+
+  of(sessions: readonly AcpmuxSessionEntry[]): readonly AcpmuxSessionEntry[] {
+    if (sessions === this.kept) return (this.last = sessions);
+    const replaced = this.kept === undefined ? undefined : replacedSince(this.last, sessions);
+    this.last = sessions;
+    let moved = replaced === undefined && (this.kept === undefined || sessions.length !== this.count);
+    // Same length: updated in place, as an id not seen before marks the list moved. Another length
+    // starts again, so a session no longer listed leaves nothing behind.
+    if (moved) this.seen = new Map();
+    const positions = replaced ?? sessions.keys();
+    // A full pass also counts the ids listed: one listed twice changes what the list holds without
+    // changing its length. A list made in place swaps an entry for its own id, so it adds none.
+    const listedIds = replaced ? undefined : new Set<string>();
+    for (const at of positions) {
+      const entry = sessions[at]!;
+      if (listedIds?.has(entry.sessionId)) moved = true;
+      listedIds?.add(entry.sessionId);
+      const before = this.seen.get(entry.sessionId);
+      if (before?.entry === entry) {
+        if (before.at !== at) {
+          before.at = at;
+          moved = true;
+        }
+        continue;
+      }
+      const key = JSON.stringify(this.fields(entry));
+      if (key !== before?.key || at !== before.at) moved = true;
+      if (before) {
+        before.entry = entry;
+        before.key = key;
+        before.at = at;
+      } else this.seen.set(entry.sessionId, { entry, key, at });
+    }
+    // A session that left while another came, or another listed twice, keeps the same length: drop
+    // what it left behind, so it is new again when it comes back.
+    const listed =
+      listedIds ?? (this.seen.size > sessions.length ? new Set(sessions.map((entry) => entry.sessionId)) : undefined);
+    if (listed && this.seen.size !== listed.size)
+      for (const id of this.seen.keys()) if (!listed.has(id)) this.seen.delete(id);
+    this.count = sessions.length;
+    if (moved) this.kept = sessions;
+    return this.kept!;
+  }
+}
+
+/// What a session's folder lists read of it (``recentLocalFolders``, the pane's project pickers): its
+/// folder, where it runs, whether it is listed, and when it was last active. The time only of a chat
+/// on this Mac: no folder list orders another machine's chats by it, and at Leo's scale those were
+/// most of the changes (another machine's lanes working), each building every page's project list
+/// again from 10K chats (bench/session-scale-typing.bench.ts).
+/// Where a session works, without when: the folders a list names, not their order.
+export const placeFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
+  session.cwd,
+  session.host,
+  session.hostKind,
+  session.peer,
+  listed(session),
+];
+
+export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
+  ...placeFields(session),
+  !session.peer && (!session.hostKind || session.hostKind === "local") ? activityTime(session) : undefined,
+];
+
 /// This Mac's chat folders, newest chat first, each once: not a private agent-home folder, `~` or a
 /// chat on another machine. `mostRecentProject` picks from it; a New Tab page keeps it for the next
 /// page's first frame (newtab/recentProject.ts).
 export function recentLocalFolders(sessions: readonly AcpmuxSessionEntry[], limit = Infinity): string[] {
-  const local = sessions.filter((session) => {
-    const cwd = session.cwd?.replace(/\/+$/, "");
-    if (!cwd || cwd === "~" || isAgentHome(cwd)) return false;
-    return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session);
-  });
-  const folders: string[] = [];
-  for (const session of byRecency(local)) {
-    const cwd = session.cwd!.replace(/\/+$/, "");
-    if (!folders.includes(cwd)) folders.push(cwd);
-    if (folders.length >= limit) break;
-  }
-  return folders;
+  return recentFolders(sessions, localFolder, limit);
 }
 
-/// The first of `folders` (newest first) a New Tab may start in: not the home folder, and with
-/// `known` (the host's project list; absent or empty is not loaded yet) one in it. `null`: the host
-/// answered and lists no project (every one removed or missing), so no folder is one.
+/// The folders `folderOf` names, of the newest chat first, each once (a tie keeps the list's order).
+/// One pass keeps each folder's newest chat (the first in the list among equals, as a stable sort
+/// leaves it), then only the folders are sorted: every page reads this on each change of a chat of
+/// this Mac, and sorting all of a large profile's chats there took the scrolled page's frames
+/// (bench/session-scale-scroll.bench.ts).
+export function recentFolders(
+  sessions: readonly AcpmuxSessionEntry[],
+  folderOf: (session: AcpmuxSessionEntry) => string | undefined,
+  limit = Infinity,
+): string[] {
+  const newest = new Map<string, { at: number; index: number }>();
+  sessions.forEach((session, index) => {
+    const folder = folderOf(session);
+    if (folder === undefined) return;
+    const at = activityTime(session) ?? 0;
+    const kept = newest.get(folder);
+    if (!kept || at > kept.at) newest.set(folder, { at, index });
+  });
+  const folders = [...newest].sort(([, left], [, right]) => right.at - left.at || left.index - right.index);
+  return folders.slice(0, limit).map(([folder]) => folder);
+}
+
+/// The folder `recentLocalFolders` lists a session under, or undefined when it lists none for it.
+export function localFolder(session: AcpmuxSessionEntry): string | undefined {
+  const cwd = session.cwd?.replace(/\/+$/, "");
+  if (!cwd || cwd === "~" || isAgentHome(cwd)) return undefined;
+  return !session.peer && (!session.hostKind || session.hostKind === "local") && listed(session) ? cwd : undefined;
+}
+
+/// `recentFolders` of a list that changes one chat at a time, kept as the list changes: a chat on
+/// this Mac working moves its folder to the front, without sorting every chat again. The same array
+/// while the order holds. Anything else (a chat added or gone, one moved to another folder, a time
+/// that went back or ties another folder's) builds it again from the whole list. Leo, 2026-11-18,
+/// "typing in the composer still slow 😞 there must be a lot of open stuff?": each page sorted all
+/// 10K chats on every event of a chat on this Mac (bench/session-scale-typing.bench.ts).
+export class FolderRecency {
+  constructor(private readonly folderOf: (session: AcpmuxSessionEntry) => string | undefined = localFolder) {}
+
+  private last: readonly AcpmuxSessionEntry[] | undefined;
+  private order: string[] = [];
+  private newest = new Map<string, number>();
+  private seen = new Map<string, { folder: string | undefined; at: number }>();
+
+  of(sessions: readonly AcpmuxSessionEntry[]): readonly string[] {
+    if (sessions === this.last) return this.order;
+    const replaced = this.last === undefined ? undefined : replacedSince(this.last, sessions);
+    this.last = sessions;
+    if (!replaced || !replaced.every((at) => this.moved(sessions[at]!))) this.build(sessions);
+    return this.order;
+  }
+
+  private build(sessions: readonly AcpmuxSessionEntry[]) {
+    this.order = recentFolders(sessions, this.folderOf);
+    this.newest = new Map();
+    this.seen = new Map();
+    for (const session of sessions) {
+      const folder = this.folderOf(session);
+      const at = activityTime(session) ?? 0;
+      this.seen.set(session.sessionId, { folder, at });
+      if (folder !== undefined && at > (this.newest.get(folder) ?? -Infinity)) this.newest.set(folder, at);
+    }
+  }
+
+  /// Applies one replaced session; false when the whole list must be read again.
+  private moved(session: AcpmuxSessionEntry): boolean {
+    const before = this.seen.get(session.sessionId);
+    const folder = this.folderOf(session);
+    const at = activityTime(session) ?? 0;
+    if (!before || before.folder !== folder || at < before.at) return false;
+    this.seen.set(session.sessionId, { folder, at });
+    if (folder === undefined || at === before.at) return true;
+    const newest = this.newest.get(folder)!;
+    if (at < newest) return true;
+    // Its folder's newest time again, from another chat: a tie with another folder may order otherwise.
+    if (at === newest) return false;
+    this.newest.set(folder, at);
+    const from = this.order.indexOf(folder);
+    if (from < 0) return false;
+    // Its new place: after every folder newer than it. A tie keeps the list's own order: build again.
+    let to = 0;
+    while (to < this.order.length) {
+      const other = this.order[to]!;
+      if (other !== folder) {
+        const time = this.newest.get(other)!;
+        if (time === at) return false;
+        if (time < at) break;
+      }
+      to += 1;
+    }
+    if (to >= from) return true;
+    const next = this.order.slice();
+    next.splice(from, 1);
+    next.splice(to, 0, folder);
+    this.order = next;
+    return true;
+  }
+}
+
+/// The first of `folders` (newest first) a New Tab may start in: not the home folder or a temporary
+/// folder, and with `known` (the host's project list; absent or empty is not loaded yet) one in it.
+/// `null`: the host answered and lists no project (every one removed or missing), so no folder is one.
 export function firstProject(
   folders: readonly string[],
   home?: string,
@@ -483,13 +787,16 @@ export function firstProject(
   if (known === null) return undefined;
   const projects = known?.length ? new Set(known.map((path) => path.replace(/(.)\/+$/, "$1"))) : undefined;
   const homeFolder = home?.replace(/\/+$/, "");
-  return folders.find((cwd) => cwd !== homeFolder && (!projects || projects.has(cwd)));
+  return folders.find((cwd) => cwd !== homeFolder && !isTemporaryFolder(cwd) && (!projects || projects.has(cwd)));
 }
 
-/** A project's name for its header: the folder's last component, `~` for a home folder. */
+/**
+ * A project's name for its header: the folder's last component, `~` for a home folder, `/` for the
+ * filesystem root. Only no folder at all reads No folder: a folder is never called that.
+ */
 export function projectLabel(cwd: string | undefined, t: Translate = translate): string {
   const trimmed = (cwd ?? "").replace(/\/+$/, "");
-  if (!trimmed) return t("project.noFolder");
+  if (!trimmed) return cwd ? "/" : t("project.noFolder");
   const parts = trimmed.split("/").filter(Boolean);
   if (parts.length === 2 && (parts[0] === "Users" || parts[0] === "home")) return "~";
   return parts[parts.length - 1] ?? trimmed;
@@ -498,11 +805,6 @@ export function projectLabel(cwd: string | undefined, t: Translate = translate):
 /** A folder for display, with a home folder's prefix written `~` as a shell prompt does. */
 export function homePath(path: string): string {
   return path.replace(/^\/(?:Users|home)\/[^/]+(?=\/|$)/, "~");
-}
-
-/** Newest first. */
-function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
-  return [...sessions].sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
 }
 
 /** The remote machine a session runs on. A host not marked local counts as remote; this Mac is never named. */
@@ -553,4 +855,17 @@ export function shortAge(updatedAt: number | undefined, now: number, t: Translat
   if (hours < 24) return t("age.hours", { n: hours });
   const days = Math.floor(hours / 24);
   return days < 14 ? t("age.days", { n: days }) : t("age.weeks", { n: Math.floor(days / 7) });
+}
+
+/** First shared wall-clock minute where shortAge's text changes (clock.ts useLabelClock), so its
+ *  label wakes then and not every minute. */
+export function nextShortAge(at: number, now: number): number {
+  if (!Number.isFinite(at)) return Infinity;
+  const minute = 60_000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const elapsed = Math.max(0, now - at);
+  const size = elapsed < hour ? minute : elapsed < day ? hour : elapsed < 14 * day ? day : 7 * day;
+  const change = at + (Math.floor(elapsed / size) + 1) * size;
+  return Math.max(now + minute, Math.ceil(change / minute) * minute);
 }

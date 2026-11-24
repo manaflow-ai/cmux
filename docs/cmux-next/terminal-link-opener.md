@@ -34,6 +34,11 @@ with the names of the processes that asked (the program and its parents, such
 as `aws`, `gh`, `python3`). The app decides where it goes. When the app cannot
 be reached, the URL goes to `/usr/bin/open` (the default browser).
 
+The CLI's stdout stays the program's. When it is a terminal, a person is
+waiting there (gh's "Press Enter to open https://github.com/login/device in
+your browser..."), so the page opens in front and takes the focus. Without a
+terminal (an agent's pipe), the page opens in the background.
+
 ## Settings
 
 Settings > Terminal > Opening Links, or `~/.config/cmux/cmux.json`:

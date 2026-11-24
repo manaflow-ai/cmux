@@ -1,3 +1,6 @@
+// The paths, defaults are generated from schemas/settings/source/agent-pane.json
+// (Schema/SettingsSchema+AgentPane.generated.swift).
+
 /// `agentPane.links.outsideRoots` and `agentPane.images.remote` in cmux.json: what an agent
 /// reply may open or load beyond the session's own folders (decisions D4 and D5,
 /// plans/cmux-next/agent-pane-gaps.md). The host reads them on every request, so a change
@@ -21,18 +24,16 @@ public nonisolated struct AgentPaneReplySetting: Sendable, Hashable {
         case click, never, always
     }
 
+    public var openCitationsInEditor = openCitationsInEditorDefault
     public var outsideRoots: OutsideRoots
     public var remoteImages: RemoteImages
 
-    public static let fallback = AgentPaneReplySetting(outsideRoots: .open, remoteImages: .click)
+    public static let fallback = AgentPaneReplySetting(outsideRoots: outsideRootsDefault, remoteImages: remoteImagesDefault)
 
     public init(outsideRoots: OutsideRoots, remoteImages: RemoteImages) {
         self.outsideRoots = outsideRoots
         self.remoteImages = remoteImages
     }
-
-    static let outsideRootsPath = ["agentPane", "links", "outsideRoots"]
-    static let remoteImagesPath = ["agentPane", "images", "remote"]
 
     static func parse(_ root: JSONValue) -> (AgentPaneReplySetting, [SettingsDiagnostic]) {
         var setting = fallback
@@ -56,6 +57,10 @@ public nonisolated struct AgentPaneReplySetting: Sendable, Hashable {
             if let child, child.objectValue == nil {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "agentPane.\(key)", message: "expected an object"))
             }
+        }
+        if let value = root.value(at: openCitationsInEditorPath) {
+            if let enabled = value.boolValue { setting.openCitationsInEditor = enabled }
+            else { diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: openCitationsInEditorPath.joined(separator: "."), message: "expected a boolean")) }
         }
         if let value = choice(outsideRootsPath, OutsideRoots.self) { setting.outsideRoots = value }
         if let value = choice(remoteImagesPath, RemoteImages.self) { setting.remoteImages = value }

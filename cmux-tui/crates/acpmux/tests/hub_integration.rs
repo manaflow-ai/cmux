@@ -4,11 +4,14 @@
 mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/). `ACPMUX_UPDATE_FIXTURES=1`
 // rewrites the pane fixtures the tests check (`adopt.rs`); `LS_LATENCY_SESSIONS` and
-// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`).
+// `LS_LATENCY_RUNS` size the ignored `ls_latency` bench (`usage_stats.rs`); `ACPMUX_LIVE_BENCH_*`
+// size the live move bench (`transfer_live.rs`).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_UPDATE_FIXTURES",
     "LS_LATENCY_SESSIONS",
     "LS_LATENCY_RUNS",
+    "ACPMUX_LIVE_BENCH_PROMPTS",
+    "ACPMUX_LIVE_BENCH_RATE",
 ]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
@@ -58,16 +61,27 @@ mod lanes;
 mod log_retention;
 #[path = "hub_integration/mcp_connect.rs"]
 mod mcp_connect;
+#[path = "hub_integration/outbox_folder_missing.rs"]
+mod outbox_folder_missing;
+#[cfg(unix)]
+#[path = "hub_integration/paused_fs.rs"]
+mod paused_fs;
 #[path = "hub_integration/permission_display.rs"]
 mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/person_hold.rs"]
+mod person_hold;
 #[path = "hub_integration/presence.rs"]
 mod presence;
 #[path = "hub_integration/prompt_approval.rs"]
 mod prompt_approval;
+#[path = "hub_integration/prompt_attribution.rs"]
+mod prompt_attribution;
 #[path = "hub_integration/prompt_class.rs"]
 mod prompt_class;
+#[path = "hub_integration/prompt_coach.rs"]
+mod prompt_coach;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[cfg(unix)]
@@ -77,6 +91,8 @@ mod prompt_delivery;
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_provenance_app_pane.rs"]
+mod prompt_provenance_app_pane;
 #[path = "hub_integration/prompt_supersede.rs"]
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
@@ -93,12 +109,17 @@ mod questions;
 mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[cfg(unix)]
+#[path = "hub_integration/resume_here_ask.rs"]
+mod resume_here_ask;
 #[path = "hub_integration/run_parent.rs"]
 mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
 mod seen;
+#[path = "hub_integration/send_burst.rs"]
+mod send_burst;
 #[path = "hub_integration/session_offers.rs"]
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]
@@ -125,6 +146,8 @@ mod successor_harness;
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/task_list.rs"]
+mod task_list;
 #[path = "hub_integration/tasks.rs"]
 mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
@@ -132,6 +155,8 @@ mod xai_requests;
 
 #[path = "hub_integration/turn_attestation.rs"]
 mod turn_attestation;
+#[path = "hub_integration/turn_cost.rs"]
+mod turn_cost;
 
 struct TestClient {
     tx: mpsc::Sender<String>,
@@ -175,6 +200,13 @@ impl TestClient {
             }
         }
     }
+}
+
+/// `text` as another chat reads it when session `sender` sent it: the daemon writes its Sent-by
+/// line under it (`sent_by.rs`), and the receiver keeps it.
+pub(crate) fn signed(hub: &Hub, sender: &str, text: &str) -> String {
+    let who = acpmux::sent_by::of_session(hub, sender).expect("the sender's session");
+    format!("{text}\n\n{}", acpmux::sent_by::line(&who))
 }
 
 async fn setup(policy: PermissionPolicy) -> (Arc<Hub>, TestClient) {
@@ -438,6 +470,76 @@ async fn fork_copies_history_and_gets_its_own_agent() {
         .await
         .unwrap();
     assert_eq!(r["stopReason"], "end_turn");
+}
+
+/// OpenCode answers `session/fork` only after replaying the whole forked conversation under the
+/// NEW session's id, from the parent's process (fork-hammer, 2026-11-22, OpenCode 1.19.0). None
+/// of it is the parent's: before, the parent's chat showed a second copy of its conversation,
+/// as a background turn that never ended. The fork still gets its history, by its own load.
+#[tokio::test]
+async fn a_forks_replay_from_the_parents_agent_stays_out_of_the_parents_chat() {
+    let env = BTreeMap::from([("FAKE_FORK_REPLAY".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "root"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let before = hub.events(&id, 0, 10_000).unwrap().len();
+    let summary_before = hub.session_summary(&hub.resolve(&id).unwrap());
+    let f = c
+        .request(
+            method::SESSION_FORK,
+            json!({"sessionId": id, "cwd": cwd(), "_meta": {"acpmux": {"name": "branch"}}}),
+        )
+        .await
+        .unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    // A barrier for the parent's inbound loop: a prompt after the fork is applied after it.
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "second"}]}),
+    )
+    .await
+    .unwrap();
+    let after = hub.events(&id, 0, 10_000).unwrap();
+    let foreign: Vec<String> = after[before..]
+        .iter()
+        .filter(|e| e.msg.to_string().contains("FORK-REPLAY"))
+        .map(|e| format!("{} {} {}", e.seq, e.dir, e.kind))
+        .collect();
+    assert!(foreign.is_empty(), "the fork's replay is in the parent's log: {foreign:?}");
+    let background: Vec<Value> =
+        after.iter().filter(|e| e.kind == "background_turn").map(|e| e.msg.clone()).collect();
+    assert!(background.is_empty(), "the parent shows a background turn: {background:?}");
+    let summary = hub.session_summary(&hub.resolve(&id).unwrap());
+    assert!(
+        !summary.to_string().contains("FORK-REPLAY"),
+        "the parent's summary took the fork's words: {summary} (before {summary_before})"
+    );
+    // The fork has its history, by its own process's load.
+    let fork_kinds: Vec<String> =
+        hub.events(&fid, 0, 10_000).unwrap().into_iter().map(|e| e.kind).collect();
+    assert!(fork_kinds.iter().any(|k| k == "user_message"), "{fork_kinds:?}");
+    assert!(fork_kinds.iter().any(|k| k == "forked"), "{fork_kinds:?}");
+    let r = c
+        .request(
+            method::SESSION_PROMPT,
+            json!({"sessionId": fid, "prompt": [{"type": "text", "text": "third"}]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["stopReason"], "end_turn");
+    hub.shutdown_all().await;
 }
 
 /// An agent that offers `session/fork` but fails it with a bare error (Claude's ACP
@@ -725,7 +827,9 @@ async fn kill_then_prompt_resumes_via_load() {
     let kinds: Vec<String> =
         hub.events(&id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
     assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
-    assert!(kinds.iter().any(|k| k == "user_message_chunk.replay"), "{kinds:?}");
+    // The load's replay of the chat is kept out of the log (`unread_records.rs`): a resume
+    // costs the log the same few bytes however long the chat.
+    assert!(!kinds.iter().any(|k| k == "user_message_chunk.replay"), "{kinds:?}");
     assert_eq!(hub.session_summary(&session)["turnCount"], 2);
     // The saved mode and options were re-asserted on the respawned agent.
     let replayed = hub
@@ -889,6 +993,22 @@ async fn session_search_finds_prompts_and_replies_newest_first() {
         .unwrap();
     assert_eq!(r["hits"][0]["snippet"], "a QUOTA for the broker again", "{r}");
     assert_eq!(r["hits"].as_array().unwrap().len(), 1, "{r}");
+    let all = c
+        .request(
+            method::MUX_SESSION_SEARCH,
+            json!({
+                "allSessions": true, "query": "quota broker", "limit": 2
+            }),
+        )
+        .await
+        .unwrap();
+    assert_eq!(all["incomplete"], json!([]));
+    assert_eq!(all["hits"].as_array().unwrap().len(), 2);
+    assert_eq!(all["hits"][0]["session"], "finder");
+    assert_eq!(all["hits"][0]["sessionId"], id);
+    assert!(all["hits"][0]["host"].as_str().is_some_and(|host| !host.is_empty()));
+    assert!(all["hits"][0]["turnTime"].as_str().is_some_and(|time| time.ends_with('Z')));
+    assert_eq!(all["hits"][0]["turnTime"], all["hits"][1]["turnTime"]);
     for params in
         [json!({"sessionId": id, "query": " "}), json!({"sessionId": "nobody", "query": "x"})]
     {
@@ -1021,6 +1141,11 @@ async fn limit_error_stays_on_the_current_profile() {
     assert!(!kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
     assert_eq!(hub.session_summary(&session)["harness"], "fake");
     assert!(r.is_err(), "{r:?}");
+    // The limit holds the chat until its reset (`hub/rate_hold.rs`): the next prompt would queue
+    // behind the hold. Stop parks it; the person's next prompt goes on on the same profile.
+    let row = hub.session_summary(&session);
+    assert!(row["rateLimitedUntil"].as_u64().is_some(), "{row}");
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
     let ok = c
         .request(
             method::SESSION_PROMPT,
@@ -1029,7 +1154,11 @@ async fn limit_error_stays_on_the_current_profile() {
         .await
         .unwrap();
     assert_eq!(ok["stopReason"], "end_turn");
-    assert_eq!(hub.session_summary(&session)["preview"], "echo: after");
+    // Stop parked the rate-limited chat; the person's prompt takes it back and carries the
+    // continuation's words (`rate_hold.rs`).
+    let preview = hub.session_summary(&session)["preview"].as_str().unwrap_or_default().to_owned();
+    assert!(preview.starts_with("echo: after"), "{preview}");
+    assert!(preview.contains("rate limit"), "{preview}");
 }
 
 #[tokio::test]
@@ -1142,7 +1271,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     assert_eq!(fake_models[0], "fake/m3", "{fake_models:?}");
     assert!(fake_models.contains(&"m1"));
     // Presets: one harness, bundled model/effort/policy/env; -m still wins.
-    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "deny-all", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
+    let p = c.request(method::MUX_PRESETS, json!({"name": "fast", "set": {"harness": "fake-pool", "model": "m1", "policy": "approve-reads", "env": {"FAKE_MODEL": "${model}"}}})).await.unwrap();
     assert_eq!(p["profile"], "fake-pool");
     let err = c
         .request(method::MUX_PRESETS, json!({"name": "bad", "set": {"harness": "nope"}}))
@@ -1152,7 +1281,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     let s4 = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "fast", "name": "pre"}}})).await.unwrap();
     assert_eq!(s4["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s4["_meta"]["acpmux"]["model"], "m1");
-    assert_eq!(s4["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s4["_meta"]["acpmux"]["policy"], "approve-reads");
     // ${model} in the preset env: the model is a spawn parameter the process sees.
     let id4 = s4["sessionId"].as_str().unwrap().to_owned();
     c.request(method::MUX_SET_POLICY, json!({"sessionId": id4, "policy": "approve-all"}))
@@ -1169,7 +1298,7 @@ async fn family_defaults_presets_and_the_target_grammar() {
     // `fake` is the family: its prefer list still decides the profile.
     assert_eq!(s5["_meta"]["acpmux"]["harness"], "fake-pool");
     assert_eq!(s5["_meta"]["acpmux"]["model"], "m2");
-    assert_eq!(s5["_meta"]["acpmux"]["policy"], "deny-all");
+    assert_eq!(s5["_meta"]["acpmux"]["policy"], "approve-reads");
     let err = c
         .request(
             method::SESSION_NEW,
@@ -1178,6 +1307,20 @@ async fn family_defaults_presets_and_the_target_grammar() {
         .await
         .unwrap_err();
     assert!(err.contains("unknown preset"), "{err}");
+    // A deny-all preset on a harness that can keep it neither by a gate nor by a mode: the chat
+    // does not start (W5-L).
+    let locked = json!({"name": "locked", "set": {"harness": "fake-pool", "policy": "deny-all",
+        "env": {"FAKE_ASK_CLAIM": "0"}}});
+    c.request(method::MUX_PRESETS, locked).await.unwrap();
+    let err = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"preset": "locked"}}}),
+        )
+        .await
+        .unwrap_err();
+    // Refused at its first start, it names the one fix (the start's flag, or the chat's policy).
+    assert!(err.contains("approve-all`") && !err.contains("did not start"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }
@@ -1710,6 +1853,8 @@ mod lifecycle_fixes;
 mod quit_spawn;
 #[path = "hub_integration/session_hibernate.rs"]
 mod session_hibernate;
+#[path = "hub_integration/session_pause.rs"]
+mod session_pause;
 #[path = "hub_integration/start_retry.rs"]
 mod start_retry;
 
@@ -1728,6 +1873,8 @@ mod session_pull_requests;
 mod transfer;
 #[path = "hub_integration/transfer_guard.rs"]
 mod transfer_guard;
+#[path = "hub_integration/transfer_hub.rs"]
+mod transfer_hub;
 #[path = "hub_integration/watch.rs"]
 #[cfg(unix)]
 mod watch;

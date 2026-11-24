@@ -60,6 +60,87 @@ pub fn link_look(look: LinkLook) -> (bool, bool) {
     (look.cleared, look.cleared)
 }
 
+/// How many times one start's link wait connects an ended link again. The wait's beats are 1 s
+/// growing to 10 s over its 180 s, so this covers a daemon restart of a minute or more; a link
+/// the server refuses every time (a revoke) costs at most this many refused connects.
+pub const START_REDIALS: u32 = 12;
+
+/// One beat of a start's link wait (the app's `CloudMachineSession.linkUp`).
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RedialLook {
+    /// The app link ended (its failure shows) and no connect runs.
+    pub ended: bool,
+    /// The machine's record reads running.
+    pub running: bool,
+    /// The machine's record reads paused.
+    pub paused: bool,
+    /// This wait resumed the machine already.
+    pub resumed: bool,
+    /// This wait's connects of an ended link so far.
+    pub redials: u32,
+}
+
+/// What a start's link wait does on one beat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Redial {
+    Nothing,
+    /// Resume the paused machine (once per wait: a start that settles back to paused is the
+    /// platform's answer).
+    Resume,
+    /// Connect the ended link again.
+    Connect,
+}
+
+/// What a start's link wait does on one beat. A running machine's link that ended is connected
+/// again, up to [`START_REDIALS`] times: a new machine's updater restarts its services seconds
+/// after the machine comes up, which ends the first connect's handshake ("daemon no longer has
+/// the requested logical session"), and with no redial the start waited out its 180 s and said
+/// the machine didn't connect (staging app-chat probe, 2026-11-08 14:36Z, run 42490252327). The
+/// carrier cut (#37210) deleted the redial #32469 had added.
+pub fn start_redial(look: RedialLook) -> Redial {
+    if look.paused {
+        return if look.resumed { Redial::Nothing } else { Redial::Resume };
+    }
+    if look.ended && look.running && look.redials < START_REDIALS {
+        return Redial::Connect;
+    }
+    Redial::Nothing
+}
+
+/// How long a record a create's or a spare claim's own answer gave stays the machine's state for an
+/// attach: the platform answered it moments ago, and its idle auto-pause parks a machine only after
+/// minutes with no use, so it cannot have parked a machine it just answered as running.
+pub const ANSWER_FRESH_MS: u64 = 10_000;
+
+/// One look at a machine an attach is about to connect (the app's
+/// `CloudMachineSession.refreshIfMaybePaused`).
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct RecordLook {
+    /// Its daemon connection is up.
+    pub connected: bool,
+    /// The record reads paused (the attach resumes it, no read needed).
+    pub paused: bool,
+    /// The record reads running.
+    pub running: bool,
+    /// How long ago a create's or a spare claim's answer gave the record; none for a list's.
+    pub answered_ago_ms: Option<u64>,
+}
+
+/// Whether an attach reads the machine's record again before it connects: a machine with no daemon
+/// connection that does not read paused may be one the idle auto-pause parked behind the app's
+/// copy. Not one a create's or claim's answer gave as running within [`ANSWER_FRESH_MS`]: that read
+/// was the claimed spare's whole `connect.resume` (175 to 266 ms, 1.2 s at worst, in the production
+/// chat probe's 31 good starts of 2026-11-21), with its link already up or dialing.
+pub fn rereads_record(look: RecordLook) -> bool {
+    if look.connected || look.paused {
+        return false;
+    }
+    !(look.running && look.answered_ago_ms.is_some_and(|ago| ago < ANSWER_FRESH_MS))
+}
+
 /// Whether a machine's link came back after an update restarted its daemon: its handshake key is
 /// there and differs from the one before (`refused`, a refused handshake, is no new link).
 pub fn relinked(before: Option<&str>, now: Option<&str>, refused_counts: bool) -> bool {

@@ -9,7 +9,8 @@ import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { setPaneLanguage } from "../src/agent-session/acpmux/i18n";
-import { SubagentListRow, SubagentStopContext } from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import { SubagentListRow } from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import { SubagentStopContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 
 const css = readFileSync(
   path.resolve(import.meta.dir, "../src/agent-session/acpmux/subagents/subagents.css"),

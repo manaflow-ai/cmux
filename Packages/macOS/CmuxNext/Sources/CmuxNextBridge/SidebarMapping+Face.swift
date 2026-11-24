@@ -27,6 +27,8 @@ extension SidebarMapping {
         var machine: MachineID
         var showsUnread = true
         var selectedTab: (PaneModel) -> String? = { _ in nil }
+        /// The pane id the window last focused in a workspace (`TabSelectionMemory.focusedPane`); nil: the daemon's.
+        var focusedPane: (WorkspaceModel) -> String? = { _ in nil }
         var newTabTitle = ""
         var pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil }
         var tabTitle: ((WorkspaceModel, TabModel) -> String)?
@@ -73,6 +75,7 @@ extension SidebarMapping {
             let icons = options.harnessIcons(), workspace = request.workspace, newTabPages = request.newTabPages
             let newTabTitle = options.newTabTitle, tabTitle = options.tabTitle
             faces?.append(workspace, local: options.machine == .local, status: request.status, selectedTab: options.selectedTab,
+                          focusedPane: options.focusedPane(workspace),
                           newTabPages: newTabPages,
                           listTitle: { SidebarMapping.listTitle($0, of: workspace, newTabPages: newTabPages, newTabTitle: newTabTitle, tabTitle: tabTitle) },
                           branded: { $0.agentBrand != nil || icons.custom(for: $0.agentSession?.harness) != nil })
@@ -142,28 +145,36 @@ extension SidebarMapping {
                  harnessIcons: HarnessIconLookup, options: FaceOptions) -> SidebarWorkspace {
         let workspace = request.workspace, newTabPages = request.newTabPages, machine = options.machine
         func at(_ index: Int?) -> TabModel? { index.flatMap { tabs.indices.contains($0) ? tabs[$0] : nil } }
-        let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
+        let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status, workspaceID: workspace.id)
         let indicator = statuses.workspace
         // The focused tab; the label tab the row is named for (a chat over an idle shell); the face tab (the
         // label, or the work a page beside it was opened from) whose name, icon and kind the row shows.
         let focused = at(facts.front), front = at(facts.label), folder = at(facts.folderTab), face = at(facts.face)
         let page = face.flatMap { options.pageFace(workspace, $0, nil) }
-        // Each browser tab's face once: its favicon in the tab list, its sound on the row. The page's favicon
-        // stays on the page's own tab (Leo, 2026-10-21: a chat row showed GitHub's mark).
+        // Each browser tab's face once: its favicon in the tab list, its sound on the row.
         var browserFaces: [String: PageFace] = [:]
         for tab in tabs where tab.kind == .browser {
             browserFaces[tab.id] = tab.id == face?.id ? page : options.pageFace(workspace, tab, nil)
         }
+        // The row's icon is the favicon of the tab last focused in the workspace (user 23802: "workspace favicon
+        // needs to reflect the latest focused/interacted entity"): a page's once it is focused, none once focus
+        // goes back to a chat or terminal beside it. `focused` is the window's own focus (`focusedPane`), so a
+        // page opened in a split no longer keeps the mark after a click back into the work (Leo, 2026-10-21:
+        // "why did this turn into the githb favicon?" came from the daemon's stale focus stamp).
+        let iconTab = focused ?? face
+        let iconPage = iconTab?.id == face?.id ? page : iconTab.flatMap { browserFaces[$0.id] ?? options.pageFace(workspace, $0, nil) }
         let entries = workspace.status?.entries ?? []
         func entry(_ index: Int?) -> String? { index.flatMap { entries.indices.contains($0) ? entries[$0].text : nil } }
         // An unnamed Cloud workspace whose shell idles at its home reads "Terminal" (`homeShellTitle`), its header
         // naming the machine (Leo 2026-10-30: "JUST DEPICT IT SIMILARLY TO EVERYTHING ELSE"). A caller whose
         // `pageFace` gives no title (a pinned tile) has its shell's folder read as the label.
-        let label = options.foldersLabel ? face?.cwd.map { URL(fileURLWithPath: $0).lastPathComponent } : page?.title
+        let label = options.foldersLabel ? face?.cwd.map { ($0 as NSString).lastPathComponent } : page?.title
         let title = Self.homeShellName(options.homeShellTitle, workspace: workspace, label: label, face: face)
             ?? Self.sidebarTitle(workspace, page: page)
         let agentTab = at(facts.agent)
         let rowAgent = Self.agentMark(agentTab, harnessIcons: harnessIcons)
+        // The user's icon or color, before the shown tab's marks (`iconFromShownTab`).
+        let ownIcon = Self.icon(color: workspace.color, icon: workspace.icon, asset: options.iconAsset)
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
@@ -178,11 +189,12 @@ extension SidebarMapping {
             lastActivity: facts.lastActivityMs == 0 ? nil : Self.date(ms: facts.lastActivityMs),
             rowKind: facts.rowKind,
             agentWorking: statuses.working,
-            // A page in a split beside a chat or terminal leaves the row's icon to that work (#22250). A site with
-            // no favicon (none, or not loaded yet) keeps the slot with a globe the favicon replaces.
-            icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: options.iconAsset)
-                ?? page?.favicon.map(WorkspaceIcon.favicon)
-                ?? (Self.isSite(face, newTabPages: newTabPages) ? .pagePlaceholder : nil),
+            // A cmux page draws its own icon; a site with no favicon (none, or not loaded yet) keeps the slot with a
+            // globe the favicon replaces.
+            icon: ownIcon
+                ?? iconPage?.icon.map(WorkspaceIcon.page)
+                ?? iconPage?.favicon.map(WorkspaceIcon.favicon)
+                ?? (Self.isSite(iconTab, newTabPages: newTabPages) ? .pagePlaceholder : nil),
             color: color(workspace.color), kind: facts.kind,
             kindBrand: face?.agentBrand,
             unread: facts.unread == 2 ? .count(workspace.unreadCount) : facts.unread == 1 ? .dot : .none,
@@ -212,6 +224,7 @@ extension SidebarMapping {
                                       branch: tab.gitBranch.flatMap { $0.isEmpty ? nil : $0 },
                                       lastActivity: (listed?.lastActivityMs ?? 0) == 0 ? nil : Self.date(ms: listed?.lastActivityMs ?? 0))
                 // Its chat's running subagents and commands, which the tab row counts.
+                item.pageIcon = browserFaces[tab.id]?.icon
                 (item.subagentsRunning, item.commandsRunning) = Self.running(tab)
                 item.isFreed = tab.kind == .pty && tab.dead && tab.relaunch?.onShow == true
                 // What the tab row's line says beyond its folder (Leo 2026-11-01: "not much metadata").
@@ -225,11 +238,22 @@ extension SidebarMapping {
             folder: facts.bucket
         )
         row.focusedTab = focused.map { TabID($0.id) }
+        // Who the row's agent is (acpmux `displayName`, `formerNames`): its hover card's agent line.
+        if let ref = agentTab?.agentSession {
+            row.agentDisplayName = AgentTurnStateStore.shared.displayName(for: ref)
+            row.agentFormerName = AgentTurnStateStore.shared.formerName(for: ref)
+        }
+        row.paneShape = Self.paneShape(workspace)
+        row.iconFromShownTab = ownIcon == nil && row.icon != nil
         row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
-        row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
+        row.startsInCloud = page?.startsInCloud ?? false
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })
         row.lastMessage = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.lastMessage(for:))
+        // The chat the face picked: when it last changed what it does, its row's age (`SidebarWorkspace.rowAge`).
+        // The row already reads this chat's detail (`detail(tabs:...)`), so this adds no observation.
+        row.chatActivity = at(facts.chat)?.agentSession.flatMap(AgentTurnStateStore.shared.detail(for:))?.laneSinceMs
+            .flatMap { $0 == 0 ? nil : Self.date(ms: $0) }
         // What an agent needs the person to do in a tab says why the row is marked; it comes
         // before the newest notification's text (tab-attention-v1).
         if options.showsUnread {
@@ -242,21 +266,22 @@ extension SidebarMapping {
         row.reported = Self.reported(workspace.status, asset: options.iconAsset)
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
+        row.createdBy = Self.creator(workspace.createdBy)
         row.checklist = workspace.checklist.map(Self.checklistItem)
         row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab, front: front,
                             notification: row.notificationText)
+        row.detail.origin = Self.origin(workspace.createdBy)
+        row.subagents = Self.subagents(tabs)
         return row
     }
 
-    /// The mark the row draws for the agent tab the face picked: a custom harness's own icon (user 12922; a mark
-    /// it names is a brand, anything else the row's `agentIcon`), else the tab's brand.
-    static func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup) -> (brand: String?, icon: SidebarAgentIcon?) {
+    /// The mark the row draws for the agent tab the face picked: the icon its session set for itself (acpmux
+    /// `icon`), else a custom harness's own icon (user 12922; a mark it names is a brand, anything else the row's
+    /// `agentIcon`), else the tab's brand.
+    static func agentMark(_ tab: TabModel?, harnessIcons: HarnessIconLookup,
+                          turns: AgentTurnStateStore = .shared) -> (brand: String?, icon: SidebarAgentIcon?) {
         guard let tab else { return (nil, nil) }
-        switch harnessIcons.custom(for: tab.agentSession?.harness) {
-        case .brand(let brand)?: return (brand, nil)
-        case .symbol(let name)?: return (nil, .symbol(name))
-        case .image(_, let favicon)?: return (nil, .image(favicon))
-        case nil: return (tab.agentBrand, nil)
-        }
+        let art = tab.agentSession.flatMap(turns.iconArt(for:)) ?? harnessIcons.custom(for: tab.agentSession?.harness)
+        return art.map(HarnessIconLookup.sidebarMark) ?? (tab.agentBrand, nil)
     }
 }

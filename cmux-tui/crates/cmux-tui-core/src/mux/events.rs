@@ -21,6 +21,9 @@ pub enum GraphicsStatus {
 /// Events pushed to subscribed frontends.
 #[derive(Debug, Clone)]
 pub enum MuxEvent {
+    /// The authenticated cmux Remote worker's screen device identity changed.
+    /// Delivered only to trusted local app subscribers.
+    ScreenDeviceChanged(Option<String>),
     /// New output arrived in a surface (coalesced; cleared when rendered).
     SurfaceOutput(SurfaceId),
     /// A surface's runtime changed size.
@@ -52,13 +55,21 @@ pub enum MuxEvent {
         surface: SurfaceId,
         status: Option<crate::program_status::ShownProgramStatus>,
     },
+    /// What a tab shows of a surface's title changed: its text or its
+    /// activity (plans/cmux-next/main-thread-scheduling.md, D2). A terminal
+    /// spinner frame changes neither and sends nothing. `title` is the raw
+    /// title at that moment, for clients that read only it.
     TitleChanged {
         surface: SurfaceId,
         title: Arc<str>,
+        shown: crate::TabTitle,
     },
     /// The latest agent state for one surface changed.
     AgentChanged {
         surface: SurfaceId,
+        /// The terminal's public id (`term_…`): a client finds every tab that shows the terminal by
+        /// it, whatever surface a restore or a reopen gave the tab. `None` from an older daemon.
+        terminal_id: Option<Arc<str>>,
         state: Arc<str>,
         source: Arc<str>,
         session: Option<Arc<str>>,
@@ -128,11 +139,33 @@ pub enum MuxEvent {
         revision: u64,
         kinds: Vec<String>,
     },
+    /// The feed client's view changed (`feed-client-v1`, feed_client.rs):
+    /// its revision and the items whose value moved. Readers re-read
+    /// `feed.view.read` (the page: `cmux.feed.view.changed`).
+    FeedViewChanged {
+        revision: u64,
+        changed: Arc<[String]>,
+    },
+    /// The Reports basket changed (`cmux.feed.reports.changed`).
+    FeedReportsChanged {
+        revision: u64,
+    },
+    /// The Cloud pushed a GitHub change for this person, or whether it can push them moved
+    /// (`live`), over the feed socket (feed_client.rs). Apps hear it as `github.changed`.
+    GitHubChanged {
+        live: Option<bool>,
+    },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),
     /// keybindings.json changed (`keybindings-v1`; mux/keybindings.rs).
     KeybindingsChanged(cmux_config::KeybindingsChange),
+    /// The link shares of acpmux session `session`'s chat changed
+    /// (`agent-session-share-events-v1`; server/agent_session_shares.rs): the
+    /// owner's Invite People sheet reads `agent-session-share-list` again.
+    AgentSessionShareChanged {
+        session: String,
+    },
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),
@@ -197,12 +230,54 @@ pub enum MuxEvent {
     /// (page-router.json `events`); other connections hear it as apps
     /// clients after their first `apps-*` command.
     AppsChanged(Arc<Value>),
+    /// A `stash.*` mutation committed (`stash-v1`): the state revision it
+    /// committed at. Consumers re-read `stash.list`. Clients of
+    /// `session.events` also see it as a `stash` resource change; this one
+    /// is for a page relay (page-router.json `events`: the Stashed Tabs
+    /// page).
+    StashChanged {
+        revision: u64,
+    },
     /// The local Tasks owner committed a change, or the daemon's link to it
     /// ended: the `tasks-changed` payload (tasks_link.rs). `subscribe` sends
     /// it only to a page relay whose page hears it (page-router.json `events`).
     TasksChanged(Arc<Value>),
+    /// What cmux Remote's Computer Use worker says its agent sessions do now
+    /// (`computer-use-activity`, remote_host/unix.rs): the host's
+    /// `workers["computer-use"].activity` each time it changes, as
+    /// `{event, sessions: [{session, label, app?, last_action_ms}]}`. macOS only;
+    /// `subscribe` sends it to the person's own local connections, never a page
+    /// relay or a remote device.
+    ComputerUseActivity(Arc<Value>),
+    /// One change of Computer Use's live preview (`computer-use-preview`,
+    /// computer_use_lifecycle.rs): `{event, session, surface: {terminal} |
+    /// {chat}, card: {...} | null}`, the card of the window an agent drives
+    /// for the surface the agent runs in. Delivered like
+    /// [`MuxEvent::ComputerUseActivity`]: the person's own local connections
+    /// only.
+    ComputerUsePreview(Arc<Value>),
+    /// The chats `chat.list` answers changed (`chat_index.rs`): the index's
+    /// new revision. Apps hear it as `chat.changed` (apps/routing.rs); raw
+    /// `subscribe` clients do not get it.
+    ChatsChanged {
+        revision: u64,
+    },
     /// Every workspace is gone.
     Empty,
+}
+
+impl MuxEvent {
+    /// A terminal's new title: the tab shows it without its status glyphs.
+    pub fn terminal_title(surface: SurfaceId, title: Arc<str>) -> Self {
+        let shown = crate::TabTitle::terminal(&title);
+        Self::TitleChanged { surface, title, shown }
+    }
+
+    /// A page's new title, shown as is (no glyph split).
+    pub fn page_title(surface: SurfaceId, title: Arc<str>) -> Self {
+        let shown = crate::TabTitle::page(&title);
+        Self::TitleChanged { surface, title, shown }
+    }
 }
 
 /// Machine-level model spend for the machine hosting this daemon, as
@@ -291,4 +366,16 @@ pub struct TreeDelta {
     /// The client transaction id of the command that caused this delta, so
     /// a frontend can reconcile its optimistic UI.
     pub transaction: Option<Arc<str>>,
+    /// The `origin` and `mutation_id` of the registry event at
+    /// `workspace_revision`, read once when the delta is published (under the
+    /// registry guard), so a subscriber never reads the registry for them.
+    pub mutation: Option<Arc<DeltaMutation>>,
+}
+
+/// Who made a revisioned workspace delta: its registry event's `origin` and
+/// `mutation_id`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeltaMutation {
+    pub origin: String,
+    pub mutation_id: String,
 }

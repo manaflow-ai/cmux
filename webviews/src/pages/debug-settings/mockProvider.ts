@@ -110,9 +110,9 @@ export const SAMPLE_TUNABLES: MockTunable[] = [
     control: {
       type: "spring",
       response: { min: 0.02, max: 1, step: 0.005, unit: "seconds", label: "Response" },
-      damping: { min: 0.1, max: 1.2, step: 0.01, unit: "multiplier", label: "Damping" },
+      damping: { min: 1, max: 1.2, step: 0.01, unit: "multiplier", label: "Damping" },
     },
-    default: { response: 0.32, dampingFraction: 0.86 },
+    default: { response: 0.32, dampingFraction: 1 },
   },
   {
     key: "browser.omnibar.glassDesign",

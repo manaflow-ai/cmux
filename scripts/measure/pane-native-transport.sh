@@ -36,7 +36,7 @@ if [ -n "$against" ]; then
   # .git/shallow and truncates history for every worktree sharing it.
   depth=()
   [ "$(git rev-parse --is-shallow-repository)" = true ] && depth=(--depth=1)
-  git cat-file -e "$against^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$against"
+  git cat-file -e "$against^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} origin "$against" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} https://github.com/manaflow-ai/cmux.git "$against"
   here="$(git rev-parse HEAD)"
   rm -rf "${paths[@]}"
   git checkout "$against" -- "${paths[@]}"

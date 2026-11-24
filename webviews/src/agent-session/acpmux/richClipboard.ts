@@ -93,6 +93,8 @@ export function htmlMarkdown(html: string, { escape = false } = {}): string {
       return match[2] ? `${match[1]}${mark}${match[2]}${mark}${match[3]}` : body;
     };
     const style = element.getAttribute("style") ?? "";
+    if (tag === "SPAN" && !element.firstElementChild && /^white-space:\s*pre-wrap;?$/.test(style))
+      return text(element.textContent ?? "");
     // Google Docs wraps a whole copy in <b style="font-weight:normal"> and marks bold and italics
     // on spans' styles.
     const weight = /font-weight\s*:\s*(\w+)/i.exec(style)?.[1];

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- APNs for TestFlight and App Store builds: the production gateway
+	     (api.push.apple.com). Must match the "cmux Internal Distribution"
+	     profile and the token environment the backend sends to. -->
+	<key>aps-environment</key>
+	<string>production</string>
+	<!-- Time Sensitive notifications: a push that asks for an answer (an
+	     agent's question or approval) carries interruption-level
+	     time-sensitive (backend/apps/api push/apns.ts and home-push.ts,
+	     cmux-next-ios/backend push.ts) and the notification service extension
+	     sets .timeSensitive (ServicePush.swift). Without this key iOS delivers
+	     them as active and Focus holds them back. The App IDs have the
+	     capability (USERNOTIFICATIONS_TIMESENSITIVE: dev.cmux.app.internal per
+	     verify/deep-links.md, com.cmux.app from the classic app). -->
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
+	<!-- Sign in with Apple (the first Welcome button). The Stack SDK uses the
+	     native ASAuthorizationController flow; the identity token's audience
+	     is this bundle id, which the production Stack project must accept. -->
+	<key>com.apple.developer.applesignin</key>
+	<array>
+		<string>Default</string>
+	</array>
+	<!-- Stack tokens live in this app's own keychain group. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<string>$(DEVELOPMENT_TEAM).$(CMUX_MOBILE_APP_BUNDLE_ID).push</string>
+	</array>
+	<!-- The App Group the notification content extension shares with the app:
+	     its outbox and chat snapshots (verify/rich-push.md). -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.$(CMUX_MOBILE_APP_BUNDLE_ID)</string>
+	</array>
+	<!-- cmux's universal links (CmuxLink, OpenedURL, RootView's
+	     onContinueUserActivity): cmux.com/link/…, cmux.com/deeplink/agent,
+	     cmux.com/pair and a cloud group's /g/ page. The same list as
+	     CmuxMobileApp-Simulator.entitlements. Signed in only when the profile
+	     carries the Associated Domains capability: project.yml picks this file
+	     with CMUX_MOBILE_ASSOCIATED_DOMAINS=YES, which testflight-build.sh sets
+	     from the downloaded profile (verify/deep-links.md). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:cmux.com</string>
+		<string>applinks:www.cmux.com</string>
+		<string>applinks:cloud-api.cmux.dev</string>
+		<string>applinks:cloud-api-staging.cmux.dev</string>
+	</array>
+</dict>
+</plist>

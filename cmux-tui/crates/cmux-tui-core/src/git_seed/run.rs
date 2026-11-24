@@ -2,13 +2,27 @@
 //! bundle, check out HEAD, stage INDEX, restore WORK and the stash, then
 //! submodules and LFS. Every network step tries the machine's GitHub paths
 //! in order; a later step keeps the path that worked.
+//!
+//! A head-first seed ([`HeadFirst`], a fresh clone only) checks WORK out through
+//! non-cone sparse patterns first ([`head_patterns`]): the root's files, the harness
+//! folders and each folder on the chat's subpath. Its index is WORK, so those files carry
+//! the person's uncommitted edits and untracked files. It marks the head on the sync
+//! barrier ([`cmux_git::harness_head::head_allowed`]), then fills under the same barrier:
+//! the patterns go to `/*` while the index is still WORK, so every new path is WORK's,
+//! and only then does the index become INDEX. Until the fill's record is written, a file
+//! in the git dir ([`FILLING`]) says the tree is not whole: a delta seed or an export of
+//! it is refused (`seed.filling`), since a sparse tree read back would drop the person's
+//! files on the Mac.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use cmux_git::sync_barrier::Sync as Barrier;
 
 use super::git::{Credential, Failure, Git};
 use super::job::{Failed, Job, Phase};
-use super::params::StartParams;
+use super::params::{HeadFirst, StartParams};
 use super::snapshot::Snapshot;
 use super::{SeedRefusal, place, worktree};
 use crate::fs_ops::Roots;
@@ -17,6 +31,157 @@ use crate::fs_ops::Roots;
 /// (`refs/cmux-seed/*`), which moves only once the checkout succeeded, so a
 /// failed delta can be retried with the same `since`.
 const SEED_REFSPEC: &str = "+refs/cmux-seed/*:refs/cmux-seed-incoming/*";
+
+/// In the git dir from a head-first seed's head until its fill's record is written.
+const FILLING: &str = "cmux-seed-filling";
+
+/// How long a step that takes the index lock waits for a reader to let go of it: once the
+/// head is marked, a started harness may run `git status`, which holds the lock a moment.
+const INDEX_LOCK_WAIT: Duration =
+    if cfg!(test) { Duration::from_secs(1) } else { Duration::from_secs(10) };
+
+/// Whether `folder`'s last head-first seed never finished its fill.
+pub(super) fn fill_unfinished(folder: &Path) -> bool {
+    std::fs::symlink_metadata(folder.join(".git").join(FILLING)).is_ok()
+}
+
+/// The head's non-cone patterns: the root's files, then each subpath folder's own files
+/// (each re-includes what its parent's `!.../*/` left out), then every head folder's harness
+/// folders whole. A folder is judged by the last pattern that matches the folder itself, and
+/// `/.claude/` matches only `.claude`: with a subpath inside it (`.claude/skills/task`),
+/// `!/.claude/*/` would leave `.claude/rules/` out. So each harness folder also gets
+/// `/.claude/**`, which matches every folder below it, after every exclusion.
+pub(super) fn head_patterns(head: &HeadFirst) -> String {
+    let mut patterns = String::from("/*\n!/*/\n");
+    let mut folders = vec![String::new()];
+    let mut at = String::new();
+    for part in &head.subpath {
+        at.push('/');
+        at.push_str(part);
+        patterns.push_str(&format!("{at}/\n!{at}/*/\n"));
+        folders.push(at.clone());
+    }
+    for folder in &folders {
+        for dir in cmux_git::harness_head::HEAD_DIRS {
+            patterns.push_str(&format!("{folder}/{dir}/\n{folder}/{dir}/**\n"));
+        }
+    }
+    patterns
+}
+
+/// How many of HEAD's last commits name the hot files ([`Seed::hot_files`]).
+const HOT_COMMITS: usize = 50;
+/// Most hot files a seed checks out before the rest downloads.
+const HOT_MAX: usize = 4000;
+
+/// The ledger lines of a marked head ([`head_patterns`]): the root's own files, each
+/// subpath folder's own files, and every head folder's harness folders whole.
+pub(super) fn head_ledger(head: &HeadFirst) -> Vec<String> {
+    let mut lines = vec![String::from("/")];
+    let mut folders = vec![String::new()];
+    let mut at = String::new();
+    for part in &head.subpath {
+        at.push_str(part);
+        at.push('/');
+        lines.push(at.clone());
+        folders.push(at.clone());
+    }
+    for folder in &folders {
+        for dir in cmux_git::harness_head::HEAD_DIRS {
+            lines.push(format!("{folder}{dir}/**"));
+        }
+    }
+    lines
+}
+
+/// What a filling checkout holds past its head, as ledger lines: a file (`a/b.rs`), a
+/// folder's own files (`a/`) or a folder whole (`a/**`).
+#[derive(Default)]
+pub(super) struct Widened {
+    pub(super) lines: std::collections::BTreeSet<String>,
+}
+
+impl Widened {
+    /// The sparse patterns of the head and every line. A folder's own files take an
+    /// exclusion of its subfolders (`!/a/*/`), which would take out a file or folder below
+    /// it that an earlier line brought in, and a later pattern wins: so every such pair
+    /// comes first, parents before children (the set's order), and the lines that only
+    /// include (files, whole folders) come last, where nothing excludes them again.
+    pub(super) fn patterns(&self, head: &HeadFirst) -> String {
+        let mut patterns = head_patterns(head);
+        for line in &self.lines {
+            if line != "/" && line.ends_with('/') {
+                patterns.push_str(&format!("/{line}\n!/{line}*/\n"));
+            }
+        }
+        for line in &self.lines {
+            match line.strip_suffix("/**") {
+                Some(folder) => patterns.push_str(&format!("/{folder}/\n/{folder}/**\n")),
+                None if !line.ends_with('/') => patterns.push_str(&format!("/{line}\n")),
+                None => {}
+            }
+        }
+        patterns
+    }
+}
+
+/// Whether a non-cone sparse pattern names `path` as it is: no glob, escape or comment
+/// character, no leading `!` and no surrounding space.
+pub(super) fn literal_path(path: &str) -> bool {
+    !path.is_empty()
+        && path.trim() == path
+        && !path.starts_with('!')
+        && !path.starts_with('#')
+        && !path.contains(['*', '?', '[', ']', '\\', '\n', '\r'])
+        && !path.split('/').any(|part| part.is_empty() || part == "." || part == "..")
+}
+
+/// How many blobs one background fetch asks for: each is its own pack, so a kill loses
+/// one chunk's download at most.
+const DOWNLOAD_CHUNK: usize = 1000;
+
+/// Downloads every blob of `work`'s tree the clone does not have yet, in chunks of
+/// [`DOWNLOAD_CHUNK`], into the object store only (no checkout, no index lock), so a
+/// chat's tools and the wants' checkouts run beside it. Which blobs are missing comes from
+/// one tree walk with no fetch (`rev-list --missing=print`, about 0.5 s on cmux's 60k
+/// files), so a seed started again after a kill downloads only what the last one did
+/// not. `git backfill` would do it too, but it walks the whole history's trees first:
+/// minutes of CPU on cmux before its first blob. False when a fetch failed.
+pub(super) fn download_missing(
+    git: &Git,
+    credential: &Credential,
+    folder: &Path,
+    work: &str,
+) -> bool {
+    let tree = format!("{work}^{{tree}}");
+    let Ok(listing) =
+        git.quiet(Some(folder), credential, &["rev-list", "--objects", "--missing=print", &tree])
+    else {
+        return false;
+    };
+    let missing: Vec<String> = String::from_utf8_lossy(&listing)
+        .lines()
+        .filter_map(|line| line.strip_prefix('?'))
+        .filter(|oid| oid.len() >= 40 && oid.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_owned)
+        .collect();
+    let base = [
+        "-c",
+        "fetch.negotiationAlgorithm=noop",
+        "fetch",
+        "-q",
+        "origin",
+        "--no-tags",
+        "--no-write-fetch-head",
+        "--recurse-submodules=no",
+        "--filter=blob:none",
+    ];
+    missing.chunks(DOWNLOAD_CHUNK).all(|chunk| {
+        let args: Vec<&str> =
+            base.iter().copied().chain(chunk.iter().map(String::as_str)).collect();
+        git.quiet(Some(folder), credential, &args).is_ok()
+    })
+}
 
 /// Refuses a folder that holds something other than this repository: a
 /// non-empty folder without `.git`, or a clone of another remote.
@@ -59,12 +224,35 @@ fn origin_url(git: &Git, folder: &Path) -> Option<String> {
     Some(String::from_utf8_lossy(&out).trim().to_owned())
 }
 
+/// Whether two remote URLs name one GitHub repository: `https://github.com/O/N(.git)`,
+/// `git@github.com:O/N(.git)` and `ssh://git@github.com/O/N(.git)` alike, owner and name
+/// compared as GitHub does (case aside). Any other URL must be the same string.
+pub(super) fn same_github_repo(a: &str, b: &str) -> bool {
+    fn repo(url: &str) -> Option<String> {
+        let url = url.trim();
+        let rest = ["https://github.com/", "ssh://git@github.com/", "git@github.com:"]
+            .into_iter()
+            .find_map(|prefix| url.strip_prefix(prefix))?;
+        let rest = rest.trim_end_matches('/');
+        let rest = rest.strip_suffix(".git").unwrap_or(rest);
+        let (owner, name) = rest.split_once('/')?;
+        let fine = |part: &str| {
+            !part.is_empty()
+                && part.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        };
+        (fine(owner) && fine(name)).then(|| format!("{owner}/{name}").to_ascii_lowercase())
+    }
+    a == b || matches!((repo(a), repo(b)), (Some(x), Some(y)) if x == y)
+}
+
 pub struct Seed {
     job: Arc<Job>,
     params: StartParams,
     folder: PathBuf,
     /// This daemon's copy of the Mac's bundle (`None`: clone only).
     bundle: Option<place::BundleCopy>,
+    /// This daemon's copy of the sender's `git-seed-carry-v1` pack, until it is used ([`carry`]).
+    carry: Option<place::BundleCopy>,
     roots: Roots,
     git: Git,
     credentials: Vec<Credential>,
@@ -82,16 +270,18 @@ impl Seed {
         params: StartParams,
         folder: PathBuf,
         bundle: Option<place::BundleCopy>,
+        carry: Option<place::BundleCopy>,
         roots: Roots,
         git: Git,
         credentials: Vec<Credential>,
     ) -> Self {
         let chosen = credentials.first().cloned().unwrap_or(Credential::Anonymous);
-        Self { job, params, folder, bundle, roots, git, credentials, chosen, reached: None }
+        Self { job, params, folder, bundle, carry, roots, git, credentials, chosen, reached: None }
     }
 
-    pub fn run(mut self) -> Result<(), Failed> {
-        self.steps()?;
+    /// `barrier`: the sync this seed holds; a head-first seed marks its head on it.
+    pub fn run(mut self, barrier: &mut Barrier) -> Result<(), Failed> {
+        self.steps(barrier)?;
         self.keep_credential();
         self.report_head();
         Ok(())
@@ -123,7 +313,7 @@ impl Seed {
         }
     }
 
-    fn steps(&mut self) -> Result<(), Failed> {
+    fn steps(&mut self, barrier: &mut Barrier) -> Result<(), Failed> {
         if let Some(git_ref) = self.params.clone_only.clone() {
             self.clone_new()?;
             self.checkout_ref(git_ref.as_deref())?;
@@ -131,10 +321,32 @@ impl Seed {
             return self.lfs(None);
         }
         let Some(since) = self.params.since.clone() else {
-            self.clone_or_fetch()?;
+            // Only a fresh clone opens at its head: an existing checkout holds files of
+            // the person's that a sparse head would take out of the tree for a while. A
+            // head-first seed whose fill was cut short (the daemon restarted, the machine
+            // stopped) holds none: past its head only tools that read ran there. It opens at
+            // its head again and downloads only what its objects still lack, as a game
+            // resumes an interrupted download.
+            let fresh = std::fs::symlink_metadata(self.folder.join(".git")).is_err()
+                || fill_unfinished(&self.folder);
+            let head_first = self.params.head_first.clone().filter(|_| fresh);
+            // The sender's pack of the base, when it sent one, instead of a clone ([`carry`]).
+            if !self.carry_in() {
+                self.clone_or_fetch()?;
+            }
             self.base()?;
             self.apply_bundle()?;
-            self.checkout()?;
+            match head_first {
+                Some(head) => {
+                    self.checkout_head(&head)?;
+                    let marked = self.mark_head(&head, barrier);
+                    if marked {
+                        self.play_while_filling(&head, barrier)?;
+                    }
+                    self.fill()?;
+                }
+                None => self.checkout()?,
+            }
             self.submodules(None)?;
             self.lfs(None)?;
             self.remove_bundle();
@@ -144,6 +356,7 @@ impl Seed {
         self.job.enter(Phase::Bundle);
         self.check_delta(&since)?;
         self.apply_bundle()?;
+        self.check_ignored(&since)?;
         self.checkout_delta(&since)?;
         let changed = self.changed_paths(&since)?;
         self.submodules(Some(&changed))?;
@@ -324,15 +537,23 @@ impl Seed {
 
     /// A delta seed builds on this folder's last seed or last export
     /// ([`super::export`], which the Mac merged back): same remote, its WORK
-    /// is `since`, and nothing changed on the machine since (HEAD, the index
-    /// and the working tree with untracked files are still that record's).
+    /// is `since`, and nothing changed on the machine since (HEAD, the stash,
+    /// the index and the working tree with untracked files are still that
+    /// record's).
     fn check_delta(&self, since: &str) -> Result<(), Failed> {
         self.recheck()?;
+        if fill_unfinished(&self.folder) {
+            return Err(failed(
+                "seed.filling",
+                "the folder's last seed never finished filling it; seed it whole again",
+            ));
+        }
         let mismatch = |error: &str| failed("seed.since_mismatch", error);
         let is_clone =
             std::fs::symlink_metadata(self.folder.join(".git")).is_ok_and(|meta| meta.is_dir());
         if !is_clone
-            || origin_url(&self.git, &self.folder).as_deref() != Some(self.params.url.as_str())
+            || !origin_url(&self.git, &self.folder)
+                .is_some_and(|origin| same_github_repo(&origin, &self.params.url))
         {
             return Err(mismatch("the folder is not a seed of this repository"));
         }
@@ -341,7 +562,7 @@ impl Seed {
                 .ok()
                 .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
         };
-        let Some(record) = super::export::RECORDS
+        let Some(record) = super::export::DELTA_RECORDS
             .into_iter()
             .find(|record| read(&format!("{record}/work^{{commit}}")).as_deref() == Some(since))
         else {
@@ -356,6 +577,10 @@ impl Seed {
         if read("HEAD^{commit}").as_deref() != Some(head.as_str()) {
             return Err(changed("HEAD moved on the machine since the last seed"));
         }
+        // The delta sets refs/stash to the Mac's, so a stash made here would be lost.
+        if read("refs/stash^{commit}") != read(&format!("{record}/stash^{{commit}}")) {
+            return Err(changed("the stash changed on the machine since the last seed"));
+        }
         let work = read(&format!("{since}^{{tree}}")).unwrap_or_default();
         let snapshot = Snapshot::take(&self.git, &self.chosen, &self.folder)
             .map_err(|failure| step_failed(&failure, "seed.checkout_failed"))?;
@@ -364,6 +589,56 @@ impl Seed {
         }
         if snapshot.work != work {
             return Err(changed("files changed on the machine since the last seed"));
+        }
+        Ok(())
+    }
+
+    /// A delta writes every path WORK changed since `since`. `check_delta`'s snapshot covers
+    /// every file of the folder but its ignored ones, so a path the delta writes that the folder
+    /// has on disk and `since` does not track is an ignored file of the machine's (or one in a
+    /// folder the delta puts a file where), which the checkout would overwrite: refused, before
+    /// anything is written.
+    fn check_ignored(&self, since: &str) -> Result<(), Failed> {
+        let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
+        let changed = self
+            .git(&[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--no-renames",
+                "--name-only",
+                since,
+                &self.params.work,
+            ])
+            .map_err(wrap)?;
+        // Each path, and each folder above it that is a file on disk (a folder there is fine).
+        let mut on_disk = Vec::new();
+        for path in changed.split(|byte| *byte == 0).filter(|path| !path.is_empty()) {
+            let Ok(text) = std::str::from_utf8(path) else { continue };
+            if std::fs::symlink_metadata(self.folder.join(text)).is_ok() {
+                on_disk.push(text.to_owned());
+            }
+            let mut above = Path::new(text).parent();
+            while let Some(dir) = above.filter(|dir| !dir.as_os_str().is_empty()) {
+                if std::fs::symlink_metadata(self.folder.join(dir)).is_ok_and(|meta| !meta.is_dir())
+                {
+                    on_disk.push(dir.to_string_lossy().into_owned());
+                }
+                above = dir.parent();
+            }
+        }
+        if on_disk.is_empty() {
+            return Ok(());
+        }
+        let tracked =
+            self.git(&["ls-tree", "-r", "-t", "-z", "--name-only", since]).map_err(wrap)?;
+        let tracked: std::collections::HashSet<&[u8]> =
+            tracked.split(|byte| *byte == 0).filter(|path| !path.is_empty()).collect();
+        if let Some(path) = on_disk.iter().find(|path| !tracked.contains(path.as_bytes())) {
+            return Err(failed(
+                "seed.machine_changed",
+                format!("{path} is on the machine and not in the last seed (an ignored file)"),
+            ));
         }
         Ok(())
     }
@@ -485,15 +760,41 @@ impl Seed {
                 self.git(&["update-ref", "-d", &incoming])?;
             }
         }
+        // The optional deletion marker carries a stash-only delta through Git's
+        // bundle format. It has no semantic ref in the seeded working copy.
+        let marker = "refs/cmux-seed-incoming/stash-cleared";
+        if self.git(&["rev-parse", "--verify", "--quiet", marker]).is_ok() {
+            self.git(&["update-ref", "-d", marker])?;
+        }
         Ok(())
     }
 
     fn checkout(&mut self) -> Result<(), Failed> {
+        let sparse = self.params.sparse.clone();
+        self.check_out_work(sparse.as_deref())?;
+        self.finish_checkout()
+    }
+
+    /// The head: WORK through [`head_patterns`], the index left at WORK for the fill.
+    fn checkout_head(&mut self, head: &HeadFirst) -> Result<(), Failed> {
+        let marker = self.folder.join(".git").join(FILLING);
+        std::fs::write(&marker, b"")
+            .map_err(|error| failed("seed.checkout_failed", format!("fatal: {error}")))?;
+        self.check_out_work(Some(&head_patterns(head)))
+    }
+
+    /// HEAD checked out under `patterns` (none: the whole tree), then the working tree and
+    /// the index become WORK.
+    fn check_out_work(&mut self, patterns: Option<&str>) -> Result<(), Failed> {
         self.recheck()?;
         self.job.enter(Phase::Checkout);
         let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
-        worktree::configure(&self.git, &self.chosen, &self.folder, self.params.sparse.as_deref())
-            .map_err(wrap)?;
+        // An index an earlier head (or the Mac's patterns) left sparse keeps its
+        // skip-worktree bits through a checkout with sparse off: those files would stay out
+        // of the tree while `git status` reads clean. `/*` clears them; then sparse goes off.
+        let whole_again = patterns.is_none() && self.has_skipped_paths().map_err(wrap)?;
+        let patterns = if whole_again { Some("/*") } else { patterns };
+        worktree::configure(&self.git, &self.chosen, &self.folder, patterns).map_err(wrap)?;
         let head = self.params.head.clone();
         match self.params.branch.clone() {
             Some(branch) => {
@@ -512,7 +813,213 @@ impl Seed {
         // The working tree becomes WORK (tracked files WORK lacks go).
         let work = self.params.work.clone();
         self.git(&["read-tree", "--reset", "-u", &work]).map_err(wrap)?;
+        if whole_again {
+            worktree::configure(&self.git, &self.chosen, &self.folder, None).map_err(wrap)?;
+        }
+        Ok(())
+    }
+
+    /// Whether the index marks a path skip-worktree (none in a clone not checked out yet).
+    fn has_skipped_paths(&self) -> Result<bool, Failure> {
+        if std::fs::symlink_metadata(self.folder.join(".git/index")).is_err() {
+            return Ok(false);
+        }
+        let listing = self.git(&["ls-files", "-t", "-z"])?;
+        Ok(listing.split(|byte| *byte == 0).any(|entry| entry.starts_with(b"S ")))
+    }
+
+    /// Marks the head on the barrier unless a start there would run a command or miss its
+    /// instructions ([`cmux_git::harness_head::head_allowed`]); the job's status says so.
+    /// Whether it marked the head.
+    fn mark_head(&self, head: &HeadFirst, barrier: &mut Barrier) -> bool {
+        let folders = head.folders();
+        let folders: Vec<&Path> = folders.iter().map(Path::new).collect();
+        let marked = cmux_git::harness_head::head_allowed(&self.folder, &folders)
+            && !self.head_has_submodule(head);
+        if marked {
+            barrier.head_ready();
+            let _ = barrier.filled(&head_ledger(head));
+            self.job.reached_head();
+        }
+        #[cfg(test)]
+        hold::at_head(&self.folder);
+        marked
+    }
+
+    /// Past a marked head, before [`Self::fill`]: the chat plays while the checkout
+    /// downloads. First the files the agent is likeliest to read first (what the person
+    /// changed, then what the last [`HOT_COMMITS`] commits changed: cmuxterm-hq
+    /// docs/cloud/hybrid-warm-worktrees-and-partial-start.md), then every other blob
+    /// downloads in the background ([`download_missing`], which an interrupted seed resumes
+    /// from the objects it already has) while each path a waiting tool asks for
+    /// ([`Barrier::wants`]) is checked out at once. Each part in place goes on the
+    /// barrier's ledger ([`Barrier::filled`]), so a tool that only reads it runs now
+    /// (`cmux_git::native_hook`). Nothing here fails the seed: whatever did not land, the
+    /// whole checkout in [`Self::fill`] fetches, as before.
+    fn play_while_filling(
+        &mut self,
+        head: &HeadFirst,
+        barrier: &mut Barrier,
+    ) -> Result<(), Failed> {
+        self.recheck()?;
+        let mut wide = Widened::default();
+        let hot = self.hot_files();
+        if !hot.is_empty() {
+            wide.lines.extend(hot.iter().cloned());
+            if self.widen(&wide.patterns(head)) {
+                let _ = barrier.filled(&hot);
+            }
+        }
+        let (git, credential, folder, work) =
+            (self.git.clone(), self.chosen.clone(), self.folder.clone(), self.params.work.clone());
+        // A scoped thread: it ends before this step returns, with the seed that owns it.
+        let downloaded = std::thread::scope(|scope| {
+            let download = scope.spawn(|| download_missing(&git, &credential, &folder, &work));
+            while !download.is_finished() {
+                let mut lines = Vec::new();
+                for want in barrier.wants() {
+                    let Some(line) = self.want_line(&want) else { continue };
+                    if wide.lines.insert(line.clone()) {
+                        lines.push(line);
+                    }
+                }
+                if !lines.is_empty() && self.widen(&wide.patterns(head)) {
+                    let _ = barrier.filled(&lines);
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            download.join().unwrap_or(false)
+        });
+        if !downloaded {
+            self.job.note("download_failed");
+        }
+        Ok(())
+    }
+
+    /// The tree checked out under `patterns` (WORK, the index left as it is); false when
+    /// it did not happen.
+    fn widen(&self, patterns: &str) -> bool {
+        worktree::configure(&self.git, &self.chosen, &self.folder, Some(patterns)).is_ok()
+            && self.git_index(&["sparse-checkout", "reapply"]).is_ok()
+    }
+
+    /// What WORK changed against HEAD (the person's own edits), then what the last
+    /// [`HOT_COMMITS`] commits of HEAD changed: paths that are in WORK and that a pattern
+    /// names literally, at most [`HOT_MAX`]. Trees only: a blobless clone has them.
+    fn hot_files(&self) -> Vec<String> {
+        let (head, work) = (self.params.head.clone(), self.params.work.clone());
+        let commits = format!("-n{HOT_COMMITS}");
+        let mut listings = Vec::new();
+        if let Ok(changed) = self.git(&["diff", "--name-only", "-z", "--no-renames", &head, &work])
+        {
+            listings.push(changed);
+        }
+        if let Ok(changed) =
+            self.git(&["log", &commits, "--name-only", "-z", "--no-renames", "--format=", &head])
+        {
+            listings.push(changed);
+        }
+        let Ok(in_work) = self.git(&["ls-tree", "-r", "-z", "--name-only", &work]) else {
+            return Vec::new();
+        };
+        let in_work: std::collections::HashSet<&[u8]> =
+            in_work.split(|byte| *byte == 0).filter(|path| !path.is_empty()).collect();
+        let mut seen = std::collections::HashSet::new();
+        let mut hot = Vec::new();
+        for listing in &listings {
+            for path in listing.split(|byte| *byte == 0) {
+                if hot.len() >= HOT_MAX {
+                    return hot;
+                }
+                let Ok(text) = std::str::from_utf8(path) else { continue };
+                if literal_path(text) && in_work.contains(path) && seen.insert(text.to_owned()) {
+                    hot.push(text.to_owned());
+                }
+            }
+        }
+        hot
+    }
+
+    /// The ledger line for a path a tool waits on: a folder of WORK whole (`a/b/**`), or a
+    /// file's own folder (`a/`, `/` for the root's); None for one no pattern names literally.
+    /// A path WORK does not have is in place as it is, absent (`a/b/**`): a Glob of a folder
+    /// that is not there goes ahead and finds nothing. Trees only (`ls-tree`): asking a
+    /// blob's type in a blobless clone would download it.
+    fn want_line(&self, want: &str) -> Option<String> {
+        let want = want.trim_matches('/');
+        if want.is_empty() || !literal_path(want) {
+            return None;
+        }
+        let listed = self.git(&["ls-tree", "-z", &self.params.work, "--", want]).ok()?;
+        // `<mode> <type> <oid>\t<path>`; nothing listed: WORK has no such path.
+        let is_file = listed.split(|byte| *byte == b' ').nth(1).is_some_and(|kind| kind != b"tree");
+        Some(match (is_file, want.rsplit_once('/')) {
+            (false, _) => format!("{want}/**"),
+            (true, Some((parent, _))) => format!("{parent}/"),
+            (true, None) => String::from("/"),
+        })
+    }
+
+    /// Whether a submodule is in the head: its folder is still empty (submodules come after
+    /// the fill), so a `.claude` kept as a submodule would start a harness with none of its
+    /// instructions or settings. A gitlink (`160000`) in the index (WORK here) is in the head
+    /// when it is a subpath folder, or a harness folder of a head folder or inside one (git
+    /// does not mark a gitlink outside the patterns skip-worktree, so the path decides). An
+    /// unreadable index counts as one: such a head is never marked.
+    fn head_has_submodule(&self, head: &HeadFirst) -> bool {
+        let Ok(listing) = self.git(&["ls-files", "-s", "-z"]) else { return true };
+        let subpath = head.folders();
+        let folders: Vec<String> = std::iter::once(String::new())
+            .chain(subpath.iter().map(|folder| format!("{folder}/")))
+            .collect();
+        let in_head = |path: &str| {
+            subpath.iter().any(|folder| folder == path)
+                || folders.iter().any(|folder| {
+                    path.strip_prefix(folder.as_str()).is_some_and(|rest| {
+                        let first = rest.split('/').next().unwrap_or(rest);
+                        cmux_git::harness_head::HEAD_DIRS.contains(&first)
+                    })
+                })
+        };
+        listing.split(|byte| *byte == 0).any(|entry| {
+            let entry = String::from_utf8_lossy(entry);
+            entry.starts_with("160000 ")
+                && entry.split_once('\t').is_some_and(|(_, path)| in_head(path))
+        })
+    }
+
+    /// The rest of the checkout, under the barrier the head was marked on. The index is
+    /// still WORK, so `/*` brings every other path in as WORK has it (the person's
+    /// edits, deletes and untracked files); only then does the index become INDEX.
+    fn fill(&mut self) -> Result<(), Failed> {
+        self.recheck()?;
+        let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
+        worktree::configure(&self.git, &self.chosen, &self.folder, Some("/*")).map_err(wrap)?;
+        self.git_index(&["sparse-checkout", "reapply"]).map_err(wrap)?;
+        worktree::configure(&self.git, &self.chosen, &self.folder, None).map_err(wrap)?;
+        let (index, work) = (self.params.index.clone(), self.params.work.clone());
+        worktree::restore_untracked(&self.git, &self.chosen, &self.folder, &index, &work)
+            .map_err(wrap)?;
         self.finish_checkout()
+    }
+
+    /// [`Self::git`] for a step that takes the index lock, retried while another git holds
+    /// it, for at most [`INDEX_LOCK_WAIT`].
+    fn git_index(&self, args: &[&str]) -> Result<Vec<u8>, Failure> {
+        let deadline = Instant::now() + INDEX_LOCK_WAIT;
+        loop {
+            match self.git(args) {
+                Err(failure)
+                    if failure.lines.iter().any(|line| line.contains("index.lock"))
+                        && Instant::now() < deadline =>
+                {
+                    let pause = Duration::from_millis(20);
+                    std::thread::sleep(pause);
+                    super::git::count("sleep index.lock", pause);
+                }
+                result => return result,
+            }
+        }
     }
 
     /// A delta seed: the working tree moves from `since` to WORK (edits,
@@ -564,7 +1071,7 @@ impl Seed {
         let wrap = |failure: Failure| step_failed(&failure, "seed.checkout_failed");
         let work = self.params.work.clone();
         let index = self.params.index.clone();
-        self.git(&["read-tree", "--reset", &index]).map_err(wrap)?;
+        self.git_index(&["read-tree", "--reset", &index]).map_err(wrap)?;
         if self.params.sparse.is_some() {
             self.git(&["sparse-checkout", "reapply"]).map_err(wrap)?;
             worktree::restore_untracked(&self.git, &self.chosen, &self.folder, &index, &work)
@@ -588,7 +1095,13 @@ impl Seed {
                 }
             }
         }
-        self.record_seed().map_err(wrap)
+        self.record_seed().map_err(wrap)?;
+        // The tree is whole, and its record says what it is.
+        match std::fs::remove_file(self.folder.join(".git").join(FILLING)) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(failed("seed.checkout_failed", format!("fatal: {error}"))),
+        }
     }
 
     /// `changed`: a delta seed's `diff-tree -z` of the two WORK trees; it
@@ -742,3 +1255,13 @@ fn clean_folder(folder: &Path, existed: bool) {
         }
     }
 }
+
+/// `git-seed-carry-v1`: the base from the sender's own objects.
+#[path = "carry.rs"]
+mod carry;
+
+/// A test's hold of a seed at its head ([`Seed::mark_head`]), so it can read the
+/// checkout and the barrier there.
+#[cfg(test)]
+#[path = "run_hold_tests.rs"]
+pub(super) mod hold;

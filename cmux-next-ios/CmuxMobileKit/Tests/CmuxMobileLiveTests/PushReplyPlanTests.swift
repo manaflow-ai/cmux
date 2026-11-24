@@ -76,6 +76,13 @@ import Testing
         #expect(throws: PushReplyPlan.Refusal.self) { try PushReplyPlan.make(reply(.terminal, .text("ls", attachments: [])), pending: nil) }
     }
 
+    /// A text reply to a working chat steers its turn, as Send in the chat does; it never queues
+    /// behind the turn (Leo, 2026-11-05: "WHY THE F*** ARE MY MESSAGES BEING QUEUED INSTEAD OF STEERING").
+    @Test func aTextReplySteersTheRunningTurn() {
+        #expect(PushReplyPlan.promptMeta(promptID: "r1")
+            == .object(["acpmux": .object(["promptId": .string("r1"), "steer": .bool(true), "resend": .bool(true)])]))
+    }
+
     /// PR B: a reply to a terminal notification is `notification-reply` for that
     /// notification, text only, at most 4 KB.
     @Test func terminalRepliesGoToTheNotifyingTerminal() throws {

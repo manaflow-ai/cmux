@@ -587,7 +587,10 @@
     "maxBytes": 1,
     "kinds": 1,
     "eventStream": 1,
-    "visible": 1
+    "visible": 1,
+    "waitLogs": 1,
+    "settled": 1,
+    "afterSeq": 1
    }
   },
   "mode_fields": null,
@@ -628,7 +631,9 @@
    "method": "_acpmux/kill",
    "params": {
     "sessionId": 1,
-    "purge": 1
+    "purge": 1,
+    "cancelFork": 1,
+    "cancelToken": 1
    }
   },
   "mode_fields": null,
@@ -711,7 +716,8 @@
    "id": 1,
    "method": "_acpmux/models",
    "params": {
-    "refresh": 1
+    "refresh": 1,
+    "localOnly": true
    }
   },
   "mode_fields": null,
@@ -875,7 +881,10 @@
    "params": {
     "sessionId": 1,
     "throughSeq": 1,
-    "live": true
+    "live": true,
+    "cancelToken": "t-1",
+    "harness": "codex",
+    "model": "gpt-5"
    }
   },
   "mode_fields": null,
@@ -1093,6 +1102,222 @@
   "breaks": true
  },
  {
+  "name": "_acpmux/prompts_list every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_list",
+   "params": {}
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/prompts_list with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_list",
+   "params": {
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/prompts_save every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_save",
+   "params": {
+    "name": 1,
+    "text": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/prompts_save with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_save",
+   "params": {
+    "name": 1,
+    "text": 1,
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/prompts_delete every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_delete",
+   "params": {
+    "name": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/prompts_delete with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/prompts_delete",
+   "params": {
+    "name": 1,
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/stash_list every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_list",
+   "params": {
+    "chat": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/stash_list with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_list",
+   "params": {
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/stash_push every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_push",
+   "params": {
+    "chat": 1,
+    "text": 1,
+    "attachments": 1,
+    "replaces": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/stash_push with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_push",
+   "params": {
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/stash_get every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_get",
+   "params": {
+    "chat": 1,
+    "id": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/stash_get with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_get",
+   "params": {
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/stash_drop every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_drop",
+   "params": {
+    "chat": 1,
+    "id": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/stash_drop with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_drop",
+   "params": {
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/stash_move every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_move",
+   "params": {
+    "chat": 1,
+    "to": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/stash_move with a command param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/stash_move",
+   "params": {
+    "command": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
   "name": "_acpmux/bookmark_get with another param breaks",
   "frame": {
    "jsonrpc": "2.0",
@@ -1101,6 +1326,35 @@
    "params": {
     "sessionId": 1,
     "cwd": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/turn_shots every known param",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/turn_shots",
+   "params": {
+    "sessionId": 1,
+    "turnId": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/turn_shots with another param breaks",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/turn_shots",
+   "params": {
+    "sessionId": 1,
+    "turnId": 1,
+    "path": 1
    }
   },
   "mode_fields": null,
@@ -2033,6 +2287,115 @@
     "sessionId": "a",
     "held": true,
     "peerSessionId": "b"
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/build with its ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "_meta": {
+     "cmuxGesture": "t"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/plan/build _meta with more than the ticket",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "_meta": {
+     "cmuxGesture": "t",
+     "acpmux": {}
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/plan/build names harnesses",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/plan/build",
+   "params": {
+    "sessionId": "s",
+    "permissionId": "p",
+    "target": "compare",
+    "harnesses": [
+     "claude",
+     "codex"
+    ]
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/presets with the approval fields passes",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "s"
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/presets may not carry set (the page only approves)",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "s",
+    "set": {
+     "name": "night",
+     "policy": "bypass"
+    }
+   }
+  },
+  "mode_fields": null,
+  "breaks": true
+ },
+ {
+  "name": "_acpmux/presets may not carry clear (the page only approves)",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/presets",
+   "params": {
+    "name": "night",
+    "approveMode": true,
+    "approveDigest": "sha256:ab",
+    "sessionId": "s",
+    "clear": true
    }
   },
   "mode_fields": null,

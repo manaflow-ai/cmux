@@ -4,9 +4,12 @@ extension CEFEngine {
     /// Clear Browsing Data (cx-d0d.23) in `profile`'s Chromium store:
     /// cookies created since `since` (nil: all time) and the HTTP cache,
     /// which Chromium clears whole for any range. One of `liveTabs` (the
-    /// profile's open tabs) clears the cache of a profile in use; a profile
-    /// Chromium has not opened in this process has its cache directories
-    /// deleted. A profile Chromium never stored has nothing to clear.
+    /// profile's open tabs) clears the HTTP cache of a profile in use; a
+    /// profile Chromium has not opened in this process has its cache
+    /// directories deleted, and for all time the service workers' Cache
+    /// Storage with them (a shorter range keeps it: it holds no times).
+    /// A profile in use keeps its Cache Storage: Chromium owns the open
+    /// directory. A profile Chromium never stored has nothing to clear.
     /// Starts Chromium for cookies; throws when it cannot start.
     public func clearBrowsingData(_ profile: BrowserProfileID, cookies: Bool, cache: Bool, since: Date?,
                                   liveTabs: [CEFTab]) async throws {
@@ -18,7 +21,7 @@ extension CEFEngine {
                 // A tab that cannot answer (not started, closing) leaves the cache; cookies still clear.
                 _ = try? await tab.devTools(method: "Network.clearBrowserCache", params: [:])
             } else if !hasOpened(profile) {
-                Self.removeCaches(in: directory)
+                Self.removeCaches(in: directory, since: since)
             }
         }
         guard cookies else { return }
@@ -26,22 +29,40 @@ extension CEFEngine {
         try await clearCookies(profile, since: since)
     }
 
-    /// Chromium's caches in a profile directory.
+    /// Chromium's caches in a profile directory: what the engine can fetch or build again. They go
+    /// whole for any range.
     static let cacheDirectories = ["Cache", "Code Cache", "GPUCache", "DawnGraphiteCache", "DawnWebGPUCache"]
+
+    /// The files the sites' service workers fetched (the Cache API; WebKit's fetch cache is the same
+    /// kind, and `WebKitProfileStore.cacheTypes` clears it by time). The directory holds no times,
+    /// and a site can keep its offline copy here, so it goes only when the range is all time. The
+    /// worker registrations beside it (`Service Worker/Database`) are site data: they stay.
+    static let cacheStorageDirectory = "Service Worker/CacheStorage"
+
+    /// The name of a directory moved aside for its delete starts with this.
+    static let movedAsidePrefix = ".cleared-"
 
     /// Moves the caches aside here (before Chromium can open the profile)
     /// and deletes them off the main thread: they can hold many files.
-    private static func removeCaches(in directory: URL) {
+    /// `since` is the range's start (nil: all time). A directory that an
+    /// earlier clear moved aside and did not delete (a quit, a failure)
+    /// goes with them. Call it only for a profile Chromium has not opened.
+    /// Returns that delete, for a test to wait for; nil when nothing moved.
+    @discardableResult
+    static func removeCaches(in directory: URL, since: Date?) -> Task<Void, Never>? {
         let manager = FileManager.default
-        var aside: [URL] = []
-        for name in cacheDirectories {
+        // main-actor-ok: one listing of one profile directory, not recursive, at a person's own
+        // clear action. It runs here with the renames below, before Chromium can open the profile.
+        var aside = ((try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? [])
+            .filter { $0.lastPathComponent.hasPrefix(movedAsidePrefix) }
+        for name in cacheDirectories + (since == nil ? [cacheStorageDirectory] : []) {
             let from = directory.appending(path: name)
-            let to = directory.appending(path: ".cleared-\(UUID().uuidString)")
+            let to = directory.appending(path: movedAsidePrefix + UUID().uuidString)
             if (try? manager.moveItem(at: from, to: to)) != nil { aside.append(to) }
         }
-        guard !aside.isEmpty else { return }
+        guard !aside.isEmpty else { return nil }
         // task-owner: one-shot delete of moved-aside cache directories
-        Task.detached(priority: .utility) {
+        return Task.detached(priority: .utility) {
             for url in aside { try? FileManager.default.removeItem(at: url) }
         }
     }

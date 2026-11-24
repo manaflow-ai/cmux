@@ -29,6 +29,12 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Deadline for every control-plane request (architecture.md 5a).
     /// A miss throws `DaemonError.timedOut`; nil disables it (tests only).
     public var requestTimeout: Duration?
+    /// Deadline for the handshake's requests, when it is longer than `requestTimeout`: a Cloud carrier
+    /// connection's first `identify` waits out the carrier's dial of a cold machine (180 s). Nil uses
+    /// `requestTimeout`.
+    public var handshakeTimeout: Duration?
+    /// The handshake's deadline: `handshakeTimeout`, else `requestTimeout`.
+    var handshakeDeadline: Duration? { handshakeTimeout ?? requestTimeout }
     /// Deadline for `list-workspaces` snapshots, which can be large.
     public var snapshotTimeout: Duration?
     /// Deadline for commands that launch a terminal host
@@ -65,6 +71,11 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Records each request's send-to-reply time (``DaemonRequestLatency``; Debug and bench builds read
     /// it through `debug.daemon_requests`). Nil: not measured. The local ``DaemonService`` sets its own.
     public var requestLatency: DaemonRequestLatency?
+    /// Records each request that was slow or failed (``SlowRequestLog``). Nil: not recorded. The local
+    /// ``DaemonService`` sets its own.
+    public var slowRequestLog: SlowRequestLog?
+    /// App health's sink: the first timed-out request and the first answer after one. Nil: not reported.
+    public var health: DaemonHealthSink?
     /// Hands an owner the handshake refuses (another protocol, or a required capability missing)
     /// off to the bundled build before the refusal surfaces; true when it is exiting for that
     /// handoff. Only the app's own connections to its local daemon set it

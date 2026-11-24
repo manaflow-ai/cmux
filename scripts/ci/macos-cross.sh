@@ -19,6 +19,7 @@
 #   ref-sdk <mac-binary>           print the SDK version recorded in a Mac binary
 #   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud and the
 #                                  agent screen-detection plugin for both macOS targets
+#   acpmux                          focused feature-enabled acpmux link for both targets
 #   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, cmux-tui-host, cmux-holder, acpmux, cmux-relay, chatmux-relay
 #                                  (framework stubs) for both macOS targets
 #   all <sha> <ghostty-sha> <version>   hosts and bins, every cargo invocation at once
@@ -155,7 +156,15 @@ cmd_weaken_compiler_rt() {
 
 cmd_toolchain() {
   local sdk=${1:?sdk version} zig_lib
-  zig_lib="$(dirname "$(readlink -f "$(command -v zig)")")/lib"
+  # The reviewed installer may expose Zig through a wrapper rather than a symlink.
+  zig_lib="$(zig env | python3 -c 'import json, re, sys
+text = sys.stdin.read()
+try:
+    print(json.loads(text)["lib_dir"])
+except (ValueError, KeyError):
+    found = re.search(r"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]+)\"", text)
+    if not found: raise SystemExit("zig env has no lib_dir")
+    print(found.group(1))')"
   [[ -f "$zig_lib/libc/darwin/libSystem.tbd" ]] || die "zig darwin libSystem stub not found under $zig_lib"
   rm -rf "${SYSROOT:?}" "${XC_ROOT:?}/bin"; mkdir -p "$SYSROOT/usr/lib"
   cp -r "$zig_lib/libc/include/any-darwin-any" "$SYSROOT/usr/include"
@@ -179,7 +188,7 @@ current-version: 7
 compatibility-version: 7
 ...
 EOF
-  # Apple framework stubs (CoreFoundation, CFNetwork, Security, CoreServices) from our own binaries' imports.
+  # Apple framework stubs (CoreFoundation, CFNetwork, Security, CoreServices, CoreGraphics, IOKit) from our own binaries' imports.
   python3 "$repo_root/scripts/ci/macos_stubs.py" install "$STUBS_DIR" "$SYSROOT"
   # The SDK version clang records in LC_BUILD_VERSION; the caller passes the Mac build's.
   cat > "$SYSROOT/SDKSettings.json" <<EOF
@@ -188,6 +197,14 @@ EOF
  "LLVMTargetTripleVendor":"apple","DefaultDeploymentTarget":"$sdk","MinimumDeploymentTarget":"10.13",
  "MaximumDeploymentTarget":"$sdk.99","PlatformFamilyName":"macOS"}}}
 EOF
+  # rustc strips release binaries for Apple targets with its own rust-objcopy, whose
+  # RUNPATH ($ORIGIN/../lib) finds libLLVM only in rustlib/<host>/lib, which the
+  # llvm-tools component installs. Without it each strip fails ("libLLVM.so...: cannot
+  # open shared object file") and the binaries ship with debug info.
+  (cd "$repo_root/cmux-tui" && rustup component add llvm-tools >/dev/null)
+  local objcopy
+  objcopy="$(cd "$repo_root/cmux-tui" && rustc --print sysroot)/lib/rustlib/$(cd "$repo_root/cmux-tui" && rustc -vV | awk '/^host:/{print $2}')/bin/rust-objcopy"
+  "$objcopy" --version >/dev/null || die "$objcopy does not run; rustc cannot strip the macOS binaries"
   "$LLVM_BIN/clang" --version | head -1
   echo "sysroot: $SYSROOT (zig $(zig version), SDK version label $sdk)"
 }
@@ -237,17 +254,27 @@ cmd_hosts() {
       CMUX_BUILD_SHA=$sha cargo build -p cmux-browser-host --bin cmux-browser-host --release --locked --target "$t")
     (cd "$repo_root/first-party-apps/cloud/server" && cargo build --bin cmux-cloud --release --locked --target "$t")
     # The agent screen-detection plugin is its own Cargo workspace (own Cargo.lock).
-    # Optional: a failed build publishes the tree without it (the app then runs
-    # no default detector), so never let a stale copy stand in for it.
+    # Required: a failed build fails the publication, and a stale copy never
+    # stands in for it.
     rm -f "$CARGO_TARGET_DIR/$t/release/cmux-agent-screen-detection" "$out/cmux-tui-agent-screen-detection-$t"
     (cd "$repo_root/cmux-tui" && cargo build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml \
-      --release --locked --target "$t") || echo "cmux-agent-screen-detection did not build for $t; publishing without it" >&2
+      --release --locked --target "$t")
     echo "hosts $t: $(( $(date +%s) - start )) s"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$CARGO_TARGET_DIR/$t/release/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
-    # Optional: a missing detector prints a warning annotation, never an error.
+    # Required: a missing detector prints an error annotation and fails.
     "$repo_root/scripts/ci/stage-agent-detector.sh" "$CARGO_TARGET_DIR/$t/release" "$t" "$out/cmux-tui-agent-screen-detection-$t"
+  done
+}
+
+# The focused check uses exactly the production compiler wrappers and sysroot.
+cmd_acpmux() {
+  export CARGO_TARGET_DIR="${XC_CARGO_TARGET_DIR:-$XC_ROOT/target-acpmux}"
+  for t in "${TARGETS[@]}"; do
+    use_target "$t" "${MIN_OS[$t]}"
+    (cd "$repo_root/cmux-tui" && cargo build --locked -p acpmux --bin acpmux --target "$t" \
+      $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t"))
   done
 }
 
@@ -270,9 +297,13 @@ cmd_bins() {
       cargo build -p cmux-holder --bin cmux-holder --release --locked --target "$t"
       cargo build -p cmux-relay --bin cmux-relay --release --locked --target "$t"
       cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target "$t"
-      cargo build -p acpmux --bin acpmux --release --locked --target "$t")
+      cargo build -p acpmux-standalone --bin acpmux-standalone --release --locked --target "$t" \
+        $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t" acpmux))
     echo "bins $t: $(( $(date +%s) - start )) s"
     local r="$CARGO_TARGET_DIR/$t/release"
+    # acpmux-standalone is acpmux with its build id stamped in this binary only, so a new commit
+    # does not recompile the acpmux lib. Staged, and read by the package build, as acpmux.
+    cp "$r/acpmux-standalone" "$r/acpmux"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
     cp "$r/cmux-tui-host" "$out/cmux-tui-host-$t"
@@ -300,24 +331,30 @@ cmd_all() {
   for t in "${TARGETS[@]}"; do
     use_target "$t" "${MIN_OS[$t]}"
     local start; start=$(date +%s)
-    local build="cargo build --release --locked --target $t"
+    # --timings: cargo-groups.sh prints each long group's slowest and last units (compile vs
+    # the fat-LTO link of the "bin" unit). It changes no output.
+    local build="cargo build --release --locked --timings --target $t"
     "$repo_root/scripts/ci/cargo-groups.sh" "$target_dir" "$t" \
       "cmux-tui cmux-tui-hook cmux-tui-host" "cd $(q "$tui") && $stamps $build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
       "cmux-holder" "cd $(q "$tui") && $stamps $build -p cmux-holder --bin cmux-holder" \
       "cmux-app-host" "cd $(q "$tui") && $stamps $build -p cmux-app-host --bin cmux-app-host" \
       "cmux-browser-host" "cd $(q "$tui") && CMUX_BUILD_SHA=$(q "$sha") $build -p cmux-browser-host --bin cmux-browser-host" \
       "cmux-cloud" "cd $(q "$repo_root/first-party-apps/cloud/server") && $build --bin cmux-cloud" \
-      "?cmux-agent-screen-detection" "cd $(q "$tui") && { $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml || echo 'cmux-agent-screen-detection did not build for $t; publishing without it' >&2; }" \
+      "cmux-agent-screen-detection" "cd $(q "$tui") && $build --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml" \
       "cmux-relay" "cd $(q "$tui") && $stamps $build -p cmux-relay --bin cmux-relay" \
       "chatmux-relay" "cd $(q "$tui") && $stamps $build -p chatmux-relay --bin chatmux-relay" \
-      "acpmux" "cd $(q "$tui") && $stamps $build -p acpmux --bin acpmux"
+      "acpmux-standalone" "cd $(q "$tui") && $stamps $build -p acpmux-standalone --bin acpmux-standalone $("$repo_root/scripts/ci/acpmux-build-features.sh" "$tui/crates/acpmux/Cargo.toml" "$t" acpmux)"
     echo "all $t: $(( $(date +%s) - start )) s"
     local r="$target_dir/$t/release"
+    # acpmux-standalone is acpmux with its build id stamped in this binary only, so a new commit
+    # that leaves its sources alone does not recompile the acpmux lib (the lib took 390 s of this
+    # group's 678 s in run 43727128661). Staged, and read by "Stage binary", as acpmux.
+    cp "$r/acpmux-standalone" "$r/acpmux"
     cp "$r/cmux-app-host" "$out/cmux-tui-app-host-$t"
     cp "$r/cmux-browser-host" "$out/cmux-tui-browser-host-$t"
     cp "$r/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
     rm -f "$out/cmux-tui-agent-screen-detection-$t"
-    # Optional: a missing detector prints a warning annotation, never an error.
+    # Required: a missing detector prints an error annotation and fails.
     "$repo_root/scripts/ci/stage-agent-detector.sh" "$r" "$t" "$out/cmux-tui-agent-screen-detection-$t"
     cp "$r/cmux-tui" "$out/cmux-tui-$t"
     cp "$r/cmux-tui-hook" "$out/cmux-tui-hook-$t"
@@ -438,7 +475,8 @@ cmd_ffi() {
   local out=${1:-$XC_ROOT/ffi} ct="$XC_ROOT/cctools/bin/aarch64-apple-darwin" crates="$repo_root/cmux-tui/crates" libs=()
   mkdir -p "$out/slices" "$out/macos" "$out/work"
   # Same settings as scripts/cmux-next/build-app-ffi.sh.
-  export CARGO_TARGET_DIR="$out/cargo" CARGO_PROFILE_RELEASE_LTO=off RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
+  export CARGO_TARGET_DIR="$out/cargo" CARGO_PROFILE_RELEASE_LTO=fat
+  export LIBSQLITE3_FLAGS="${LIBSQLITE3_FLAGS:+$LIBSQLITE3_FLAGS }-DSQLITE_WITHOUT_ZONEMALLOC"
   for h in "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h" "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h" "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h"; do
     grep -oE '\bcmux_[a-z0-9_]+\(' "$h" | tr -d '(' | sort -u | sed 's/^/_/'
   done | sort -u > "$out/work/exports.txt"
@@ -478,6 +516,7 @@ case "$command" in
   ref-sdk) cmd_ref_sdk "$@" ;;
   hosts) cmd_hosts "$@" ;;
   bins) cmd_bins "$@" ;;
+  acpmux) cmd_acpmux ;;
   all) cmd_all "$@" ;;
   weaken-compiler-rt) cmd_weaken_compiler_rt "$@" ;;
   parity-bins) cmd_parity_bins ;;

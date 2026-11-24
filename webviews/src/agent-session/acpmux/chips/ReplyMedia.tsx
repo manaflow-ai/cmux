@@ -12,89 +12,41 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Dialog } from "../../../ui/Dialog";
-import { keyedIconProps } from "../../../ui/DialogButton";
+
+import { belowTabRowStyle, useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { Close, Expand, OpenTab, PlayTriangle } from "../conversation/icons";
 import { callChipHost } from "./host";
 import { usePathInfo, useReplyPolicy } from "./linkStore";
 import { useNearViewport } from "../useNearViewport";
-import { isDeniedPath, linkPath, pathName } from "./paths";
+import { isDeniedPath, pathName } from "./paths";
 import { MEDIA_PREVIEW_DWELL, useHoverIntent } from "../../../ui/hoverIntent";
+import { movedFrom, slidUnderStillPointer, trackPointerRest, type PointerPlace } from "../../../ui/scrollHover";
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
-
-export { mediaKind } from "./mediaKind";
-
-const ATTACHMENT = /^\/user-attachments\/assets\/[\w-]+$/;
-
-function webURL(src: string): URL | undefined {
-  try {
-    const url = new URL(src);
-    return url.protocol === "https:" && !url.username && !url.password ? url : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/// Whether `src` is web media: an https link to a video or audio file, or a GitHub user attachment.
-export function isRemoteMedia(src: string): boolean {
-  const url = webURL(src);
-  if (!url) return false;
-  return (url.hostname === "github.com" && ATTACHMENT.test(url.pathname)) || mediaKind(url.pathname) !== undefined;
-}
-
-/// The host request that opens `source` in a tab, as a link to it would open: a web video
-/// (https only) in a cmux browser tab (`browser.openIn` with `cmux`), a file through the path
-/// chip's `link.openPath` (cmux's file pages, which play video and run nothing). The host checks
-/// either again and places the tab by the link setting. Nil for anything else.
-export function mediaOpenRequest(source: string): { method: string; params: Record<string, string> } | undefined {
-  if (webURL(source)) return { method: "browser.openIn", params: { url: source, browserId: "cmux" } };
-  // A path or a local `file://` URL; any other scheme (and a file URL on another host) opens nothing.
-  const path = linkPath(source);
-  if (!path || isDeniedPath(path)) return undefined;
-  return { method: "link.openPath", params: { path } };
-}
-
-/// A video's length as the thumbnail shows it: `m:ss`, or `h:mm:ss` from an hour. Nil when the
-/// length is unknown (a live stream, metadata not read yet).
-export function formatDuration(seconds: number): string | undefined {
-  if (!Number.isFinite(seconds) || seconds <= 0) return undefined;
-  const total = Math.max(1, Math.round(seconds));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = String(total % 60).padStart(2, "0");
-  return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
-}
-
-/// The URL the pane plays `source` (a path, a `file://` URL or a web link) by, as the host grants it
-/// (`media.load`): a `__media/` URL on the page's own origin that the host serves in byte
-/// ranges, so a file of any size streams and is never read whole. Nil when the host refuses it.
-/// A local path is asked on every mount, never cached across them: it names a different file in
-/// another chat (a remote one names its own machine's), and only the host knows which chat the pane
-/// shows now. The host hands the same file the same URL, so asking again costs one round trip. A web
-/// link names the same media in every chat, so its copy is kept (`webGranted`).
-export async function loadPlayableMedia(source: string): Promise<string | undefined> {
-  const web = webURL(source) !== undefined;
-  const known = web ? webGranted.get(source) : undefined;
-  if (known) return known;
-  const reply = await callChipHost("media.load", { src: source });
-  const url = (reply as { src?: unknown } | undefined)?.src;
-  // The gallery's fixture answers a data URL; the page's CSP plays only its own media URLs, on the
-  // pane's own host or the shared page host (`cmux-page://cmux.agent/__media/`).
-  if (typeof url !== "string" || !GRANTED_MEDIA.test(url)) return undefined;
-  if (web) webGranted.set(source, url);
-  return url;
-}
-
-/// A URL the host grants: a `__media/` path on one of the agent page's two origins, or the gallery's data URL.
-const GRANTED_MEDIA = /^(cmux-agent:\/\/pane\/__media\/|cmux-page:\/\/cmux\.agent\/__media\/|data:(video|audio)\/)/;
-
-/// The host's copy of each web link already fetched, so a remount plays it without Load again.
-const webGranted = new Map<string, string>();
-
+import {
+  webURL,
+  mediaOpenRequest,
+  formatDuration,
+  loadPlayableMedia,
+  webGranted,
+  watchPlaybackStall,
+} from "./replyMediaModel";
+import { keyedIconProps } from "../../../ui/DialogButton";
+import { useScrimClose } from "../../../ui/scrimClose";
+import { CompareViewer, PlaybackBar, onPlaybackKeyDown, type CompareItem } from "./VideoPlayback";
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
   const [src, setSrc] = useState(() => (webURL(source) ? webGranted.get(source) : undefined));
@@ -145,8 +97,10 @@ function HostReplyMedia({ path, alt, fallback }: { path: string; alt: string; fa
   const { src, state, load, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
   if (src) return <MediaPlayer src={src} source={path} kind={kind} name={name} path={path} onError={fail} />;
+  // A video that will load holds the player's box meanwhile (chips.css), as a web one does.
+  const reserve = kind === "video" && state !== "failed" && loadable;
   return (
-    <span ref={setFrame} className={`cv-media is-${kind}`}>
+    <span ref={setFrame} className={`cv-media is-${kind}`} data-reserve={reserve || undefined}>
       {state === "failed" && fallback ? fallback : <span className="cv-media__name">{name}</span>}
       {state === "failed" && loadable && (
         <button type="button" className="cv-image-placeholder__load" onClick={load}>
@@ -175,8 +129,12 @@ function HostRemoteMedia({ url, alt, fallback }: { url: string; alt: string; fal
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
+  // A web video holds the player's box while it waits for Load or loads (chips.css), with Load in its
+  // middle, so the player takes the place it left instead of the reply growing twice (a compact
+  // player that never shifts the chat, whatever images.remote says).
+  const reserve = kind === "video" && state !== "failed";
   return (
-    <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
+    <span ref={setFrame} className={`cv-media is-${kind} is-remote`} data-reserve={reserve || undefined}>
       <span className="cv-media__host">{webURL(url)?.host}</span>
       {state === "failed" && (fallback ?? <span className="cv-image-placeholder__note">{t("image.unavailable")}</span>)}
       <button type="button" className="cv-image-placeholder__load" disabled={state === "loading"} onClick={load}>
@@ -324,7 +282,9 @@ export function MediaPlayer({
 
 /// A video large over the pane (Expand, or an attachment's ▶ in the composer, whose tile is too small
 /// for a player's controls): its name, Close (Escape) and the player. It opens paused, like the
-/// thumbnail, unless `autoPlay` (the person's click on ▶ opened it to play).
+/// thumbnail, unless `autoPlay` (the person's click on ▶ opened it to play). A click beside the
+/// video closes it, as beside an image in the image viewer (ui/scrimClose.ts); a click on the video
+/// or its controls does not.
 export function VideoViewer({
   src,
   name,
@@ -333,10 +293,15 @@ export function VideoViewer({
   onClose,
   onPlay,
   videoRef,
+  size,
 }: {
   src: string;
   name: string;
   autoPlay?: boolean;
+  /// The video's own size when the host already read it (a composer attachment's `video`): the
+  /// player takes its final box from its first frame, instead of WebKit's 300 × 150 until the
+  /// metadata loads and then the video's size (one jump of the whole player as it opens).
+  size?: { width: number; height: number };
   onError(): void;
   onClose(): void;
   onPlay?(element: HTMLVideoElement): number | undefined;
@@ -344,6 +309,21 @@ export function VideoViewer({
 }) {
   const t = useT();
   const close = useRef<HTMLButtonElement>(null);
+  // Below the pane's tab row, as the image viewer (header/tabRow.ts belowTabRowStyle).
+  const below = belowTabRowStyle(useTabRow());
+  const scrim = useScrimClose(onClose);
+  // The player's element, for the speed, frame step and loop row under it (VideoPlayback.tsx).
+  // The player re-attaches its ref on every render; only a new element is a change.
+  const [element, setElement] = useState<HTMLVideoElement | null>(null);
+  const callerRef = useRef(videoRef);
+  useLayoutEffect(() => {
+    callerRef.current = videoRef;
+  });
+  const forwardRef = useCallback((video: HTMLVideoElement | null) => {
+    callerRef.current?.(video);
+    if (video) setElement((current) => (current === video ? current : video));
+  }, []);
+  const videos = useCallback(() => (element ? [element] : []), [element]);
   return (
     <Dialog
       open
@@ -353,7 +333,9 @@ export function VideoViewer({
       label={name || t("media.player")}
       className="acpmux-image-viewer"
       backdropClassName="acpmux-image-viewer-backdrop"
+      style={below}
       initialFocus={close}
+      onKeyDown={(event) => onPlaybackKeyDown(event, videos)}
     >
       <div className="acpmux-image-viewer-body">
         <div className="acpmux-image-viewer-bar">
@@ -368,16 +350,32 @@ export function VideoViewer({
             <Close />
           </button>
         </div>
-        <div className="cv-media-stage">
+        {/* A click beside the video closes the viewer, as beside an image in its viewer (Leo, 2026-11-12:
+            "I need to be able to, like, click outside of the video and have that exit as well"); a scrub
+            dragged off the video does not (ui/scrimClose.ts). Escape and Close are its keys. */}
+        {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
+        <div
+          className="cv-media-stage"
+          {...scrim.props}
+          {...(size && size.width > 0 && size.height > 0
+            ? {
+                "data-sized": "",
+                style: { "--cv-media-w": size.width, "--cv-media-h": size.height } as CSSProperties,
+              }
+            : {})}
+        >
           {/* Never autoplay on its own: only Play (or the ▶ that opened it) starts it with sound. */}
           <VideoThumbnail
             src={src}
             name={name}
             autoPlay={autoPlay}
             onError={onError}
-            videoRef={videoRef}
+            videoRef={forwardRef}
             onPlay={onPlay}
           />
+        </div>
+        <div className="cv-media-viewer__controls">
+          <PlaybackBar videos={videos} />
         </div>
       </div>
     </Dialog>
@@ -431,7 +429,12 @@ export function VideoThumbnail({
   const startedRef = useRef(false);
   const [started, setStarted] = useState(false);
   const [hovered, setHovered] = useState(false);
+  /// The poster scrolled under a still pointer: the preview waits for the pointer to move on it.
+  const parked = useRef<PointerPlace | null>(null);
+  useEffect(() => trackPointerRest(), []);
   const [duration, setDuration] = useState<string | undefined>();
+  /// Its metadata (and so its own size) has loaded: until then it holds the reserved box (chips.css).
+  const [sized, setSized] = useState(false);
   const previewAllowed = useMediaPreviewAllowed();
   const { shown, hover: setHover, dismiss } = useHoverIntent<boolean>({ delay: MEDIA_PREVIEW_DWELL });
   const previewing = previewAllowed && shown === true;
@@ -483,6 +486,17 @@ export function VideoThumbnail({
       void element.play()?.catch(() => {});
     });
   };
+  // A play that never gets data fails, as an error does: its owner says so (a sent tile: Quick Look,
+  // then "Can't play here"; a reply: its name and Load), never a native spinner turning forever.
+  const failRef = useRef(onError);
+  useLayoutEffect(() => {
+    failRef.current = onError;
+  });
+  useEffect(() => {
+    const element = video.current;
+    if (!started || !element) return;
+    return watchPlaybackStall(element, () => failRef.current());
+  }, [started]);
   // Mount-only: the ▶ that swapped this player in was the click.
   const autoPlayed = useRef(false);
   useEffect(() => {
@@ -508,9 +522,11 @@ export function VideoThumbnail({
         playsInline
         preload="metadata"
         aria-label={name}
+        data-unsized={sized ? undefined : ""}
         onError={onError}
         onLoadedMetadata={(event) => {
           const element = event.currentTarget;
+          setSized(true);
           setDuration(formatDuration(element.duration));
           // The poster: seeking a hair past the start makes the player draw that frame (with
           // preload="metadata" it otherwise shows black until it plays).
@@ -523,11 +539,23 @@ export function VideoThumbnail({
           className="cv-media__poster"
           aria-label={duration ? t("media.playLength", { length: duration }) : t("media.play")}
           onClick={play}
-          onMouseEnter={() => {
+          onMouseEnter={(event) => {
             setHovered(true);
+            if (slidUnderStillPointer(event)) {
+              parked.current = { x: event.clientX, y: event.clientY };
+              return;
+            }
+            parked.current = null;
+            if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
+          }}
+          onMouseMove={(event) => {
+            const still = parked.current;
+            if (!still || !movedFrom(still, event)) return;
+            parked.current = null;
             if (previewAllowed) setHover(true, MEDIA_PREVIEW_DWELL);
           }}
           onMouseLeave={() => {
+            parked.current = null;
             setHovered(false);
             setHover(null);
           }}
@@ -543,5 +571,74 @@ export function VideoThumbnail({
         </button>
       )}
     </span>
+  );
+}
+
+/// A click on a web video's link (a chip in a sentence, a Markdown link): the video plays in the
+/// large player over the pane instead of leaving for a browser tab, where a file served as bytes
+/// (raw.githubusercontent.com sends `application/octet-stream`) only downloads (Leo, 2026-11-22: "is
+/// there a way we can just watch the .mp4s in the app? i want that. in-app video player."). The click
+/// is the gesture the host's `media.load` asks for under `images.remote = click`. A link that is no
+/// web video, a read-only transcript and `images.remote = never` keep the link's own click; a video
+/// the host will not fetch opens as the link would.
+export function useVideoLinkClick(href: string): {
+  onClick?(event: MouseEvent<HTMLElement>): void;
+  viewer: ReactNode;
+} {
+  const readOnly = useTranscriptReadOnly();
+  const policy = useReplyPolicy();
+  const [open, setOpen] = useState<{ src: string } | undefined>();
+  const url = webURL(href);
+  const video = Boolean(url) && mediaKind(url!.pathname) === "video";
+  if (!video || readOnly || policy.remoteImages === "never") return { viewer: null };
+  const name = url!.pathname.split("/").pop() || href;
+  return {
+    onClick(event) {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      event.preventDefault();
+      void loadPlayableMedia(href).then((src) => {
+        if (src) setOpen({ src });
+        else {
+          const request = mediaOpenRequest(href);
+          if (request) void callChipHost(request.method, request.params);
+        }
+      });
+    },
+    viewer: open ? (
+      <VideoViewer
+        src={open.src}
+        name={name}
+        autoPlay
+        onError={() => {
+          webGranted.delete(href);
+          setOpen(undefined);
+        }}
+        onClose={() => setOpen(undefined)}
+      />
+    ) : null,
+  };
+}
+
+/// Compare, on a row of two videos (a before/after pair): both clips side by side on one clock.
+export function CompareButton({ items }: { items: [CompareItem, CompareItem] }) {
+  const t = useT();
+  const readOnly = useTranscriptReadOnly();
+  const [open, setOpen] = useState(false);
+  if (readOnly) return null;
+  return (
+    <>
+      <button type="button" className="cv-thumbs__compare" onClick={() => setOpen(true)}>
+        {t("media.compare")}
+      </button>
+      {open && <CompareViewer items={items} onClose={() => setOpen(false)} />}
+    </>
   );
 }

@@ -8,8 +8,9 @@ extension SidebarView {
     func buildNeedsYou() {
         addSubview(needsYouTray)
         needsYouTray.onOpen = { [weak self] id in
-            SidebarSessionTree.shared.reveal(id)
-            self?.model.click(id)
+            guard let self else { return }
+            SidebarSessionTree.shared.reveal(id, lists: self.model.listsHolding(id))
+            self.model.click(id)
         }
         // Keep the list's row patch handler first: it updates the realized row in place. The tray gets
         // the old/new values separately and refreshes only when the row crosses a needs-you state.
@@ -25,9 +26,23 @@ extension SidebarView {
         }
     }
 
+    /// The workspaces whose waiting session's one pending tool permission the App can answer: their
+    /// tray items get Allow and Deny, and y and n while focused, for that request (its id) only. The App
+    /// reads them (cmuxterm-hq#7794).
+    public func showAnswerable(_ workspaces: [WorkspaceID: String]) {
+        needsYouTray.setAnswerable(workspaces)
+    }
+
+    /// A tray item's Allow (true) or Deny of the request (its id) the item showed. Nil drops them.
+    public var onAnswer: ((WorkspaceID, String, Bool) -> Void)? {
+        get { needsYouTray.onAnswer }
+        set { needsYouTray.onAnswer = newValue }
+    }
+
     func refreshNeedsYou() {
         let before = needsYouTray.preferredHeight
-        needsYouTray.show(SidebarNeedsYou.make(model.sections, tree: SidebarSessionTree.shared.drawn))
+        let tree = SidebarNeedsYou.trayTree(SidebarSessionTree.shared.drawn, sessionTree: DesignSettings.shared.sidebarSections.sessionTree)
+        needsYouTray.show(SidebarNeedsYou.make(model.sections, tree: tree))
         if needsYouTray.preferredHeight != before { needsLayout = true }
     }
 

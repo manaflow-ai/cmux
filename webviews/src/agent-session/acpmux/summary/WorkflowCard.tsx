@@ -9,7 +9,7 @@ import { formatDuration } from "../conversation/turns";
 import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/SubagentGroup";
+import { useNow } from "../subagents/subagentGroupModel";
 import type { Subagent } from "../subagents/subagentFold";
 import type { WorkflowAgent } from "./workflow";
 import { modelName, tally, workflowOf } from "./foldWorkflows";
@@ -17,6 +17,9 @@ import { cardCount, cardLine, listNames, runningPhases, workflowModel } from "./
 import "./WorkflowCard.css";
 import "./workflowDots.css";
 import { opener, sideTabOpener, listeners } from "./workflowCardModel";
+import { Clock } from "../../../ui/Typography";
+import { intl } from "../../../ui/intl";
+import { WithFacts } from "../chips/FactsHoverCard";
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
   return () => void listeners.delete(listener);
@@ -49,7 +52,7 @@ const localizedState = (t: ReturnType<typeof useT>, state: WorkflowAgent["state"
 };
 const ROW_ICON = rowIconSize(12);
 const compactTokens = (value: number) =>
-  new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
+  intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(value);
 export function WorkflowCard({
   node,
   presentation = "selected",
@@ -112,7 +115,7 @@ export function WorkflowCard({
             <span className="acpmux-workflow-card__running">{listNames(phaseNames, language)}</span>
           )}
           {countText && <span>{countText}</span>}
-          <span>{formatDuration(elapsed)}</span>
+          <Clock text={formatDuration(elapsed)} />
           {tokens !== undefined && <span>{t("subagents.tokens", { n: tokens, tokens: compactTokens(tokens) })}</span>}
         </span>
         {presentation === "compact" ? (
@@ -135,16 +138,17 @@ export function WorkflowCard({
           </span>
         ) : (
           <>
-            <span
-              className="acpmux-workflow-card__latest"
-              title={latest ? `${latest.agent}: ${latest.line}` : undefined}
-            >
-              {latest && (
-                <>
-                  <span className="acpmux-workflow-card__agent">{latest.agent}</span> {latest.line}
-                </>
+            <WithFacts facts={[{ value: (latest ? `${latest.agent}: ${latest.line}` : undefined) ?? "" }]}>
+              {(facts) => (
+                <span {...facts} className="acpmux-workflow-card__latest">
+                  {latest && (
+                    <>
+                      <span className="acpmux-workflow-card__agent">{latest.agent}</span> {latest.line}
+                    </>
+                  )}
+                </span>
               )}
-            </span>
+            </WithFacts>
             <span
               className="acpmux-workflow-card__progress"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.

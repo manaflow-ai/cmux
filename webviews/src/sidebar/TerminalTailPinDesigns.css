@@ -1,0 +1,111 @@
+/* Terminal tail pins: a sidebar mock on the sidebar grid (design/grid.md §5.4, comfortable):
+   highlight 8 from both edges, text on `lead` (no icon column), trailing marks centred 16 from the
+   highlight's end. One weight for every row; the tail line is the status entry's subtitle line. */
+.ttp-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 240px;
+  padding: 8px 0;
+  font-family: var(--font-ui);
+  color: var(--cmux-text, CanvasText);
+}
+.ttp-sidebar {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ttp-row {
+  display: flex;
+  align-items: center;
+  min-height: var(--grid-row-comfortable);
+  margin: 0 8px;
+  padding: 0 0 0 8px;
+  border-radius: 8px;
+  box-sizing: border-box;
+}
+.ttp-row[data-has-tail] {
+  padding-block: 4px;
+}
+.ttp-row[data-selected] {
+  background: var(--cmux-selection, var(--cmux-hover));
+}
+.ttp-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.ttp-title {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 400;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The status entry line: subtitle size, one line, ellipsis where the text column ends (the
+   trailing column's start), never growing the row. */
+.ttp-tail {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: var(--text-detail--line-height);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--cmux-text-secondary, GrayText);
+}
+.ttp-tail[data-design="tinted"] {
+  color: var(--cmux-accent, AccentColor);
+}
+.ttp-tail[data-design="plain"] {
+  color: var(--cmux-text-tertiary, GrayText);
+}
+.ttp-glyph {
+  flex: 0 0 auto;
+}
+.ttp-tail-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* The crossfade: the new line fades in over at most 120 ms in the same box, so nothing moves. */
+@media (prefers-reduced-motion: no-preference) {
+  .ttp-tail-text[data-swap="crossfade"] {
+    animation: ttp-tail-in var(--cmux-motion-micro) var(--cmux-ease-out);
+  }
+}
+@keyframes ttp-tail-in {
+  from {
+    opacity: 0.35;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.ttp-trail {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--grid-icon-box);
+  height: var(--text-body--line-height);
+  margin-right: 8px;
+}
+/* With a tail line the mark stays on the title's line, not the row's centre. */
+.ttp-row[data-has-tail] .ttp-trail {
+  align-self: flex-start;
+}
+.ttp-next {
+  align-self: flex-start;
+  margin-left: 16px;
+  font: inherit;
+  font-size: var(--text-detail);
+}

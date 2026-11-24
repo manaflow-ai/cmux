@@ -48,7 +48,7 @@ pub(super) async fn handle(
         .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
     // Again after the wait, right before the change (`full_access_hold`).
     let control = super::super::remote_guard::control_of(conn.origin, conn.auth, params);
-    let device = super::super::remote_guard::full_access_device(hub, conn, params);
+    let device = super::super::remote_guard::sending_device(conn, params);
     hub.full_access_hold(&s.meta(), control, device.as_deref())?;
     let mut reply = json!({"sessionId": s.id, "promptId": prompt_id});
     if m == method::MUX_QUEUE_REMOVE {
@@ -67,7 +67,7 @@ pub(super) async fn handle(
         return Ok(reply);
     }
     crate::author::owner_only(params)?;
-    hub.web_control_check(&s, control)?;
+    hub.web_control_check(&s, control, device.as_deref())?;
     if m == method::MUX_QUEUE_GET {
         return hub.queued_get(&s, prompt_id);
     }

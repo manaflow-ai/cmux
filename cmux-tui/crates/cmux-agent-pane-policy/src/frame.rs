@@ -162,6 +162,23 @@ pub(crate) fn into_object(v: Value) -> Option<Map<String, Value>> {
     }
 }
 
+/// What a host adds to a refusal it words itself (Swift `AcpmuxPaneMethods
+/// .refusal`'s `detail` and `reason`; the page reads `error.data.detail` and
+/// `error.data.reason`). Today only a refused Enable harness has them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RefusalNote<'a> {
+    /// acpmux's own reason, for the page to show: an empty one is left out, a
+    /// long one is cut to [`MAXIMUM_REFUSAL_DETAIL`] characters.
+    pub detail: Option<&'a str>,
+    /// Why, as a code the page words.
+    pub reason: Option<&'a str>,
+}
+
+/// The most characters of a refusal's `detail` that reach the page (Unicode
+/// scalars here; the Swift host counted Characters, so a detail with
+/// combining marks is cut no later than there).
+pub const MAXIMUM_REFUSAL_DETAIL: usize = 1000;
+
 /// The error frame that answers a refused request, as the daemon answers an
 /// unknown one. `root_requested`: the host offered to add the refused folder
 /// as a root.
@@ -171,11 +188,29 @@ pub fn refusal_frame(
     method: Option<&str>,
     root_requested: bool,
 ) -> String {
+    refusal_frame_noted(request_id, refusal, method, root_requested, RefusalNote::default())
+}
+
+/// [`refusal_frame`] with the host's `detail` and `reason` in `error.data`.
+pub fn refusal_frame_noted(
+    request_id: &str,
+    refusal: Refusal,
+    method: Option<&str>,
+    root_requested: bool,
+    note: RefusalNote<'_>,
+) -> String {
     let mut data = Map::new();
     data.insert("code".into(), Value::String(refusal.code().into()));
     data.insert("origin".into(), Value::String("native".into()));
     if let Some(method) = method {
         data.insert("method".into(), Value::String(method.into()));
+    }
+    if let Some(detail) = note.detail.filter(|detail| !detail.is_empty()) {
+        let cut: String = detail.chars().take(MAXIMUM_REFUSAL_DETAIL).collect();
+        data.insert("detail".into(), Value::String(cut));
+    }
+    if let Some(reason) = note.reason {
+        data.insert("reason".into(), Value::String(reason.into()));
     }
     if root_requested {
         data.insert("rootRequested".into(), Value::Bool(true));

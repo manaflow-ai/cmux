@@ -83,3 +83,30 @@ fn a_malformed_request_is_invalid() {
     let (code, _) = call(br#"{"op": "edit"}"#);
     assert_eq!(code, ERR_INVALID);
 }
+
+#[test]
+fn an_attach_and_the_tree_rows_cross_the_abi() {
+    let request = json!({
+        "op": "edit",
+        "sections": sections(),
+        "intent": {"kind": "attach", "ids": ["b"], "creator": "a"},
+    });
+    let (code, body) = call(&serde_json::to_vec(&request).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body["changed"], json!(true));
+    // `b` leaves its group, which goes with its last row.
+    assert_eq!(
+        body["sections"][0]["nodes"],
+        json!([
+            {"kind": "workspace", "workspace": {"id": "a", "machine": "local"}},
+            {"kind": "workspace", "workspace": {"id": "b", "machine": "local", "creator": "a"}},
+        ])
+    );
+    let tree = json!({"op": "tree", "sections": body["sections"], "indent": 16});
+    let (code, body) = call(&serde_json::to_vec(&tree).unwrap());
+    assert_eq!(code, OK);
+    assert_eq!(body["rows"][1]["id"], json!("b"));
+    assert_eq!(body["rows"][1]["depth"], json!(1));
+    assert_eq!(body["rows"][1]["indent"], json!(16));
+    assert_eq!(body["rows"][1]["guides"], json!(["end"]));
+}

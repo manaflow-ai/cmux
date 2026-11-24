@@ -1,8 +1,0 @@
-{
-  "title": "Sidebar import note: names no other app and no date",
-  "steps": [
-    {"title": "Launch", "wait": 3, "shot": false},
-    {"title": "A stand-in Conductor finding: the sidebar's import note shows", "rpc": {"method": "debug.import_note", "params": {"action": "show"}}, "wait": 2},
-    {"title": "Settings › Import: the card names its source, with no date", "cmux": ["import", "open"], "wait": 3}
-  ]
-}

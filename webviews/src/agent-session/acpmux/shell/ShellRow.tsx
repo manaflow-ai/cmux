@@ -2,18 +2,11 @@
 // (Stop while it runs, then its exit status and time), the end of its output (all of it once
 // opened), and "Open in terminal", which types the command into a new terminal tab in the same
 // folder without running it.
-import { createContext, useContext } from "react";
+import { useContext } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { Check, Spinner } from "../conversation/icons";
-import type { ShellRun } from "./shellRuns";
-
-/// Lines of output a closed block shows: the last ones, where results and errors are.
-export const SHELL_COLLAPSED_LINES = 8;
-
-export type ShellActions = { stop(id: string): void; openInTerminal(run: ShellRun): void };
-export const ShellActionsContext = createContext<ShellActions | undefined>(undefined);
-
+import { SHELL_COLLAPSED_LINES, ShellActionsContext } from "./shellRowModel";
 export function ShellRow({
   row,
   expanded,

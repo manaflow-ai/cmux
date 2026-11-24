@@ -1,7 +1,10 @@
 //! Attach replay and live-stream delivery, shared by every native attach caller.
+use super::agent_session_link::list_gate::SessionListFilter;
+use super::agent_session_link::list_source;
 use super::*;
 use crate::panic_free::JsonFields;
 use cmux_json::JsonSet as _;
+use std::sync::atomic::AtomicU64;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn connect_and_attach(
@@ -20,6 +23,7 @@ pub(super) fn connect_and_attach(
     let sessions = &mux.control_clients.agent_sessions;
     let release = |sessions: &AgentSessions| sessions.lock().reserved.remove(&(client, surface));
     let newest_first = params.get("afterSeq").is_none() || params.get("beforeSeq").is_some();
+    let filtered = params.get("kinds").is_some();
     let slot: Arc<Mutex<ReaderSlot>> = Arc::default();
     let reader_slot = slot.clone();
     let reader_mux = Arc::downgrade(&mux);
@@ -55,11 +59,11 @@ pub(super) fn connect_and_attach(
         }
     };
     let overflow = closed_event(surface, "overflow");
-    let Ok(outbound) = writer.start_stream(&overflow) else {
+    let opened = writer.start_stream(&overflow);
+    let Ok(outbound) = opened else {
         release(sessions);
         link.close();
-        refuse(&writer, id, Refusal::Limit);
-        return;
+        return writer.refuse_stream(id, opened.err());
     };
     let resolved =
         page.pointer("/session/sessionId").and_then(Value::as_str).unwrap_or_default().to_string();
@@ -72,16 +76,73 @@ pub(super) fn connect_and_attach(
         refuse(&writer, id, Refusal::UnknownTab);
         return;
     }
+    // A side chat (acpmux's `side` tag on the page) is the owner's alone: it is remembered, and
+    // a teammate's, team member's or link guest's attach to it ends here, before any record.
+    if side_known::tagged(&page) {
+        sessions.sides.remember(&resolved);
+        sessions.sides.remember(&record_session);
+    }
+    if author.is_some() && (side_known::tagged(&page) || sessions.sides.contains(&resolved)) {
+        release(sessions);
+        link.close();
+        refuse(&writer, id, Refusal::NotTrusted);
+        return;
+    }
     slot.lock().unwrap_or_else(|e| e.into_inner()).session = Some(resolved.clone());
     // Session status changes (`_acpmux/session_changed`) come only to
     // watchers; the reader keeps only this session's and its descendants'.
-    // The answer (every session's summary) never reaches the client: only
+    // The watch turns them on with a one-row page, then this machine's own
+    // list names the descendants (a peer's session is never one,
+    // `agent_session_children::descendants`). A whole watch answered every
+    // peer's sessions too: 31 MB on a Mac that mirrors ~10,000, on each attach.
+    // An acpmux without `session-list-filters-v1` ignores `localOnly` and
+    // answers them all the same, so it gets the whole watch alone: the list
+    // once, not twice (`list_gate`). The list never reaches the client: only
     // the descendants it names are followed from now on.
+    let meta = author.as_ref().map(|author| json!({"acpmux": {"author": author}}));
     let mut watch = json!({"enabled": true});
-    if let Some(author) = &author {
-        watch.set_path(&["_meta", "acpmux", "author"], author.clone());
+    let mut own = json!({});
+    if let Some(meta) = &meta {
+        watch.set("_meta", meta.clone());
+        own.set("_meta", meta.clone());
     }
-    let watched = link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT);
+    let capabilities = link.capabilities(meta.as_ref(), CALL_TIMEOUT);
+    // On the v2 list (row 7c) the one-row watch is the switch, and the descendants come by
+    // `page` with `family`, its hot part only (`agent_session_children::kin_ids`, the cap of
+    // 256 kept; decision 301): no row but theirs is read. The list is opened first, so a daemon
+    // without it gets v1's requests and no more; the watch goes on before the kin are read, so
+    // a child started meanwhile is followed.
+    let source = if capabilities.iter().any(|c| c == list_source::INFO_ROWS) {
+        agent_session_children::kin_source(&socket, &link)
+    } else {
+        Ok(None)
+    };
+    let kin = source.and_then(|source| {
+        let Some(mut source) = source else { return Ok(None) };
+        let mut switch = watch.clone();
+        switch.set("limit", json!(1));
+        link.call("_acpmux/watch", switch, CALL_TIMEOUT)?;
+        agent_session_children::kin_ids(&mut source, &resolved, false).map(Some)
+    });
+    let watched = match kin {
+        Ok(Some(ids)) => Ok(ids),
+        Err(error) => Err(error),
+        // No v2 list: v1's list of this machine's sessions, walked here (a named fallback).
+        Ok(None) => {
+            let local = SessionListFilter { local_only: true, ..SessionListFilter::default() };
+            let own = local.gate(own, capabilities);
+            let list = if own.served() {
+                watch.set("limit", json!(1));
+                link.call("_acpmux/watch", watch, CALL_TIMEOUT).and_then(|_| {
+                    link.call_whole_list("_acpmux/sessions", own.params, CALL_TIMEOUT)
+                })
+            } else {
+                link.call_whole_list("_acpmux/watch", watch, CALL_TIMEOUT)
+                    .map(|list| own.narrow(list))
+            };
+            list.map(|list| agent_session_children::descendant_ids(&resolved, &list))
+        }
+    };
     // A list read whole from bad pages would follow only some of the session's descendants,
     // and lose the changes of the rest; the client attaches again instead.
     if let Err(LinkError::BadList(_)) = &watched {
@@ -104,6 +165,10 @@ pub(super) fn connect_and_attach(
         writer: writer.clone(),
         outbound,
         calls: AtomicUsize::new(0),
+        ordered_stream: !filtered && page.get("peer").is_none(),
+        next_stream_seq: AtomicU64::new(
+            page.get("lastSeq").and_then(Value::as_u64).map_or(0, |last| last.saturating_add(1)),
+        ),
         ended: AtomicBool::new(false),
         permissions: Mutex::default(),
         prompts: Mutex::default(),
@@ -112,8 +177,7 @@ pub(super) fn connect_and_attach(
     if attachment.author.is_none()
         && let Ok(watched) = &watched
     {
-        attachment
-            .follow_children(&agent_session_children::descendant_ids(&attachment.session, watched));
+        attachment.follow_children(watched);
     }
     for pending in page.pointer("/session/pending").and_then(Value::as_array).into_iter().flatten()
     {
@@ -293,12 +357,20 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         // A teammate never sees anyone's unsent text (chat-multiplayer design section 5).
         "_acpmux/event" if same_session && attachment.author.is_some() && is_draft(&params) => {}
         "_acpmux/event" if same_session => {
+            if params
+                .get("seq")
+                .and_then(Value::as_u64)
+                .is_some_and(|seq| !attachment.accepts_stream_seq(seq))
+            {
+                attachment.end(Some("gap"));
+                return;
+            }
             let event = json!({"event": "agent-session-record", "surface": attachment.surface, "record": params});
             // Never blocks: a client that does not keep up overflows its
             // stream, which ends with the `overflow` close (the stream's own
             // overflow text), and the client replays from what it holds.
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end(None);
+                attachment.end_unsent();
             }
         }
         "_acpmux/permission_pending" if same_session => {
@@ -307,7 +379,7 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             }
             let event = json!({"event": "agent-session-permission", "surface": attachment.surface, "request": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end(None);
+                attachment.end_unsent();
             }
         }
         // The session's own changes, and its descendants' (`agent-session-children-v1`),
@@ -325,7 +397,7 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
             }
             let event = json!({"event": "agent-session-changed", "surface": attachment.surface, "change": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end(None);
+                attachment.end_unsent();
             }
         }
         // Who is in the chat: acpmux sends the whole set on every change, to a client that asked.
@@ -335,14 +407,15 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
         {
             let event = json!({"event": "agent-session-presence", "surface": attachment.surface, "presence": params});
             if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
-                attachment.end(None);
+                attachment.end_unsent();
             }
         }
-        "_acpmux/prompt_accepted" if same_session => {
+        // A prompt this attachment sent: to its chat, or to a side chat it opened and follows.
+        "_acpmux/prompt_accepted" if same_session || attachment.follows_session(&params) => {
             let prompt = params.get("promptId").and_then(Value::as_str).unwrap_or_default();
             let slot = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);
             if let Some(slot) = slot {
-                let _ = slot.try_send(params);
+                let _ = slot.try_send(Ok(params));
             }
         }
         "_acpmux/lagged" => attachment.end(Some("lagged")),
@@ -351,31 +424,5 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
 }
 
 #[cfg(test)]
-mod draft_tests {
-    use super::*;
-
-    #[test]
-    fn a_teammate_page_keeps_every_record_but_drafts() {
-        let page = json!({"events": [{"seq": 1, "kind": "user_message"},
-            {"seq": 2, "kind": "composer", "msg": {"text": "secret"}}, {"seq": 3, "kind": "queued"}]});
-        let kept = without_drafts(page);
-        let seqs: Vec<u64> =
-            kept["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect();
-        assert_eq!(seqs, vec![1, 3]);
-        assert!(is_draft(&json!({"kind": "composer"})));
-        let page = json!({"events": [], "session": {"sessionId": "s", "name": "chat",
-            "status": "running", "cwd": "/Users/owner/secret", "parentId": "p", "startedBy": "p",
-            "spawnedBy": "p", "children": 2, "tags": {"lane": "x"}, "tools": [{"name": "Bash"}],
-            "rules": true, "mcpServers": [], "pullRequests": ["https://example.com/1"],
-            "agentSessionId": "thread", "peer": "other", "turn": {"turnId": "t"}}});
-        let session = &without_drafts(page)["session"];
-        assert_eq!(
-            session,
-            &json!({"sessionId": "s", "name": "chat", "status": "running", "turn": {"turnId": "t"}})
-        );
-        assert!(!is_draft(&json!({"kind": "user_message"})));
-        let page = json!({"events": [], "presence": {"sessionId": "s", "participants": [
-            {"id": "tailnet:other@example.com", "name": "Other"}]}});
-        assert_eq!(without_drafts(page), json!({"events": []}), "no one's presence");
-    }
-}
+#[path = "agent_session_stream_draft_tests.rs"]
+mod draft_tests;

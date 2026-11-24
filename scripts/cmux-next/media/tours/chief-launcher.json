@@ -1,0 +1,146 @@
+{
+  "title": "Chief launcher: Cmd-I opens the Chief in its own floating window, and a drag on empty space moves it",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "New workspace app",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "app"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "app: a plain $ prompt and a label",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "screen",
+        "current",
+        "pane",
+        "current",
+        "tab",
+        "current",
+        "terminal",
+        "current",
+        "write",
+        "--text",
+        "export PS1='$ ' PROMPT='$ '; clear; echo 'app: the workspace on the stage'\r"
+      ],
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Open app",
+      "cmux": [
+        "workspace",
+        "name:app",
+        "focus"
+      ],
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "Light: Cmd-I opens the Chief floating",
+      "cmux": [
+        "action",
+        "run",
+        "home.openChiefDock"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "Light: a drag on the chat's empty space moves it",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "target": "chief-launcher",
+          "action": "drag",
+          "x": 220,
+          "y": 300,
+          "by_x": -260,
+          "by_y": 120,
+          "steps": 20
+        }
+      },
+      "wait": 2,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Light: Cmd-drag moves it from anywhere",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "target": "chief-launcher",
+          "action": "drag",
+          "x": 220,
+          "y": 560,
+          "by_x": 420,
+          "by_y": 0,
+          "steps": 20,
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      },
+      "wait": 2,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Dark",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "dark"
+        }
+      },
+      "wait": 2,
+      "optional": "debug.appearance is DEBUG only"
+    },
+    {
+      "title": "Dark: a drag on the chat's empty space moves it back",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "target": "chief-launcher",
+          "action": "drag",
+          "x": 220,
+          "y": 300,
+          "by_x": -160,
+          "by_y": -120,
+          "steps": 20
+        }
+      },
+      "wait": 2,
+      "optional": "debug.mouse is DEBUG only"
+    },
+    {
+      "title": "Dark: Cmd-I again hides it",
+      "cmux": [
+        "action",
+        "run",
+        "home.openChiefDock"
+      ],
+      "wait": 2
+    },
+    {
+      "title": "System",
+      "rpc": {
+        "method": "debug.appearance",
+        "params": {
+          "mode": "system"
+        }
+      },
+      "wait": 1,
+      "shot": false,
+      "optional": "debug.appearance is DEBUG only"
+    }
+  ]
+}

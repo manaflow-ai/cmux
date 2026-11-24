@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextCloudUI
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -40,7 +41,6 @@ struct CloudMachineUpdateButtonTests {
         #expect(machine.legacyUpdates == 1)
         #expect(fixture.states.suffix(2) == [.updating, .updated(build: CloudMachineUpdateTargetTests.bundled)])
         #expect(fixture.board.otherMachines == nil, "an updated machine is still in the row")
-        #expect(fixture.notices.isEmpty)
     }
 
     /// A machine repaired by hand since it said it cannot update: the click finds nothing to do,
@@ -129,7 +129,6 @@ struct CloudMachineUpdateButtonTests {
     /// its own (no click) is not added to the row. Refused clicks change nothing.
     @Test func aClickedMachineSaysItIsUpdatingUntilItEnds() async {
         let board = DaemonUpdateBoard()
-        board.showNotice = { _ in nil }
         let tooOld = "tidy-yellow-tern runs a cmux too old to update in place."
         board.apply(DaemonUpdateEvent(id: "cloud:a", displayName: "tidy-yellow-tern", state: .cannotUpdate(reason: tooOld)))
         board.apply(DaemonUpdateEvent(id: "cloud:b", displayName: "fs-peer-1", state: .updating))

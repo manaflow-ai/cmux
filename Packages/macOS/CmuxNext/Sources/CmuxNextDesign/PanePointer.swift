@@ -13,10 +13,12 @@ public protocol PanePointerFollowing: NSView {
     /// AppKit's cursor rects of the views around set).
     func panePointerCursor(at point: NSPoint) -> NSCursor?
     /// The pointer came into this view (the area's hit test finds it now), with no button down.
+    /// `event` is the screen's original event, often a mouseMoved, not an AppKit tracking-area callback.
     func panePointerEntered(with event: NSEvent)
     /// The pointer moved inside this view, with no button down.
     func panePointerMoved(with event: NSEvent)
     /// The pointer left this view (another view or none is under it now, or it left the area).
+    /// `event` can be a mouseMoved; read pointer data, not enter/exit-only tracking metadata.
     func panePointerExited(with event: NSEvent)
 }
 

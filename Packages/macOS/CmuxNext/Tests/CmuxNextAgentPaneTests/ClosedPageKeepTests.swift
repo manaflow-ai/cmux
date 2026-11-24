@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextDesignTokens
 import Testing
 
 /// A closed chat's page kept for Reopen Closed (``AgentPageRetirer``): bounded in count and time.
@@ -52,5 +53,23 @@ import Testing
         let removed = keep.removeAll()
         #expect(removed.count == 2 && removed[0] === a && removed[1] === b)
         #expect(keep.isEmpty && keep.take("ses-a") == nil)
+    }
+
+    /// Low Power Mode already on at the close (here the `debug.low_power_mode` override) keeps
+    /// nothing: the power observer only reports changes, so the close itself must read the
+    /// shared state, not macOS's own flag.
+    @MainActor @Test func lowPowerModeOnBeforeTheCloseKeepsNothing() {
+        let power = LowPowerMode.system
+        let previous = power.override
+        power.override = true
+        defer { power.override = previous }
+        var tornDown: [Page] = []
+        let keeper = ClosedPageKeeper<Page>(limit: 2, keepFor: .seconds(30), owner: "ClosedPageKeepTests") { tornDown.append($0) }
+        let page = Page()
+        #expect(keeper.keep(page, for: "ses-a") == false)
+        #expect(keeper.pages.isEmpty)
+        #expect(keeper.take("ses-a") == nil)
+        // Not kept, so not the keep's to tear down: the retirer tears it down at once.
+        #expect(tornDown.isEmpty)
     }
 }

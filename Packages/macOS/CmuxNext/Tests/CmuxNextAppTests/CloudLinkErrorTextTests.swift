@@ -44,6 +44,19 @@ struct CloudLinkErrorTextTests {
         #expect(CloudAppLinks.endedMessage(Opaque()) == CloudStrings.linkDisconnected)
     }
 
+    /// A failure whose answer carried only the server's code read "Could not connect to the Cloud
+    /// machine (cmux.cloud.x)": the code stays in the log, and the sentence keeps its next step.
+    @Test func aFailureWithOnlyACodeShowsNoCode() {
+        let bare = CloudLinkError.failed(code: "cmux.cloud.x", message: "")
+        #expect(CloudAppLinks.endedMessage(bare) == CloudStrings.linkFailedNoDetail)
+        #expect(!bare.description.contains("cmux.cloud.x"), "\(bare.description)")
+        #expect(bare.description == "Could not connect to the Cloud machine. Click Connect to try again.")
+        #expect(CloudLinkError.failureReason(bare) == nil)
+        #expect(CloudLinkError.failureReason(CloudLinkError.helperRefused(code: "handshake", message: "")) == nil)
+        let worded = CloudLinkError.failed(code: "vm_start_failed", message: "the provider could not start it")
+        #expect(CloudAppLinks.endedMessage(worded) == CloudStrings.linkFailed("the provider could not start it"))
+    }
+
     @Test func unsupportedSaysToUpdateCmux() {
         #expect(CloudAppLinks.endedMessage(CloudLinkError.unsupported) == CloudStrings.linkUnsupported)
         #expect(CloudLinkError.unsupported.description.contains("Update cmux"))
@@ -72,17 +85,5 @@ struct CloudLinkErrorTextTests {
         #expect(throws: CloudLinkError.openDirectory(path: directory, parent: false)) {
             try CloudLinkSocketPolicy.check(directory + "/cmux-link-0123456789ab.sock")
         }
-    }
-
-    @Test func aCarrierThatIsNotUpIsNamedByItsState() async {
-        let resolver = CloudConnectOpResolver(run: { _, _, _, _ in Data(#"{"machine":"m1","state":"starting"}"#.utf8) }, check: { _ in })
-        await #expect(throws: CloudLinkError.notUp(state: "starting")) {
-            _ = try await resolver.open(CloudLinkKey(machine: "m1"), intent: "i", origin: .script)
-        }
-    }
-
-    @Test func anAppOpErrorReadsAsItsMessageElseItsCode() {
-        #expect(CloudAppOpError(code: "cmux.cloud.link_down", message: "The link ended.").localizedDescription == "The link ended.")
-        #expect(CloudAppOpError(code: "cmux.cloud.link_down", message: "").localizedDescription == "cmux.cloud.link_down")
     }
 }

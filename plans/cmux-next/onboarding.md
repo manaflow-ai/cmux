@@ -23,6 +23,32 @@ browser data." This replaces sections 4, 5 and 7's first-run page and the has-da
   Import and Sync. One single-step window host stays for Import from Browser and Computer Use
   setup. No first-run page, no `FirstRunGate`. "Make it yours" (section 6) stays for later.
 
+## 0b. The tool window is a web page (2026-11-06)
+
+Leo: "we ought to have a lot of that ui in react and not swift". The single-step window host keeps
+its native shell (`OnboardingWindowController`: placement, the one glass backdrop, the close button,
+the fixed size, 640x520 or 520x480 for Computer Use) and shows one page in it,
+`webviews/src/pages/onboarding/` (cmux-page://cmux.onboarding/). The page draws all three tools
+(Agents at first run, Import from Browser, Computer Use setup): titles, rows, explainers, footer,
+Return and Escape. The models stay native (`OnboardingModel`, `ImportStepModel`,
+`ComputerUseStepModel`, `AgentsStepModel`) because they drive native work: browser detection and
+import, the Keychain and Touch ID, folder grants, the helper's grants, acpmux sign-ins.
+
+- Bridge: `OnboardingPageProvider` answers `cmux.onboarding.state`, pushes the whole state on
+  `cmux.onboarding.changed` once per main-actor turn and only when it differs, and runs each gesture
+  as one model call, only on a real click or key in the page. The protocol is
+  `webviews/src/pages/onboarding/ops.ts`; the host sends values (names, counts, paths, the host's
+  own error text), never sentences, and the page owns its strings.
+- Icons: the host draws agent marks, browser and helper app icons, profile pictures and grant
+  icons once per window, off the main thread, as `data:` PNGs (template marks are tinted by the
+  page). The page keeps each icon's place until it lands.
+- Native beside the page: the Computer Use helper drag panel docked to System Settings
+  (`HelperDragPanel`, `SystemSettingsFollower`), the window coming back to the front when a grant
+  lands (`ComputerUseHelperPanels`), the grants themselves, the folder open panel and Touch ID.
+- Deleted with the move: every AppKit screen (`AgentsStepView`, `ImportStepView`,
+  `ImportProfileRow`, `ImportConsentView`, `ImportAccessView`, `ComputerUseSetupView`,
+  `ComputerUseGrantRow`), the screen variants and scaffold, and the window's button and label kit.
+
 ## 1. Problem
 
 Lawrence's screenshot (23:51 PDT): a modal "Accounts 1 of 4" over an app he already uses (chats,

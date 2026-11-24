@@ -14,11 +14,18 @@ export type ErrorCode =
   | "not_host"
   | "session_not_pending"
   | "session_not_active"
+  | "needs_approval"
   | "ticket_invalid"
   | "role_taken"
   | "rate_limited"
   | "host_scope"
   | "not_anchored"
+  | "machine_scope"
+  | "machine_auth_unavailable"
+  | "machine_no_person"
+  | "account_not_on_hub"
+  | "not_asker"
+  | "other_account"
   | "internal";
 
 export class ApiError extends Error {

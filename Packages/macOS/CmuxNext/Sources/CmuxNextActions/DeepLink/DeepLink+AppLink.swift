@@ -19,7 +19,7 @@ extension DeepLink {
         // A cloud group's https form (`https://cloud-api.cmux.dev/g/grp_…`) opens here too.
         guard let link = parse(url, scheme: chiefScheme) ?? parse(url, scheme: linkScheme) ?? parseGroupWeb(url) else { return nil }
         switch link.target {
-        case .workspace, .pane, .tab, .session, .agent, .group:
+        case .workspace, .pane, .tab, .session, .agent, .group, .cloudSession:
             return link
         case .chiefSession: // any Chief home of this Mac: a named Chief writes its own (#28877)
             return link.machine == nil && chiefHost != nil ? link : nil
@@ -64,6 +64,46 @@ extension DeepLink {
         return session
     }
 
+    /// The opaque agent reference (`aid-` and 20 lowercase hex digits) a link names in place of a
+    /// session: `cmux://agent?id=aid-…` (what cmux.com's page hands the app, in the `cmux` scheme or
+    /// `linkScheme`) or the page's own form `https://cmux.com/deeplink/agent?id=aid-…`, which every
+    /// public PR footer carries. The app never looks it up itself: acpmux resolves it
+    /// (`_acpmux/resolve`, `opaque_agent_id.rs`) by hashing the chats this Mac and its peers list
+    /// under this Mac's key, so it opens only a chat the reader can already reach. Nil for any other
+    /// URL, for one that also names a harness or session, and for an `id` written twice.
+    public static func agentReference(_ url: URL, linkScheme: String) -> String? {
+        let query: [URLQueryItem]
+        if let web = agentWebQuery(url) {
+            query = web
+        } else {
+            guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  components.host?.lowercased() == "agent", components.path.isEmpty || components.path == "/",
+                  components.user == nil, components.port == nil, components.fragment == nil else { return nil }
+            query = components.queryItems ?? []
+        }
+        guard !query.contains(where: { $0.name == "harness" || $0.name == "session" }) else { return nil }
+        let ids = query.filter { $0.name == "id" }
+        guard ids.count == 1, let id = ids[0].value, isAgentReference(id) else { return nil }
+        return id
+    }
+
+    /// Whether `url` opens an agent's chat: an agent link (`cmux://agent/<harness>/<session>`) or an
+    /// opaque reference (``agentReference(_:linkScheme:)``). Such a link opened from another app is an
+    /// address from a public page or trailer, so it never takes the keys (`ExternalOpenController`).
+    public static func opensAgentChat(_ url: URL, linkScheme: String) -> Bool {
+        if agentReference(url, linkScheme: linkScheme) != nil { return true }
+        if case .agent = read(url, scheme: linkScheme)?.link.target { return true }
+        return false
+    }
+
+    /// `aid-` and 20 lowercase hex digits: the opaque id agent-identity writes (cmux.com's
+    /// `AGENT_REFERENCE_PATTERN`, acpmux's `opaque_agent_id::is_id`).
+    public static func isAgentReference(_ text: String) -> Bool {
+        // The count too: `$` also matches before a final newline a decoded `%0A` could leave.
+        text.utf8.count == 24 && text.range(of: "^aid-[0-9a-f]{20}$", options: .regularExpression) != nil
+    }
+
     /// The query of an https agent session link's page (cmux.com, `/deeplink/agent`, an optional
     /// locale segment and trailing slash; no user, port or fragment), nil for any other URL.
     private static func agentWebQuery(_ url: URL) -> [URLQueryItem]? {
@@ -81,16 +121,75 @@ extension DeepLink {
         segment.range(of: "^[a-z]{2}(-[A-Z]{2})?$", options: .regularExpression) != nil
     }
 
+    /// What a settings link runs: an action and its arguments, run as the person's click.
+    public nonisolated struct SettingsLinkAction: Sendable, Equatable {
+        /// The action's id.
+        public let id: ActionID
+        /// Its arguments.
+        public let arguments: [String: ActionValue]
+
+        public init(_ id: ActionID, arguments: [String: ActionValue] = [:]) {
+            self.id = id
+            self.arguments = arguments
+        }
+    }
+
     /// The action a settings link runs: `cmux://settings/background` (Chief's first-launch welcome
     /// offers it) is Change Background…, the same action as the command palette, the context menus and
-    /// `cmux settings change-background`.
+    /// `cmux settings change-background`; `cmux://settings/start-agent-from-any-app` (the welcome's
+    /// shortcut list offers it while it is off) turns `app.startAgentGlobalHotKey` on through Toggle
+    /// Setting, as `cmux settings set app.startAgentGlobalHotKey true` does. A link only turns it on,
+    /// never off.
     /// - Parameters:
     ///   - url: The clicked link.
     ///   - linkScheme: This build's own scheme; the `cmux` scheme is taken too.
-    /// - Returns: The action's id, or nil for any other URL.
-    public static func settingsAction(for url: URL, linkScheme: String) -> ActionID? {
+    /// An app install link (`cmux://apps/install?repo=…`, ``appInstallAction(for:linkScheme:)``)
+    /// runs `app.install` the same way, so a click shows the App Store's consent card.
+    /// - Returns: The action and its arguments, or nil for any other URL.
+    public static func settingsAction(for url: URL, linkScheme: String) -> SettingsLinkAction? {
+        if let install = appInstallAction(for: url, linkScheme: linkScheme) { return install }
         guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
               url.host?.lowercased() == "settings" else { return nil }
-        return url.path.lowercased() == "/background" ? "appearance.changeBackground" : nil
+        return settingsRoutes[url.path.lowercased()]
     }
+
+    /// The Settings page place a settings link opens: `cmux://settings/models` is Settings > Models
+    /// (`#/settings/models`), `cmux://settings/models/add` its Add a Connection
+    /// (`#/settings/models?focus=models.add`). `cmux://settings/cloud` is Settings > Cloud, and
+    /// `cmux://settings/cloud/claude`, `/cloud/chatgpt` and `/cloud/api-key` open it on that row of
+    /// Models for Cloud (``cloudRoute(row:)``). `cmux://settings/integrations` (or `/connections`) is
+    /// Settings > Integrations, where a connector's sign-in returns (`?connected=` or `?error=` are left
+    /// to the page's own refresh).
+    /// Nil for any other URL.
+    public static func settingsRoute(for url: URL, linkScheme: String) -> String? {
+        guard let scheme = url.scheme?.lowercased(), scheme == chiefScheme || scheme == linkScheme.lowercased(),
+              url.host?.lowercased() == "settings" else { return nil }
+        switch url.path.lowercased() {
+        case "/models", "/models/": return "#/settings/models"
+        case "/models/add", "/models/add/": return "#/settings/models?focus=models.add"
+        case "/cloud", "/cloud/": return cloudRoute(row: nil)
+        case "/cloud/claude", "/cloud/claude/": return cloudRoute(row: "claude")
+        case "/cloud/chatgpt", "/cloud/chatgpt/": return cloudRoute(row: "chatgpt")
+        case "/cloud/api-key", "/cloud/api-key/": return cloudRoute(row: "apiKey")
+        case "/integrations", "/integrations/", "/connections", "/connections/": return "#/settings/integrations"
+        default: return nil
+        }
+    }
+
+    /// Settings > Cloud (`#/settings/cloud`), opened on a row of its Models for Cloud card
+    /// (`claude`, `chatgpt`, `apiKey`: `?focus=cloud.<row>`) when one is named.
+    public static func cloudRoute(row: String?) -> String {
+        row.map { "#/settings/cloud?focus=cloud.\($0)" } ?? "#/settings/cloud"
+    }
+    /// The settings link path that turns Start Agent from Any App on.
+    public nonisolated static let startAgentFromAnyAppPath = "/start-agent-from-any-app"
+
+    /// Every settings link path the app runs, and what it runs: the one list. Home draws a link only
+    /// for a path it renders (MessagesLabHome's `URL.homeSettingsLinkPaths`), so a path added here and
+    /// not there would show as plain text; `HomeCmuxAppLinkTests` holds the two lists equal.
+    public static let settingsRoutes: [String: SettingsLinkAction] = [
+        "/background": SettingsLinkAction("appearance.changeBackground"),
+        startAgentFromAnyAppPath: SettingsLinkAction(
+            "palette.toggleSetting", arguments: ["setting": .string("app.startAgentGlobalHotKey"), "on": .bool(true)]),
+    ]
 }

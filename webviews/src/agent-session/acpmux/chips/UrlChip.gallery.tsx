@@ -88,6 +88,28 @@ const pullRequest = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 const prHost = (fixture: PullRequestFixture): ChipHostFixture => ({ pullRequests: { [PULL_REQUEST]: fixture } });
+const ISSUE = "https://github.com/manaflow-ai/cmuxterm-hq/issues/7707";
+const issue = (extra: Record<string, unknown> = {}) => ({
+  url: ISSUE,
+  number: 7707,
+  kind: "issue",
+  title: "GitHub hover previews: one loading pipeline for the card and the page",
+  state: "open",
+  author: "teamleaderleo",
+  authorAvatar: AVATAR,
+  updatedAt: new Date(minutesAgo(12)).toISOString(),
+  labels: ["bug", "agent"],
+  labelColors: { bug: "d73a4a" },
+  comments: 4,
+  checks: { state: "none", passed: 0, total: 0 },
+  checkList: [],
+  ...extra,
+});
+const issueHost = (fixture: PullRequestFixture): ChipHostFixture => ({ pullRequests: { [ISSUE]: fixture } });
+const openIssueCard: Play = async (ctx) => {
+  await ctx.hover({ selector: "a.cv-chip.is-web" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview .acpmux-pr-card__who:not([data-placeholder])"));
+};
 // The card opens with the link it already has and fills in when the host answers `pr.inspect`,
 // so the stage waits for the pull request's own rows, not just for the card.
 const openCard: Play = async (ctx) => {
@@ -402,6 +424,36 @@ export default componentEntry<UrlChipProps>({
       }),
       props: { href: PULL_REQUEST, children: "#22777" },
       play: openCard,
+    },
+    // A GitHub issue (Leo 2026-11-08, of a private repo's issue whose card showed only its link):
+    // the issue glyph in its state's colour, its author, time and labels; no checks, files or
+    // branches.
+    "issue-open": {
+      chipHost: issueHost({ pullRequest: issue(), fetchedAt: GALLERY_NOW / 1000 - 20 }),
+      props: { href: ISSUE, children: "manaflow-ai/cmuxterm-hq#7707" },
+      play: openIssueCard,
+    },
+    "issue-closed": {
+      chipHost: issueHost({ pullRequest: issue({ state: "closed" }), fetchedAt: GALLERY_NOW / 1000 - 20 }),
+      props: { href: ISSUE, children: "manaflow-ai/cmuxterm-hq#7707" },
+      play: openIssueCard,
+    },
+    "issue-not-planned": {
+      chipHost: issueHost({
+        pullRequest: issue({ state: "not_planned", labels: ["wontfix"], labelColors: { wontfix: "ffffff" } }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: ISSUE, children: "manaflow-ai/cmuxterm-hq#7707" },
+      play: openIssueCard,
+    },
+    // An issue the host is still reading holds an issue's rows: state, author, labels.
+    "issue-reading": {
+      chipHost: issueHost({ pullRequest: null, reading: true }),
+      props: { href: ISSUE, children: "manaflow-ai/cmuxterm-hq#7707" },
+      play: async (ctx) => {
+        await ctx.hover({ selector: "a.cv-chip.is-web" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview [data-placeholder]"));
+      },
     },
     "long-url": {
       props: {

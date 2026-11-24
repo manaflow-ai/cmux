@@ -25,33 +25,70 @@ test("every page row has exactly one home", () => {
   expect(homes.size).toBe(schema.rows.length);
 });
 
-// In sidebar-section order (user 2026-10-30, "sections"): General and Updates, then Look and Feel,
-// Tools, AI, Interaction, Accounts and Devices, Data and System.
+// In sidebar-section order (user 2026-10-30, "sections"): General, Customize (every customization
+// one click away, Leo 2026-11-22) and Updates, then Look and Feel,
+// Tools, AI, Interaction, Accounts and Devices, then More, closed until opened (one settings area,
+// David Beyer 2026-11-20: Settings felt overwhelming).
 test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
+    "customize",
     "updates",
-    "theme",
+    // Appearance holds the theme, the background and density; old Theme and Personalization links
+    // open it (next tests).
     "appearance",
+    // Settings overhaul (2026-11-07): the sidebar and tabs have pages.
+    "sidebar",
+    "tabs",
     "terminal",
     "editor",
     "browser",
+    "chat",
     "agents",
     "chief",
+    // Settings > Models: which subscription or key each Cloud thread runs on (model-connections.md).
+    "models",
     "notifications",
     "keyboard",
+    "accounts",
+    // Mobile stays its own page (Lucas 2026-11-11).
+    "mobile",
+    // Devices holds what Server showed, and its old id opens it (next test). It sits under Accounts
+    // and Devices, where the join prompt's "Settings > Devices" points (Leo 2026-11-22: "i also
+    // couldnt find settings devices control").
+    "devices",
+    // More: the pages a person opens less often.
+    "newTab",
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
     "menus",
-    "accounts",
-    "mobile",
-    "devices",
-    "server",
+    "computerUse",
+    // Settings > MCP Servers: the services agents use for the person (user 2026-11-18).
+    "mcpServers",
+    // Settings > Extensions: each installed extension's own declared settings.
+    "extensions",
+    // Settings > Cloud: what Cloud chats run on, Cloud Environments and Cloud Workspaces.
+    "cloud",
+    // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
+    "keys",
+    // Integrations: the integrations hub, linked accounts agents act through (Leo 2026-11-23: "an
+    // aggregator of integrations. linking up things like e.g. stripe so that your agents can refund for you").
+    "integrations",
     "import",
     "privacy",
     "advanced",
     "experimental",
     "development",
   ]);
+});
+
+test("old Theme and Personalization links open Appearance", () => {
+  expect(categoryOf("theme")).toBe("appearance");
+  expect(categoryOf("personalization")).toBe("appearance");
+});
+
+test("Mobile opens its own page, and old Server links open Devices", () => {
+  expect(categoryOf("mobile")).toBe("mobile");
+  expect(categoryOf("server")).toBe("devices");
 });
 
 test("a route to the Development category opens the default category outside DEV builds", () => {
@@ -159,7 +196,7 @@ test("every category and section symbol has its own icon", () => {
     readFileSync(new URL("../../../../schemas/settings/source/page-layout.json", import.meta.url), "utf8"),
   ) as { sidebar_sections: Array<{ categories: Array<{ symbol: string }> }> };
   const layoutSymbols = layout.sidebar_sections.flatMap((run) => run.categories.map((category) => category.symbol));
-  expect(layoutSymbols).toContain("iphone");
+  expect(layoutSymbols).toContain("sidebar.left");
   const missing = [...new Set([...exportedSymbols, ...layoutSymbols])].filter((symbol) => !hasIcon(symbol));
   expect(missing).toEqual([]);
 });

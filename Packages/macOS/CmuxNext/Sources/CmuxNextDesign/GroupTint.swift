@@ -82,28 +82,31 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         return tokens.chip(color, inks: .onColor)
     }
 
-    /// The group's color where it draws as a line or dot, in the active scope. `themed` takes the
-    /// theme's own color for the token (`GroupColor.themeRGB`, cx-7yywz); grey and a custom color
-    /// stay as they are.
-    @MainActor public func lineRGB(themed: Bool) -> ThemeRGB {
+    /// The group's color where it draws as a line or dot, in the active scope: a token drawn from `palette`
+    /// (`GroupColor.paletteRGB`; the wallpaper palette follows the desktop picture); a custom color stays as it is.
+    @MainActor public func lineRGB(palette: GroupPalette) -> ThemeRGB {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         return switch self {
-        case let .palette(token): (themed ? token.themeRGB(tokens) : nil) ?? token.swatchRGB(tokens)
+        case let .palette(token): token.paletteRGB(palette, tokens: tokens, wallpaper: Self.wallpaper,
+                                                  gradient: DesignSettings.shared.sidebarSections.groupGradient)
         case let .custom(rgb): Self.readable(rgb)
         // No color: a line and dot nobody sees.
         case .none: tokens.sidebarBackground.withAlpha(0)
         }
     }
 
-    /// `lineRGB(themed:)` as a color.
-    @MainActor public func lineColor(themed: Bool) -> NSColor { lineRGB(themed: themed).nsColor }
+    /// `lineRGB(palette:)` as a color.
+    @MainActor public func lineColor(palette: GroupPalette) -> NSColor { lineRGB(palette: palette).nsColor }
 
-    /// The solid header bar and its ink (`headerChip`); `themed` washes the theme's color into the
+    /// The desktop picture's color the wallpaper palette follows; nil before it is sampled.
+    @MainActor static var wallpaper: WallpaperTint? { DesignSettings.shared.groupWallpaperTint }
+
+    /// The solid header bar and its ink (`headerChip`); a palette other than vibrant washes its color into the
     /// sidebar, as a custom color's chip does.
-    @MainActor public func headerChip(themed: Bool) -> (fill: ThemeRGB, ink: ThemeRGB) {
-        guard themed, case .palette = self else { return headerChip }
+    @MainActor public func headerChip(palette: GroupPalette) -> (fill: ThemeRGB, ink: ThemeRGB) {
+        guard palette.drawn != .vibrant, case .palette = self else { return headerChip }
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        let wash = tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(themed: true), tokens.isDark ? 0.34 : 0.26)
+        let wash = tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(palette: palette), tokens.isDark ? 0.34 : 0.26)
         return tokens.chip(wash)
     }
 
@@ -112,18 +115,18 @@ public nonisolated enum GroupTint: Hashable, Sendable {
     /// (Lawrence 2026-11-05: groups always have a visible background). Under the glass band the line takes the pane's
     /// own paint instead (the sidebar's `GroupGlassPaint`).
     ///
-    /// - Parameter themed: Palette colors come from the theme (`sidebar.groupColors` = theme).
+    /// - Parameter palette: Where token colors come from (`sidebar.groupPalette`).
     /// - Returns: The color to paint the line.
-    @MainActor public func lineFill(themed: Bool) -> NSColor {
+    @MainActor public func lineFill(palette: GroupPalette) -> NSColor {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        return GroupBackground(tint: self, strength: .band, glass: false, themed: themed, tokens: tokens).shown.nsColor
+        return GroupBackground(tint: self, strength: .band, glass: false, palette: palette, wallpaper: Self.wallpaper, tokens: tokens).shown.nsColor
     }
 
     /// A faint wash of the group's color over the sidebar, behind a name in primary ink.
-    @MainActor public func headerWash(themed: Bool) -> ThemeRGB {
+    @MainActor public func headerWash(palette: GroupPalette) -> ThemeRGB {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         if isNone { return tokens.sidebarBackground.withAlpha(0) } // no color: no wash
-        return tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(themed: themed), tokens.isDark ? 0.14 : 0.10)
+        return tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(palette: palette), tokens.isDark ? 0.14 : 0.10)
     }
 
     /// A tab group chip's fill in the active scope (`GroupColor.chipFill`); a custom color is
@@ -143,10 +146,10 @@ public nonisolated enum GroupTint: Hashable, Sendable {
     /// colors, it's just, like, but just make it glassier"): its line color with its chroma raised by `vividness`
     /// (each channel pushed away from the color's grey), so a translucent wash of it reads vibrant over a busy
     /// backdrop instead of muddy. No color: the theme's ink, untinted glass.
-    @MainActor public func glassRGB(themed: Bool, vividness: Double = 1.3) -> ThemeRGB {
+    @MainActor public func glassRGB(palette: GroupPalette, vividness: Double = 1.3) -> ThemeRGB {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         if isNone { return tokens.textPrimary.withAlpha(1) }
-        let rgb = lineRGB(themed: themed)
+        let rgb = lineRGB(palette: palette)
         let grey = 0.299 * rgb.red + 0.587 * rgb.green + 0.114 * rgb.blue
         func push(_ c: Double) -> Double { min(1, max(0, grey + (c - grey) * vividness)) }
         return ThemeRGB(red: push(rgb.red), green: push(rgb.green), blue: push(rgb.blue))

@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxMobileDesign
+import CmuxMobileMarkdown
 import CmuxSpinner
 import SwiftUI
 import UIKit
@@ -20,7 +22,7 @@ import UIKit
 /// `ConversationStore`: the shared package has no ephemeral row.
 struct ChiefLiveBubble: View {
     let session: ChiefSession
-    /// Where the status line and details are, for the screen's hit test.
+    /// Interactive portions of the overlay, in the container's coordinates.
     var hitArea: ChiefLiveHitArea?
     @State private var expanded = false
 
@@ -28,7 +30,7 @@ struct ChiefLiveBubble: View {
         VStack(alignment: .leading, spacing: 6) {
             if let live = session.shownLive {
                 if let text = Self.replyText(live) {
-                    ChiefLiveReplyText(text: text)
+                    ChiefLiveReplyText(text: text, hitArea: hitArea)
                         .transition(.opacity)
                         .accessibilityIdentifier("chief.live.reply")
                 }
@@ -41,16 +43,18 @@ struct ChiefLiveBubble: View {
                             .transition(.opacity)
                     }
                 }
-                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { hitArea?.rect = $0 }
-                .onDisappear { hitArea?.rect = .null }
+                .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ChiefLiveHitArea.space)) } action: { hitArea?.status = $0 }
+                .onDisappear { hitArea?.status = .null }
             }
         }
         .frame(maxWidth: 328, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity)
+        .coordinateSpace(name: ChiefLiveHitArea.space)
         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-        .animation(.easeOut(duration: 0.2), value: session.shownLive?.step)
-        .animation(.easeOut(duration: 0.2), value: expanded)
+        .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: session.shownLive?.step)
+        .animation(.easeOut(duration: 0.2).unlessReduceMotion, value: expanded)
         // A new run starts collapsed.
         .onChange(of: session.shownLive?.key) { expanded = false }
         .accessibilityIdentifier("chief.live.bubble")
@@ -82,17 +86,18 @@ struct ChiefLiveBubble: View {
 /// newest words, even when the source string already contains only the tail.
 struct ChiefLiveReplyText: View {
     let text: String
+    var hitArea: ChiefLiveHitArea?
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var heldText: String?
+
     var body: some View {
+        let shown = heldText ?? text
         ChiefLiveReplyViewport {
-            Text(text)
-                .font(.body)
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-            // Measure SwiftUI's actual eight-line height in this environment.
-            // Scaling UIKit's lineHeight can cut through the first visible row.
-            Text("Ag\nAg\nAg\nAg\nAg\nAg\nAg\nAg")
-                .font(.body)
-                .fixedSize(horizontal: false, vertical: true)
+            InPlaceSelectionLabel(styled(shown), onSelectionChange: { selecting in
+                heldText = selecting ? shown : nil
+            })
+            // Measure eight lines with the same renderer and Dynamic Type size as the reply.
+            InPlaceSelectionLabel("Ag\nAg\nAg\nAg\nAg\nAg\nAg\nAg")
                 .hidden()
                 .accessibilityHidden(true)
         }
@@ -100,7 +105,22 @@ struct ChiefLiveReplyText: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
         .background(Color(uiColor: .systemGray5), in: .rect(cornerRadius: 18, style: .continuous))
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(ChiefLiveHitArea.space)) } action: { hitArea?.reply = $0 }
+        .onDisappear { hitArea?.reply = .null }
         .frame(maxWidth: 300, alignment: .leading)
+    }
+
+    private func styled(_ text: String) -> NSAttributedString {
+        let traits = UITraitCollection(preferredContentSizeCategory: UIContentSizeCategory(typeSize))
+        let font = UIFont.preferredFont(forTextStyle: .body, compatibleWith: traits)
+        let rendered = ChiefMarkdownBold.attributed(text)
+        let bold = font.fontDescriptor.withSymbolicTraits(.traitBold).map { UIFont(descriptor: $0, size: font.pointSize) } ?? font
+        let value = NSMutableAttributedString()
+        for run in rendered.runs {
+            let runFont = run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true ? bold : font
+            value.append(NSAttributedString(string: String(rendered[run.range].characters), attributes: [.font: runFont, .foregroundColor: UIColor.label]))
+        }
+        return value
     }
 }
 
@@ -138,7 +158,8 @@ struct ChiefLiveStatusLine: View {
         Button(action: toggle) {
             HStack(spacing: 8) {
                 ChiefTypingDots()
-                TimelineView(.periodic(from: .now, by: 1)) { context in
+                // One TimelineView either way: the shimmer keeps its sweep when a time starts.
+                TimelineView(ChiefStatusSchedule(ticks: Self.redrawSchedule(since: live.since, now: .now))) { context in
                     ChiefShimmerText(text: ChiefLiveBubble.activityLine(ChiefLiveBubble.statusText(live), since: live.since, now: context.date))
                 }
                 if canExpand {
@@ -150,11 +171,28 @@ struct ChiefLiveStatusLine: View {
             .padding(.leading, 4)
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(!canExpand)
         .accessibilityLabel(Text(ChiefLiveBubble.statusText(live)))
         .accessibilityHint(canExpand ? Text(expanded ? "Hides the details" : "Shows the details") : Text(""))
         .accessibilityIdentifier("chief.live.status")
+    }
+
+    /// When the line redraws for its elapsed time: once a second from `now` while it has
+    /// one, never without (`since` nil: "Thinking…" or the step alone, which never change).
+    static func redrawSchedule(since: Date?, now: Date) -> PeriodicTimelineSchedule? {
+        since == nil ? nil : .periodic(from: now, by: 1)
+    }
+}
+
+/// The status line's schedule: `ticks`' entries, or with none only the moment it
+/// appears (a line without a time draws once, then again only when it changes).
+struct ChiefStatusSchedule: TimelineSchedule {
+    let ticks: PeriodicTimelineSchedule?
+
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> AnySequence<Date> {
+        guard let ticks else { return AnySequence(CollectionOfOne(startDate)) }
+        return AnySequence(ticks.entries(from: startDate, mode: mode))
     }
 }
 
@@ -182,6 +220,7 @@ struct ChiefLiveDetails: View {
 /// One detail: a thought's text, or a tool or note step.
 struct ChiefLiveDetailRow: View {
     let detail: ChiefLive.Detail
+    @State private var heldText: String?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -193,10 +232,19 @@ struct ChiefLiveDetailRow: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
                 if !detail.text.isEmpty {
-                    Text(detail.text)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    let shown = heldText ?? detail.text
+                    InPlaceSelectionLabel(shown, textStyle: .caption1, color: .secondaryLabel, onSelectionChange: { selecting in
+                        heldText = selecting ? shown : nil
+                    }) {
+                        [
+                            UIAction(title: String(localized: "mobile.chief.live.copyDetail", defaultValue: "Copy Detail", bundle: .module), image: UIImage(systemName: "doc.on.doc")) { _ in
+                                UIPasteboard.general.string = shown
+                            },
+                            SelectionMenu.action("Select Text", "selection.pin.in.out") {
+                                SelectableTextView(shown).present()
+                            },
+                        ]
+                    }
                 }
             }
             if detail.isRunning {
@@ -302,11 +350,12 @@ struct ChiefTypingDotsRow: View {
     }
 }
 
-/// The window frame of the live status line and its details (the only
-/// part of the overlay that takes touches).
+/// The two interactive regions, relative to the full-width hosting view.
 @MainActor
 final class ChiefLiveHitArea {
-    var rect: CGRect = .null
+    static let space = "chief.live.overlay"
+    var reply: CGRect = .null
+    var status: CGRect = .null
 }
 
 /// Holds the live overlay: touches inside ``ChiefLiveHitArea`` reach it,
@@ -324,8 +373,8 @@ final class ChiefLivePassthroughView: UIView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        guard !hitArea.rect.isNull else { return false }
-        return hitArea.rect.insetBy(dx: -4, dy: -6).contains(convert(point, to: nil))
+        hitArea.reply.insetBy(dx: -4, dy: -6).contains(point)
+            || hitArea.status.insetBy(dx: -4, dy: -6).contains(point)
     }
 }
 #endif

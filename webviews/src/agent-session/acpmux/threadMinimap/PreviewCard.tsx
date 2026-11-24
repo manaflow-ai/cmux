@@ -23,6 +23,10 @@ import { experimentArm } from "../../../experiments/experiment";
 import { Button } from "../../../ui/Button";
 import { sliceWhole, sliceWholeEnd } from "../../../ui/wholeChars";
 import { type CoveredCandidates, useSeeThroughBlur } from "../../../ui/glass/seeThroughBlur";
+import { useSenderIdentity } from "../subagents/subsessions";
+import { SenderIdentityLabel } from "../SenderIdentityLabel";
+import { PromptMarksSession } from "./promptMarks";
+import { intl } from "../../../ui/intl";
 
 const middleEllipsis = (value: string, max = 36) => {
   if (value.length <= max) return value;
@@ -39,7 +43,7 @@ const linkLabel = (href: string) => {
 /// one, and the card renders again for each row the pointer (or a wheel under it) passes.
 let timeFormat: Intl.DateTimeFormat | undefined;
 const timeLabel = (at: number) =>
-  (timeFormat ??= new Intl.DateTimeFormat(undefined, {
+  (timeFormat ??= intl.DateTimeFormat(undefined, {
     hour: "numeric",
     minute: "2-digit",
   })).format(new Date(at));
@@ -49,7 +53,7 @@ const timeLabel = (at: number) =>
 const previewText = (value: string) =>
   value.split(/(\S{40,})/).map((token, index) =>
     index % 2 === 1 && /[/.\\]|^[a-f\d]+$/i.test(token) ? (
-      <span key={index} title={token}>
+      <span key={index}>
         <span aria-hidden="true">{middleEllipsis(token)}</span>
         <span className="acpmux-minimap__full-token">{token}</span>
       </span>
@@ -324,7 +328,7 @@ export const PreviewCard = React.forwardRef<
     <div
       ref={own}
       id={id}
-      className="acpmux-minimap__card"
+      className="ui-card ui-glass acpmux-minimap__card"
       data-prompt={prompt !== undefined ? "" : undefined}
       data-incoming={from !== undefined || undefined}
       data-pending={pending || undefined}
@@ -356,7 +360,15 @@ export const PreviewCard = React.forwardRef<
       onBlur={onBlur}
     >
       {prompt !== undefined && from !== undefined && (
-        <div className="acpmux-minimap__from">{t("minimap.from", { name: from })}</div>
+        <div className="acpmux-minimap__from">
+          {/* One sender the turn records reads as its session (senderIdentity.ts); a run of several,
+              or a sender no session list or id names, keeps "From <name>". */}
+          {metadata?.sender && metadata.sender.name === from ? (
+            <PreviewSender sender={metadata.sender} fallback={t("minimap.from", { name: from })} />
+          ) : (
+            t("minimap.from", { name: from })
+          )}
+        </div>
       )}
       {prompt !== undefined && (
         <div className="acpmux-minimap__title">
@@ -412,7 +424,6 @@ export const PreviewCard = React.forwardRef<
               href={href}
               rel="noreferrer"
               target="_blank"
-              title={href}
               onKeyDown={scrollKey}
             >
               {middleEllipsis(linkLabel(href))}
@@ -445,6 +456,7 @@ export const PreviewCard = React.forwardRef<
       )}
     </div>
   );
+
   if (!layer) return card;
   return (
     <>
@@ -458,3 +470,8 @@ export const PreviewCard = React.forwardRef<
     </>
   );
 });
+
+function PreviewSender({ sender, fallback }: { sender: NonNullable<MinimapTurnMetadata["sender"]>; fallback: string }) {
+  const identity = useSenderIdentity(sender, React.useContext(PromptMarksSession));
+  return identity.known ? <SenderIdentityLabel identity={identity} /> : <>{fallback}</>;
+}

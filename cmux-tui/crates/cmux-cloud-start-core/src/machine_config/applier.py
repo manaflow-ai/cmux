@@ -4,7 +4,7 @@
 # --repo checkout's .cmux/machine.toml: [env] to ~/.config/cmux/machine.env (0600, sourced by
 # login and interactive shells), [secrets] names reported missing until delivered, [setup] run
 # in order when it changed, [setup] check reported. Writes ./status.json; ends when done.
-import fcntl, hashlib, json, os, pwd, re, secrets, signal, stat, subprocess, sys, time, tomllib
+import fcntl, hashlib, json, os, pwd, re, secrets, shutil, signal, stat, subprocess, sys, time, tomllib
 
 HOME = os.path.expanduser("~")
 D = os.path.dirname(os.path.abspath(__file__))
@@ -14,6 +14,9 @@ ENV_FILE = os.path.join(CONF, "machine.env")
 SECRETS_FILE = os.path.join(CONF, "machine-secrets.env")
 HOOK = 'if [ -f "$HOME/.config/cmux/machine.env" ] && [ ! -L "$HOME/.config/cmux/machine.env" ]; then . "$HOME/.config/cmux/machine.env"; fi # cmux-machine-env'
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
+ROLE = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
+# The lane role's window (machine_config/idle.rs LANE_IDLE_SECONDS): 5 minutes after the last activity, then pause.
+LANE_IDLE_SECONDS = 300
 # Names the shell owns or evaluates (bash expands arithmetic variables such as OPTIND, and prompts,
 # when it reads them: `OPTIND='a[$(cmd)]'` runs cmd even single-quoted), and names cmux owns.
 RESERVED = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV", "PROMPT_COMMAND", "PWD", "OLDPWD", "TERM",
@@ -31,7 +34,10 @@ RESERVED = {"PATH", "HOME", "USER", "LOGNAME", "SHELL", "IFS", "ENV", "BASH_ENV"
             # Read by python3 (the applier itself, and any setup step), so a config never steers it.
             "PYTHONHOME", "PYTHONPATH", "PYTHONSTARTUP", "PYTHONINSPECT", "PYTHONUSERBASE", "PYTHONSAFEPATH",
             # The model plane's (~/.config/cmux/model-plane.env): a file from a repo must not route agents elsewhere.
-            "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN"}
+            "OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN",
+            # The gateway's endpoints for Gemini and Grok (acpmux provider_cloud_auth.rs).
+            "GOOGLE_GEMINI_BASE_URL", "GROK_MODELS_BASE_URL", "GROK_MODELS_LIST_URL",
+            "GROK_XAI_API_BASE_URL"}
 MAX_BYTES, MAX_NAMES, MAX_COMMANDS = 64 * 1024, 100, 50
 BOOTSTRAP_WAIT_S = 3 * 3600
 LOCK_WAIT_S = 5  # see take_lock
@@ -100,9 +106,22 @@ def parse(text):
         raise Refused(f"not TOML: {e}") from None
     if type(doc.get("version")) is not int or doc["version"] != 1:
         raise Refused("version must be 1")
-    unknown = set(doc) - {"version", "env", "secrets", "setup"}
+    unknown = set(doc) - {"version", "env", "secrets", "setup", "role", "idle"}
     if unknown:
         raise Refused(f"unknown keys: {', '.join(sorted(unknown))}")
+    # role and [idle] as machine_config/idle.rs parses them (cmux-host reads applied.toml with it).
+    role = doc.get("role")
+    if role is not None and not (isinstance(role, str) and ROLE.match(role)):
+        raise Refused("role must match [a-z][a-z0-9-]{0,31}")
+    idle = doc.get("idle", {})
+    if not isinstance(idle, dict):
+        raise Refused("idle must be a table")
+    if set(idle) - {"minutes"}:
+        raise Refused("[idle] takes only minutes")
+    minutes = idle.get("minutes")
+    if minutes is not None and (type(minutes) is not int or not 1 <= minutes <= 1439):
+        raise Refused("idle.minutes must be 1 to 1439")
+    idle_seconds = minutes * 60 if minutes is not None else (LANE_IDLE_SECONDS if role == "lane" else None)
     env = doc.get("env", {})
     if not isinstance(env, dict) or not all(isinstance(v, str) for v in env.values()):
         raise Refused("[env] values must be strings")
@@ -130,7 +149,7 @@ def parse(text):
     if both:
         raise Refused(f"names in both [env] and [secrets]: {', '.join(sorted(both))}")
     return {"env": dict(sorted(env.items())), "secrets": sorted(set(names)), "run": commands(setup, "run"),
-            "check": commands(setup, "check"), "timeout_minutes": timeout}
+            "check": commands(setup, "check"), "timeout_minutes": timeout, "role": role, "idle_seconds": idle_seconds}
 
 
 def checkout():
@@ -260,7 +279,7 @@ def delivered():
         return set()
     with os.fdopen(fd) as f:
         st = os.fstat(f.fileno())
-        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid() or st.st_size > 4 << 20:
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
             return set()
         return {m.group(1) for m in re.finditer(r"^export ([A-Za-z_][A-Za-z0-9_]*)=", f.read(), re.M)}
 
@@ -304,8 +323,6 @@ def secret_values():
         st = os.fstat(f.fileno())
         if not stat.S_ISREG(st.st_mode):
             return []  # never sourced (machine.env takes a regular file only)
-        if st.st_size > 4 << 20:
-            raise Refused(f"{SECRETS_FILE} is over 4 MiB: deliver the secrets again (cmux cloud deliver-secrets)")
         # Bytes as they are (a CR stays a CR, any byte round-trips), so each value masks as setup prints it.
         text = f.read().decode("utf-8", "surrogateescape")
     if "\0" in text:  # bash drops a NUL when it sources the file, so the value it sets is not the one masked
@@ -566,6 +583,30 @@ def wait_for_bootstrap():
     raise Refused("the bootstrap still runs after 3 h")
 
 
+def wait_for_repository():
+    """After ``wait_for_bootstrap``: a --repo checkout cloned head first (machine_repo/step.sh,
+    `"fill":"background"`) gets the rest of its tree after its runner ended, under the repository sync
+    barrier. Setup runs in the checkout, so it waits until the barrier opens (`cmux repo wait`), and a
+    fill that failed refuses the apply."""
+    try:
+        fill = json.loads(read_owned(os.path.join(BOOT, "repo-status.json")) or b"").get("fill")
+    except (OSError, ValueError, AttributeError):
+        return
+    repo = checkout() if fill == "background" else None
+    if repo is None:
+        return
+    cmux = shutil.which("cmux-tui") or shutil.which("cmux")
+    if cmux is None:
+        raise Refused(f"{repo} is still being checked out and this machine has no cmux to wait on it")
+    status("waiting", waiting_for="repository")
+    code = subprocess.run([cmux, "repo", "wait", repo, str(BOOTSTRAP_WAIT_S)], stdin=subprocess.DEVNULL,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+    if code == 124:
+        raise Refused(f"{repo} is still being checked out after 3 h")
+    if code != 0:
+        raise Refused(f"{repo} was not checked out completely; start the machine again")
+
+
 def pending_requests():
     return bool(complete_requests(os.path.join(D, "requests")))
 
@@ -628,6 +669,7 @@ def apply_once(request):
     try:
         start_lock = hold_bootstrap_start()
         wait_for_bootstrap()
+        wait_for_repository()
         status("running", **report)
         repo = checkout()
         kind, path = source(repo, request["source"])
@@ -643,6 +685,10 @@ def apply_once(request):
         except UnicodeDecodeError:
             raise Refused(f"{path} is not UTF-8") from None
         report["config_sha"] = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+        # The file this apply took, for cmux-host's idle window (machine_config/idle.rs read): the Cloud pauses the
+        # machine that long after its last activity. Written before setup runs: a failed setup keeps the window.
+        write(os.path.join(D, "applied.toml"), data.decode("utf-8"))
+        report["idle"] = {"role": config["role"], "seconds": config["idle_seconds"]}
         private_folder(CONF)
         lines = ["# cmux machine env (cmux cloud apply-machine-config; source in ~/.cmux/machine-config/status.json), rewritten on every apply"]
         # Secret values first, for shells and agents, never [setup] (whose output is logged, and its tail

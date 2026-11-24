@@ -102,8 +102,14 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-bookmarks-core",
                     # The Cloud start's harness login decision (cmux-cloud-start-core).
                     "cmux-cloud-start-core",
+                    # Which hidden browser tabs freeze, are discarded or are kept (cmux-tab-discard).
+                    "cmux-tab-discard",
                     # NEXT Cloud's configuration rules (cmux-cloud-config).
                     "cmux-cloud-config",
+                    # The launch's Cloud environment read, through cmux-daemon-launch-core (CMUX-571).
+                    "cmux-cloud-environment",
+                    # The dev build space header rule, through cmux-cloud-environment.
+                    "cmux-build-space",
                     # The follower of the app's cloud tasks (cmux-cloud-tasks).
                     "cmux-cloud-tasks",
                     # Which imported Chrome cookie domains changed (cmux-cookie-sync).
@@ -112,12 +118,20 @@ class AppCrateLicenseGate(unittest.TestCase):
                     "cmux-daemon-conn-core",
                     # The daemon launch rules and the install-key proof they use (cmux-daemon-launch-core).
                     "cmux-daemon-launch-core",
+                    # The app health model (cmux-health-core).
+                    "cmux-health-core",
+                    # Each window's last frame for the launch's first frame (cmux-launch-image).
+                    "cmux-launch-image",
+                    # When a hover card's live pane thumbnail is captured again (cmux-pane-pictures).
+                    "cmux-pane-pictures",
                     "cmux-local-auth",
                     "cmux-palette-ranker",
                     "cmux-remote-browser",
                     # The app's daemon client: the cmux SDK and its C ABI.
                     "cmux-sdk",
                     "cmux-sdk-ffi",
+                    # Predictive local echo for remote terminals (cmux-terminal-prediction).
+                    "cmux-terminal-prediction",
                     # The window handlers' rules (cmux-window-rules).
                     "cmux-window-rules",
                 ]

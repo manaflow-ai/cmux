@@ -10,18 +10,6 @@ public import AppKit
 public struct LeaderLayer {
     public nonisolated static let prefix = Shortcut("j", modifiers: [.command])
 
-    /// The second key of each default leader chord, by action
-    /// (`ActionDescriptor.defaultChord`, set by the catalog).
-    public nonisolated static let defaultChords: [(id: ActionID, key: Shortcut)] = [
-        // Ghostty's macOS default for it was Cmd-J itself.
-        ("terminal.scrollToSelection", Shortcut("j", modifiers: [])),
-        ("palette.newAgentChat", Shortcut("s", modifiers: [])),
-        // `?` on a US layout; cmux.json writes it `shift+/`.
-        ("palette.searchShortcuts", Shortcut("/", modifiers: [.shift])),
-        // Vimium's `f`: Click by Hint (a preview feature, cx-zjtn.1).
-        ("hints.show", Shortcut("f", modifiers: [])),
-    ]
-
     let registry: ActionRegistry
 
     public init(registry: ActionRegistry) {
@@ -53,6 +41,19 @@ public struct LeaderLayer {
         return index.chords[prefix]?.isEmpty == false || index.chordDigitFamilies[prefix]?.isEmpty == false
     }
 
+    /// Whether a key that ended an armed chord without completing it is decided as a shortcut of its own (the key
+    /// router then routes it as usual): a Command or Control chord bound to a system or navigation action, other
+    /// than the leader prefix itself (a second Cmd-J still dismisses the leader). Content shortcuts and typing keep
+    /// going to the view.
+    ///
+    /// - Parameters:
+    ///   - event: The key-down that ended the chord.
+    ///   - resolved: What the key resolves to in the current context (``ActionRegistry/resolveShortcut(for:)``).
+    public static func decidesAfterChord(_ event: NSEvent, resolved: (id: ActionID, argument: String?, tier: ActionKeyTier)?) -> Bool {
+        guard !event.modifierFlags.isDisjoint(with: [.command, .control]), let resolved, resolved.tier != .content else { return false }
+        return !ActionRegistry.shortcuts(for: event).contains(prefix)
+    }
+
     /// A default chord to show as `id`'s shortcut, when no single key or
     /// label shows instead: Scroll to Selection reads `⌘J J`, New Agent
     /// Chat keeps `⇧⌘I`.
@@ -70,20 +71,5 @@ public struct LeaderLayer {
               !registry.shortcutOverrides.values.contains(.some(chord.first)),
               !registry.alternateShortcuts.values.contains(where: { $0.contains([chord.first]) }) else { return nil }
         return chord
-    }
-}
-
-extension [ActionDescriptor] {
-    /// The catalog with `defaultChord` set on the rows
-    /// `LeaderLayer.defaultChords` names.
-    nonisolated func withLeaderChords() -> [ActionDescriptor] {
-        var keys: [ActionID: Shortcut] = [:]
-        for (id, key) in LeaderLayer.defaultChords { keys[id] = key }
-        return map { descriptor in
-            guard let key = keys[descriptor.id] else { return descriptor }
-            var descriptor = descriptor
-            descriptor.defaultChord = ShortcutChord(LeaderLayer.prefix, key)
-            return descriptor
-        }
     }
 }

@@ -110,9 +110,6 @@
       "identical": 1,
       "needs_review": 216
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion/Resources/Localizable.xcstrings": {
-      "needs_review": 120
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Accounts.xcstrings": {
       "identical": 8,
       "needs_review": 69
@@ -133,7 +130,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/BrowserProfiles.xcstrings": {
       "needs_review": 128
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/CLIInstall.xcstrings": {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall/Resources/CLIInstall.xcstrings": {
       "identical": 5,
       "needs_review": 72
     },
@@ -239,10 +236,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/WorkspaceVerbs.xcstrings": {
       "needs_review": 108
     },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextAppPermissions/Resources/Localizable.xcstrings": {
-      "identical": 12,
-      "needs_review": 376
-    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/Localizable.xcstrings": {
       "identical": 38,
       "needs_review": 639
@@ -297,10 +290,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextDiff/Resources/DiffPage.xcstrings": {
       "identical": 2,
       "needs_review": 49
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextFeed/Resources/Localizable.xcstrings": {
-      "identical": 10,
-      "needs_review": 328
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/Resources/Localizable.xcstrings": {
       "needs_review": 64

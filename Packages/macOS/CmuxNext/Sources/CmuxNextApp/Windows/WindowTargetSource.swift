@@ -42,13 +42,17 @@ final class WindowTargetSource: PaletteTargetSource {
     }
 
     /// Connected machines: this Mac, then each Cloud machine (New Workspace on Machine…).
-    private func machines() -> [PaletteTargetOption] {
+    func machines(includeDisconnected: Bool = false) -> [PaletteTargetOption] {
         let machines = services.machines
         let local = Self.symbol(machines.icon(machine: MachineRegistry.localID), or: "laptopcomputer")
         var options = [PaletteTargetOption(id: MachineRegistry.localID, title: WorkspaceVerbStrings.thisMac, symbol: local)]
-        for session in machines.cloud where session.daemon.connection != nil {
-            options.append(PaletteTargetOption(id: session.machineID, title: session.machine.displayName ?? session.machineID,
+        for session in machines.cloud where includeDisconnected || session.daemon.connection != nil {
+            options.append(PaletteTargetOption(id: session.machineID, title: session.machine.title,
                                                symbol: Self.symbol(machines.icon(machine: session.machineID), or: "cloud")))
+        }
+        if includeDisconnected {
+            options += machines.ssh.map { PaletteTargetOption(id: $0.machineID, title: $0.host.label, symbol: "server.rack") }
+            options += machines.servers.map { PaletteTargetOption(id: $0.machineID, title: $0.name, symbol: "desktopcomputer") }
         }
         return options
     }

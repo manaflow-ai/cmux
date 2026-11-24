@@ -1,36 +1,8 @@
-import React, { useRef, useState } from "react";
-import { projectName } from "./EmptyState";
-import { type Translate, useT } from "./i18n";
+import { useRef, useState } from "react";
+import { useT } from "./i18n";
 import { isAgentHome } from "./sessionList";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";
-
-/// What the trust question is about, in words: the repository (`repo`, when the folder is in one
-/// below home), else the folder. Its name, never its path cut to "/User…".
-export function trustSubject(ask: Pick<FolderTrustAsk, "cwd" | "repo" | "via">) {
-  const name = (path: string) => projectName(path) ?? path;
-  return {
-    folder: name(ask.cwd),
-    repo: ask.repo ? name(ask.repo.root) : undefined,
-    /// The answer came from the repository as a whole (the folder is in it, or one of its worktrees).
-    viaRepo: Boolean(ask.repo && ask.via === ask.repo.root),
-    /// The answer came from a parent folder that is not the repository.
-    viaFolder: ask.via && ask.via !== ask.repo?.root ? name(ask.via) : undefined,
-    /// The folder is the repository's main working tree: trusting it and the repository are one.
-    atRoot: Boolean(ask.repo && ask.repo.root === ask.cwd),
-  };
-}
-
-/// What a trusted folder's answer says: through its repository, its worktree's root, the
-/// repository itself (only when a person's answer for it holds, not a rule's: `recorded`), or
-/// the folder.
-export function trustedLabel(t: Translate, scope: Pick<FolderTrustAsk, "cwd" | "repo" | "via"> & { recorded?: false }) {
-  const { folder, repo, viaRepo, viaFolder, atRoot } = trustSubject(scope);
-  if (viaRepo && repo) return t("trust.trustedViaRepo", { repo });
-  if (viaFolder) return t("trust.trustedVia", { folder: viaFolder });
-  if (atRoot && repo && scope.recorded !== false) return t("trust.trustedRepo", { repo });
-  return t("trust.trusted", { folder });
-}
-
+import { trustSubject, trustedLabel } from "./trustAskModel";
 /// The folder trust question among the chat's permission asks, above the composer. It says what
 /// is trusted (the repository and every worktree of it, or the folder), what trusting allows, and
 /// offers Trust repo (the common case, first), Only this folder, and Not now; then the answer with
@@ -45,6 +17,7 @@ export function TrustAsk({
   onDistrust,
   onUndo,
   onContinueWithoutFolder,
+  onContinueReadOnly,
   answers = true,
 }: {
   ask: FolderTrustAsk;
@@ -61,6 +34,8 @@ export function TrustAsk({
   onUndo(): void;
   /// Continue in the private no-project chat after explicitly declining this folder.
   onContinueWithoutFolder?(): void | Promise<void>;
+  /// Continue in this same folder, read-only (acpmux hub/restricted.rs), after declining it.
+  onContinueReadOnly?(): void | Promise<void>;
 }) {
   const t = useT();
   const [continuing, setContinuing] = useState(false);
@@ -70,8 +45,29 @@ export function TrustAsk({
   const owned = isAgentHome(ask.cwd);
   const subject = trustSubject(ask);
   const { folder, repo } = subject;
-  const recovery = ask.state === "decided" && ask.level === "untrusted" && answers && !!onContinueWithoutFolder;
+  const recovery =
+    ask.state === "decided" &&
+    ask.level === "untrusted" &&
+    answers &&
+    !!(onContinueWithoutFolder || onContinueReadOnly);
+  // One recovery at a time: both start a chat that takes this one's draft.
+  const runRecovery = (action: () => void | Promise<void>) => {
+    if (continuingRef.current) return;
+    continuingRef.current = true;
+    setContinuing(true);
+    setContinueError(false);
+    void Promise.resolve()
+      .then(action)
+      .catch(() => setContinueError(true))
+      .finally(() => {
+        continuingRef.current = false;
+        setContinuing(false);
+      });
+  };
   const asking = ask.state === "ask" || ask.state === "failed";
+  // Why the last save failed, in the pane's own words (useFolderTrustAsk `failedAsk`): a refusal
+  // that can never pass reads as one. The host's raw text never shows here.
+  const failedReason = ask.state === "failed" ? ask.reason : undefined;
   // The repository is offered whole only when the pane can record it (`onTrustRepo`).
   const offersRepo = Boolean(repo && onTrustRepo && !owned);
   // After Not now, Trust repo only where that answer lives (`trust.rs`: the folder's own answer,
@@ -99,6 +95,9 @@ export function TrustAsk({
             </span>
             {answers && onContinueWithoutFolder && (
               <span className="acpmux-trust-ask-detail">{t("trust.continueWithoutFolder")}</span>
+            )}
+            {answers && onContinueReadOnly && (
+              <span className="acpmux-trust-ask-detail">{t("trust.continueReadOnly")}</span>
             )}
             {continueError && <span role="alert">{t("trust.failed")}</span>}
           </span>
@@ -129,21 +128,19 @@ export function TrustAsk({
                     type="button"
                     className="acpmux-trust-ask-action"
                     disabled={continuing}
-                    onClick={() => {
-                      if (continuingRef.current) return;
-                      continuingRef.current = true;
-                      setContinuing(true);
-                      setContinueError(false);
-                      void Promise.resolve()
-                        .then(onContinueWithoutFolder)
-                        .catch(() => setContinueError(true))
-                        .finally(() => {
-                          continuingRef.current = false;
-                          setContinuing(false);
-                        });
-                    }}
+                    onClick={() => runRecovery(onContinueWithoutFolder)}
                   >
                     {t("trust.continueWithoutFolderLabel")}
+                  </button>
+                )}
+                {onContinueReadOnly && (
+                  <button
+                    type="button"
+                    className="acpmux-trust-ask-action"
+                    disabled={continuing}
+                    onClick={() => runRecovery(onContinueReadOnly)}
+                  >
+                    {t("trust.continueReadOnlyLabel")}
                   </button>
                 )}
                 <button type="button" className="acpmux-trust-ask-action" disabled={continuing} onClick={onUndo}>
@@ -179,6 +176,11 @@ export function TrustAsk({
           <span className="acpmux-trust-ask-text">
             {ask.state === "failed" ? t("trust.failed") : t("trust.askPrivate", { agent })}
           </span>
+          {failedReason && (
+            <span className="acpmux-trust-ask-detail" role="alert">
+              {failedReason}
+            </span>
+          )}
           {answers && (
             <>
               <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
@@ -207,6 +209,11 @@ export function TrustAsk({
                   : t("trust.allowsRepoFrom", { agent, folder })
                 : t("trust.allowsFolder", { agent })}
             </span>
+            {failedReason && (
+              <span className="acpmux-trust-ask-detail" role="alert">
+                {failedReason}
+              </span>
+            )}
           </span>
           {answers && (
             <span className="acpmux-trust-ask-actions">

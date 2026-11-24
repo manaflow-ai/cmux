@@ -5,6 +5,11 @@
 # The step's notes, moved from nightly.yml:
 # The resolved tree's attested acpmux companion: an input of Bundle acpmux.
 set -euo pipefail
+# nightly-next compiles arm64 only (NIGHTLY_COMPILE_ARCHS); thin-app-bundle.sh drops any x86_64 slice
+# before signing, so fetch only the slices the variants ship. Run 42675465011 failed on an x86_64 slice
+# files.cmux.com trickled at 6 KB/s, a slice that build would have thrown away.
+client_arch=universal
+[[ "${NIGHTLY_COMPILE_ARCHS:-}" == arm64 ]] && client_arch=arm64
 scripts/cmux-next/pin-cmux-tui.sh fetch-acpmux
 acpmux_bin="$(scripts/cmux-next/pin-cmux-tui.sh acpmux-path)"
 [[ -x "$acpmux_bin" ]] || { echo "error: fetched tree has no executable acpmux companion" >&2; exit 1; }
@@ -24,6 +29,7 @@ if [[ "${CMUX_TUI_CLIENT_COMMIT:-}" =~ ^[0-9a-f]{40}$ && -n "${CMUX_TUI_CLIENT_C
   GH_TOKEN="${PREFETCH_GH_TOKEN:-}" \
     python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/nightly-helper-builds" cmux-tui-client -- \
     ./scripts/install-cmux-tui-client.sh "$scratch" \
+    --arch "$client_arch" \
     --manifest-url "https://files.cmux.com/cmux-tui/${CMUX_TUI_CLIENT_COMMIT}/manifest.json" \
     --expected-commit "$CMUX_TUI_CLIENT_COMMIT" \
     --require-capability wireguard-hub \

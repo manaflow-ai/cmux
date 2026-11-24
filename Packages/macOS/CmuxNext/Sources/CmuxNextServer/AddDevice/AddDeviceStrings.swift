@@ -6,7 +6,7 @@ import Foundation
 public nonisolated struct AddDeviceStrings {
     public nonisolated init() {}
     private static func s(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "AddDevice", bundle: .module)
+        String(localized: key, defaultValue: value, table: "AddDevice", bundle: .localizedModule)
     }
 
     static var title: String { s("addDevice.title", "Add a Device") }
@@ -77,7 +77,6 @@ public nonisolated struct AddDeviceStrings {
         case .makeJoinLine: s("addDevice.joinLine.makeLine", "Make Line")
         case .newJoinLine: s("addDevice.joinLine.newLine", "New Line")
         case .signIn: SignInButton.defaultTitle
-        case .showMachines: s("addDevice.joinLine.showMachines", "Show in Machines")
         case .pairAnotherMachine: s("addDevice.joinLine.pairAnotherMachine", "Pair Another Machine…")
         case .toggleAdvanced: advanced
         case .done: s("addDevice.done", "Done")

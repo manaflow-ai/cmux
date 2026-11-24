@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Listbox } from "./Listbox";
+import { settleReact } from "../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -51,9 +52,10 @@ function mount(ran: string[]) {
   return dom.window.document.querySelector<HTMLElement>('[role="option"]')!;
 }
 
-afterEach(() => {
+afterEach(async () => {
   if (root) act(() => root!.unmount());
   root = null;
+  await settleReact();
   dom?.window.close();
   dom = null;
   for (const [key, value] of saved) {

@@ -21,7 +21,15 @@ name: CI queue janitor
 # job queued with no runner for CI_JANITOR_ORPHAN_MINUTES (default 120) while
 # a newer job on the same labels got one, or a run still queued after a day.
 # These are lost runner assignments, not demand, so no queue threshold gates
-# them; release, tag and merge-queue orphans are only reported.
+# them; release, tag and merge-queue orphans are only reported. Linux-only
+# workflows get the same pass: the jobs of their oldest runs past the orphan
+# age (LINUX_JOB_READS a sweep) are read, and their lost assignments are
+# cancelled under their own cap (MAX_LINUX_ORPHAN_CANCELS); nightly, DEV and
+# promote runs are never read or cancelled.
+#
+# A read refused because the token's API budget is spent ends the sweep with
+# a "Skipped: ... spent until <reset>" summary and exit 0: nothing was
+# cancelled, and the next sweep after the reset runs.
 #
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
@@ -62,25 +70,31 @@ on:
 permissions: {}
 
 env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   # The file behind the `CI` display name in on.workflow_run.workflows;
   # tests/test_ci_workflow_run_sources.py derives the expected name from it.
   SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
 
 # One sweep at a time; a second sweep waits rather than racing the first
-# one's cancellations, and never cancels it.
+# one's cancellations, and never cancels it. A dispatched dry run cancels
+# nothing, so it gets a group of its own: in the shared one, the next cron or
+# requested sweep replaced it while it waited (run 44277127205, 2026-11-18).
 concurrency:
-  group: ci-queue-janitor
+  group: ci-queue-janitor${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && format('-dry-run-{0}', github.run_id) || '' }}
   cancel-in-progress: false
 
 jobs:
   sweep:
-    environment: ci-bot
+    environment:
+      name: ci-bot
+      deployment: false
     permissions:
       actions: write
       pull-requests: read
       contents: read
     name: Sweep wasted macOS demand
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - name: Skip when the pool snapshot is fresh

@@ -6,9 +6,6 @@
 /// Forward stay the page's history. The app maps it to `HistoryStepScope`.
 public nonisolated struct NavigationHistoryStepSetting {
     public nonisolated init() {}
-    public static let configPath = ["navigation", "history", "scope"]
-    public static let values = ["workspaces", "everything"]
-    public static let fallback = "workspaces"
 
     static func parse(_ root: JSONValue) -> (String, SettingsDiagnostic?) {
         guard let value = root.value(at: configPath) else { return (fallback, nil) }

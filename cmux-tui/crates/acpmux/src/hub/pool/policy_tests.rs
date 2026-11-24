@@ -15,6 +15,11 @@ fn key(cwd: &str, harness: &str) -> PoolKey {
         auth: String::new(),
         account: None,
         machine: None,
+        prompt_suggestions: None,
+        tool_servers: String::new(),
+        settings_file: PathBuf::new(),
+        model: None,
+        effort: None,
     }
 }
 
@@ -137,4 +142,48 @@ fn a_spare_outlives_a_last_used_role_moving_away_in_its_folder() {
     let view = pool.view();
     let kept = view.iter().find(|v| v.key == a).expect("the spare stays");
     assert!(kept.spare && !kept.last_used, "{kept:?}");
+}
+
+/// A credentialed start (cmux#45953) misses an entry of its slot under another key and leaves it:
+/// the folder's uncredentialed spare outlives a Cloud chat's start, which a plain start still takes.
+#[test]
+fn a_start_that_keeps_other_keys_leaves_the_slots_entry_for_its_own_start() {
+    let mut pool: Pool<&'static str> = Pool::new(IDLE);
+    let plain = key("/w", "claude");
+    let now = Duration::from_secs(1);
+    let generation = pool.want(Role::Spare, plain.clone(), now).start.expect("a start");
+    assert!(pool.complete(&plain, generation, "spare", now).is_none());
+    let credentialed = PoolKey { auth: "credentialed".into(), ..plain.clone() };
+    assert!(matches!(pool.take_or_keep(&credentialed, false), Take::Miss));
+    assert_eq!(cwds(&pool), vec!["/w".to_owned()]);
+    assert!(matches!(pool.take(&plain), Take::Ready("spare")));
+}
+
+#[test]
+fn a_reserved_entry_is_served_once_and_never_refilled_as_a_spare() {
+    let mut pool = Pool::new(IDLE);
+    pool.set_spare_idle(IDLE * 6);
+    let r = key("/chats/r1", "claude");
+    let now = Duration::from_secs(1);
+    let wanted = pool.want(Role::Reserved, r.clone(), now);
+    let generation = wanted.start.expect("a start for a new key");
+    assert!(pool.complete(&r, generation, "reserved", now).is_none());
+    assert!(!pool.has_spare("claude"), "a reserved entry is not the harness's spare");
+    assert!(pool.empty_spares().is_empty());
+    assert!(pool.expire(IDLE * 2).is_empty(), "a reserved entry waits the spare's time");
+    assert!(matches!(pool.take(&r), Take::Ready("reserved")));
+    assert!(matches!(pool.take(&r), Take::Miss), "the second chat finds nothing");
+    assert!(pool.empty_spares().is_empty(), "a taken reserved entry is not refilled");
+}
+
+#[test]
+fn a_reserved_entry_neither_moves_nor_is_moved_by_a_spare() {
+    let mut pool = Pool::new(IDLE);
+    let r = key("/chats/r1", "claude");
+    let now = Duration::from_secs(1);
+    let generation = pool.want(Role::Reserved, r.clone(), now).start.unwrap();
+    assert!(pool.complete(&r, generation, "reserved", now).is_none());
+    let evicted = spare_ready(&mut pool, key("/b", "claude"), 2, "spare");
+    assert!(evicted.is_empty());
+    assert_eq!(cwds(&pool), vec!["/chats/r1", "/b"]);
 }

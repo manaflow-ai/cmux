@@ -14,8 +14,13 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { sessionInfoPushAlways, papercutPane } from "./support/papercutChat";
-import { sessionInfoPushes } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { sessionInfoPushes } from "../src/agent-session/acpmux/session-info/sessionInfoModel";
 import { SESSION_INFO_WIDTH } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import {
+  SESSION_INFO,
+  SESSION_INFO_SHOWN,
+  SESSION_INFO_TOGGLE,
+} from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 await requireBrowserLane("session-info-push-motion.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -56,12 +61,14 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
       bridge.applyHeaderState({ inspector: true, version: 2 });
       document.documentElement.style.setProperty("--agent-motion-in", "4000ms");
       document.documentElement.style.setProperty("--agent-motion-out", "4000ms");
+      // The push opens on the move step (sessionInfo.css).
+      document.documentElement.style.setProperty("--agent-motion-move", "4000ms");
     });
     // It takes a column only with Settings Push always (SessionInfo.tsx pushes).
     await sessionInfoPushAlways(page, push);
-    const toggle = page.locator("button.acpmux-session-info-toggle");
+    const toggle = page.locator(SESSION_INFO_TOGGLE);
     await toggle.waitFor({ timeout: 10_000 });
-    const panel = page.locator("aside.acpmux-session-info");
+    const panel = page.locator(SESSION_INFO);
     if ((await panel.count()) > 0) {
       await toggle.click({ force: true });
       await panel.waitFor({ state: "detached", timeout: 15_000 });
@@ -74,35 +81,38 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
   /// chat's width, the column's left edge and width (the composer card's), and the panel's left edge, in
   /// px; then lets the slide finish. `moving` names what animates, the panel's and the chat's.
   const slide = (page: Page, points: number[]) =>
-    page.evaluate(async (fractions) => {
-      const panel = document.querySelector<HTMLElement>("aside.acpmux-session-info")!;
-      const chat = document.querySelector<HTMLElement>(".acpmux-main")!;
-      const column = () => document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect();
-      const slides = [...panel.getAnimations(), ...chat.getAnimations()];
-      const frames: { chat: number; left: number; right: number; width: number; panel: number }[] = [];
-      for (const running of slides) running.pause();
-      for (const fraction of fractions) {
-        for (const running of slides) {
-          const end = Number(running.effect?.getComputedTiming().endTime ?? 0);
-          running.currentTime = fraction * end;
+    page.evaluate(
+      async ({ fractions, SESSION_INFO }) => {
+        const panel = document.querySelector<HTMLElement>(SESSION_INFO)!;
+        const chat = document.querySelector<HTMLElement>(".acpmux-main")!;
+        const column = () => document.querySelector<HTMLElement>(".acpmux-composer-box")!.getBoundingClientRect();
+        const slides = [...panel.getAnimations(), ...chat.getAnimations()];
+        const frames: { chat: number; left: number; right: number; width: number; panel: number }[] = [];
+        for (const running of slides) running.pause();
+        for (const fraction of fractions) {
+          for (const running of slides) {
+            const end = Number(running.effect?.getComputedTiming().endTime ?? 0);
+            running.currentTime = fraction * end;
+          }
+          // Read after the seeked point has painted (support/paintedFrames.ts, which papercutPane installs).
+          await window.cmuxPaintFrame();
+          const box = column();
+          frames.push({
+            chat: chat.getBoundingClientRect().width,
+            left: box.left,
+            right: box.right,
+            width: box.width,
+            panel: panel.getBoundingClientRect().left,
+          });
         }
-        // Read after the seeked point has painted (support/paintedFrames.ts, which papercutPane installs).
-        await window.cmuxPaintFrame();
-        const box = column();
-        frames.push({
-          chat: chat.getBoundingClientRect().width,
-          left: box.left,
-          right: box.right,
-          width: box.width,
-          panel: panel.getBoundingClientRect().left,
-        });
-      }
-      for (const running of slides) running.finish();
-      const moving = slides
-        .map((running) => (running as Animation & { transitionProperty?: string }).transitionProperty ?? "")
-        .sort();
-      return { moving, frames };
-    }, points);
+        for (const running of slides) running.finish();
+        const moving = slides
+          .map((running) => (running as Animation & { transitionProperty?: string }).transitionProperty ?? "")
+          .sort();
+        return { moving, frames };
+      },
+      { fractions: points, SESSION_INFO },
+    );
 
   /// The composer card's left edge now: where the chat's column sits.
   const columnLeft = (page: Page) =>
@@ -117,7 +127,7 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
   for (const name of browsers.keys())
     test(`${name}: pushing, the column slides with the panel, the chat keeps its width, and neither end jumps`, async () => {
       current = browsers.get(name)!;
-      const page = await pane!.open({ width: 1100, height: 600 });
+      const page = await pane!.open({ width: 1200, height: 600 });
       try {
         const toggle = await ready(page);
         const shell = await page.evaluate(() => document.querySelector(".acpmux-shell")!.clientWidth);
@@ -126,14 +136,14 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
         await toggle.click({ force: true });
         await page.locator('aside.acpmux-session-info[data-placement="push"]').waitFor({ timeout: 10_000 });
         const open = await slide(page, points);
-        await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+        await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
         // How far the open panel moved the column.
         const moved = rest - (await columnLeft(page));
 
         await toggle.click({ force: true });
         await page.locator('aside.acpmux-session-info[data-presence="leaving"]').waitFor({ timeout: 10_000 });
         const close = await slide(page, points);
-        await page.locator("aside.acpmux-session-info").waitFor({ state: "detached", timeout: 15_000 });
+        await page.locator(SESSION_INFO).waitFor({ state: "detached", timeout: 15_000 });
         const after = await columnLeft(page);
 
         /// The share of the move the column has made at each point.
@@ -196,27 +206,32 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
       try {
         const toggle = await ready(page);
         await toggle.click({ force: true });
-        await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
-        await page.evaluate(() =>
-          Promise.all(
-            document
-              .querySelector("aside.acpmux-session-info")!
-              .getAnimations()
-              .map((running) => running.finished.catch(() => undefined)),
-          ),
+        await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
+        await page.evaluate(
+          ({ SESSION_INFO }) =>
+            Promise.all(
+              document
+                .querySelector(SESSION_INFO)!
+                .getAnimations()
+                .map((running) => running.finished.catch(() => undefined)),
+            ),
+          { SESSION_INFO },
         );
         const switched: string[] = [];
         for (const placement of ["overlay", "push"] as const) {
           await sessionInfoPushAlways(page, placement === "push");
           await page.locator(`aside.acpmux-session-info[data-placement="${placement}"]`).waitFor({ timeout: 10_000 });
           switched.push(
-            ...(await page.evaluate(() => {
-              const panel = document.querySelector("aside.acpmux-session-info")!;
-              const chat = document.querySelector(".acpmux-main")!;
-              return [...panel.getAnimations(), ...chat.getAnimations()].map(
-                (running) => (running as Animation & { transitionProperty?: string }).transitionProperty ?? "",
-              );
-            })),
+            ...(await page.evaluate(
+              ({ SESSION_INFO }) => {
+                const panel = document.querySelector(SESSION_INFO)!;
+                const chat = document.querySelector(".acpmux-main")!;
+                return [...panel.getAnimations(), ...chat.getAnimations()].map(
+                  (running) => (running as Animation & { transitionProperty?: string }).transitionProperty ?? "",
+                );
+              },
+              { SESSION_INFO },
+            )),
           );
         }
         expect(switched).toEqual([]);
@@ -237,7 +252,7 @@ await requireBrowserLane("session-info-push-motion.test.ts", async () => {
           () => document.querySelector<HTMLElement>(".acpmux-header-tools")!.getBoundingClientRect().right,
         );
         await toggle.click({ force: true });
-        await page.locator('aside.acpmux-session-info[data-presence="shown"]').waitFor({ timeout: 10_000 });
+        await page.locator(SESSION_INFO_SHOWN).waitFor({ timeout: 10_000 });
         const after = await page.evaluate(
           () => document.querySelector<HTMLElement>(".acpmux-header-tools")!.getBoundingClientRect().right,
         );

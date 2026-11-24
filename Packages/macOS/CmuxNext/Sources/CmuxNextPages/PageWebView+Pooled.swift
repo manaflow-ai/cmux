@@ -18,11 +18,14 @@ final class PagePooledOwner {
 }
 
 extension PageWebView {
+    /// `overlayProcess`: an overlay page's shared process (``PageOverlayProcess``); its store, so the page can
+    /// join that process. Nil: the page's own store.
     static func hostConfiguration(handler: PageSchemeHandler, documentAttributes: [String: String],
-                                  options: PageEngineOptions) -> (configuration: WKWebViewConfiguration,
-                                                                   inputReadiness: PageInputReadiness) {
+                                  options: PageEngineOptions,
+                                  overlayProcess: PageOverlayProcess? = nil) -> (configuration: WKWebViewConfiguration,
+                                                                                 inputReadiness: PageInputReadiness) {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = overlayProcess?.dataStore ?? .nonPersistent()
         configuration.processPool = PageProcessPool.forNewView
         if options.fullFrameRate { WebKitRenderRate.apply(fullRate: true, to: configuration.preferences) }
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
@@ -43,6 +46,11 @@ extension PageWebView {
         // The spare's document is parked until a claim binds routes (PageWebView+Claim.swift).
         host.configuration.userContentController.addUserScript(
             WKUserScript(source: parkedScript, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        if PageSpareVariant.current == .unmounted {
+            host.configuration.userContentController.addUserScript(
+                WKUserScript(source: PageSpareVariant.deferMountScript, injectionTime: .atDocumentStart,
+                             forMainFrameOnly: true, in: .page))
+        }
         return PooledHostRecipe(served: served, configuration: host.configuration,
                                 inputReadiness: host.inputReadiness, options: options, owner: owner)
     }
@@ -93,7 +101,8 @@ extension PageWebView {
         Self.installPageScripts(controller, documentAttributes: documentAttributes)
         controller.addUserScript(WKUserScript(source: PagePaintProbe.script, injectionTime: .atDocumentEnd,
                                                forMainFrameOnly: true, in: .page))
-        controller.addUserScript(PageTitleRowPress.userScript)
+        if descriptor.servesHostOps { controller.addUserScript(PageTitleRowPress.userScript) }
+        controller.addUserScript(PageAccessibilityPress.userScript)
         // The handler stays installed; only the script was removed with the others.
         controller.addUserScript(WKUserScript(source: ConsoleErrorCapture.script, injectionTime: .atDocumentStart,
                                                forMainFrameOnly: true, in: .page))

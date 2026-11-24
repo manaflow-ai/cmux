@@ -12,6 +12,9 @@
 //!   late replies or late starts, and whether a failed attempt shows.
 //! - [`latency`]: the request-latency histogram (`debug.daemon_requests`).
 //! - [`idle`]: whether a conversation owner is idle, so it may restart.
+//! - [`offline`]: a person's action while the daemon cannot be reached: held
+//!   and shown pending, replayed once when it answers, or refused once past
+//!   the bound (never applied and then reverted).
 //! - [`scope`]: one app action's command scope (tickets, barriers, created
 //!   objects, the stage log and the ids derived from an idempotency key).
 //!
@@ -30,6 +33,7 @@ pub mod heartbeat;
 pub mod identity;
 pub mod idle;
 pub mod latency;
+pub mod offline;
 pub mod ops;
 pub mod retry;
 pub mod scope;

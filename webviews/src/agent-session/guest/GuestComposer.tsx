@@ -4,6 +4,7 @@
 // "Declined: …" or "Not sent: …", as the owner's own declined line does.
 import { type KeyboardEvent, type ReactNode, useState } from "react";
 import { type StringKey, useT } from "../acpmux/i18n";
+import type { QueuedPrompt } from "../acpmux/model";
 import { AuthorChip } from "../acpmux/multiplayer/Faces";
 import type { Participant } from "../acpmux/multiplayer/participants";
 import { type GuestPrompt, isOpen, PROMPT_MAX_BYTES, promptBytes } from "./guestPrompts";
@@ -60,9 +61,39 @@ export function GuestMessages({
   );
 }
 
+/** Whether a queue entry is a person's message that runs once the turn ends: not another agent's
+ * message or inbox notice, not a subagent retry, and not one still waiting on the owner. */
+export const runsAfterTurn = (entry: QueuedPrompt) =>
+  !entry.message && !entry.inbox && !entry.retry && !entry.awaitingOwner && entry.prompt.trim() !== "";
+
+/**
+ * The messages waiting behind the agent's running turn, as the owner's composer queue shows them:
+ * the guest sees a follow-up the moment the owner sends it, not when the turn ends and it becomes a
+ * row (Leo, 2026-11-23: "Google Docs-esque type sharing"). Read only: no edit, steer or delete.
+ */
+export function GuestQueue({ queue, owner }: { queue: readonly QueuedPrompt[]; owner?: Participant }) {
+  const t = useT();
+  if (!queue.length) return null;
+  return (
+    <section className="guest-mine guest-queue" data-testid="guest-queue" aria-live="polite">
+      {queue.map((entry) => {
+        const author = entry.author ?? owner;
+        return (
+          <div key={entry.id} className="cv-user guest-mine__held">
+            {author && <AuthorChip author={author} />}
+            <div className="ui-glass cv-user__bubble selectable">{entry.prompt}</div>
+            <span className="guest-mine__label">{t("composer.queued")}</span>
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 export function GuestComposer({
   onSend,
   onDraft,
+  initialText = "",
   placeholder,
   sendIcon,
   disabled = false,
@@ -73,6 +104,8 @@ export function GuestComposer({
   onSend: (text: string) => void;
   /** The draft changed (typing `{on}`). */
   onDraft: (text: string) => void;
+  /** The draft to start with (one kept across a reload). */
+  initialText?: string;
   placeholder?: string;
   sendIcon?: ReactNode;
   disabled?: boolean;
@@ -81,7 +114,7 @@ export function GuestComposer({
   className?: string;
 }) {
   const t = useT();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const tooLong = promptBytes(text) > PROMPT_MAX_BYTES;
   const canSend = text.trim().length > 0 && !tooLong && !disabled;
   const change = (next: string) => {

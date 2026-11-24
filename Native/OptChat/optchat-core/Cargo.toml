@@ -5,9 +5,9 @@ edition = "2021"
 description = "OptChat memory: append-only log, binary summary tree, incremental view, compactor order (sans I/O)"
 license = "GPL-3.0-or-later"
 publish = false
+# In the OptChat workspace (optchat-chief's Cargo.lock).
+workspace = "../optchat-chief"
 
-# Its own workspace and lockfile (like Native/DiffSidecar): the Chief ships in the app bundle.
-[workspace]
 
 [dependencies]
 

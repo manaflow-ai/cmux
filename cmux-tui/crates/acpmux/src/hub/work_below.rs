@@ -38,7 +38,7 @@ impl Hub {
             (after != before).then_some(after)
         };
         if let Some(count) = count {
-            self.append(session, "mux", super::views::SUBAGENTS_RUNNING, json!({"count": count}));
+            self.subagents_running(session, count);
         }
     }
 
@@ -65,7 +65,7 @@ impl Hub {
             // so its summary already says so. Every new turn drops the note.
             let unread = !works
                 && session.unread_after_work.swap(false, Ordering::SeqCst)
-                && !self.shown(session)
+                && !self.attended(session)
                 && {
                     let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
                     !std::mem::replace(&mut meta.unread, true)
@@ -87,12 +87,16 @@ impl Hub {
     /// A turn of `session` ended while no client showed it: the chat is unread, or, while work
     /// it started still runs, it turns unread when that work ends (`refresh_work_below`). The
     /// mark is held, so the work cannot end between the check and the note.
+    /// Each such turn counts for the sidebar now (`unread_turns`), dot or not: several turns that
+    /// end while the work runs are several turns.
     pub(super) fn mark_unread_unless_work_below(&self, session: &Session) {
         let mark = session.work_below_since.lock().unwrap_or_else(|e| e.into_inner());
         let works = *mark != 0;
         session.unread_after_work.store(works, Ordering::SeqCst);
+        let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+        Self::count_unread_turn(&mut meta);
         if !works {
-            session.meta.lock().unwrap_or_else(|e| e.into_inner()).unread = true;
+            meta.unread = true;
         }
     }
 
@@ -105,8 +109,19 @@ impl Hub {
 
     /// The harness is gone and its background subagents with it.
     pub(super) fn end_background_subagents(&self, session: &Session) {
-        session.subagents.lock().unwrap_or_else(|e| e.into_inner()).end_background();
+        let ended = {
+            let mut tree = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
+            tree.end_background();
+            tree.take_orphans()
+        };
+        // Each one it took down can be resumed from its transcript (`subagent_resume.rs`).
+        let lost: HashSet<String> = self.subagents_lost(session).into_iter().collect();
+        // Every other one that ran ends in the log too, or a client reads it running forever
+        // (`subagents::expiry`, `harness_exit`).
+        self.end_subagents(session, ended.into_iter().filter(|e| !lost.contains(&e.id)).collect());
         self.refresh_work_below(session);
+        // Reports left for its subagents go to it now (`lane_report_subagents.rs`).
+        self.subagent_notices_sweep(session);
     }
 
     /// Before a daemon adopts `session`'s running host (`hosts.rs` `adopt_held`), its subagents
@@ -115,34 +130,11 @@ impl Hub {
     /// summary still counts them. A new daemon started with none, and until each subagent's next
     /// progress event its lines reached clients untagged, as the chat's own (a helper's grep read
     /// as the chat still running grep after its turn ended). A harness start ends the background
-    /// subagents of the one before, and a turn start the foreground ones, as live.
-    pub(super) fn seed_subagents_from_log(&self, session: &Session) {
-        let meta = session.meta();
-        let mut tree = crate::subagents::SubagentTree::default();
-        tree.set_own(meta.agent_session_id.as_deref());
-        tree.set_roots(
-            meta.agent_session_id.iter().chain(&meta.retired_agent_session_ids).map(String::as_str),
-        );
-        let _ = self.store.scan_heads(&session.id, &mut |head| {
-            if head.dir == "mux" {
-                match head.kind {
-                    "host_started" | "stopped" | "exited" => tree.end_background(),
-                    "turn_started" => tree.end_foreground(),
-                    _ => {}
-                }
-                return true;
-            }
-            if head.dir != "in" || !names_subagents(head) {
-                return true;
-            }
-            let replay = head.kind.ends_with(".replay");
-            if let Some(mut e) = head.record()
-                && let Some(params) = e.msg.get_mut("params")
-            {
-                tree.annotate_live(params, !replay);
-            }
-            true
-        });
+    /// subagents of the one before, and a turn start the foreground ones, as live. Read off the
+    /// executor (`hosts.rs` `read_whole_log`) by [`Hub::subagents_from_log`], from the adoption
+    /// checkpoint of the host's incarnation when there is one (`hosts/checkpoint.rs`); this
+    /// applies what it found.
+    pub(super) fn seed_subagents(&self, session: &Session, tree: crate::subagents::SubagentTree) {
         let (running_before, running_after) = {
             let mut live = session.subagents.lock().unwrap_or_else(|e| e.into_inner());
             let before = live.running_count();
@@ -150,13 +142,13 @@ impl Hub {
             (before, live.running_count())
         };
         if running_after != running_before {
-            self.append(
-                session,
-                "mux",
-                super::views::SUBAGENTS_RUNNING,
-                json!({"count": running_after}),
-            );
+            self.subagents_running(session, running_after);
         }
+        // What the log left running past a harness exit, or quiet past the bound, ends now
+        // (`subagents::expiry`).
+        let orphans = session.subagents.lock().unwrap_or_else(|e| e.into_inner()).take_orphans();
+        self.end_subagents(session, orphans);
+        self.sweep_aged_subagents(session, true);
         self.refresh_work_below(session);
     }
 
@@ -180,7 +172,7 @@ impl Hub {
     }
 
     /// The session that started `session` as its sub-session, if it is one and is here.
-    fn subsession_parent(&self, session: &Session) -> Option<Arc<Session>> {
+    pub(super) fn subsession_parent(&self, session: &Session) -> Option<Arc<Session>> {
         let parent = session.meta.lock().unwrap_or_else(|e| e.into_inner()).subsession.clone()?;
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         sessions.get(&parent.started_by).filter(|p| p.id != session.id).cloned()

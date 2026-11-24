@@ -8,7 +8,9 @@ import CmuxNextDesign
 // and the animation switches apply. It closes shortly after the pointer leaves.
 extension SidebarContainerView {
     /// The panel is out of sight: the sidebar is hidden, or the rail is closed.
-    var isPanelCollapsed: Bool { model.isHidden || (model.style == .rail && !model.isRailOpen) }
+    var isPanelCollapsed: Bool {
+        (model.isHidden && !model.isFloating) || (!model.isHidden && model.style == .rail && !model.isRailOpen)
+    }
 
     /// The rail shows: the rail style, the sidebar shown and its full sidebar closed.
     public var isRailShown: Bool { model.style == .rail && !model.isHidden && !model.isRailOpen }

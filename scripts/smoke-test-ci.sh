@@ -23,7 +23,16 @@ fi
 # --- Clean up stale socket and any existing instances ---
 rm -f "$SOCKET_PATH"
 pkill -x "cmux DEV" 2>/dev/null || true
-sleep 1
+# Until every old instance has exited (it could otherwise answer on, or remove, the new socket).
+for _ in $(seq 1 100); do
+  pgrep -x "cmux DEV" >/dev/null 2>&1 || break
+  sleep 0.1
+done
+if pgrep -x "cmux DEV" >/dev/null 2>&1; then
+  echo "ERROR: an old cmux DEV instance did not exit within 10s of pkill"
+  pgrep -lx "cmux DEV" || true
+  exit 1
+fi
 
 # --- Launch the app directly (not via `open`, which can silently fail on CI) ---
 echo "Launching app..."
@@ -31,8 +40,7 @@ CMUX_SOCKET_MODE=allowAll CMUX_UI_TEST_MODE=1 "$BINARY" > /tmp/cmux-smoke-stdout
 APP_PID=$!
 echo "App PID: $APP_PID"
 
-# --- Verify process is alive after 2s ---
-sleep 2
+# --- Verify the process did not exit at once (the socket wait below watches it until the socket is up) ---
 if ! kill -0 "$APP_PID" 2>/dev/null; then
   echo "ERROR: App exited immediately after launch"
   echo "--- stdout/stderr ---"
@@ -109,7 +117,7 @@ echo "Send response: $SEND_RESPONSE"
 
 # --- Wait and verify stability ---
 echo "Waiting ${STABILITY_WAIT}s to verify stability..."
-sleep "$STABILITY_WAIT"
+sleep "$STABILITY_WAIT"  # sleep-ok: the stability window itself (the app must stay alive this long)
 
 if ! kill -0 "$APP_PID" 2>/dev/null; then
   echo "ERROR: App crashed during ${STABILITY_WAIT}s stability check"
@@ -137,8 +145,9 @@ if [ "$FINAL_PING" != "PONG" ]; then
   exit 1
 fi
 
-echo "=== Smoke test passed ==="
-
 # --- Cleanup ---
+# Before the message: an echo to a stdout nobody reads would otherwise end this script before the kill
+# (tests/test_guard_logs_survive_closed_pipe.py).
 kill "$APP_PID" 2>/dev/null || true
 wait "$APP_PID" 2>/dev/null || true
+echo "=== Smoke test passed ==="

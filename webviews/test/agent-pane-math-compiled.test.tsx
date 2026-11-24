@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { reactCompilerPlugin } from "../scripts/agent-pane/reactCompilerPlugin.mjs";
 import { katexStylePlugin } from "../scripts/agent-pane/katexStylePlugin.mjs";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -33,12 +34,9 @@ const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[k
 Object.assign(scope, replacements);
 const out = mkdtempSync(path.join(tmpdir(), "math-compiled-"));
 
-afterAll(() => {
+afterAll(async () => {
   rmSync(out, { recursive: true, force: true });
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("math drawn before KaTeX loads typesets when it arrives, with the React Compiler on", async () => {

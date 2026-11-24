@@ -112,16 +112,15 @@ pub(super) fn consent(inputs: &ConsentInputs<'_>) -> Consent {
 }
 
 /// The Sentry event for one panic line; None for a test line or a line that is not a panic.
-/// `home` is replaced by `~` in the message and backtrace, so no user name leaves the machine.
+/// The message, location and backtrace go through `crash_scrub` (docs/privacy.md, Telemetry):
+/// `home` becomes `~`, and secrets, emails and other user names are redacted, so none of them
+/// leaves the machine.
 pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
     let record: Value = serde_json::from_str(line).ok()?;
     if record.get("test").and_then(Value::as_bool) == Some(true) {
         return None;
     }
-    let scrub = |text: &str| match home.filter(|home| home.len() > 1) {
-        Some(home) => text.replace(home, "~"),
-        None => text.to_string(),
-    };
+    let scrub = |text: &str| super::crash_scrub::scrub(text, home);
     let message = scrub(record.get("message")?.as_str()?);
     let location = scrub(record.get("location").and_then(Value::as_str).unwrap_or_default());
     let text = |key: &str| record.get(key).and_then(Value::as_str).map(String::from);
@@ -354,7 +353,7 @@ fn send_all(log: &Path, dsn: &Dsn, home: Option<&str>) -> Result<usize, String> 
         .enable_all()
         .build()
         .map_err(|error| format!("runtime: {error}"))?;
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::owner_start::crash_forward")
         .timeout(std::time::Duration::from_secs(10))
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -379,122 +378,5 @@ fn send_all(log: &Path, dsn: &Dsn, home: Option<&str>) -> Result<usize, String> 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::BTreeMap;
-
-    fn inputs<'a>(
-        forced: &'a BTreeMap<String, Value>,
-        settings: Option<&'a Value>,
-        env: &'a dyn Fn(&str) -> Option<String>,
-    ) -> ConsentInputs<'a> {
-        ConsentInputs {
-            channel: InstallChannel::Npm,
-            managed_forced: forced,
-            settings,
-            release_build: true,
-            env,
-        }
-    }
-
-    #[test]
-    fn the_dsn_names_the_envelope_endpoint() {
-        let dsn = Dsn::parse("https://abc@o1.ingest.us.sentry.io/42").unwrap();
-        assert_eq!(dsn.endpoint, "https://o1.ingest.us.sentry.io/api/42/envelope/");
-        assert_eq!(dsn.public_key, "abc");
-        assert!(Dsn::parse(DSN).is_some());
-        assert_eq!(Dsn::parse("ftp://a@b/1"), None);
-        assert_eq!(Dsn::parse("https://b/1"), None);
-        assert_eq!(Dsn::parse("https://a@b/x"), None);
-    }
-
-    #[test]
-    fn consent_sends_only_when_nothing_turns_it_off() {
-        let none: BTreeMap<String, Value> = BTreeMap::new();
-        let no_env = |_: &str| -> Option<String> { None };
-        assert_eq!(consent(&inputs(&none, None, &no_env)), Consent::Send);
-
-        let app = ConsentInputs { channel: InstallChannel::App, ..inputs(&none, None, &no_env) };
-        assert!(matches!(consent(&app), Consent::Off(_)));
-
-        let forced = BTreeMap::from([("DisableTelemetry".to_string(), Value::Bool(true))]);
-        assert!(matches!(consent(&inputs(&forced, None, &no_env)), Consent::Off(_)));
-
-        let off = json!({"app": {"sendAnonymousTelemetry": false}});
-        assert_eq!(
-            consent(&inputs(&none, Some(&off), &no_env)),
-            Consent::Off("app.sendAnonymousTelemetry is false")
-        );
-        let on = json!({"app": {"sendAnonymousTelemetry": true}});
-        assert_eq!(consent(&inputs(&none, Some(&on), &no_env)), Consent::Send);
-
-        let dnt = |name: &str| (name == "DO_NOT_TRACK").then(|| "1".to_string());
-        assert_eq!(consent(&inputs(&none, None, &dnt)), Consent::Off("DO_NOT_TRACK"));
-        let telemetry_off = |name: &str| (name == "CMUX_TUI_TELEMETRY").then(|| "off".to_string());
-        assert_eq!(
-            consent(&inputs(&none, None, &telemetry_off)),
-            Consent::Off("CMUX_TUI_TELEMETRY")
-        );
-        let ci = |name: &str| (name == "CI").then(|| "true".to_string());
-        assert_eq!(consent(&inputs(&none, None, &ci)), Consent::Off("CI"));
-
-        let unreleased = ConsentInputs { release_build: false, ..inputs(&none, None, &no_env) };
-        assert_eq!(consent(&unreleased), Consent::Off("not a release build"));
-    }
-
-    #[test]
-    fn a_test_line_is_never_an_event_and_home_is_scrubbed() {
-        assert_eq!(event_for(r#"{"message":"x","location":"a.rs:1","test":true}"#, None), None);
-        assert_eq!(event_for("not json", None), None);
-        let event = event_for(
-            r#"{"message":"open /home/maya/x failed","location":"a.rs:1","version":"0.13.5","os":"linux","backtrace":"at /home/maya/src"}"#,
-            Some("/home/maya"),
-        )
-        .unwrap();
-        assert_eq!(event["exception"]["values"][0]["value"], "open ~/x failed");
-        assert_eq!(event["extra"]["backtrace"], "at ~/src");
-        assert_eq!(event["tags"]["process"], "cmux-tui");
-        assert_eq!(event["tags"]["tui_version"], "0.13.5");
-        assert_eq!(event["release"], "cmux-tui@0.13.5");
-        assert_eq!(event["fingerprint"], json!(["owner-panic", "a.rs:1"]));
-    }
-
-    #[test]
-    fn each_line_goes_once_and_a_failed_send_retries_next_time() {
-        let dir =
-            std::env::temp_dir().join(format!("cmux-cf-unit-{}", uuid::Uuid::new_v4().simple()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let log = dir.join("owner-panics-s.jsonl");
-        let state = state_path(&log);
-        let line =
-            |message: &str| format!("{{\"message\":\"{message}\",\"location\":\"a.rs:1\"}}\n");
-        std::fs::write(&log, format!("{}{}", line("one"), line("two"))).unwrap();
-
-        let mut bodies = Vec::new();
-        let result = forward_new(&log, &state, 10, None, |body| {
-            let text = String::from_utf8_lossy(body).into_owned();
-            if text.contains("two") {
-                return Err("offline".into());
-            }
-            bodies.push(text);
-            Ok(())
-        });
-        assert!(result.is_err());
-        assert_eq!(bodies.len(), 1);
-
-        let mut again = Vec::new();
-        let sent = forward_new(&log, &state, 10, None, |body| {
-            again.push(String::from_utf8_lossy(body).into_owned());
-            Ok(())
-        })
-        .unwrap();
-        assert_eq!(sent, 1);
-        assert!(again[0].contains("two"));
-        assert_eq!(forward_new(&log, &state, 10, None, |_| Ok(())).unwrap(), 0);
-
-        // An unfinished last line waits for its newline.
-        std::fs::write(&log, format!("{}{}{}three-partial", line("one"), line("two"), "")).unwrap();
-        assert_eq!(forward_new(&log, &state, 10, None, |_| Ok(())).unwrap(), 0);
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-}
+#[path = "crash_forward_tests.rs"]
+mod tests;

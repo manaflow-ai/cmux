@@ -22,27 +22,36 @@ pub(crate) fn accepts_environment_origin(base: &url::Url) -> bool {
 /// an owner token for a link in `room` (an origin) must come from this API. Nil for any other room
 /// (a local platform, or one named by `CMUX_SHARE_ROOM_URL` that is not declared here).
 pub fn share_owner_api(room: &str) -> Option<&'static str> {
-    match room {
+    match share_deployment(room)? {
         DEVELOPMENT => Some(cmux_cloud_environment::DEVELOPMENT_API),
         STAGING => Some(cmux_cloud_environment::STAGING_API),
-        PRODUCTION => Some(cmux_cloud_environment::PRODUCTION_API),
+        _ => Some(cmux_cloud_environment::PRODUCTION_API),
+    }
+}
+
+/// The platform deployment a share room or share link origin belongs to (its platform origin), whether it
+/// is the platform's own origin or its short share host; nil for any other origin.
+pub fn share_deployment(origin: &str) -> Option<&'static str> {
+    use cmux_cloud_environment::{DEVELOPMENT_SHARE, PRODUCTION_SHARE, STAGING_SHARE};
+    match origin {
+        DEVELOPMENT | DEVELOPMENT_SHARE => Some(DEVELOPMENT),
+        STAGING | STAGING_SHARE => Some(STAGING),
+        PRODUCTION | PRODUCTION_SHARE => Some(PRODUCTION),
         _ => None,
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn each_room_names_the_api_of_its_environment() {
-        assert_eq!(
-            share_owner_api(DEVELOPMENT),
-            Some("https://cmux-api-development.debussy.workers.dev")
-        );
-        assert_eq!(share_owner_api(STAGING), Some("https://cloud-api-staging.cmux.dev"));
-        assert_eq!(share_owner_api(PRODUCTION), Some("https://cloud-api.cmux.dev"));
-        assert_eq!(share_owner_api("http://localhost:8787"), None);
-        assert_eq!(share_owner_api(""), None);
+/// The short share host of the deployment a room origin belongs to (`https://share.cmux.dev` for production's
+/// either origin), so links are made there; nil for any other origin, which stays as configured.
+pub fn share_host(origin: &str) -> Option<&'static str> {
+    use cmux_cloud_environment::{DEVELOPMENT_SHARE, PRODUCTION_SHARE, STAGING_SHARE};
+    match share_deployment(origin)? {
+        DEVELOPMENT => Some(DEVELOPMENT_SHARE),
+        STAGING => Some(STAGING_SHARE),
+        _ => Some(PRODUCTION_SHARE),
     }
 }
+
+#[cfg(test)]
+#[path = "platform_tests.rs"]
+mod tests;

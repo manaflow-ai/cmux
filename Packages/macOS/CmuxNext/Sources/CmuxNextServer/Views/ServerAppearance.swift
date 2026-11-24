@@ -3,7 +3,7 @@ import CmuxNextDesign
 import Observation
 import SwiftUI
 
-/// Colors of the server UI, resolved by the host view in its theme scope
+/// Colors of the Add Machine card, resolved by the host view in its theme scope
 /// (Ghostty-derived chrome tokens). No accent color: hover and selection
 /// are grays, severities are the theme's attention, danger and success. Until the host
 /// resolves, the app theme's (`ThemeTokens.unresolved`), never macOS's grays.
@@ -23,15 +23,6 @@ struct ServerColors: Equatable {
     /// A card or field fill: a faint wash of the text color, which reads on
     /// glass and on the opaque fallback alike.
     var fill: Color { primary.opacity(0.055) }
-
-    func severity(_ severity: HealthSeverity?) -> Color {
-        switch severity {
-        case .critical: critical
-        case .warning: warning
-        case .info: secondary
-        case nil: ok
-        }
-    }
 }
 
 extension ServerColors {
@@ -60,4 +51,12 @@ extension EnvironmentValues {
     @Entry var serverColors = ServerColors()
     /// Border width multiplier: 0 under `appearance.borders = none`.
     @Entry var serverLineWidth: CGFloat = 1
+}
+
+/// Holds the dismiss callback so a SwiftUI root can call it (the Add Machine card).
+@MainActor
+final class DismissBox {
+    var action: (() -> Void)?
+    /// The card's new size, after its layout changed (the floating card follows it).
+    var resized: ((CGSize) -> Void)?
 }

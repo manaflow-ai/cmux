@@ -13,12 +13,15 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
+import { localImagePreview } from "../composer/imagePool";
+import { dataUrlSha256 } from "./sha256";
+import { withAttachmentRetries } from "../../../pages/shared/attachmentRetry";
 
 export type ImageSize = { width: number; height: number };
 /// A sent image ready to draw: its data URL, its natural size when known, and whether the engine
 /// decoded it ahead. The element that decoded it is not held: up to 128 decoded screenshots would
 /// pin gigabytes, and the engine's own image cache serves the same src string again.
-export type ImageEntry = { src: string; size?: ImageSize; decoded?: boolean };
+export type ImageEntry = { src: string; size?: ImageSize; decoded?: boolean; thumbnail?: boolean };
 
 /// Sent images by acpmux id, most recently drawn last, within a count and a total data URL length.
 const MAX_ENTRIES = 128;
@@ -27,6 +30,8 @@ const entries = new Map<string, ImageEntry>();
 let entryChars = 0;
 /// Reads in flight, so two bubbles showing one image ask acpmux once.
 const reading = new Map<string, Promise<ImageEntry | undefined>>();
+// A sent file's existing worker job supplies its thumbnail even if the bubble mounts mid-decode.
+const fileThumbnails = new Map<string, Promise<ImageEntry | undefined>>();
 /// Measured sizes by acpmux id or source fingerprint; a size is a few bytes, so many are kept.
 const MAX_SIZES = 4096;
 const sizes = new Map<string, ImageSize>();
@@ -163,7 +168,9 @@ export async function decodeImage(src: string): Promise<{ size?: ImageSize; deco
 }
 
 /// The sent image `id`, read with `read` (acpmux's `_acpmux/attachment`) and decoded once; every
-/// caller gets the same entry. Undefined when acpmux has none; a failed read is not kept.
+/// caller gets the same entry. Undefined when acpmux has none. A read that throws (the socket
+/// reconnecting, acpmux busy) is tried again on its own a few times (pages/shared/attachmentRetry.ts);
+/// one that still fails rejects and is not kept, so the bubble's Retry reads it again.
 export function loadSentImage(
   id: string,
   read: (id: string) => Promise<string | undefined>,
@@ -174,7 +181,12 @@ export function loadSentImage(
   if (inFlight) return inFlight;
   const load = (async () => {
     try {
-      const src = await read(id);
+      const pendingThumb = fileThumbnails.get(id);
+      if (pendingThumb) {
+        const thumb = await pendingThumb;
+        if (thumb) return thumb;
+      }
+      const src = await withAttachmentRetries(() => read(id));
       if (!src) return undefined;
       const raced = entries.get(id);
       if (raced) return raced;
@@ -188,15 +200,33 @@ export function loadSentImage(
   return load;
 }
 
+/// The bytes of each image the pane is priming, by the id acpmux names it by, from the moment its
+/// hash is known until it is kept: only while it decodes, so this holds no image for long.
+const digested = new Map<string, string>();
+
 /// The pane is the producer of an image it sends: it keeps each one under the id acpmux will name
 /// it by (the SHA-256 of its bytes, hub/prompt_images.rs), with its size, so the sent bubble draws
 /// it at its own shape in the frame acpmux's echo arrives, without reading it back.
 export async function primeSentImages(attachments: readonly ComposerAttachment[]): Promise<void> {
   const digest = globalThis.crypto?.subtle?.digest?.bind(globalThis.crypto.subtle);
-  if (!digest) return;
   await Promise.all(
     attachments.map(async (attachment) => {
-      if (attachment.kind !== "image" || !attachment.data) return;
+      const preview = attachment[localImagePreview];
+      if (preview && attachment.kind === "link" && attachment.path) {
+        const id = `file:${attachment.path}`;
+        const pending: Promise<ImageEntry | undefined> = preview()
+          .then((thumb) =>
+            thumb && fileThumbnails.get(id) === pending
+              ? keep(id, { src: thumb.url, size: { width: thumb.width, height: thumb.height }, thumbnail: true })
+              : undefined,
+          )
+          .catch(() => undefined);
+        fileThumbnails.set(id, pending);
+        await pending;
+        if (fileThumbnails.get(id) === pending) fileThumbnails.delete(id);
+        return;
+      }
+      if (!digest || attachment.kind !== "image" || !attachment.data) return;
       try {
         const text = atob(attachment.data);
         const bytes = new Uint8Array(text.length);
@@ -205,13 +235,102 @@ export async function primeSentImages(attachments: readonly ComposerAttachment[]
         const id = Array.from(hash, (byte) => byte.toString(16).padStart(2, "0")).join("");
         if (entries.has(id)) return;
         const src = `data:${attachment.mimeType};base64,${attachment.data}`;
-        const { size, decoded } = await decodeImage(src);
-        if (!entries.has(id)) keep(id, { src, ...(size && { size }), ...(decoded && { decoded }) });
+        // Known by its id from here, while it decodes: acpmux's echo pairs it by id (withSentShapes).
+        digested.set(id, src);
+        try {
+          const { size, decoded } = await decodeImage(src);
+          if (!entries.has(id)) keep(id, { src, ...(size && { size }), ...(decoded && { decoded }) });
+        } finally {
+          if (digested.get(id) === src) digested.delete(id);
+        }
       } catch {
         // Not base64 or not an image: the bubble reads it from acpmux as before.
       }
     }),
   );
+}
+
+/// The images acpmux's echo of a prompt names (by the SHA-256 of their bytes, with no bytes or
+/// size of their own), each given the bytes and size the pane's own row drew it with (`sent`, the
+/// composer's bytes). The echo then draws each image in the frame it lands, at the shape the
+/// pane's row drew it, never a square slot that reshapes once the pane's priming or acpmux's read
+/// lands (Leo, 2026-11-07: "know beforehand the size we're going to go for rather than say, like,
+/// Oh wait, well now we're going to expand").
+///
+/// An echoed image takes the pane's bytes only by its identity, never by its position: the echo
+/// adds a video's note and frames, so its images do not line up with the row's, and two
+/// screenshots are often both `image.png`. See `matchSentImages`. An image with no sure match (a
+/// video's frame, a preview sent as its original's link) keeps no `src` and is read by its id,
+/// which always draws its own bytes.
+export function withSentShapes<
+  Image extends { id: string; mimeType: string; name?: string; width?: number; height?: number; src?: string },
+>(named: readonly Image[], sent: readonly { mimeType: string; name?: string; src?: string }[] | undefined): Image[] {
+  // A queued send has no pane row left to pair with (`sent` is undefined or empty), but its bytes
+  // are primed by id at send: the id match still gives the echo its bytes and shape.
+  return matchSentImages(named, sent ?? []).map((match, index) => {
+    const image = named[index]!;
+    if (!match) return image;
+    const size = image.width && image.height ? undefined : knownImageSize(match.src);
+    return { ...image, src: match.src, ...(size && { width: size.width, height: size.height }) };
+  });
+}
+
+/// For each echoed image (`named`), the pane's bytes for it and which of `sent` they are:
+/// - by its id: the bytes the pane is priming or keeps under that id are that image's, whatever its
+///   name or place (primeSentImages names them by the same SHA-256);
+/// - else by type and name, only when exactly one unclaimed sent image fits it and it is the only
+///   echoed image without bytes that fits that one;
+/// - else, when several alike fit (two `image.png` screenshots whose echo came before the pane's
+///   hash of them), by hashing those candidates' bytes here, synchronously: acpmux's id is their
+///   SHA-256, so each echoed image takes exactly its own bytes and size and lands at its final
+///   shape, never a square slot that reshapes once priming or a read lands;
+/// - else none.
+export function matchSentImages(
+  named: readonly { id: string; mimeType: string; name?: string }[],
+  sent: readonly { mimeType: string; name?: string; src?: string }[],
+): ({ src: string; sent?: number } | undefined)[] {
+  const claimed = new Set<number>();
+  const matches: ({ src: string; sent?: number } | undefined)[] = named.map((image) => {
+    const src = digested.get(image.id) ?? entries.get(image.id)?.src;
+    if (!src) return undefined;
+    const own = sent.findIndex((candidate, at) => !claimed.has(at) && candidate.src === src);
+    if (own < 0) return { src };
+    claimed.add(own);
+    return { src, sent: own };
+  });
+  const fits = (image: { mimeType: string; name?: string }, own: { mimeType: string; name?: string }) =>
+    own.mimeType === image.mimeType && (!own.name || !image.name || own.name === image.name);
+  const open = sent.flatMap((own, at) => (own.src && !claimed.has(at) ? [at] : []));
+  const unmatched = named.flatMap((image, at) => (matches[at] ? [] : [at]));
+  const ambiguous: number[] = [];
+  for (const at of unmatched) {
+    const image = named[at]!;
+    const candidates = open.filter((own) => fits(image, sent[own]!));
+    if (!candidates.length) continue;
+    const own = candidates[0]!;
+    if (candidates.length !== 1 || unmatched.filter((other) => fits(named[other]!, sent[own]!)).length !== 1) {
+      ambiguous.push(at);
+      continue;
+    }
+    matches[at] = { src: sent[own]!.src!, sent: own };
+  }
+  if (!ambiguous.length) return matches;
+  // Only the alike candidates are hashed, each once; a hash names its bytes, never a guess.
+  const hashes = new Map<number, string | undefined>();
+  const hashOf = (own: number) => {
+    if (!hashes.has(own)) hashes.set(own, dataUrlSha256(sent[own]!.src!));
+    return hashes.get(own);
+  };
+  for (const at of ambiguous) {
+    const image = named[at]!;
+    const own = open.find(
+      (candidate) => !claimed.has(candidate) && fits(image, sent[candidate]!) && hashOf(candidate) === image.id,
+    );
+    if (own === undefined) continue;
+    claimed.add(own);
+    matches[at] = { src: sent[own]!.src!, sent: own };
+  }
+  return matches;
 }
 
 /// What an image source is: a data URL the page already has (a reply's image), or a sent image
@@ -225,8 +344,13 @@ export type StableImage = {
   /// frame from it (`width`/`height` attributes or `aspect-ratio`) before it decodes.
   width?: number;
   height?: number;
-  /// "loading" while a sent image is read, "missing" when acpmux has none to read.
-  status: "loading" | "ready" | "missing";
+  /// "loading" while a sent image is read, "missing" when acpmux has none to read, "failed" when
+  /// its read still failed after its tries again or went unanswered past IMAGE_READ_MS (the bubble
+  /// then shows Retry, `retry`; a late answer still draws).
+  status: "loading" | "ready" | "missing" | "failed";
+  thumbnail?: boolean;
+  /// Reads a "failed" image again.
+  retry(): void;
   /// The first time this image draws in the pane: fade it in then only, never on a remount.
   fresh: boolean;
   /// Decoded ahead or drawn before: draw it with `decoding="sync"` so it paints in its first frame.
@@ -234,6 +358,11 @@ export type StableImage = {
   /// The <img>'s onLoad: keeps its natural size and that it drew.
   onLoad(event: { currentTarget: HTMLImageElement }): void;
 };
+
+/// How long a sent image's slot waits for its read before it says the image failed: no slot waits
+/// forever (Leo, 2026-11-22, on tiles that only spun: "WHAT THE FUCK IS THIS SITUATION MAN WITH THESE
+/// ATTACHMENTS!?").
+export const IMAGE_READ_MS = 15_000;
 
 /// One chat image that never blinks or reshapes on a re-render: the same `src` every render (a sent
 /// image is read and decoded once, shared by every bubble that shows it), its size before it decodes
@@ -247,8 +376,12 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
   const reader = useRef(read);
   reader.current = read;
   const canRead = read !== undefined;
-  const [loaded, setLoaded] = useState<{ id: string; entry?: ImageEntry }>();
+  const [loaded, setLoaded] = useState<{ id: string; entry?: ImageEntry; failed?: boolean }>();
+  /// Bumped by Retry: the read effect runs again.
+  const [attempt, again] = useReducer((count: number) => count + 1, 0);
   const [, measured] = useReducer((count: number) => count + 1, 0);
+  /// The id whose read passed IMAGE_READ_MS unanswered: its slot stops waiting and says so.
+  const [late, setLate] = useState<string>();
   // The entry this image drew from stays with it: the cache may forget the image (other images
   // pushed it out) while the bubble is still on screen, and the effect below reads only on mount
   // or a new id, so the bubble must never depend on the cache still holding what it shows.
@@ -277,14 +410,19 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     });
     void loadSentImage(id, (key) => reader.current?.(key) ?? Promise.resolve(undefined)).then(
       (found) => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id, entry: found })),
-      // A read can fail after a reconnect or a session switch: the slot goes, never a stale image.
-      () => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id })),
+      // A read that still fails after its tries again (a reconnect that outlasted them): the slot
+      // says so and offers Retry, never a stale image and never nothing.
+      () => live && setLoaded((before) => (before?.id === id && before.entry ? before : { id, failed: true })),
     );
+    // timeout: a read never answered (acpmux gone quiet, a host that dropped the call) ends the wait
+    // once; the watch above stays, so the image still draws if it comes. Cleared with the slot.
+    const timer = setTimeout(() => live && setLate(id), IMAGE_READ_MS);
     return () => {
       live = false;
+      clearTimeout(timer);
       stop();
     };
-  }, [id, canRead]);
+  }, [id, canRead, attempt]);
   const src = direct ?? entry?.src;
   const fade = useRef<{ src: string; fresh: boolean }>(undefined);
   if (src !== undefined && fade.current?.src !== src) fade.current = { src, fresh: !hasDrawn(src) };
@@ -295,11 +433,20 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     (meta?.width && meta.height ? { width: meta.width, height: meta.height } : undefined) ??
     entry?.size ??
     (src !== undefined ? knownImageSize(src) : undefined);
-  const status = src !== undefined ? "ready" : id !== undefined && canRead && loaded?.id !== id ? "loading" : "missing";
+  const status =
+    src !== undefined
+      ? "ready"
+      : id !== undefined && canRead && loaded?.id !== id
+        ? late === id
+          ? "failed"
+          : "loading"
+        : loaded?.id === id && loaded?.failed
+          ? "failed"
+          : "missing";
   const onLoad = (event: { currentTarget: HTMLImageElement }) => {
     const { naturalWidth: width, naturalHeight: height, currentSrc } = event.currentTarget;
     const drawnSrc = src ?? currentSrc;
-    const natural = width && height ? { width, height } : undefined;
+    const natural = entry?.thumbnail ? entry.size : width && height ? { width, height } : undefined;
     markDrawn(drawnSrc, natural);
     if (id !== undefined && natural) rememberImageSize({ id }, natural);
     // A header that said another size (or none) reserves the frame again at the real one.
@@ -307,11 +454,17 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
   };
   return {
     ...(src !== undefined && { src }),
+    ...(entry?.thumbnail && { thumbnail: true }),
     ...(size && { width: size.width, height: size.height }),
     status,
     fresh: fade.current?.fresh ?? true,
     decoded: entry?.decoded === true || (src !== undefined && hasDrawn(src)),
     onLoad,
+    retry: () => {
+      setLoaded(undefined);
+      setLate(undefined);
+      again();
+    },
   };
 }
 
@@ -320,9 +473,11 @@ export function clearImageEntries(): void {
   entries.clear();
   entryChars = 0;
   reading.clear();
+  fileThumbnails.clear();
   sizes.clear();
   drawn.clear();
   headless.clear();
+  digested.clear();
 }
 
 // --- Image headers -----------------------------------------------------------------------------

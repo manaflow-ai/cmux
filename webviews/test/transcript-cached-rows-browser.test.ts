@@ -6,6 +6,7 @@ import { webkit, type Browser } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { JUMP_LATEST } from "../src/agent-session/acpmux/transcriptSelectors";
 
 await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -129,97 +130,102 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
         await page.waitForFunction(
           () => Number(document.querySelector(".acpmux-row")?.getAttribute("aria-setsize")) >= 9000,
         );
-        const result = await page.evaluate(async (way) => {
-          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-          const seen = new Set<string>();
-          const samples: {
-            phase: string;
-            paint: number;
-            top: number;
-            target: boolean;
-            blank: boolean;
-            entering: string[];
-          }[] = [];
-          const end = () => scroller.scrollHeight - scroller.clientHeight;
-          let phase = "prime";
-          let frames = 0;
-          let targetFrames = 0;
-          let started = 0;
-          let revisit = false;
-          let targetLatency: number | null = null;
-          let targetPaintLatency: number | null = null;
-          await new Promise<void>((resolve) => {
-            window.cmuxAfterPaint(
-              (paint) => {
-                const view = scroller.getBoundingClientRect();
-                const visible = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].filter((row) => {
-                  const box = row.getBoundingClientRect();
-                  return box.height > 0 && box.bottom > view.top && box.top < view.bottom;
-                });
-                const entering = visible
-                  .filter(
-                    (row) => seen.has(row.dataset.rowId!) && row.matches(".acpmux-row--enter, .acpmux-row--older"),
-                  )
-                  .map((row) => row.dataset.rowId!);
-                const blank =
-                  visible.length === 0 ||
-                  visible.some((row) => {
-                    const style = getComputedStyle(row);
-                    return Number(style.opacity) < 1 || !row.textContent?.trim();
+        const result = await page.evaluate(
+          async ({ way, JUMP_LATEST }) => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+            const seen = new Set<string>();
+            const samples: {
+              phase: string;
+              paint: number;
+              top: number;
+              target: boolean;
+              blank: boolean;
+              entering: string[];
+            }[] = [];
+            const end = () => scroller.scrollHeight - scroller.clientHeight;
+            let phase = "prime";
+            let frames = 0;
+            let targetFrames = 0;
+            let started = 0;
+            let revisit = false;
+            let targetLatency: number | null = null;
+            let targetPaintLatency: number | null = null;
+            await new Promise<void>((resolve) => {
+              window.cmuxAfterPaint(
+                (paint) => {
+                  const view = scroller.getBoundingClientRect();
+                  const visible = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].filter((row) => {
+                    const box = row.getBoundingClientRect();
+                    return box.height > 0 && box.bottom > view.top && box.top < view.bottom;
                   });
-                if (phase === "return") {
-                  const target = Math.abs(scroller.scrollTop - end()) < 1;
-                  samples.push({ phase, paint, top: scroller.scrollTop, target, blank, entering });
-                  if (target) {
-                    targetLatency ??= paint - started;
-                    if (!blank) targetPaintLatency ??= paint - started;
-                    targetFrames += 1;
+                  const entering = visible
+                    .filter(
+                      (row) => seen.has(row.dataset.rowId!) && row.matches(".acpmux-row--enter, .acpmux-row--older"),
+                    )
+                    .map((row) => row.dataset.rowId!);
+                  const blank =
+                    visible.length === 0 ||
+                    visible.some((row) => {
+                      const style = getComputedStyle(row);
+                      // A turn's footer is its icon buttons alone, with no time (TurnRows.tsx
+                      // TurnFooter, Codex parity): drawn, not blank.
+                      return Number(style.opacity) < 1 || (!row.textContent?.trim() && !row.querySelector("button"));
+                    });
+                  if (phase === "return") {
+                    const target = Math.abs(scroller.scrollTop - end()) < 1;
+                    samples.push({ phase, paint, top: scroller.scrollTop, target, blank, entering });
+                    if (target) {
+                      targetLatency ??= paint - started;
+                      if (!blank) targetPaintLatency ??= paint - started;
+                      targetFrames += 1;
+                    }
                   }
-                }
-                for (const row of visible) seen.add(row.dataset.rowId!);
-                frames += 1;
-                // A revisit's scroll comes between frames, as input does: the page hears it in the
-                // next frame's scroll steps, before that frame paints. Written in a frame's own
-                // callbacks, after its scroll steps, it painted that frame at the new offset before
-                // any page could know of it.
-                if (revisit) {
-                  revisit = false;
-                  scroller.scrollTop = end();
-                }
-                if (targetFrames >= 12 || frames >= 180) {
-                  resolve();
-                  return false;
-                }
-              },
-              (paint) => {
-                // At least, not exactly: a frame's read can land after the next frame's callbacks
-                // on a busy runner, and an exact count passed unseen left the run in its first phase
-                // with no samples (frames 0, run 40753431130).
-                if (frames >= 8 && phase === "prime") {
-                  phase = "away";
-                  scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -50000, bubbles: true }));
-                  scroller.scrollTop = Math.max(0, end() - 50000);
-                }
-                if (frames >= 32 && phase === "away") {
-                  phase = "return";
-                  started = paint;
-                  if (way === "jump") document.querySelector<HTMLButtonElement>(".acpmux-jump-latest")!.click();
-                  else revisit = true;
-                }
-              },
-            );
-          });
-          return {
-            frames: samples.length,
-            blankFrames: samples.filter((sample) => sample.blank).length,
-            targetBlankFrames: samples.filter((sample) => sample.target && sample.blank).length,
-            cacheHitEntranceFrames: samples.filter((sample) => sample.entering.length > 0).length,
-            targetFrames,
-            targetLatency,
-            targetPaintLatency,
-            samples,
-          };
-        }, way);
+                  for (const row of visible) seen.add(row.dataset.rowId!);
+                  frames += 1;
+                  // A revisit's scroll comes between frames, as input does: the page hears it in the
+                  // next frame's scroll steps, before that frame paints. Written in a frame's own
+                  // callbacks, after its scroll steps, it painted that frame at the new offset before
+                  // any page could know of it.
+                  if (revisit) {
+                    revisit = false;
+                    scroller.scrollTop = end();
+                  }
+                  if (targetFrames >= 12 || frames >= 180) {
+                    resolve();
+                    return false;
+                  }
+                },
+                (paint) => {
+                  // At least, not exactly: a frame's read can land after the next frame's callbacks
+                  // on a busy runner, and an exact count passed unseen left the run in its first phase
+                  // with no samples (frames 0, run 40753431130).
+                  if (frames >= 8 && phase === "prime") {
+                    phase = "away";
+                    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -50000, bubbles: true }));
+                    scroller.scrollTop = Math.max(0, end() - 50000);
+                  }
+                  if (frames >= 32 && phase === "away") {
+                    phase = "return";
+                    started = paint;
+                    if (way === "jump") document.querySelector<HTMLButtonElement>(JUMP_LATEST)!.click();
+                    else revisit = true;
+                  }
+                },
+              );
+            });
+            return {
+              frames: samples.length,
+              blankFrames: samples.filter((sample) => sample.blank).length,
+              targetBlankFrames: samples.filter((sample) => sample.target && sample.blank).length,
+              cacheHitEntranceFrames: samples.filter((sample) => sample.entering.length > 0).length,
+              targetFrames,
+              targetLatency,
+              targetPaintLatency,
+              samples,
+            };
+          },
+          { way, JUMP_LATEST },
+        );
         console.log(
           `transcript-cached-rows: ${JSON.stringify({ way, sourceRows: seeded.rows, turns: 3000, ...result })}`,
         );

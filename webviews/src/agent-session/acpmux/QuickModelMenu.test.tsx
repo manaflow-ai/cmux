@@ -5,9 +5,10 @@ import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
-import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./QuickModelMenu";
+import type { QuickFamily, QuickModel, QuickProviderLook, QuickSearchField } from "./quickModelMenuModel";
 import type { SessionAuth } from "./sessionAuth";
 import { effortLevel, openEffort } from "../../../test/support/effortDropdown";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
 const loadQuickModelMenu = async () => {
@@ -38,7 +39,7 @@ function installDom(): HTMLElement {
     "cancelAnimationFrame",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
-    saved.set(key, scope[key]);
+    if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -63,6 +64,7 @@ afterEach(async () => {
     });
   root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -169,7 +171,7 @@ for (const newTab of [false, true]) {
       });
       const recovery = () =>
         [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-          (row) => row.textContent?.trim() === "Sign in again",
+          (row) => row.textContent?.trim() === "Sign in to Claude Code",
         );
       expect(recovery()).toBeDefined();
       const input = document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
@@ -379,7 +381,7 @@ test("inline effort picks a different model and its level together; model names 
           },
           families: {
             current: "claude",
-            onPick: (row) => picks.push(row),
+            onPick: (row) => void picks.push(row),
             list: [
               {
                 id: "claude",
@@ -487,7 +489,7 @@ test.each([
           fast: { checked: false, onChange: (value) => fastPicks.push(value) },
           families: {
             current: "claude",
-            onPick: (model) => combos.push(model),
+            onPick: (model) => void combos.push(model),
             list: [
               {
                 id: "claude",
@@ -952,7 +954,7 @@ test("another tab whose models honor Fast mode draws the Fast row and lands its 
           fast: { checked: false, onChange() {} },
           families: {
             current: "claude",
-            onPick: (model) => picks.push(model),
+            onPick: (model) => void picks.push(model),
             list: [
               {
                 id: "claude",
@@ -1032,7 +1034,7 @@ const familyRail = [
 ];
 
 test("familyTabs: one tab per model family, its routes in rail order", async () => {
-  const { familyTabs } = await import("./QuickModelMenu");
+  const { familyTabs } = await import("./quickModelMenuModel");
   const tabs = familyTabs(familyRail);
   expect(tabs.map((tab) => [tab.key, tab.name, tab.routes.map((entry) => entry.id)])).toEqual([
     ["claude", "Claude Code", ["claude", "claude-sr2", "claude-work"]],
@@ -1042,7 +1044,7 @@ test("familyTabs: one tab per model family, its routes in rail order", async () 
 });
 
 test("searchGroups: a family's routes share one heading and list a model once", async () => {
-  const { searchGroups } = await import("./QuickModelMenu");
+  const { searchGroups } = await import("./quickModelMenuModel");
   const found: QuickModel[] = [
     { id: "opus", name: "Opus", family: "claude-sr2" },
     { id: "opus", name: "Opus", family: "claude" },

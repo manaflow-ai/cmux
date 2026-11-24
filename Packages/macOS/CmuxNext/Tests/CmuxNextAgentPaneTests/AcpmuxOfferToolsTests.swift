@@ -7,7 +7,7 @@ import Testing
 /// cx-lo9yf at the daemon spawn boundary (``AcpmuxHost``): with suggested tasks on (the setting
 /// `sessions.promptSuggestions`, on by default, or the Debug Settings toggle `agent.suggestedTasks`
 /// forcing them on), the acpmux daemon the app starts has `ACPMUX_OFFER_TOOLS=1`, so every local
-/// session gets the cmux-sessions MCP server; off it does not. Both are read at each daemon start,
+/// session gets the cmux-sessions MCP server; off it has `0`, since acpmux offers by default. Both are read at each daemon start,
 /// so a change applies to the next daemon this app starts.
 @Suite(.serialized)
 struct AcpmuxOfferToolsTests {
@@ -83,7 +83,7 @@ struct AcpmuxOfferToolsTests {
         let host = Self.host(fixture.environment, Self.tunables(nil), setting: false)
 
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
-        #expect(fixture.launches == ["unset"], "acpmux started with ACPMUX_OFFER_TOOLS: \(fixture.launches)")
+        #expect(fixture.launches == ["0"], "acpmux started without ACPMUX_OFFER_TOOLS=0: \(fixture.launches)")
     }
 
     @Test func aToggleAppliesToTheNextDaemonStart() async throws {
@@ -95,6 +95,6 @@ struct AcpmuxOfferToolsTests {
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
         store.set(AgentPaneTunables.suggestedTasks.key, .bool(true))
         await #expect(throws: (any Error).self) { _ = try await host.handshake(sessionId: nil) }
-        #expect(fixture.launches == ["unset", "1"], "the second daemon start missed the toggle: \(fixture.launches)")
+        #expect(fixture.launches == ["0", "1"], "the second daemon start missed the toggle: \(fixture.launches)")
     }
 }

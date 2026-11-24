@@ -17,17 +17,20 @@
 //! The default store ([`FileJournalStore`]) is one JSON-lines file per machine with an fsync per
 //! append. A platform may supply its own store so a journal outlives the host it was written on.
 //!
-//! This module only decides and records; it changes no call site. Wiring it into the ACP file
-//! methods and the exec path is follow-up work, behind the same flag.
+//! [`seed`] copies a machine's folder into a replica at pause; [`paused`] keeps each paused
+//! machine's replica and journal and answers the hub's ACP file methods from them (M20, behind
+//! the same flag: `hub/paused_fs.rs`). The exec path's barrier is `Hub::wake_paused_machine`.
 
 pub mod classify;
 pub mod flush;
 #[cfg(unix)]
-mod nofollow;
+pub(crate) mod nofollow;
+pub mod paused;
 pub mod replica;
+pub mod seed;
 mod store;
 
-pub use store::{FileJournalStore, JournalState, JournalStore};
+pub use store::{FileJournalStore, JournalState, JournalStore, MemoryJournalStore};
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

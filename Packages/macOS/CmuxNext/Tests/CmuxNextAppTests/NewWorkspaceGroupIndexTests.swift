@@ -18,6 +18,6 @@ import Testing
     }
 
     @Test func theDefaultPlacementFormsTheGroupFirst() {
-        #expect(NewWorkspacePlacements.newGroupIndex(for: CmuxConfigSnapshot.newWorkspacePlacementFallback) == 0)
+        #expect(NewWorkspacePlacements.newGroupIndex(for: CmuxConfigSnapshot.newWorkspacePlacementDefault) == 0)
     }
 }

@@ -40,7 +40,14 @@ const theme: AgentSessionTheme = {
 
 /** The host's script for one theme change: the shared web theme, then the pane's. */
 function hostApplies(fontFamily: string | null) {
-  const terminal = { type: "dark", background: "#101018", foreground: "#e8e8f0", palette: {}, fontFamily };
+  const terminal = {
+    type: "dark",
+    background: "#101018",
+    foreground: "#e8e8f0",
+    palette: {},
+    fontFamily,
+    fallbackFamilies: ["Custom Symbols"],
+  };
   (window as ThemeWindow).cmuxTheme = { current: { variables: {}, colorScheme: "dark", terminal } };
   applyAgentTheme(theme);
 }
@@ -52,6 +59,9 @@ describe("the agent pane's code follows the terminal font", () => {
     hostApplies("Fira Code");
     for (const name of ["--cmux-diff-code-font-family", "--cv-code-font"]) {
       expect(variable(name).startsWith('"Fira Code",')).toBe(true);
+      expect(variable(name)).toContain('"Symbols Nerd Font Mono"');
+      expect(variable(name)).toContain('"Noto Sans Mono CJK JP"');
+      expect(variable(name)).toContain('"Custom Symbols"');
       expect(variable(name).endsWith("monospace")).toBe(true);
     }
   });

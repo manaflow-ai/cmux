@@ -974,6 +974,26 @@
           "default": true,
           "description": "Show the right-edge terminal scroll bar when scrollback is available. cmux automatically suppresses it for alternate-screen style TUI surfaces."
         },
+        "linkOpener": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "cmux-next. Where a URL goes when a program in a cmux terminal opens a browser (aws login, gh auth login, `open <url>`). See docs/cmux-next/terminal-link-opener.md.",
+          "properties": {
+            "default": {
+              "type": "string",
+              "default": "cmux",
+              "description": "cmux-next. Where a URL goes: `cmux` (a cmux browser tab by the link rules), `system`, `chrome`, `safari`, `arc`, `firefox`, `edge`, `brave`, `app:<name, bundle id or path>`, a profile after `@` (`chrome@Profile 1`), or `command:<shell command>`. A `BROWSER` you set wins."
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": [],
+              "description": "cmux-next. Ordered `<match> -> <target>` rules checked before the default; first match wins. `caller:<glob>[,<glob>]` matches the program that opened the URL or a parent process; text, `*`/`?` or `re:` match the URL. Example: `caller:aws -> chrome@Work`."
+            }
+          }
+        },
         "scrollSpeed": {
           "type": "number",
           "minimum": 0.25,

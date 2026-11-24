@@ -99,9 +99,9 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
         await local.peerSnapshot(sessionId: sessionId)
     }
 
-    public func prewarm() async throws {
-        try await local.prewarm()
-    }
+    public func prewarm() async throws { try await local.prewarm() }
+
+    public func prewarmForRestoredChats() async throws { try await local.prewarmForRestoredChats() }
 
     /// The folder of `sessionId` from the host that owns it (the chief's or
     /// this Mac's acpmux), so a commit or push runs in that session's folder.
@@ -112,12 +112,6 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     /// Restart acpmux replaces the daemon on this Mac's socket, never the Chief home's.
     public func restartAcpmux(owner: AcpmuxSocketOwner) async -> Bool {
         await local.restartAcpmux(owner: owner)
-    }
-
-    /// Restart agent service goes to the host the pane's handshake goes to: this Mac's own daemon
-    /// for a local chat; the Chief home's host starts no daemon, so it stops none.
-    public func restartStuckAcpmux(sessionId: String?) async -> Bool {
-        await host(for: sessionId).restartStuckAcpmux(sessionId: sessionId)
     }
 
     /// An outdated daemon's restart is for this Mac's own daemon and a local chat only: a Chief-owned

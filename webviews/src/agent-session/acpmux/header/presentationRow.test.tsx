@@ -5,7 +5,8 @@ import { translate } from "../i18n";
 import { presentationRow } from "./presentationRow";
 import { presentationOf, resetPresentations } from "../conversation/presentation";
 import { resetTranscriptViews, setTranscriptView, transcriptViewOf } from "../conversation/transcriptView";
-import { AssistantPresentation, PresentationContext } from "../conversation/PresentationContext";
+import { AssistantPresentation } from "../conversation/PresentationContext";
+import { PresentationContext } from "../conversation/presentationContextModel";
 import { TurnFooter } from "../conversation/TurnRows";
 import { TurnActionsContext } from "../conversation/turnActions";
 

@@ -3,8 +3,9 @@
 // no optimistic copy and never holds a password: reveal, copy and export happen in native sheets,
 // and the page only learns that they finished. React reads it through `useSyncExternalStore`.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { OWNER_SENTENCE, userMessage } from "../shared/userMessage";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
-import type { SortMode } from "./model";
+import { keepUnchanged, type SortMode } from "./model";
 import {
   PasswordCodes,
   PasswordOps,
@@ -182,9 +183,10 @@ export class PasswordsStore {
         profiles: state.profiles,
         profile,
         sections,
-        passwords: passwords?.passwords ?? [],
-        passkeys: passkeys?.passkeys ?? [],
-        exceptions: exceptions?.exceptions ?? [],
+        // Unchanged rows keep their objects, so the page's memoized rows draw only the changed ones.
+        passwords: keepUnchanged(this.snapshot.passwords, passwords?.passwords ?? []),
+        passkeys: keepUnchanged(this.snapshot.passkeys, passkeys?.passkeys ?? []),
+        exceptions: keepUnchanged(this.snapshot.exceptions, exceptions?.exceptions ?? []),
       });
     } catch (error) {
       if (generation !== this.generation) return;
@@ -334,7 +336,10 @@ export class PasswordsStore {
   private report(error: unknown): void {
     if (isPageError(error) && error.code === PasswordCodes.cancelled) return;
     if (isPageError(error) && error.code === PasswordCodes.unavailable) {
-      this.set({ notice: { kind: "failed", message: error.message } });
+      // The owner words this one for the person (PasswordStrings).
+      this.set({
+        notice: { kind: "failed", message: userMessage(error, { [PasswordCodes.unavailable]: OWNER_SENTENCE }) },
+      });
       void this.reload();
       return;
     }
@@ -353,5 +358,5 @@ export class PasswordsStore {
 
 function failure(error: unknown): Partial<PasswordsSnapshot> {
   if (isPageError(error) && error.code === LINK_CLOSED) return { connection: "disconnected" };
-  return { notice: { kind: "failed", message: error instanceof Error ? error.message : String(error) } };
+  return { notice: { kind: "failed", message: userMessage(error) } };
 }

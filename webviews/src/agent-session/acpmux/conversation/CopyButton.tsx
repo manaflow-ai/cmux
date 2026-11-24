@@ -1,19 +1,17 @@
 // The copy button in a code card's or tool output's corner, and under a prompt or a turn. It says
 // "Copied", with a check, only when the clipboard took the text, and goes back to Copy after a
 // moment. Its name is also its tooltip: a bare copy glyph does not say what it copies.
+import { cornerAction } from "./cornerActions";
 import { useEffect, useRef, useState } from "react";
 import type { rovingTabStopProps } from "../../../ui/listRowKeyboard";
 import { useT } from "../i18n";
 import { copyTextResult } from "./clipboard";
 import { Check, Copy } from "./icons";
-
-/// How long a copy shows its check.
-export const COPIED_MS = 1200;
-
+import { COPIED_MS } from "./copyButtonModel";
 export function CopyButton({
   text,
   label,
-  className = "cv-codeblock__action",
+  className = cornerAction(),
   copy = copyTextResult,
   size,
   copiedWord = false,
@@ -32,13 +30,20 @@ export function CopyButton({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const timer = useRef<number | undefined>(undefined);
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // Most buttons never set a timer; a chat switch unmounts every mounted one at once.
+  useEffect(
+    () => () => {
+      if (timer.current !== undefined) window.clearTimeout(timer.current);
+    },
+    [],
+  );
   const name = copied ? t("code.copied") : label;
   return (
     <button
       type="button"
       className={className}
       aria-label={name}
+      // tooltip-allow: an icon button; the word "Copied" shows only after a copy, in the card corner's look.
       title={name}
       /* A transcript row's roving tab stop and its keys, from src/ui (rovingTabStopProps). */
       {...tabStop}

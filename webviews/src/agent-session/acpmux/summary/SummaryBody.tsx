@@ -5,6 +5,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
 import { cronWords } from "../session-info/cronWords";
+import { sourceLabels } from "../session-info/sourcesSectionModel";
 import { type BackgroundCommand, backgroundCommands } from "../session-info/processes";
 import { TASK_ICONS } from "../session-info/taskIcons";
 import { projectPathAllowed, type SessionSummary } from "./sessionSummary";
@@ -104,6 +105,12 @@ export function SummaryBody({
   // The index follows the outputs' own revision, even when a live turn updates
   // unrelated rows or a checkpoint arrives while the Summary is open.
   const outputOf = useMemo(() => summaryOutputLookup(summary.outputs), [summary.outputs]);
+  // Each source's row name as Session Info's Sources gives it: a pasted image with no name of its
+  // own (WebKit's "image.png") is "Screenshot 1", "Screenshot 2", ... in chat order.
+  const sourceName = useMemo(() => {
+    const names = sourceLabels(t, summary.sources);
+    return new Map(summary.sources.map((source, index) => [source, names[index]!]));
+  }, [t, summary.sources]);
   const turnOf = new Map<string, (typeof lastTurn)[number]>();
   const checkpointOnly: (typeof lastTurn)[number][] = [];
   for (const file of lastTurn) {
@@ -220,7 +227,7 @@ export function SummaryBody({
             ) : (
               <span className="acpmux-summary-row">
                 <Icon name={source.image ? "site.permission.images" : "search.files"} size={ROW_ICON} row />
-                <span className="acpmux-summary-text">{source.label || t("image.viewer")}</span>
+                <span className="acpmux-summary-text">{sourceName.get(source) || t("image.viewer")}</span>
               </span>
             )}
           </li>

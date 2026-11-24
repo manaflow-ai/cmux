@@ -7,8 +7,9 @@
 # cmux_agent_pane_policy::build_identity), ChiefHome / cli/chief/home.rs and
 # AcpmuxEnvironment / environment.rs. A new literal state root in product code
 # (`~/.cmux/chief`, `~/.cmux/mux`, `~/.acpmux`, `Application Support/cmux`,
-# `cmux/tags/`, `cmux/builds/`) bypasses them and lets one build read or write
-# another build's state. Ask the resolver for the path instead.
+# `cmux/tags/`, `cmux/builds/`, `cmux-next/tags/`, `cmux-next/builds/`)
+# bypasses them and lets one build read or write another build's state.
+# Ask the resolver for the path instead.
 #
 # Scope: Swift under Packages/macOS/CmuxNext and Packages/macOS/CmuxUpdater
 # (the packages whose changes run cmux-next.yml), Rust under cmux-tui/crates,
@@ -35,7 +36,7 @@ for arg in "$@"; do
 done
 root="${root:-$(git rev-parse --show-toplevel)}"
 baseline="$root/scripts/cmux-next/state-roots-baseline.tsv"
-pattern='\.cmux/(chief|mux)|["/]\.acpmux(["/]|$)|"\.cmux"|Application Support/cmux([^A-Za-z0-9_-]|$)|cmux/(tags|builds)(["/]|$)'
+pattern='\.cmux/(chief|mux)|["/]\.acpmux(["/]|$)|"\.cmux"|Application Support/cmux([^A-Za-z0-9_-]|$)|cmux(-next)?/(tags|builds)(["/]|$)'
 comment='[[:space:]]*(//|/\*|\*([[:space:]]|$))'
 
 # Product source files, repo-relative, sorted.

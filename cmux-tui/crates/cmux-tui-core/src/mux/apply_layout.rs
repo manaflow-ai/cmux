@@ -106,6 +106,7 @@ impl Mux {
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
                 layout_revision: 0,
+                floating: Vec::new(),
                 layout_undo: Default::default(),
             };
             let ws = &mut state.workspaces[workspace_index];
@@ -130,6 +131,7 @@ impl Mux {
                 entity,
                 workspace_revision: None,
                 transaction: None,
+                mutation: None,
             }
         };
         let projection_result = self.with_state(|state| {
@@ -244,6 +246,7 @@ impl Mux {
                     created,
                     spawned,
                 )?),
+                divider_hidden: false,
             }),
             LayoutSpec::Stack { pane_count, expanded_index } => {
                 if *pane_count == 0 {

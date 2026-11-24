@@ -7,11 +7,14 @@ public nonisolated struct IconCatalog: Sendable, Decodable {
     public let entries: [IconCatalogEntry]
     private let index: [IconName: IconCatalogEntry]
     private let bySymbol: [String: IconName]
+    private let overriding: [String: IconName]
 
     public init(entries: [IconCatalogEntry]) {
         self.entries = entries
         index = Dictionary(entries.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         bySymbol = Dictionary(entries.filter(\.aliasesSymbol).map { ($0.sf, $0.name) }, uniquingKeysWith: { first, _ in first })
+        overriding = Dictionary(entries.flatMap { entry in entry.overrides.map { ($0, entry.name) } },
+                                uniquingKeysWith: { first, _ in first })
     }
 
     public init(data: Data) throws {
@@ -52,6 +55,12 @@ public nonisolated struct IconCatalog: Sendable, Decodable {
         if let aliased = bySymbol[symbol] { return aliased }
         let own = IconName(symbol)
         return index[own] != nil ? own : nil
+    }
+
+    /// The icon drawn in place of SF Symbol `symbol` wherever the app draws system symbols, or nil
+    /// to draw the symbol (`IconCatalogEntry.overrides`).
+    public func name(overriding symbol: String) -> IconName? {
+        overriding[symbol]
     }
 
     /// The style `name` draws in at `size`: its dense style below

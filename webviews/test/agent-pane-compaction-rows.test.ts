@@ -9,7 +9,8 @@ import type { AcpmuxCompaction, AcpmuxRow } from "../src/agent-session/acpmux/mo
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { CompactionNote, compactTokens } from "../src/agent-session/acpmux/conversation/CompactionNote";
+import { CompactionNote } from "../src/agent-session/acpmux/conversation/CompactionNote";
+import { compactTokens } from "../src/agent-session/acpmux/conversation/compactionNoteModel";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000c7";
 const START = Date.UTC(2026, 9, 18, 9, 0, 0);

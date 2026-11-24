@@ -2,7 +2,6 @@
   position: relative;
   min-height: 430px;
   overflow: hidden;
-  background: var(--cmux-background, Canvas);
 }
 
 .empty-state-gallery-receipt {

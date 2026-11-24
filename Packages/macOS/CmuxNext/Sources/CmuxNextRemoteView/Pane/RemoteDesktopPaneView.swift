@@ -17,7 +17,20 @@ public final class RemoteDesktopPaneView: NSView {
     private var state: RemotePaneState?
     private var settings = RemoteDesktopSettings()
     private var shownOverlay: RemotePaneOverlay?
+    /// The machine this pane connects to, as its Connect card named it: the connecting card draws
+    /// it in that card's frame. Nil names it by ``RemotePaneState/hostName``.
+    public var connectionTarget: RemoteConnectionTarget? {
+        didSet {
+            guard connectionTarget != oldValue, let state else { return }
+            shownOverlay = nil
+            render(state: state, settings: settings)
+        }
+    }
+    /// The connecting card: the Connect card's frame, spinner and Cancel (`.connecting`).
+    private(set) var connectingCard: RemoteViewUnavailableView?
     private var isHovering = false
+    /// One cursor: the overlay and the local pointer's shape (cap `cursor`).
+    private(set) lazy var cursor = RemoteCursorCoordinator(video: video, capture: capture)
 
     static let toolbarInset: CGFloat = 8
 
@@ -31,16 +44,25 @@ public final class RemoteDesktopPaneView: NSView {
             addSubview(view)
         }
         toolbar.alphaValue = 0
-        toolbar.isHidden = true
         banner.isHidden = true
         card.isHidden = true
         upstreamIndicator.isHidden = true
         capture.geometry = { [weak self] in self?.video.geometry }
+        _ = cursor
         setAccessibilityRole(.group)
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// False shows only the video: no toolbar, state card, banner or stock pointer (an embedded preview draws its own).
+    public var showsChrome = true {
+        didSet {
+            guard let state else { return }
+            shownOverlay = nil
+            render(state: state, settings: settings)
+        }
+    }
 
     /// The view that takes keyboard focus for the pane.
     public var focusView: NSView { capture }
@@ -50,15 +72,17 @@ public final class RemoteDesktopPaneView: NSView {
         self.settings = settings
         capture.controller.settings = settings
         capture.controlMode = state.effectiveMode == .control
-        video.showsRemoteCursor = state.effectiveMode == .view
+        cursor.showsOverlay = showsChrome
+        cursor.update()
         toolbar.update(state: state, settings: settings, colors: colors)
-        banner.isHidden = !state.showsLatencyBanner
+        banner.isHidden = !state.showsLatencyBanner || !showsChrome
         if state.showsLatencyBanner { banner.update(state: state, colors: colors) }
         upstreamIndicator.update(kinds: state.upstreamIndicator, colors: colors)
         if state.overlay != shownOverlay || state.overlay == nil {
             shownOverlay = state.overlay
-            card.isHidden = state.overlay == nil
-            if let overlay = state.overlay {
+            showConnectingCard(state.overlay == .connecting && showsChrome ? state : nil)
+            card.isHidden = state.overlay == nil || state.overlay == .connecting || !showsChrome
+            if let overlay = state.overlay, overlay != .connecting {
                 card.configure(overlay: overlay, host: state.hostName, viaCloudTunnel: state.viaCloudTunnel, reconnecting: state.reconnecting,
                                colors: colors)
             }
@@ -66,6 +90,26 @@ public final class RemoteDesktopPaneView: NSView {
         setAccessibilityLabel(RemoteViewStrings.accessibilityPane(state.hostName))
         updateToolbarVisibility(animated: true)
         needsLayout = true
+    }
+
+    /// Shows the connecting card for `state`, or removes it (nil). Made once per connect, so the
+    /// transport's later statuses redraw nothing.
+    private func showConnectingCard(_ state: RemotePaneState?) {
+        guard let state else {
+            connectingCard?.removeFromSuperview()
+            connectingCard = nil
+            return
+        }
+        let target = connectionTarget ?? RemoteConnectionTarget(name: state.hostName, kind: .desktop)
+        let content = RemoteViewUnavailableView.Content.connecting(target, reconnecting: state.reconnecting)
+        guard connectingCard?.content != content else { return }
+        connectingCard?.removeFromSuperview()
+        let next = RemoteViewUnavailableView(content: content)
+        next.onCancel = { [weak self] in self?.card.onCancel?() }
+        next.translatesAutoresizingMaskIntoConstraints = true
+        next.frame = bounds
+        addSubview(next, positioned: .below, relativeTo: toolbar)
+        connectingCard = next
     }
 
     // MARK: Theme
@@ -110,20 +154,19 @@ public final class RemoteDesktopPaneView: NSView {
     }
 
     private func updateToolbarVisibility(animated: Bool) {
-        let visible = isHovering || (state?.pinsToolbar ?? true)
+        let visible = showsChrome && (isHovering || (state?.pinsToolbar ?? true))
         let target: CGFloat = visible ? 1 : 0
-        guard toolbar.alphaValue != target || toolbar.isHidden == visible else { return }
-        // A transparent toolbar must not take clicks meant for the host.
-        if visible { toolbar.isHidden = false }
+        // A transparent toolbar must not take clicks meant for the host, but it is never hidden:
+        // a hidden view leaves the Accessibility tree, and VoiceOver could not reach Take over.
+        // A faded toolbar's controls refuse focus; one that holds it (a Take over click) hands it to the capture view.
+        if !visible, toolbar.holdsFocus { FocusRoute(.system, "the remote desktop toolbar hid").moveKeyboard(in: window, to: capture) }
+        toolbar.isRevealed = visible
+        guard toolbar.alphaValue != target else { return }
         guard animated else {
             toolbar.alphaValue = target
-            toolbar.isHidden = !visible
             return
         }
-        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target }, completion: { [weak self] in
-            guard let self, !self.isHovering, self.state?.pinsToolbar == false else { return }
-            self.toolbar.isHidden = true
-        })
+        Motion.overlays.animate(visible ? .fadeIn : .fadeOut, in: self, { toolbar.animator().alphaValue = target })
     }
 
     // MARK: Layout
@@ -132,6 +175,8 @@ public final class RemoteDesktopPaneView: NSView {
         super.layout()
         video.frame = bounds
         capture.frame = bounds
+        connectingCard?.frame = bounds
+        cursor.update()
         let inset = Self.toolbarInset
         let toolbarWidth = min(toolbar.fittingWidth, bounds.width - inset * 2)
         toolbar.frame = CGRect(

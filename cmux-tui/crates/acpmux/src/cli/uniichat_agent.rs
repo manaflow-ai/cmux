@@ -13,9 +13,12 @@
 //! The socket names no device, so UniiChat's agent gets no shell or screen
 //! on this computer: it is a chat backend, not a remote hand.
 //!
-//! Sign-in is UniiChat's own: the token `unii login` keeps at
-//! `$UNII_HOME/<host>/token` (default `~/.unii`). No token, or one the
-//! server refuses, fails the session with the setup steps.
+//! Sign-in is UniiChat's own: the token `unii login` (or this adapter's own
+//! `uniichat-agent login`, `uniichat_login.rs`, which needs no `unii`) keeps
+//! at `$UNII_HOME/<host>/token` (default `~/.unii`). No token, or one the
+//! server refuses, fails the session with the setup steps. Its ACP sign-in is
+//! a `terminal` method: `cmux harness login unii` runs this command line
+//! again with `login`, in that terminal.
 //!
 //! Memory: UniiChat keeps one chat per account that never ends, so by
 //! default a prompt sends only its last text block (a Chief turn's new
@@ -31,7 +34,6 @@ use anyhow::Result;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -39,112 +41,13 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
-/// The hosted UniiChat, used when neither `--url` nor `$UNII_URL` names one.
-pub const HOSTED: &str = "https://uniichat.com";
+pub use crate::uniichat_endpoint::{Endpoint, HOSTED, Options, SETUP};
 
 /// The UniiChat wire version this adapter reads (View.ts `WIRE`).
 pub const WIRE: u32 = 2;
 
 /// The name a stop gives UniiChat's own turn (View.ts `TURN`).
 pub const TURN: &str = "Unii's turn";
-
-/// How to install the `unii` terminal and sign in, shown when the adapter
-/// has no sign-in to use.
-pub const SETUP: &str = "Install the unii terminal (curl -fsSL https://uniichat.com/install.sh | sh), then sign in with `unii login`";
-
-/// The adapter's command line flags.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Options {
-    /// The server (`https://uniichat.com`, `http://127.0.0.1:8788`); none:
-    /// `$UNII_URL`, else the hosted one.
-    pub url: Option<String>,
-    /// Where `unii` keeps its sign-ins; none: `$UNII_HOME`, else `~/.unii`.
-    pub home: Option<PathBuf>,
-    /// Send every text block of a prompt, not only the last one.
-    pub whole_prompt: bool,
-}
-
-/// One UniiChat server and the sign-in this computer holds for it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Endpoint {
-    /// `http(s)://host[:port]`, no trailing slash.
-    pub base: String,
-    /// The WebSocket origin (`ws(s)://host[:port]`).
-    pub ws: String,
-    /// `host[:port]`, the folder `unii` keeps this server's token in.
-    pub host: String,
-    /// The token file `unii login` writes.
-    pub token_file: PathBuf,
-}
-
-impl Endpoint {
-    /// The server and token file from the flags, then the environment
-    /// values given (`UNII_URL`, `UNII_HOME`, the home folder), the way the
-    /// `unii` terminal finds them (Term.ts `SERVER`, `TOKEN`).
-    pub fn resolve(
-        options: &Options,
-        env_url: Option<String>,
-        env_home: Option<String>,
-        user_home: Option<PathBuf>,
-    ) -> Result<Endpoint, String> {
-        let url = options
-            .url
-            .clone()
-            .or(env_url.filter(|u| !u.trim().is_empty()))
-            .unwrap_or_else(|| HOSTED.to_owned());
-        let base = url.trim().trim_end_matches('/').to_owned();
-        let (scheme, rest) = base
-            .split_once("://")
-            .ok_or_else(|| format!("UniiChat url {base} needs http:// or https://"))?;
-        let ws_scheme = match scheme {
-            "https" => "wss",
-            "http" => "ws",
-            _ => return Err(format!("UniiChat url {base} needs http:// or https://")),
-        };
-        let host = rest.split(['/', '?', '#']).next().unwrap_or("").to_owned();
-        if host.is_empty() {
-            return Err(format!("UniiChat url {base} has no host"));
-        }
-        let base = format!("{scheme}://{host}");
-        let home = options
-            .home
-            .clone()
-            .or(env_home.filter(|h| !h.trim().is_empty()).map(PathBuf::from))
-            .or(user_home.map(|h| h.join(".unii")))
-            .ok_or("no home folder for the UniiChat sign-in")?;
-        Ok(Endpoint {
-            ws: format!("{ws_scheme}://{host}"),
-            token_file: home.join(&host).join("token"),
-            host,
-            base,
-        })
-    }
-
-    /// The sign-in token, or the setup steps when there is none.
-    pub fn token(&self) -> Result<String, String> {
-        match std::fs::read_to_string(&self.token_file) {
-            Ok(t) if !t.trim().is_empty() => Ok(t.trim().to_owned()),
-            _ => Err(format!(
-                "UniiChat: this computer is not signed in to {}. {SETUP}{}.",
-                self.host,
-                self.login_suffix()
-            )),
-        }
-    }
-
-    /// The setup steps for a sign-in the server refused.
-    pub fn signed_out(&self) -> String {
-        format!(
-            "UniiChat: {} refused this computer's sign-in (signed out or expired). Sign in again with `unii login{}`.",
-            self.host,
-            self.login_suffix()
-        )
-    }
-
-    fn login_suffix(&self) -> String {
-        if self.base == HOSTED { String::new() } else { format!(" {}", self.base) }
-    }
-}
 
 /// The text one prompt sends: its last text block, or all of them. A paste
 /// cmux's composer sent as its own block goes with it (`cli_agent::prompt_text`).
@@ -445,7 +348,9 @@ async fn handle(msg: Value, ctx: &Arc<(Options, Endpoint)>, state: &Arc<Mutex<St
                 "authMethods": [{
                     "id": "unii-login",
                     "name": "Sign in to UniiChat",
-                    "description": format!("{SETUP}.")
+                    "type": "terminal",
+                    "args": ["login"],
+                    "description": "Sign in with your email or GitHub name: UniiChat sends a link, and you type the code it shows."
                 }]
             }),
         ),
@@ -550,8 +455,7 @@ async fn connect(endpoint: &Endpoint, token: &str) -> Result<Socket, (i64, Strin
         "authorization",
         format!("Bearer {token}").parse().map_err(|_| (AUTH_REQUIRED, endpoint.signed_out()))?,
     );
-    match tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req)).await
-    {
+    match tokio::time::timeout(Duration::from_secs(20), crate::happy_dial::connect_ws(req)).await {
         Err(_) => Err((-32603, format!("UniiChat: {} did not answer in 20 s", endpoint.host))),
         Ok(Err(tokio_tungstenite::tungstenite::Error::Http(r)))
             if matches!(r.status().as_u16(), 401 | 403) =>
@@ -571,7 +475,7 @@ async fn say(
     body: Vec<u8>,
     sizes: &str,
 ) -> Result<(), (i64, String)> {
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .timeout(Duration::from_secs(120))
         .user_agent(concat!("acpmux-uniichat/", env!("CARGO_PKG_VERSION")))
         .build()
@@ -718,6 +622,7 @@ async fn run_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn state(busy: bool) -> Value {
         json!({"$": "state", "busy": busy})
@@ -765,8 +670,9 @@ mod tests {
                 .unwrap();
         let err = e.token().unwrap_err();
         assert!(err.contains("not signed in to uniichat.com"), "{err}");
-        assert!(err.contains("unii login"), "{err}");
-        assert!(err.contains("install.sh"), "{err}");
+        // No `unii` program to install first (first-run finding 2): cmux's own sign-in.
+        assert!(err.contains("cmux harness login unii"), "{err}");
+        assert!(!err.contains("install.sh"), "{err}");
     }
 
     #[test]

@@ -513,15 +513,18 @@ async fn a_compacting_claude_stop_is_prompt_and_idempotent() {
 const STOP_BUDGET: Duration = Duration::from_millis(200);
 
 /// Stop timing: the agent that takes the cancel (it checks every 50 ms) ends
-/// its turn, as cancelled, within [`STOP_BUDGET`] of the cancel.
+/// its turn, as cancelled, and acpmux adds at most [`STOP_BUDGET`] to that: it
+/// passes the cancel on at once, and ends the turn on the agent's answer. Read
+/// from acpmux's own records (`at`, Unix ms), so the agent's process and its
+/// pipes, which a loaded machine slows whatever acpmux does, are not counted.
 #[tokio::test]
 async fn a_cancel_ends_an_honouring_agents_turn_within_the_budget() {
-    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "stop-timing").await;
     c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", None)).await;
     c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
         .await;
-    let asked = std::time::Instant::now();
+    let asked = acpmux::store::now_ms();
     c.tx.send(Message::notification(method::SESSION_CANCEL, json!({"sessionId": id})).to_line())
         .await
         .unwrap();
@@ -531,9 +534,37 @@ async fn a_cancel_ends_an_honouring_agents_turn_within_the_budget() {
     )
     .await
     .expect("the turn did not end after Stop");
-    let took = asked.elapsed();
     assert_eq!(done["msg"]["stopReason"], "cancelled", "{done}");
-    assert!(took < STOP_BUDGET, "the turn ended {took:?} after Stop (budget {STOP_BUDGET:?})");
+    // Its result follows its end: the agent's answer ended it, not acpmux's grace.
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        c.wait_for(method::MUX_EVENT, |p| p["kind"] == "turn_result"),
+    )
+    .await
+    .expect("no turn_result after the turn's end");
+    assert_eq!(result["msg"]["cancelForced"], Value::Null, "{result}");
+    let events = hub.events(&id, 0, 10_000).unwrap();
+    let find = |what: &str, f: &dyn Fn(&acpmux::store::EventRecord) -> bool| {
+        events.iter().find(|&e| f(e)).unwrap_or_else(|| panic!("no {what}: {events:?}")).clone()
+    };
+    // One cancel went out: acpmux never had to cancel again.
+    let cancels =
+        events.iter().filter(|e| e.dir == "out" && e.kind == method::SESSION_CANCEL).count();
+    assert_eq!(cancels, 1, "{events:?}");
+    let cancel = find("cancel sent", &|e| e.dir == "out" && e.kind == method::SESSION_CANCEL);
+    let answer = find("cancelled answer", &|e| {
+        e.dir == "in" && e.kind == "response" && e.msg["result"]["stopReason"] == "cancelled"
+    });
+    let end = find("turn end", &|e| e.dir == "mux" && e.kind == "turn_end");
+    assert!(cancel.seq < answer.seq && answer.seq < end.seq, "{events:?}");
+    let passed_on = cancel.at.saturating_sub(asked);
+    let ended = end.at.saturating_sub(answer.at);
+    let took = Duration::from_millis(passed_on + ended);
+    assert!(
+        took < STOP_BUDGET,
+        "acpmux took {took:?} of the Stop (cancel passed on after {passed_on} ms, turn ended \
+         {ended} ms after the answer; budget {STOP_BUDGET:?})"
+    );
 }
 
 /// Stop timing: the cancel's answer (the CLI's "cancel sent") never waits for
@@ -713,7 +744,8 @@ async fn a_session_resumed_from_stopped_keeps_only_the_new_reply_as_its_last_mes
     c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
     c.request(method::SESSION_PROMPT, prompt(&id, "second", None)).await.unwrap();
     let events = hub.events(&id, 0, 10_000).unwrap();
-    assert!(!find(&events, "agent_message_chunk.replay").is_empty(), "the load replayed no reply");
+    // The load's replayed reply is kept out of the log (`unread_records.rs`).
+    assert!(find(&events, "agent_message_chunk.replay").is_empty(), "a replayed reply was logged");
     assert_eq!(last(&hub), json!({"role": "agent", "text": "echo: second"}));
 }
 
@@ -743,5 +775,7 @@ async fn a_long_replayed_history_stays_out_of_the_resumed_sessions_last_message(
 #[cfg(target_os = "macos")]
 #[test]
 fn a_stand_in_harness_runs_at_normal_class_in_tests() {
-    assert_eq!(acpmux::cpu_class::CpuClass::for_session([]), acpmux::cpu_class::CpuClass::Normal);
+    let kind = acpmux::config::HarnessKind::Acp;
+    let class = acpmux::cpu_class::CpuClass::for_session(kind, &[], []);
+    assert_eq!(class, acpmux::cpu_class::CpuClass::Normal);
 }

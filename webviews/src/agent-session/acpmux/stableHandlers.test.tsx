@@ -3,6 +3,7 @@ import { act, memo } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { useStableHandlers } from "./stableHandlers";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT"];
@@ -12,12 +13,8 @@ beforeAll(() => {
   dom = new JSDOM("<!doctype html><main id=root></main>");
   Object.assign(scope, { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
 });
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Props = { label: string; onPick?: (value: number) => number; render?: () => string };
@@ -49,5 +46,24 @@ test("a parent's new handler draws a memoized child no more, and calls the lates
   act(() => root.render(<Parent label="b" render={render} />));
   act(() => root.render(<Parent label="b" render={() => "y"} />));
   expect(renders).toBe(5);
+  act(() => root.unmount());
+});
+
+test("a named call-time function prop holds its identity and calls the latest one", () => {
+  renders = 0;
+  let seen: Props["render"];
+  const Spy = memo(function Spy(props: Props) {
+    renders++;
+    seen = props.render;
+    return null;
+  });
+  function Holder(props: Props) {
+    return <Spy {...useStableHandlers(props, ["render"])} />;
+  }
+  const root = createRoot(document.getElementById("root")!);
+  act(() => root.render(<Holder label="a" render={() => "x"} />));
+  act(() => root.render(<Holder label="a" render={() => "y"} />));
+  expect(renders).toBe(1);
+  expect(seen?.()).toBe("y");
   act(() => root.unmount());
 });

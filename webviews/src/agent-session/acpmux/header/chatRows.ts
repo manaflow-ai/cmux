@@ -3,33 +3,46 @@ import type { Translate } from "../i18n";
 
 type Row = Exclude<ChatMenuItem, "separator">;
 
-/// The chat menu's Move to machine row: the host's Cloud targets (MachineRegistry, through the
-/// existing CloudMove action) and Bring Back Local. It was the title's menu row until the title
-/// became plain text (Leo, 2026-11-01: "why is there a dropdown of this"); no target is dropped.
+/// The chat menu's Move to… row: every place the host says the chat can go (this Mac and the Cloud
+/// machines, `moveTargets`), and Bring Back Local when no target names this Mac. It was the title's
+/// menu row until the title became plain text (Leo, 2026-11-01: "why is there a dropdown of this");
+/// no target is dropped.
 export function moveMachineRow(
   {
     move,
     bringBack,
     targets,
-  }: { move: boolean; bringBack: boolean; targets: readonly { id: string; label: string }[] },
+  }: {
+    move: boolean;
+    bringBack: boolean;
+    targets: readonly { id: string; label: string; kind?: "local" | "cloud"; reason?: string }[];
+  },
   run: { moveTo: (id: string) => void; bringBack: () => void },
   t: Translate,
 ): Row | undefined {
+  const local = targets.some((target) => target.kind === "local");
   const children: ChatMenuChild[] = [
-    ...(move
-      ? targets.map((target) => ({
-          key: `machine:${target.id}`,
-          label: target.label,
-          onSelect: () => run.moveTo(target.id),
-        }))
+    ...targets
+      .filter((target) => !target.reason)
+      .map((target) => ({
+        key: `machine:${target.id}`,
+        label: target.kind === "local" ? t("composer.thisMac") : target.label,
+        onSelect: () => run.moveTo(target.id),
+      })),
+    ...(bringBack && !local
+      ? [{ key: "bringBack", label: t("composer.bringBackLocal"), onSelect: run.bringBack }]
       : []),
-    ...(bringBack ? [{ key: "bringBack", label: t("composer.bringBackLocal"), onSelect: run.bringBack }] : []),
   ];
   // Nowhere to move: no row, rather than a disabled one in a long menu.
   if (children.length === 0) return undefined;
   return {
     key: "moveMachine",
-    label: move ? t("chatMenu.moveToMachine") : children.length === 1 ? children[0]!.label : t("composer.environment"),
+    label:
+      move || targets.length > 0
+        ? t("composer.moveToMenu")
+        : children.length === 1
+          ? children[0]!.label
+          : t("composer.environment"),
     icon: "machine.remote",
     children,
   };

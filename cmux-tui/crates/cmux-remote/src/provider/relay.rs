@@ -11,11 +11,13 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use cmux_deadline::Deadline;
 use cmux_remote_protocol::{
     CircuitId, LaneToken, MAX_RELAY_BATCH_BYTES, REMOTE_PROTOCOL_VERSION, RelayControl, RelayRole,
+    RelayTicketClaims,
 };
 use futures_util::stream::{SplitSink, SplitStream};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, StreamExt};
 use http::StatusCode;
 use http::header::{AUTHORIZATION, HeaderValue};
 use tokio::io::AsyncReadExt;
@@ -25,275 +27,20 @@ use tokio::sync::{Mutex, mpsc, oneshot, watch};
 use tokio::task::{Id, JoinSet};
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::error::UrlError;
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Error as WebSocketError, Message};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async_with_config};
+use tokio_tungstenite::{Connector, MaybeTlsStream, WebSocketStream, client_async_tls_with_config};
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 
+#[path = "relay_credential_read.rs"]
+mod credential_read;
 #[path = "relay_liveness.rs"]
 mod liveness;
-use crate::link::{FrameLink, LinkError};
-use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
-use crate::provider::{
-    CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
-    SupportedClientAuthModes, TransportProvider, sanitized_route,
-};
-use liveness::{Backoff, CHECK_INTERVAL, Check, Liveness, random_unit};
-
-type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
-type RelayCircuitSink = SplitSink<RelaySocket, Message>;
-type RelayCircuitStream = SplitStream<RelaySocket>;
-
-const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
-const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
-const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
-/// How much of a failed credential command's stderr its error keeps: the
-/// last bytes, where the reason usually is.
-const CREDENTIAL_COMMAND_STDERR_TAIL_BYTES: usize = 2 * 1024;
-/// Every credential source error starts with this.
-const CREDENTIAL_SOURCE_ERROR_PREFIX: &str = "relay credential source ";
-const RELAY_BATCH_MAGIC: [u8; 4] = *b"CMXB";
-const RELAY_BATCH_VERSION: u8 = 1;
-const RELAY_BATCH_HEADER_BYTES: usize = 8;
-const RELAY_BATCH_ENTRY_HEADER_BYTES: usize = 4;
-const MAX_RELAY_BATCH_FRAMES: usize = 32;
-const RELAY_BATCH_QUEUE_FRAMES: usize = 128;
-// A batched sender lingers to fill a batch only after this many consecutive
-// sends each began within RELAY_BURST_LINGER of the previous one finishing.
-// A flood builds that streak within microseconds; typed input at human pace,
-// its echo and their acknowledgements do not. Interactive frames wait on the
-// timer (at most RELAY_BURST_LINGER per hop, as every frame did before) only
-// while the sender is saturated or a request-response loop runs faster than
-// one round trip per RELAY_BURST_LINGER.
-const RELAY_BURST_SENDS: usize = 4;
-const RELAY_BURST_LINGER: Duration = Duration::from_millis(1);
-const MAX_RELAY_INCOMING_TASKS: usize = 64;
-
-type CredentialFuture = Pin<Box<dyn Future<Output = Result<String, ()>> + Send + 'static>>;
-type CredentialCallback = dyn Fn() -> CredentialFuture + Send + Sync + 'static;
-
-/// A refreshable source for short-lived relay provider credentials.
-///
-/// The source is queried before each provider-authenticated WebSocket and each
-/// register/connect authentication attempt. Clones share callback state but do
-/// not cache returned credentials.
-#[derive(Clone)]
-pub struct RelayCredentialSource {
-    inner: Arc<RelayCredentialSourceInner>,
-}
-
-enum RelayCredentialSourceInner {
-    Static(RelayCredential),
-    File(PathBuf),
-    Command(CommandCredentialSource),
-    Callback(Arc<CredentialCallback>),
-}
-
-struct CommandCredentialSource {
-    program: OsString,
-    args: Vec<OsString>,
-    timeout: Duration,
-}
-
-#[derive(Clone)]
-struct RelayCredential(Zeroizing<String>);
-
-impl RelayCredentialSource {
-    /// Keep using one credential. This is the compatibility path used by the
-    /// existing `ticket` config fields.
-    pub fn static_ticket(ticket: impl Into<String>) -> Result<Self, ProviderError> {
-        let credential = RelayCredential::parse(ticket.into())?;
-        Ok(Self { inner: Arc::new(RelayCredentialSourceInner::Static(credential)) })
-    }
-
-    /// Read the credential afresh from a UTF-8 file on every authentication.
-    /// One trailing newline is accepted through surrounding whitespace trim.
-    pub fn file(path: impl Into<PathBuf>) -> Self {
-        Self { inner: Arc::new(RelayCredentialSourceInner::File(path.into())) }
-    }
-
-    /// Execute an argv-based command without a shell on every authentication.
-    /// The credential is read from stdout and never appears in an error. When
-    /// the command fails or times out, its error carries the exit status and a
-    /// summary of the last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] of its
-    /// stderr: the byte length and the error codes in it
-    /// ([`stderr_summary`]), never its free text.
-    pub fn command<I, S>(program: impl Into<OsString>, args: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<OsString>,
-    {
-        Self::command_with_timeout(program, args, DEFAULT_CREDENTIAL_COMMAND_TIMEOUT)
-    }
-
-    pub fn command_with_timeout<I, S>(
-        program: impl Into<OsString>,
-        args: I,
-        timeout: Duration,
-    ) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<OsString>,
-    {
-        Self {
-            inner: Arc::new(RelayCredentialSourceInner::Command(CommandCredentialSource {
-                program: program.into(),
-                args: args.into_iter().map(Into::into).collect(),
-                timeout,
-            })),
-        }
-    }
-
-    /// Invoke an async broker callback on every authentication. Callback error
-    /// details are intentionally discarded so broker responses cannot leak
-    /// secrets through transport error strings.
-    pub fn callback<F, Fut, E>(callback: F) -> Self
-    where
-        F: Fn() -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<String, E>> + Send + 'static,
-        E: Send + 'static,
-    {
-        let callback = Arc::new(move || {
-            let future = callback();
-            Box::pin(async move { future.await.map_err(|_| ()) }) as CredentialFuture
-        });
-        Self { inner: Arc::new(RelayCredentialSourceInner::Callback(callback)) }
-    }
-
-    async fn fetch(&self) -> Result<RelayCredential, ProviderError> {
-        let value = match &*self.inner {
-            RelayCredentialSourceInner::Static(credential) => return Ok(credential.clone()),
-            RelayCredentialSourceInner::File(path) => read_credential_file(path).await?,
-            RelayCredentialSourceInner::Command(command) => {
-                read_credential_command(command).await?
-            }
-            RelayCredentialSourceInner::Callback(callback) => Zeroizing::new(
-                callback().await.map_err(|()| credential_source_error("callback failed"))?,
-            ),
-        };
-        RelayCredential::parse_secret(value)
-            .map_err(|_| credential_source_error("returned invalid data"))
-    }
-}
-
-impl fmt::Debug for RelayCredentialSource {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let kind = match &*self.inner {
-            RelayCredentialSourceInner::Static(_) => "static",
-            RelayCredentialSourceInner::File(_) => "file",
-            RelayCredentialSourceInner::Command(_) => "command",
-            RelayCredentialSourceInner::Callback(_) => "callback",
-        };
-        formatter.debug_struct("RelayCredentialSource").field("kind", &kind).finish()
-    }
-}
-
-impl RelayCredential {
-    fn parse(value: String) -> Result<Self, ProviderError> {
-        Self::parse_secret(Zeroizing::new(value))
-    }
-
-    fn parse_secret(value: Zeroizing<String>) -> Result<Self, ProviderError> {
-        let trimmed = value.trim();
-        if value.len() > MAX_RELAY_CREDENTIAL_BYTES
-            || trimmed.is_empty()
-            || !trimmed.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
-        {
-            return Err(ProviderError::Configuration(
-                "relay credential must be 1-4096 visible ASCII bytes".into(),
-            ));
-        }
-        Ok(Self(Zeroizing::new(trimmed.to_owned())))
-    }
-
-    fn expose(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
-impl fmt::Debug for RelayCredential {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str("RelayCredential([REDACTED])")
-    }
-}
-
-async fn read_credential_file(path: &Path) -> Result<Zeroizing<String>, ProviderError> {
-    let path = path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        crate::secret_file::read_owner_only_string(&path, MAX_RELAY_CREDENTIAL_BYTES)
-    })
-    .await
-    .map_err(|_| credential_source_error("file could not be read"))?
-    .map_err(|_| credential_source_error("file could not be read"))
-}
-
-async fn read_credential_command(
-    source: &CommandCredentialSource,
-) -> Result<Zeroizing<String>, ProviderError> {
-    if source.timeout.is_zero() {
-        return Err(credential_source_error("command timeout is invalid"));
-    }
-    let mut command = Command::new(&source.program);
-    command
-        .args(&source.args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    let mut child =
-        command.spawn().map_err(|_| credential_source_error("command could not be started"))?;
-    let mut stderr = StderrTail::spawn(child.stderr.take());
-    let stdout = match child.stdout.take() {
-        Some(stdout) => stdout,
-        None => {
-            terminate_child(&mut child).await;
-            return Err(credential_source_error("command stdout was unavailable"));
-        }
-    };
-    let result = tokio::time::timeout(source.timeout, async {
-        let output = match read_limited_credential(stdout).await {
-            Ok(output) => output,
-            // An oversized or unreadable answer still names what stderr said.
-            Err(ProviderError::Transport(message)) => {
-                return Err(ProviderError::Transport(format!(
-                    "{message}{}",
-                    stderr.describe().await
-                )));
-            }
-            Err(error) => return Err(error),
-        };
-        let status = child
-            .wait()
-            .await
-            .map_err(|_| credential_source_error("command could not be completed"))?;
-        if !status.success() {
-            return Err(credential_source_error(&format!(
-                "command was unsuccessful ({status}){}",
-                stderr.describe().await
-            )));
-        }
-        Ok(output)
-    })
-    .await;
-    match result {
-        Ok(Ok(output)) => Ok(output),
-        Ok(Err(error)) => {
-            terminate_child(&mut child).await;
-            Err(error)
-        }
-        Err(_) => {
-            terminate_child(&mut child).await;
-            Err(credential_source_error(&format!(
-                "command timed out after {} ms{}",
-                source.timeout.as_millis(),
-                stderr.describe().await
-            )))
-        }
-    }
-}
+use credential_read::*;
 
 /// The last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] a credential command
 /// wrote to stderr, read while it runs so a full pipe never stalls it. The
@@ -349,110 +96,356 @@ impl Drop for StderrTail {
         }
     }
 }
+#[path = "relay_registration_state.rs"]
+mod registration_state;
+#[path = "relay_standby.rs"]
+mod standby;
+use crate::link::{FrameLink, LinkError};
+use crate::observability::{TransportPathKind, TransportPathSnapshot, TransportSnapshot};
+use crate::provider::{
+    CarrierEvidence, ConnectRequest, LinkGroup, LinkRequest, ProviderCapabilities, ProviderError,
+    SupportedClientAuthModes, TransportProvider, sanitized_route,
+};
+use liveness::{
+    CHECK_INTERVAL, CLOCK_JUMP, Check, ClockWatch, Ended, Liveness, Retry, random_unit,
+};
+pub use registration_state::RegistrationState;
+#[cfg(test)]
+pub(crate) use registration_state::test_wall;
+use registration_state::wall_now;
 
-/// The most error codes a summary names.
-const MAX_STDERR_CODES: usize = 4;
+type RelaySocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type RelayCircuitSink = SplitSink<RelaySocket, Message>;
+type RelayCircuitStream = SplitStream<RelaySocket>;
 
-/// What a failed credential command's stderr `tail` may add to its error:
-/// `; stderr: N bytes`, then `, codes …` naming up to [`MAX_STDERR_CODES`]
-/// distinct error codes and an `HTTP NNN` status found in it, or nothing
-/// when it is empty. Free text never reaches the log: stderr can hold a
-/// ticket, a header or a JSON body in any shape, and only these allowlisted
-/// forms can't be one.
-fn stderr_summary(tail: &[u8]) -> String {
-    if tail.is_empty() {
-        return String::new();
+const MAX_RELAY_CREDENTIAL_BYTES: usize = 4 * 1024;
+const MAX_RELAY_CONTROL_MESSAGE_BYTES: usize = 16 * 1024;
+/// How long one relay WebSocket may take to open (TCP, TLS and the
+/// upgrade). The relay answers an upgrade in well under a second; a socket
+/// that dies silently mid-open (a Cloud machine whose network is settling
+/// just after a restore) would otherwise hold the caller forever. A daemon's
+/// registration held that way logs nothing and never retries, so every dial
+/// parks on the relay until the daemon restarts (65 s in one measured cold
+/// start). Past this, the open fails as a retryable transport error.
+pub(crate) const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const DEFAULT_CREDENTIAL_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// The bound on one callback credential fetch ([`RelayCredentialSource::callback`]). A
+/// callback asks a platform for a ticket (the hub carrier's `POST /v1/mesh/carrier`, itself
+/// bounded at 30 s); one that never answers (a mint that stalls) would hold a registration in
+/// `Registering` forever. Past this the fetch fails as a credential source failure, which the
+/// registration reports as [`RegistrationState::CredentialUnavailable`] and retries.
+pub const CREDENTIAL_CALLBACK_TIMEOUT: Duration = Duration::from_secs(35);
+/// A daemon's relay ticket command's timeout ([`RelayCredentialSource::daemon_command`]).
+/// A Cloud machine's command (`cmux host cloud carrier-ticket`) waits up to
+/// 30 s for the Cloud agent's answer and then exits with its own error code;
+/// this leaves it 5 s more to start and exit, so a slow answer that still
+/// comes is used, not killed at 10 s and asked for again.
+pub const DAEMON_TICKET_COMMAND_TIMEOUT: Duration = Duration::from_secs(35);
+/// How much of a failed credential command's stderr its error keeps: the
+/// last bytes, where the reason usually is.
+const CREDENTIAL_COMMAND_STDERR_TAIL_BYTES: usize = 2 * 1024;
+/// Every credential source error starts with this.
+const CREDENTIAL_SOURCE_ERROR_PREFIX: &str = "relay credential source ";
+const RELAY_BATCH_MAGIC: [u8; 4] = *b"CMXB";
+const RELAY_BATCH_VERSION: u8 = 1;
+const RELAY_BATCH_HEADER_BYTES: usize = 8;
+const RELAY_BATCH_ENTRY_HEADER_BYTES: usize = 4;
+const MAX_RELAY_BATCH_FRAMES: usize = 32;
+const RELAY_BATCH_QUEUE_FRAMES: usize = 128;
+// A batched sender lingers to fill a batch only after this many consecutive
+// sends each began within RELAY_BURST_LINGER of the previous one finishing.
+// A flood builds that streak within microseconds; typed input at human pace,
+// its echo and their acknowledgements do not. Interactive frames wait on the
+// timer (at most RELAY_BURST_LINGER per hop, as every frame did before) only
+// while the sender is saturated or a request-response loop runs faster than
+// one round trip per RELAY_BURST_LINGER.
+const RELAY_BURST_SENDS: usize = 4;
+const RELAY_BURST_LINGER: Duration = Duration::from_millis(1);
+const MAX_RELAY_INCOMING_TASKS: usize = 64;
+
+type CredentialFuture = Pin<Box<dyn Future<Output = Result<String, ()>> + Send + 'static>>;
+type CredentialCallback = dyn Fn() -> CredentialFuture + Send + Sync + 'static;
+type BoundCredentialFuture =
+    Pin<Box<dyn Future<Output = Result<BoundCredential, ()>> + Send + 'static>>;
+type BoundCredentialCallback = dyn Fn() -> BoundCredentialFuture + Send + Sync + 'static;
+
+/// A relay ticket and the CarrierGrant it was minted beside
+/// ([`RelayCredentialSource::bound_callback`]). A Connect presents the grant
+/// with the ticket, and the relay admits a ticket that names its grant only
+/// with that grant (cmuxterm-hq#19075).
+pub struct BoundCredential {
+    pub ticket: Zeroizing<String>,
+    pub grant: Option<Zeroizing<String>>,
+}
+
+/// A refreshable source for short-lived relay provider credentials.
+///
+/// The source is queried before each provider-authenticated WebSocket and each
+/// register/connect authentication attempt. Clones share callback state but do
+/// not cache returned credentials.
+#[derive(Clone)]
+pub struct RelayCredentialSource {
+    inner: Arc<RelayCredentialSourceInner>,
+}
+
+enum RelayCredentialSourceInner {
+    Static(RelayCredential),
+    File(PathBuf),
+    Command(CommandCredentialSource),
+    Callback(Arc<CredentialCallback>),
+    BoundCallback(Arc<BoundCredentialCallback>),
+}
+
+struct CommandCredentialSource {
+    program: OsString,
+    args: Vec<OsString>,
+    timeout: Duration,
+}
+
+#[derive(Clone)]
+struct RelayCredential(Zeroizing<String>);
+
+impl RelayCredentialSource {
+    /// Keep using one credential. This is the compatibility path used by the
+    /// existing `ticket` config fields.
+    pub fn static_ticket(ticket: impl Into<String>) -> Result<Self, ProviderError> {
+        let credential = RelayCredential::parse(ticket.into())?;
+        Ok(Self { inner: Arc::new(RelayCredentialSourceInner::Static(credential)) })
     }
-    let text = String::from_utf8_lossy(tail);
-    let words: Vec<&str> = text.split_whitespace().collect();
-    let mut codes: Vec<String> = Vec::new();
-    for word in &words {
-        if codes.len() == MAX_STDERR_CODES {
-            break;
+
+    /// Read the credential afresh from a UTF-8 file on every authentication.
+    /// One trailing newline is accepted through surrounding whitespace trim.
+    pub fn file(path: impl Into<PathBuf>) -> Self {
+        Self { inner: Arc::new(RelayCredentialSourceInner::File(path.into())) }
+    }
+
+    /// Execute an argv-based command without a shell on every authentication.
+    /// The credential is read from stdout and never appears in an error. When
+    /// the command fails or times out, its error carries the exit status and a
+    /// summary of the last [`CREDENTIAL_COMMAND_STDERR_TAIL_BYTES`] of its
+    /// stderr: the byte length and the error codes in it
+    /// ([`stderr_summary`]), never its free text.
+    pub fn command<I, S>(program: impl Into<OsString>, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        Self::command_with_timeout(program, args, DEFAULT_CREDENTIAL_COMMAND_TIMEOUT)
+    }
+
+    /// [`RelayCredentialSource::command`] for a daemon's own relay
+    /// registration, with [`DAEMON_TICKET_COMMAND_TIMEOUT`].
+    pub fn daemon_command<I, S>(program: impl Into<OsString>, args: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        Self::command_with_timeout(program, args, DAEMON_TICKET_COMMAND_TIMEOUT)
+    }
+
+    pub fn command_with_timeout<I, S>(
+        program: impl Into<OsString>,
+        args: I,
+        timeout: Duration,
+    ) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<OsString>,
+    {
+        Self {
+            inner: Arc::new(RelayCredentialSourceInner::Command(CommandCredentialSource {
+                program: program.into(),
+                args: args.into_iter().map(Into::into).collect(),
+                timeout,
+            })),
         }
-        if let Some(code) = error_code(word)
-            && !codes.iter().any(|known| known == code)
+    }
+
+    /// Invoke an async broker callback on every authentication. Callback error
+    /// details are intentionally discarded so broker responses cannot leak
+    /// secrets through transport error strings.
+    pub fn callback<F, Fut, E>(callback: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<String, E>> + Send + 'static,
+        E: Send + 'static,
+    {
+        let callback = Arc::new(move || {
+            let future = callback();
+            Box::pin(async move { future.await.map_err(|_| ()) }) as CredentialFuture
+        });
+        Self { inner: Arc::new(RelayCredentialSourceInner::Callback(callback)) }
+    }
+
+    /// [`RelayCredentialSource::callback`] whose answer also carries the
+    /// CarrierGrant the ticket was minted beside: each client Connect presents
+    /// it. Every other use of the credential (a control socket's
+    /// authentication) takes the ticket alone.
+    pub fn bound_callback<F, Fut, E>(callback: F) -> Self
+    where
+        F: Fn() -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<BoundCredential, E>> + Send + 'static,
+        E: Send + 'static,
+    {
+        let callback = Arc::new(move || {
+            let future = callback();
+            Box::pin(async move { future.await.map_err(|_| ()) }) as BoundCredentialFuture
+        });
+        Self { inner: Arc::new(RelayCredentialSourceInner::BoundCallback(callback)) }
+    }
+
+    /// True when each fetch may return a new credential: a registration renews
+    /// its ticket before it expires only from such a source.
+    fn renews(&self) -> bool {
+        !matches!(&*self.inner, RelayCredentialSourceInner::Static(_))
+    }
+
+    async fn fetch(&self) -> Result<RelayCredential, ProviderError> {
+        self.fetch_with_grant().await.map(|(credential, _)| credential)
+    }
+
+    /// The credential and, from a [`Self::bound_callback`], the grant it was
+    /// minted beside.
+    async fn fetch_with_grant(
+        &self,
+    ) -> Result<(RelayCredential, Option<Zeroizing<String>>), ProviderError> {
+        let mut grant = None;
+        let value = match &*self.inner {
+            RelayCredentialSourceInner::Static(credential) => {
+                return Ok((credential.clone(), None));
+            }
+            RelayCredentialSourceInner::File(path) => read_credential_file(path).await?,
+            RelayCredentialSourceInner::Command(command) => {
+                read_credential_command(command).await?
+            }
+            RelayCredentialSourceInner::Callback(callback) => {
+                let deadline = Deadline::<Instant>::after(CREDENTIAL_CALLBACK_TIMEOUT);
+                let answer = tokio::time::timeout_at(deadline.end(), callback())
+                    .await
+                    .map_err(|_| credential_source_error("callback timed out"))?;
+                Zeroizing::new(answer.map_err(|()| credential_source_error("callback failed"))?)
+            }
+            RelayCredentialSourceInner::BoundCallback(callback) => {
+                let deadline = Deadline::<Instant>::after(CREDENTIAL_CALLBACK_TIMEOUT);
+                let answer = tokio::time::timeout_at(deadline.end(), callback())
+                    .await
+                    .map_err(|_| credential_source_error("callback timed out"))?
+                    .map_err(|()| credential_source_error("callback failed"))?;
+                grant = answer.grant;
+                answer.ticket
+            }
+        };
+        let credential = RelayCredential::parse_secret(value)
+            .map_err(|_| credential_source_error("returned invalid data"))?;
+        Ok((credential, grant))
+    }
+}
+
+impl fmt::Debug for RelayCredentialSource {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let kind = match &*self.inner {
+            RelayCredentialSourceInner::Static(_) => "static",
+            RelayCredentialSourceInner::File(_) => "file",
+            RelayCredentialSourceInner::Command(_) => "command",
+            RelayCredentialSourceInner::Callback(_) => "callback",
+            RelayCredentialSourceInner::BoundCallback(_) => "bound callback",
+        };
+        formatter.debug_struct("RelayCredentialSource").field("kind", &kind).finish()
+    }
+}
+
+impl RelayCredential {
+    fn parse(value: String) -> Result<Self, ProviderError> {
+        Self::parse_secret(Zeroizing::new(value))
+    }
+
+    fn parse_secret(value: Zeroizing<String>) -> Result<Self, ProviderError> {
+        let trimmed = value.trim();
+        if value.len() > MAX_RELAY_CREDENTIAL_BYTES
+            || trimmed.is_empty()
+            || !trimmed.bytes().all(|byte| (0x21..=0x7e).contains(&byte))
         {
-            codes.push(code.to_owned());
+            return Err(ProviderError::Configuration(
+                "relay credential must be 1-4096 visible ASCII bytes".into(),
+            ));
         }
+        Ok(Self(Zeroizing::new(trimmed.to_owned())))
     }
-    let http = words.windows(2).find_map(|pair| {
-        let [word, next] = pair else { return None };
-        let status = next.trim_end_matches([':', ',', ';', ')']);
-        let http = *word == "HTTP" || word.starts_with("HTTP/");
-        (http && status.len() == 3 && status.bytes().all(|byte| byte.is_ascii_digit()))
-            .then(|| format!("HTTP {status}"))
-    });
-    codes.extend(http);
-    if codes.is_empty() {
-        format!("; stderr: {} bytes", tail.len())
-    } else {
-        format!("; stderr: {} bytes, codes {}", tail.len(), codes.join(", "))
+
+    fn expose(&self) -> &str {
+        self.0.as_str()
+    }
+
+    /// How long a signed ticket (`v2.<claims>.<signature>`) lives, read from its
+    /// claims, which are not secret: the relay checks the signature, this only
+    /// schedules the renewal. None for an opaque ticket.
+    fn lifetime(&self) -> Option<Duration> {
+        use base64::Engine as _;
+        let mut parts = self.expose().split('.');
+        let (Some("v2"), Some(claims), Some(_), None) =
+            (parts.next(), parts.next(), parts.next(), parts.next())
+        else {
+            return None;
+        };
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(claims).ok()?;
+        let claims: RelayTicketClaims = serde_json::from_slice(&claims).ok()?;
+        claims
+            .has_valid_lifetime()
+            .then(|| Duration::from_secs(claims.expires_at_unix - claims.issued_at_unix))
     }
 }
 
-/// The error codes a relay ticket command may name in a log: the refusals
-/// `cmux host cloud carrier-ticket` prints (cmux-host `cloud/carrier_ticket.rs`)
-/// and the platform codes it passes on. Only these exact words are copied out
-/// of stderr; any other word, however code-shaped (`dead.beef`), is not.
-const KNOWN_ERROR_CODES: [&str; 14] = [
-    "auth.forbidden",
-    "auth.refused",
-    "carrier.bad_answer",
-    "carrier.busy",
-    "carrier.rate_limited",
-    "carrier.unavailable",
-    "carrier.unreachable",
-    "cloud.machine.not_found",
-    "owner.unreachable",
-    "validation.invalid",
-    "vm.agent_bad_answer",
-    "vm.agent_stopping",
-    "vm.agent_unreachable",
-    "vm.unbound",
-];
-
-/// `word` without a trailing `:` when it is one of [`KNOWN_ERROR_CODES`].
-fn error_code(word: &str) -> Option<&'static str> {
-    let code = word.strip_suffix(':').unwrap_or(word);
-    KNOWN_ERROR_CODES.iter().copied().find(|known| *known == code)
-}
-
-/// Kill and reap a credential command on every cancellation or failure path.
-/// `kill_on_drop` is best effort and does not guarantee prompt zombie cleanup.
-async fn terminate_child(child: &mut tokio::process::Child) {
-    let _ = child.kill().await;
-    let _ = child.wait().await;
-}
-
-async fn read_limited_credential(
-    reader: impl tokio::io::AsyncRead + Unpin,
-) -> Result<Zeroizing<String>, ProviderError> {
-    let mut bytes = Zeroizing::new(Vec::with_capacity(MAX_RELAY_CREDENTIAL_BYTES.min(256)));
-    reader
-        .take((MAX_RELAY_CREDENTIAL_BYTES + 1) as u64)
-        .read_to_end(&mut bytes)
-        .await
-        .map_err(|_| credential_source_error("could not be read"))?;
-    if bytes.len() > MAX_RELAY_CREDENTIAL_BYTES {
-        return Err(credential_source_error("was too large"));
+impl fmt::Debug for RelayCredential {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("RelayCredential([REDACTED])")
     }
-    let value = Zeroizing::new(
-        std::str::from_utf8(&bytes)
-            .map_err(|_| credential_source_error("was not UTF-8"))?
-            .to_owned(),
-    );
-    Ok(value)
 }
 
-fn credential_source_error(reason: &str) -> ProviderError {
-    ProviderError::Transport(format!("{CREDENTIAL_SOURCE_ERROR_PREFIX}{reason}"))
+/// The TLS trust a relay's `wss` and `relay+do` connections use. The default
+/// trusts the platform's roots (and `SSL_CERT_FILE`/`SSL_CERT_DIR`), as every
+/// relay connection did before; [`RelayTls::with_root_certificates`] trusts
+/// only the given roots, so a caller (a test's own CA) needs no process-wide
+/// environment.
+#[derive(Clone, Default)]
+pub struct RelayTls {
+    client_config: Option<Arc<rustls::ClientConfig>>,
 }
 
-/// The credential source (a ticket command, file or callback) failed, as
-/// opposed to the relay.
-fn is_credential_source_error(error: &ProviderError) -> bool {
-    matches!(error, ProviderError::Transport(message) if message.starts_with(CREDENTIAL_SOURCE_ERROR_PREFIX))
+impl RelayTls {
+    /// Trust exactly these DER-encoded root certificates.
+    pub fn with_root_certificates<I, C>(certificates: I) -> Result<Self, ProviderError>
+    where
+        I: IntoIterator<Item = C>,
+        C: Into<Vec<u8>>,
+    {
+        let mut roots = rustls::RootCertStore::empty();
+        for certificate in certificates {
+            roots.add(rustls::pki_types::CertificateDer::from(certificate.into())).map_err(
+                |error| ProviderError::Configuration(format!("invalid relay TLS root: {error}")),
+            )?;
+        }
+        let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .map_err(|error| ProviderError::Configuration(format!("relay TLS: {error}")))?
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+        Ok(Self { client_config: Some(Arc::new(config)) })
+    }
+
+    fn connector(&self) -> Option<Connector> {
+        self.client_config.clone().map(Connector::Rustls)
+    }
+}
+
+impl fmt::Debug for RelayTls {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RelayTls")
+            .field("custom_roots", &self.client_config.is_some())
+            .finish()
+    }
 }
 
 #[derive(Clone)]
@@ -496,10 +489,15 @@ impl fmt::Debug for RelayClientConfig {
 pub struct RelayProvider {
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
     /// When set, a lane's allocation waits until this instant instead of
     /// `control_timeout`: a Connect the relay parks until the daemon
     /// registers then follows its caller's one deadline.
     allocation_deadline: Option<Instant>,
+    /// When set, a first connect's lane waits this long, not
+    /// `control_timeout`, for the daemon to join its circuit once the relay
+    /// allocated it ([`RelayProvider::with_peer_join_wait`]).
+    peer_join_wait: Option<Duration>,
 }
 
 impl RelayProvider {
@@ -518,7 +516,13 @@ impl RelayProvider {
     ) -> Result<Self, ProviderError> {
         config.ticket.zeroize();
         config.validate_common()?;
-        Ok(Self { config, credentials, allocation_deadline: None })
+        Ok(Self {
+            config,
+            credentials,
+            tls: RelayTls::default(),
+            allocation_deadline: None,
+            peer_join_wait: None,
+        })
     }
 
     /// Wait for each lane's allocation until `deadline` rather than for
@@ -529,6 +533,24 @@ impl RelayProvider {
     /// step, keeps `control_timeout`.
     pub fn with_allocation_deadline(mut self, deadline: Instant) -> Self {
         self.allocation_deadline = Some(deadline);
+        self
+    }
+
+    /// Wait `wait`, not `control_timeout`, for the daemon to join a circuit
+    /// the relay allocated, so a lane whose daemon never joins is given up
+    /// for a new allocation (a new circuit and a new `Incoming`) instead of
+    /// held to `control_timeout`. A daemon that joins does so in about a
+    /// second of its `Incoming`. It applies to the first connect (generation
+    /// 0) only, as [`Self::with_allocation_deadline`] does; connecting the
+    /// circuit's socket keeps its own bound.
+    pub fn with_peer_join_wait(mut self, wait: Duration) -> Self {
+        self.peer_join_wait = Some(wait);
+        self
+    }
+
+    /// Connect with this TLS trust instead of the platform's roots.
+    pub fn with_tls(mut self, tls: RelayTls) -> Self {
+        self.tls = tls;
         self
     }
 }
@@ -562,7 +584,11 @@ impl TransportProvider for RelayProvider {
         let framing = RelayCircuitFraming::for_route(&route);
         let endpoint =
             relay_websocket_url(&request.endpoint, &self.config.slot, RelayRole::Client)?;
-        let control = connect_provider_control(&endpoint, &self.credentials).await?;
+        // An inline circuit (relay_standby.rs) carries its frames on this socket, so it takes
+        // a circuit's message limit, not a control socket's.
+        let limit = framing.websocket_message_limit(self.config.maximum_frame_bytes);
+        let control =
+            connect_provider_control(&endpoint, &self.credentials, limit, &self.tls).await?;
         Ok(Arc::new(RelayLinkGroup {
             description: route.clone(),
             evidence: CarrierEvidence::Relay {
@@ -573,7 +599,9 @@ impl TransportProvider for RelayProvider {
             framing,
             config: self.config.clone(),
             credentials: self.credentials.clone(),
+            tls: self.tls.clone(),
             allocation_deadline: self.allocation_deadline,
+            peer_join_wait: self.peer_join_wait,
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
@@ -588,7 +616,9 @@ struct RelayLinkGroup {
     framing: RelayCircuitFraming,
     config: RelayClientConfig,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
     allocation_deadline: Option<Instant>,
+    peer_join_wait: Option<Duration>,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
@@ -794,11 +824,13 @@ fn decode_relay_batch(encoded: Bytes, maximum: usize) -> Result<VecDeque<Bytes>,
     Ok(frames)
 }
 
-async fn run_batched_relay_sender(
-    mut socket: RelayCircuitSink,
+async fn run_batched_relay_sender<S>(
+    mut socket: S,
     mut commands: mpsc::Receiver<RelayCircuitCommand>,
     terminal: watch::Sender<Option<LinkError>>,
-) {
+) where
+    S: Sink<Message, Error = WebSocketError> + Unpin,
+{
     let mut deferred = None;
     let mut last_send_finished: Option<Instant> = None;
     let mut burst_sends = 0_usize;
@@ -1061,6 +1093,11 @@ impl LinkGroup for RelayLinkGroup {
         // The allocation deadline is the first connect's; a resume (a later
         // generation) waits `control_timeout` as any reconnect does.
         let wait_until = self.allocation_deadline.filter(|_| request.generation == 0);
+        let join_wait = self
+            .peer_join_wait
+            .filter(|_| request.generation == 0)
+            .unwrap_or(self.config.control_timeout);
+        let limit = self.framing.websocket_message_limit(self.config.maximum_frame_bytes);
         let allocation = {
             let mut stored_control = self.control.lock().await;
             if self.closed.load(Ordering::Acquire) {
@@ -1068,7 +1105,10 @@ impl LinkGroup for RelayLinkGroup {
             }
             let mut control = match stored_control.take() {
                 Some(control) => control,
-                None => connect_provider_control(&self.endpoint, &self.credentials).await?,
+                None => {
+                    connect_provider_control(&self.endpoint, &self.credentials, limit, &self.tls)
+                        .await?
+                }
             };
             match request_allocation(
                 &mut control,
@@ -1080,9 +1120,12 @@ impl LinkGroup for RelayLinkGroup {
             )
             .await
             {
-                Ok(allocation) => {
+                Ok(Allocation::Inline(_circuit)) => {
+                    return Ok(self.inline_link(control));
+                }
+                Ok(Allocation::Circuit(circuit, ticket)) => {
                     *stored_control = Some(control);
-                    allocation
+                    (circuit, ticket)
                 }
                 Err(AllocationError::Terminal(error)) => {
                     *stored_control = Some(control);
@@ -1098,10 +1141,14 @@ impl LinkGroup for RelayLinkGroup {
                             "relay connection group is closed".into(),
                         ));
                     }
-                    let mut replacement =
-                        connect_provider_control(&self.endpoint, &self.credentials)
-                            .await
-                            .map_err(|error| relay_reconnect_error(&control_error, error))?;
+                    let mut replacement = connect_provider_control(
+                        &self.endpoint,
+                        &self.credentials,
+                        limit,
+                        &self.tls,
+                    )
+                    .await
+                    .map_err(|error| relay_reconnect_error(&control_error, error))?;
                     match request_allocation(
                         &mut replacement,
                         &self.config,
@@ -1112,9 +1159,12 @@ impl LinkGroup for RelayLinkGroup {
                     )
                     .await
                     {
-                        Ok(allocation) => {
+                        Ok(Allocation::Inline(_circuit)) => {
+                            return Ok(self.inline_link(replacement));
+                        }
+                        Ok(Allocation::Circuit(circuit, ticket)) => {
                             *stored_control = Some(replacement);
-                            allocation
+                            (circuit, ticket)
                         }
                         Err(AllocationError::Terminal(error)) => {
                             *stored_control = Some(replacement);
@@ -1135,7 +1185,8 @@ impl LinkGroup for RelayLinkGroup {
             request.generation,
             allocation.1,
             self.config.maximum_frame_bytes,
-            self.config.control_timeout,
+            join_wait,
+            &self.tls,
         )
         .await
     }
@@ -1151,6 +1202,12 @@ impl LinkGroup for RelayLinkGroup {
         }
         Ok(())
     }
+}
+
+/// What a Connect got: a circuit to join (the circuit-DO route), or this socket as the circuit.
+enum Allocation {
+    Circuit(CircuitId, String),
+    Inline(CircuitId),
 }
 
 enum AllocationError {
@@ -1183,8 +1240,9 @@ async fn request_allocation(
     wait: Duration,
     lane: &LaneToken,
     generation: u64,
-) -> Result<(CircuitId, String), AllocationError> {
-    let credential = credentials.fetch().await.map_err(AllocationError::Authentication)?;
+) -> Result<Allocation, AllocationError> {
+    let (credential, grant) =
+        credentials.fetch_with_grant().await.map_err(AllocationError::Authentication)?;
     send_control(
         socket,
         &RelayControl::Connect {
@@ -1195,6 +1253,8 @@ async fn request_allocation(
             generation,
             // `read_until_allocation` reads past `Parked` to the answer.
             accepts_parked: true,
+            grant: grant.as_deref().map(ToOwned::to_owned),
+            inline: standby::inline_wanted(),
         },
     )
     .await
@@ -1208,20 +1268,28 @@ async fn read_until_allocation(
     socket: &mut RelaySocket,
     expected_lane: &LaneToken,
     expected_generation: u64,
-) -> Result<(CircuitId, String), AllocationError> {
+) -> Result<Allocation, AllocationError> {
     loop {
         match read_control(socket).await.map_err(AllocationError::Reconnect)? {
             RelayControl::Allocated { circuit, lane, generation, join_ticket }
                 if lane == *expected_lane && generation == expected_generation =>
             {
-                return Ok((circuit, join_ticket));
+                return Ok(Allocation::Circuit(circuit, join_ticket));
+            }
+            // The relay paired this inline Connect with a daemon's Standby socket: this socket
+            // is the circuit now (relay_standby.rs).
+            RelayControl::Ready { circuit, lane, generation }
+                if lane == *expected_lane && generation == expected_generation =>
+            {
+                return Ok(Allocation::Inline(circuit));
             }
             RelayControl::Error { code, retryable, .. } => {
                 return Err(if relay_authentication_error(&code) {
                     AllocationError::Authentication(relay_rejection())
                 } else if retryable {
-                    AllocationError::Reconnect(relay_carrier_error(
+                    AllocationError::Reconnect(relay_unavailable(
                         "relay allocation is temporarily unavailable",
+                        &code,
                     ))
                 } else {
                     AllocationError::Terminal(relay_rejection())
@@ -1252,6 +1320,7 @@ async fn join_circuit(
     ticket: String,
     maximum_frame_bytes: usize,
     timeout: Duration,
+    tls: &RelayTls,
 ) -> Result<Box<dyn FrameLink>, ProviderError> {
     let circuit_endpoint = relay_circuit_url(endpoint, &circuit)?;
     // The circuit starts with JSON Join/Ready messages before it becomes a
@@ -1261,7 +1330,8 @@ async fn join_circuit(
     // in RelayCircuitLink after the circuit is ready.
     let websocket_message_limit = framing.websocket_message_limit(maximum_frame_bytes);
     let mut socket =
-        connect_relay_socket(&circuit_endpoint, Some(&ticket), websocket_message_limit).await?;
+        connect_relay_socket(&circuit_endpoint, Some(&ticket), websocket_message_limit, tls)
+            .await?;
     send_control(
         &mut socket,
         &RelayControl::Join {
@@ -1309,6 +1379,22 @@ async fn join_circuit(
     )))
 }
 
+/// What a relay registration hands each joined circuit to: a cmux-remote
+/// daemon, or another endpoint that runs its own handshake over the link
+/// (acpmux's hub carrier, which bridges it to its WebSocket listener).
+#[async_trait]
+pub trait RelayIncoming: Send + Sync + 'static {
+    /// Serve one joined circuit until it ends.
+    async fn incoming(self: Arc<Self>, link: Box<dyn FrameLink>);
+}
+
+#[async_trait]
+impl RelayIncoming for RemoteDaemon {
+    async fn incoming(self: Arc<Self>, link: Box<dyn FrameLink>) {
+        let _ = self.accept(InboundLink::network(link, NetworkPeer::Relay)).await;
+    }
+}
+
 #[derive(Clone)]
 pub struct RelayDaemonConfig {
     pub endpoint: Url,
@@ -1346,6 +1432,7 @@ impl fmt::Debug for RelayDaemonConfig {
 pub struct RelayDaemonRegistration {
     shutdown: watch::Sender<bool>,
     task: Option<tokio::task::JoinHandle<()>>,
+    state: watch::Receiver<RegistrationState>,
 }
 
 impl fmt::Debug for RelayDaemonRegistration {
@@ -1370,7 +1457,7 @@ impl Drop for RelayDaemonRegistration {
 }
 
 pub async fn register_relay_daemon(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
     mut config: RelayDaemonConfig,
 ) -> Result<RelayDaemonRegistration, ProviderError> {
     if let Err(error) = config.validate_common() {
@@ -1381,10 +1468,33 @@ pub async fn register_relay_daemon(
     register_relay_daemon_with_credentials(daemon, config, credentials).await
 }
 
+/// [`register_relay_daemon`] with this TLS trust instead of the platform's roots.
+pub async fn register_relay_daemon_with_tls(
+    daemon: Arc<dyn RelayIncoming>,
+    mut config: RelayDaemonConfig,
+    tls: RelayTls,
+) -> Result<RelayDaemonRegistration, ProviderError> {
+    if let Err(error) = config.validate_common() {
+        config.ticket.zeroize();
+        return Err(error);
+    }
+    let credentials = RelayCredentialSource::static_ticket(std::mem::take(&mut config.ticket))?;
+    register_with_credentials_and_tls(daemon, config, credentials, tls).await
+}
+
 pub async fn register_relay_daemon_with_credentials(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
+    config: RelayDaemonConfig,
+    credentials: RelayCredentialSource,
+) -> Result<RelayDaemonRegistration, ProviderError> {
+    register_with_credentials_and_tls(daemon, config, credentials, RelayTls::default()).await
+}
+
+async fn register_with_credentials_and_tls(
+    daemon: Arc<dyn RelayIncoming>,
     mut config: RelayDaemonConfig,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
 ) -> Result<RelayDaemonRegistration, ProviderError> {
     config.ticket.zeroize();
     config.validate_common()?;
@@ -1392,20 +1502,23 @@ pub async fn register_relay_daemon_with_credentials(
     let endpoint = relay_websocket_url(&config.endpoint, &config.slot, RelayRole::Daemon)?;
     let config = RelayDaemonConfig { endpoint, ..config };
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (state_tx, state) = watch::channel(RegistrationState::Registering);
     let (ready_tx, ready_rx) = oneshot::channel();
     let task = tokio::spawn(run_registration_loop(
         daemon,
         config,
         framing,
         credentials,
+        tls,
         shutdown_rx,
         Some(ready_tx),
         None,
+        state_tx,
     ));
     ready_rx.await.map_err(|_| {
         ProviderError::Transport("relay registration stopped before ready".into())
     })??;
-    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
+    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task), state })
 }
 
 /// Register on a relay in the background and return at once.
@@ -1414,13 +1527,19 @@ pub async fn register_relay_daemon_with_credentials(
 /// a credential source that fails (a ticket command that exits non-zero or
 /// hangs past its timeout) or a relay that refuses is retried until
 /// [`RelayDaemonRegistration::shutdown`] or drop. Each failed attempt is
-/// written to stderr once, prefixed by `log_label`, with its reason. The
+/// written to stderr once, prefixed by `log_label`, with its reason, and
+/// the registration's [`RelayDaemonRegistration::state`] says what the last
+/// attempt met (`CredentialUnavailable` for a ticket mint that is down). The
 /// wait between attempts is jittered and capped: 5 s after a relay failure,
-/// 60 s after a credential source failure. Only an invalid configuration is
+/// 60 s after a credential source failure. A resume (`relay_liveness.rs`)
+/// ends a registration from before the pause or a wait at once and
+/// registers again with no wait. A ticket that expires is renewed before it
+/// does, on a second control socket that replaces the first, and joined
+/// circuits outlive their control socket. Only an invalid configuration is
 /// an error here. A daemon uses this so that its local services start and
 /// stay up while the relay route is unavailable.
 pub fn spawn_relay_daemon_registration(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
     mut config: RelayDaemonConfig,
     credentials: RelayCredentialSource,
     log_label: &str,
@@ -1432,30 +1551,70 @@ pub fn spawn_relay_daemon_registration(
     let endpoint = relay_websocket_url(&config.endpoint, &config.slot, RelayRole::Daemon)?;
     let config = RelayDaemonConfig { endpoint, ..config };
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let (state_tx, state) = watch::channel(RegistrationState::Registering);
     let task = tokio::spawn(run_registration_loop(
         daemon,
         config,
         framing,
         credentials,
+        RelayTls::default(),
         shutdown_rx,
         None,
         Some(format!("{log_label}: relay registration on {route}")),
+        state_tx,
     ));
-    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task) })
+    Ok(RelayDaemonRegistration { shutdown: shutdown_tx, task: Some(task), state })
 }
 
+/// The registration's joined circuits belong to the registration, not to one
+/// control socket: each is its own relay socket, which the relay keeps open
+/// when the control socket closes, so a live session outlives a dropped or
+/// renewed registration. They end at shutdown, or after a pause the
+/// registration did not survive (their sockets died with it).
+#[allow(clippy::too_many_arguments)]
 async fn run_registration_loop(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
     config: RelayDaemonConfig,
     framing: RelayCircuitFraming,
     credentials: RelayCredentialSource,
+    tls: RelayTls,
+    shutdown: watch::Receiver<bool>,
+    first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
+    log: Option<String>,
+    state: watch::Sender<RegistrationState>,
+) {
+    let mut circuits = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
+    run_registration_attempts(
+        daemon,
+        config,
+        framing,
+        credentials,
+        tls,
+        shutdown,
+        first_ready,
+        log,
+        &mut circuits,
+        &state,
+    )
+    .await;
+    circuits.shutdown().await;
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_registration_attempts(
+    daemon: Arc<dyn RelayIncoming>,
+    config: RelayDaemonConfig,
+    framing: RelayCircuitFraming,
+    credentials: RelayCredentialSource,
+    tls: RelayTls,
     mut shutdown: watch::Receiver<bool>,
     mut first_ready: Option<oneshot::Sender<Result<(), ProviderError>>>,
     log: Option<String>,
+    circuits: &mut IncomingCircuitTasks,
+    state: &watch::Sender<RegistrationState>,
 ) {
-    let mut backoff = Backoff::new();
-    let mut credential_backoff = Backoff::credential();
-    let mut failures = 0_u64;
+    let mut retry = Retry::new();
+    let mut log = RegisterLog::new(log, Instant::now());
     loop {
         if *shutdown.borrow() {
             return;
@@ -1463,28 +1622,40 @@ async fn run_registration_loop(
         if shutdown.has_changed().is_err() {
             return;
         }
-        let mut registered = false;
+        let mut attempt = Attempt::default();
         let result = run_registration_once(
             daemon.clone(),
             &config,
             framing,
             &credentials,
+            &tls,
             &mut shutdown,
             &mut first_ready,
-            &mut registered,
+            circuits,
+            &mut attempt,
+            &log,
+            state,
         )
         .await;
         // A registration that got ready and later died (a pause, a relay
         // restart, an expired ticket) registers again from the first wait.
-        if registered {
-            backoff.reset();
-            credential_backoff.reset();
-            if let Some(label) = &log
-                && failures > 0
-            {
-                eprintln!("{label}: registered after {failures} failed attempts");
+        if attempt.registered {
+            retry.ready();
+            log.dropped(Instant::now());
+        }
+        // What the attempt met, while the next one waits. A credential source
+        // that fails (the ticket mint is down, or did not answer in its
+        // bound) is a named state, not only a stderr line.
+        state.send_replace(match &result {
+            Ok(()) => RegistrationState::Registering,
+            Err(error) if is_credential_source_error(error) => {
+                RegistrationState::CredentialUnavailable { error: error.to_string() }
             }
-            failures = 0;
+            Err(error) => RegistrationState::RelayUnavailable { error: error.to_string() },
+        });
+        // A pause the registration did not survive outlived its circuits too.
+        if attempt.resumed {
+            circuits.shutdown().await;
         }
         let credential_failure = result.as_ref().is_err_and(is_credential_source_error);
         if first_ready.is_some()
@@ -1498,42 +1669,175 @@ async fn run_registration_loop(
         if *shutdown.borrow() {
             return;
         }
-        let wait = if credential_failure {
-            credential_backoff.next(random_unit())
+        let ended = if attempt.resumed {
+            Ended::Resumed
+        } else if credential_failure {
+            Ended::Credential
         } else {
-            backoff.next(random_unit())
+            Ended::Relay
         };
-        if let (Some(label), Err(error)) = (&log, &result) {
-            failures += 1;
+        let wait = retry.wait(ended, random_unit());
+        if let (Some(label), Err(error)) = (&log.label, &result) {
+            log.failures += 1;
             eprintln!(
-                "{label}: attempt {failures} failed, retrying in {} ms: {error}",
+                "{label}: attempt {} failed, retrying in {} ms: {error}",
+                log.failures,
                 wait.as_millis()
             );
         }
-        tokio::select! {
-            _ = tokio::time::sleep(wait) => {}
-            changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() {
-                    return;
+        match back_off(&mut retry, wait, &mut shutdown, wall_now).await {
+            Waited::Elapsed => {}
+            Waited::Resumed => {
+                if let Some(label) = &log.label {
+                    eprintln!("{label}: resumed during the wait; registering now");
                 }
-                continue;
-            },
+            }
+            Waited::Shutdown => return,
         }
     }
 }
 
+/// What one registration attempt got to.
+#[derive(Debug, Default)]
+struct Attempt {
+    /// It got ready (and may have ended since).
+    registered: bool,
+    /// It ended because the machine resumed from a pause it did not survive.
+    resumed: bool,
+}
+
+/// How [`wait_unless_resumed`] ended.
+#[derive(Debug, PartialEq, Eq)]
+enum Waited {
+    Elapsed,
+    /// The machine resumed: the wall clock jumped past the monotonic one, or
+    /// the monotonic clock moved past the relay's retirement between two looks.
+    Resumed,
+    Shutdown,
+}
+
+/// Waits out a failed attempt's `wait`. A resume during it (the pause
+/// outlived the reason for the wait) starts both backoffs over, so the next
+/// failure waits the first backoff again, not the one from before the pause.
+async fn back_off(
+    retry: &mut Retry,
+    wait: Duration,
+    shutdown: &mut watch::Receiver<bool>,
+    wall: fn() -> std::time::SystemTime,
+) -> Waited {
+    let waited = wait_unless_resumed(wait, shutdown, wall).await;
+    if waited == Waited::Resumed {
+        retry.ready();
+    }
+    waited
+}
+
+/// Waits `wait` (monotonic, so a pause does not count), looking at the
+/// clocks every [`CHECK_INTERVAL`]: a resume ends the wait at once. Ends at
+/// the latest when `wait` elapses or at shutdown. `wall` is the wall clock.
+async fn wait_unless_resumed(
+    wait: Duration,
+    shutdown: &mut watch::Receiver<bool>,
+    wall: fn() -> std::time::SystemTime,
+) -> Waited {
+    if wait.is_zero() {
+        return Waited::Elapsed;
+    }
+    let sleep = tokio::time::sleep(wait);
+    tokio::pin!(sleep);
+    let mut clocks = ClockWatch::new(Instant::now(), wall());
+    let mut interval = tokio::time::interval(CHECK_INTERVAL);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        // After a pause longer than `wait`, the sleep and the tick are both
+        // ready and `select!` picks either: every wakeup looks at the clocks.
+        let elapsed = tokio::select! {
+            _ = &mut sleep => true,
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    return Waited::Shutdown;
+                }
+                false
+            }
+            _ = interval.tick() => false,
+        };
+        // A wall-clock step past the monotonic one, or a monotonic gap past
+        // the relay's retirement between two looks a second apart (a pause
+        // where every guest clock kept running).
+        let look = clocks.look(Instant::now(), wall());
+        if look.wall_ahead > CLOCK_JUMP || look.outlived_relay() {
+            return Waited::Resumed;
+        }
+        if elapsed {
+            return Waited::Elapsed;
+        }
+    }
+}
+
+/// What a background registration writes to stderr when the relay answers
+/// its Register: the first one, and each one after a drop, never a
+/// heartbeat. A journey timeline reads the Register time from it.
+struct RegisterLog {
+    /// The registration's stderr prefix; nothing is written without one.
+    label: Option<String>,
+    /// When the registration started.
+    started: Instant,
+    /// Failed attempts since the last Register (or the start).
+    failures: u64,
+    /// When the last registration ended, once one has.
+    dropped_at: Option<Instant>,
+}
+
+impl RegisterLog {
+    fn new(label: Option<String>, started: Instant) -> Self {
+        Self { label, started, failures: 0, dropped_at: None }
+    }
+
+    /// A registration that got ready has ended at `now`.
+    fn dropped(&mut self, now: Instant) {
+        self.failures = 0;
+        self.dropped_at = Some(now);
+    }
+
+    /// The line for a Register answered at `now` on `slot`.
+    fn registered_line(&self, slot: &str, now: Instant) -> Option<String> {
+        let label = self.label.as_ref()?;
+        let elapsed = now.saturating_duration_since(self.started).as_millis();
+        let again = match self.dropped_at {
+            Some(dropped) => {
+                format!(
+                    " again, {} ms after the drop,",
+                    now.saturating_duration_since(dropped).as_millis()
+                )
+            }
+            None => String::new(),
+        };
+        let retried = match self.failures {
+            0 => String::new(),
+            1 => " and 1 failed attempt".to_owned(),
+            failures => format!(" and {failures} failed attempts"),
+        };
+        Some(format!("{label}: registered{again} on slot {slot} after {elapsed} ms{retried}"))
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn run_registration_once(
-    daemon: Arc<RemoteDaemon>,
+    daemon: Arc<dyn RelayIncoming>,
     config: &RelayDaemonConfig,
     framing: RelayCircuitFraming,
     credentials: &RelayCredentialSource,
+    tls: &RelayTls,
     shutdown: &mut watch::Receiver<bool>,
     first_ready: &mut Option<oneshot::Sender<Result<(), ProviderError>>>,
-    registered: &mut bool,
+    circuits: &mut IncomingCircuitTasks,
+    attempt: &mut Attempt,
+    log: &RegisterLog,
+    state: &watch::Sender<RegistrationState>,
 ) -> Result<(), ProviderError> {
-    let authentication = authenticate_daemon_control(config, credentials);
+    let authentication = authenticate_daemon_control(config, credentials, tls);
     tokio::pin!(authentication);
-    let (mut socket, lease_seconds) = tokio::select! {
+    let control = tokio::select! {
         result = &mut authentication => result?,
         changed = shutdown.changed() => {
             if changed.is_err() || *shutdown.borrow() {
@@ -1542,92 +1846,386 @@ async fn run_registration_once(
             authentication.await?
         }
     };
-    let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
-    *registered = true;
+    attempt.registered = true;
+    state.send_replace(RegistrationState::Registered);
+    if let Some(line) = log.registered_line(&config.slot, Instant::now()) {
+        eprintln!("{line}");
+    }
     if let Some(sender) = first_ready.take() {
         let _ = sender.send(Ok(()));
     }
+    let mut socket = control.socket;
+    let mut ticket = control.ticket;
+    let mut standbys = standby::Standbys::new(config, framing, tls, &ticket);
     // Checked every second (relay_liveness.rs): a ping unanswered for 3 s,
-    // or a resume's wall-clock jump, finds a dead registration in seconds.
-    let mut liveness = Liveness::new(heartbeat, Instant::now(), std::time::SystemTime::now());
+    // or a resume (a wall-clock jump, or a monotonic gap past the relay's
+    // 45 s between two checks), finds a dead registration in seconds.
+    let mut liveness = registration_liveness(control.lease_seconds);
+    let mut renew_at = control.renew_at;
+    // Make-before-break: before the ticket expires a second control socket
+    // registers with a fresh one. Every relay takes a Register on the slot as
+    // the current registration and retires the one it replaced, so dials go to
+    // the new socket from that moment; Incomings already sent on the old one
+    // are still read until the relay closes it (`retiring`).
+    let mut renewal: Option<Renewal<'_>> = None;
+    let mut retiring: Option<RelaySocket> = None;
+    let mut retire_until = Instant::now();
     let mut interval = tokio::time::interval(CHECK_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut nonce = 0_u64;
-    let mut incoming_tasks = IncomingCircuitTasks::new(MAX_RELAY_INCOMING_TASKS);
-    let result = loop {
-        tokio::select! {
-            _ = incoming_tasks.join_next(), if !incoming_tasks.is_empty() => {}
+    let far = || Instant::now() + Duration::from_secs(86_400);
+    loop {
+        let message = tokio::select! {
+            _ = circuits.join_next(), if !circuits.is_empty() => continue,
+            ended = standbys.next(), if !standbys.is_empty() => {
+                let Some(end) = ended else { continue };
+                let end = match end {
+                    standby::StandbyEnd::Paired(circuit, link) => {
+                        let daemon = daemon.clone();
+                        circuits.try_spawn(circuit, async move { daemon.incoming(link).await });
+                        standby::StandbyEnd::Lapsed
+                    }
+                    other => other,
+                };
+                standbys.replace(&end, ticket.clone());
+                continue;
+            }
             changed = shutdown.changed() => {
-                if changed.is_err() || *shutdown.borrow() { break Ok(()) }
+                if changed.is_err() || *shutdown.borrow() { return Ok(()) }
+                continue;
+            }
+            _ = tokio::time::sleep_until(renew_at.unwrap_or_else(far)),
+                if renew_at.is_some() && renewal.is_none() =>
+            {
+                renew_at = None;
+                renewal = Some(Box::pin(authenticate_daemon_control(config, credentials, tls)));
+                continue;
+            }
+            renewed = poll_some(renewal.as_mut()) => {
+                renewal = None;
+                match renewed {
+                    Ok(control) => {
+                        let old = std::mem::replace(&mut socket, control.socket);
+                        ticket = control.ticket;
+                        retiring = Some(old);
+                        retire_until = Instant::now() + config.control_timeout;
+                        liveness = registration_liveness(control.lease_seconds);
+                        renew_at = control.renew_at;
+                    }
+                    Err(error) => {
+                        if let Some(label) = &log.label {
+                            eprintln!(
+                                "{label}: renewing the registration failed, retrying in {} ms: \
+                                 {error}",
+                                RENEWAL_RETRY.as_millis()
+                            );
+                        }
+                        renew_at = Some(Instant::now() + RENEWAL_RETRY);
+                    }
+                }
+                continue;
+            }
+            message = read_some(retiring.as_mut()) => {
+                match message {
+                    Ok(RelayControl::Incoming { circuit, lane, generation, join_ticket }) => {
+                        spawn_incoming(
+                            circuits, &daemon, config, framing, tls, circuit, lane, generation,
+                            join_ticket, log,
+                        );
+                    }
+                    Ok(_) => {}
+                    // Replaced: the relay closed it (after an Error), or it failed.
+                    Err(_) => retiring = None,
+                }
+                continue;
+            }
+            _ = tokio::time::sleep_until(retire_until), if retiring.is_some() =>
+            {
+                retiring = None;
+                continue;
             }
             _ = interval.tick() => {
-                match liveness.check(Instant::now(), std::time::SystemTime::now()) {
-                    Check::Idle => {}
+                match liveness.check(Instant::now(), wall_now()) {
+                    Check::Idle => continue,
                     Check::Ping => {
                         nonce = nonce.wrapping_add(1);
-                        if let Err(error) =
-                            send_control(&mut socket, &RelayControl::Ping { nonce }).await
-                        {
-                            break Err(error);
+                        match send_control(&mut socket, &RelayControl::Ping { nonce }).await {
+                            Ok(()) => continue,
+                            Err(error) => Err(error),
                         }
                     }
                     Check::Dead => {
-                        break Err(ProviderError::Transport(
+                        Err(ProviderError::Transport(
                             "relay registration stopped answering".into(),
+                        ))
+                    }
+                    Check::Resumed => {
+                        attempt.resumed = true;
+                        return Err(ProviderError::Transport(
+                            "relay registration did not survive a pause".into(),
                         ));
                     }
                 }
             }
-            message = read_control(&mut socket) => {
-                let message = match message {
-                    Ok(message) => message,
-                    Err(error) => break Err(error),
-                };
+            message = read_control(&mut socket) => message,
+        };
+        let failure = match message {
+            Ok(message) => {
                 liveness.on_inbound();
                 match message {
                     RelayControl::Incoming { circuit, lane, generation, join_ticket } => {
-                        let daemon = daemon.clone();
-                        let endpoint = config.endpoint.clone();
-                        let slot = config.slot.clone();
-                        let maximum = config.maximum_frame_bytes;
-                        let timeout = config.control_timeout;
-                        let task_circuit = circuit.clone();
-                        incoming_tasks.try_spawn(circuit, async move {
-                            if let Ok(link) = join_circuit(
-                                &endpoint,
-                                &slot,
-                                RelayRole::Daemon,
-                                framing,
-                                task_circuit,
-                                lane,
-                                generation,
-                                join_ticket,
-                                maximum,
-                                timeout,
-                            ).await {
-                                let inbound = InboundLink::network(link, NetworkPeer::Relay);
-                                let _ = daemon.accept(inbound).await;
-                            }
-                        });
+                        spawn_incoming(
+                            circuits,
+                            &daemon,
+                            config,
+                            framing,
+                            tls,
+                            circuit,
+                            lane,
+                            generation,
+                            join_ticket,
+                            log,
+                        );
+                        continue;
                     }
                     RelayControl::Ping { nonce } => {
                         send_control(&mut socket, &RelayControl::Pong { nonce }).await?;
+                        continue;
                     }
-                    RelayControl::Pong { .. } => {}
-                    RelayControl::Error { code, retryable, .. } => {
-                        break Err(relay_operation_rejection(
-                            &code,
-                            retryable,
-                            "relay registration is temporarily unavailable",
-                        ));
+                    RelayControl::Error { code, retryable, .. } => relay_operation_rejection(
+                        &code,
+                        retryable,
+                        "relay registration is temporarily unavailable",
+                    ),
+                    _ => continue,
+                }
+            }
+            Err(error) => error,
+        };
+        // The current socket ended (the relay saw the renewal's Register before
+        // this socket's last read, or its ticket ran out) while a renewal is in
+        // flight: the renewal decides, and the registration continues on it.
+        let Some(pending) = renewal.take() else {
+            return Err(failure);
+        };
+        let renewed = tokio::select! {
+            renewed = pending => renewed,
+            changed = shutdown.changed() => {
+                if changed.is_err() || *shutdown.borrow() {
+                    return Ok(());
+                }
+                return Err(failure);
+            }
+        };
+        let Ok(control) = renewed else {
+            return Err(failure);
+        };
+        socket = control.socket;
+        ticket = control.ticket;
+        liveness = registration_liveness(control.lease_seconds);
+        renew_at = control.renew_at;
+    }
+}
+
+fn registration_liveness(lease_seconds: u32) -> Liveness {
+    let heartbeat = Duration::from_secs(u64::from(lease_seconds).max(3) / 3);
+    Liveness::new(heartbeat, Instant::now(), wall_now())
+}
+
+/// Polls `future` when there is one, else never completes (a `select!`
+/// branch's future is built even while its branch is off).
+async fn poll_some<F: Future + Unpin>(future: Option<&mut F>) -> F::Output {
+    match future {
+        Some(future) => future.await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Reads `socket`'s next control message when there is a socket, else never.
+async fn read_some(socket: Option<&mut RelaySocket>) -> Result<RelayControl, ProviderError> {
+    match socket {
+        Some(socket) => read_control(socket).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// How long one daemon-side Join of an `Incoming` circuit has alone before a
+/// second one starts beside it (on a new WebSocket, with the same join ticket).
+/// A fresh Cloud machine's daemon, paired with a parked Connect the moment it
+/// registered, sometimes never joined that first circuit: production
+/// `cloud-chat-replies-production`, cold starts 2026-11-22 18:00Z to 11-23
+/// 06:10Z, the first dial of 3 of 9 created machines waited out the client's
+/// whole 4 s peer-join wait (`outcome=relay`, link 7.2 to 11.7 s) though the
+/// daemon had registered in 340 ms, and the client's redial was joined in 0.6 to
+/// 1 s every time. The one Join was given up silently, and its WebSocket connect
+/// (resolve, TCP, TLS, upgrade) is bounded only by the relay's 10 s connect.
+/// A healthy Join is Ready in well under a second (both ends join on the same
+/// Allocated/Incoming pair), so a second attempt at 1 s lands inside the client's
+/// wait. An extra Join on a circuit the first already joined is refused by the
+/// relay (`duplicate-role`) and closes; the first keeps waiting.
+const DAEMON_JOIN_STAGGER: Duration = Duration::from_secs(1);
+/// Daemon-side Joins of one `Incoming` in all: one every [`DAEMON_JOIN_STAGGER`]
+/// while none is Ready, all kept in flight until the registration's control
+/// timeout.
+const DAEMON_JOIN_ATTEMPTS: usize = 4;
+
+/// The first of `attempt`'s results that is Ok, starting one attempt at once
+/// and another every `stagger` while none has been (at most `most` in all,
+/// every one kept in flight), within `budget`. The error is the last failed
+/// attempt's, or a join timeout when the budget ran out first.
+async fn hedged_join<T, F, Fut>(
+    mut attempt: F,
+    stagger: Duration,
+    most: usize,
+    budget: Duration,
+) -> Result<T, ProviderError>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, ProviderError>>,
+{
+    use futures_util::stream::FuturesUnordered;
+    let deadline = Instant::now() + budget;
+    let mut running = FuturesUnordered::new();
+    running.push(attempt());
+    let mut launched = 1_usize;
+    let mut next_launch = Instant::now() + stagger;
+    let mut last_error = None;
+    loop {
+        let more = launched < most.max(1);
+        tokio::select! {
+            Some(result) = running.next(), if !running.is_empty() => match result {
+                Ok(joined) => return Ok(joined),
+                Err(error) => {
+                    last_error = Some(error);
+                    if running.is_empty() && !more {
+                        break;
                     }
-                    _ => {}
+                }
+            },
+            _ = tokio::time::sleep_until(next_launch), if more => {
+                running.push(attempt());
+                launched += 1;
+                next_launch = Instant::now() + stagger;
+            }
+            _ = tokio::time::sleep_until(deadline) => break,
+        }
+    }
+    Err(last_error.unwrap_or_else(|| relay_carrier_error("relay circuit join timed out")))
+}
+
+/// How long a daemon's registration WebSocket has alone before a second one opens beside it. A
+/// fresh Cloud machine's first outbound open sometimes dies silently while its network settles
+/// just after the create: production `cloud-chat-replies-production`, fresh machines, 2026-11-20
+/// to 11-24, 2 of 27 daemons logged `attempt 1 failed ... no answer within 10000 ms` and
+/// registered 10.8 and 11.1 s after they started (the retry, 86 ms later, registered in under a
+/// second), while the other 25 registered 0.15 to 0.5 s after the daemon started. Every dial
+/// parks behind that registration (`connect.link` 21 to 27 s). A healthy open is done in well
+/// under a second, so a second open at 1 s lands inside the client's wait.
+const DAEMON_REGISTER_STAGGER: Duration = Duration::from_secs(1);
+/// Registration opens of one attempt in all: one every [`DAEMON_REGISTER_STAGGER`] while none
+/// has opened.
+const DAEMON_REGISTER_ATTEMPTS: usize = 3;
+
+/// The first of `attempt`'s results that is Ok, starting one attempt at once and another every
+/// `stagger` while none has finished (at most `most` in all). An error `fatal` names, or the
+/// last error once no attempt is left running, ends it at once: a fast refusal is the caller's
+/// retry to schedule, not an open to hedge. Each attempt keeps its own bound, and the ones that
+/// lose are dropped, which closes their sockets before any Register is sent on them.
+async fn hedged_open<T, E, F, Fut>(
+    mut attempt: F,
+    stagger: Duration,
+    most: usize,
+    fatal: impl Fn(&E) -> bool,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    use futures_util::stream::FuturesUnordered;
+    let mut running = FuturesUnordered::new();
+    running.push(attempt());
+    let mut launched = 1_usize;
+    let mut next_launch = Instant::now() + stagger;
+    loop {
+        let more = launched < most.max(1);
+        tokio::select! {
+            Some(result) = running.next() => match result {
+                Ok(opened) => return Ok(opened),
+                Err(error) => {
+                    if fatal(&error) || running.is_empty() {
+                        return Err(error);
+                    }
+                }
+            },
+            _ = tokio::time::sleep_until(next_launch), if more => {
+                running.push(attempt());
+                launched += 1;
+                next_launch = Instant::now() + stagger;
+            }
+        }
+    }
+}
+
+/// Joins the circuit an `Incoming` names and hands it to `daemon`, unless the
+/// circuit is already joined or the registration holds its most circuits. The
+/// Join is hedged ([`DAEMON_JOIN_STAGGER`]); one that never became Ready is
+/// written to the registration's log, with how long it was tried.
+#[allow(clippy::too_many_arguments)]
+fn spawn_incoming(
+    circuits: &mut IncomingCircuitTasks,
+    daemon: &Arc<dyn RelayIncoming>,
+    config: &RelayDaemonConfig,
+    framing: RelayCircuitFraming,
+    tls: &RelayTls,
+    circuit: CircuitId,
+    lane: LaneToken,
+    generation: u64,
+    join_ticket: String,
+    log: &RegisterLog,
+) {
+    let daemon = daemon.clone();
+    let endpoint = config.endpoint.clone();
+    let slot = config.slot.clone();
+    let maximum = config.maximum_frame_bytes;
+    let timeout = config.control_timeout;
+    let tls = tls.clone();
+    let label = log.label.clone();
+    let task_circuit = circuit.clone();
+    circuits.try_spawn(circuit, async move {
+        let started = Instant::now();
+        let joined = hedged_join(
+            || {
+                join_circuit(
+                    &endpoint,
+                    &slot,
+                    RelayRole::Daemon,
+                    framing,
+                    task_circuit.clone(),
+                    lane.clone(),
+                    generation,
+                    join_ticket.clone(),
+                    maximum,
+                    timeout,
+                    &tls,
+                )
+            },
+            DAEMON_JOIN_STAGGER,
+            DAEMON_JOIN_ATTEMPTS,
+            timeout,
+        )
+        .await;
+        match joined {
+            Ok(link) => daemon.incoming(link).await,
+            Err(error) => {
+                if let Some(label) = &label {
+                    eprintln!(
+                        "{label}: an incoming circuit was not joined after {} ms: {error}",
+                        started.elapsed().as_millis()
+                    );
                 }
             }
         }
-    };
-    incoming_tasks.shutdown().await;
-    result
+    });
 }
 
 struct IncomingCircuitTasks {
@@ -1682,17 +2280,65 @@ impl IncomingCircuitTasks {
     }
 }
 
+/// A second control socket's authentication, in flight while the first serves.
+type Renewal<'a> = Pin<Box<dyn Future<Output = Result<DaemonControl, ProviderError>> + Send + 'a>>;
+
+/// A daemon control socket the relay answered `Registered` on.
+struct DaemonControl {
+    socket: RelaySocket,
+    lease_seconds: u32,
+    /// The ticket this registered with, for its Standby sockets (relay_standby.rs).
+    ticket: standby::StandbyTicket,
+    /// When to register again with a fresh ticket, before this one expires:
+    /// [`RENEW_AT_LIFETIME_FRACTION`] of the ticket's lifetime after it was
+    /// fetched (on this machine's monotonic clock, so a skewed wall clock does
+    /// not move it). None when the source cannot give a new ticket or the
+    /// ticket's lifetime is not readable: such a registration lasts as before.
+    renew_at: Option<Instant>,
+}
+
+/// A registration renews when this share of its ticket's lifetime has passed
+/// (200 s of a platform ticket's 300 s), which leaves a third of it for a
+/// renewal that fails to be retried before the relay ends the registration.
+const RENEW_AT_LIFETIME_FRACTION: (u32, u32) = (2, 3);
+/// The wait before trying a failed renewal again.
+const RENEWAL_RETRY: Duration = Duration::from_secs(5);
+
+fn renewal_time(
+    credentials: &RelayCredentialSource,
+    credential: &RelayCredential,
+    fetched_at: Instant,
+) -> Option<Instant> {
+    if !credentials.renews() {
+        return None;
+    }
+    let (numerator, denominator) = RENEW_AT_LIFETIME_FRACTION;
+    let lifetime = credential.lifetime()?;
+    Some(fetched_at + lifetime * numerator / denominator)
+}
+
 async fn authenticate_daemon_control(
     config: &RelayDaemonConfig,
     credentials: &RelayCredentialSource,
-) -> Result<(RelaySocket, u32), ProviderError> {
+    tls: &RelayTls,
+) -> Result<DaemonControl, ProviderError> {
     let mut retried_authentication = false;
     loop {
+        let fetched_at = Instant::now();
         let credential = credentials.fetch().await?;
-        let mut socket = match connect_relay_socket_once(
-            &config.endpoint,
-            Some(&credential),
-            MAX_RELAY_CONTROL_MESSAGE_BYTES,
+        let renew_at = renewal_time(credentials, &credential, fetched_at);
+        let mut socket = match hedged_open(
+            || {
+                connect_relay_socket_once(
+                    &config.endpoint,
+                    Some(&credential),
+                    MAX_RELAY_CONTROL_MESSAGE_BYTES,
+                    tls,
+                )
+            },
+            DAEMON_REGISTER_STAGGER,
+            DAEMON_REGISTER_ATTEMPTS,
+            |error| matches!(error, RelaySocketConnectError::Authentication),
         )
         .await
         {
@@ -1716,7 +2362,11 @@ async fn authenticate_daemon_control(
             .await
             .map_err(|_| relay_carrier_error("relay registration timed out"))??;
         match reply {
-            RelayControl::Registered { lease_seconds } => return Ok((socket, lease_seconds)),
+            RelayControl::Registered { lease_seconds } => {
+                let expires = credential.lifetime().map(|lifetime| fetched_at + lifetime);
+                let ticket = standby::StandbyTicket { credential, expires };
+                return Ok(DaemonControl { socket, lease_seconds, ticket, renew_at });
+            }
             RelayControl::Error { code, .. }
                 if relay_authentication_error(&code) && !retried_authentication =>
             {
@@ -1741,16 +2391,14 @@ async fn authenticate_daemon_control(
 async fn connect_provider_control(
     endpoint: &Url,
     credentials: &RelayCredentialSource,
+    maximum_message_bytes: usize,
+    tls: &RelayTls,
 ) -> Result<RelaySocket, ProviderError> {
     let mut retried_authentication = false;
     loop {
         let credential = credentials.fetch().await?;
-        match connect_relay_socket_once(
-            endpoint,
-            Some(&credential),
-            MAX_RELAY_CONTROL_MESSAGE_BYTES,
-        )
-        .await
+        match connect_relay_socket_once(endpoint, Some(&credential), maximum_message_bytes, tls)
+            .await
         {
             Ok(socket) => return Ok(socket),
             Err(RelaySocketConnectError::Authentication) if !retried_authentication => {
@@ -1781,10 +2429,11 @@ async fn connect_relay_socket(
     endpoint: &Url,
     authorization: Option<&str>,
     maximum_message_bytes: usize,
+    tls: &RelayTls,
 ) -> Result<RelaySocket, ProviderError> {
     let credential =
         authorization.map(|ticket| RelayCredential::parse(ticket.to_owned())).transpose()?;
-    connect_relay_socket_once(endpoint, credential.as_ref(), maximum_message_bytes)
+    connect_relay_socket_once(endpoint, credential.as_ref(), maximum_message_bytes, tls)
         .await
         .map_err(RelaySocketConnectError::into_provider_error)
 }
@@ -1793,6 +2442,7 @@ async fn connect_relay_socket_once(
     endpoint: &Url,
     authorization: Option<&RelayCredential>,
     maximum_message_bytes: usize,
+    tls: &RelayTls,
 ) -> Result<RelaySocket, RelaySocketConnectError> {
     let mut request = endpoint.as_str().into_client_request().map_err(|_| {
         RelaySocketConnectError::Provider(ProviderError::Transport(
@@ -1806,7 +2456,20 @@ async fn connect_relay_socket_once(
     let config = WebSocketConfig::default()
         .max_message_size(Some(maximum_message_bytes))
         .max_frame_size(Some(maximum_message_bytes));
-    match connect_async_with_config(request, Some(config), true).await {
+    let opened = tokio::time::timeout(RELAY_CONNECT_TIMEOUT, async {
+        // The TCP connect is hedged (`hedge`): a relay host's black-holed SYN gets a new socket
+        // in 400 ms instead of this whole budget. TLS and the upgrade run on the winner.
+        let socket = connect_relay_tcp(endpoint).await?;
+        client_async_tls_with_config(request, socket, Some(config), tls.connector()).await
+    })
+    .await
+    .map_err(|_| {
+        RelaySocketConnectError::Provider(ProviderError::Link(LinkError::Transport(format!(
+            "relay WebSocket connection failed: no answer within {} ms",
+            RELAY_CONNECT_TIMEOUT.as_millis()
+        ))))
+    })?;
+    match opened {
         Ok((socket, _)) => Ok(socket),
         Err(tokio_tungstenite::tungstenite::Error::Http(response))
             if matches!(response.status(), StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) =>
@@ -1815,6 +2478,23 @@ async fn connect_relay_socket_once(
         }
         Err(error) => Err(RelaySocketConnectError::Provider(relay_connect_error(error))),
     }
+}
+
+/// The relay endpoint's TCP stream, hedged over its addresses ([`super::hedge`]), Nagle off.
+async fn connect_relay_tcp(endpoint: &Url) -> Result<TcpStream, WebSocketError> {
+    let host = endpoint.host_str().ok_or(WebSocketError::Url(UrlError::NoHostName))?;
+    let port = endpoint
+        .port_or_known_default()
+        .ok_or(WebSocketError::Url(UrlError::UnsupportedUrlScheme))?;
+    let addresses = super::dial::resolve_dial_target(host, port)
+        .await
+        .map_err(|error| WebSocketError::Io(std::io::Error::other(error.to_string())))?;
+    let socket =
+        super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
+            .await
+            .map_err(WebSocketError::Io)?;
+    let _ = socket.set_nodelay(true);
+    Ok(socket)
 }
 
 fn relay_connect_error(error: WebSocketError) -> ProviderError {
@@ -1861,7 +2541,7 @@ fn relay_operation_rejection(
     retryable_message: &'static str,
 ) -> ProviderError {
     if retryable && !relay_authentication_error(code) {
-        relay_carrier_error(retryable_message)
+        relay_unavailable(retryable_message, code)
     } else {
         relay_rejection()
     }
@@ -1878,6 +2558,28 @@ fn relay_reconnect_error(
     } else {
         ProviderError::Transport(message)
     }
+}
+
+/// The relay's code for a slot whose daemon's ticket ran out with no renewal: the machine's
+/// relay credential is unavailable (its mint is down or stalled).
+const RELAY_CREDENTIAL_UNAVAILABLE: &str = "credential-unavailable";
+
+/// A retryable refusal, naming the relay's error code: a short word the
+/// relay sets (`slot-busy`), kept only when it looks like one. A lapsed
+/// registration (`credential-unavailable`) leads with that reason, the words a
+/// link's offline reason is read from (acpmux `peer_carrier::reason`), so the
+/// dial says why the machine is offline instead of reading as still connecting.
+fn relay_unavailable(message: &str, code: &str) -> ProviderError {
+    if code == RELAY_CREDENTIAL_UNAVAILABLE {
+        return relay_carrier_error(format!(
+            "{RELAY_CREDENTIAL_UNAVAILABLE}: the machine's relay ticket expired and was not \
+             renewed (relay code {RELAY_CREDENTIAL_UNAVAILABLE})"
+        ));
+    }
+    let word = code.len() <= 32
+        && !code.is_empty()
+        && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    relay_carrier_error(format!("{message} (relay code {})", if word { code } else { "other" }))
 }
 
 fn relay_rejection() -> ProviderError {
@@ -1913,7 +2615,13 @@ async fn read_control(socket: &mut RelaySocket) -> Result<RelayControl, Provider
                     .map_err(|_| relay_carrier_error("relay WebSocket write failed"))?;
             }
             Some(Ok(Message::Pong(_))) => {}
-            Some(Ok(Message::Close(_))) | None => {
+            Some(Ok(Message::Close(Some(frame)))) => {
+                return Err(relay_carrier_error(format!(
+                    "relay WebSocket closed (close {})",
+                    u16::from(frame.code)
+                )));
+            }
+            Some(Ok(Message::Close(None))) | None => {
                 return Err(relay_carrier_error("relay WebSocket closed"));
             }
             Some(Ok(Message::Binary(_))) => {
@@ -2016,1223 +2724,8 @@ fn random_capability() -> Result<String, ProviderError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::collections::BTreeMap;
-    use std::sync::Mutex as StdMutex;
-    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
-
-    use bytes::Bytes;
-    use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::TcpListener;
-    use tokio::sync::oneshot;
-    use tokio_tungstenite::accept_hdr_async;
-    use tokio_tungstenite::tungstenite::handshake::server::Request;
-    use tokio_tungstenite::tungstenite::protocol::frame::Frame;
-    use tokio_tungstenite::tungstenite::protocol::frame::coding::{Data, OpCode};
-
-    use super::*;
-
-    async fn receive_test_control(socket: &mut WebSocketStream<TcpStream>) -> RelayControl {
-        let message = socket.next().await.unwrap().unwrap();
-        let Message::Text(text) = message else {
-            panic!("expected relay control text, got {message:?}");
-        };
-        serde_json::from_str(&text).unwrap()
-    }
-
-    async fn send_test_control(socket: &mut WebSocketStream<TcpStream>, control: &RelayControl) {
-        socket.send(Message::Text(serde_json::to_string(control).unwrap().into())).await.unwrap();
-    }
-
-    #[allow(clippy::result_large_err)] // Required by tungstenite's handshake callback signature.
-    async fn accept_with_authorization(stream: TcpStream) -> (WebSocketStream<TcpStream>, String) {
-        let authorization = Arc::new(StdMutex::new(None));
-        let observed = authorization.clone();
-        let socket = accept_hdr_async(stream, move |request: &Request, response| {
-            let value = request
-                .headers()
-                .get(AUTHORIZATION)
-                .and_then(|value| value.to_str().ok())
-                .map(str::to_owned);
-            *observed.lock().unwrap() = value;
-            Ok(response)
-        })
-        .await
-        .unwrap();
-        let authorization = authorization.lock().unwrap().take().unwrap();
-        (socket, authorization)
-    }
-
-    #[tokio::test]
-    async fn relay_dial_bounds_fragmented_messages_and_disables_nagle() {
-        const MAXIMUM: usize = 8;
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
-            socket
-                .send(Message::Frame(Frame::message(
-                    Bytes::from_static(b"12345"),
-                    OpCode::Data(Data::Binary),
-                    false,
-                )))
-                .await
-                .unwrap();
-            socket
-                .send(Message::Frame(Frame::message(
-                    Bytes::from_static(b"67890"),
-                    OpCode::Data(Data::Continue),
-                    true,
-                )))
-                .await
-                .unwrap();
-        });
-
-        let mut socket = match connect_relay_socket_once(&endpoint, None, MAXIMUM).await {
-            Ok(socket) => socket,
-            Err(_) => panic!("bounded relay WebSocket dial failed"),
-        };
-        let MaybeTlsStream::Plain(stream) = socket.get_ref() else {
-            panic!("test relay did not use a plain TCP stream");
-        };
-        assert!(stream.nodelay().unwrap(), "relay dial left Nagle enabled");
-        let error = socket
-            .next()
-            .await
-            .expect("relay WebSocket closed before the oversize message")
-            .expect_err("relay WebSocket accepted an oversize fragmented message");
-        assert!(
-            error.to_string().contains("Message too long: 10 > 8"),
-            "relay limit was not enforced by the WebSocket codec: {error}"
-        );
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn established_relay_circuit_treats_retryable_error_as_carrier_loss() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
-        let circuit = CircuitId("retryable-error-circuit".into());
-        let lane = LaneToken("retryable-error-lane".into());
-        let server_circuit = circuit.clone();
-        let server_lane = lane.clone();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut socket, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer join-ticket");
-            assert_eq!(
-                receive_test_control(&mut socket).await,
-                RelayControl::Join {
-                    protocol: REMOTE_PROTOCOL_VERSION,
-                    slot: "test-slot".into(),
-                    circuit: server_circuit.clone(),
-                    lane: server_lane.clone(),
-                    generation: 4,
-                    ticket: "join-ticket".into(),
-                    role: RelayRole::Client,
-                }
-            );
-            send_test_control(
-                &mut socket,
-                &RelayControl::Ready { circuit: server_circuit, lane: server_lane, generation: 4 },
-            )
-            .await;
-            send_test_control(
-                &mut socket,
-                &RelayControl::Error {
-                    code: "peer-disconnected".into(),
-                    message: "peer disconnected".into(),
-                    retryable: true,
-                },
-            )
-            .await;
-        });
-
-        let link = join_circuit(
-            &endpoint,
-            "test-slot",
-            RelayRole::Client,
-            RelayCircuitFraming::Single,
-            circuit,
-            lane,
-            4,
-            "join-ticket".into(),
-            64,
-            Duration::from_secs(1),
-        )
-        .await
-        .unwrap();
-        assert!(matches!(link.receive().await, Err(LinkError::Transport(_))));
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn relay_circuit_join_timeout_is_retryable_carrier_failure() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
-        let circuit = CircuitId("join-timeout-circuit".into());
-        let lane = LaneToken("join-timeout-lane".into());
-        let server_circuit = circuit.clone();
-        let server_lane = lane.clone();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut socket, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer join-ticket");
-            assert_eq!(
-                receive_test_control(&mut socket).await,
-                RelayControl::Join {
-                    protocol: REMOTE_PROTOCOL_VERSION,
-                    slot: "test-slot".into(),
-                    circuit: server_circuit,
-                    lane: server_lane,
-                    generation: 5,
-                    ticket: "join-ticket".into(),
-                    role: RelayRole::Client,
-                }
-            );
-            let _ = socket.next().await;
-        });
-
-        let result = join_circuit(
-            &endpoint,
-            "test-slot",
-            RelayRole::Client,
-            RelayCircuitFraming::Single,
-            circuit,
-            lane,
-            5,
-            "join-ticket".into(),
-            64,
-            Duration::from_millis(20),
-        )
-        .await;
-        let error = match result {
-            Ok(_) => panic!("relay circuit unexpectedly became ready"),
-            Err(error) => error,
-        };
-        assert!(error.is_retryable_carrier_failure(), "{error}");
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn retryable_relay_circuit_rejection_is_retryable_carrier_failure() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
-        let circuit = CircuitId("join-rejection-circuit".into());
-        let lane = LaneToken("join-rejection-lane".into());
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut socket, _) = accept_with_authorization(stream).await;
-            assert!(matches!(
-                receive_test_control(&mut socket).await,
-                RelayControl::Join { generation: 6, .. }
-            ));
-            send_test_control(
-                &mut socket,
-                &RelayControl::Error {
-                    code: "peer-unavailable".into(),
-                    message: "peer is not ready".into(),
-                    retryable: true,
-                },
-            )
-            .await;
-        });
-
-        let result = join_circuit(
-            &endpoint,
-            "test-slot",
-            RelayRole::Client,
-            RelayCircuitFraming::Single,
-            circuit,
-            lane,
-            6,
-            "join-ticket".into(),
-            64,
-            Duration::from_secs(1),
-        )
-        .await;
-        let error = match result {
-            Ok(_) => panic!("relay circuit unexpectedly became ready"),
-            Err(error) => error,
-        };
-        assert!(error.is_retryable_carrier_failure(), "{error}");
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn retryable_allocation_rejection_is_retryable_carrier_failure() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
-            send_test_control(
-                &mut socket,
-                &RelayControl::Error {
-                    code: "edge-unavailable".into(),
-                    message: "try another edge".into(),
-                    retryable: true,
-                },
-            )
-            .await;
-        });
-
-        let mut socket =
-            connect_relay_socket(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await.unwrap();
-        let lane = LaneToken("allocation-rejection-lane".into());
-        let error = match read_until_allocation(&mut socket, &lane, 7).await {
-            Ok(_) => panic!("relay allocation unexpectedly succeeded"),
-            Err(error) => error.into_provider_error(),
-        };
-        assert!(error.is_retryable_carrier_failure(), "{error}");
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn relay_registration_timeout_is_retryable_carrier_failure() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut socket, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer registration-ticket");
-            assert!(matches!(
-                receive_test_control(&mut socket).await,
-                RelayControl::Register { .. }
-            ));
-            let _ = socket.next().await;
-        });
-        let config = RelayDaemonConfig {
-            endpoint: Url::parse(&format!("ws://{address}/v1/relay")).unwrap(),
-            slot: "test-slot".into(),
-            ticket: String::new(),
-            maximum_frame_bytes: 64,
-            control_timeout: Duration::from_millis(20),
-        };
-        let credentials = RelayCredentialSource::static_ticket("registration-ticket").unwrap();
-
-        let result = authenticate_daemon_control(&config, &credentials).await;
-        let error = match result {
-            Ok(_) => panic!("relay registration unexpectedly succeeded"),
-            Err(error) => error,
-        };
-        assert!(error.is_retryable_carrier_failure(), "{error}");
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn closed_relay_control_socket_is_retryable_carrier_failure() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = Url::parse(&format!("ws://{}", listener.local_addr().unwrap())).unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let mut socket = tokio_tungstenite::accept_async(stream).await.unwrap();
-            socket.close(None).await.unwrap();
-        });
-
-        let mut socket =
-            connect_relay_socket(&endpoint, None, MAX_RELAY_CONTROL_MESSAGE_BYTES).await.unwrap();
-        let error = read_control(&mut socket).await.unwrap_err();
-        assert!(error.is_retryable_carrier_failure(), "{error}");
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn cancelling_registration_startup_closes_its_spawned_control_loop() {
-        use crate::identity::AuthDatabase;
-        use crate::session::SessionLimits;
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint =
-            Url::parse(&format!("relay+ws://{}", listener.local_addr().unwrap())).unwrap();
-        let (registered_tx, registered_rx) = oneshot::channel();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut socket, _) = accept_with_authorization(stream).await;
-            assert!(matches!(
-                receive_test_control(&mut socket).await,
-                RelayControl::Register { .. }
-            ));
-            let _ = registered_tx.send(());
-            let closed = tokio::time::timeout(Duration::from_secs(1), socket.next())
-                .await
-                .expect("cancelled registration left its control socket open");
-            matches!(closed, None | Some(Err(_)))
-        });
-
-        let directory = tempfile::tempdir().unwrap();
-        let auth = AuthDatabase::load_or_create(directory.path(), "relay-cancel", true).unwrap();
-        let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
-        let registration = tokio::spawn(register_relay_daemon(
-            daemon,
-            RelayDaemonConfig {
-                endpoint,
-                slot: "cancelled-slot".into(),
-                ticket: "registration-ticket".into(),
-                maximum_frame_bytes: 65_535,
-                control_timeout: Duration::from_secs(5),
-            },
-        ));
-        registered_rx.await.unwrap();
-        registration.abort();
-        assert!(registration.await.unwrap_err().is_cancelled());
-        assert!(server.await.unwrap());
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn failed_credential_command_reports_its_status_and_stderr_codes_only() {
-        // What `cmux host cloud carrier-ticket` prints for a platform 404.
-        let line = "cmux host cloud carrier-ticket: carrier.unavailable: cmux has no carrier \
-                    route here yet.";
-        let source = RelayCredentialSource::command(
-            "/bin/sh",
-            ["-c".to_owned(), format!("echo '{line}' >&2; exit 3")],
-        );
-        let error = source.fetch().await.unwrap_err();
-        assert!(is_credential_source_error(&error), "{error}");
-        assert_eq!(
-            error.to_string(),
-            format!(
-                "transport provider failed: relay credential source command was unsuccessful (exit status: 3); \
-                 stderr: {} bytes, codes carrier.unavailable",
-                line.len() + 1
-            )
-        );
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn failed_credential_command_keeps_only_a_bounded_tail() {
-        let source = RelayCredentialSource::command(
-            "/bin/sh",
-            [
-                "-c",
-                "echo 'auth.refused: early' >&2; head -c 5000 /dev/zero | tr '\\0' x >&2; \
-                 echo ' carrier.unreachable: late' >&2; exit 1",
-            ],
-        );
-        let message = source.fetch().await.unwrap_err().to_string();
-        assert!(
-            message.ends_with(&format!(
-                "; stderr: {CREDENTIAL_COMMAND_STDERR_TAIL_BYTES} bytes, codes carrier.unreachable"
-            )),
-            "{message}"
-        );
-        assert!(!message.contains("auth.refused"), "the tail is unbounded: {message}");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn oversized_credential_answer_reports_its_stderr_code() {
-        // #37670 review 4 F3: a bad answer on stdout keeps stderr's code.
-        let script = format!(
-            "echo carrier.bad_answer: too long >&2; head -c {} /dev/zero | tr '\\0' a",
-            MAX_RELAY_CREDENTIAL_BYTES + 10
-        );
-        let source = RelayCredentialSource::command_with_timeout(
-            "/bin/sh",
-            ["-c".to_owned(), script],
-            Duration::from_secs(10),
-        );
-        let message = source.fetch().await.unwrap_err().to_string();
-        assert!(message.contains("was too large"), "{message}");
-        assert!(message.ends_with("codes carrier.bad_answer"), "{message}");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn timed_out_credential_command_reports_its_stderr_length() {
-        let source = RelayCredentialSource::command_with_timeout(
-            "/bin/sh",
-            ["-c", "echo stuck on the agent >&2; exec sleep 30"],
-            Duration::from_millis(200),
-        );
-        let started = Instant::now();
-        let message = source.fetch().await.unwrap_err().to_string();
-        assert!(started.elapsed() < Duration::from_secs(5), "the command was not stopped");
-        assert!(message.ends_with("timed out after 200 ms; stderr: 19 bytes"), "{message}");
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn background_registration_retries_a_failing_ticket_command_until_shutdown() {
-        use crate::identity::AuthDatabase;
-        use crate::session::SessionLimits;
-
-        let directory = tempfile::tempdir().unwrap();
-        let attempts = directory.path().join("attempts");
-        let auth =
-            AuthDatabase::load_or_create(directory.path(), "relay-ticket-retry", true).unwrap();
-        let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
-        let registration = spawn_relay_daemon_registration(
-            daemon,
-            RelayDaemonConfig {
-                endpoint: Url::parse("relay+ws://127.0.0.1:9").unwrap(),
-                slot: "ticket-retry-slot".into(),
-                ticket: String::new(),
-                maximum_frame_bytes: 65_535,
-                control_timeout: Duration::from_secs(1),
-            },
-            RelayCredentialSource::command(
-                "/bin/sh",
-                [
-                    "-c".to_owned(),
-                    format!("echo attempt >> '{}'; echo refused >&2; exit 1", attempts.display()),
-                ],
-            ),
-            "test",
-        )
-        .expect("a failing ticket command is not a configuration error");
-        let count =
-            || std::fs::read_to_string(&attempts).map(|text| text.lines().count()).unwrap_or(0);
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while count() < 2 {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("the registration did not retry the ticket command");
-        tokio::time::timeout(Duration::from_secs(1), registration.shutdown())
-            .await
-            .expect("the registration did not stop at shutdown");
-        let stopped = count();
-        tokio::time::sleep(Duration::from_millis(1500)).await;
-        assert_eq!(count(), stopped, "the registration kept running after shutdown");
-    }
-
-    #[test]
-    fn stderr_summary_names_only_known_codes() {
-        // #37670 review 4 F1: a code-shaped secret is not a code.
-        let stderr = b"carrier.unavailable: no route; dead.beef password.secret v1.abc.def\n";
-        assert_eq!(
-            stderr_summary(stderr),
-            format!("; stderr: {} bytes, codes carrier.unavailable", stderr.len())
-        );
-        let stderr = b"dead.beef\n";
-        assert_eq!(stderr_summary(stderr), format!("; stderr: {} bytes", stderr.len()));
-    }
-
-    #[test]
-    fn stderr_summary_keeps_our_ticket_error_codes() {
-        // carrier_ticket.rs (cmux-host): every refusal `host cloud
-        // carrier-ticket` prints leads with its code.
-        for (line, code) in [
-            ("carrier.unavailable: cmux has no carrier route here yet.", "carrier.unavailable"),
-            ("auth.refused: cmux refused this machine's carrier ticket.", "auth.refused"),
-            ("carrier.rate_limited: cmux is rate limited.", "carrier.rate_limited"),
-            ("carrier.unreachable: Check this machine's connection.", "carrier.unreachable"),
-            ("carrier.bad_answer: cmux did not return a carrier ticket.", "carrier.bad_answer"),
-            ("vm.unbound: this machine is not bound to cmux Cloud yet", "vm.unbound"),
-            (
-                "vm.agent_unreachable: /run/cmux-vm-agent/agent.sock (refused)",
-                "vm.agent_unreachable",
-            ),
-            ("carrier.busy: too many asks are waiting; retry", "carrier.busy"),
-            // #37670 review F1 (98b5502a): the agent socket's own refusals.
-            ("vm.agent_stopping: the Cloud agent is stopping", "vm.agent_stopping"),
-            ("vm.agent_bad_answer: the Cloud agent's answer was not JSON", "vm.agent_bad_answer"),
-        ] {
-            let stderr = format!("cmux host cloud carrier-ticket: {line}\n");
-            assert_eq!(
-                stderr_summary(stderr.as_bytes()),
-                format!("; stderr: {} bytes, codes {code}", stderr.len())
-            );
-        }
-        assert_eq!(
-            stderr_summary(
-                b"carrier.unavailable: owner.unreachable carrier.unavailable HTTP/1.1 503"
-            ),
-            "; stderr: 71 bytes, codes carrier.unavailable, owner.unreachable, HTTP 503"
-        );
-        let five =
-            b"auth.refused carrier.busy vm.unbound carrier.unreachable carrier.bad_answer HTTP 500";
-        assert_eq!(
-            stderr_summary(five),
-            format!(
-                "; stderr: {} bytes, codes auth.refused, carrier.busy, vm.unbound, \
-                 carrier.unreachable, HTTP 500",
-                five.len()
-            )
-        );
-        assert_eq!(stderr_summary(b""), "");
-    }
-
-    #[test]
-    fn stderr_summary_never_carries_a_secret() {
-        let secrets = [
-            ("ticket: abcdefgh", "abcdefgh"),
-            ("password: abc", "abc"),
-            ("Authorization: Bearer abc", "abc"),
-            ("token /9j4AAQSkZJRgABAQ1Ab3c+x/YZ answered", "9j4AAQ"),
-            ("/abcdefghijklmnopqrst/1234567890", "abcdefghijklmnopqrst"),
-            ("/abcdefghijklmnopqrst/1234567890", "1234567890"),
-            (r#"{"password": "hunter2"}"#, "hunter2"),
-            ("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOjF9.c2lnbmF0dXJl", "eyJ"),
-            ("ticket v1.0af3.9c2e", "0af3"),
-            ("ticket v1.abc.def", "abc"),
-        ];
-        for (stderr, secret) in secrets {
-            let summary = stderr_summary(stderr.as_bytes());
-            assert_eq!(summary, format!("; stderr: {} bytes", stderr.len()), "{stderr}");
-            assert!(!summary.contains(secret), "{secret} leaked: {summary}");
-        }
-    }
-
-    #[tokio::test]
-    async fn daemon_registration_retries_transient_initial_carrier_failure() {
-        use crate::identity::AuthDatabase;
-        use crate::session::SessionLimits;
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint =
-            Url::parse(&format!("relay+ws://{}", listener.local_addr().unwrap())).unwrap();
-        let server = tokio::spawn(async move {
-            let (mut failed, _) = listener.accept().await.unwrap();
-            failed
-                .write_all(
-                    b"HTTP/1.1 500 Internal Server Error\r\n\
-                      Content-Length: 0\r\n\
-                      Connection: close\r\n\r\n",
-                )
-                .await
-                .unwrap();
-            failed.shutdown().await.unwrap();
-
-            let (stream, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept())
-                .await
-                .expect("relay daemon did not retry its initial carrier failure")
-                .unwrap();
-            let (mut socket, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer registration-ticket");
-            assert!(matches!(
-                receive_test_control(&mut socket).await,
-                RelayControl::Register { .. }
-            ));
-            send_test_control(&mut socket, &RelayControl::Registered { lease_seconds: 30 }).await;
-            while socket.next().await.is_some() {}
-        });
-
-        let directory = tempfile::tempdir().unwrap();
-        let auth =
-            AuthDatabase::load_or_create(directory.path(), "relay-startup-retry", true).unwrap();
-        let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
-        let registration = tokio::time::timeout(
-            Duration::from_secs(2),
-            register_relay_daemon(
-                daemon,
-                RelayDaemonConfig {
-                    endpoint,
-                    slot: "startup-retry-slot".into(),
-                    ticket: "registration-ticket".into(),
-                    maximum_frame_bytes: 65_535,
-                    control_timeout: Duration::from_secs(1),
-                },
-            ),
-        )
-        .await
-        .expect("relay registration did not become ready")
-        .expect("transient initial carrier failure stopped relay registration");
-
-        tokio::time::timeout(Duration::from_secs(1), registration.shutdown())
-            .await
-            .expect("relay registration shutdown did not complete");
-        server.await.unwrap();
-    }
-
-    /// A relay that stops answering (a machine resumed after the relay retired
-    /// its control) is registered with again within seconds, with a fresh
-    /// ticket from the credential source.
-    #[tokio::test]
-    async fn daemon_registers_again_when_the_relay_stops_answering_pings() {
-        use crate::identity::AuthDatabase;
-        use crate::session::SessionLimits;
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut silent, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer ticket-1");
-            assert!(matches!(
-                receive_test_control(&mut silent).await,
-                RelayControl::Register { .. }
-            ));
-            // A 3 s lease pings every second; this relay never answers.
-            send_test_control(&mut silent, &RelayControl::Registered { lease_seconds: 3 }).await;
-            let (stream, _) = tokio::time::timeout(Duration::from_secs(8), listener.accept())
-                .await
-                .expect("the daemon did not register again after its pings went unanswered")
-                .unwrap();
-            let (mut second, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer ticket-2");
-            assert!(matches!(
-                receive_test_control(&mut second).await,
-                RelayControl::Register { .. }
-            ));
-            send_test_control(&mut second, &RelayControl::Registered { lease_seconds: 30 }).await;
-            drop(silent);
-            while second.next().await.is_some() {}
-        });
-        let calls = Arc::new(AtomicUsize::new(0));
-        let credentials = RelayCredentialSource::callback({
-            let calls = calls.clone();
-            move || {
-                let value = calls.fetch_add(1, AtomicOrdering::SeqCst) + 1;
-                async move { Ok::<_, ()>(format!("ticket-{value}")) }
-            }
-        });
-        let directory = tempfile::tempdir().unwrap();
-        let auth = AuthDatabase::load_or_create(directory.path(), "relay-silent", true).unwrap();
-        let (daemon, _clients) = RemoteDaemon::new(auth, SessionLimits::default());
-        let registration = register_relay_daemon_with_credentials(
-            daemon,
-            RelayDaemonConfig {
-                endpoint: Url::parse(&format!("relay+ws://{address}")).unwrap(),
-                slot: "silent-relay-slot".into(),
-                ticket: String::new(),
-                maximum_frame_bytes: 65_535,
-                control_timeout: Duration::from_secs(2),
-            },
-            credentials,
-        )
-        .await
-        .unwrap();
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while calls.load(AtomicOrdering::SeqCst) < 2 {
-                tokio::task::yield_now().await;
-                tokio::time::sleep(Duration::from_millis(50)).await;
-            }
-        })
-        .await
-        .expect("no second ticket was asked for");
-        tokio::time::timeout(Duration::from_secs(1), registration.shutdown())
-            .await
-            .expect("relay registration shutdown did not complete");
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn provider_description_redacts_relay_capabilities_and_slot() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut socket, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer provider-ticket");
-            let _ = socket.next().await;
-        });
-        let endpoint = Url::parse(&format!(
-            "relay+ws://{address}/capability-path?ticket=query-secret#fragment"
-        ))
-        .unwrap();
-        let provider = RelayProvider::new(RelayClientConfig {
-            slot: "secret-slot".into(),
-            ticket: "provider-ticket".into(),
-            maximum_frame_bytes: 65_535,
-            control_timeout: Duration::from_secs(1),
-        })
-        .unwrap();
-
-        let group = provider
-            .connect(ConnectRequest {
-                endpoint: endpoint.clone(),
-                session: SessionId::ZERO,
-                lane_policy: LanePolicy::Single,
-                routing: BTreeMap::new(),
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(group.description(), sanitized_route(&endpoint));
-        group.close().await.unwrap();
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn daemon_registration_refreshes_after_authentication_rejection() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut first, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer register-ticket-1");
-            assert!(matches!(
-                receive_test_control(&mut first).await,
-                RelayControl::Register { ticket, .. } if ticket == "register-ticket-1"
-            ));
-            send_test_control(
-                &mut first,
-                &RelayControl::Error {
-                    code: "invalid-ticket".into(),
-                    message: "rejected".into(),
-                    retryable: false,
-                },
-            )
-            .await;
-
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut second, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer register-ticket-2");
-            assert!(matches!(
-                receive_test_control(&mut second).await,
-                RelayControl::Register { ticket, .. } if ticket == "register-ticket-2"
-            ));
-            send_test_control(&mut second, &RelayControl::Registered { lease_seconds: 30 }).await;
-        });
-        let calls = Arc::new(AtomicUsize::new(0));
-        let credentials = RelayCredentialSource::callback({
-            let calls = calls.clone();
-            move || {
-                let value = calls.fetch_add(1, AtomicOrdering::SeqCst) + 1;
-                async move { Ok::<_, ()>(format!("register-ticket-{value}")) }
-            }
-        });
-        let config = RelayDaemonConfig {
-            endpoint: Url::parse(&format!("ws://{address}/v1/relay")).unwrap(),
-            slot: "test-slot".into(),
-            ticket: String::new(),
-            maximum_frame_bytes: 64,
-            control_timeout: Duration::from_secs(2),
-        };
-        let (mut socket, lease) = authenticate_daemon_control(&config, &credentials).await.unwrap();
-        assert_eq!(lease, 30);
-        assert_eq!(calls.load(AtomicOrdering::SeqCst), 2);
-        let _ = socket.close(None).await;
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn cancelled_allocation_discards_the_shared_control_socket() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let (first_seen_tx, first_seen_rx) = oneshot::channel();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut abandoned_control, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer client-ticket");
-            assert!(matches!(
-                receive_test_control(&mut abandoned_control).await,
-                RelayControl::Connect { generation: 1, .. }
-            ));
-            first_seen_tx.send(()).unwrap();
-
-            let (stream, _) = tokio::time::timeout(Duration::from_secs(10), listener.accept())
-                .await
-                .expect("retry reused the cancellation-contaminated control socket")
-                .unwrap();
-            let (mut replacement_control, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer client-ticket");
-            let RelayControl::Connect { lane, generation, .. } =
-                receive_test_control(&mut replacement_control).await
-            else {
-                panic!("expected retried relay allocation");
-            };
-            assert_eq!(generation, 2);
-            let circuit = CircuitId("after-cancellation".into());
-            send_test_control(
-                &mut replacement_control,
-                &RelayControl::Allocated {
-                    circuit: circuit.clone(),
-                    lane: lane.clone(),
-                    generation,
-                    join_ticket: "replacement-join-ticket".into(),
-                },
-            )
-            .await;
-
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut circuit_socket, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer replacement-join-ticket");
-            assert_eq!(
-                receive_test_control(&mut circuit_socket).await,
-                RelayControl::Join {
-                    protocol: REMOTE_PROTOCOL_VERSION,
-                    slot: "test-slot".into(),
-                    circuit: circuit.clone(),
-                    lane: lane.clone(),
-                    generation,
-                    ticket: "replacement-join-ticket".into(),
-                    role: RelayRole::Client,
-                }
-            );
-            send_test_control(
-                &mut circuit_socket,
-                &RelayControl::Ready { circuit, lane, generation },
-            )
-            .await;
-            let message = circuit_socket.next().await.unwrap().unwrap();
-            let Message::Binary(payload) = message else {
-                panic!("expected circuit payload, got {message:?}");
-            };
-            circuit_socket.send(Message::Binary(payload)).await.unwrap();
-        });
-
-        let provider = RelayProvider::new(RelayClientConfig {
-            slot: "test-slot".into(),
-            ticket: "client-ticket".into(),
-            maximum_frame_bytes: 64,
-            control_timeout: Duration::from_secs(5),
-        })
-        .unwrap();
-        let group = provider
-            .connect(ConnectRequest {
-                endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
-                session: SessionId::ZERO,
-                lane_policy: LanePolicy::Single,
-                routing: BTreeMap::new(),
-            })
-            .await
-            .unwrap();
-        let abandoned = tokio::spawn({
-            let group = group.clone();
-            async move { group.open(LinkRequest { lane: Lane::Interactive, generation: 1 }).await }
-        });
-        first_seen_rx.await.unwrap();
-        abandoned.abort();
-        assert!(matches!(abandoned.await, Err(error) if error.is_cancelled()));
-
-        let link = tokio::time::timeout(
-            Duration::from_secs(10),
-            group.open(LinkRequest { lane: Lane::Interactive, generation: 2 }),
-        )
-        .await
-        .expect("relay allocation did not recover after cancellation")
-        .unwrap();
-        assert_eq!(link.maximum_frame_bytes(), 64);
-        assert!(matches!(
-            link.send(Bytes::from(vec![0_u8; 65])).await,
-            Err(LinkError::FrameTooLarge { actual: 65, maximum: 64 })
-        ));
-        link.send(Bytes::from_static(b"after cancellation")).await.unwrap();
-        assert_eq!(link.receive().await.unwrap().unwrap(), b"after cancellation".as_slice());
-        link.close().await.unwrap();
-        group.close().await.unwrap();
-        server.await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn rotating_credentials_refresh_on_connect_authentication_retry() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut failed_control, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer client-ticket-1");
-            assert!(matches!(
-                receive_test_control(&mut failed_control).await,
-                RelayControl::Connect { generation: 7, ticket, .. }
-                    if ticket == "client-ticket-2"
-            ));
-            send_test_control(
-                &mut failed_control,
-                &RelayControl::Error {
-                    code: "unauthorized".into(),
-                    message: "expired".into(),
-                    retryable: false,
-                },
-            )
-            .await;
-
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut replacement_control, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer client-ticket-3");
-            let RelayControl::Connect { lane, generation, ticket, .. } =
-                receive_test_control(&mut replacement_control).await
-            else {
-                panic!("expected client connect on replacement control socket");
-            };
-            assert_eq!(ticket, "client-ticket-4");
-            let circuit = CircuitId("reconnected-circuit".into());
-            send_test_control(
-                &mut replacement_control,
-                &RelayControl::Allocated {
-                    circuit: circuit.clone(),
-                    lane: lane.clone(),
-                    generation,
-                    join_ticket: "replacement-join-ticket".into(),
-                },
-            )
-            .await;
-
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut circuit_socket, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer replacement-join-ticket");
-            assert_eq!(
-                receive_test_control(&mut circuit_socket).await,
-                RelayControl::Join {
-                    protocol: REMOTE_PROTOCOL_VERSION,
-                    slot: "test-slot".into(),
-                    circuit: circuit.clone(),
-                    lane: lane.clone(),
-                    generation,
-                    ticket: "replacement-join-ticket".into(),
-                    role: RelayRole::Client,
-                }
-            );
-            send_test_control(
-                &mut circuit_socket,
-                &RelayControl::Ready { circuit, lane, generation },
-            )
-            .await;
-            let message = circuit_socket.next().await.unwrap().unwrap();
-            let Message::Binary(payload) = message else {
-                panic!("expected circuit payload, got {message:?}");
-            };
-            circuit_socket.send(Message::Binary(payload)).await.unwrap();
-            let _ = circuit_socket.next().await;
-            let _ = replacement_control.next().await;
-        });
-
-        let calls = Arc::new(AtomicUsize::new(0));
-        let credentials = RelayCredentialSource::callback({
-            let calls = calls.clone();
-            move || {
-                let value = calls.fetch_add(1, AtomicOrdering::SeqCst) + 1;
-                async move { Ok::<_, ()>(format!("client-ticket-{value}")) }
-            }
-        });
-        let provider = RelayProvider::with_credentials(
-            RelayClientConfig {
-                slot: "test-slot".into(),
-                ticket: "legacy-ticket-must-not-be-used".into(),
-                maximum_frame_bytes: 64,
-                control_timeout: Duration::from_secs(10),
-            },
-            credentials,
-        )
-        .unwrap();
-        let group = provider
-            .connect(ConnectRequest {
-                endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
-                session: SessionId::ZERO,
-                lane_policy: LanePolicy::Isolated,
-                routing: BTreeMap::new(),
-            })
-            .await
-            .unwrap();
-        let link = tokio::time::timeout(
-            Duration::from_secs(10),
-            group.open(LinkRequest { lane: Lane::Interactive, generation: 7 }),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        link.send(Bytes::from_static(b"after-reconnect")).await.unwrap();
-        assert_eq!(link.receive().await.unwrap().unwrap(), &b"after-reconnect"[..]);
-        assert_eq!(calls.load(AtomicOrdering::SeqCst), 4);
-        link.close().await.unwrap();
-        group.close().await.unwrap();
-        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
-    }
-
-    #[tokio::test]
-    async fn parked_connect_is_answered_on_the_same_request() {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut control, _) = accept_with_authorization(stream).await;
-            let RelayControl::Connect { lane, generation, accepts_parked, .. } =
-                receive_test_control(&mut control).await
-            else {
-                panic!("expected client connect");
-            };
-            assert!(accepts_parked, "the client must ask for Parked before a relay sends it");
-            send_test_control(
-                &mut control,
-                &RelayControl::Parked { lane: lane.clone(), generation },
-            )
-            .await;
-            let circuit = CircuitId("parked-circuit".into());
-            send_test_control(
-                &mut control,
-                &RelayControl::Allocated {
-                    circuit: circuit.clone(),
-                    lane: lane.clone(),
-                    generation,
-                    join_ticket: "parked-join-ticket".into(),
-                },
-            )
-            .await;
-
-            let (stream, _) = tokio::time::timeout(Duration::from_secs(10), listener.accept())
-                .await
-                .expect("the client opened no circuit after Parked")
-                .unwrap();
-            let (mut circuit_socket, authorization) = accept_with_authorization(stream).await;
-            assert_eq!(authorization, "Bearer parked-join-ticket");
-            assert!(matches!(
-                receive_test_control(&mut circuit_socket).await,
-                RelayControl::Join { .. }
-            ));
-            send_test_control(
-                &mut circuit_socket,
-                &RelayControl::Ready { circuit, lane, generation },
-            )
-            .await;
-            let message = circuit_socket.next().await.unwrap().unwrap();
-            let Message::Binary(payload) = message else {
-                panic!("expected circuit payload, got {message:?}");
-            };
-            circuit_socket.send(Message::Binary(payload)).await.unwrap();
-            let _ = circuit_socket.next().await;
-            let _ = control.next().await;
-        });
-
-        let provider = RelayProvider::new(RelayClientConfig {
-            slot: "test-slot".into(),
-            ticket: "client-ticket".into(),
-            maximum_frame_bytes: 64,
-            control_timeout: Duration::from_secs(5),
-        })
-        .unwrap();
-        let group = provider
-            .connect(ConnectRequest {
-                endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
-                session: SessionId::ZERO,
-                lane_policy: LanePolicy::Isolated,
-                routing: BTreeMap::new(),
-            })
-            .await
-            .unwrap();
-        let link = tokio::time::timeout(
-            Duration::from_secs(10),
-            group.open(LinkRequest { lane: Lane::Interactive, generation: 3 }),
-        )
-        .await
-        .unwrap()
-        .unwrap();
-        link.send(Bytes::from_static(b"after-park")).await.unwrap();
-        assert_eq!(link.receive().await.unwrap().unwrap(), &b"after-park"[..]);
-        link.close().await.unwrap();
-        group.close().await.unwrap();
-        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
-    }
-
-    /// A relay that answers one Connect after `delay`, then serves its circuit.
-    async fn answer_connect_after(
-        delay: Duration,
-    ) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut control, _) = accept_with_authorization(stream).await;
-            let RelayControl::Connect { lane, generation, .. } =
-                receive_test_control(&mut control).await
-            else {
-                panic!("expected client connect");
-            };
-            tokio::time::sleep(delay).await;
-            let circuit = CircuitId("late-circuit".into());
-            send_test_control(
-                &mut control,
-                &RelayControl::Allocated {
-                    circuit: circuit.clone(),
-                    lane: lane.clone(),
-                    generation,
-                    join_ticket: "late-join-ticket".into(),
-                },
-            )
-            .await;
-            let (stream, _) = listener.accept().await.unwrap();
-            let (mut circuit_socket, _) = accept_with_authorization(stream).await;
-            assert!(matches!(
-                receive_test_control(&mut circuit_socket).await,
-                RelayControl::Join { .. }
-            ));
-            send_test_control(
-                &mut circuit_socket,
-                &RelayControl::Ready { circuit, lane, generation },
-            )
-            .await;
-            let _ = circuit_socket.next().await;
-            let _ = control.next().await;
-        });
-        (address, server)
-    }
-
-    /// A relay that holds the first Connect past `control_timeout` (as it
-    /// parks one until the daemon registers) still answers it inside the
-    /// provider's allocation deadline, and a hold that outlives the deadline
-    /// fails as an allocation timeout. A resume (a later generation) keeps
-    /// `control_timeout`, even once the first connect's deadline has passed.
-    #[tokio::test]
-    async fn a_parked_allocation_waits_until_the_allocation_deadline() {
-        let config = RelayClientConfig {
-            slot: "test-slot".into(),
-            ticket: "client-ticket".into(),
-            maximum_frame_bytes: 64,
-            control_timeout: Duration::from_millis(100),
-        };
-        let request = |address: std::net::SocketAddr| ConnectRequest {
-            endpoint: Url::parse(&format!("relay+ws://{address}/v1/relay")).unwrap(),
-            session: SessionId::ZERO,
-            lane_policy: LanePolicy::Isolated,
-            routing: BTreeMap::new(),
-        };
-        // Past the 100 ms control timeout, inside the 5 s deadline.
-        let (address, server) = answer_connect_after(Duration::from_millis(400)).await;
-        let provider = RelayProvider::new(config.clone())
-            .unwrap()
-            .with_allocation_deadline(Instant::now() + Duration::from_secs(5));
-        let group = provider.connect(request(address)).await.unwrap();
-        let link = group
-            .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
-            .await
-            .expect("a park inside the deadline is answered");
-        link.close().await.unwrap();
-        group.close().await.unwrap();
-        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
-
-        // A resume after the deadline passed waits control_timeout, not zero.
-        let (address, server) = answer_connect_after(Duration::from_millis(20)).await;
-        let provider =
-            RelayProvider::new(config.clone()).unwrap().with_allocation_deadline(Instant::now());
-        let group = provider.connect(request(address)).await.unwrap();
-        let link = group
-            .open(LinkRequest { lane: Lane::Interactive, generation: 1 })
-            .await
-            .expect("a resume keeps control_timeout after the dial's deadline");
-        link.close().await.unwrap();
-        group.close().await.unwrap();
-        tokio::time::timeout(Duration::from_secs(10), server).await.unwrap().unwrap();
-
-        // A park that never ends fails at the deadline, not at control_timeout.
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            // The client's reconnect after the timeout is refused at once.
-            drop(listener);
-            let (mut control, _) = accept_with_authorization(stream).await;
-            let RelayControl::Connect { .. } = receive_test_control(&mut control).await else {
-                panic!("expected client connect");
-            };
-            while control.next().await.is_some() {}
-        });
-        let started = Instant::now();
-        let provider = RelayProvider::new(config)
-            .unwrap()
-            .with_allocation_deadline(started + Duration::from_millis(600));
-        let group = provider.connect(request(address)).await.unwrap();
-        let error = group
-            .open(LinkRequest { lane: Lane::Interactive, generation: 0 })
-            .await
-            .err()
-            .expect("a park past the deadline fails");
-        let waited = started.elapsed();
-        assert!(error.to_string().contains("allocation timed out"), "{error}");
-        assert!(
-            waited >= Duration::from_millis(500),
-            "gave up after {waited:?}, before the deadline"
-        );
-        assert!(waited < Duration::from_secs(5), "waited {waited:?}, past the deadline");
-        let _ = group.close().await;
-        server.abort();
-    }
-}
+#[path = "relay_registration_state_tests.rs"]
+mod registration_state_tests;
+#[cfg(test)]
+#[path = "relay_tests.rs"]
+mod tests;

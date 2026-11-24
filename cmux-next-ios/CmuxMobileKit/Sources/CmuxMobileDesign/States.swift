@@ -97,7 +97,7 @@ public struct ShimmerModifier: ViewModifier {
                 }
                 .mask(content)
                 .onAppear {
-                    withAnimation(.linear(duration: theme.motion.shimmerPeriod).repeatForever(autoreverses: false)) {
+                    withAnimation(.linear(duration: theme.motion.shimmerPeriod).repeatForever(autoreverses: false).unlessReduceMotion) {
                         phase = 1.0
                     }
                 }
@@ -119,16 +119,28 @@ public struct SkeletonList: View {
     let rows: Int
     let leadingSquare: CGFloat?
     let delay: Duration
+    /// Says what loads ("Loading workspaces…"), above the rows and as their
+    /// spoken label; nil keeps the plain "Loading".
+    let caption: LocalizedStringKey?
     @State private var isVisible = false
 
-    public init(rows: Int = 6, leadingSquare: CGFloat? = nil, delay: Duration = CmuxMobileTheme.standard.motion.skeletonDelay) {
+    public init(rows: Int = 6, leadingSquare: CGFloat? = nil, delay: Duration = CmuxMobileTheme.standard.motion.skeletonDelay,
+                caption: LocalizedStringKey? = nil) {
         self.rows = min(rows, 6)
         self.leadingSquare = leadingSquare
         self.delay = delay
+        self.caption = caption
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let caption {
+                Text(caption)
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+            }
             ForEach(0..<rows, id: \.self) { _ in
                 HStack(spacing: 12) {
                     if let leadingSquare {
@@ -157,10 +169,10 @@ public struct SkeletonList: View {
         .task {
             guard delay > .zero else { return }
             try? await Task.sleep(for: delay)
-            withAnimation(theme.motion.snap.animation) { isVisible = true }
+            withAnimation(theme.motion.snap.animation.unlessReduceMotion) { isVisible = true }
         }
         .accessibilityElement()
-        .accessibilityLabel(Text("Loading"))
+        .accessibilityLabel(caption.map { Text($0) } ?? Text("Loading"))
     }
 }
 
@@ -203,103 +215,6 @@ public struct FailureCard: View {
     }
 }
 
-/// The global connection banner states (SPEC 7.4).
-public struct ConnectionBannerState: Sendable, Hashable {
-    public let symbol: String?
-    public let showsSpinner: Bool
-    public let text: String
-    /// A second line, smaller, for what to do next (pairing: where the Mac asks).
-    public var detail: String? = nil
-    public var offersRetry = false
-    /// Stable identity so two Macs with the same state still refresh the banner.
-    public var identity: String? = nil
-
-    public static func reconnecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
-    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "Offline", offersRetry: true)
-    public static func macOffline(_ mac: String, identity: String? = nil) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "Offline", offersRetry: true, identity: identity ?? mac) }
-    public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
-    public static func connecting(to mac: String, identity: String? = nil) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting…", identity: identity ?? mac) }
-    public static let connectionFailed = Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: "Offline", offersRetry: true)
-    /// An application failure distinct from connection state.
-    public static func failed(_ text: String, identity: String? = nil) -> Self {
-        Self(symbol: "exclamationmark.triangle", showsSpinner: false, text: text, identity: identity)
-    }
-
-    /// Gives a banner a stable owner without changing its copy. The owner keeps
-    /// dismissal scoped to the Mac that produced the banner.
-    public func identified(_ identity: String?) -> Self {
-        var copy = self
-        copy.identity = identity
-        return copy
-    }
-    /// The Mac asks "Allow … to connect?" for this phone
-    /// (verify/phone-approvals.md): a notification, a Dock bounce and
-    /// Settings → Mobile on a Mac with #20491, only a cmux dialog on an older
-    /// one. "Look for cmux" is true for both.
-    public static func waitingForPairing(on mac: String, identity: String? = nil) -> Self {
-        Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone on \(mac)"),
-             detail: String(localized: "Look for cmux on your Mac"), identity: identity ?? mac)
-    }
-    /// The same after the phone replaced an unreadable stored key.
-    public static func waitingForPairingAfterNewKeys(on mac: String, identity: String? = nil) -> Self {
-        Self(symbol: "lock.shield", showsSpinner: true, text: String(localized: "Approve this iPhone again on \(mac)"),
-             detail: String(localized: "Its keys were reset. Look for cmux on your Mac."), identity: identity ?? mac)
-    }
-}
-
-/// Glass capsule banner, 36 pt tall, `footnote` semibold. Use `.cmuxMobileBanner(_:)`
-/// to place it under the toolbar with the `snappy` enter/exit.
-public struct ConnectionBanner: View {
-    let state: ConnectionBannerState
-
-    let retry: (() -> Void)?
-
-    public init(_ state: ConnectionBannerState, retry: (() -> Void)? = nil) {
-        self.state = state
-        self.retry = retry
-    }
-
-    public var body: some View {
-        HStack(spacing: 8) {
-            if state.showsSpinner {
-                CmuxSpinner().controlSize(.small)
-            } else if let symbol = state.symbol {
-                Image(systemName: symbol)
-            }
-            if let detail = state.detail {
-                // Two lines: what to do, then where (the Mac's notification).
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(state.text).lineLimit(3)
-                    Text(detail)
-                        .font(theme.type.meta)
-                        .foregroundStyle(theme.colors.label2)
-                        .lineLimit(3)
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                // A banner over the list: readable, never a wall of text.
-                .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-            } else {
-                Text(state.text)
-            }
-            if state.offersRetry, let retry {
-                Text("·").accessibilityHidden(true)
-                Button("Retry", action: retry)
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("connection.retry")
-            }
-        }
-        .font(theme.type.meta.weight(.semibold))
-        .foregroundStyle(theme.colors.label)
-        .padding(.horizontal, state.detail == nil ? 14 : 16)
-        .padding(.vertical, state.detail == nil ? 0 : 8)
-        .frame(minHeight: 36)
-        .glassEffect(.regular, in: .rect(cornerRadius: state.detail == nil ? 18 : 20, style: .continuous))
-        .padding(.horizontal, 16)
-        .accessibilityElement(children: state.offersRetry && retry != nil ? .contain : .combine)
-        .accessibilityAddTraits(.updatesFrequently)
-    }
-}
-
 /// A transient toast (SPEC 7.4): glass capsule, optional symbol, 3 s.
 public struct CmuxMobileToast: Sendable, Hashable, Identifiable {
     public let id = UUID()
@@ -313,12 +228,18 @@ public struct CmuxMobileToast: Sendable, Hashable, Identifiable {
 }
 
 extension View {
-    /// Shows `state` as a banner under the top safe area, entering from
-    /// y - 12. It takes its own room: the content below (a list) is inset
-    /// by the banner's height at every text size, so it covers nothing (R2-4).
-    /// A swipe up or sideways, or a tap, hides it until the state changes.
+    /// Shows `state` under the top safe area, entering from y - 12, floating
+    /// over the content: it takes no room, so the list under it never moves
+    /// when it comes or goes (this replaces R2-4's inset, which pushed the
+    /// list down). A link state (reconnecting, offline) is a ``ConnectionChip``
+    /// a few words wide; a state with a sentence to read or an action (signed
+    /// out, pairing) is the banner. A swipe up or sideways, or a tap, hides it
+    /// until the state changes.
     public func cmuxMobileBanner(_ state: ConnectionBannerState?, retry: (() -> Void)? = nil) -> some View {
-        safeAreaInset(edge: .top, spacing: 0) { BannerHost(state: state, retry: retry) }
+        // An overlay, not a safe-area inset: showing or hiding it moves nothing under it (Leo,
+        // 2026-11-21: "these messages should not be pushing up the text ... stop layout
+        // shifting"). A link state is a chip a few words wide, top center.
+        overlay(alignment: .top) { BannerHost(state: state, retry: retry) }
     }
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
@@ -328,19 +249,27 @@ extension View {
 }
 
 /// The connection banner's slot: dismissible like every toast (`cmuxMobileDismissibleToast`); a
-/// dismissed state stays hidden until the state changes (to no banner, or to another one).
+/// dismissed state stays hidden through the link's flaps (`BannerDismissal`).
 private struct BannerHost: View {
     let state: ConnectionBannerState?
     let retry: (() -> Void)?
-    @State private var dismissed: ConnectionBannerState?
+    @State private var dismissal: BannerDismissal?
+    /// When the link went down (any chip state), kept across a change of state while down.
+    @State private var downSince: Date?
 
     var body: some View {
         ZStack {
-            if let state, state != dismissed {
-                ConnectionBanner(state, retry: retry)
+            if let state, state != dismissal?.state {
+                Group {
+                    if let chip = state.chip {
+                        ConnectionChip(chip, downSince: downSince ?? ConnectionChip.justDropped, retry: state.offersRetry ? retry.map { action -> @MainActor () async -> Void in { action() } } : nil)
+                    } else {
+                        ConnectionBanner(state, retry: retry)
+                    }
+                }
                     .cmuxMobileDismissibleToast(entry: .top, announcement: state.text,
                                                tapDismisses: !(state.offersRetry && retry != nil)) {
-                        withAnimation(theme.motion.snappy.animation) { dismissed = state }
+                        withAnimation(theme.motion.snappy.animation.unlessReduceMotion) { dismissal = BannerDismissal(state: state) }
                     }
                     .padding(.top, 8)
                     .padding(.bottom, 8)
@@ -348,16 +277,47 @@ private struct BannerHost: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .animation(theme.motion.snappy.animation, value: state)
-        .onChange(of: state) { _, new in dismissed = BannerDismissal.remembered(dismissed, after: new) }
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: state)
+        .onChange(of: state) { _, new in dismissal = BannerDismissal.remembered(dismissal, after: new, at: .now) }
+        .onChange(of: state?.chip != nil, initial: true) { _, down in
+            downSince = ConnectionChip.nextDownSince(downSince, down: down, now: Date())
+        }
     }
 }
 
-/// What a dismissed connection banner remembers: only the state it hid. Any other state, no banner
-/// included, ends the dismissal, so the next episode of the same state shows again.
-enum BannerDismissal {
-    static func remembered(_ dismissed: ConnectionBannerState?, after state: ConnectionBannerState?) -> ConnectionBannerState? {
-        state == dismissed ? dismissed : nil
+/// What a dismissed connection banner remembers: the state it hid, and since when there has been
+/// no banner. A link that flaps (back for a moment, down again) brings the same state back: it
+/// stays hidden (audit 20, ceremony: a dismissed "Reconnecting" came back on every flap). It shows
+/// again only for a real new drop: another state (Offline, Signed out), or the same one after the
+/// connection held for `flapWindow`.
+struct BannerDismissal: Equatable {
+    var state: ConnectionBannerState
+    /// When the banner went away (the link came back); nil while the dismissed state lasts.
+    var clearedAt: Date?
+
+    /// How long the connection must hold before the same banner counts as a new drop.
+    static let flapWindow: TimeInterval = 60
+
+    /// The window as seen from the banner's return: a held state ("Reconnecting") comes back only
+    /// after the quiet wait, so the drop it reports began that much earlier (review F1: without
+    /// this, a connection that held 50 s read as one that held 60 s).
+    static func window(for state: ConnectionBannerState) -> TimeInterval {
+        guard state.showsSpinner else { return flapWindow }
+        let quiet = QuietStatusGate.threshold.components
+        return flapWindow + TimeInterval(quiet.seconds) + TimeInterval(quiet.attoseconds) / 1e18
+    }
+
+    static func remembered(_ dismissal: BannerDismissal?, after state: ConnectionBannerState?, at now: Date) -> BannerDismissal? {
+        guard var dismissal else { return nil }
+        guard let state else {
+            // Back: remember when, so a flap right after keeps the banner hidden.
+            if dismissal.clearedAt == nil { dismissal.clearedAt = now }
+            return dismissal
+        }
+        guard state == dismissal.state else { return nil }
+        if let cleared = dismissal.clearedAt, now.timeIntervalSince(cleared) >= window(for: state) { return nil }
+        dismissal.clearedAt = nil
+        return dismissal
     }
 }
 
@@ -381,7 +341,8 @@ private struct ToastHost: View {
                 .font(theme.type.meta.weight(.semibold))
                 .foregroundStyle(theme.colors.label)
                 .padding(.horizontal, 14)
-                .frame(height: 36)
+                .padding(.vertical, 8)
+                .frame(minHeight: 36)
                 .glassEffect(.regular, in: .capsule)
                 .padding(.top, 8)
                 .transition(.opacity.combined(with: .offset(y: -12)))
@@ -396,7 +357,7 @@ private struct ToastHost: View {
                 }
             }
         }
-        .animation(theme.motion.snappy.animation, value: toast)
+        .animation(theme.motion.snappy.animation.unlessReduceMotion, value: toast)
     }
 }
 
@@ -423,7 +384,7 @@ public struct StatusDot: View {
         Circle()
             .fill(color)
             .frame(width: size, height: size)
-            .animation(theme.motion.snap.animation, value: state)
+            .animation(theme.motion.snap.animation.unlessReduceMotion, value: state)
     }
 
     private var color: CmuxMobileColorToken {

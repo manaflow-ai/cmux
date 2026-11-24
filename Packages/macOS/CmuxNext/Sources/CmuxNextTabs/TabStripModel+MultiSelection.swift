@@ -47,15 +47,12 @@ extension TabStripModel {
     }
 
     /// Cmd-W's tabs while several are selected and `id` (the active tab) is one of them: the
-    /// selected tabs that Cmd-W closes on their own (``keyboardClose(_:closesPinned:)``), in
-    /// display order. Nil without a selection, or when it closes none of them (every one is pinned):
-    /// the one-tab rule applies then.
-    public func keyboardCloseSelection(_ id: TabID, closesPinned: Bool) -> [TabID]? {
+    /// selected tabs that Cmd-W closes on their own (``keyboardClose(_:)``: every one that can
+    /// close, pinned or not), in display order. Nil without a selection, or when it closes none of
+    /// them (Home's tab only): the one-tab rule applies then.
+    public func keyboardCloseSelection(_ id: TabID) -> [TabID]? {
         guard multiSelection.isMultiple, multiSelection.contains(id) else { return nil }
-        let closed = selectedTabIDs.filter { tab in
-            guard let item = self.tab(tab) else { return false }
-            return item.isClosable && (!item.isPinned || closesPinned)
-        }
+        let closed = selectedTabIDs.filter { self.tab($0)?.isClosable == true }
         return closed.isEmpty ? nil : closed
     }
 

@@ -2,7 +2,8 @@
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { tool } from "../../../gallery/fixtures/acpmux";
-import { TranscriptDisclosureProvider, resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
@@ -79,7 +80,7 @@ function ChevronColumnGallery() {
           <ThoughtRow
             item={{
               kind: "thought",
-              text: "Thinking through the fixed column while checking that the trailing action slot never moves the disclosure control.",
+              text: "Thinking through the fixed column.\nThen checking that the trailing action slot never moves the disclosure control.",
             }}
             id="thought"
           />

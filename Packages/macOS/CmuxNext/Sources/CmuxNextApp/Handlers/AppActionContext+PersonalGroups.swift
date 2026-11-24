@@ -30,6 +30,17 @@ extension AppActionContext {
         return group
     }
 
+    /// The targeted group as the active sidebar shows it, also one not in the personal store yet (Leo: "I can't ungroup").
+    func shownGroup(_ invocation: ActionInvocation) throws -> (id: CmuxNextSidebar.GroupID, personalID: String, name: String, sidebar: SidebarBridge) {
+        let sidebar = try sidebar(), target = Self.explicitTarget([invocation.target, invocation["group"]?.targetValue], kinds: [.workspaceGroup])
+        if let target, (try? group(invocation)) == nil,
+           let shown = sidebar.model.shownGroup(target: target.id, created: { sidebar.groupEditor.created[.init(rawValue: $0)]?.rawValue }) {
+            return (shown.group.id, shown.personalID, shown.group.name, sidebar)
+        }
+        let group = try group(invocation) // a group nobody shows is refused as before
+        return (sidebar.model.groupID(personal: group.id.rawValue), group.id.rawValue, group.name, sidebar)
+    }
+
     /// A workspace's personal group, if any.
     func personalGroupID(of workspace: WorkspaceModel) -> WorkspaceGroupID? {
         guard let qualified = WindowProfiles.qualified(workspace.id, machines: services.machines) else { return nil }

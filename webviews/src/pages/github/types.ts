@@ -1,7 +1,7 @@
 // The GitHub page's ops (`cmux.github.*`, GitHubPageProvider.swift). `pr.inspect` and
 // `browser.openIn` are the agent page's link card methods under this page's namespace: the pull
 // request comes from the app's one cache (AgentReplyPullRequests), never a GitHub call per ask.
-import type { LinkedPullRequest } from "../../agent-session/acpmux/chips/pullRequestStore";
+import type { LinkedPullRequest } from "../../agent-session/acpmux/chips/pullRequestTypes";
 
 export type { LinkedPullRequest };
 
@@ -20,21 +20,92 @@ export const GitHubOps = {
   diffFile: "cmux.github.diff.file",
   /** `{url, head}` → `{merged, queued}`: GitHub's normal merge, pinned to `head`; needs the person's click. */
   merge: "cmux.github.pr.merge",
+  /** `{url}` → `{checks, reading}`: the CI dashboard's jobs, from the App's one checks cache. */
+  checks: "cmux.github.checks.read",
+  /** `{url, runs}` → `{rerun}`: re-runs those Actions runs' failed jobs; needs the person's click. */
+  rerun: "cmux.github.checks.rerun",
+  /** `{url, event, body, head?}` → `{submitted}`: the person's review (COMMENT, APPROVE,
+   *  REQUEST_CHANGES); an approval or a request for changes is never said by the App. Needs a click. */
+  reviewSubmit: "cmux.github.review.submit",
+  /** `{url, thread, body}` → `{done}`: a reply on a review thread the page showed. Needs a click. */
+  threadReply: "cmux.github.thread.reply",
+  /** `{url, thread, resolved}` → `{done}`: resolves (or reopens) a review thread the page showed. Needs a click. */
+  threadResolve: "cmux.github.thread.resolve",
+  /** `{repo}` → `{issues}`: the repository's issues, newest activity first, pull requests left out. */
+  issues: "cmux.github.issues.list",
+  /** `{url}` → `{issue, comments}`: one issue and its comments, as GitHub's REST API sends them. */
+  issue: "cmux.github.issue.details",
 } as const;
+
+/** One job of the CI dashboard (GitHubChecks.swift). */
+export interface DashboardJob {
+  /** The Actions job id; 0 for a commit status. */
+  id: number;
+  name: string;
+  workflow: string;
+  /** The Actions run it belongs to, what Re-run failed reruns. */
+  run?: number;
+  /** The event that started its run (`push`, `pull_request`); two events' runs are separate rows. */
+  event?: string;
+  state: "passed" | "failed" | "running" | "queued" | "skipped";
+  /** ISO 8601, empty before it starts or ends. */
+  startedAt: string;
+  completedAt: string;
+  url?: string;
+  /** Seconds the same job took at the base branch's tip. */
+  expected?: number;
+  /** A failed job's failing step and the end of its log, once read. */
+  failure?: { step: string | null; excerpt: string };
+  /** It fails the same way at the base branch's tip (the rollup's `onBase`). */
+  onBase?: boolean;
+}
+
+export interface DashboardChecks {
+  head: string;
+  settled: boolean;
+  /** GitHub has more suites or check runs than the host's one read takes: `jobs` is not all of them. */
+  truncated?: boolean;
+  jobs: DashboardJob[];
+}
+
+/** Re-run failed's progress on the page. */
+export type RerunState =
+  | { phase: "idle" }
+  | { phase: "running" }
+  | { phase: "started" }
+  | { phase: "failed"; message: string };
 
 /** One review comment, on a line of a file. */
 export interface ReviewComment {
   path: string;
   line: number | null;
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   url: string | null;
+  /** Whether its thread is resolved; null when the read did not reach its thread. */
+  resolved?: boolean | null;
+  /** Its thread's id, what a reply or a resolve names; null when the read did not reach its thread. */
+  thread?: string | null;
 }
+
+/** A review or a thread write's progress: `what` is `review` or the thread's id. */
+export type WriteState =
+  | { phase: "idle" }
+  | { phase: "sending"; what: string }
+  | { phase: "sent"; what: string }
+  | { phase: "failed"; what: string; message: string; personOnly?: boolean };
+
+/** The verdicts a review may carry, GitHub's names. */
+export type ReviewEvent = "COMMENT" | "APPROVE" | "REQUEST_CHANGES";
 
 /** A comment or a review in the conversation. */
 export interface ConversationEntry {
   kind: "comment" | "review";
   author: string;
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   /** ISO 8601. */
   at: string;
   url: string | null;
@@ -46,6 +117,8 @@ export interface ConversationEntry {
 /** The host's `pr.details` answer (GitHubPullRequestDetails.swift). */
 export interface PullRequestDetails {
   body: string;
+  /** GitHub's own rendering of `body` (its `bodyHTML`); empty when it was too long to send whole. */
+  html?: string;
   /** The head commit the page shows: Merge is pinned to it. */
   headCommit: string;
   /** GitHub's merge state, lowercased: `clean`, `unstable`, `blocked`, `behind`, `dirty`, `unknown`. */
@@ -56,9 +129,15 @@ export interface PullRequestDetails {
   conversation: ConversationEntry[];
   /** How many comments and reviews GitHub has; can be more than `conversation` holds. */
   conversationTotal: number;
+  /** How many comments and reviews the read got back, counted as `conversationTotal` is (before the
+   *  host leaves out empty review wrappers, so not `conversation.length`). Below the total, the
+   *  read has only part of the history. */
+  conversationRead: number;
   /** `approved`, `changes_requested`, `commented`, `dismissed` or `requested`. */
   reviewers: { name: string; state: string }[];
   linked: { number: number; title: string; url: string; state: string }[];
+  /** The signed-in GitHub login that read these details, for the conversation's Mine filter. */
+  viewer?: string;
 }
 
 /** One file's inline diff, as the page holds it. */
@@ -75,7 +154,8 @@ export type MergeState =
   | { phase: "confirm" }
   | { phase: "merging" }
   | { phase: "merged"; queued: boolean }
-  | { phase: "failed"; message: string };
+  /** `refused`: GitHub would not merge it (a check, a review, a conflict): the page says so. */
+  | { phase: "failed"; message: string; refused?: boolean };
 
 /** The host's answer to `pr.inspect`. */
 export interface PullRequestReply {
@@ -93,4 +173,63 @@ export function routedPullRequest(hash: string): { url: string; repo: string; nu
   const address = new URLSearchParams(route.slice("/pull?".length)).get("url");
   const match = address ? /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/([1-9]\d{0,9})$/.exec(address) : null;
   return match ? { url: address!, repo: match[1]!, number: Number(match[2]) } : undefined;
+}
+
+/** A label as GitHub's issues API sends it (`color`: six hex digits, or empty). */
+export interface GitHubIssueLabel {
+  name: string;
+  color?: string;
+}
+
+/** One issue, GitHub's REST fields the host passes through (GitHubPageProvider.issueFields). */
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  state: "open" | "closed";
+  /** `completed`, `not_planned`, `reopened`, or null. */
+  state_reason?: string | null;
+  labels: GitHubIssueLabel[];
+  user?: { login: string } | null;
+  /** How many comments it has. */
+  comments: number;
+  /** ISO 8601. */
+  created_at?: string;
+  updated_at: string;
+  html_url: string;
+  body?: string | null;
+}
+
+/** One comment on an issue. */
+export interface GitHubIssueComment {
+  user?: { login: string } | null;
+  body?: string | null;
+  created_at: string;
+  html_url: string;
+}
+
+/** The repository whose issues a route lists (`#/issues?repo=<owner/name>`), else undefined. */
+export function routedIssues(hash: string): { repo: string } | undefined {
+  const route = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (!route.startsWith("/issues?")) return undefined;
+  const repo = new URLSearchParams(route.slice("/issues?".length)).get("repo");
+  return repo && /^[\w.-]+\/[\w.-]+$/.test(repo) ? { repo } : undefined;
+}
+
+/** The issue a route names (`#/issue?url=<address>`), else undefined. */
+export function routedIssue(hash: string): { url: string; repo: string; number: number } | undefined {
+  const route = hash.startsWith("#") ? hash.slice(1) : hash;
+  if (!route.startsWith("/issue?")) return undefined;
+  const address = new URLSearchParams(route.slice("/issue?".length)).get("url");
+  const match = address ? /^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/([1-9]\d{0,9})$/.exec(address) : null;
+  return match ? { url: address!, repo: match[1]!, number: Number(match[2]) } : undefined;
+}
+
+/** The route of a repository's issue list. */
+export function issuesRoute(repo: string): string {
+  return `#/issues?${new URLSearchParams({ repo })}`;
+}
+
+/** The route of one issue. */
+export function issueRoute(url: string): string {
+  return `#/issue?${new URLSearchParams({ url })}`;
 }

@@ -34,9 +34,9 @@ enum AgentConfigurationHandlers {
             registry.bind(binding.id, run: { invocation in
                 guard let value = invocation[binding.argument]?.stringValue,
                       !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return context.refuse(MiscHandlerStrings.noAgentChat)
+                    return context.registry.refuse(.needsValue, binding.id)
                 }
-                guard let view = chatView(context, invocation) else { return }
+                guard let view = chatView(binding.id, context, invocation) else { return }
                 let operation = binding.operation
                 context.report {
                     do {
@@ -99,11 +99,11 @@ enum AgentConfigurationHandlers {
     /// A Priority row carries an `agent-chat:` session id rather than the tab
     /// id that `ActionScope` normally resolves. Explicit tab targets and the
     /// focused pane continue through the normal scope path.
-    private static func chatView(_ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
+    private static func chatView(_ id: ActionID, _ context: AppActionContext, _ invocation: ActionInvocation) -> AgentPaneView? {
         if let target = invocation.target, target.kind == .agentChat {
             guard let key = context.services.agentTabs.tab(showing: target.id),
                   let view = context.services.agentTabs.existingView(key) else {
-                context.refuse(MiscHandlerStrings.noAgentChat)
+                context.registry.refuse(.noChat, id)
                 return nil
             }
             return view
@@ -111,7 +111,7 @@ enum AgentConfigurationHandlers {
         guard let pane = context.scope(invocation).pane,
               let key = context.scope(invocation).tab?.id.rawValue ?? pane.currentTabKey,
               let view = context.services.agentTabs.existingView(key) else {
-            context.refuse(MiscHandlerStrings.noAgentChat)
+            context.registry.refuse(.noChat, id)
             return nil
         }
         return view

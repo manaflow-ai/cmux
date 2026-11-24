@@ -134,9 +134,12 @@ public final class ScreenshotsCommands {
         }
     }
 
+    /// A failed rename in plain words (``ScreenshotsStrings/reason(_:)``), never the system's error text.
     private func show(_ error: any Error, in window: NSWindow?) {
         // dialog-keys-exempt: CmuxNextScreenshots reaches no CmuxDialogCenter (it depends on CmuxNextFileGrid and CmuxNextFiles only); move to a dialog seam with the Finder pane
-        let alert = NSAlert(error: error)
+        let alert = NSAlert()
+        alert.messageText = ScreenshotsStrings.renameFailed
+        alert.informativeText = ScreenshotsStrings.reason(error)
         if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
     }
 

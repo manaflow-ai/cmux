@@ -37,7 +37,16 @@ impl Surface {
                 );
             }
         }
-        if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
+        // A holder terminal's reader runs its reaper's work as its tail, so
+        // this can run on the reader thread itself: never join it there.
+        let reader = pty.reader_thread.lock().unwrap().take().filter(|reader| {
+            let own = reader.thread().id() == std::thread::current().id();
+            if own {
+                eprintln!("cmux-tui: terminal reader skipped self-join during shutdown");
+            }
+            !own
+        });
+        if let Some(reader) = reader {
             if pty.reader_completion.wait_until(deadline) {
                 if reader.join().is_err() {
                     eprintln!("cmux-tui: terminal reader thread panicked during shutdown");
@@ -137,6 +146,7 @@ impl Surface {
                 // A port writer waiting for a reconnect fails its frame now (#35082 review 2). The port lock is a
                 // leaf (no holder of it waits for another lock), so it is safe under the runtime lock.
                 pty.input_port.reconnect_ended();
+                pty.cancel_host_fence_wait();
                 {
                     let mut runtime = pty.runtime.lock().unwrap();
                     match &mut *runtime {
@@ -181,6 +191,7 @@ impl Surface {
                     // A port writer waiting for a reconnect fails its frame now (#35082 review 2). The port lock is a
                     // leaf (no holder of it waits for another lock), so it is safe under the runtime lock.
                     pty.input_port.reconnect_ended();
+                    pty.cancel_host_fence_wait();
                     host.disconnect();
                     return;
                 }
@@ -196,6 +207,7 @@ impl Surface {
                     // A port writer waiting for a reconnect fails its frame now (#35082 review 2). The port lock is a
                     // leaf (no holder of it waits for another lock), so it is safe under the runtime lock.
                     pty.input_port.reconnect_ended();
+                    pty.cancel_host_fence_wait();
                     holder.detach();
                     return;
                 }
@@ -220,6 +232,7 @@ impl Surface {
                 // A port writer waiting for a reconnect fails its frame now (#35082 review 2). The port lock is a
                 // leaf (no holder of it waits for another lock), so it is safe under the runtime lock.
                 pty.input_port.reconnect_ended();
+                pty.cancel_host_fence_wait();
                 let mut gap = None;
                 if host.supports_journal_detach_fence()
                     && let Err(error) = host.detach_for_daemon_shutdown_until(deadline)

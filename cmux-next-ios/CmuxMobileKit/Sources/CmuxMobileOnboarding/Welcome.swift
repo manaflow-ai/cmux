@@ -20,6 +20,7 @@ public struct LaunchMarkView: View {
         // screen as iOS centers the launch image, not in the safe area.
         CmuxLogoMark(chevronHeight: 72)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear { LaunchMarks.shared.markNextFrame("first_frame") }
     }
 }
 
@@ -145,6 +146,8 @@ public struct WelcomeView: View {
             buttons
                 .opacity(controls)
                 .overlay(alignment: .top) { errorLine }
+                // A phone's width: an unfolded foldable keeps them centered, not 750 pt wide.
+                .frame(maxWidth: 440)
                 .padding(.horizontal, theme.metrics.sideMargin)
             legal
                 .opacity(controls)
@@ -313,7 +316,7 @@ public struct WelcomeView: View {
             }
         }
         .alignmentGuide(.top) { $0[.bottom] + 12 }
-        .animation(theme.motion.snap.animation, value: auth.errorMessage)
+        .animation(theme.motion.snap.animation.unlessReduceMotion, value: auth.errorMessage)
     }
 
     private var legal: some View {
@@ -488,12 +491,12 @@ private struct ProviderStyle: ButtonStyle {
             .padding(.horizontal, dynamicTypeSize.isAccessibilitySize ? 16 : 20)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, minHeight: theme.metrics.ctaWelcomeHeight)
-            .background(isPrimary ? AnyShapeStyle(theme.colors.neutralAccent) : (outlined ? AnyShapeStyle(theme.colors.bg) : AnyShapeStyle(theme.colors.surface)), in: shape)
+            // Held: the pressed wash over the fill; the label never dims or shrinks.
+            .cmuxMobilePressFill(configuration.isPressed,
+                                 rest: isPrimary ? AnyShapeStyle(theme.colors.neutralAccent) : (outlined ? AnyShapeStyle(theme.colors.bg) : AnyShapeStyle(theme.colors.surface)),
+                                 in: shape)
             .overlay { if outlined { shape.strokeBorder(theme.colors.separator, lineWidth: 1) } }
             .contentShape(shape)
-            .opacity(configuration.isPressed ? 0.85 : 1)
-            .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(theme.motion.snap.animation, value: configuration.isPressed)
     }
 }
 #endif

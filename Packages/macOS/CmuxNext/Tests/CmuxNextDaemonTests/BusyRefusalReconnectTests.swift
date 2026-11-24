@@ -41,6 +41,23 @@ import Testing
         #expect(pacer.waitsForEventOnly)
     }
 
+    /// Review F3 (fc883e4): the link policies space attempts 1 ms apart, so busy refusals, which spend no
+    /// budget, were asked again about a thousand times a second. They back off toward the cap instead.
+    @Test(arguments: [RetryPolicy.linkReconnect, .linkFirstConnect])
+    func aBusyRefusalUnderALinkPolicyBacksOffTowardTheCap(_ policy: RetryPolicy) {
+        var pacer = RetryPacer(policy)
+        var delays: [Duration] = []
+        for _ in 0..<12 {
+            pacer.refusedBusy()
+            delays.append(pacer.failed() ?? .zero)
+        }
+        // The pacer's computed delays, not a measured time.
+        #expect(delays.allSatisfy { delay in delay >= .milliseconds(40) }, "a busy refusal was asked again within 40 ms: \(delays)")
+        #expect(delays.allSatisfy { $0 <= RetryPacer.busyRetryCap }, "\(delays)")
+        #expect(delays.last.map { last in last >= .milliseconds(800) } == true, "busy refusals never backed off toward the cap: \(delays)")
+        #expect(pacer.failures == 0, "busy refusals spend no budget")
+    }
+
     /// A busy refusal noted by a reconnect loop that then stopped does not make the next drop's
     /// first real failure free.
     @Test func aResetForgetsAnUnspentBusyRefusal() {

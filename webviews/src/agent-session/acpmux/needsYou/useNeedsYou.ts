@@ -1,7 +1,7 @@
 // The pane's Needs you wiring (App.tsx): the list from the snapshot, the header badge's actions,
 // and the transcript's Needs your input pill, which share one list and one way to answer.
 import { useMemo, useRef } from "react";
-import { answerFromHome } from "../HomeInbox";
+import { answerFromHome, replyElsewhere } from "../homeInboxModel";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection, type QuestionReply } from "../question/model";
@@ -11,8 +11,9 @@ import { askContext } from "./context";
 import { type TranscriptNeedsYou } from "./JumpPill";
 import { nextAsk, needsYouPillOn, pillAsks } from "./jumpPillModel";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
-import { type NeedsYouActions, type NeedsYouPlace } from "./NeedsYou";
-import { needsYouMode, type NeedsYouMode } from "./needsYouModel";
+import { findSession } from "../sessionIndex";
+import { needsYouMode, type NeedsYouActions, type NeedsYouMode, type NeedsYouPlace } from "./needsYouModel";
+import { focusRoute } from "../../../ui/focusRoute";
 
 type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 
@@ -38,6 +39,23 @@ export function answerParams(
     method: "chat.permission",
     params: { sessionId: item.sessionId, permissionId: item.permissionId, optionId: choice.id },
   };
+}
+
+/// An answer to an ask of a chat this pane does not show: a tool permission's allow or deny once,
+/// or a question's choice as its card sends it, the host answers on this click (`chat.asks.answer`,
+/// AgentPaneAskAnswer: a chat on this Mac's acpmux only), else that chat opens, where its card
+/// takes the answer ("opened"). Another computer's chat always opens. Needs you's rows, Waiting on
+/// you (queue/QueueScreen.tsx) and the composer hat answer through this one path.
+export async function answerAnotherChat(
+  callNative: CallNative,
+  item: NeedsYouItem,
+  choice: NeedsYouAnswer,
+  { peer, open }: { peer: boolean; open: () => unknown },
+): Promise<"answered" | "opened"> {
+  if (!answerParams(item, choice)) throw new Error("unanswerable");
+  if (!peer) return answerFromHome(callNative, item, choice, () => void open());
+  await open();
+  return "opened";
 }
 
 export function useNeedsYou({
@@ -81,11 +99,26 @@ export function useNeedsYou({
   /// same) is the expanded row's pick: the workspace whose tab shows the chat, or a new workspace.
   const isPeer = (item: NeedsYouItem) =>
     sessions.some((session) => session.sessionId === item.sessionId && session.peer);
-  const openElsewhere = (item: NeedsYouItem, place: NeedsYouPlace = "right") => {
+  /// `there` is what the pane that shows the chat does once it does (Leo 2026-10-20: "have an
+  /// option to go to the source, or like have an option to maybe even make a side chat to just ask
+  /// like, okay, but what is going on here?"): `turnId` scrolls to the asking turn, `ask` starts
+  /// that chat's Ask about this side chat with the question. This pane cannot do either for another
+  /// chat (the relay scopes both to the chat a pane shows); the host hands them to that chat's pane
+  /// (AgentPaneAskOpen), which answers `{asked: true}` once it took the question.
+  const openElsewhere = (
+    item: NeedsYouItem,
+    place: NeedsYouPlace = "right",
+    there: { turnId?: string; ask?: string } = {},
+  ): Promise<{ asked?: boolean } | undefined> => {
     // Peer sessions stay in the header list; they are not local chats that this pane can open.
-    if (isPeer(item)) return Promise.resolve();
+    if (isPeer(item)) return Promise.resolve(undefined);
     const where = place === "right" ? {} : { where: place };
-    return callNative("chat.asks.open", { sessionId: item.sessionId, ...where }).catch(() => undefined);
+    return callNative<{ asked?: boolean } | undefined>("chat.asks.open", {
+      sessionId: item.sessionId,
+      ...where,
+      ...(there.turnId ? { turnId: there.turnId } : {}),
+      ...(there.ask ? { ask: there.ask } : {}),
+    }).catch(() => undefined);
   };
   const goTo = (item: NeedsYouItem) => {
     // A tab an agent marked: the app shows it as Search Tabs does.
@@ -101,14 +134,15 @@ export function useNeedsYou({
           (each) => each.getAttribute("data-queued-message") === item.promptId,
         );
         card?.scrollIntoView({ block: "center" });
-        card?.focus({ preventScroll: true });
+        focusRoute(card, "system", "a Needs You card revealed", { preventScroll: true });
       } else
         document
           .querySelector(item.kind === "held" ? ".cv-agent-pair" : ".acpmux-permission")
           ?.scrollIntoView({ block: "nearest" });
     };
     if (item.sessionId === sessionId) return reveal();
-    void openElsewhere(item);
+    // Another chat's ask: that chat's pane scrolls to the asking turn once it shows.
+    void openElsewhere(item, "right", item.turnId ? { turnId: item.turnId } : {});
   };
   const actions: NeedsYouActions = {
     answer: async (item, choice) => {
@@ -121,19 +155,25 @@ export function useNeedsYou({
       // Mac's acpmux only); a host that can't opens that chat, whose card answers it, and the row
       // stays. A question, or another computer's chat, opens the chat on the side.
       if (item.sessionId !== sessionId && item.kind !== "held") {
-        if (!item.question && !isPeer(item)) {
-          const outcome = await answerFromHome(callNative, item, choice, () => void openElsewhere(item));
-          if (outcome === "answered") return;
-        } else await openElsewhere(item);
+        const outcome = await answerAnotherChat(callNative, item, choice, {
+          peer: isPeer(item),
+          open: () => openElsewhere(item),
+        });
+        if (outcome === "answered") return;
         throw new Error();
       }
       return callNative(call.method, call.params);
     },
     reply: async (item: NeedsYouItem, sent: QuestionReply) => {
-      // An expanded question's whole answer goes the way its card sends it, for this chat only:
-      // another chat's opens that chat on the side, where its card takes the answer.
+      // An expanded question's whole answer goes the way its card sends it: this chat's through the
+      // relay; another chat's on this Mac through the host on this click (`replyElsewhere`), else
+      // (another computer's, or a host that can't) that chat opens on the side, where its card
+      // takes the answer, and the row stays.
       if (item.sessionId !== sessionId) {
-        await openElsewhere(item);
+        const outcome = isPeer(item)
+          ? (await openElsewhere(item), "opened")
+          : await replyElsewhere(callNative, sent, () => void openElsewhere(item));
+        if (outcome === "answered") return;
         throw new Error();
       }
       return callNative("chat.permission", replyParams(sent));
@@ -144,10 +184,16 @@ export function useNeedsYou({
     goTo,
     ask: async (item, question) => {
       // `_acpmux/btw` is session scoped like an answer: another chat's ask opens in that chat's
-      // tab, asked about there. A marked tab names no chat.
+      // tab, at the asking turn, and that chat's pane starts the side chat with the question. A
+      // host that takes no question (an older app, another computer's chat) only opens the chat,
+      // and the row says so. A marked tab names no chat.
       if (item.kind === "tab") throw new Error();
       if (item.sessionId !== sessionId) {
-        await openElsewhere(item);
+        const opened = await openElsewhere(item, "right", {
+          ...(item.turnId ? { turnId: item.turnId } : {}),
+          ask: question,
+        });
+        if (opened?.asked === true) return;
         throw new Error();
       }
       return sideSession(item.sessionId, question);
@@ -160,7 +206,7 @@ export function useNeedsYou({
   const ours = useMemo(
     () =>
       (pillOn ? pillAsks(items, sessions, sessionId) : []).filter((item) => {
-        const target = sessions.find((session) => session.sessionId === item.sessionId);
+        const target = findSession(sessions, item.sessionId);
         if (target?.peer) return false;
         return item.sessionId === sessionId || target !== undefined;
       }),

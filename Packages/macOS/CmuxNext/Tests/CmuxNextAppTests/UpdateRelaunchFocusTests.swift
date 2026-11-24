@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -10,7 +11,7 @@ import Testing
     private static let start = Date(timeIntervalSince1970: 1_800_000_000)
 
     private static func defaults() -> UserDefaults {
-        UserDefaults(suiteName: "UpdateRelaunchFocusTests.\(UUID().uuidString)")!
+        UserDefaults(testSuiteName: "UpdateRelaunchFocusTests.\(UUID().uuidString)")!
     }
 
     private static func updater(defaults: UserDefaults, front: UpdateFrontmostApp) -> UpdaterService {
@@ -162,14 +163,40 @@ import Testing
         }
     }
 
-    @Test func helperLooksUpTheInstallerThenWaitsForTheAppThenOpensInTheBackground() {
+    @Test func helperLooksUpTheInstallerThenWaitsForTheAppThenOpensInTheBackground() throws {
         let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
         let label = UpdateRelaunchBehind.installerJobLabel(bundleIdentifier: "com.cmuxterm.app.next")
         #expect(label == "com.cmuxterm.app.next-sparkle-updater")
-        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: label)
+        let ownHome = RelaunchHome.openArguments(environment: ["HOME": "/Users/ci"], accountHome: "/Users/ci")
+        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: label, openOptions: ownHome)
         #expect(arguments == ["/bin/sh", "-c", UpdateRelaunchBehind.script, app.path, label, UpdateRelaunchFocus.reopenArgument])
-        #expect(UpdateRelaunchBehind.script.contains(#"exec /usr/bin/open -g "$0" --args "$2""#))
+        #expect(UpdateRelaunchBehind.script.contains(#"exec /usr/bin/open -g "$@" "$0" --args "$reopen""#))
+        #expect(try Self.openArgv(arguments) == ["/usr/bin/open", "-g", app.path, "--args", UpdateRelaunchFocus.reopenArgument],
+                "a launch in the account's own home gets the open argv it always had")
         #expect(UpdateRelaunchBehind.environment == ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"], "open passes its environment to the new build")
+    }
+
+    /// An app in a custom home (the release rollback drill's throwaway home) comes back in it after
+    /// an update: `open` gets `--env` for each home variable, passed as arguments, never script
+    /// text, so a home with a space and a quote arrives whole.
+    @Test func helperReopensACustomHomeInIt() throws {
+        let app = URL(fileURLWithPath: "/Applications/cmux NEXT.app")
+        let drill = "/private/tmp/walk home/it's \(UUID().uuidString)"
+        let options = RelaunchHome.openArguments(environment: ["HOME": drill, "CFFIXED_USER_HOME": drill], accountHome: "/Users/ci")
+        let arguments = UpdateRelaunchBehind.arguments(app: app, installerJob: "job", openOptions: options)
+        #expect(arguments[2] == UpdateRelaunchBehind.script)
+        #expect(try Self.openArgv(arguments) == ["/usr/bin/open", "-g", "--env", "HOME=\(drill)", "--env", "CFFIXED_USER_HOME=\(drill)",
+                                                 app.path, "--args", UpdateRelaunchFocus.reopenArgument])
+    }
+
+    /// Runs the helper's steps after the installer's exit, with `printf` in place of
+    /// `/usr/bin/open`; returns the argv `open` would get, one element per line.
+    private static func openArgv(_ arguments: [String]) throws -> [String] {
+        let wait = #"/usr/bin/caffeinate -w "$installer" || exit 1"#
+        let tail = try #require(arguments[2].components(separatedBy: wait + "\n").last)
+        #expect(tail != arguments[2], "the helper waits on the installer before it opens")
+        let script = tail.replacingOccurrences(of: "exec /usr/bin/open", with: #"exec /usr/bin/printf '%s\n' /usr/bin/open"#)
+        return try RelaunchHomeShell.run([arguments[0], arguments[1], script] + arguments.dropFirst(3))
     }
 
     /// The helper itself, with stand-ins. With no installer job it answers no pid (the app then

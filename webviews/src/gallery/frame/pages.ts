@@ -7,6 +7,7 @@ import type { DiffCommentRecord } from "../../comments/types";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
 import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
+import { NewTabOps } from "../../pages/apps/UseAsNewTab";
 import type { PortForward } from "../../pages/cloud/ops";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
@@ -119,6 +120,9 @@ export async function mountMarkdownPage(state: MarkdownPageVariant, context: Sta
       "cmux.markdown.listFiles": () => ({ entries: [...files.keys()].map((path) => path.slice(dir.length)) }),
       "cmux.markdown.loadRemoteImages": () => ({ remoteImageBase: "/__gallery/none/" }),
       "cmux.markdown.openLink": () => null,
+      // A Run button or Run all opens a terminal or a chat in the app; the gallery opens nothing.
+      "cmux.markdown.runBlock": () => ({}),
+      "cmux.markdown.runAll": () => ({}),
       "cmux.markdown.setTableWidths": (params: { path: string; value: unknown }) => {
         try {
           if (params.value) sessionStorage.setItem(widthsKey(params.path), JSON.stringify(params.value));
@@ -224,6 +228,15 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
   const source = { kind: "branch", repoRoot: repo, baseRef: state.baseRef ?? "main" };
   const prefs: Record<string, unknown> = {};
   let comments: DiffCommentRecord[] = [...(state.comments ?? [])];
+  const sessionOpened = () => ({
+    type: "sessionOpened",
+    value: {
+      sessionId: "gallery",
+      patch: { id: patchPath, mediaType: "text/x-diff", byteLength: patch.length, revision: 1 },
+      source,
+      generatedPaths: [],
+    },
+  });
   const host = installMockHost(
     {
       "cmux.diff.config": () => ({
@@ -240,25 +253,45 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
           appearance: context.appearance,
           labels,
           commentsSend: state.commentsSend,
+          reviewBrief: state.reviewBrief != null,
         },
-        ops: ["cmux.diff.comments", ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : [])],
+        ops: [
+          "cmux.diff.comments",
+          ...(state.fingerprintError ? ["cmux.diff.git.fingerprint"] : []),
+          ...(state.reviewBrief != null ? ["cmux.diff.brief"] : []),
+          ...(state.summaries ? ["cmux.diff.summary", "cmux.diff.summaryCheck"] : []),
+        ],
       }),
       "cmux.diff.protocolHandshake": () => ({
         type: "handshake",
         value: { protocolVersion: 1, capabilities: ["sessions", "branches"] },
       }),
-      "cmux.diff.sessionOpen": () => ({
-        type: "sessionOpened",
-        value: {
-          sessionId: "gallery",
-          patch: { id: patchPath, mediaType: "text/x-diff", byteLength: patch.length, revision: 1 },
-          source,
-          generatedPaths: [],
-        },
-      }),
+      "cmux.diff.sessionOpen": async () => {
+        if (state.mode === "loading") return await new Promise<never>(() => {});
+        if (state.mode === "error")
+          throw new HostError(
+            state.openError?.code ?? "cmux.diff.open_failed",
+            state.openError?.message ?? "git diff failed: not a git repository.",
+          );
+        return sessionOpened();
+      },
       "cmux.diff.git.fingerprint": () => {
         if (state.fingerprintError) throw new HostError(state.fingerprintError.code, state.fingerprintError.message);
         return { fingerprint: hash(patch) };
+      },
+      "cmux.diff.brief": () => state.reviewBrief,
+      "cmux.diff.summaryCheck": () =>
+        state.summaries && "refused" in state.summaries
+          ? { ready: false, reason: state.summaries.refused }
+          : { ready: true, harness: "claude" },
+      "cmux.diff.summary": async (params: unknown) => {
+        const summaries = state.summaries;
+        if (!summaries || "refused" in summaries) throw new Error("no summaries");
+        const patch = String((params as { patch?: unknown } | null)?.patch ?? "");
+        const hit = Object.entries(summaries.sentences).find(([needle]) => patch.includes(needle));
+        await new Promise((resolve) => setTimeout(resolve, summaries.delayMs ?? 0));
+        if (!hit) throw new Error("no sentence");
+        return { text: hit[1], key: "gallery", cached: false };
       },
       "cmux.diff.sessionClose": () => ({ type: "sessionClosed" }),
       "cmux.diff.branchList": () => ({
@@ -272,7 +305,8 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
       "cmux.diff.comments": (params: { method: string; params: Record<string, unknown> }) => {
         if (params.method === "viewedFiles.list") return { files: [] };
         if (params.method === "viewerPrefs.get") return { preferences: prefs };
-        if (params.method === "comments.list") return { comments };
+        if (params.method === "comments.list")
+          return state.commentsReview ? { comments, review: state.commentsReview } : { comments };
         if (params.method === "comments.save") {
           const input = params.params.comment as DiffCommentRecord;
           const now = new Date(0).toISOString();
@@ -284,6 +318,13 @@ export async function mountDiffPage(state: DiffPageVariant, context: StageContex
         if (params.method === "comments.send") {
           const ids = new Set(params.params.ids as string[]);
           comments = comments.filter((entry) => !ids.has(entry.id));
+        }
+        // Post to GitHub, answered as the host passes the daemon's answer on (`in_body`).
+        if (params.method === "comments.post") {
+          const ids = params.params.ids as string[];
+          comments = comments.filter((entry) => !ids.includes(entry.id));
+          const url = `${state.commentsReview?.url ?? "https://github.com/acme/net/pull/1"}#pullrequestreview-1`;
+          return { url, posted: ids.length, in_body: 0, cleared: ids };
         }
         return {};
       },
@@ -335,11 +376,22 @@ export async function mountAppsPage(state: AppsPageVariant, _context: StageConte
     provider.failNext(AppsOps.catalogGet, new HostError(state.detailError.code, state.detailError.message));
   }
   const host = installMockHost(
-    pageOps(provider, [...Object.values(AppsOps), OPEN_ACTION.op, "cmux.page.connection", "cmux.page.command"], {
-      mode: state.mode === "normal" ? undefined : state.mode,
-      firstOperation: AppsOps.catalogList,
-      error: state.error,
-    }),
+    pageOps(
+      provider,
+      [
+        ...Object.values(AppsOps),
+        OPEN_ACTION.op,
+        NewTabOps.get,
+        NewTabOps.set,
+        "cmux.page.connection",
+        "cmux.page.command",
+      ],
+      {
+        mode: state.mode === "normal" ? undefined : state.mode,
+        firstOperation: AppsOps.catalogList,
+        error: state.error,
+      },
+    ),
     [AppsOps.watch, "cmux.page.connection", "cmux.page.command"],
   );
   host.delayMs = 0;
@@ -357,6 +409,18 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.ports) provider.edge.forwards = JSON.parse(JSON.stringify(state.ports)) as PortForward[];
   if (state.maxActive !== undefined) provider.account.plan.max_active = state.maxActive;
   if (state.snapshotsFail) provider.failNext = CloudOps.snapshotList;
+  if (state.retention) provider.retention = JSON.parse(JSON.stringify(state.retention));
+  if (state.machinesCap !== undefined) provider.machinesCap = state.machinesCap;
+  if (state.freeUp) provider.freeUp = state.freeUp;
+  if (state.idle) provider.idle = [...state.idle];
+  if (state.retentionForbidden) provider.retentionForbidden = true;
+  if (state.spendCap) provider.spendCap = { ...state.spendCap };
+  if (state.memberBudget) provider.memberBudget = { ...state.memberBudget };
+  if (state.surge) provider.surge = JSON.parse(JSON.stringify(state.surge));
+  if (state.paymentPastDue !== undefined) provider.paymentPastDue = state.paymentPastDue;
+  if (state.planId) provider.account.plan.plan_id = state.planId;
+  if (state.usage !== undefined)
+    provider.usage = typeof state.usage === "string" ? state.usage : structuredClone(state.usage);
   const operations = pageOps(provider, [...Object.values(CloudOps), CLOUD_ACTION_RUN, CLOUD_PAGE_COMMAND], {
     mode: state.mode === "normal" ? undefined : state.mode,
     firstOperation: CloudOps.authStatus,
@@ -392,6 +456,18 @@ export async function mountCloudPage(state: CloudPageVariant, _context: StageCon
   if (state.action === "select-machine") clickLater(".cloud-machine");
   if (state.action === "create") clickLater(".cloud-create-button");
   if (state.action === "get") clickLater(".cloud-store-get");
+  if (state.action === "create-at-cap") {
+    clickLater(".cloud-create-button");
+    setTimeout(() => document.querySelector<HTMLElement>(".cloud-create-submit")?.click(), 320);
+  }
+  if (state.action === "cleanup-team") {
+    setTimeout(() => {
+      const team = document.querySelector<HTMLDetailsElement>(".cloud-cleanup-team");
+      if (team) team.open = true;
+    }, 240);
+  }
+  // The first row's Resume (a paused machine): a start the spending cap or the member's budget refuses.
+  if (state.action === "resume") clickLater(".cloud-machine-toggle");
   if (state.action === "ports-pending") {
     clickLater(".cloud-machine");
     setTimeout(() => {

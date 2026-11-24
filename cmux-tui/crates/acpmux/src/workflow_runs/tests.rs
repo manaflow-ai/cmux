@@ -17,6 +17,7 @@ fn spec() -> RunRecord {
         state: State::Paused,
         activities: BTreeMap::new(),
         outcome: None,
+        caller_subagent: None,
     }
 }
 
@@ -148,6 +149,7 @@ async fn pause_waits_for_owned_runner_exit_before_resume_can_take_the_journal() 
     let service = std::sync::Arc::new(Service::with_root(dir.path().into()));
     let run = service.store().start(spec()).unwrap();
     let proof = service.issue_runner(&run).unwrap().unwrap();
+    let cancellation = service.runner_cancellation(&run.id, run.generation);
     let (stop, finished) = service.track_runner(&run.id, run.generation);
     let (observed, wait_observed) = tokio::sync::oneshot::channel();
     let (allow_exit, exit_allowed) = tokio::sync::oneshot::channel();
@@ -164,6 +166,7 @@ async fn pause_waits_for_owned_runner_exit_before_resume_can_take_the_journal() 
     };
     wait_observed.await.unwrap();
     assert!(!stopping.is_finished(), "pause acknowledged before owned runner exited");
+    assert!(cancellation.is_cancelled(), "pause did not release an in-flight activity wait");
     assert!(service.authorize_runner(&run.id, run.generation, &proof).is_err());
     allow_exit.send(()).unwrap();
     child.await.unwrap();
@@ -181,4 +184,18 @@ fn a_corrupt_run_does_not_hide_other_recoverable_workflows() {
     std::fs::write(store.directory("wf-corrupt").unwrap().join("run.json"), b"broken").unwrap();
     assert_eq!(store.list().unwrap(), vec![run]);
     assert!(store.get("wf-corrupt").is_err());
+}
+
+/// A record update lets go of the record lock, also while a child the daemon forked meanwhile has
+/// the descriptor: else the next update waits until that child execs.
+#[cfg(unix)]
+#[test]
+fn a_dropped_record_lock_is_free_while_a_forked_child_keeps_its_descriptor() {
+    let dir = tempfile::tempdir().unwrap();
+    let held = lock(dir.path()).unwrap();
+    let keeper = crate::fork_tests::Keeper::fork();
+    drop(held);
+    let free = crate::fork_tests::free(&dir.path().join("record.lock"));
+    drop(keeper);
+    assert!(free, "a dropped record lock stayed held through a forked child's copy");
 }

@@ -11,6 +11,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { UploadResult } from "../src/agent-session/acpmux/cloudUploads";
+import { teardownDom } from "./support/domTeardown";
 
 const MIB = 1024 * 1024;
 /// Each screenshot's preview: under the 1.5 MiB image budget, so twenty of them exceed the prompt's.
@@ -92,11 +93,7 @@ afterEach(() => {
 
 afterAll(async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -172,7 +169,10 @@ test("a bare /plan drops a send waiting for originals: it never goes on its own 
   const field = host.querySelector<HTMLElement>('[role="combobox"]')!;
 
   // Twenty screenshots pasted: each is its preview chip at once while its original still uploads.
-  const files = Array.from({ length: 20 }, (_, index) => new File(["png"], `Shot ${index}.png`, { type: "image/png" }));
+  const files = Array.from(
+    { length: 20 },
+    (_, index) => new File([`png ${index}`], `Shot ${index}.png`, { type: "image/png" }),
+  );
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", {
     value: { files, types: ["Files"], getData: () => "" },

@@ -34,6 +34,13 @@ export function setDeviceChats(value: unknown): void {
   for (const listener of listeners) listener();
 }
 
+/// A new page's start (tests): no chats pushed yet. A test that pushes the list calls this in its
+/// teardown, so a later file's New Tab is not drawn as a Mac that already has chats.
+export function resetDeviceChatsForTests(): void {
+  chats = [];
+  pushes = 0;
+}
+
 /// How many pushes this page received: a list compares it with the one its rows answer
 /// (settledCache.ts) to tell a change it has not read from a mount.
 export function devicePushCount(): number {

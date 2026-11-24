@@ -29,6 +29,16 @@ public final class SidebarSessionTreeFeed {
     }
 
     private var task: Task<Void, Never>?
+    /// Follows the workspace list (which workspaces, never their fields) while the pass runs.
+    private var listTask: Task<Void, Never>?
+    /// One observation per workspace of its agent chats (main-thread-scheduling.md section 3, O2): a tab change
+    /// re-reads that workspace's tabs only, never every workspace's.
+    private var observed: ObservedItems<WorkspaceModel, WorkspaceChats>?
+    /// The workspaces `start` lists now, in order.
+    private var listed: [WorkspaceModel] = []
+    /// Each listed workspace's agent chats, joined: what the pass and ``workspaces(showing:)`` read.
+    private let joined = JoinedChats()
+    private var localHost: String?
     /// Also read by ``checksFailing(_:)``, the Priority view's Red CI.
     let pullRequests = SidebarPullRequestStore()
 
@@ -36,29 +46,84 @@ public final class SidebarSessionTreeFeed {
     nonisolated struct Pass: Equatable, Sendable {
         var state: SidebarSessionTreeState
         var asks: Set<String>
-        /// The session tree is on (`sidebar.sessionTree`): the pass writes `SidebarSessionTree.state`.
-        /// Off, the pass runs only for the pull request badges and the Priority view's Red CI.
+        /// The session tree (`sidebar.sessionTree`) or lineage nesting (`SidebarTunables.lineageNesting`, on by
+        /// default) is on: the pass writes `SidebarSessionTree.state`. Off, the pass runs only for the pull request
+        /// badges and the Priority view's Red CI.
         var showsTree = true
+        /// The pull request reads run (the tree, the Priority view or a row's badge wants them). Nesting alone asks
+        /// GitHub nothing.
+        var readsPullRequests = true
+        /// acpmux's lanes were live (`AgentLaneStore.live`): the parents are this run's own, not the saved ones held.
+        var lanesLive = true
+    }
+
+    /// No acpmux here (no lanes will come to replace the lineage the last run saved): the tree draws none of it.
+    public func dropSavedLineage(tree: SidebarSessionTree = .shared) { tree.dropSavedLineage() }
+
+    /// One workspace's agent chat tabs, in model order (its name only for the DEBUG pull request fixture).
+    nonisolated struct WorkspaceChats: Equatable, Sendable {
+        var id: SidebarWorkspaceID
+        var refs: [AgentSessionRef]
+        var name: String?
+    }
+
+    /// The joined chats of every listed workspace; nil while the pass does not run (setting off).
+    @Observable @MainActor final class JoinedChats {
+        var chats: [WorkspaceChats]?
     }
 
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
-    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
+    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions. The workspace list is observed
+    /// without reading any workspace's fields, and each workspace's chats are their own observation, so one
+    /// tab's change re-reads its workspace only and the pass reads the joined chats, never a tab.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
                       lanes: AgentLaneStore = .shared, remote: RemoteAgentSessionLinks = .shared,
                       recorded: AgentSessionParents? = nil, tree: SidebarSessionTree = .shared) {
         guard task == nil else { return }
+        self.localHost = localHost
         let storedParents = recorded ?? self.recordedParents
         let pullRequests = pullRequests
         let fixture = SidebarPullRequestFixture.enabled
+        let joined = joined
+        observed = ObservedItems(item: { workspace in Self.chats(of: workspace, named: fixture) }, same: { $0 == $1 },
+                                 changed: { [weak self] in self?.settle() })
+        // task-owner: the app (one feed for the app's life); event-driven (Observation)
+        listTask = Task { [weak self] in
+            for await trigger in ObservationStream({ () -> ObservationTrigger<[WorkspaceModel]?> in
+                let sections = DesignSettings.shared.sidebarSections
+                let runs = Self.readsPullRequests(sections) || Self.readsBadges(sections) || SidebarTunables.lineageNesting.value
+                return ObservationTrigger(runs ? workspaces() : nil)
+            }) {
+                guard let self else { return }
+                guard let models = trigger.value else {
+                    observed?.cancelAll()
+                    listed = []
+                    if joined.chats != nil { joined.chats = nil }
+                    continue
+                }
+                listed = models
+                settle()
+            }
+        }
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
                 let sections = DesignSettings.shared.sidebarSections
-                guard Self.readsPullRequests(sections) || Self.readsBadges(sections) else { return nil }
+                let reads = Self.readsPullRequests(sections) || Self.readsBadges(sections), nests = SidebarTunables.lineageNesting.value
+                guard reads || nests else { return nil }
+                // Until acpmux's watch delivers its page (a launch, a gap) the lanes hold no `spawnedBy`: the lineage
+                // drawn last stands in, so no row un-nests now and nests again when the lanes land.
+                let lanesLive = lanes.live, held = lanesLive || !nests ? [:] : tree.savedParents
+                guard let listed = joined.chats else {
+                    guard !held.isEmpty else { return nil }
+                    var pass = Self.shaped(Pass(state: SidebarSessionTreeState(parents: held), asks: []),
+                                           sessionTree: sections.sessionTree, nests: nests, reads: false)
+                    pass.lanesLive = false
+                    return pass
+                }
                 // Each local session's links only (`AgentLaneStore.links(_:)`): an agent's new step or state passes nothing
                 // again; with the badges on this pass ran over every workspace on every agent event.
-                let models = workspaces()
-                let chats = Self.chats(models)
+                let chats = listed.map { ($0.id, $0.refs) }
                 var links: [String: AgentLaneLinks] = [:]
                 for (_, refs) in chats {
                     for ref in refs where ref.host == localHost {
@@ -67,16 +132,78 @@ public final class SidebarSessionTreeFeed {
                 }
                 var pass = Self.pass(chats, links: links, remoteParentsByHost: remote.parentsByHost,
                                      hostAliases: remote.hostAliases, recordedParents: storedParents.parents,
-                                     localHost: localHost, pullRequests: pullRequests.answers)
-                pass.showsTree = sections.sessionTree
+                                     localHost: localHost, pullRequests: reads ? pullRequests.answers : [:])
+                pass.state.parents = Self.holding(pass.state.parents, saved: held)
+                pass.lanesLive = lanesLive
+                pass = Self.shaped(pass, sessionTree: sections.sessionTree, nests: nests, reads: reads)
                 // Captures: sample pull requests on every row, and no GitHub reads.
-                if fixture { (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(models), []) }
+                if fixture, pass.readsPullRequests {
+                    (pass.state.pullRequests, pass.asks) = (SidebarPullRequestFixture.badges(listed.map { (id: $0.id, name: $0.name ?? "") }), [])
+                }
                 return pass
             }) {
                 Self.publish(pass, to: tree)
-                if let pass, !fixture { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
+                // The lanes' own lineage is the one to keep: a later launch or gap holds it.
+                if let pass, pass.lanesLive { tree.savedParents = pass.state.parents }
+                if let pass, pass.readsPullRequests, !fixture { pullRequests.refresh(pass.asks) } else { pullRequests.stop() }
             }
         }
+    }
+
+    /// `parents` while acpmux's lanes are not live: the `saved` lineage (the one drawn last while they were) wins, and a
+    /// parent the pass found for a row the saved lineage leaves loose (a parent recorded since) is added where it
+    /// closes no loop. With nothing saved, `parents` as they are.
+    static func holding(_ parents: [SidebarWorkspaceID: SidebarWorkspaceID],
+                        saved: [SidebarWorkspaceID: SidebarWorkspaceID]) -> [SidebarWorkspaceID: SidebarWorkspaceID] {
+        guard !saved.isEmpty else { return parents }
+        var held: [SidebarWorkspaceID: SidebarWorkspaceID] = [:]
+        for (child, parent) in saved.sorted(by: { $0.key.rawValue < $1.key.rawValue })
+            where child != parent && !reaches(from: parent, to: child, in: held) { held[child] = parent }
+        for (child, parent) in parents.sorted(by: { $0.key.rawValue < $1.key.rawValue })
+            where held[child] == nil && child != parent && !reaches(from: parent, to: child, in: held) { held[child] = parent }
+        return held
+    }
+
+    /// `pass` as the settings shape it: the tree shows while `sidebar.sessionTree` is on, or while lineage nesting is
+    /// on and some workspace has a parent; it nests only while nesting is on (off, every workspace is top level), and
+    /// GitHub is asked only when `reads`. Nesting with no lineage shows no tree, so the list lays out exactly as with
+    /// nesting off: the layouts that stand aside for the tree (Projects and Recents, the Settled fold, the one-row
+    /// insert) keep working until an agent starts a session.
+    static func shaped(_ pass: Pass, sessionTree: Bool, nests: Bool, reads: Bool) -> Pass {
+        var pass = pass
+        (pass.showsTree, pass.readsPullRequests) = (sessionTree || (nests && !pass.state.parents.isEmpty), reads)
+        if !nests { pass.state.parents = [:] }
+        return pass
+    }
+
+    /// The listed workspaces' chats now: only workspaces new to the list are read (their own observations
+    /// keep the rest); the joined list is written only when it changed.
+    private func settle() {
+        guard let observed else { return }
+        let chats = observed.items(for: listed, id: { "\(ObjectIdentifier($0))" })
+        if joined.chats != chats { joined.chats = chats }
+    }
+
+    /// The workspaces whose agent tab shows one of `sessions` (this Mac's acpmux sessions), with that
+    /// session: the Needs You tray's answerable items (``SidebarApprovals``). It reads the joined chats
+    /// (none while the pass does not run: the tray is the session tree's), never a tab; none while
+    /// `sessions` is empty; nil host (before `start`, no install id) finds none.
+    func workspaces(showing sessions: Set<String>) -> [SidebarWorkspaceID: String] {
+        guard !sessions.isEmpty, let localHost, let chats = joined.chats else { return [:] }
+        return Self.workspaces(showing: sessions, in: chats.map { ($0.id, $0.refs) }, localHost: localHost)
+    }
+
+    /// ``workspaces(showing:)`` over each workspace's agent chats: a tab of another machine never
+    /// matches, whatever its session id.
+    static func workspaces(showing sessions: Set<String>, in chats: [(SidebarWorkspaceID, [AgentSessionRef])],
+                           localHost: String) -> [SidebarWorkspaceID: String] {
+        var found: [SidebarWorkspaceID: String] = [:]
+        for (id, refs) in chats {
+            if let session = refs.lazy.compactMap({ $0.host == localHost ? $0.session : nil }).first(where: sessions.contains) {
+                found[id] = session
+            }
+        }
+        return found
     }
 
     /// `pass` into `tree`: the badges whenever the feed runs, the tree itself only while it shows.
@@ -90,8 +217,16 @@ public final class SidebarSessionTreeFeed {
     /// Each workspace's agent chat tabs, in model order.
     static func chats(_ workspaces: [WorkspaceModel]) -> [(SidebarWorkspaceID, [AgentSessionRef])] {
         workspaces.map { workspace in
-            (SidebarWorkspaceID(workspace.id), workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap(\.agentSession))
+            let chats = chats(of: workspace, named: false)
+            return (chats.id, chats.refs)
         }
+    }
+
+    /// One workspace's agent chat tabs, in model order; with its name when `named` (the DEBUG fixture's badges).
+    static func chats(of workspace: WorkspaceModel, named: Bool) -> WorkspaceChats {
+        WorkspaceChats(id: SidebarWorkspaceID(workspace.id),
+                       refs: workspace.screens.flatMap(\.panes).flatMap(\.tabs).compactMap(\.agentSession),
+                       name: named ? workspace.name : nil)
     }
 
     static func pass(_ chats: [(SidebarWorkspaceID, [AgentSessionRef])], lanes: [String: AgentActivityLane],

@@ -265,14 +265,62 @@ pub fn pending_hint(request: &Value, session: &str) -> String {
 /// policy asks before some tools run, and only the cmux app can allow
 /// those (the CLI may deny or cancel). None when its policy never asks
 /// (approve-all) or denies by itself (deny-all), or is not known.
+///
+/// A daemon default of ask, approve-reads or approve-edits is not the chat's own policy and does
+/// not change its mode (chats start in full access, `hub/policy_gate.rs`): in a mode that runs
+/// every tool unasked (`web_modes::runs_everything_unasked`, by the harness's family: Claude's
+/// `bypassPermissions` from the harness's settings, Codex's `agent-full-access`, and in a harness
+/// outside that table a mode acpmux's shared rule names full access, such as Gemini's `yolo`)
+/// nothing asks, so the note says that and how to hold the policy (W5-S, bench round 4
+/// friction 6, 2026-11-08). In a mode that asks nothing and denies what is not allowed beforehand
+/// (`web_modes::denies_unasked`: Claude's `dontAsk`) the note says so. A mode that still asks for
+/// some tools (`acceptEdits`, opencode's `build`) keeps the asking note: the default answers
+/// those. In Japanese for a Japanese locale.
 pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
     use crate::config::PermissionPolicy;
+    use crate::web_modes::{denies_unasked, runs_everything_unasked};
     // A session's own policy, else the daemon default it runs under.
-    let policy = info.get("policy").and_then(Value::as_str);
-    let policy = policy.or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str));
+    let own = info.get("policy").and_then(Value::as_str);
+    let policy = own.or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str));
     let policy: PermissionPolicy = policy?.parse().ok()?;
     if matches!(policy, PermissionPolicy::ApproveAll | PermissionPolicy::DenyAll) {
         return None;
+    }
+    let mode = info.pointer("/modes/currentModeId").and_then(Value::as_str);
+    let default_only = own.is_none() && policy != PermissionPolicy::Review;
+    let family = crate::web_modes::mode_family_of_detail(info).unwrap_or_default();
+    let japanese = || crate::sender_env::japanese(|k| std::env::var(k).ok());
+    if let Some(mode) = mode.filter(|m| default_only && runs_everything_unasked(&family, m)) {
+        return Some(if japanese() {
+            format!(
+                "注意: {session} はモード {mode} でツールを確認なしで実行します。ポリシー {policy} は\
+                 デーモンの既定値にすぎず、このセッションには適用されません。適用するには \
+                 `acpmux session set {session} policy={policy}` を実行するか、--policy {policy} で開始してください。"
+            )
+        } else {
+            format!(
+                "note: {session} runs tools without asking (mode {mode}); policy {policy} is only \
+                 the daemon default and does not hold here. To hold it: `acpmux session set \
+                 {session} policy={policy}`, or start it with --policy {policy}."
+            )
+        });
+    }
+    if let Some(mode) = mode.filter(|m| default_only && denies_unasked(&family, m)) {
+        return Some(if japanese() {
+            format!(
+                "注意: {session} はモード {mode} で何も確認しません。事前に許可されていないツールは\
+                 確認なしで拒否されます。ポリシー {policy} はデーモンの既定値にすぎず、このセッションには\
+                 適用されません。適用するには `acpmux session set {session} policy={policy}` を\
+                 実行するか、--policy {policy} で開始してください。"
+            )
+        } else {
+            format!(
+                "note: {session} asks nothing (mode {mode}): a tool that is not allowed beforehand \
+                 is denied, not asked. Policy {policy} is only the daemon default and does not hold \
+                 here. To hold it: `acpmux session set {session} policy={policy}`, or start it \
+                 with --policy {policy}."
+            )
+        });
     }
     Some(format!(
         "note: {session} asks before some tools run (policy {policy}); only the cmux app can allow that (the chat's permission card). From here, `acpmux session deny {session}` or `acpmux session cancel {session}`."
@@ -280,76 +328,5 @@ pub fn app_allow_note(info: &Value, session: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A free-text item (no options, own text allowed: an elicitation's
-    /// string field) takes the whole value as typed, commas and spacing
-    /// included; it is never split into parts and rejoined.
-    #[test]
-    fn a_free_text_answer_is_kept_whole() {
-        let question = json!({"harness": "claude", "items": [
-            {"id": "q1", "prompt": "Name?", "options": [], "allowsOther": true}]});
-        for typed in ["a,  b", "x, x", "a,,b", "1,000"] {
-            let answers = parse_answers(&question, &[format!("q1={typed}")]).expect(typed);
-            assert_eq!(answers, json!({"Name?": typed}), "{typed:?}");
-        }
-    }
-
-    /// An item with options still reads comma-separated labels, and unknown
-    /// parts become its Other text.
-    #[test]
-    fn an_item_with_options_still_splits_on_commas() {
-        let question = json!({"harness": "claude", "items": [
-            {"id": "q1", "prompt": "Pick?", "multiSelect": true, "allowsOther": true,
-             "options": [{"label": "Red"}, {"label": "Blue"}]}]});
-        let answers = parse_answers(&question, &["q1=blue, red, teal".into()]).unwrap();
-        assert_eq!(answers, json!({"Pick?": "Red, Blue, teal"}));
-    }
-
-    /// The CLI is never the person (`hub/person.rs`): the daemon refuses its
-    /// allow and its answer. The way to answer a pending ask it prints (the
-    /// send reply, `acpmux pending`) names the app for those, and only the
-    /// commands the CLI may run (ergo-walk, 2026-10-25).
-    #[test]
-    fn the_pending_hint_offers_only_what_the_cli_may_run() {
-        let permission = json!({"toolCall": {"title": "Read README.md"}, "options": [
-            {"optionId": "accept", "kind": "allow_once"},
-            {"optionId": "cancel", "kind": "reject_once"}]});
-        let hint = pending_hint(&permission, "my-linux/api-work");
-        assert!(!hint.contains("session allow"), "{hint}");
-        assert!(hint.contains("allow it in the cmux app (the chat's permission card)"), "{hint}");
-        assert!(hint.contains("acpmux session deny my-linux/api-work"), "{hint}");
-        assert!(hint.contains("acpmux session cancel my-linux/api-work"), "{hint}");
-
-        let question = json!({"toolCall": {"_meta": {"acpmux": {"question": {"items": [
-            {"id": "q1", "prompt": "Pick?", "options": [{"label": "Red"}]}]}}}},
-            "options": [{"optionId": "allow", "kind": "allow_once"}]});
-        let hint = pending_hint(&question, "s");
-        assert!(!hint.contains("session answer"), "{hint}");
-        assert!(hint.contains("answer it in the cmux app (the chat's question card)"), "{hint}");
-        assert!(hint.contains("acpmux session deny s"), "{hint}");
-        assert!(hint.contains("acpmux session cancel s"), "{hint}");
-    }
-
-    /// `new` and `send` say before the work starts that an allow needs the
-    /// app, only for a policy that asks.
-    #[test]
-    fn the_app_allow_note_is_only_for_a_policy_that_asks() {
-        for policy in ["ask", "approve-reads", "approve-edits"] {
-            let note = app_allow_note(&json!({"policy": policy}), "api-work").expect(policy);
-            assert!(note.contains("only the cmux app can allow"), "{note}");
-            assert!(note.contains("`acpmux session deny api-work`"), "{note}");
-            assert!(!note.contains("session allow"), "{note}");
-        }
-        // A session on the daemon default has no policy of its own: the
-        // default it runs under counts (`enforcement.policy`).
-        let default = json!({"policy": null, "enforcement": {"policy": "ask"}});
-        assert!(app_allow_note(&default, "api-work").is_some());
-        let own = json!({"policy": "approve-all", "enforcement": {"policy": "approve-all"}});
-        assert_eq!(app_allow_note(&own, "api-work"), None);
-        for info in [json!({"policy": "approve-all"}), json!({"policy": "deny-all"}), json!({})] {
-            assert_eq!(app_allow_note(&info, "api-work"), None, "{info}");
-        }
-    }
-}
+#[path = "question_answer_tests.rs"]
+mod tests;

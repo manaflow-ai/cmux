@@ -9,14 +9,37 @@
 // token). Where the host cannot open that tab (WebKit, a machine without remote localhost), and on
 // "Paste a code instead", Claude's other page gives a code to paste back. Codex's page asks for the
 // code the card shows, copied on the start. Use an API key, a link
-// beside it, saves one on the machine instead. Once signed in, the failed prompt goes again on the
-// person's click.
+// beside it, saves one on the machine instead. Grok signs in like Codex (a page and a code) and takes
+// no saved key, so it has no Use an API key; Gemini takes a key only, so Use an API key is its one
+// button. Use cmux's gateway, a third link shown only when the machine's team has the gateway (acpmux
+// names it in the failure), runs Claude or Codex on the team's own account instead (Leo 2026-11-10:
+// "the stuff does of course go through our gateway"). Once signed in, the failed prompt goes again
+// on the person's click.
+// Claude's paste and Codex's device code draw with the shared DeviceSignInCard (logins done right;
+// Leo, 2026-11-22: "this is simply logins, done righr."), the same card Settings > Accounts and
+// onboarding show, with Open sign-in page beside it. A chat elsewhere also offers GitHub's sign-in on
+// that machine (`signIn.github`, cloudGitHubSignIn.ts) as a quiet link that turns into that card.
 // The code and the key live only in this component's state while it is up: never in a row, a
 // log or anything kept.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { DeviceSignInCard } from "../../../pages/shared/signIn/DeviceSignInCard";
+import { useSignInStrings } from "../../../pages/shared/signIn/strings";
+import { useAccountSignIn, type AccountSignInTransport } from "../../../pages/shared/signIn/useAccountSignIn";
+import type { AccountFamily } from "../../../pages/shared/signIn/accountSignIn";
 import { useT, type StringKey } from "../i18n";
 import { copyText, copyTextResult } from "./clipboard";
-import { LoginStepError, type CloudSignIn as SignIn, type LoginFailure, type LoginStart } from "../cloudAgentLogin";
+import {
+  KEY_PAGE,
+  LoginStepError,
+  signsInByPage,
+  takesApiKey,
+  usesGateway,
+  type CloudSignIn as SignIn,
+  type LoginFailure,
+  type LoginStart,
+} from "../cloudAgentLogin";
+import { cancelResize, playResize } from "./fold";
+import { motionMode } from "../../../ui/motion/motionMode";
 
 type Stage =
   | { at: "idle" }
@@ -25,13 +48,20 @@ type Stage =
   | { at: "code"; login: LoginStart; busy?: boolean }
   | { at: "device"; login: LoginStart }
   | { at: "key"; busy?: boolean }
+  | { at: "gateway" }
   | { at: "signedIn" }
   | { at: "sending" }
   | { at: "sent" }
-  | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true };
+  | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true; gateway?: true };
 
-/// What the card's lead says: the agent's own name, as the person knows it.
-const SIGN_IN_LABEL = { claude: "turn.signIn.claude", codex: "turn.signIn.codex" } as const;
+/// What the card's lead says: the agent's own name, as the person knows it. Gemini has no sign-in
+/// page here (a key only).
+const SIGN_IN_LABEL = {
+  claude: "turn.signIn.claude",
+  codex: "turn.signIn.codex",
+  grok: "turn.signIn.grok",
+  cursor: "turn.signIn.cursor",
+} as const satisfies Partial<Record<SignIn["agent"], StringKey>>;
 
 const FAILURE_COPY: Record<LoginFailure, StringKey> = {
   bad_code: "turn.signIn.error.badCode",
@@ -42,11 +72,42 @@ const FAILURE_COPY: Record<LoginFailure, StringKey> = {
   remote_refused: "turn.signIn.error.remoteRefused",
   unknown_session: "turn.signIn.error.unknownSession",
   unsupported: "turn.signIn.error.failed",
+  no_gateway: "turn.signIn.error.noGateway",
   failed: "turn.signIn.error.failed",
 };
 
 function failureOf(error: unknown): LoginFailure {
   return error instanceof LoginStepError ? error.failure : "failed";
+}
+
+/// The agents whose device code and pasted code draw with the shared card (its families).
+function cardFamily(agent: SignIn["agent"]): AccountFamily | undefined {
+  return agent === "claude" || agent === "codex" ? agent : undefined;
+}
+
+/// GitHub's sign-in on the chat's machine: a quiet Sign In to GitHub link, then the shared card
+/// (device code, waiting, signed in, expired, refused). Going away cancels a sign-in in flight.
+export function GitHubOnMachine({ transport }: { transport: AccountSignInTransport }) {
+  const strings = useSignInStrings();
+  // A machine (or host) without the sign-in answers with none: the link goes, the rest stays.
+  const [gone, setGone] = useState(false);
+  const via = useMemo<AccountSignInTransport>(() => ({ ...transport, fallback: () => setGone(true) }), [transport]);
+  const github = useAccountSignIn(via);
+  const { cancel } = github;
+  useEffect(() => cancel, [cancel]);
+  if (gone) return null;
+  if (!github.running)
+    return (
+      <button type="button" className="cv-turn-error__offer-link" onClick={() => github.start("github", null)}>
+        {strings.t("signIn.title.github")}
+      </button>
+    );
+  // On its own line in the notice's actions, as the agent's own card is: never between two buttons.
+  return (
+    <div className="cv-turn-signin" data-testid="cloud-github-signin-card">
+      <DeviceSignInCard family="github" view={github.running.view} look="inline" {...github.card} />
+    </div>
+  );
 }
 
 /// The sign-in's part of the failed turn's card. `rowId` and `prompt` are the failed prompt's, which
@@ -56,15 +117,43 @@ export function CloudSignIn({
   rowId,
   prompt,
   keyOnly = false,
+  gateway = false,
+  actionsRef,
 }: {
   signIn: SignIn;
   rowId: string | undefined;
   prompt: string | undefined;
   /// Only Use an API key: a team Cloud machine, where the agent's own sign-in is not offered.
   keyOnly?: boolean;
+  /// The machine's team has cmux's gateway (cloudAgentLogin.ts `offersGateway`): Use cmux's gateway
+  /// is offered beside the others.
+  gateway?: boolean;
+  actionsRef?: RefObject<HTMLElement | null>;
 }) {
   const t = useT();
-  const [stage, setStage] = useState<Stage>({ at: "idle" });
+  const [stage, commitStage] = useState<Stage>({ at: "idle" });
+  const previousHeight = useRef<number | undefined>(undefined);
+  const resizingNode = useRef<HTMLElement | null>(null);
+  // Read before changing the step, including when another step interrupts a resize. The same
+  // transcript fold places following rows before paint; no observer, timer or idle work is needed.
+  const setStage = (next: Stage) => {
+    previousHeight.current ??= actionsRef?.current?.getBoundingClientRect().height;
+    commitStage(next);
+  };
+  useLayoutEffect(() => {
+    const from = previousHeight.current;
+    previousHeight.current = undefined;
+    const node = actionsRef?.current;
+    resizingNode.current = node ?? null;
+    if (node && from !== undefined && motionMode(node.ownerDocument) === "full") playResize(node, from);
+    else if (node) cancelResize(node);
+  }, [stage, actionsRef]);
+  useLayoutEffect(
+    () => () => {
+      if (resizingNode.current) cancelResize(resizingNode.current);
+    },
+    [],
+  );
   const [code, setCode] = useState("");
   const [key, setKey] = useState("");
   const [copied, setCopied] = useState(false);
@@ -184,8 +273,8 @@ export function CloudSignIn({
     );
   };
 
-  const submitCode = (login: LoginStart) => {
-    const pasted = code.trim();
+  const submitCode = (login: LoginStart, typed: string = code) => {
+    const pasted = typed.trim();
     if (!pasted) return;
     const mine = generation.current;
     // The Continue click is the resend's gesture: reserved now, spent once the agent is signed in.
@@ -232,6 +321,21 @@ export function CloudSignIn({
     );
   };
 
+  const switchToGateway = () => {
+    const mine = ++generation.current;
+    setStage({ at: "gateway" });
+    void signIn.gateway().then(
+      (switched) => {
+        if (mine !== generation.current) return;
+        if (switched) signedIn();
+        else setStage({ at: "failed", failure: "failed", gateway: true });
+      },
+      (error) => {
+        if (mine === generation.current) setStage({ at: "failed", failure: failureOf(error), gateway: true });
+      },
+    );
+  };
+
   const cancel = () => {
     generation.current++;
     if (open.current) signIn.cancel(open.current);
@@ -245,6 +349,10 @@ export function CloudSignIn({
     // A key that was not saved asks for the key again, not for a sign-in.
     if (stage.at === "failed" && stage.key) {
       setStage({ at: "key" });
+      return;
+    }
+    if (stage.at === "failed" && stage.gateway) {
+      switchToGateway();
       return;
     }
     start();
@@ -272,30 +380,65 @@ export function CloudSignIn({
     </button>
   );
 
+  // Each agent's ways in: its own sign-in page (all but Gemini) and a saved key (all but Grok and
+  // Cursor).
+  const agent = signIn.agent;
+  const pageLabel = agent === "gemini" || agent === "opencode" ? undefined : SIGN_IN_LABEL[agent];
+  // Where the agent's key is made (OpenCode's opencode.ai/auth), opened on this Mac.
+  const keyPage = KEY_PAGE[agent];
+  const offersPage = !keyOnly && signsInByPage(agent) && pageLabel !== undefined;
+  const offersKey = takesApiKey(agent);
+  const offersGateway = gateway && usesGateway(agent);
+  const family = cardFamily(agent);
+  // GitHub on the same machine: offered while the card waits for a choice and once it is signed in.
+  const github = !keyOnly && signIn.github ? <GitHubOnMachine transport={signIn.github} /> : null;
   switch (stage.at) {
     case "idle":
     case "starting":
+    case "gateway":
+      if (!offersPage && !offersKey && !offersGateway) return github ?? null;
       return (
         <>
-          {!keyOnly && (
+          {offersPage && pageLabel && (
             <button
               type="button"
               className="cv-turn-auth-action cv-turn-error__primary"
-              disabled={stage.at === "starting"}
+              disabled={stage.at !== "idle"}
               onClick={start}
             >
-              {t(SIGN_IN_LABEL[signIn.agent])}
+              {t(pageLabel)}
             </button>
           )}
-          <button
-            type="button"
-            // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button.
-            className={keyOnly ? "cv-turn-auth-action" : "cv-turn-error__offer-link"}
-            disabled={stage.at === "starting"}
-            onClick={() => setStage({ at: "key" })}
-          >
-            {t("turn.signIn.apiKey")}
-          </button>
+          {offersKey && (
+            <button
+              type="button"
+              // Beside Sign in it is a link, so the sign-in stays the one button; alone it is the button,
+              // filled when it leads the card (Gemini), outlined on a team machine (Switch model leads).
+              className={
+                offersPage
+                  ? "cv-turn-error__offer-link"
+                  : keyOnly
+                    ? "cv-turn-auth-action"
+                    : "cv-turn-auth-action cv-turn-error__primary"
+              }
+              disabled={stage.at !== "idle"}
+              onClick={() => setStage({ at: "key" })}
+            >
+              {t("turn.signIn.apiKey")}
+            </button>
+          )}
+          {offersGateway && (
+            <button
+              type="button"
+              // A link beside the others, as Use an API key is: the sign-in stays the one button.
+              className={offersPage || offersKey ? "cv-turn-error__offer-link" : "cv-turn-auth-action"}
+              disabled={stage.at !== "idle"}
+              onClick={switchToGateway}
+            >
+              {t("turn.signIn.gateway")}
+            </button>
+          )}
+          {github}
         </>
       );
     case "approve":
@@ -312,6 +455,19 @@ export function CloudSignIn({
         </div>
       );
     case "code":
+      if (family)
+        return (
+          <div className="cv-turn-signin" data-testid="cloud-signin-card">
+            <span className="cv-turn-signin__row">{pageButton(stage.login)}</span>
+            <DeviceSignInCard
+              family={family}
+              look="inline"
+              view={{ state: "waiting", way: { kind: "paste" }, copied: false, url: stage.login.url, busy: stage.busy }}
+              onCancel={cancel}
+              onSubmitCode={(pasted) => submitCode(stage.login, pasted)}
+            />
+          </div>
+        );
       return (
         <form
           className="cv-turn-signin"
@@ -348,6 +504,37 @@ export function CloudSignIn({
         </form>
       );
     case "device":
+      // A sign-in with no code to type (Cursor's): its page is open and it finishes on the approve.
+      if (!stage.login.userCode)
+        return (
+          <div className="cv-turn-signin">
+            <span className="cv-turn-signin__row">
+              {pageButton(stage.login)}
+              {cancelButton}
+            </span>
+            <span className="cv-turn-signin__text">{t("turn.signIn.approve")}</span>
+          </div>
+        );
+      if (family) {
+        const userCode = stage.login.userCode;
+        return (
+          <div className="cv-turn-signin" data-testid="cloud-signin-code">
+            <span className="cv-turn-signin__row">{pageButton(stage.login)}</span>
+            <DeviceSignInCard
+              family={family}
+              look="inline"
+              view={{ state: "waiting", way: { kind: "code", code: userCode }, copied, url: stage.login.url }}
+              onCancel={cancel}
+              onCopy={() =>
+                void copyText(userCode).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                )
+              }
+            />
+          </div>
+        );
+      }
       return (
         <div className="cv-turn-signin">
           <span className="cv-turn-signin__row">
@@ -405,6 +592,11 @@ export function CloudSignIn({
             </button>
             {cancelButton}
           </span>
+          {keyPage && (
+            <button type="button" className="cv-turn-error__offer-link" onClick={() => signIn.open(keyPage)}>
+              {t("turn.signIn.getKey.opencode")}
+            </button>
+          )}
           <span className="cv-turn-signin__text">{t("turn.signIn.keyStored")}</span>
         </form>
       );
@@ -413,6 +605,7 @@ export function CloudSignIn({
       return (
         <span className="cv-turn-signin cv-turn-signin__row">
           <span className="cv-turn-signin__text">{t("turn.signIn.done")}</span>
+          {github}
           {resendable && (
             <button
               type="button"

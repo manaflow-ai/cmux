@@ -7,6 +7,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Markdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { settleReact } from "./support/domTeardown";
 
 const reply = "The cap is WebKit's.[^1]\n\n[^1]: PreferPageRenderingUpdatesNear60FPSEnabled.";
 
@@ -51,6 +52,7 @@ function installDom(reduce: boolean): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

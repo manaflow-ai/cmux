@@ -1,4 +1,6 @@
 import { cliOnlyCommand } from "./cliOnlyCommands";
+import { commandPlace } from "./commandPlace";
+import { cloudChatHome } from "./folderlessCloud";
 import type { StringKey } from "./i18n";
 import { goesAsText, type SlashCommand } from "./slashCommands";
 
@@ -17,9 +19,12 @@ export type CmuxCommand = SlashCommand & {
     | "btw"
     | "side"
     | "status"
+    | "mcp"
     | "cd"
     | "resume"
-    | "login";
+    | "login"
+    | "customize"
+    | "help";
   descriptionKey?: SlashCommand["descriptionKey"];
 };
 
@@ -27,7 +32,14 @@ export type CmuxCommand = SlashCommand & {
 /// (attachments and steer included), as if cmux did not own the command.
 export const CMUX_PASS_THROUGH: unique symbol = Symbol("cmux.passThrough");
 
-const HARNESS_TOO: ReadonlySet<CmuxCommand["action"]> = new Set(["model", "fast", "context", "plan", "passThrough"]);
+const HARNESS_TOO: ReadonlySet<CmuxCommand["action"]> = new Set([
+  "model",
+  "fast",
+  "context",
+  "plan",
+  "passThrough",
+  "mcp",
+]);
 
 /// A command the harness also takes as typed: with no host to run cmux's own version, it is sent.
 export function harnessTakesToo(command: CmuxCommand): boolean {
@@ -104,6 +116,8 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     name: "side",
     description: "",
     descriptionKey: "composer.slashSide",
+    // No argument hint: the row reads as /fork's does (#43977). `--on=cloud` (or `--on cloud`)
+    // still opens a new Cloud chat with the prompt (commandPlace.ts).
     source: "cmux",
     action: "side",
   },
@@ -114,20 +128,35 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     source: "cmux",
     action: "status",
   },
+  // A bare /mcp shows the chat's MCP servers where cmux lists them, Session Info's Connectors, at
+  // once: like /status it sends nothing to the agent, so it never queues or steers behind a running
+  // turn (Leo, 2026-11-10: "typing /mcp or /status on its own should NOT queue/steer and wait
+  // behind ... they should just... go there. and run"). With arguments it is the agent's own.
+  {
+    name: "mcp",
+    description: "",
+    descriptionKey: "composer.slashMcp",
+    source: "cmux",
+    action: "mcp",
+  },
   {
     name: "cd",
     description: "",
     descriptionKey: "composer.slashCd",
-    hint: "<folder>",
+    // `--on=cloud` (or `--on cloud`) picks Cloud for the new chat, as `cmux chat --on cloud` does
+    // (commandPlace.ts).
+    hint: "[--on=cloud] <folder>",
     source: "cmux",
     action: "cd",
   },
   // Claude Code's own /resume and /login need its terminal UI; these are the GUI's (Lawrence:
-  // "in gui, having /resume would be nice, maybe /login as well"). /resume opens the chats search.
+  // "in gui, having /resume would be nice, maybe /login as well"). /resume opens the chats search;
+  // `/resume <session-id>` resumes that chat (resumeCommand.ts).
   {
     name: "resume",
     description: "",
     descriptionKey: "composer.slashResume",
+    hint: "[session-id]",
     source: "cmux",
     action: "resume",
   },
@@ -137,6 +166,26 @@ export const CMUX_COMMANDS: readonly CmuxCommand[] = [
     descriptionKey: "composer.slashLogin",
     source: "cmux",
     action: "login",
+  },
+  // Customize cmux by asking (customizeCommand.ts): the chat's agent changes the real settings,
+  // themes and views while the person watches, then they apply, refine or discard.
+  {
+    name: "customize",
+    description: "",
+    descriptionKey: "composer.slashCustomize",
+    hint: "<change>",
+    source: "cmux",
+    action: "customize",
+  },
+  // Every command, skill and key in one searchable sheet (composerHelp.ts, HelpSheet.tsx), for
+  // every harness: Claude Code's own /help needs its terminal (Leo 2026-11-22: "is there a /help?
+  // apparently not").
+  {
+    name: "help",
+    description: "",
+    descriptionKey: "composer.slashHelp",
+    source: "cmux",
+    action: "help",
   },
 ];
 
@@ -216,6 +265,18 @@ export function continueTargets<T extends HarnessTarget>(
   );
 }
 
+/// The harnesses a started chat's model menu can switch to (forkHold.ts, App.tsx `chat.switchModel`):
+/// every one but the chat's own that can run here, another account or launch profile of its own
+/// family too, since a switch forks the chat in place rather than handing it off (Leo 2026-11-11:
+/// "across any and all conditions of workspaces/folders/models/provides/harnesses").
+export function switchTargets<T extends HarnessTarget>(
+  catalog: readonly (T & { pickable?: boolean; unavailable?: string })[],
+  currentHarness: string | undefined,
+): T[] {
+  if (!currentHarness) return [];
+  return catalog.filter((target) => target.id !== currentHarness && target.pickable !== false && !target.unavailable);
+}
+
 /** Resolves the target typed after `/continue` by id or its visible catalog name. */
 export function resolveHarnessTarget(
   value: string | undefined,
@@ -249,13 +310,20 @@ export function composerCommand(
   }
 }
 
+/// The commands that take `--on here|cloud` before their arguments (commandPlace.ts): the ones that
+/// start a chat. `/side` and `/cd` start theirs in Cloud; `/fork` and `/continue` say why they can't.
+export const PLACED_ACTIONS: ReadonlySet<CmuxCommand["action"]> = new Set(["side", "cd", "fork", "continue"]);
+
 /** The same refusal policy is used before either composer dispatches a command. */
 export function cmuxCommandRefusal(
   command: CmuxCommand,
-  args: string | undefined,
+  typedArgs: string | undefined,
   state: {
     summary: boolean;
     forkable: boolean;
+    /// Why `/side` cannot fork the chat now (`sideChatRefusal`), undefined when it can: unlike `/fork`,
+    /// a working chat forks as it is now and its own turn goes on (#38042).
+    sideFork?: "unavailable" | "nothingYet";
     sideAvailable: boolean;
     canContinue: boolean;
     sideSessions: boolean;
@@ -266,8 +334,32 @@ export function cmuxCommandRefusal(
     cwd?: string;
     /// New Tab, whose own project chip picks its folder.
     newTab?: boolean;
+    /// The chat runs in Cloud: `--on cloud` is where its `/side` and `/cd` already start.
+    inCloud?: boolean;
+    /// This pane can open New Cloud Chat for a started chat's `--on cloud` (not Quick Chat).
+    cloudStart?: boolean;
+    /// No chat has started and Cloud or Sandboxed is picked for it (there is no chat to read a host
+    /// from yet), or the chat runs on another machine of the person's: either way the prompt
+    /// would not act on this machine's own files.
+    startsElsewhere?: boolean;
   },
 ): StringKey | undefined {
+  const placed = PLACED_ACTIONS.has(command.action) ? commandPlace(typedArgs) : undefined;
+  if (placed && "refused" in placed) return "composer.cmuxOnPlace";
+  if (placed?.place === "cloud" && !state.inCloud) {
+    // `/cd --on cloud`: a chat with no turn yet picks the folder and Cloud in this composer; a
+    // started one opens New Cloud Chat in the folder. `/side --on cloud` opens New Cloud Chat with the
+    // prompt: a new chat, not a fork. /fork and /continue take this chat with them.
+    if (command.action === "cd") {
+      if (state.newTab) return "composer.cmuxCdNewTab";
+      if (state.session && !state.cloudStart) return "composer.cmuxUnavailable";
+      return !placed.rest || cdFolder(placed.rest, state.cwd, state.inCloud) ? undefined : "composer.cmuxCdPath";
+    }
+    if (command.action === "side")
+      return state.session && !state.newTab && state.cloudStart ? undefined : "composer.cmuxSideUnavailable";
+    return "composer.cmuxOnCloudCarries";
+  }
+  const args = placed ? placed.rest : typedArgs;
   switch (command.action) {
     case "import":
     case "model":
@@ -277,14 +369,25 @@ export function cmuxCommandRefusal(
     case "passThrough":
     case "resume":
     case "login":
+    case "help":
       return undefined;
+    case "customize":
+      // The agent edits this machine's cmux: a chat on a Cloud machine would change that machine's,
+      // and so would the chat a New Tab with Cloud or Sandboxed picked is about to start.
+      return state.inCloud || state.startsElsewhere ? "composer.cmuxCustomizeHere" : undefined;
     case "status":
       return state.summary ? undefined : "composer.cmuxStatusUnavailable";
+    case "mcp":
+      // `/mcp <args>` is the agent's own, sent as typed (New Tab too); a bare one needs the chat's servers.
+      return state.summary || args?.trim() ? undefined : "composer.cmuxUnavailable";
     case "cd":
       if (state.newTab) return "composer.cmuxCdNewTab";
-      return !args?.trim() || cdFolder(args, state.cwd) ? undefined : "composer.cmuxCdPath";
+      return !args?.trim() || cdFolder(args, state.cwd, state.inCloud) ? undefined : "composer.cmuxCdPath";
     case "side":
-      return !args?.trim() && state.forkable && state.sideAvailable ? undefined : "composer.cmuxSideUnavailable";
+      // `/side <prompt>` sends the prompt to the side chat; the chat itself gets nothing.
+      if (!state.sideAvailable) return "composer.cmuxSideUnavailable";
+      if (state.sideFork === "nothingYet") return "notice.forkNothingYet";
+      return state.sideFork ? "composer.cmuxForkBusy" : undefined;
     case "fork":
       if (args?.trim()) return "composer.cmuxForkArgs";
       return state.forkable ? undefined : "composer.cmuxForkBusy";
@@ -301,13 +404,21 @@ export function cmuxCommandRefusal(
 /// The folder `/cd <folder>` names: an absolute path as typed, or one relative to the chat's folder
 /// (`..`, `./src`, `src`), with `.` and `..` resolved and no trailing slash. Undefined when it
 /// cannot be read here: `~` (the host's home is not the pane's to spell) or a relative path with
-/// no chat folder to read it against.
-export function cdFolder(args: string | undefined, cwd: string | undefined): string | undefined {
+/// no chat folder to read it against. A folderless Cloud chat is the one exception: its fresh
+/// folder (`<home>/chats/<chat>`, folderlessCloud.ts) names the machine's home, so `~` and `~/PATH`
+/// go there, as `cmux chat cd SESSION ~/PATH` does. Only in a chat on a Cloud machine (`inCloud`):
+/// elsewhere `~/chats/x` is a folder like any other.
+export function cdFolder(args: string | undefined, cwd: string | undefined, inCloud = false): string | undefined {
   let typed = args?.trim() ?? "";
   // A path pasted in quotes, as a shell would take it.
   if (typed.length >= 2 && (typed[0] === '"' || typed[0] === "'") && typed.at(-1) === typed[0])
     typed = typed.slice(1, -1).trim();
-  if (!typed || typed.startsWith("~")) return undefined;
+  if (!typed) return undefined;
+  if (typed === "~" || typed.startsWith("~/")) {
+    const home = inCloud ? cloudChatHome(cwd) : undefined;
+    if (!home) return undefined;
+    typed = home + typed.slice(1);
+  } else if (typed.startsWith("~")) return undefined;
   const base = typed.startsWith("/") ? "" : cwd;
   if (base === undefined || (base && !base.startsWith("/"))) return undefined;
   const parts: string[] = [];

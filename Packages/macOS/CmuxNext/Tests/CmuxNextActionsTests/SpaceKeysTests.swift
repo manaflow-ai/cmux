@@ -6,7 +6,8 @@ import Testing
 /// Ctrl-Cmd-1…9. Both clash in cmux (Ghostty's reserved pane resize, Focus Pane by Number), so the
 /// nearest free combo adds Option: Ctrl-Opt-Cmd-Left / Right step spaces, Ctrl-Opt-Cmd-1…9 pick one
 /// (plans/cmux-next/spaces-overhaul-DESIGN.md "Keys"). The old keys (Opt-Cmd-[ / ], Ctrl-Opt-1…9)
-/// stay as aliases; every key follows its action's rebind.
+/// stay as aliases; every key follows its action's rebind. Ctrl-Opt-Cmd-H / L became the shown keys on
+/// Nov 7, with the arrows kept as aliases.
 @MainActor @Suite struct SpaceKeysTests {
     nonisolated static let terminal: [String: KeyContextValue] = [KeyContext.surfaceKind: .string("terminal")]
     nonisolated static let page: [String: KeyContextValue] = [KeyContext.surfaceKind: .string("page")]
@@ -29,6 +30,59 @@ import Testing
     func ctrlOptCmdArrowsStepSpaces(context: [String: KeyContextValue]) {
         #expect(Self.winner(Shortcut(Self.right, modifiers: Self.hyper), context)?.command == "space.next")
         #expect(Self.winner(Shortcut(Self.left, modifiers: Self.hyper), context)?.command == "space.previous")
+    }
+
+    /// Ctrl-Opt-Cmd-H / L step spaces, vim's left / right (Lawrence, Nov 7: "do ctrl option cmd hl
+    /// for navigating spaces"). They are the catalog keys, so menus, tooltips and the palette show them.
+    @Test(arguments: [terminal, page, agent])
+    func ctrlOptCmdHLStepSpaces(context: [String: KeyContextValue]) {
+        #expect(Self.winner(Shortcut("l", modifiers: Self.hyper), context)?.command == "space.next")
+        #expect(Self.winner(Shortcut("h", modifiers: Self.hyper), context)?.command == "space.previous")
+    }
+
+    @Test func theShownSpaceKeysAreCtrlOptCmdHL() {
+        let registry = Self.registry()
+        #expect(registry.effectiveShortcut(for: "space.next") == Shortcut("l", modifiers: [.control, .option, .command]))
+        #expect(registry.effectiveShortcut(for: "space.previous") == Shortcut("h", modifiers: [.control, .option, .command]))
+    }
+
+    /// A rebind takes H / L with it, and the arrow aliases too.
+    @Test func aRebindDropsCtrlOptCmdHL() {
+        let registry = Self.registry()
+        registry.setShortcutOverride(Shortcut("p", modifiers: [.control, .option, .command]), for: "space.previous")
+        #expect(Self.winner(Shortcut("h", modifiers: Self.hyper), Self.terminal, registry: registry)?.command != "space.previous")
+        #expect(Self.winner(Shortcut(Self.left, modifiers: Self.hyper), Self.terminal, registry: registry)?.command != "space.previous")
+        #expect(Self.winner(Shortcut("p", modifiers: Self.hyper), Self.terminal, registry: registry)?.command == "space.previous")
+    }
+
+    /// New Space is Ctrl-Opt-Cmd-N, in the space keys' Ctrl-Opt-Cmd family (Lawrence, Nov 15: "sidebar needs
+    /// keyboard shortcuts for making new spaces"). It holds Cmd, which a terminal never sends to its program, so
+    /// tmux, vim, emacs and readline cannot lose it; no cmux, Ghostty, macOS or Chrome default holds it. It wins
+    /// in a terminal, a page and an agent chat, and menus, the palette and Settings show it.
+    @Test(arguments: [terminal, page, agent])
+    func ctrlOptCmdNMakesASpace(context: [String: KeyContextValue]) {
+        #expect(Self.winner(Shortcut("n", modifiers: Self.hyper), context)?.command == "space.new")
+    }
+
+    @Test func theShownNewSpaceKeyIsCtrlOptCmdN() {
+        #expect(Self.registry().effectiveShortcut(for: "space.new") == Shortcut("n", modifiers: [.control, .option, .command]))
+    }
+
+    /// The step and create keys hold Cmd, so no terminal program's key is taken from it.
+    @Test func theSpaceStepAndCreateKeysHoldCmd() {
+        let registry = Self.registry()
+        for id in ["space.new", "space.next", "space.previous"] as [ActionID] {
+            let key = registry.effectiveShortcut(for: id)
+            #expect(key?.modifiers.contains(.command) == true, "\(id): \(String(describing: key))")
+        }
+    }
+
+    /// Rebinding New Space drops Ctrl-Opt-Cmd-N.
+    @Test func aRebindDropsCtrlOptCmdN() {
+        let registry = Self.registry()
+        registry.setShortcutOverride(Shortcut("y", modifiers: [.control, .option, .command]), for: "space.new")
+        #expect(Self.winner(Shortcut("n", modifiers: Self.hyper), Self.terminal, registry: registry)?.command != "space.new")
+        #expect(Self.winner(Shortcut("y", modifiers: Self.hyper), Self.terminal, registry: registry)?.command == "space.new")
     }
 
     @Test(arguments: [terminal, page, agent])

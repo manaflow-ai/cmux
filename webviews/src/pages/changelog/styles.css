@@ -91,11 +91,35 @@ html[data-cmux-page="changelog"] body {
   border-radius: 10px;
   box-shadow: 0 0 0 1px var(--page-separator);
 }
+/* A before/after pair (MediaCompare.tsx): both pictures in one box that keeps its ratio, the
+   after under the before, so no mode or position moves anything around the box. `cover` fills
+   the page's 7:4 frame from its top left like a lone picture; `contain` (the lightbox) lets the
+   after picture size the box, shown whole, and the before lies over it at the same size. */
+.cl-media-pair { position: relative; }
+.cl-lightbox-stage:has(.ui-compare) { container-type: size; }
+/* Enlarge, in the pair's corner: the frame itself is the compare control. */
+.cl-compare-enlarge {
+  position: absolute;
+  right: var(--ds-space-2);
+  bottom: var(--ds-space-2);
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-sm);
+  color: var(--page-text);
+  cursor: zoom-in;
+}
+.cl-compare-enlarge svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.cl-compare-enlarge:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+.cl-lightbox-stage .cl-compare-enlarge { display: none; }
 .cl-actions { display: flex; align-items: center; gap: var(--ds-space-3); margin: var(--ds-space-1) 0 var(--ds-space-2); }
 .cl-button {
   height: var(--ds-control-compact);
   padding-inline: var(--ds-space-3);
-  border-radius: var(--ds-radius-md);
+  border-radius: var(--ds-radius-control);
   border: 1px solid var(--page-separator);
   background: var(--page-hover);
   font-size: var(--text-control);
@@ -137,9 +161,12 @@ html[data-cmux-page="changelog"] body {
 .cl-row-summary { color: var(--page-text-2); }
 /* In a one-line row, Try it and Learn more show on hover or keyboard focus, beside the paragraph.
    Layouts that stack a change in a column (Digest, Reader) show them under the summary. */
-.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; margin-left: auto; opacity: 0; }
+.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; margin-left: auto; opacity: 0; transition: var(--cmux-hover-reveal-out-transition); }
 .cl-group li:hover .cl-row-actions,
-.cl-row-actions:focus-within { opacity: 1; }
+.cl-row-actions:has(:focus-visible) { opacity: 1; transition: var(--cmux-hover-reveal-in-transition); }
+/* It follows the pointer's dwell (pages/shared/desktop.css --cmux-hover-reveal-*): in for as long as the pointer stays, out a little faster, at once from the keyboard. */
+.cl-group li .cl-row-actions:has(:focus-visible),
+.cl-row-actions:has(:focus-visible) { transition: none; }
 .cl-row-action {
   border: 0;
   background: transparent;
@@ -297,8 +324,9 @@ html[data-cmux-page="changelog"] {
   border-radius: 12px;
   background: var(--page-hover);
   box-shadow: inset 0 0 0 1px var(--page-separator);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  /* No blur of its own: the card sits in the content layer over the window's glass, which already
+     frosts the wallpaper; a second backdrop-filter here was a second frost on the first (Leo
+     2026-11-22: "doubled up glass/wack looking glass all over the place"). */
 }
 .cln-card-kind {
   color: var(--page-text-3);
@@ -474,8 +502,12 @@ html[data-cmux-page="changelog"] {
 }
 
 /* ---------- B: Rail + reader ---------- */
-.clr { display: grid; grid-template-columns: minmax(150px, 184px) 1fr; height: 100vh; }
-.clr-rail { overflow-y: auto; padding: 40px 8px; border-right: 1px solid var(--page-separator); }
+/* The rail's track is the default until its edge is dragged (SplitEdge sets --changelog-rail-width
+   here); it reads invalid while that is unset, and the reader keeps 360px. */
+.clr { --clr-rail-track: clamp(130px, var(--changelog-rail-width), 100% - 360px); display: grid; grid-template-columns: var(--clr-rail-track, minmax(150px, 184px)) 1fr; height: 100vh; }
+/* Still, so its edge stays put while the rail scrolls inside it. */
+.clr-side { position: relative; display: flex; min-width: 0; min-height: 0; }
+.clr-rail { flex: 1; min-width: 0; overflow-y: auto; padding: 40px 8px; border-right: 1px solid var(--page-separator); }
 .clr-rail-head { padding: 0 10px 8px; color: var(--page-text-3); font-size: var(--text-caption); font-weight: 600; letter-spacing: var(--text-caption--letter-spacing); }
 .clr-version {
   display: grid;
@@ -566,8 +598,7 @@ html[data-cmux-page="changelog"] {
   border-radius: 16px;
   background: var(--page-hover);
   box-shadow: inset 0 0 0 1px var(--page-separator);
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
+  /* No blur of its own, as .cln-card. */
 }
 .cln-clips-grid .cln-clip-text { padding: 0 4px; }
 .cln-clips-grid .cln-clip-title { font-size: var(--text-title); line-height: var(--text-title--line-height); letter-spacing: var(--text-title--letter-spacing); }
@@ -677,7 +708,7 @@ html[data-cmux-page="changelog"] {
   text-wrap: pretty;
 }
 .cls-icon { display: grid; place-items: center; width: var(--cls-line); height: var(--cls-line); color: var(--cmux-accent, var(--page-text)); }
-.cls-icon svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.cls-icon svg:not(.icon) { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 /* A row's kind (SheetPage KIND_GLYPHS) sits in the gutter under its area's glyph, out of the row's
    flow so it moves nothing: positioned on the list, at its row's first line. */
 .cls-rows { position: relative; }
@@ -689,6 +720,23 @@ html[data-cmux-page="changelog"] {
 .cls-kind svg { stroke-width: 1.8; }
 /* Grid rows sit in two columns; only the first has a gutter. */
 .cls-grid .cls-kind { display: none; }
+/* A curated change's before/after pair, under its line, at a reading width. */
+.cls-row-media { max-width: 640px; margin: var(--ds-space-2) 0 var(--ds-space-3); }
+/* The change a click on the sidebar Updated card's list opened the page at (SheetPage
+   useFocusScroll): marked for a moment in the accent at low alpha, then faded back. The fade is
+   the only motion, so the page's motion gate turns it off only when motion is off. */
+.cls-row[data-focus],
+.cls-area[data-focus] {
+  background: color-mix(in srgb, var(--cmux-accent, var(--page-text)) 14%, transparent);
+  border-radius: var(--ds-radius-sm, 6px);
+}
+.cls-row[data-focus] { margin-inline: calc(-1 * var(--ds-space-1, 4px)); padding-inline: var(--ds-space-1, 4px); }
+:root:not([data-cmux-motion="off"]) :is(.cls-row, .cls-area) {
+  transition: background-color var(--cmux-motion-large) var(--cmux-ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  :is(.cls-row, .cls-area) { transition: none; }
+}
 .cls-row-title { color: var(--page-text); }
 .cls-row-line { color: var(--page-text-2); }
 .cls-row-line { margin-inline-start: 0.6em; }
@@ -708,7 +756,7 @@ html[data-cmux-page="changelog"] {
 .cls-prs-hover .cls-row-pr { visibility: hidden; }
 .cls-prs-hover .cls-row:hover .cls-row-pr,
 .cls-prs-hover .cls-row:has([data-popup-open]) .cls-row-pr,
-.cls-prs-hover .cls-row:focus-within .cls-row-pr { visibility: visible; }
+.cls-prs-hover .cls-row:has(:focus-visible) .cls-row-pr { visibility: visible; }
 .cls-prs-row .cls-row { position: relative; border-radius: var(--ds-radius-sm); }
 .cls-prs-row .cls-row:has(.cls-row-link):hover { background: var(--page-hover); }
 .cls-prs-row .cls-row-link::after { content: ""; position: absolute; inset: 0; }

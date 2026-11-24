@@ -229,6 +229,9 @@ Options:
 | `--name <event>` | Filter by event name. Repeatable. |
 | `--category <name>` | Filter by category. Repeatable. |
 | `--no-heartbeats` | Hide heartbeat frames. |
+| `--timeout <duration>` | Stop after `30s`, `5m`, `1500ms` or plain seconds: exit 124, and with `--json`/`--jsonl` a last line `{"type":"timeout","timed_out":true,"waited_ms":"…"}`. No default. |
+| `--until <name>` | Wait for one event, print only it and exit 0: an exact name or a prefix ending in `*` (`mobile.*`). |
+| `--match <path>=<value>` | Repeatable; the event's field at a dotted path (`workspace_id`, `payload.state`) equals the value. With or without `--until`. |
 
 The Swift CLI's `--after-seq`, `--cursor-file`, `--reconnect`, `--limit`, and
 `--no-ack` options were removed. A consumer that must survive an app restart

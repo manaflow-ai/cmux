@@ -3,8 +3,16 @@ import AppKit
 extension NativePopupContent {
     /// The list's rows: Up, Down, digits and typeahead move among these, never along the rail.
     var enabledRows: [(NativePopupRow, NSView)] {
-        let rail = railIDs
+        var rail = railIDs
+        if let accessory = model?.searchAccessory { rail.insert(accessory.id) }
         return rowViews.filter { !$0.0.isNoninteractive && $0.0.disabled != true && !rail.contains($0.0.id) }
+    }
+
+    /// The row the highlight starts on: the list's first, or in columns the first of the first
+    /// column that is not a rail (the models, never a harness tab).
+    var defaultRowID: String? {
+        if model?.hasColumns == true { return firstListColumnRowID }
+        return enabledRows.first?.0.id
     }
 
     /// The rail's tabs a click or Return (a highlighted Add harness) activates.
@@ -18,6 +26,7 @@ extension NativePopupContent {
     func handleKey(_ key: UInt16) -> Bool {
         let enabled = enabledRows
         if key == 53 { dismiss(); return true }
+        if model?.hasColumns == true, let handled = handleColumnKey(key) { return handled }
         if key == 123 || key == 124, model?.rail?.isEmpty == false {
             // Right opens a highlighted row's side dropdown; otherwise Left and Right step the rail,
             // and the page picks the tab (its tabs are not rows: Up and Down stay in the list).

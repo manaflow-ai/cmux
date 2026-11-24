@@ -1,11 +1,11 @@
 // Every hover card in the web UI is glass, never a solid card (Leo, 2026-10-21: "STOP DOING SOLID.
 // WE HAVE GLASS, SO JUST USE GLASS."). The cards a pointer opens by resting on something:
 //   - a link's or a pull request's hover card (chips/LinkHoverCard.tsx, also the PR dock bars);
-//   - a session reference's hover card (started/SessionHoverCard.tsx);
+//   - a session reference's hover card (started/useSessionHover.tsx);
 //   - a New Tab suggestion row's hover card (newtab/StageCards.tsx);
-//   - the thread minimap's mark preview (threadMinimap/PreviewCard.tsx).
-// Each renders the shared liquid glass (.ui-glass, ui/glass/glass.css) or, for the minimap card, the
-// tooltip glass (the tooltip tint over the shared blur). No stylesheet may lay a solid fill on one
+//   - the thread minimap's mark preview (threadMinimap/PreviewCard.tsx);
+//   - a header icon's preview of what its click opens (header/HeaderToolPreview.tsx).
+// Each renders the shared liquid glass (.ui-glass, ui/glass/glass.css). No stylesheet may lay a solid fill on one
 // of them or switch its blur off, except under Reduce Transparency, where the shared tokens turn
 // every glass solid on their own (pages/shared/desktop.css). The native hover cards share one glass
 // window (HoverCardPanel; scripts/cmux-next/check-overlay-glass.py and
@@ -14,17 +14,19 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SRC = new URL("../src/", import.meta.url).pathname;
+// A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
+const SRC = fileURLToPath(new URL("../src/", import.meta.url));
 
 /// Each hover card: the component that renders it and the class that names its root.
 const CARDS = [
   { file: "agent-session/acpmux/chips/LinkHoverCard.tsx", root: "cv-link-preview", glass: "ui-glass" },
   { file: "agent-session/acpmux/chips/LinkHoverCard.tsx", root: "acpmux-pr-card", glass: "ui-glass" },
-  { file: "agent-session/acpmux/started/SessionHoverCard.tsx", root: "acpmux-session-hover-card", glass: "ui-glass" },
+  { file: "agent-session/acpmux/started/useSessionHover.tsx", root: "acpmux-session-hover-card", glass: "ui-glass" },
   { file: "agent-session/acpmux/newtab/StageCards.tsx", root: "nt-hovercard", glass: "ui-glass" },
-  // Not .ui-glass: the tooltip tint over the shared blur (thread-minimap-card-glass.test.ts).
-  { file: "agent-session/acpmux/threadMinimap/PreviewCard.tsx", root: "acpmux-minimap__card", glass: null },
+  { file: "agent-session/acpmux/threadMinimap/PreviewCard.tsx", root: "acpmux-minimap__card", glass: "ui-glass" },
+  { file: "agent-session/acpmux/header/HeaderToolPreview.tsx", root: "acpmux-header-preview", glass: "ui-glass" },
 ] as const;
 const ROOTS = [...new Set(CARDS.map((card) => card.root))];
 
@@ -162,7 +164,13 @@ test("no stylesheet paints a hover card solid or takes its blur away", () => {
   expect(findings).toEqual([]);
   // Not vacuous: the scan reads the rules that style each card (the PR card has none of its own:
   // it is the link card with a pull request's body).
-  for (const root of ["cv-link-preview", "acpmux-session-hover-card", "nt-hovercard", "acpmux-minimap__card"]) {
+  for (const root of [
+    "cv-link-preview",
+    "acpmux-session-hover-card",
+    "nt-hovercard",
+    "acpmux-minimap__card",
+    "acpmux-header-preview",
+  ]) {
     expect(styled.has(root)).toBe(true);
   }
 });

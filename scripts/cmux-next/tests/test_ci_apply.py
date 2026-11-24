@@ -52,9 +52,26 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(p["lane"], "full")
         self.assertIn("stored property", p["fallback"])
 
+    def test_string_catalogs_still_take_the_full_build(self):
+        # try-pr shows a catalog edit with no build, but the shipped app compiles the tables.
+        catalog = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Localizable.xcstrings"
+        for files in ([("M", catalog)], [("M", catalog), ("M", "webviews/src/a.tsx")]):
+            p = lane(files)
+            self.assertEqual(p["lane"], "full")
+            self.assertEqual(p["fallback"]["string catalogs (compiled into the app)"], [catalog])
+
     def test_web_and_daemon_take_both_appliers(self):
         p = lane([("M", "webviews/src/a.tsx"), ("M", "cmux-tui/crates/cmux-tui-core/src/a.rs")])
         self.assertEqual((p["lane"], p["appliers"]), ("web+daemon", ["web", "daemon"]))
+
+    def test_a_pull_request_into_main_or_an_unknown_base_builds_clean(self):
+        # Stakes decide before the diff: main ships to everyone, so even a docs-only PR into it takes no lane.
+        for base in ("main", None):
+            with self.subTest(base=base):
+                p = lane([("M", "docs/x.md")], base_ref=base)
+                self.assertEqual(p["lane"], "full")
+                self.assertTrue(any(why.startswith(f"base {base or 'not given'}") for why in p["fallback"]))
+        self.assertEqual(lane([("M", "docs/x.md")], base_ref="feat-cmux-next")["lane"], "no-app")
 
     def test_full_ci_label_and_non_pr_events_build_clean(self):
         self.assertEqual(lane([("M", "webviews/src/a.tsx")], labels={"full-ci"})["lane"], "full")

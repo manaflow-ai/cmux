@@ -27,6 +27,10 @@ extension SidebarController {
                     guard beginPinDrag(at: start) else { return false }
                     dragging = true
                 }
+                if handsOff(e, from: view) {
+                    cancelPinDrag()
+                    return true
+                }
                 _ = view.autoscroll(with: e)
                 movePinDrag(to: view.convert(e.locationInWindow, from: nil))
             case .leftMouseUp:
@@ -40,6 +44,17 @@ extension SidebarController {
             }
         }
         return dragging
+    }
+
+    /// The pointer of `event` is beside the list (past its sides) and the host took the drag over
+    /// (`SidebarDragOutHandling`).
+    private func handsOff(_ event: NSEvent, from view: NSView) -> Bool {
+        guard let id = pinDragState.drag?.id, let host = delegate as? SidebarDragOutHandling, let window = view.window else { return false }
+        let list = view.enclosingScrollView ?? view
+        let frame = list.convert(list.bounds, to: nil)
+        let slack: CGFloat = 8
+        guard event.locationInWindow.x > frame.maxX + slack || event.locationInWindow.x < frame.minX - slack else { return false }
+        return host.sidebar(self, dragOut: id, at: window.convertPoint(toScreen: event.locationInWindow))
     }
 
     /// Lifts the tile or row under `p` (document coordinates). False: nothing to drag there.
@@ -91,12 +106,12 @@ extension SidebarController {
         guard state.animates else { return true }
         // The ghost's model follows the pointer on every move; the lift is an additive offset
         // that springs to zero, so the pointer is never waited for.
-        let lift = spring("transform.scale")
+        let lift = Self.pinDragSpring("transform.scale")
         lift.fromValue = start?.scale ?? 1
         lift.toValue = SidebarPinDragState.lift
         ghost.add(lift, forKey: "cmux.pinDrag.lift")
         if let start {
-            let offset = spring("position")
+            let offset = Self.pinDragSpring("position")
             offset.isAdditive = true
             offset.fromValue = NSValue(point: CGPoint(x: start.position.x - ghost.position.x, y: start.position.y - ghost.position.y))
             offset.toValue = NSValue(point: .zero)
@@ -132,7 +147,7 @@ extension SidebarController {
     }
 
     /// A row lifted toward the grid, drawn as the tile it would become: its avatar at the
-    /// tile's avatar place and its name below.
+    /// tile's avatar place and its name below (no name in the compact list, as its tiles).
     private func avatarGhost(_ c: ConversationSummary) -> CALayer {
         let ghost = CALayer()
         ghost.bounds = CGRect(origin: .zero, size: tileSize)
@@ -144,7 +159,7 @@ extension SidebarController {
         avatar.contentsScale = renderContext.scale
         avatar.minificationFilter = .trilinear
         ghost.addSublayer(avatar)
-        if let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
+        if !metrics.compact, let name = SidebarDraw.tileNameImage(c, emphasized: false, keyWidth: SidebarDraw.tileNameKeyWidth(
             natural: SidebarDraw.tileNatural(c).name, tileWidth: tileSize.width), ctx: renderContext) {
             let label = CALayer()
             let w = CGFloat(name.width) / renderContext.scale
@@ -321,7 +336,7 @@ extension SidebarController {
             }
             let from = was.map { $0 - top(l) } ?? residual
             guard abs(from) > 0.01 else { continue }
-            let a = spring("transform.translation.y")
+            let a = Self.pinDragSpring("transform.translation.y")
             a.fromValue = from
             a.toValue = 0
             l.add(a, forKey: "cmux.pinDrag.shift")
@@ -374,17 +389,22 @@ extension SidebarController {
         l.add(a, forKey: "cmux.pinDrag.fade")
     }
 
-    private func spring(_ keyPath: String) -> CASpringAnimation {
+    /// The one spring of a pin drag (the lift, the drop and every row or tile that makes room). Not
+    /// private: `NoBouncePinDragSpringTests` steps the animation the drag adds.
+    static func pinDragSpring(_ keyPath: String) -> CASpringAnimation {
         let a = CASpringAnimation(keyPath: keyPath)
         a.mass = 1
-        a.stiffness = 320
-        a.damping = 30
+        // Critically damped (damping ratio 1): it never passes its target. 95 % of the way in 202 ms,
+        // the time of the spring before it (stiffness 320, damping 30, ratio 0.84, 0.8 % past the
+        // target): stiffness = (4.744 / 0.2019 s)^2.
+        a.stiffness = 552
+        a.damping = 2 * a.stiffness.squareRoot()
         a.duration = a.settlingDuration
         return a
     }
 
     private func animatePosition(_ l: CALayer, from: CGPoint) {
-        let a = spring("position")
+        let a = Self.pinDragSpring("position")
         a.fromValue = NSValue(point: from)
         a.toValue = NSValue(point: l.position)
         l.add(a, forKey: "cmux.pinDrag.position")
@@ -406,7 +426,7 @@ extension SidebarController {
         l.transform = CATransform3DMakeTranslation(0, dy, 0)
         CATransaction.commit()
         guard animated else { return }
-        let a = spring("transform.translation.y")
+        let a = Self.pinDragSpring("transform.translation.y")
         a.fromValue = from
         a.toValue = dy
         l.add(a, forKey: "cmux.pinDrag.shift")

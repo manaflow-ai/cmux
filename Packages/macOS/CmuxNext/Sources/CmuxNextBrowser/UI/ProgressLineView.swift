@@ -38,7 +38,7 @@ final class ProgressLineView: NSView {
         if !wasVisible && visible {
             Motion.indicators.transaction(nil, apply)
         } else {
-            Motion.indicators.transaction(spring: .move, apply)
+            Motion.indicators.transaction(spring: .move, in: window, apply)
         }
     }
 

@@ -3,7 +3,7 @@
 // The next line's "29613)" read as an ordered list's number; the reply now stays one paragraph that
 // names cmux#29613 whole. The Chromium layout check is markdown-reference-wrap-browser.test.tsx.
 import { describe, expect, test } from "bun:test";
-import { parseMarkdown } from "../src/agent-session/acpmux/conversation/Markdown";
+import { parseMarkdown } from "../src/agent-session/acpmux/conversation/markdownModel";
 
 const REPLY =
   "Several fixes are stuck on that: the sent-message cards (cmux#\n" +

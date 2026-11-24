@@ -80,6 +80,9 @@ describe("Hexclave webhook inbox store", () => {
   dbTest("entity selection skips a claim whose establishment lock is held", async () => {
     const store = createDrizzleHexclaveInboxStore();
     await store.enqueue({ svixId: "m-locked", eventType: "user.updated", target: user("u-locked") });
+    // next_attempt_at defaults to the database's now(), in microseconds; a
+    // JS Date in the same millisecond can sit before it, so make it due.
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = now() - interval '1 minute' where svix_id = 'm-locked'`;
     const lockKey = "hexclave:inbox:user:u-locked";
     let unlock!: () => void;
     let locked!: () => void;

@@ -33,6 +33,9 @@ pub(super) struct SteerSent {
     pub(super) needs_withdrawal: bool,
     /// What a continuation of the turn it starts needs (`auto_resume.rs`).
     pub(super) continues: Continues,
+    /// The paired device that sent it (`PromptOptions::full_access_device`), for the turn it
+    /// starts if its agent reads it after the turn it was checked against ended.
+    pub(super) device: Option<String>,
 }
 
 /// What a cut carried turn's continuation needs, as a prompt's own turn has it (`turns.rs`
@@ -46,6 +49,10 @@ pub(super) struct Continues {
     pub(super) reports: bool,
     /// A trigger-originated turn stays quiet across Claude's carried steers.
     pub(super) trigger: bool,
+    /// A steer's: its provenance. A carried turn's: its steers' provenances as one turn of
+    /// messages (`digest.rs` `DIGEST_KIND`), which names the subagent of the lane's parent that
+    /// asked for the turn (`lane_report_subagents.rs`), so its report goes to that subagent.
+    pub(super) asked: Option<Value>,
 }
 
 /// An answer that ended its turn while the agent runs on with steers it read after.
@@ -152,6 +159,7 @@ impl NextTurn {
             trust_gate: flag("trustGate"),
             reports: flag("reportsOnly"),
             trigger: flag("trigger"),
+            asked: None,
         };
         Some(Self { carried, next, continues })
     }
@@ -198,7 +206,23 @@ impl Hub {
                 .prompt_ids
                 .iter()
                 .all(|p| now.sent.get(p).is_some_and(|s| s.continues.reports));
+        let asked = json!({
+            "kind": super::digest::DIGEST_KIND,
+            "messages": carried
+                .prompt_ids
+                .iter()
+                .filter_map(|p| now.sent.get(p))
+                .map(|s| json!({"provenance": s.continues.asked}))
+                .collect::<Vec<_>>(),
+        });
         now.carries.push_back((carried.seq, turn_id.clone()));
+        // Who sent each line it carries, read while `steer_now` is held (below).
+        let carried_devices: std::collections::HashMap<&String, Option<String>> = carried
+            .prompt_ids
+            .iter()
+            .map(|p| (p, now.sent.get(p).and_then(|s| s.device.clone())))
+            .filter(|(p, _)| now.sent.contains_key(*p))
+            .collect();
         while now.carries.len() > CARRIES_KEPT {
             now.carries.pop_front();
         }
@@ -229,10 +253,22 @@ impl Hub {
             ),
         };
         let trigger = continues.trigger || from.is_some_and(|t| t.trigger);
-        let continues = Continues { reports, trigger, ..continues };
+        let continues = Continues { reports, trigger, asked: Some(asked), ..continues };
         let prompt_id = first.cloned().unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let mut turn = TurnInfo::prompted(&client, &text, &turn_id, &prompt_id, control);
         turn.trigger = trigger;
+        // The agent's own next turn goes on for the device that drove the one it follows, and
+        // only while every line it reads is that device's too. A line `check_steer` narrowed an
+        // earlier turn for, read only now, never rides into a turn the phone still owns
+        // (post-merge review of cmux#43251, follow-up 1).
+        turn.device = from
+            .filter(|t| t.control == Control::Web && control == Control::Web)
+            .and_then(|t| t.device.clone())
+            .filter(|d| {
+                carried.prompt_ids.iter().all(|p| {
+                    carried_devices.get(p).is_some_and(|s| s.as_deref() == Some(d.as_str()))
+                })
+            });
         (turn.shown_as(&line), continues)
     }
 
@@ -258,9 +294,10 @@ impl Hub {
         }
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         let continues = Some(next.continues.clone());
-        tokio::spawn(Box::pin(async move {
-            hub.run_carried(session, child, turn, continues, slot).await
-        }));
+        self.scope.spawn_named(
+            "carried-turn",
+            Box::pin(async move { hub.run_carried(session, child, turn, continues, slot).await }),
+        );
     }
 
     /// A carried turn a restart cut before its prompt went to the agent host, whose Claude Code
@@ -299,18 +336,19 @@ impl Hub {
             self.arm_turn_cap(session, &turn.turn_id);
         }
         self.recovered_floor(session, turn.control);
-        self.set_status(session, SessionStatus::Running);
+        self.set_status(session, NotWaiting::Running);
         let (hub, session, child) = (self.clone(), session.clone(), child.clone());
         // A recovered turn is not continued (`auto_resume.rs`).
-        tokio::spawn(Box::pin(
-            async move { hub.run_carried(session, child, turn, None, None).await },
-        ));
+        self.scope.spawn_named(
+            "recovered-carried-turn",
+            Box::pin(async move { hub.run_carried(session, child, turn, None, None).await }),
+        );
     }
 
     /// As a recovered turn (`hosts.rs` `recover_work`): a Web turn in an agent the sandbox did
     /// not start, or in a mode only a machine's Full-access setting allows, does not go on.
     pub(super) fn recovered_floor(&self, session: &Session, control: Control) {
-        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        session.floor.mark_last_turn(control == Control::Web, None);
         if control == Control::Web && session.floor.unsandboxed.load(Ordering::SeqCst) {
             self.remote_floor_cancel(session, "remote.unsandboxed_agent");
         }
@@ -342,8 +380,9 @@ impl Hub {
         }
         // A turn on lane reports only reports nothing (`lane_reports.rs`).
         self.lane_turn_on(session, continues.reports);
+        self.lane_turn_asked(session, continues.asked.as_ref());
         if turn.control == Control::Web {
-            session.floor.last_turn_web.store(true, Ordering::SeqCst);
+            session.floor.mark_last_turn(true, turn.device.clone());
         }
         let msg = json!({
             "prompt": turn.prompt_preview,
@@ -356,6 +395,8 @@ impl Hub {
             "cloudMobile": session.floor.cloud_mobile_turn.load(Ordering::SeqCst),
             "trigger": turn.trigger,
             "carried": {"fromTurnId": from, "promptIds": c.prompt_ids},
+            // The paired device that drove it, read back after a restart (`hosts.rs`).
+            "device": turn.device.as_deref().filter(|_| turn.control == Control::Web),
         });
         if turn.trigger {
             self.start_trigger_background(session, &turn.turn_id);
@@ -390,8 +431,8 @@ impl Hub {
         // Closes before this point were before these turns (`respawn_stopped_agent`).
         let stops = session.stops.load(Ordering::SeqCst);
         loop {
-            Self::hold_stalled_count(&session);
-            self.set_status(&session, SessionStatus::Running);
+            self.hold_stalled_count(&session);
+            self.set_status(&session, NotWaiting::Running);
             self.watch_silent_turn(&session, &turn.turn_id).await;
             // Debug builds only: `ACPMUX_TEST_CARRY_HOLD_MS` holds a carried turn before its
             // prompt goes out, so a test can restart the daemon there
@@ -451,6 +492,7 @@ impl Hub {
                             agent_error.as_deref(),
                             &e.message,
                         ),
+                        slash: None,
                     })
                 }
                 _ => None,
@@ -705,6 +747,7 @@ mod tests {
             control: Control::Local,
             needs_withdrawal: false,
             continues: Continues { reports, ..Continues::default() },
+            device: None,
         };
         {
             let mut now = s.steer_now.lock().unwrap();
@@ -724,6 +767,83 @@ mod tests {
             let turn = s.meta().turn_count;
             assert_eq!(hub.lane_turn_reports_only(&s.id, turn), want, "{ids:?}");
             from = next;
+        }
+    }
+
+    /// A carried turn on a steer a subagent of the lane's parent sent reports to that subagent
+    /// (`lane_report_subagents.rs`), as a turn its prompt starts does. W5-M, 2026-11-08: a
+    /// subagent's `send --no-wait` steered into the lane's running turn, Claude Code carried it
+    /// into a turn of its own, and that turn's report went to the lead's chat.
+    #[tokio::test]
+    async fn a_carried_turn_on_a_subagents_steer_reports_to_that_subagent() {
+        let (hub, lane) = chat().await;
+        let req = NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(req).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id, true);
+        let sub = json!({"id": "a6555c4b0123", "type": "general-purpose"});
+        let asked =
+            json!({"kind": "session_message", "from": parent.id, "fromSubagent": sub.clone()});
+        let sent = |asked| SteerSent {
+            client: "test".into(),
+            text: "steer".into(),
+            line: "steer".into(),
+            control: Control::Local,
+            needs_withdrawal: false,
+            continues: Continues { asked, ..Continues::default() },
+            device: None,
+        };
+        {
+            let mut now = lane.steer_now.lock().unwrap();
+            now.sent.insert("p-sub".into(), sent(Some(asked)));
+            now.sent.insert("p-person".into(), sent(None));
+        }
+        let mut from = TurnInfo::prompted("test", "work", "t-0", "p-0", Control::Local);
+        let cases: [(&[&str], Option<&Value>); 3] =
+            [(&["p-sub"], Some(&sub)), (&["p-sub", "p-person"], Some(&sub)), (&[], None)];
+        for (seq, (ids, want)) in cases.into_iter().enumerate() {
+            let prompt_ids = ids.iter().map(|p| p.to_string()).collect();
+            let carried = Carried { seq: seq as u64, prompt_ids };
+            let (next, continues) = hub.carried_turn(&lane, Some(&from), &carried);
+            *lane.turn.lock().unwrap() = Some(next.clone());
+            hub.begin_carried(&lane, &from.turn_id, &next, &carried, &continues);
+            let turn = lane.meta().turn_count;
+            assert_eq!(hub.lane_turn_subagent(&lane.id, turn).as_ref(), want, "{ids:?}");
+            from = next;
+        }
+    }
+
+    /// The agent's own next turn after the phone's turn stays the phone's only when every steer
+    /// it carries is the phone's too. Another client's steer, checked against an earlier turn
+    /// and read only now, makes it no one device's (post-merge review of cmux#43251, follow-up 1).
+    #[tokio::test]
+    async fn a_carried_turn_with_another_clients_steer_is_no_one_devices() {
+        let (hub, s) = chat().await;
+        let sent = |device: Option<&str>| SteerSent {
+            client: "test".into(),
+            text: "steer".into(),
+            line: "steer".into(),
+            control: Control::Web,
+            needs_withdrawal: false,
+            continues: Continues::default(),
+            device: device.map(str::to_owned),
+        };
+        {
+            let mut now = s.steer_now.lock().unwrap();
+            now.sent.insert("p-phone".into(), sent(Some("phone-1")));
+            now.sent.insert("p-dashboard".into(), sent(None));
+        }
+        let mut from = TurnInfo::prompted("phone", "work", "t-0", "p-0", Control::Web);
+        from.device = Some("phone-1".into());
+        let cases: [(&[&str], Option<&str>); 3] = [
+            (&[], Some("phone-1")),
+            (&["p-phone"], Some("phone-1")),
+            (&["p-phone", "p-dashboard"], None),
+        ];
+        for (seq, (ids, want)) in cases.into_iter().enumerate() {
+            let prompt_ids = ids.iter().map(|p| p.to_string()).collect();
+            let carried = Carried { seq: seq as u64, prompt_ids };
+            let (next, _) = hub.carried_turn(&s, Some(&from), &carried);
+            assert_eq!(next.device.as_deref(), want, "{ids:?}");
         }
     }
 

@@ -38,6 +38,7 @@ import { rowIconSize } from "../icons/iconSize";
 import type { SubagentStatus } from "../summary/subagentStatusListModel";
 import type { Subagent } from "./subagentFold";
 import { TonedIcon } from "./TonedIcon";
+import { SenderIcon } from "./SenderIcon";
 import { useAgentProgress } from "./agentProgressStore";
 import { Tick } from "./trayMotion";
 import { DoneCheck, DoneMark, type DoneLook } from "./DoneMark";
@@ -73,11 +74,14 @@ export function AgentLine({
   quiet = false,
   progressAt = "below",
   latest,
+  step,
   latestAt = "below",
   latestCode = false,
   via,
   lean = false,
   doneLook = "words",
+  cardClassName,
+  disclose,
 }: {
   name: string;
   /// What it does now, or the kind of agent it is; dim after the name.
@@ -88,8 +92,9 @@ export function AgentLine({
   status: SubagentStatus;
   /// Its state in words ("Running", "Waiting", "Done").
   state: string;
-  /// How long it has run, or ran (formatDuration); none when unknown.
-  time?: string;
+  /// How long it has run, or ran (formatDuration); none when unknown. A running one is its own ticking
+  /// leaf (Elapsed.tsx), so the clock's second never draws the line.
+  time?: ReactNode;
   /// `agent.session` for a subagent, `terminal` for a background command.
   icon?: string;
   /// The harness of an agent of another family (`codex`), whose mark replaces the icon.
@@ -137,6 +142,9 @@ export function AgentLine({
   /// line so a change never moves the line (`below`), or dim after the title (`inline`). Leo,
   /// 2026-11-03: "Tray only, richer" (trayLatest.experiment.ts).
   latest?: string;
+  /// In place of `latest`, what the composer hat says it does now (HatStepSlot.tsx): a slot of fixed
+  /// width that changes at most once per dwell (hatStep.experiment.ts).
+  step?: ReactNode;
   latestAt?: "below" | "inline";
   /// The activity is a shell command; keep its raw text in the tray's monospace face.
   latestCode?: boolean;
@@ -148,6 +156,11 @@ export function AgentLine({
   lean?: boolean;
   /// How a finished tray line ends (DoneMark.tsx, hatParts.experiment.ts); `words` is "Done · 36s".
   doneLook?: DoneLook;
+  /// Extra classes on the hover card's popup (the hat's Rolodex card, hatOpen.experiment.ts).
+  cardClassName?: string;
+  /// The line's details as a button of its own in the chevron's column, outside the line's button, so
+  /// the line itself opens what it stands for (hatOpen.experiment.ts `row`). Tray lines only.
+  disclose?: { open: boolean; label: string; onToggle: () => void };
 }) {
   const liveProgress = useAgentProgress(progressAgent);
   progress = liveProgress ?? progress;
@@ -187,6 +200,9 @@ export function AgentLine({
       >
         {working && !timed ? (
           <Spinner size={iconSize} loading />
+        ) : tone !== undefined ? (
+          // An agent or a chat: its sender icon, its family's mark with its badge in its tone.
+          <SenderIcon harness={mark} tone={tone} size={iconSize} fallback={icon} />
         ) : brand ? (
           <AgentMark agent={brand} size={iconSize} fallback={glyph} />
         ) : (
@@ -206,10 +222,11 @@ export function AgentLine({
         {/* What it does now hands over as a status line does: the old step slides up and out as the
             new one slides in (Leo, 2026-11-07: "the thinking transitions to the tool call ... That
             animation, I like that"). */}
-        {latest && latest !== name && latestAt === "inline" && (
+        {step ? <span className="acpmux-agent-line__latest-inline acpmux-agent-line__step">{step}</span> : null}
+        {step === undefined && latest && latest !== name && latestAt === "inline" && (
           <Tick className={`acpmux-agent-line__latest-inline${latestCode ? " is-code" : ""}`} text={latest} slide />
         )}
-        {latest && latest !== name && latestAt === "below" && (
+        {step === undefined && latest && latest !== name && latestAt === "below" && (
           <span className={`acpmux-agent-line__latest${latestCode ? " is-code" : ""}`}>{latest}</span>
         )}
         {via && <span className="acpmux-agent-line__via">via {via}</span>}
@@ -260,11 +277,12 @@ export function AgentLine({
           <span className="acpmux-agent-line__stop-track" aria-hidden="true">
             {status === "done" && doneLook === "check" && <DoneCheck />}
           </span>
-          {chevron && onOpen ? (
+          {chevron && onOpen && !disclose ? (
             <span className="acpmux-agent-line__chevron" aria-hidden="true">
               <Icon name="disclosure.collapsed" size={ROW_ICON} row />
             </span>
           ) : (
+            // A line whose details are their own button keeps the column; the button lies over it.
             <span className="acpmux-agent-line__chevron-track" aria-hidden="true" />
           )}
         </>
@@ -295,13 +313,35 @@ export function AgentLine({
     <div className="acpmux-agent-line" data-status={status} data-timed={timed || undefined}>
       {card ? (
         // tooltip-allow: the hover card says what the line cuts (its whole name, what it does, its task)
-        <Tooltip label={card} side="top" className="ui-card acpmux-agent-card__popup">
+        <Tooltip
+          label={card}
+          side="top"
+          className={
+            cardClassName ? `ui-card acpmux-agent-card__popup ${cardClassName}` : "ui-card acpmux-agent-card__popup"
+          }
+        >
           {button}
         </Tooltip>
       ) : (
         button
       )}
       {trayColumns ? <span className="acpmux-agent-line__stop-slot">{after}</span> : after}
+      {trayColumns && disclose && (
+        // The details' own button over the chevron's column: the line opens, this expands.
+        <span className="acpmux-agent-line__disclose-slot">
+          <button
+            type="button"
+            className="acpmux-agent-line__disclose"
+            aria-expanded={disclose.open}
+            aria-label={disclose.label}
+            /* tooltip-allow: an icon-only control names itself */
+            title={disclose.label}
+            onClick={disclose.onToggle}
+          >
+            <Icon name="disclosure.collapsed" size={ROW_ICON} row />
+          </button>
+        </span>
+      )}
     </div>
   );
 }

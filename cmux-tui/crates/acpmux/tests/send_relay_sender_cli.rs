@@ -1,6 +1,7 @@
 //! `acpmux send --relay NAME --relayed-from MACHINE/SESSION` from outside any session, against a
 //! real daemon, as the lane-gh broker runs it (with or without `--from`): the receiving chat's
-//! inbox holds another agent's message, its sender the relayed one, verified, with its harness.
+//! inbox holds another agent's message, its sender the relayed one, verified, with its harness,
+//! however long the relayed name.
 //! Leo, 2026-11-07: "Why does it say it's self-declared if we can just detect the thing?"
 #![cfg(unix)]
 
@@ -74,8 +75,13 @@ fn a_relayed_send_with_or_without_from_is_a_verified_agents_message_in_the_inbox
     let made = cli(&dir, &["run", "-n", "lane", "warm up"]);
     assert!(made.status.success(), "the session: {}", text(&made));
 
-    for (machine, from) in [("vm-1", None), ("vm-2", Some("vm-2/coord"))] {
-        let relayed_from = format!("{machine}/coord");
+    // A session name past `fromAgent`'s 64 characters (review of #37652, F1): the send still
+    // goes, and its sender is still the relay's, whole.
+    let long = format!("cloud-start-matrix-{}", "x".repeat(60));
+    let cases =
+        [("vm-1", "coord", None), ("vm-2", "coord", Some("vm-2/coord")), ("vm-3", &long, None)];
+    for (machine, session, from) in cases {
+        let relayed_from = format!("{machine}/{session}");
         let mut args = vec!["--json", "send", "--no-wait"];
         if let Some(from) = from {
             args.extend(["--from", from]);
@@ -107,7 +113,7 @@ fn a_relayed_send_with_or_without_from_is_a_verified_agents_message_in_the_inbox
         let sender = &thread["sender"];
         assert_eq!(
             (&sender["verification"], &sender["harness"], &sender["relay"]["session"]),
-            (&json!("verified"), &json!("codex"), &json!("coord")),
+            (&json!("verified"), &json!("codex"), &json!(session)),
             "{machine}: {thread}"
         );
         assert_eq!(thread["from"], json!([relayed_from]), "{machine}: {thread}");

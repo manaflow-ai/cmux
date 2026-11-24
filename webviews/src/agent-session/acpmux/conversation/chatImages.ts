@@ -1,5 +1,5 @@
 import type { AcpmuxRow } from "../model";
-import { dataUrlsOverBudget, footnoteOrder, inlineImages, parseMarkdown, type MdBlock } from "./Markdown";
+import { dataUrlsOverBudget, footnoteOrder, inlineImages, parseMarkdown, type MdBlock } from "./markdownModel";
 
 /// An image a reply drew inline (a data URL, as Markdown.tsx draws one), for the image viewer;
 /// `path` is the file it was read from, when a reply named one (chips/ReplyImage.tsx).

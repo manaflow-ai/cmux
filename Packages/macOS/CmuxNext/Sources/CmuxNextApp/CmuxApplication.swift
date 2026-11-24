@@ -1,5 +1,7 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextWakeups
@@ -38,8 +40,8 @@ import os
 ///   run never takes focus from the user's frontmost app. The startup of an update relaunch nobody
 ///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
 final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
-    private var handlingSendEvent = false
-    /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
+    private var handlingSendEvent = false, sawKeyDown = false
+    /// Set in `CmuxNextApp.main` before `run()`; an update relaunch's startup turns it
     /// off again when it ends (`InputVerificationService.endRelaunchBehind`).
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
@@ -69,7 +71,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
     private(set) var currentEventIsSynthetic = false
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
+    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app"); private let wakeSignpost: Void = DisplaySleep.shared.onWake = { WakeFrameSignpost().begin(source: .display) } // switch.wake (idle ledger)
 
     /// Set once by `AppServices`: a nil-targeted action's target instead of
     /// the responder chain's (`found`), or nil to keep it. Paste commands
@@ -89,15 +91,26 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     @objc(setHandlingSendEvent:)
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
-    override func sendEvent(_ event: NSEvent) {
-        guard let inputDispatch else { return route(event) }
-        inputDispatch.dispatching(event) { route(event) }
+    /// Nonisolated so that nothing runs before this check: the `@MainActor` entry check reads the
+    /// runtime's executor record, and a record left dead by an exception that unwound a Swift job
+    /// segfaulted there at random, minutes later (#44060, #44185). A dead record is cleared and
+    /// logged (``SwiftExecutorFrames``), then the event goes on to the main actor.
+    nonisolated override func sendEvent(_ event: NSEvent) {
+        if let dead = SwiftExecutorFrames.recoverDeadRecord(in: "sendEvent") { UncaughtExceptionRecorder.reportLostExecutor(dead) }
+        nonisolated(unsafe) let event = event // crash-allow: AppKit calls sendEvent: on the main thread only; the event never leaves it
+        MainActor.assumeIsolated { dispatchEvent(event) } // main-proof: AppKit calls sendEvent: on the main thread only
+    }
+
+    private func dispatchEvent(_ event: NSEvent) {
+        guard event.cmuxAllowsPinchZoom else { return }
+        if let inputDispatch { inputDispatch.dispatching(event) { route(event) } } else { route(event) }
     }
 
     private func route(_ event: NSEvent) {
         if event.type == .keyDown {
             let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
             KeyFrameSignpost().begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
+            if !sawKeyDown { sawKeyDown = true; DebugTimings.markLaunch("first_key_down") } // startup-tti: the first key AppKit gave the app
         }
         let probesKey = event.type == .keyDown && TypingLatencyProbe.isEnabled
         if probesKey { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
@@ -106,8 +119,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
         BenchSpans.measure("app.inputObserver") { inputObserver?(event) }
-        let previous = handlingSendEvent
-        handlingSendEvent = true
+        let previous = handlingSendEvent; handlingSendEvent = true
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
         if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
@@ -151,16 +163,14 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
         return actionTargetOverride(action, found as AnyObject?) ?? found
     }
 
-    /// An exception AppKit caught on the main thread. With
-    /// `NSApplicationCrashOnExceptions` (`CrashOnExceptions`) AppKit traps
-    /// here and the uncaught-exception handler never runs, so the record is
-    /// written first; the next launch's notice and report then name it.
-    ///
-    /// With crashing on, the crash has begun here: the crash deadline then
-    /// ends the process even if a crash handler after this blocks.
-    override func reportException(_ exception: NSException) {
+    /// An exception AppKit caught on the main thread. With `NSApplicationCrashOnExceptions` AppKit traps
+    /// here (no uncaught-exception handler runs), so the record is written first and the crash has begun.
+    /// Nonisolated, no executor check: the exception unwound a Swift job, whose dead executor record the
+    /// main-actor entry check read and segfaulted on at 0x1e before anything was recorded (#44899).
+    nonisolated override func reportException(_ exception: NSException) {
+        SwiftExecutorFrames.recoverDeadRecord(in: "reportException")
         CrashReporter.reportException(exception, crashes: UserDefaults.standard.bool(forKey: CrashOnExceptions.key),
-                                      record: UncaughtExceptionRecorder.handle) { super.reportException(exception) }
+                                      record: UncaughtExceptionRecorder.handle) { appKitReportException(exception) }
     }
 
     // MARK: Accessibility windows
@@ -237,28 +247,5 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
 
     private func logRefused() {
         logger.info("activation refused (CMUX_NEXT_NO_ACTIVATE=1, or an update relaunch's startup)")
-    }
-}
-
-/// What assistive clients asked of the app: VoiceOver sets `AXEnhancedUserInterface`, automation
-/// drivers (cua) `AXManualAccessibility`, on the application element. The app wants Chromium's page
-/// accessibility while either is on.
-nonisolated struct AssistiveClientRequests: Equatable {
-    static let attributes: Set<String> = ["AXEnhancedUserInterface", "AXManualAccessibility"]
-    private var values: [String: Bool] = [:]
-
-    var wantsAccessibility: Bool { values.values.contains(true) }
-
-    /// Records `value` for `attribute`; false (nothing recorded) for an attribute no assistive
-    /// client sets.
-    mutating func set(_ value: Any?, for attribute: String) -> Bool {
-        guard Self.attributes.contains(attribute) else { return false }
-        values[attribute] = (value as? NSNumber)?.boolValue ?? false
-        return true
-    }
-
-    /// What was set for `attribute`; nil for other attributes. Unset reads as false.
-    func value(for attribute: String) -> Bool? {
-        Self.attributes.contains(attribute) ? values[attribute] ?? false : nil
     }
 }

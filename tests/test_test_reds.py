@@ -2,9 +2,12 @@
 crash or a cut-short run is never the base's."""
 import importlib.util
 import json
+import os
+import random
 import subprocess
 import sys
 import tempfile
+from collections import Counter
 import unittest
 from pathlib import Path
 
@@ -453,6 +456,27 @@ class PerTest(unittest.TestCase):
         self.assertTrue(reds.read(log(over, heading, crash)).crashes)
         self.assertTrue(reds.read(log(over, f"--- {crash}")).crashes)
 
+    def test_a_vitest_console_block_that_quotes_a_signal_is_not_a_crash_and_its_fail_heading_names_the_test(self):
+        # cmux backend run 43060098319 (2026-11-11): a test's own JSON log line quoted "claude exited on signal 9"
+        # and the job read as "the test process crashed", though vitest failed cleanly on one assertion.
+        name = "test/team-overage-cap.test.ts > the team spending cap > refuses a new model call (v2)"
+        quoted = '{"msg":"chief_cc.turn_ended_early","kind":"timeout","error":"claude exited on signal 9: "}'
+        # workerd's own log of a request's uncaught rejection (2447 of them in that run): workerd keeps serving.
+        uncaught = "uncaught exception; source = Uncaught (in promise); stack = Error: chief.provision.platform_unbound"
+        head = log("stderr | test/chief-brain-cc.test.ts > Cloud Chief > posts what a long turn streamed", quoted, "",
+                   uncaught,
+                   f" FAIL  {name}", "AssertionError: expected { Object (ok, team_cap, ...) } to match object",
+                   " Test Files  1 failed | 212 passed (213)", "##[error]Process completed with exit code 1.")
+        found = reds.read(head)
+        self.assertEqual(found.crashes, [])
+        self.assertEqual(found.failed, {name})
+        self.assertFalse(reds.classify(head, head, "test").own)
+        # The same words outside a console block (after its closing blank line) are still a crash.
+        loose = log("stderr | test/a.test.ts > a", "logged", "", "worker exited on signal 11")
+        self.assertTrue(reds.read(loose).crashes)
+        # A bun file result (`FAIL file`, no ` > `) is not read as a vitest name.
+        self.assertEqual(reds.failed_names(["FAIL test/a.test.ts 1.2s"]), set())
+
     def test_a_whole_unittest_run_and_a_known_issue_run_end_are_whole(self):
         self.assertEqual(reds.read(log("test_a (mod.T.test_a) ... ok", "Ran 1 test in 0.001s", "OK")).truncated, [])
         self.assertEqual(reds.read(log("◇ Test run started.", "━ Test run with 1 test in 1 suite passed after 0.1 "
@@ -640,6 +664,598 @@ def health(fresh=(), known=(), slow=(), **extra):
 WAIT = "play: waitFor did not hold within 5000 ms"
 
 
+class ReportedFailuresAreAllNamed(unittest.TestCase):
+    """#41166's review F2: failed_tests recorded a runner's failure line as unnamed only when nothing at all was named,
+    so one parsed name beside an unparsed failure read as fully identified. Each runner's summary is now set against the
+    names that runner printed since its last summary (unnamed_failures)."""
+
+    def unnamed(self, *lines):
+        found: list = []
+        reds.failed_tests(list(lines), found)
+        return found
+
+    def test_a_summary_counting_more_than_its_runner_named_is_unnamed(self):
+        cases = {
+            "cargo": ["test tests::a ... FAILED", "test src/lib.rs - f (line 3) ... FAILED",
+                      "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"],
+            "unittest": ["FAIL: test_a (pkg.Case.test_a)", "FAIL: [interrupted]", "Ran 2 tests in 0.010s",
+                         "FAILED (failures=2)"],
+            "pytest": ["FAILED tests/test_m.py::test_a - assert 0", "FAILED tests/test_m.py - setup broke",
+                       "===== 2 failed in 0.12s ====="],
+            "swift": ["✘ Test a() recorded an issue at A.swift:1:1: x", "✘ Test b recorded an issue at A.swift:2:1: x",
+                      "✘ Test run with 2 tests in 1 suite failed after 0.1 seconds with 2 issues."],
+            "bun": ["bun test v1.3.0", "test/a.test.ts:", "(fail) a > one [1.00ms]", " 0 pass", " 2 fail"],
+            # Another runner's name never stands for this one's failure.
+            "cargo beside swift": ["✘ Test a() recorded an issue at A.swift:1:1: x",
+                                   "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue.",
+                                   "test result: FAILED. 0 passed; 1 failed; 0 ignored"],
+            "xctest beside swift": ["✘ Test a() recorded an issue at A.swift:1:1: x",
+                                    "Executed 1 test, with 1 failure (0 unexpected) in 0.1 (0.1) seconds"],
+        }
+        for runner, lines in cases.items():
+            with self.subTest(runner=runner):
+                self.assertTrue(self.unnamed(*lines), lines)
+
+    def test_a_summary_whose_failures_are_all_named_is_not(self):
+        cases = {
+            "cargo": ["test tests::a ... FAILED", "test result: FAILED. 0 passed; 1 failed; 0 ignored"],
+            "unittest": ["FAIL: test_a (pkg.Case.test_a)", "ERROR: test_b (pkg.Case.test_b)", "Ran 2 tests in 0.1s",
+                         "FAILED (failures=1, errors=1)"],
+            "pytest": ["FAILED tests/test_m.py::test_a - assert 0", "===== 1 failed, 1 rerun in 0.12s ====="],
+            "swift": ["✘ Test a() recorded an issue at A.swift:1:1: x", "✘ Test a() recorded an issue at A.swift:2:1: y",
+                      "✘ Test run with 3 tests in 1 suite failed after 0.1 seconds with 2 issues."],
+            # The wrapper's retry is its own run: the first run's count is set against its own results.
+            "bun retry": ["bun test v1.3.0", "test/a.test.ts:", "(fail) a > one [1.00ms]", "(fail) a > two [1.00ms]",
+                          " 0 pass", " 2 fail", "--- retry, alone ---", "bun test v1.3.0", "test/a.test.ts:",
+                          "(fail) a > one [1.00ms]", " 1 pass", " 1 fail"],
+        }
+        for runner, lines in cases.items():
+            with self.subTest(runner=runner):
+                self.assertEqual(self.unnamed(*lines), [])
+
+    def test_cargos_closing_list_names_what_a_nested_cargo_test_took(self):
+        # cmux#50445 at fb4bd6c4 (run 45036997271): a test re-ran itself under `cargo test`, and that child's summary,
+        # printed inside the parent's output, took the parent's `... FAILED` lines; the parent's closing list names both.
+        nested = ["running 3 tests", "test a::one ... FAILED", "test a::two ... FAILED",
+                  "running 1 test", "test a::two ... FAILED", "", "failures:", "", "failures:", "    a::two", "",
+                  "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6 filtered out",
+                  "", "failures:", "", "---- a::one stdout ----", "boom", "", "failures:", "    a::one", "    a::two", "",
+                  "test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"]
+        self.assertEqual(self.unnamed(*nested), [])
+        # A list that names fewer than its summary counts is still unnamed.
+        short = ["failures:", "    a::one", "", "test result: FAILED. 0 passed; 2 failed; 0 ignored"]
+        self.assertTrue(self.unnamed(*short))
+        # Names under a `failures:` heading that other output follows are no list.
+        broken = ["failures:", "    a::one", "    a::two", "some output", "test result: FAILED. 0 passed; 2 failed"]
+        self.assertTrue(self.unnamed(*broken))
+
+    def test_nested_cargo_counts_stay_in_their_own_invocation(self):
+        parent = "test result: FAILED. 0 passed; 2 failed; 0 ignored"
+        child = "test result: FAILED. 0 passed; 1 failed; 0 ignored"
+        lines = ["running 2 tests", "test outer::one ... FAILED", "test outer::two ... FAILED",
+                 "running 1 test", "test child::one ... FAILED", child, parent]
+        self.assertEqual(self.unnamed(*lines), [])
+        # Neither invocation can borrow the other's unused names to cover a missing identity.
+        child_short = lines.copy()
+        child_short[-2] = child.replace("1 failed", "2 failed")
+        self.assertEqual(self.unnamed(*child_short), [child_short[-2]])
+        parent_short = lines.copy()
+        parent_short[-1] = parent.replace("2 failed", "3 failed")
+        self.assertEqual(self.unnamed(*parent_short), [parent_short[-1]])
+
+    def test_the_recorded_fixtures_name_every_failure_they_report(self):
+        for path in sorted(FIXTURES.glob("*.log")):
+            with self.subTest(fixture=path.name):
+                self.assertEqual(self.unnamed(*reds.lines_of(path.read_text())), [])
+
+
+# One `test result:` summary, as cargo's libtest prints it per test binary.
+def cargo_summary(passed: int, failed: int, filtered: int = 0) -> str:
+    return (f"test result: {'FAILED' if failed else 'ok'}. {passed} passed; {failed} failed; 0 ignored; "
+            f"0 measured; {filtered} filtered out; finished in 1.00s")
+
+
+# The live shape of cmux#50814's step: a binary that names its one failure, then the lib target's 16 names, then a
+# single-test rerun binary's summary, then the lib target's own `15 failed` summary, then the integration target's
+# names and summary. 20 names against 1 + 1 + 15 + 3 = 20 reported.
+LIVE_MULTI_TARGET = ["test session_hibernate::idle_sessions_hibernate_at_once ... FAILED",
+                     cargo_summary(855, 1),
+                     *[f"test gauges::tests::case_{n} ... FAILED" for n in range(16)],
+                     cargo_summary(0, 1, 6945),
+                     cargo_summary(6854, 15),
+                     *[f"test hub::origin_tests::case_{n} ... FAILED" for n in range(3)],
+                     cargo_summary(320, 3)]
+
+
+class SeveralSummariesInOneStepAreOneTally(unittest.TestCase):
+    """cmux#50814 (run 45075034049, job `acpmux tests (lib, hub_integration)`): one `cargo test -p acpmux --lib
+    --test hub_integration` step prints a `test result:` summary per test binary, and cargo buffers each binary's
+    block, so the names between two summaries are not the names of the summary that follows them. With a per-summary
+    reset a small rerun summary (`0 passed; 1 failed; ...; 6945 filtered out`) swallowed the 16 names the lib target
+    had printed and left its own `15 failed` summary with none, so the step read as a failure no parser names and no
+    multi-target cargo job could ever be excused as a base red. Each runner's summaries are now one cumulative tally
+    over the step: totals summed, names drawn from the pool no earlier summary accounted for. Detector:
+    `tests/test_test_reds.py` `SeveralSummariesInOneStepAreOneTally`, with
+    `ReportedFailuresAreAllNamed.test_a_summary_counting_more_than_its_runner_named_is_unnamed` (one summary) and
+    `CargoBinariesPrintTheirSummary` (a cut-short run)."""
+
+    def unnamed(self, *lines):
+        found: list = []
+        reds.failed_tests(list(lines), found)
+        return found
+
+    def test_a_multi_target_step_whose_names_are_all_present_is_named(self):
+        self.assertEqual(self.unnamed(*LIVE_MULTI_TARGET), [])
+        found = reds.read(log(*LIVE_MULTI_TARGET))
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        self.assertEqual(sum(reds.failed_in(log(*LIVE_MULTI_TARGET)).values()), 20)
+
+    def test_a_multi_target_step_is_judged_on_the_sum_not_the_last_summary(self):
+        # The last summary alone is fully named; the step is not, because one failure of an earlier summary is not.
+        lines = [*LIVE_MULTI_TARGET[:-4], "test hub::origin_tests::case_0 ... FAILED", cargo_summary(320, 3)]
+        self.assertEqual(self.unnamed(*lines), [cargo_summary(320, 3)])
+
+    def test_an_unnamed_failure_in_a_multi_target_step_still_refuses(self):
+        # cargo's doctest line (`test src/lib.rs - f (line 3) ... FAILED`) is named by no parser: the step reports 21
+        # failures and names 20, so it is refused however many summaries it has.
+        lines = [*LIVE_MULTI_TARGET[:-1], "test src/lib.rs - f (line 3) ... FAILED", cargo_summary(320, 4)]
+        self.assertEqual(self.unnamed(*lines), [cargo_summary(320, 4)])
+
+    def test_a_later_summarys_names_never_cover_an_earlier_unnamed_failure(self):
+        # A deficit never carries: the first summary reports 2 with one name, and the names the next binary prints
+        # afterwards are not its. (A surplus does carry: that is what the live shape needs.)
+        lines = ["test a::one ... FAILED", cargo_summary(0, 2),
+                 "test b::one ... FAILED", "test b::two ... FAILED", cargo_summary(0, 2)]
+        self.assertEqual(self.unnamed(*lines), [cargo_summary(0, 2)])
+
+
+class CargoBinariesPrintTheirSummary(unittest.TestCase):
+    """A multi-target step cut short -- a test binary killed before its `test result:` line -- is never a base red,
+    whatever the summaries that did print tally to. Detector: `tests/test_test_reds.py`
+    `CargoBinariesPrintTheirSummary`."""
+
+    def test_a_binary_with_no_summary_leaves_the_results_not_whole(self):
+        lines = ["running 2 tests", "test a::one ... FAILED", cargo_summary(1, 1),
+                 "running 3 tests", "test b::one ... FAILED"]
+        found = reds.read(log(*lines))
+        self.assertEqual(found.unnamed, [])  # the tally balances; the missing summary is what refuses
+        self.assertTrue(any("printed no `test result:` line" in why for why in found.truncated), found.truncated)
+        self.assertTrue(reds.classify(log(*lines), log(*lines), "acpmux tests").own)
+
+
+# The three shapes a Rust step's failure names come in, each named so a later reader never has to guess at a fixture:
+#
+# ONE TARGET, EACH NAME PRINTED ONCE: libtest's own shape. A failure prints `test NAME ... FAILED` as it fails, and
+# the run closes with a `failures:` list of bare indented names. Only the first is a name line, so the closing list
+# never counts twice -- ONE_TARGET_CLOSING_LIST.
+#
+# SEVERAL TARGETS, EACH WITH ITS OWN SUMMARY: one `cargo test` over several test binaries, cmux#50814's shape
+# (LIVE_MULTI_TARGET above). The totals sum and the names are read per line, so two targets that each fail a test of
+# the same path are two failures, not one -- SAME_PATH_IN_TWO_TARGETS. This is why names are counted per line and
+# never deduplicated by test name across the step: a dedupe would read these two as one identity, leave a summed
+# total of 2 against 1 name, and refuse the step as a failure no parser names, which is cmux#50814's bug again in a
+# narrower shape.
+#
+# ONE TARGET, EACH NAME PRINTED TWICE: nextest under `failure-output = "immediate-final"`
+# (cmux-tui/.config/nextest.toml `[profile.ci]`), which prints each failure when it fails and again in a closing
+# list, with the same duration and thread id. No pattern here reads nextest: its `FAIL [ 1.00s] crate test::name`
+# lines name nothing to this parser and its `Summary [ ... ] N tests run:` line is no summary marker, so a nextest
+# step has no names and no reported total and the tally never runs on it -- NEXTEST_IMMEDIATE_FINAL pins that, so a
+# later reader does not take this parser for one that reads nextest.
+ONE_TARGET_CLOSING_LIST = ["running 3 tests", "test gauges::tests::rate_is_per_second ... FAILED",
+                          "failures:", "", "---- gauges::tests::rate_is_per_second stdout ----",
+                          "assertion failed", "",
+                          "failures:", "    gauges::tests::rate_is_per_second", "",
+                          cargo_summary(2, 1)]
+SAME_PATH_IN_TWO_TARGETS = ["running 2 tests", "test tests::smoke ... FAILED", cargo_summary(1, 1),
+                           "running 2 tests", "test tests::smoke ... FAILED", cargo_summary(1, 1)]
+# The smallest reproduction of the duplicated shape, measured 2026-11-22: one package, `--lib` only, one selected
+# test of 6971, `0 measured`, no second target and no retry. `failure-output = "immediate-final"`
+# (cmux-tui/.config/nextest.toml `[profile.ci]`, the `failure-output` line) prints each failure once when it fails
+# and once in the closing list, so a one-test run prints four lines:
+#   cd cmux-tui && cargo nextest run -p acpmux --lib --profile ci --no-fail-fast -E "test(help_examples)"
+# The duplication is SYMMETRIC -- the name line and its `test result:` summary are both printed twice -- which is
+# why this parser counts name lines and sums totals: 2 name lines against 1 + 1 reported balances exactly. Deduping
+# the names by test name while still summing the totals would compare 1 name against a total of 2 and refuse this
+# run as a failure no parser names, so the dedupe breaks on the very shape it was meant to handle.
+ONE_TEST_PRINTED_TWICE = [
+    "test cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples ... FAILED",
+    "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6970 filtered out; finished in 0.00s",
+    "test cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples ... FAILED",
+    "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6970 filtered out; finished in 0.00s",
+    "error: test run failed",
+]
+NEXTEST_IMMEDIATE_FINAL = ["    Starting 6872 tests across 1 binary",
+                          "        FAIL [ 107.440s] acpmux gauges::tests::rate_is_per_second",
+                          "--- STDERR:              acpmux gauges::tests::rate_is_per_second ---",
+                          "thread 'gauges::tests::rate_is_per_second' (48474) panicked at gauges.rs:91:9:",
+                          "        FAIL [ 107.440s] acpmux gauges::tests::rate_is_per_second",
+                          "------------",
+                          "     Summary [ 450.123s] 6872 tests run: 6867 passed, 5 failed, 77 skipped"]
+
+
+class EveryRustStepShapeIsNamed(unittest.TestCase):
+    """Which shape each Rust fixture is, and that the tally reads names per line rather than deduplicating them by
+    test name across the step. Detector: `tests/test_test_reds.py` `EveryRustStepShapeIsNamed`, beside
+    `SeveralSummariesInOneStepAreOneTally` (the summing rule) and `CargoBinariesPrintTheirSummary` (a cut-short
+    run)."""
+
+    def test_one_targets_closing_failures_list_is_not_a_second_name(self):
+        lines = ONE_TARGET_CLOSING_LIST
+        self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), {"gauges::tests::rate_is_per_second"})
+        self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 1)  # printed twice, counted once
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+    def test_two_targets_failing_the_same_test_path_are_two_failures(self):
+        lines = SAME_PATH_IN_TWO_TARGETS
+        # One name, two name lines, 1 + 1 reported: a dedupe by test name would refuse this step.
+        self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), {"tests::smoke"})
+        self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 2)
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+    def test_one_test_printed_twice_balances_its_duplicated_summary(self):
+        lines = ONE_TEST_PRINTED_TWICE
+        # Symmetric duplication: 2 name lines against 1 + 1 reported. A dedupe by test name would leave 1 against 2.
+        self.assertEqual(len(reds.failed_names(reds.lines_of(log(*lines)))), 1)
+        self.assertEqual(sum(reds.failed_in(log(*lines)).values()), 2)
+        self.assertEqual(reds.unnamed_failures(reds.lines_of(log(*lines))), [])
+        found = reds.read(log(*lines))
+        self.assertEqual(found.unnamed, [])
+        self.assertEqual(found.truncated, [])
+
+    def test_nextest_immediate_final_is_read_by_no_pattern_here(self):
+        lines = NEXTEST_IMMEDIATE_FINAL
+        self.assertEqual(reds.failed_names(reds.lines_of(log(*lines))), set())
+        self.assertEqual(reds.unnamed_failures(reds.lines_of(log(*lines))), [])
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+
+# One bun invocation of test/a.test.ts: RESULTS printed in the run, the recap (`N tests failed:`) of RECAP titles, and
+# bun's ` N fail` count.
+def bun_invocation(results=(), recap=(), fail=None):
+    out = ["bun test v1.3.0", "test/a.test.ts:"]
+    for title in results:
+        out += ["error: expect(received).toBe(expected)", f"(fail) {title} [1.00ms]"]
+    if recap:
+        out += [f"{len(recap)} test{'s' if len(recap) != 1 else ''} failed:", *(f"(fail) {t}" for t in recap)]
+    return out + [" 0 pass", f" {len(results) if fail is None else fail} fail"]
+
+
+class SubtestParamsKeepAnOffendersIdentity(unittest.TestCase):
+    """cmuxterm-hq, 2026-11-22: main was red on `Skills tests / Skill policy tests` (tests/test_py39_names.py,
+    `test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard`, one assertEqual of every offender against []), and PRs
+    that added new offenders (`tools/lane-gh-broker/test_state.py: sys.stdlib_module_names`, ...) read as the same red:
+    one test name on both sides. hq's list-style lints now report each offender as its own subTest; this replays that
+    run and holds the key: a subTest's message and parameters are part of a unittest failure's identity, so a new
+    offender inside a test the base already fails is a new failing item (hq docs/handbook/excuse-key-drops-identity.md,
+    "A test that holds many findings")."""
+
+    TEST = "test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard (__main__.UnderPython39.test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard)"
+    OLD = "tools/fleet-reconcilers/test_hold_fences.py"
+    NEW = "tools/lane-gh-broker/test_state.py"
+
+    def run_log(self, *paths):
+        lines = [*step("python3 tests/test_py39_names.py -v")]
+        for path in paths:
+            lines += ["=" * 70, f"FAIL: {self.TEST} (path='{path}')", "-" * 70,
+                      "Traceback (most recent call last):",
+                      '  File "/w/tests/test_py39_names.py", line 690, in test_every_stdlib_name_3_9_lacks_is_read_behind_a_guard',
+                      "    self.fail(...)",
+                      f"AssertionError: Python 3.9 lacks these names and nothing guards the read: {path}:1: tomllib"]
+        lines += ["-" * 70, "Ran 9 tests in 12.000s", f"FAILED (failures={len(paths)})",
+                  "##[error]Process completed with exit code 1."]
+        return log(*lines)
+
+    def test_each_subtest_is_its_own_failing_test(self):
+        found = reds.read(self.run_log(self.OLD, self.NEW))
+        self.assertEqual(found.failed, {f"{self.TEST} (path='{self.OLD}')", f"{self.TEST} (path='{self.NEW}')"})
+        self.assertEqual(found.truncated, [])
+        self.assertEqual(reds.failed_names([f"FAIL: {self.TEST} [msg only]"]), {f"{self.TEST} [msg only]"})
+        self.assertEqual(reds.failed_names([f"FAIL: {self.TEST} [m] (n=1)  "]), {f"{self.TEST} [m] (n=1)"})
+        self.assertEqual(reds.failed_names([f"FAIL: {self.TEST}"]), {self.TEST})
+
+    def test_a_new_offender_in_a_test_the_base_fails_is_refused(self):
+        verdict = reds.classify(self.run_log(self.OLD, self.NEW), self.run_log(self.OLD), "Skill policy tests")
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn(f"(path='{self.NEW}')", verdict.reasons[0])
+        self.assertEqual(verdict.shared, [f"{self.TEST} (path='{self.OLD}')"])
+
+    def test_the_base_offender_alone_is_excused(self):
+        verdict = reds.classify(self.run_log(self.OLD), self.run_log(self.OLD), "Skill policy tests")
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_fixed_offender_does_not_excuse_a_new_one(self):
+        # The count alone was not enough: the base's offender fixed and a new one added is one failure on each side.
+        verdict = reds.classify(self.run_log(self.NEW), self.run_log(self.OLD), "Skill policy tests")
+        self.assertTrue(verdict.own, verdict.reasons)
+
+
+class UnnamedFailuresAreReadOnceForEveryConsumer(unittest.TestCase):
+    """#41222's review, earlier F1: "Move the refusal into the shared path every consumer goes through ... Cover each
+    entry point (classify, read, expand_job)". read() records a failure no parser names (Result.unnamed) and calls
+    its per-test results not whole, so classify, classify_any, judge()'s read_head and next_batch's expand_job all
+    refuse it from the one reading."""
+
+    CARGO = ["running 2 tests", "test tests::reconnects ... FAILED", "test src/lib.rs - parse (line 3) ... FAILED",
+             "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"]
+
+    def test_read_says_the_results_are_not_whole(self):
+        found = reds.read(log(*self.CARGO))
+        self.assertEqual(found.unnamed, [self.CARGO[-1]])
+        self.assertTrue(any("more failing tests than it names" in why for why in found.truncated), found.truncated)
+        named = [line for line in self.CARGO if "src/lib.rs" not in line]
+        named[-1] = named[-1].replace("2 failed", "1 failed")
+        self.assertEqual((reds.read(log(*named)).unnamed, reds.read(log(*named)).truncated), ([], []))
+
+    def test_classify_calls_it_the_heads_own_whatever_the_base(self):
+        verdict = reds.classify(log(*self.CARGO), log(*self.CARGO), "cmux-next rust tests")
+        self.assertTrue(verdict.own)
+        self.assertIn("more failing tests than it names", "; ".join(verdict.reasons))
+        verdict = reds.classify_any(log(*self.CARGO), [("base run 1", log(*self.CARGO)),
+                                                      ("base run 2", log(*self.CARGO))], "cmux-next rust tests")
+        self.assertTrue(verdict.own)
+
+    def test_bun_is_read_by_the_same_reading(self):
+        lines = bun_invocation(results=["a > one"], fail=2)
+        self.assertEqual(reds.read(log(*lines)).unnamed, [" 2 fail"])
+        self.assertTrue(reds.classify(log(*lines), log(*lines), "web tests").own)
+
+
+def cargo_run(failed, nested, total=None, listed=None):
+    """A cargo test binary's run as libtest prints it (shaped after cmux run 45048355800's `acpmux tests (lib,
+    hub_integration)`): FAILED lines, a `failures:` section whose test `nested` printed a whole nested libtest run in
+    its captured stdout (a test that re-execs its own binary with a filter), the closing list, and the summary."""
+    lines = ["     Running unittests src/lib.rs (target/debug/deps/acpmux-02edcd1085c33921)", "",
+             f"running {len(failed) + 2} tests", "test a::passes ... ok"]
+    lines += [f"test {name} ... FAILED" for name in failed] + ["test z::passes ... ok", "", "failures:", ""]
+    for name in failed:
+        lines += [f"---- {name} stdout ----", "", f"thread '{name}' (816903) panicked at src/lib.rs:888:9:"]
+        if name == nested:
+            lines += ["", "running 1 test", "test other::child_only ... FAILED", "",
+                      "failures:", "", "failures:", "    other::child_only", "",
+                      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 6881 filtered out; "
+                      "finished in 0.01s", "", "", "",
+                      f"thread '{name}' (816915) panicked at src/lib.rs:948:82:"]
+        lines += ["note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace", ""]
+    lines += ["", "failures:"] + [f"    {name}" for name in sorted(listed or failed)] + [""]
+    lines += [f"test result: FAILED. 6795 passed; {len(failed) if total is None else total} failed; 76 ignored; "
+              "0 measured; 0 filtered out; finished in 416.77s", "",
+              "error: test failed, to rerun pass `-p acpmux --lib`"]
+    return lines
+
+
+class NestedCargoOutputIsTheTestsOwn(unittest.TestCase):
+    """2026-11-22, cmux run 45048355800: `acpmux tests (lib, hub_integration)` was refused as "its log reports more
+    failing tests than it names (test result: FAILED. 6795 passed; 11 failed; ...)" while base had the same reds.
+    linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names re-execs its own binary, and the nested
+    run it printed in its captured stdout (`test ... FAILED`, `test result: FAILED. 0 passed; 1 failed`) was read as
+    the job's: the nested summary took the cargo count, the real one was compared against nothing. The failures are
+    the outer run's `test NAME ... FAILED` lines, counted against its own last summary (cargo_captured)."""
+
+    OUTER = ["cli::help_examples::tests::every_visible_command_has_an_about_line_and_examples",
+             "linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names",
+             "protocol::tests::protocol_ir_is_current"]
+    NESTED = "linux_sandbox::bwrap::tests::real_second_home_mount_hides_denied_names"
+
+    def test_the_excuse_names_exactly_the_outer_failures_and_the_counts_agree(self):
+        lines = cargo_run(self.OUTER, self.NESTED)
+        found = reds.read(log(*lines))
+        self.assertEqual(found.failed, set(self.OUTER))  # never the child's other::child_only
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        self.assertEqual(reds.failed_in(log(*lines)), Counter({name: 1 for name in self.OUTER}))
+        self.assertEqual(reds.unnamed_failures(lines), [])
+        verdict = reds.classify(log(*lines), log(*cargo_run(self.OUTER, self.NESTED)), "acpmux tests (lib)")
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(verdict.shared, sorted(self.OUTER))
+
+    def test_the_real_log_reads_no_unnamed_summary(self):
+        # The real job log's three cargo runs (the lib's, and the two `retry ... alone` runs), trimmed.
+        text = (FIXTURES / "cargo-nested-run-45048355800.log").read_text()
+        found = reds.read(text)
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        self.assertNotIn("other::child_only", found.failed)
+        self.assertEqual(reds.failed_in(text)[self.NESTED], 3)  # once per run, never its nested line too
+
+    def test_a_summary_counting_more_than_the_outer_run_named_still_refuses(self):
+        lines = cargo_run(self.OUTER, self.NESTED, total=4)
+        found = reds.read(log(*lines))
+        self.assertEqual(found.unnamed, [lines[-3]])
+        self.assertTrue(reds.classify(log(*lines), log(*lines), "acpmux tests (lib)").own)
+
+    def test_a_closing_list_the_failed_lines_disagree_with_hides_nothing(self):
+        # A failed test with no `test NAME ... FAILED` line of its own: the list names it, so no summary is the
+        # outer run's own and its captured output is not hidden. Its count is named by the closing list itself
+        # (#50988: a cargo summary counts the names in its closing `failures:` list).
+        lines = cargo_run(self.OUTER, self.NESTED, total=4, listed=self.OUTER + ["tests::printed_no_failed_line"])
+        hidden = reds.cargo_captured(lines)
+        self.assertFalse(any(lines[n].startswith("---- ") for n in hidden), [lines[n] for n in hidden])
+        self.assertEqual(reds.read(log(*lines)).unnamed, [])
+
+
+class BunCountsTheIdentitiesItKeeps(unittest.TestCase):
+    """#41222's review F1 (test_reds.py:508): "Two identical `(fail)` recap entries followed by `2 fail` produce one
+    identity because `read_bun` deduplicates them, but `recap == 2` prevents an unnamed marker." The count is set
+    against the failures read_bun keeps, never the recap's lines. And at 6719ba22: "Count identities with
+    multiplicity: a name failing twice is 2." A recap title counts as often as the recap lists it, less the results
+    of its run that named it."""
+
+    def unnamed(self, lines):
+        return reds.unnamed_failures(lines)
+
+    def test_two_recap_lines_of_one_title_are_two_failures_of_it(self):
+        lines = bun_invocation(recap=["a > one", "a > one"], fail=2)
+        found = reds.Result()
+        reds.read_bun(lines, found)
+        self.assertEqual(found.counts, Counter({"a > one": 2}))
+        self.assertEqual(self.unnamed(lines), [])
+        self.assertEqual(reds.read(log(*lines)).truncated, [])
+        # A count above what the recap names is still unnamed.
+        self.assertEqual(self.unnamed(bun_invocation(recap=["a > one", "a > one"], fail=3)), [" 3 fail"])
+
+    def test_a_recap_that_repeats_the_results_names_them_once_each(self):
+        for lines, counts in (
+                (bun_invocation(results=["a > one", "a > two"], recap=["a > one", "a > two"]),
+                 {"test/a.test.ts > a > one": 1, "test/a.test.ts > a > two": 1}),
+                (bun_invocation(results=["a > one", "a > one"], recap=["a > one", "a > one"]),
+                 {"test/a.test.ts > a > one": 2}),
+                (bun_invocation(results=["a > one"], recap=["a > one", "a > two"], fail=2),
+                 {"test/a.test.ts > a > one": 1, "a > two": 1}),
+                (bun_invocation(recap=["a > one", "a > two"], fail=2), {"a > one": 1, "a > two": 1})):
+            with self.subTest(lines=lines):
+                found = reds.Result()
+                reds.read_bun(lines, found)
+                self.assertEqual(found.counts, Counter(counts))
+                self.assertEqual(self.unnamed(lines), [])
+
+
+
+class RetryDropsEveryKindOfItsAttempt(unittest.TestCase):
+    """#41329's review F1: "recap_failures() records bare titles, but retry cleanup removes only file-prefixed
+    identities. Two attempts that each recap `a > one` count it twice ... Class: a retry merge that drops only one of
+    an attempt's record kinds." And its follow-up F1 (test_reds.py:737): "retry cleanup removes only `file > title`
+    failures, while recap failures are stored as bare titles, so a superseded first run stays charged after a passing
+    retry. Store every failure, recap or named, under one identity that carries its file and attempt, and drop by
+    attempt." Each kind read_bun keeps goes with its attempt (BunAttempt): named failures, counts, diagnostics,
+    passes, ` N fail` markers, recap-only titles, an unhandled error named before its file's header, and whether the
+    attempt named anything at all."""
+
+    RETRY = "--- retry, alone ---"
+
+    def read(self, *lines):
+        found = reds.Result()
+        reds.read_bun(list(lines), found)
+        return found
+
+    def test_recap_only_titles_of_the_superseded_attempt_go(self):
+        attempt = bun_invocation(recap=["a > one"], fail=1)
+        found = self.read(*attempt, self.RETRY, *attempt)
+        self.assertEqual((found.counts, found.unnamed), (Counter({"a > one": 1}), []))
+
+    def test_a_superseded_recap_failure_is_not_charged_after_a_passing_retry(self):
+        found = self.read(*bun_invocation(recap=["a > one"], fail=1), self.RETRY, *bun_invocation())
+        self.assertEqual((found.failed, found.counts, found.unnamed), (set(), Counter(), []))
+        self.assertEqual(found.records, [])
+
+    def test_an_unhandled_error_before_the_files_header_goes_with_its_attempt(self):
+        first = ["bun test v1.3.0", "# Unhandled error between tests", "-------------------------------",
+                 "error: listen EADDRINUSE", "-------------------------------", "test/a.test.ts:",
+                 "error: expect(received).toBe(expected)", "(fail) a > one [1.00ms]", " 0 pass", " 2 fail"]
+        retry = bun_invocation(results=["a > one"])
+        self.assertIn("unhandled error: listen EADDRINUSE", self.read(*first).failed)
+        found = self.read(*first, self.RETRY, *retry)
+        self.assertEqual((found.failed, found.unnamed), ({"test/a.test.ts > a > one"}, []))
+
+    def test_a_superseded_attempts_named_failure_never_names_the_retry(self):
+        # The retry failed with nothing named (no `(fail)`, ` 0 fail`): the wrapper's `FAIL file` line is unnamed,
+        # whatever the superseded attempt named.
+        lines = [*bun_invocation(results=["a > one"]), self.RETRY, "bun test v1.3.0", "test/a.test.ts:",
+                 "error: Cannot find module './gone'", " 0 pass", " 0 fail", "FAIL test/a.test.ts (limit 120s)"]
+        self.assertEqual(reds.unnamed_failures(lines), ["FAIL test/a.test.ts (limit 120s)"])
+
+    def test_every_record_carries_its_step_and_attempt(self):
+        found = reds.read(log(*step("bun test a"), *bun_invocation(results=["a > one"]),
+                              "##[error]Process completed with exit code 1.",
+                              *step("bun test b"), *bun_invocation(recap=["b > two"], fail=2),
+                              "##[error]Process completed with exit code 1."))
+        self.assertEqual(found.records, [(1, 1, "failed", "test/a.test.ts > a > one"), (2, 1, "failed", "b > two"),
+                                         (2, 1, "unnamed", " 2 fail")])
+
+
+class BunStateStaysInItsStep(unittest.TestCase):
+    """#41329's review follow-up F2 (test_reds.py:751): "a `(fail)` from a passing step sets the global any_named,
+    which hides a later failed step's fallback `FAIL file` markers, so an unnamed failed file goes missing from
+    `unnamed`. Keep that state per step or invocation, not global." A step that passed is read by no reader
+    (red_lines); here a failed step's named failure must not name another failed step's file either."""
+
+    def test_a_named_failure_in_one_failed_step_never_names_anothers_fail_file(self):
+        named = [*step("bun test a"), *bun_invocation(results=["a > one"]),
+                 "##[error]Process completed with exit code 1."]
+        unnamed = [*step("bash scripts/run-webviews-tests.sh"), "FAIL test/b.test.ts (exit 1)",
+                   "##[error]Process completed with exit code 1."]
+        found = reds.read(log(*named, *unnamed))
+        self.assertEqual(found.unnamed, ["FAIL test/b.test.ts (exit 1)"])
+        unnamed_list: list = []
+        reds.failed_in(log(*named, *unnamed), unnamed_list)
+        self.assertEqual(unnamed_list, ["FAIL test/b.test.ts (exit 1)"])
+
+
+class PassingStepsPrintNoUnnamedFailure(unittest.TestCase):
+    """#41244's review F1: "read_bun keeps unnamed markers from passing steps, so a passing negative-case step printing
+    "(fail)" and "2 fail" makes judge() refuse an unrelated inherited red." A step that passed (passed_steps) prints no
+    red's marker."""
+
+    def test_a_passing_steps_bun_count_is_not_unnamed(self):
+        passing = ["##[group]Run bun test test/negative.test.ts", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+                   *bun_invocation(results=["a > one"], fail=2)]
+        failing = ["##[group]Run cargo test", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+                   "test tests::reconnects ... FAILED",
+                   "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+                   "##[error]Process completed with exit code 101."]
+        found = reds.read(log(*passing, *failing))
+        self.assertEqual((found.unnamed, found.truncated), ([], []))
+        # Printed by the failed step, the same count is the red's own.
+        found = reds.read(log(*failing[:3], *bun_invocation(results=["a > one"], fail=2), *failing[3:]))
+        self.assertEqual(found.unnamed, [" 2 fail"])
+
+
+
+class NoReaderSeesAPassingStepsLines(unittest.TestCase):
+    """#41244's review F1: "parse_log() hands every line to read_bun() before the passing-step filter, so a Bun
+    Result.unnamed marker from a passing step (one `(fail)` plus `2 fail`) marks the whole job truncated, and
+    read_head() can then refuse an unrelated red. Apply the step filter before every reader, not inside each one.
+    Fixture: a passing Bun step with those markers next to a failing step." parse_log filters the lines once
+    (red_lines); failed_tests' callers read the same source."""
+
+    PASSING = ["##[group]Run bun test test/negative.test.ts", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+               *bun_invocation(results=["a > one"], fail=2)]
+    FAILING = ["##[group]Run cargo test", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+               "test tests::reconnects ... FAILED",
+               "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+               "##[error]Process completed with exit code 101."]
+
+    def test_a_passing_bun_steps_fail_and_count_are_no_readers(self):
+        job = log(*self.PASSING, *self.FAILING)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"tests::reconnects"}, [], []))
+        unnamed: list = []
+        self.assertEqual(reds.failed_tests(reds.red_lines(job), unnamed), Counter({"tests::reconnects": 1}))
+        self.assertEqual(unnamed, [])
+        # A base that fails only the cargo test fails the same way: the passing step's `(fail)` is no new failure.
+        base = log(*self.FAILING)
+        verdict = reds.classify(job, base, "web / tests")
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_a_passing_steps_named_bun_failure_does_not_hide_a_failing_steps_unnamed_one(self):
+        # The wrapper's `FAIL file` with no bun line naming a failure is unnamed; a `(fail)` a passing step printed
+        # named nothing of this red, so it is still unnamed.
+        failing = ["##[group]Run bash scripts/run-webviews-tests.sh", "shell: /usr/bin/bash -e {0}", "##[endgroup]",
+                   "FAIL test/b.test.ts (exit 1)", "##[error]Process completed with exit code 1."]
+        found = reds.read(log(*self.PASSING, *failing))
+        self.assertEqual(found.unnamed, ["FAIL test/b.test.ts (exit 1)"])
+        self.assertEqual(found.failed, set())
+
+
+class BunRetrySupersedesItsCount(unittest.TestCase):
+    """#41222's review F2 (test_reds.py:493): "The wrapper retry resets counters but retains earlier unnamed markers in
+    `found`. ... Apply the same final-attempt rule to unnamed markers". The attempt run-webviews-tests.sh ran again
+    alone is dropped with its count, as read_bun drops its failures."""
+
+    def test_a_fully_named_retry_supersedes_an_unnamed_first_attempt(self):
+        lines = bun_invocation(results=["a > one"], fail=2) + ["--- retry, alone ---"] + bun_invocation(results=["a > one"])
+        self.assertEqual(reds.unnamed_failures(lines), [])
+        found = reds.read(log(*lines))
+        self.assertEqual((found.unnamed, found.truncated, found.failed), ([], [], {"test/a.test.ts > a > one"}))
+
+    def test_an_unnamed_retry_is_still_unnamed(self):
+        lines = bun_invocation(results=["a > one"]) + ["--- retry, alone ---"] + bun_invocation(results=["a > one"], fail=2)
+        self.assertEqual(reds.unnamed_failures(lines), [" 2 fail"])
+
+    def test_another_files_unnamed_run_is_kept(self):
+        other = [line.replace("test/a.test.ts", "test/b.test.ts") for line in bun_invocation(results=["b > x"], fail=2)]
+        lines = other + bun_invocation(results=["a > one"], fail=2) + ["--- retry, alone ---"] + bun_invocation(results=["a > one"])
+        self.assertEqual(reds.unnamed_failures(lines), [" 2 fail"])
+
+
 class GalleryHealth(unittest.TestCase):
     """Gallery health's broken and over-budget states, judged per state against the same states rendered on the base
     (gallery-health.yml): the base entries that held SHIP'd webview PRs (streaming-text#jump-during-stream over budget,
@@ -806,7 +1422,8 @@ def web_job(*files, summary=True):
 def replay(charged=(), shared=()):
     """react-apps-base-check's log: guards_new_reds.py's verdicts on the head's reds replayed on the merge parent."""
     return log(*[f"##[error]{name}" for name in charged], *[f"##[warning]{name}" for name in shared],
-               f"{len(charged)} webview test steps red on this change, {len(shared)} red on the base too, 0 fixed")
+               f"{len(charged)} webview test steps red on this change, {len(shared)} red on the base too, 0 flaky on the base, "
+               "0 fixed")
 
 
 CAPSULES = "test/agent-pane-no-capsules.test.ts"
@@ -891,6 +1508,101 @@ class WebviewTestsAcrossJobs(unittest.TestCase):
         head += "\n2026-10-28T03:40:35Z oh no: Bun has crashed"
         verdict = reds.classify_web([replay(charged=[f"{CAPSULES} > {CAPSULE_TEST}"]), head], [head])
         self.assertTrue(verdict.own)
+
+    def test_a_replay_names_only_its_head_rerun_and_final_verdict(self):
+        # cmux#34111's replay (2): the merge parent timed out a file; the head re-run then passed one charged test.
+        named, again = f"{CAPSULES} > {CAPSULE_TEST}", "test/composer-footer-plain.test.ts > rests flat"
+        merge_parent = log("##[group]TIMEOUT test/transcript-toggle.test.ts", "##[endgroup]",
+                           "### webviews tests: 1 files", "TIMEOUT test/transcript-toggle.test.ts (limit 120s)")
+        text = "\n".join([merge_parent, replay(charged=[named, again]), log("re-running alone on the head:"),
+                          web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])),
+                          replay(charged=[named], shared=[again])])
+        found = reds.web_failures(text)
+        self.assertEqual(found.charged, {named})
+        self.assertEqual(found.timed_out, set())
+        self.assertNotIn("transcript-toggle", "".join(reds.read(reds.web_head_part(text)).truncated))
+        self.assertIn("transcript-toggle", "".join(reds.read(text).truncated))
+        self.assertFalse(reds.classify_web_window(
+            [text, web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))],
+            iter([("base run 1", [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))])])).own)
+        # A replay with no head re-run holds no run of the head.
+        self.assertEqual(reds.web_head_part("\n".join([merge_parent, replay(charged=[named])])), "")
+        self.assertEqual(reds.web_failures("\n".join([merge_parent, replay(charged=[named])])).timed_out, set())
+
+    def test_a_replay_compares_only_what_its_final_verdict_charged_in_a_shared_file(self):
+        # Review F2 on #38380: the head failed A and B in one file; the final verdict charged A only (B passed alone).
+        # B is not compared, so the base failing A alone excuses the replay; an unnamed diagnostic there still counts.
+        a, b = f"{CAPSULES} > {CAPSULE_TEST}", f"{CAPSULES} > rests flat"
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87), ("rests flat", "boom", 9)]))
+        text = "\n".join([replay(charged=[a, b]), log("re-running alone on the head:"),
+                          web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)])), replay(charged=[a], shared=[b])])
+        base = [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]
+        self.assertFalse(reds.classify_web_window([text, head], iter([("run 1", base)])).own)
+        self.assertFalse(reds.classify_web([text, head], base).own)
+        unhandled = head.replace("### webviews tests:", f"##[group]FAIL {CAPSULES}\nerror: thrown outside a test\n"
+                                 "##[endgroup]\n### webviews tests:")
+        self.assertTrue(reds.classify_web_window([text, unhandled], iter([("run 1", base)])).own)
+
+    def test_a_replay_with_no_final_charged_test_verdict_is_never_judged_per_test(self):
+        # Review follow-up (1) on #38380: the head re-run ended (cut short, or its compare never ran) before
+        # guards_new_reds.py printed the final verdict. The failures it printed are no charged-test verdict: the
+        # replay is the head's own, never compared with the base per test.
+        named = f"{CAPSULES} > {CAPSULE_TEST}"
+        rerun = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
+        base = [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]
+        whole = "\n".join([replay(charged=[named]), log("re-running alone on the head:"), rerun,
+                           replay(charged=[named])])
+        self.assertFalse(reds.classify_web_window([whole, rerun], iter([("run 1", base)])).own)
+        for cut in ("\n".join([replay(charged=[named]), log("re-running alone on the head:"), rerun]),
+                    "\n".join([replay(charged=[named]), log("re-running alone on the head:"), rerun,
+                               log(f"##[error]{named}")]),
+                    "\n".join([log(f"##[error]{named}"), log("re-running alone on the head:"), rerun,
+                               replay(charged=[named])]).replace("1 webview test steps red", "webview test steps red")):
+            with self.subTest(log=cut[-120:]):
+                found = reds.web_failures(cut)
+                self.assertIn("no final charged-test verdict", " ".join(found.truncated))
+                verdict = reds.classify_web_window([cut, rerun], iter([("run 1", base)]))
+                self.assertTrue(verdict.own)
+                self.assertIn("no final charged-test verdict", " ".join(verdict.reasons))
+        # A replay with no head re-run needs its one verdict line too.
+        self.assertIn("no final charged-test verdict", " ".join(reds.web_failures(log(f"##[error]{named}")).truncated))
+        self.assertEqual(reds.web_failures(replay(charged=[named])).truncated, [])
+
+    def test_a_cut_off_final_verdict_line_is_no_verdict(self):
+        # Review F1 on #38434: a log cut off right after "red on the base too" printed no whole closing line.
+        named = f"{CAPSULES} > {CAPSULE_TEST}"
+        whole = "1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0 fixed"
+        for line, cut in ((whole, False),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 fixed", False),
+                          ("1 webview test steps red on this change, 0 red on the base too", True),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base", True),
+                          ("1 webview test steps red on this change, 0 red on the base too, 0 flaky on the base, 0", True),
+                          (whole + ", 2 more", True)):
+            with self.subTest(line=line):
+                found = reds.web_failures(log(f"##[error]{named}", line))
+                self.assertEqual("no final charged-test verdict" in " ".join(found.truncated), cut)
+
+    def test_a_window_matches_each_test_on_any_one_run_and_reads_no_further(self):
+        other = "test/composer-footer-plain.test.ts"
+        head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]), (other, [("rests flat", "boom", 9)]))
+        read = []
+
+        def windows():
+            for label, logs in (("run 3", [web_job((CAPSULES, [(CAPSULE_TEST, "other error", 87)]))]),
+                                ("run 2", [web_job((other, [("rests flat", "boom", 9)]))]),
+                                ("run 1", [web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))]),
+                                ("run 0", [None])):
+                read.append(label)
+                yield label, logs
+        verdict = reds.classify_web_window([head], windows())
+        self.assertFalse(verdict.own, verdict.reasons)
+        self.assertEqual(read, ["run 3", "run 2", "run 1"])
+        verdict = reds.classify_web_window([head], iter([("run 3", [web_job((CAPSULES, [(CAPSULE_TEST, "x", 87)]))])]))
+        self.assertTrue(verdict.own)
+        self.assertIn("1 failing test(s) pass or do not run on run 3: test/composer-footer-plain.test.ts > rests flat",
+                      verdict.reasons)
+        self.assertTrue(any("fail on none of run 3 the same way" in reason for reason in verdict.reasons))
+        self.assertTrue(reds.classify_web_window([head], iter([])).own)
 
     def test_retry_only_failure_cannot_be_excused_by_the_first_attempt(self):
         head = web_job((CAPSULES, [(CAPSULE_TEST, CAPSULE_ERROR, 87)]))
@@ -1402,10 +2114,347 @@ class LostRunner(unittest.TestCase):
         self.assertIn("a verdict", done.stdout)
 
 
+class EscapesEndAtTheirFirstTerminator(unittest.TestCase):
+    r"""cmux#41382's review F1 (test_reds.py:64): "The OSC pattern is greedy and runs to the last ESC \ in the log, so
+    plain() deletes every line between two title sequences. Reproduced through cargo_test_verdict.read_text: a head
+    with one new and one existing failure loses the new one, and judge() excuses it. Stop at the first terminator (BEL
+    or ST), handle multiline sequences, and never let one escape span a newline-separated failure line.\""""
+
+    TITLE_ST = "\x1b]0;cargo test\x1b\\"
+    TITLE_BEL = "\x1b]2;cargo test\x07"
+
+    def test_two_titles_keep_every_line_between_them(self):
+        text = "\n".join([self.TITLE_ST + "running 1 test", "test a::new ... FAILED", "test result: FAILED. 0 passed; "
+                          "1 failed; 0 ignored; 0 measured; 0 filtered out", self.TITLE_ST + "done"])
+        self.assertEqual(reds.plain(text).splitlines(),
+                         ["running 1 test", "test a::new ... FAILED", "test result: FAILED. 0 passed; 1 failed; "
+                          "0 ignored; 0 measured; 0 filtered out", "done"])
+
+    def test_a_bel_title_ends_at_its_bel_and_an_st_one_at_its_st(self):
+        self.assertEqual(reds.plain(f"{self.TITLE_BEL}a{self.TITLE_ST}b{self.TITLE_BEL}c"), "abc")
+        link = "\x1b]8;;https://example.invalid/x\x1b\\x.rs\x1b]8;;\x1b\\"
+        self.assertEqual(reds.plain(f"test {link} ... FAILED"), "test x.rs ... FAILED")
+
+    def test_an_unterminated_or_multiline_escape_never_spans_a_failure_line(self):
+        # A title opened on one line and closed lines later: each line between is the log's, never the title's.
+        text = "\n".join(["\x1b]0;opening", "test a::new ... FAILED", "closing\x07", "\x1b]0;never closed",
+                          "test a::old ... FAILED", "\x1b\\"])
+        self.assertEqual(reds.plain(text).splitlines(),
+                         ["", "test a::new ... FAILED", "closing", "", "test a::old ... FAILED"])
+        self.assertEqual(reds.read(text).failed, {"a::new", "a::old"})
+
+
+# Every line boundary str.splitlines() splits on, the one split every log reader uses (log_lines, lines_of,
+# step_owners): written out here, not read from the code under test, so the tests below check the code against it.
+SPLITLINES_BOUNDARIES = ("\n", "\r", "\r\n", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+
+
+class EscapesEndAtEveryLineBoundary(unittest.TestCase):
+    r"""The follow-up review of cmux#41390, F1 (test_reds.py:68): "an OSC body runs across a bare \r, so
+    `\x1b]0;title\rtest new ... FAILED\n` loses the failure that log_lines() sees (it uses splitlines()). Cached logs
+    keep raw CRs, and this excuses a head with a new failure. Make plain() end every escape at exactly the line
+    boundaries the reader uses: one shared definition, splitlines' set (\n, \r, \r\n, \v, \f, \x1c-\x1e, \x85, U+2028,
+    U+2029), used by both.\""""
+
+    def test_the_shared_boundaries_are_exactly_what_splitlines_splits_on(self):
+        splits = {chr(point) for point in range(0x110000) if len(f"a{chr(point)}b".splitlines()) == 2}
+        self.assertEqual(splits, {b for b in SPLITLINES_BOUNDARIES if len(b) == 1})
+        self.assertEqual(set(reds.LINE_BOUNDARIES), splits)
+
+    def test_a_title_before_any_boundary_keeps_the_failure_after_it(self):
+        for boundary in SPLITLINES_BOUNDARIES:
+            for title in ("\x1b]0;title", "\x1b]8;;https://example.invalid/x"):
+                with self.subTest(boundary=repr(boundary), title=repr(title)):
+                    text = f"running 1 test\n{title}{boundary}test a::new ... FAILED\ntest result: FAILED. 0 passed; " \
+                           "1 failed; 0 ignored; 0 measured; 0 filtered out\n"
+                    self.assertIn("test a::new ... FAILED", reds.log_lines(reds.plain(text)))
+                    self.assertEqual(len(reds.plain(text).splitlines()), len(text.splitlines()))
+                    self.assertEqual(reds.read(reds.plain(text)).failed, {"a::new"})
+
+    def test_a_new_failure_behind_a_title_and_a_bare_cr_is_the_heads_own(self):
+        # The review's case through the judge: the base fails a::old; the head fails it and a::new, printed after a
+        # title that a bare CR ends. Read raw (as a cached log keeps it), the new failure is the head's own.
+        summary = "test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out"
+        base = log("running 2 tests", "test a::old ... FAILED", summary.replace("2 failed", "1 failed"))
+        head = log("running 2 tests", "test a::old ... FAILED", "\x1b]0;title\rtest a::new ... FAILED", summary)
+        verdict = reds.classify(reds.plain(head), reds.plain(base), "cargo test", "feat-cmux-next run 1")
+        self.assertTrue(verdict.own, verdict.reasons)
+        self.assertIn("a::new", " ".join(verdict.reasons))
+
+
+class BunFileOwnershipStaysInItsStep(unittest.TestCase):
+    """cmux#41382's review F2 (test_reds.py:806): "The fallback takes file ownership from earlier steps. A passing
+    a.test.ts in step 1 plus a headerless failure and FAIL a.test.ts in step 2 creates a spurious unnamed failure, so
+    identical head and base logs are refused. The reverse can hide a later unnamed marker. Resolve ownership within the
+    current step only.\""""
+
+    PASSING_RUN = ["bun test v1.3.0", "test/a.test.ts:", "(pass) a > ok [1.00ms]", " 1 pass", " 0 fail"]
+    NAMED_RUN = ["bun test v1.3.0", "test/a.test.ts:", "error: boom", "(fail) a > bad [1.00ms]", " 0 pass", " 1 fail"]
+    HEADERLESS = ["bun test v1.3.0", "error: boom", "(fail) a > bad [1.00ms]", " 0 pass", " 1 fail",
+                  "FAIL test/a.test.ts (exit 1)"]
+    SILENT = ["bun test v1.3.0", "error: Cannot find module './gone'", " 0 pass", " 0 fail",
+              "FAIL test/a.test.ts (exit 1)"]
+    ERROR = "##[error]Process completed with exit code 1."
+
+    def test_an_earlier_steps_passing_run_never_unnames_a_later_steps_named_failure(self):
+        job = log(*step("bun one"), *self.PASSING_RUN, self.ERROR, *step("bun two"), *self.HEADERLESS, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"a > bad"}, [], []))
+        verdict = reds.classify(job, job, "web / tests")
+        self.assertFalse(verdict.own, verdict.reasons)
+
+    def test_an_earlier_steps_named_failure_never_hides_a_later_steps_unnamed_one(self):
+        job = log(*step("bun one"), *self.NAMED_RUN, self.ERROR, *step("bun two"), *self.SILENT, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual(found.unnamed, ["FAIL test/a.test.ts (exit 1)"])
+        self.assertEqual([r for r in found.records if r[2] == "unnamed"], [(2, 1, "unnamed", "FAIL test/a.test.ts (exit 1)")])
+
+    def test_a_headerless_failure_and_its_fail_line_in_one_step_are_that_steps_named_failure(self):
+        # dep-fleet-6: "Add a headerless same-step FAIL row": the step's `(fail)` names the failure its own `FAIL file`
+        # closes, so the failure is that step's, named, and the marker is no unnamed failure.
+        job = log(*step("bun one"), *self.HEADERLESS, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"a > bad"}, [], []))
+        self.assertEqual(found.records, [(1, 1, "failed", "a > bad")])
+        self.assertFalse(reds.classify(job, job, "web / tests").own)
+
+    def test_a_passing_step_then_a_headerless_failure_and_its_fail_line_in_the_next(self):
+        # The mirror: the earlier step passed (no `##[error]`, the next step followed), so none of its lines are read,
+        # and the next step's headerless failure is its own and named.
+        job = log(*step("bun one"), *self.PASSING_RUN, *step("bun two"), *self.HEADERLESS, self.ERROR)
+        found = reds.read(job)
+        self.assertEqual((found.failed, found.unnamed, found.truncated), ({"a > bad"}, [], []))
+        self.assertEqual(found.records, [(1, 1, "failed", "a > bad")])
+        self.assertEqual(reds.red_steps(job)[1:], [reds.lines_of(log(*self.HEADERLESS, self.ERROR))])
+        self.assertFalse(reds.classify(job, job, "web / tests").own)
+
+
+def growth(call, small, large, repeats=3, min_seconds=0.005):
+    """CALL(LARGE)'s best CPU time over CALL(SMALL)'s, each sample repeating the call until it takes MIN_SECONDS (the
+    same count at both sizes), best of REPEATS each, in turn: about LARGE/SMALL when linear."""
+    import math
+    import time
+
+    def sample(size, loops):
+        began = time.process_time()
+        for _ in range(loops):
+            call(size)
+        return (time.process_time() - began) / loops
+    loops = max(1, math.ceil(min_seconds / max(sample(small, 1), 1e-9)))
+    best = {small: float("inf"), large: float("inf")}
+    for _ in range(repeats):
+        for size in (small, large):
+            best[size] = min(best[size], sample(size, loops))
+    return best[large] / max(best[small], 1e-9), best
+
+
+class PlainCostsLinearInItsInput(unittest.TestCase):
+    """The same greed as F1, as cost: an OSC body that ran to the next BEL or ST read the rest of the log from every
+    `ESC ]` with no terminator, so a log of N unterminated openers cost N^2 (20,000 took 3 to 9 CPU s at cmux#41382's
+    head; a PR's test output can print them). Each opener now reads to the next escape or line end. Linear is about
+    10x for 10x the input and quadratic 100x; the bound is 30x, never seconds."""
+
+    SHAPES = {"openers": "\x1b]x", "openers per line": "\x1b]xxxxx\n", "openers before an ST": "\x1b]0;t",
+              "CSI introducers": "\x1b[", "stray terminators": "\x1b\\\x07"}
+
+    def test_plain_is_linear_in_hostile_escapes(self):
+        for name, shape in self.SHAPES.items():
+            with self.subTest(shape=name):
+                text = {n: shape * n for n in (2_000, 20_000)}
+                ratio, best = growth(lambda n: reds.plain(text[n]), 2_000, 20_000)
+                self.assertLess(ratio, 30, f"{name}: 10x the input took {ratio:.0f}x ({best})")
+
+
+# --- the log-rewrite property test (cmux#41382's review: "a parser that over-reaches hides a new failure") ----------
+# Escapes a terminal writes: CSI colours and cursor moves, OSC titles ended by BEL or by ST, OSC 8 hyperlinks.
+INLINE_NOISE = ("\x1b[0m", "\x1b[31m", "\x1b[1;32m", "\x1b[38;5;208m", "\x1b[2K", "\x1b[1G", "\x1b]0;cargo test\x07",
+                "\x1b]2;bun test\x1b\\", "\x1b]8;;https://example.invalid/x\x1b\\", "\x1b]8;;\x1b\\",
+                "\x1b]8;id=1;file:///w/a.rs\x07")
+
+
+def rewrite_case(seed: int) -> dict:
+    """One job log of random steps (failed ones, and passing ones that print failure-shaped lines), each failure line
+    known, with OSC/CSI noise inside lines, on lines of its own, unterminated, and opened before a failure line and
+    closed after it (multiline), around every step boundary. Returns {"raw", "failed": [step's names], "unnamed":
+    [step's unnamed lines], "lines": every failure line as printed, "never": names a passing step printed}."""
+    rng = random.Random(seed)
+    steps = [rng.random() < 0.75 for _ in range(rng.randint(1, 4))]
+    steps[-1] = True  # the last step never passed (passed_steps)
+    out: list[str] = []
+    expected_failed: list[set] = []
+    expected_unnamed: list[list] = []
+    failure_lines: list[str] = []
+    never: set = set()
+    shapes: list[str] = []  # each step's: "passed", or its bun kind ("headerless" when a run of it printed no header)
+    ERROR = "##[error]Process completed with exit code 1."
+
+    def noisy(text: str) -> str:
+        # Each escape between two characters of the line as printed, never inside another escape.
+        cuts = sorted(rng.randint(0, len(text)) for _ in range(rng.choice((0, 0, 1, 2, 3))))
+        pieces, last = [], 0
+        for at in cuts:
+            pieces += [text[last:at], rng.choice(INLINE_NOISE)]
+            last = at
+        return "".join(pieces) + text[last:]
+
+    def noise_lines() -> list[str]:
+        return [rng.choice(("\x1b]0;title only\x07", "\x1b]0;title only\x1b\\", "\x1b[0m", "\x1b]0;never closed",
+                            "\x1b]8;;https://example.invalid\x1b\\link\x1b]8;;\x1b\\"))
+                for _ in range(rng.choice((0, 0, 1, 2)))]
+
+    def output(lines: list[str]) -> list[str]:
+        """LINES with noise between them, and a multiline title opened before a line and closed lines later."""
+        made: list[str] = []
+        closing = None
+        for text in lines:
+            made += noise_lines()
+            if rng.random() < 0.2:
+                # An escape the line's own text follows across a line boundary, any of splitlines' (a bare CR from a
+                # progress bar, a form feed, U+2028, ...): the reader splits there, so the line after it is the log's.
+                opener = rng.choice(("\x1b]0;title", "\x1b]0;title\x07", "\x1b]8;;https://example.invalid/x",
+                                     "\x1b[31m", ""))
+                before = opener + rng.choice(SPLITLINES_BOUNDARIES)
+            else:
+                before = ""
+            if closing is None and rng.random() < 0.15:
+                made.append("\x1b]0;opening title")
+                closing = rng.randint(1, 3)
+            made.append(before + noisy(text))
+            if closing is not None:
+                closing -= 1
+                if closing == 0:
+                    made.append("closing title" + rng.choice(("\x07", "\x1b\\")))
+                    closing = None
+        if closing is not None:
+            made.append("closing title\x07")
+        return made + noise_lines()
+
+    for number, failed in enumerate(steps):
+        out += noise_lines() + step(f"fixture-step-{number}")
+        lines: list[str] = []
+        names: set = set()
+        unnamed: list = []
+        tag = f"s{number}"
+        if not failed:
+            # A passing step's negative cases: failure-shaped, and no reader's.
+            lines += ["running 1 test", f"test tests::passing_{tag} ... FAILED",
+                      "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+                      "bun test v1.3.0", "test/a.test.ts:", "error: boom", f"(fail) a > passing_{tag} [1.00ms]",
+                      " 0 pass", " 2 fail"]
+            never |= {f"tests::passing_{tag}", f"test/a.test.ts > a > passing_{tag}"}
+            out += output(lines)
+            shapes.append("passed")
+            continue
+        for block in range(rng.randint(1, 3)):
+            runner = rng.choice(("cargo", "pytest", "swift"))
+            name = f"{tag}_{runner}_{block}"
+            if runner == "cargo":
+                shown = f"test tests::{name} ... FAILED"
+                lines += ["running 2 tests", "test tests::ok ... ok", shown, "test result: FAILED. 1 passed; 1 failed; "
+                          "0 ignored; 0 measured; 0 filtered out; finished in 0.01s"]
+                names.add(f"tests::{name}")
+            elif runner == "pytest":
+                shown = f"FAILED tests/test_mod.py::test_{name} - assert 1 == 2"
+                lines += ["============================= test session starts ==============================", shown,
+                          "========================= 1 failed, 1 passed in 0.12s ========================="]
+                names.add(f"tests/test_mod.py::test_{name}")
+            else:
+                shown = f"✘ Test {name}() recorded an issue at KitTests.swift:3:5: Expectation failed"
+                lines += ["◇ Test run started.", shown, f"✘ Test {name}() failed after 0.010 seconds with 1 issue.",
+                          "✘ Test run with 1 test in 1 suite failed after 0.100 seconds with 1 issue."]
+                names.add(f"{name}()")
+            failure_lines.append(shown)
+        # One kind of bun run per step, so which file a `FAIL file` line closes is never ambiguous within the step.
+        kind = rng.choice(("none", "named", "named", "pass", "silent"))
+        shapes.append(kind)
+        if kind == "named":
+            for run in range(rng.randint(1, 2)):
+                title = f"a > {tag}_bun_{run}"
+                headed = rng.random() < 0.5
+                if not headed:
+                    # A headerless failure and the `FAIL file` that closes it, in one step: that step's, named.
+                    shapes[-1] = "headerless"
+                shown = f"(fail) {title} [1.00ms]"
+                lines += ["bun test v1.3.0", *(["test/a.test.ts:"] if headed else []), "error: boom", shown,
+                          " 0 pass", " 1 fail", *([] if headed else ["FAIL test/a.test.ts (exit 1)"])]
+                names.add(f"test/a.test.ts > {title}" if headed else title)
+                failure_lines.append(shown)
+        elif kind == "pass":
+            lines += ["bun test v1.3.0", "test/a.test.ts:", "(pass) a > ok [1.00ms]", " 1 pass", " 0 fail"]
+        elif kind == "silent":
+            marker = "FAIL test/a.test.ts (exit 1)"
+            lines += ["bun test v1.3.0", "error: Cannot find module './gone'", " 0 pass", " 0 fail", marker]
+            unnamed.append(marker)
+            failure_lines.append(marker)
+        out += output(lines + [ERROR])
+        expected_failed.append(names)
+        expected_unnamed.append(unnamed)
+    return {"raw": log(*out), "failed": expected_failed, "unnamed": expected_unnamed, "lines": failure_lines,
+            "never": never, "shapes": shapes}
+
+
+def rewrite_violations(seed: int) -> list[str]:
+    case = rewrite_case(seed)
+    text = reds.plain(case["raw"])
+    found: list[str] = []
+    kept = reds.log_lines(text)
+    found += [f"seed {seed}: plain() dropped the failure line {line!r}" for line in case["lines"] if line not in kept]
+    # Each failed step's section (red_steps, past the lines before the first step) holds its own failures, no other's.
+    sections = reds.red_steps(text)[1:]
+    if len(sections) != len(case["failed"]):
+        return found + [f"seed {seed}: {len(sections)} failed steps read, {len(case['failed'])} printed"]
+    result = reds.read(text)
+    bun = {(step - 1, name) for step, _, what, name in result.records if what == "failed"}
+    marks = [(step - 1, line) for step, _, what, line in result.records if what == "unnamed"]
+    for number, (names, unnamed, section) in enumerate(zip(case["failed"], case["unnamed"], sections)):
+        read_here = reds.failed_names(section) | {name for at, name in bun if at == number}
+        if read_here != names:
+            found.append(f"seed {seed}: failed step {number} read {sorted(read_here)}, printed {sorted(names)}")
+        if [line for at, line in marks if at == number] != unnamed:
+            found.append(f"seed {seed}: failed step {number} read unnamed {[l for at, l in marks if at == number]}, "
+                         f"printed {unnamed}")
+    every = set().union(*case["failed"])
+    if result.failed != every:
+        found.append(f"seed {seed}: read() named {sorted(result.failed)}, the log printed {sorted(every)}")
+    if leaked := result.failed & case["never"]:
+        found.append(f"seed {seed}: a passing step's lines were read: {sorted(leaked)}")
+    if sorted(result.unnamed) != sorted(line for lines in case["unnamed"] for line in lines):
+        found.append(f"seed {seed}: unnamed {result.unnamed}, printed {case['unnamed']}")
+    return found
+
+
+class LogRewritesKeepEveryFailure(unittest.TestCase):
+    """The detector for "a parser that over-reaches hides a new failure" (cmux#41382's review: "any rewrite of log text
+    before judging must be checked for never dropping a failure line"): random OSC/CSI noise and step boundaries
+    around known failure lines; every failure survives plain() and is read in its own step, and only there.
+    TEST_REDS_REWRITE_SEEDS (default 400) sets how many seeds run, TEST_REDS_REWRITE_START the first; replay one with
+    TEST_REDS_REWRITE_START=SEED TEST_REDS_REWRITE_SEEDS=1."""
+
+    def test_every_failure_survives_plain_and_is_read_in_its_own_step(self):
+        start = int(os.environ.get("TEST_REDS_REWRITE_START", "0"))
+        count = int(os.environ.get("TEST_REDS_REWRITE_SEEDS", "400"))
+        found = [v for seed in range(start, start + count) for v in rewrite_violations(seed)]
+        self.assertEqual(found[:10], [], f"{len(found)} violations over {count} seeds")
+
+    def test_the_generator_prints_what_it_says(self):
+        # Non-vacuity: the cases hold each kind of noise, multiline titles, passing steps, and both bun ownerships.
+        raw = "".join(rewrite_case(seed)["raw"] for seed in range(200))
+        for piece in ("\x1b]0;opening title", "\x1b]0;never closed", "\x1b\\", "\x07", "\x1b[31m",
+                      "passing_", "FAIL test/a.test.ts", "(pass) a > ok"):
+            self.assertIn(piece, raw)
+        for boundary in SPLITLINES_BOUNDARIES:  # an escape ended by each of the reader's line boundaries
+            self.assertIn("\x1b]0;title" + boundary, raw, repr(boundary))
+        # dep-fleet-6's headerless same-step FAIL row, both ways: a step that opens the log with it, and one after a
+        # passing step.
+        shapes = [rewrite_case(seed)["shapes"] for seed in range(200)]
+        self.assertTrue(any(shape[0] == "headerless" for shape in shapes))
+        self.assertTrue(any(("passed", "headerless") == pair for shape in shapes for pair in zip(shape, shape[1:])))
+
+
 class ReadOncePerLog(unittest.TestCase):
     """A log is parsed once per process, however often the judge reads it (2026-11-06, cmux#36356 at 2c9f6957):
     base_red_excuse.py's window re-classified every log each time it grew, 50 reads of six 20 to 27 MB logs, 110 s
-    of CPU, and merge_hold's 120 s bound on the classifier refused the merge."""
+    of CPU, and land-judge's 120 s bound on the classifier refused the merge."""
 
     def setUp(self):
         reds._parsed.clear()
@@ -1453,3 +2502,35 @@ class ReadOncePerLog(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CutShortWordsAreWords(unittest.TestCase):
+    """2026-11-22, cmuxterm-hq eb73df0c's 'build-fleet Go tests / go vet + go test' (job 137452468531) was refused
+    "a crash, a cut-short run or a failure no parser names is never a base red", quoting `error: Path
+    'docs/handbook/stalled-work-nobody-moves.md' not uptodate; will not remove from working tree.`: one of 54
+    annotations actions/checkout printed at 02:37:42 narrowing a sparse checkout on a reused self-hosted workspace,
+    which failed nothing. The job ran five more minutes and ended at 02:42:40 in a plain Go failure a comparison can
+    name. The hang watchdog's words matched with `\\b`, so that file name's `stalled` read as the watchdog's word and
+    the first annotation in the log pre-empted the real failure. Each word is read as a word: a path or a longer
+    identifier that carries it is not it."""
+
+    CHECKOUT = ["##[error]error: Path 'docs/handbook/%s' not uptodate; will not remove from working tree." % name
+                for name in ("stalled-work-nobody-moves.md", "timeout-without-a-deadline.md",
+                             "a-run-that-never-finished-its-sweep.md")]
+    GO = ["--- FAIL: TestEveryStepModeReservesItsMeasuredDisk (0.00s)", "FAIL",
+          "FAIL\tcmuxterm-hq/build-fleet/cmd/controller\t241.426s", "FAIL",
+          "##[error]Process completed with exit code 1."]
+
+    def test_a_checkout_annotation_naming_such_a_file_is_not_a_cut_short_run(self):
+        self.assertEqual(reds.read(log(*self.CHECKOUT, *self.GO)).truncated, [])
+
+    def test_the_watchdogs_own_words_are_still_a_cut_short_run(self):
+        for line in ("##[error]go test timed out after 600s",
+                     "##[error]the suite stalled: no output for 600s",
+                     "##[error]hung test: TestX made no progress",
+                     "##[error]TestX stopped by SIGKILL",
+                     "##[error]cancelled test run",
+                     "##[error]Timeout waiting for the controller",
+                     "##[error]2 test(s) never finished"):
+            with self.subTest(line=line):
+                self.assertEqual(reds.read(log(line, *self.GO)).truncated, [line.removeprefix("##[error]")])

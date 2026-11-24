@@ -53,6 +53,7 @@ pub(super) fn ensure(home: &ChiefHome) -> Result<PathBuf, String> {
         // ...and runs the brains of the home's other Chiefs.
         chief_brains: brains_value(home),
         websocket: None,
+        carried_env: Vec::new(),
     };
     let progress = RestoreProgress::silent();
     match ensure_owner(&spec, Some(&session), Instant::now() + ENSURE_DEADLINE, &progress) {

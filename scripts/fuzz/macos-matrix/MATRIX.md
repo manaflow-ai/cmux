@@ -52,7 +52,9 @@ steps, every `.ips`, `.hang` and `.diag` report of the cmux processes, and the u
   only a reviewed (landed) runner: the worker checks that the whole `scripts/fuzz/macos-matrix/` directory at
   the ref is the feat-cmux-next version, because vm.sh runs its helpers on the host. A change to the runner
   takes effect on the fleet after it lands.
-- The smoke needs a DEV build (it drives the app through `cmux app call`, which a release build refuses). The
+- The smoke needs a DEV build (it drives the app through `cmux app call`, which a release build refuses) or a
+  bench Release (`--release` of a tag in `release_bench_tags` of `scripts/cmux-next/cmux-next.dogfood.conf`, such
+  as `chrome-parity-*`). A plain Release has no `debug.*` methods: the smoke fails its `debug_build` step. The
   fuzz and repro suites take any build; run a shipped DMG by hand (hq `build-fleet/AGENT-BUILDS.md`, "Run vm.sh
   by hand").
 - One VM at a time on the Tart host (the worker has one VM token, see the keychain note below). The step never
@@ -167,7 +169,7 @@ The nightly app itself sends its crashes and its main-thread lag spikes of 250 m
 `CmuxSentryTelemetry` package). Each event carries its OS version, so the Sentry issues split by OS.
 
 Reproduce a finding: `vm.sh --majors 15 --replay <run>/15/steps.jsonl BUILD`. Save a minimal repro as
-`repros/<name>.jsonl`; after it lands, `os-matrix.sh --suite repro:<name>` replays it on the fleet. The same seed with the same
+`repros/<name>.jsonl`; after it lands, `os-matrix.sh --suite repro:<name>` replays it on the fleet. A saved step (inside `"step"`) may add `"shot": "<name>"` (a screenshot `shot-<name>.png` after it), and `{"kind": "wait", "seconds": N}` (at most 120) pauses for the app to answer, so a repro can show a flow screen by screen. The same seed with the same
 build gives the same steps. `fuzz.py --replay … --minimize` delta-debugs a crashing replay to a minimal step list
 (`minimal.jsonl`). At each death the fuzzer saves the app's stderr (`dead-N.stderr.txt`): the Swift runtime's
 fatal-error text is not in the `.ips`. For allocator bugs, `FUZZ_DYLIB=<dylib>` loads a diagnostic dylib into the

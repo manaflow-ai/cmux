@@ -46,6 +46,7 @@ extension TerminalSurfaceView {
         case GHOSTTY_HOST_FRAME_HIDDEN: "hidden"
         case GHOSTTY_HOST_FRAME_SHOWN: "shown"
         case GHOSTTY_HOST_FRAME_READY: "ready"
+        case GHOSTTY_HOST_FRAME_READY_PROGRAM: "ready_program"
         case GHOSTTY_HOST_FRAME_PRESENTED: "presented"
         case GHOSTTY_HOST_FRAME_PENDING: "pending"
         case GHOSTTY_HOST_FRAME_HELD: "held"

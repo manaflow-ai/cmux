@@ -1,5 +1,5 @@
 {
-  "$comment": "The overlay surface roles of cmux NEXT: every popover, menu, card, toast, sheet and tooltip, native and web, is one of these. Glass, never opaque (Leo: \"I don't like the non-glassness\"): each role is glass, and its text reads through the blur, tint and contrast inside the glass, never an opaque fill. Reduce Transparency is the one opaque fallback. Two copies follow it, the Swift (CmuxNextDesign/FloatingGlass/SurfaceRole.swift: SurfaceRole and the neutral FloatingGlassStyle looks) and the CSS (the surface-roles block of webviews/src/ui/glass/glass.css: --surface-<role>-*); scripts/cmux-next/check-surface-roles.py fails when either differs from this file (--print shows what they should say). check-overlay-glass.py and check-glass-never-opaque.ts fail a fill that covers nearOpaque or more on an overlay. Natively a role's corner is concentric with the one corner radius (layout.paneCornerRadius): cornerDepth 0 is that outer radius (a top-level surface), each level in subtracts the corner padding (Metrics.corners.radius(depth:)). On the web a null webRadius is the design scale's --ds-radius-popup (--ui-popup-radius).",
+  "$comment": "The overlay surface roles of cmux NEXT: every popover, menu, card, toast, sheet and tooltip, native and web, is one of these. Glass, never opaque (Leo: \"I don't like the non-glassness\"): each role is glass, and its text reads through the blur, tint and contrast inside the glass, never an opaque fill. Reduce Transparency is the one opaque fallback. Two copies follow it, the Swift (CmuxNextDesign/FloatingGlass/SurfaceRole.swift: SurfaceRole and the neutral FloatingGlassStyle looks) and the CSS (the surface-roles block of webviews/src/ui/glass/glass.css: --surface-<role>-*); scripts/cmux-next/check-surface-roles.py fails when either differs from this file (--print shows what they should say). check-overlay-glass.py and check-glass-never-opaque.ts fail a fill that covers nearOpaque or more on an overlay. Natively a role's corner is concentric with the one corner radius (layout.paneCornerRadius): cornerDepth 0 is that outer radius (a top-level surface), each level in subtracts the corner padding (Metrics.corners.radius(depth:)). A neutral role's veil is gray, or with veilTint \"theme\" the theme's surface at the same opacity (Leo 2026-11-07 on the toasts: \"these toasts are still coloured unthemed\"); its rim stays the neutral one. On the web a null webRadius is the design scale's --ds-radius-popup (--ui-popup-radius). Every role also carries a web block, the one complete set the Surface primitive (webviews/src/ui/surface) styles from: --surface-<role>-material (window, floating or content), -fill, -stroke, -radius, -elevation, -pad, -gap, -title-font, -body-font and -enter, each a reference to the design scale, never a literal (check-surface-roles.py fails a literal). These web fields and the web-only roles (hoverCard, ask, pill: webOnly true) need no Swift change: the Swift copy reads only the native fields and skips web-only roles. A neutral role keeps its --surface-<role>-veil and -rim-* variables, which its web fill and stroke reference. exceptions names drift that is known and left alone, with the file that carries it; the check fails when that file stops carrying it, so the entry is removed with the fix.",
   "nearOpaque": 0.9,
   "roles": [
     {
@@ -9,7 +9,19 @@
       "cornerDepth": 0,
       "webRadius": null,
       "castsShadow": true,
-      "reduceTransparency": "the opaque popup surface (--surface-popup) with its hairline"
+      "reduceTransparency": "the opaque popup surface (--surface-popup) with its hairline",
+      "web": {
+        "material": "floating",
+        "fill": "color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent)",
+        "stroke": "var(--surface-hairline)",
+        "radius": "var(--ds-radius-popup)",
+        "elevation": "var(--elevation-2)",
+        "pad": "var(--ds-space-3)",
+        "gap": "var(--ds-space-2)",
+        "titleFont": "var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-micro) var(--cmux-ease-out)"
+      }
     },
     {
       "name": "menu",
@@ -18,7 +30,19 @@
       "cornerDepth": 0,
       "webRadius": null,
       "castsShadow": true,
-      "reduceTransparency": "the opaque popup surface (--surface-popup) with its hairline"
+      "reduceTransparency": "the opaque popup surface (--surface-popup) with its hairline",
+      "web": {
+        "material": "floating",
+        "fill": "color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent)",
+        "stroke": "var(--surface-hairline)",
+        "radius": "var(--ds-radius-popup)",
+        "elevation": "var(--elevation-2)",
+        "pad": "var(--ds-space-1)",
+        "gap": "var(--ds-space-1)",
+        "titleFont": "var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-micro) var(--cmux-ease-out)"
+      }
     },
     {
       "name": "card",
@@ -27,10 +51,21 @@
       "style": "card",
       "cornerDepth": 0,
       "webRadius": 10,
-      "veil": { "dark": 0.42, "light": 0.45 },
-      "rim": { "dark": [0.22, 0.04], "light": [0.8, 0.08] },
+      "veil": {"dark": 0.42, "light": 0.45},
+      "rim": {"dark": [0.22, 0.04], "light": [0.8, 0.08]},
       "castsShadow": false,
-      "reduceTransparency": "the opaque elevated fill (Palette.elevatedBackground) with a hairline"
+      "reduceTransparency": "the opaque elevated fill (Palette.elevatedBackground) with a hairline",
+      "web": {
+        "material": "content",
+        "fill": "color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent)",
+        "stroke": "var(--surface-hairline)",
+        "elevation": "var(--surface-elevation-flat)",
+        "pad": "var(--ds-space-3)",
+        "gap": "var(--ds-space-2)",
+        "titleFont": "var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-standard) var(--cmux-ease-out)"
+      }
     },
     {
       "name": "group",
@@ -39,10 +74,21 @@
       "style": "group",
       "cornerDepth": 0,
       "webRadius": 6,
-      "veil": { "dark": 0.06, "light": 0.2 },
-      "rim": { "dark": [0.24, 0.04], "light": [0.75, 0.08] },
+      "veil": {"dark": 0.06, "light": 0.2},
+      "rim": {"dark": [0.24, 0.04], "light": [0.75, 0.08]},
       "castsShadow": false,
-      "reduceTransparency": "the veil and tint composited over the sidebar's opaque background, with a hairline"
+      "reduceTransparency": "the veil and tint composited over the sidebar's opaque background, with a hairline",
+      "web": {
+        "material": "window",
+        "fill": "var(--surface-group-veil)",
+        "stroke": "var(--surface-hairline)",
+        "elevation": "var(--surface-elevation-flat)",
+        "pad": "var(--ds-space-2)",
+        "gap": "var(--ds-space-1)",
+        "titleFont": "var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-standard) var(--cmux-ease-out)"
+      }
     },
     {
       "name": "toast",
@@ -51,10 +97,22 @@
       "style": "toast",
       "cornerDepth": 0,
       "webRadius": 9,
-      "veil": { "dark": 0.42, "light": 0.55 },
-      "rim": { "dark": [0.3, 0.06], "light": [0.85, 0.1] },
+      "veil": {"dark": 0.42, "light": 0.55},
+      "veilTint": "theme",
+      "rim": {"dark": [0.3, 0.06], "light": [0.85, 0.1]},
       "castsShadow": true,
-      "reduceTransparency": "the opaque popup surface, no rim"
+      "reduceTransparency": "the opaque popup surface, no rim",
+      "web": {
+        "material": "floating",
+        "fill": "var(--surface-toast-veil)",
+        "stroke": "var(--surface-hairline)",
+        "elevation": "var(--elevation-2)",
+        "pad": "var(--ds-space-3)",
+        "gap": "var(--ds-space-2)",
+        "titleFont": "var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-micro) var(--cmux-ease-out)"
+      }
     },
     {
       "name": "sheet",
@@ -63,10 +121,21 @@
       "style": "dialog",
       "cornerDepth": 0,
       "webRadius": 14,
-      "veil": { "dark": 0.48, "light": 0.62 },
-      "rim": { "dark": [0.28, 0.05], "light": [0.85, 0.1] },
+      "veil": {"dark": 0.48, "light": 0.62},
+      "rim": {"dark": [0.28, 0.05], "light": [0.85, 0.1]},
       "castsShadow": true,
-      "reduceTransparency": "the opaque popup surface, no rim"
+      "reduceTransparency": "the opaque popup surface, no rim",
+      "web": {
+        "material": "floating",
+        "fill": "var(--surface-sheet-veil)",
+        "stroke": "var(--surface-hairline)",
+        "elevation": "var(--elevation-2)",
+        "pad": "var(--ds-space-4)",
+        "gap": "var(--ds-space-3)",
+        "titleFont": "var(--weight-emphasis) var(--text-title)/var(--text-title--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-micro) var(--cmux-ease-out)"
+      }
     },
     {
       "name": "tooltip",
@@ -75,7 +144,90 @@
       "cornerDepth": 2,
       "webRadius": null,
       "castsShadow": true,
-      "reduceTransparency": "the opaque popup surface (--tooltip-tint becomes --surface-popup)"
+      "reduceTransparency": "the opaque popup surface (--tooltip-tint becomes --surface-popup)",
+      "web": {
+        "material": "floating",
+        "fill": "color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent)",
+        "stroke": "var(--surface-hairline)",
+        "radius": "var(--ds-radius-popup)",
+        "elevation": "var(--elevation-1)",
+        "pad": "var(--ds-space-1) var(--ds-space-2)",
+        "gap": "var(--ds-space-1)",
+        "titleFont": "var(--weight-regular) var(--text-caption)/var(--text-caption--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-caption)/var(--text-caption--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-micro) var(--cmux-ease-out)"
+      }
+    },
+    {
+      "name": "hoverCard",
+      "for": "hover cards: a link's, a session's or the context ring's preview beside what it describes",
+      "webOnly": true,
+      "webRadius": null,
+      "web": {
+        "material": "floating",
+        "fill": "color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent)",
+        "stroke": "var(--surface-hairline)",
+        "radius": "var(--ds-radius-popup)",
+        "elevation": "var(--elevation-2)",
+        "pad": "var(--ds-space-3)",
+        "gap": "var(--ds-space-2)",
+        "titleFont": "var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-micro) var(--cmux-ease-out)"
+      }
+    },
+    {
+      "name": "ask",
+      "for": "the ask card: a permission prompt, a question or a plan the agent waits on, in the transcript's content layer",
+      "webOnly": true,
+      "webRadius": null,
+      "web": {
+        "material": "content",
+        "fill": "color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent)",
+        "stroke": "var(--surface-hairline)",
+        "radius": "var(--grid-cards-radius)",
+        "elevation": "var(--surface-elevation-flat)",
+        "pad": "var(--ds-space-4)",
+        "gap": "var(--ds-space-2)",
+        "titleFont": "var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-standard) var(--cmux-ease-out)"
+      }
+    },
+    {
+      "name": "pill",
+      "for": "pills and chips: a short status or filter label in a control-height box",
+      "webOnly": true,
+      "webRadius": null,
+      "web": {
+        "material": "content",
+        "fill": "color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent)",
+        "stroke": "var(--surface-hairline)",
+        "radius": "var(--ds-radius-control)",
+        "elevation": "var(--surface-elevation-flat)",
+        "pad": "0 var(--ds-space-2)",
+        "gap": "var(--ds-space-1)",
+        "titleFont": "var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui)",
+        "bodyFont": "var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui)",
+        "enter": "var(--cmux-motion-standard) var(--cmux-ease-out)"
+      }
     }
-  ]
+],
+  "hairline": "var(--glass-edge)",
+  "elevationFlat": "0 0 transparent",
+  "exceptions": [
+    {
+      "role": "toast",
+      "field": "webRadius",
+      "declared": 9,
+      "actual": "calc(var(--ds-radius-control) + var(--concentric-padding)) = 16 on a 34px surface",
+      "file": "webviews/src/ui/notice.css",
+      "contains": "border-radius: calc(var(--ds-radius-control) + var(--concentric-padding))",
+      "why": "The toast reads as a capsule although this role says a rounded rect, never a capsule. Not changed here (the toasts lane shows Leo both looks); this entry names the drift so check-surface-roles.py keeps it visible and fails when the file stops carrying it or a new one appears."
+    }
+  ],
+  "consumers": {
+    "toast": ["webviews/src/ui/notice.css", "webviews/src/pages/shared/desktop.css"],
+    "card": ["webviews/src/apps/scene/scene.css"]
+  }
 }

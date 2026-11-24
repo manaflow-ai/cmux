@@ -12,6 +12,7 @@ exports:
                        '_FSEventStreamInvalidate',
                        '_FSEventStreamRelease',
                        '_FSEventStreamScheduleWithRunLoop',
+                       '_FSEventStreamSetDispatchQueue',
                        '_FSEventStreamStart',
                        '_FSEventStreamStop',
                        '_FSEventsGetCurrentEventId',

@@ -3,6 +3,7 @@ import { JSDOM } from "jsdom";
 import { newTabHost } from "../newTabModel";
 import { injectedNewTabContext, sameNewTabScreen } from "./adoption";
 import { reconciledProject, startFromContext } from "./startHint";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 // Leo, 2026-11-03: "the read defaults/the "not working in a project" thing that should all be
 // instant". The New Tab context the host injects as the document commits carries the chat's start,
@@ -24,7 +25,8 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -78,4 +80,12 @@ test("an adopt that differs only in its start keeps the screen mounted", () => {
   const adopted = newTabHost({ newTab: { kind: "agent", cwd: PROJECT, start: { cwd: PROJECT } } })!;
   expect(adopted.start).toEqual({ cwd: PROJECT, chooseFolder: false });
   expect(sameNewTabScreen(prepared, adopted)).toBe(true);
+});
+
+// CMUX-682: a New Tab whose chats start on another machine says so from its first render, so a send
+// naming `@computer-use` holds as that machine's before the page's client connects.
+test("a New Tab on another machine reads startsRemote from its context; this Mac's has none", () => {
+  expect(newTabHost({ newTab: { kind: "agent", startsRemote: true } })?.startsRemote).toBe(true);
+  expect(newTabHost({ newTab: { kind: "agent" } })?.startsRemote).toBeUndefined();
+  expect(newTabHost({ newTab: { kind: "agent", startsRemote: "yes" } })?.startsRemote).toBeUndefined();
 });

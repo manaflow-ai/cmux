@@ -67,7 +67,11 @@ fn caller_required(hub: &Hub, conn: &Conn) -> RpcError {
 /// The session a start acts for: the proven caller, itself or a descendant it names as
 /// `parent`, or the session the person names. Any other connection is refused, as for every
 /// sub-session tool: the child runs its parent's policy and mode, so naming a parent widens.
-fn start_parent(hub: &Hub, conn: &Conn, params: &Value) -> Result<Arc<Session>, RpcError> {
+pub(super) fn start_parent(
+    hub: &Hub,
+    conn: &Conn,
+    params: &Value,
+) -> Result<Arc<Session>, RpcError> {
     let named = str_param(params, "parent").filter(|p| !p.is_empty());
     match (conn.caller(), named) {
         (Some(caller), named) => {
@@ -144,15 +148,30 @@ async fn handle(
             effort: text("effort"),
             cwd: text("cwd").map(PathBuf::from),
             worktree: params.get("worktree").and_then(Value::as_bool).unwrap_or(false),
+            owner_authorized_race: false,
+            race_id: None,
             fork: params.get("fork").and_then(Value::as_bool).unwrap_or(false),
             force_admit: super::requests::can_force(conn.origin)
                 && super::requests::force_asked(params),
             local: super::remote_guard::control_of(conn.origin, conn.auth, params)
                 != crate::hub::Control::Web,
         };
+        // RFD 0144 piece 7: a working sub-agent on a fork of this Cloud machine, only with the
+        // hidden `cloud.autoCloud` key on (`placement/sub_fork.rs`); off, nothing here runs.
+        let sub_fork = crate::placement::sub_fork::start_plan(
+            crate::placement::sub_fork::enabled(),
+            req.worktree,
+            crate::placement::sub_fork::this_machine().as_deref(),
+        );
+        let checkout = req.cwd.clone().unwrap_or_else(|| parent.meta().cwd.clone());
+        let fork_outcome =
+            crate::placement::sub_fork::on_start(&sub_fork, &req.prompt, &checkout).await;
         let mut started = hub.start_subsession(&parent, req).await?;
         if let Some(placed) = placed {
             started.set("placed", json!(placed));
+        }
+        if let Some(outcome) = fork_outcome {
+            started.set("subFork", json!(outcome));
         }
         return Ok(started);
     }
@@ -216,7 +235,10 @@ async fn handle(
                 .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
             let target = hub.subsession_write_target(&caller, key, false)?;
             let close = params.get("close").and_then(Value::as_bool).unwrap_or(false);
-            hub.subsession_stop(&target, close).await
+            // An agent's stop_session: recorded as `mcp` by the caller (`close_why.rs`).
+            let actor = crate::close_why::CloseActor::new("mcp").session(Some(&caller.id));
+            let why = crate::close_why::CloseWhy::from_params(actor, params);
+            hub.subsession_stop_why(&target, close, why).await
         }
         method::MUX_SUBSESSION_RETRY => {
             let key = str_param(params, "sessionId")

@@ -5,8 +5,14 @@
 // its diff (View diff).
 import type { StringKey, Translate } from "../../i18n";
 import type { SummaryPullRequest } from "../../summary/sessionSummary";
-import { CHANGES_SHOWN, changesOrder, glyphState, KINDS, type SessionInfoPullRequestStatus } from "../ChangesSection";
-import { PULL_REQUEST_ICONS, type PullRequestGlyphState } from "../PullRequestGlyph";
+import {
+  CHANGES_SHOWN,
+  changesOrder,
+  glyphState,
+  KINDS,
+  type SessionInfoPullRequestStatus,
+} from "../changesSectionModel";
+import { PULL_REQUEST_ICONS, type PullRequestGlyphState } from "../pullRequestGlyphModel";
 import {
   NATIVE_PACK_ICON,
   type NativeInfoActions,

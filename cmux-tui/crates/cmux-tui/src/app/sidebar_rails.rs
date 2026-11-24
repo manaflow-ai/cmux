@@ -28,6 +28,10 @@ impl App {
             WorkspaceRailSelection::Action(target) => {
                 actions.iter().any(|action| action.target == target)
             }
+            WorkspaceRailSelection::Agent(surface) => {
+                self.config.sidebar.agents
+                    && self.sidebar_status.agents().iter().any(|row| row.surface == surface)
+            }
         };
         if self.workspace_rail_selection != WorkspaceRailSelection::Workspace && !selection_is_valid
         {

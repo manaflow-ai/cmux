@@ -2,10 +2,11 @@
 // SECONDS TO LOAD YOUR CHAT"). A busy acpmux paces its full session list (hub/list_guard.rs: one
 // build per window, up to 15 s, and every streaming agent makes the last build stale): on
 // cosmic-gray a first page of the list took 0.3 to 18 s while the chat's attach answered in 0.6 s,
-// and the pane said "Waiting for the agent service" until the list came. These tests hold every
+// and the pane showed its wait until the list came. These tests hold every
 // list reply and answer the rest at once.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -19,7 +20,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];

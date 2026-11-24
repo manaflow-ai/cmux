@@ -1,26 +1,47 @@
 // The Cloud page (plans/cmux-next/cloud-app.md L7, cloud-parity.md "cmux-next UI mapping"). State
 // lives in `CloudStore`; this file only renders it and turns plain keys and clicks into intents.
 // Cmd and Ctrl chords never reach a page handler (`plain`): the app's key dispatcher owns them.
-import { useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { useLasting, useLoadingShown } from "../../ui/lasting";
 import { AccountPanel } from "./AccountPanel";
+import { ArchiveList } from "./ArchiveList";
 import { CreateSheet } from "./CreateSheet";
 import { MachineDetailView } from "./MachineDetail";
 import { MachineList } from "./MachineList";
-import { MigrationBanner, PlanNotice } from "./Notices";
+import { MigrationBanner, PlanNotice, SpendCapBanner } from "./Notices";
 import type { CloudStore } from "./store";
 import { Storefront } from "./Storefront";
 import { errorText, L } from "./strings";
+import { shownSurge } from "./surge";
+import { SurgeCard } from "./SurgeCard";
 
 export function CloudPage({ store, strings }: { store: CloudStore; strings: Strings }) {
   const snap = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { t } = strings;
+  // The near-cap banner's dismissal, kept across the storefront and the machine list (Notices.tsx).
+  const [capNearHidden, setCapNearHidden] = useState(false);
+  const capBannerProps = { hiddenNear: capNearHidden, onHideNear: () => setCapNearHidden(true) };
+  // One set of row callbacks for the store's life: the machine rows' memo compares them.
+  const machineActions = useMemo(
+    () => ({
+      onSelect: (id: string) => void store.select(id),
+      onOpen: (id: string) => void store.connect(id),
+      onPause: (id: string) => void store.pause(id),
+      onResume: (id: string) => void store.resume(id),
+      onKeep: (id: string, keep: boolean) => void store.keep(id, keep),
+      onDismissNotice: (id: string, at: number) => store.dismissNotice(id, at),
+    }),
+    [store],
+  );
   // A lost link shows nothing until it lasts past the grace (a launch, a daemon restart: the store
   // reads again on its own); then the disconnected state with Retry.
   const down = snap.connection === "disconnected";
   const failed = snap.connection === "failed";
   const downLasting = useLasting(down);
+  // Machines the page already shows (the kept list, or the owner's before the link dropped) stay on
+  // screen through a drop or a failed read: the page says so in one line above them, never in their place.
+  const known = !!snap.auth?.signedIn && snap.rows.length > 0;
   // The first read usually answers in well under a second: the page stays blank until then, and
   // says Loading… only once it lasts (a failure still shows its own card at once).
   const loading = !snap.auth || (snap.loading && snap.rows.length === 0);
@@ -39,8 +60,8 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
       </button>
     ) : null;
   const body = () => {
-    if (down && !downLasting) return null;
-    if (failed)
+    if (down && !downLasting && !known) return null;
+    if (failed && !known)
       return (
         <div className="cloud-message cloud-failed" role="alert">
           <p>{t(L.actionFailed)}</p>
@@ -52,7 +73,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
           )}
         </div>
       );
-    if (down)
+    if (down && !known)
       return (
         <div className="cloud-message cloud-disconnected">
           <p>{t(L.disconnected)}</p>
@@ -70,10 +91,11 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
     if (!snap.auth.signedIn || storefront)
       return (
         <>
+          {snap.auth.signedIn && <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />}
           {snap.refusal && (
             <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />
           )}
-          {snap.blocked === "no_snapshot_configured" && (
+          {snap.blocked === "no_snapshot_configured" && !snap.create?.blocked && (
             <div className="cloud-error cloud-blocked" role="alert">
               <span className="cloud-error-text">{t(L.noSnapshotConfigured)}</span>
               <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
@@ -82,14 +104,35 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
             </div>
           )}
           <Storefront store={store} state={snap} strings={strings} />
+          {/* The last machine went to an archive: its Restore stays reachable from the storefront. */}
+          {snap.auth.signedIn && snap.rows.length === 0 && (
+            <ArchiveList
+              archives={snap.archives}
+              strings={strings}
+              disabled={!signedIn}
+              onRestore={(snapshot) => void store.restoreArchive(snapshot)}
+            />
+          )}
         </>
       );
     const selected = snap.rows.find((row) => row.id === snap.selection);
     return (
       <>
+        {known && downLasting && (
+          <output className="cloud-error cloud-disconnected-line">
+            <span className="cloud-error-text">{t(L.disconnected)}</span>
+            {store.canRetry && (
+              <button type="button" className="cloud-link-button cloud-retry-button" onClick={() => void store.retry()}>
+                {t(L.retry)}
+              </button>
+            )}
+          </output>
+        )}
+        <SpendCapBanner state={snap} strings={strings} {...capBannerProps} />
         <MigrationBanner store={store} state={snap} strings={strings} />
         {snap.refusal && <PlanNotice refusal={snap.refusal} strings={strings} onDismiss={() => store.dismissError()} />}
-        {snap.blocked === "no_snapshot_configured" && (
+        {/* An open create sheet that says it itself takes it: one notice, not two. */}
+        {snap.blocked === "no_snapshot_configured" && !snap.create?.blocked && (
           <div className="cloud-error cloud-blocked" role="alert">
             <span className="cloud-error-text">{t(L.noSnapshotConfigured)}</span>
             <button type="button" className="cloud-link-button" onClick={() => store.dismissError()}>
@@ -105,15 +148,20 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
                 {t(L.create)}
               </button>
             </div>
+            <SurgeCard surge={shownSurge(snap.surge, snap.machines)} strings={strings} />
             <MachineList
               rows={snap.rows}
               layout={snap.layout}
               selection={snap.selection}
               strings={strings}
-              onSelect={(id) => void store.select(id)}
-              onOpen={(id) => void store.connect(id)}
-              onPause={(id) => void store.pause(id)}
-              onResume={(id) => void store.resume(id)}
+              dismissed={snap.dismissed}
+              {...machineActions}
+            />
+            <ArchiveList
+              archives={snap.archives}
+              strings={strings}
+              disabled={!signedIn}
+              onRestore={(snapshot) => void store.restoreArchive(snapshot)}
             />
           </section>
           {selected?.machine && snap.detail?.machine === selected.id ? (
@@ -142,7 +190,7 @@ export function CloudPage({ store, strings }: { store: CloudStore; strings: Stri
         <h1 className="cloud-title">{t(L.title)}</h1>
         {viewSwitch}
       </header>
-      {snap.error && snap.connection !== "disconnected" && snap.connection !== "failed" && (
+      {snap.error && snap.connection !== "disconnected" && (snap.connection !== "failed" || known) && (
         <div className="cloud-error" role="alert">
           <span className="cloud-error-text">
             <span>{t(L.actionFailed)}</span>

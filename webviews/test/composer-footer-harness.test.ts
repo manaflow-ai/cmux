@@ -148,7 +148,8 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
       const units = items.map((item) =>
         ["acpmux-access", "acpmux-model", "acpmux-context"].find((name) => item.className.split(" ").includes(name)),
       );
-      expect(units).toEqual(["acpmux-access", "acpmux-model", "acpmux-context"]);
+      // The context ring stands just left of the model (Lawrence and Lucas 2026-11-11).
+      expect(units).toEqual(["acpmux-access", "acpmux-context", "acpmux-model"]);
       for (let index = 1; index < items.length; index++)
         expect(items[index]!.left).toBeGreaterThanOrEqual(items[index - 1]!.right - 0.5);
       await page.close();

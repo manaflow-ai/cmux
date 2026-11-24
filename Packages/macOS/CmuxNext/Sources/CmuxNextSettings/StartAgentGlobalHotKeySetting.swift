@@ -4,13 +4,9 @@
 /// `app.globalHotKey`: a system-wide key is taken from every other app only
 /// when the user asks for it.
 nonisolated extension CmuxConfigSnapshot {
-    public static let startAgentGlobalHotKeyPath = ["app", "startAgentGlobalHotKey"]
-    /// Off when unset or invalid.
-    public static let startAgentGlobalHotKeyFallback = false
-
     /// `app.startAgentGlobalHotKey`.
     public var startAgentGlobalHotKey: Bool {
-        root.value(at: Self.startAgentGlobalHotKeyPath)?.boolValue ?? Self.startAgentGlobalHotKeyFallback
+        root.value(at: Self.startAgentGlobalHotKeyPath)?.boolValue ?? Self.startAgentGlobalHotKeyDefault
     }
 
     /// A diagnostic when `app.startAgentGlobalHotKey` is set to something other than a bool.

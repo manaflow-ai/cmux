@@ -5,8 +5,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { type HarnessHealth, HarnessHealthNotice } from "./HarnessHealthNotice";
-import { Notice, NoticeSlot, type NoticeTier, topNotice } from "./NoticeSlot";
+import { HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth } from "./harnessHealthNoticeModel";
+import { Notice, NoticeSlot } from "./NoticeSlot";
+import { type NoticeTier, topNotice } from "./noticeSlotModel";
+import { settleReact } from "../../../test/support/domTeardown";
+import { acpmuxPerf } from "./perf";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -32,6 +36,7 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -194,4 +199,52 @@ test("notices outside a slot (a gallery) always draw", async () => {
     );
   });
   expect(shown(container)).toEqual(["a", "b"]);
+});
+
+// Leo, 2026-11-19, watching a busy coordinator chat: "why stuff redraw often?". The pane renders on every snapshot
+// that is not a streamed chunk (a tool call, its result, a new row) and hands each of its notices new children then,
+// though nearly all of them want to show nothing. A notice that shows nothing draws nothing, so it renders again only
+// when it comes to show; one that shows draws its new children.
+test("a notice that shows nothing does not render again for its parent's new children", async () => {
+  const container = installDom();
+  acpmuxPerf.enable(new EventTarget());
+  const draw = (count: number) =>
+    act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <NoticeSlot>
+          {["dictation", "cloud-hint", "import-error", "instructions", "switch", "background"].map((id) => (
+            <Notice key={id} id={id} tier="error" when={false}>
+              {/* A new element on each of the parent's renders, as the pane's inline children are. */}
+              <p data-line={id}>{`${id} ${count}`}</p>
+            </Notice>
+          ))}
+          <Notice id="managed-by" tier="status" when>
+            <p data-line="managed-by">{`managed-by ${count}`}</p>
+          </Notice>
+        </NoticeSlot>,
+      );
+    });
+  await draw(0);
+  acpmuxPerf.resetRenders();
+  for (let count = 1; count <= 10; count += 1) await draw(count);
+  // The shown one draws each new child; the six that show nothing, none.
+  expect(acpmuxPerf.renders.get("notice:managed-by")).toBe(10);
+  expect(
+    [...acpmuxPerf.renders].filter(([name]) => name.startsWith("notice:") && name !== "notice:managed-by"),
+  ).toEqual([]);
+  expect(container.querySelector('[data-line="managed-by"]')?.textContent).toBe("managed-by 10");
+  // One that comes to show draws its newest children at once.
+  await act(async () =>
+    root!.render(
+      <NoticeSlot>
+        <Notice id="switch" tier="error" when>
+          <p data-line="switch">switch 11</p>
+        </Notice>
+      </NoticeSlot>,
+    ),
+  );
+  expect(shown(container)).toEqual(["switch"]);
+  expect(container.querySelector('[data-line="switch"]')?.textContent).toBe("switch 11");
+  acpmuxPerf.resetRenders();
 });

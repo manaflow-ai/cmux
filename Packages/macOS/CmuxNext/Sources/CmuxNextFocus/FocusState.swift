@@ -117,6 +117,15 @@ public nonisolated struct FocusState: Hashable, Sendable, Codable {
             }
         }
 
+        /// The browser tab whose page, address bar, find bar or docked DevTools has the keyboard;
+        /// nil for every other target (a terminal, an agent chat, an internal page, Home, the sidebar).
+        public var browserTab: String? {
+            switch self {
+            case .browserPage(_, let tab), .addressBar(_, let tab), .findBar(_, let tab), .devTools(_, let tab): tab
+            default: nil
+            }
+        }
+
         /// A text field has the keyboard: editing chords belong to it.
         public var isTextInput: Bool {
             switch self {
@@ -170,6 +179,11 @@ public nonisolated struct FocusState: Hashable, Sendable, Codable {
     public var appActive = false
     /// The topology the window last sent, with the machine's own selection
     /// changes (`select` effects) applied: equal to the machine's topology.
+    /// The tab a Toggle Browser Focus Mode for page tab `key` names (`FocusEvent.toggleBrowserFocusMode`): `key` when this
+    /// window's topology holds it, else none, and the reducer takes the focused browser tab. A new tab's page answers its
+    /// stand-in id (`pending_tab_…`) until its entry moves to the daemon's tab, which the topology may show first.
+    public func focusModeTab(for key: String) -> String? { topology.contains(tab: key) ? key : nil }
+
     public var topology = FocusTopology()
     public var pane: String?
     public var target: Target = .content

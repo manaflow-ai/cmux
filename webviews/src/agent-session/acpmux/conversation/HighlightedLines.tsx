@@ -2,7 +2,8 @@
 // card's Pierre setup (HighlightedCode.tsx `usePierreCode`). Its own module, loaded lazily
 // (CodeBlock.tsx `CodeLines`), so the fenced card's imports stay what they were.
 import { fileLanguage } from "../shikiLanguages";
-import { codeUnsafeCSS, DiffsHost, usePierreCode } from "./HighlightedCode";
+import { DiffsHost, usePierreCode } from "./usePierreCode";
+import { codeUnsafeCSS } from "./highlightedCodeModel";
 import { PlainCodeLines } from "./StreamingCode";
 
 /// A read file's lines, highlighted by its name's language, with no card chrome and no wrapping, so

@@ -30,7 +30,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use zeroize::Zeroizing;
 
-use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
+use super::{AccessAsk, GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
 use crate::mux::Mux;
 use crate::server::RenderService;
 
@@ -101,7 +101,14 @@ pub(in crate::server) struct Bridge {
     /// Each share's guests' held prompts (share id, then guest id), kept across the share's host
     /// sockets and the guests' relays until the guest is kicked or the share ends.
     held: Mutex<HashMap<String, HashMap<String, relay::Held>>>,
+    /// This build's URL scheme when it is not the one a guest page asks by default
+    /// ([`DEFAULT_APP_SCHEME`]): a link made here names it (`?app=`), so a guest page opens this build.
+    app_scheme: Mutex<Option<String>>,
 }
+
+/// The app a guest page asks to open a link when the link names none (webviews `appLink.ts`): cmux NEXT
+/// ships as cmux NIGHTLY, which registers `cmux-nightly`.
+pub(super) const DEFAULT_APP_SCHEME: &str = "cmux-nightly";
 
 impl Drop for Bridge {
     fn drop(&mut self) {
@@ -186,7 +193,7 @@ impl Bridge {
         self.room().map(|room| room.timing).unwrap_or_default()
     }
 
-    fn runtime(&self) -> Option<&tokio::runtime::Runtime> {
+    pub(super) fn runtime(&self) -> Option<&tokio::runtime::Runtime> {
         let runtime = self.runtime.get_or_init(|| {
             let _ = rustls::crypto::ring::default_provider().install_default();
             let mut builder = tokio::runtime::Builder::new_multi_thread();
@@ -343,14 +350,15 @@ enum Put {
 const MAX_ROOM_RESPONSE_BYTES: usize = 64 * 1024;
 
 /// One HTTP call to the room with `bearer`: its status and bounded JSON body.
-async fn call(
+pub(super) async fn call(
     method: reqwest::Method,
     url: &str,
     bearer: &str,
     body: Option<&Value>,
     timeout: Duration,
 ) -> Option<(u16, Value)> {
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui_core::server::agent_session_share_room")
+        .default_headers(cmux_build_space::headers().ok()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
@@ -449,7 +457,8 @@ pub(super) fn provision(
             }
             let secret =
                 created.get("secret").and_then(Value::as_str).unwrap_or_default().to_owned();
-            created.set("url", json!(format!("{url_base}#{secret}")));
+            let app = shares(mux).bridge.app_query();
+            created.set("url", json!(format!("{url_base}{app}#{secret}")));
             created.set("room", json!(room.url));
             host(mux, &share_id);
             Ok(created)
@@ -811,11 +820,17 @@ async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> R
     let mut request = socket.into_client_request().map_err(|_| Refused::ForGood)?;
     let bearer = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|_| Refused::ForGood)?;
     request.headers_mut().insert("authorization", bearer);
+    cmux_build_space::insert(request.headers_mut()).map_err(|_| Refused::ForGood)?;
     // `cmux.share/1` frames are at most 512 KiB: a larger one ends the socket unparsed.
     let config = tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(MAX_HOST_FRAME_BYTES))
         .max_frame_size(Some(MAX_HOST_FRAME_BYTES));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui_core::server::agent_session_share_room",
+    );
     match tokio::time::timeout(timeout, connect).await {
         Ok(Ok((socket, _))) => Ok(socket),
         Ok(Err(tungstenite::Error::Http(reply))) => Err(match reply.status().as_u16() {
@@ -1161,7 +1176,7 @@ fn refused(mux: &Mux, share_id: &str, guest: &str, ask: relay::Ask) -> Vec<Value
 }
 
 /// The redeem refusals the room may pass to a guest.
-const GUEST_REFUSALS: [&str; 9] = [
+const GUEST_REFUSALS: [&str; 12] = [
     "share.secret",
     "share.not_invited",
     "share.used",
@@ -1171,6 +1186,11 @@ const GUEST_REFUSALS: [&str; 9] = [
     "share.closed",
     "share.kicked",
     "share.left",
+    // An access request's: an anonymous visitor cannot ask, an invited account redeems instead,
+    // and a share holds only so many asks.
+    "share.needs_sign_in",
+    "share.invited",
+    "share.limit",
 ];
 
 /// The daemon's answer to one room frame.
@@ -1183,7 +1203,10 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
             *ready = true;
             reconcile(mux, share_id)
         }
-        // The room sends a redeem only after the daemon's `guests`.
+        // The room sends a redeem only after the daemon's `guests`. It is the room's own frame on
+        // the host socket (authenticated by the host token), never a guest's: a guest's browser
+        // reaches the daemon only as `guest_*` frames (`Guests::room`), which never redeem. So
+        // `account` and `avatar_url` here are the room's attestation of its verified sign-in.
         "redeem" if *ready => {
             let field =
                 |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
@@ -1192,8 +1215,11 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 secret: field("secret"),
                 name: field("name"),
                 attempt_id: field("attempt_id"),
-                // The account the room signed in, for an invite (no secret then).
+                // The account the room signed in: an invitee's (no secret then), or a signed-in
+                // guest's who joins by the link (with the secret).
                 account: frame.get("account").and_then(Value::as_str).map(str::to_owned),
+                // That account's profile picture (`https://`, else dropped by the redeem).
+                avatar_url: frame.get("avatar_url").and_then(Value::as_str).map(str::to_owned),
             };
             let directory = mux.session_state_directory();
             let redeemed = shares(mux).redeem(directory.as_deref(), redeem);
@@ -1203,8 +1229,9 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 Ok(guest) => {
                     let mut answer = json!({"v": 1, "t": "redeemed", "request_id": request_id,
                         "guest_id": guest.get("guest_id")});
-                    // The guest's role (a link guest's is always `view`), so a view guest's page
-                    // has no composer; nothing else about the account reaches the room.
+                    // The guest's role (an anonymous link guest's is always `view`), so a view
+                    // guest's page has no composer; nothing else about the account reaches the
+                    // room.
                     if let Some(role) = guest.get("role") {
                         answer["role"] = role.clone();
                     }
@@ -1216,6 +1243,32 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                     let code =
                         if GUEST_REFUSALS.contains(&code) { code } else { "share.unavailable" };
                     vec![json!({"v": 1, "t": "redeemed", "request_id": request_id, "error": code})]
+                }
+            }
+        }
+        // A signed-in visitor with no access asks the owner for it. Like `redeem`, the room's own
+        // frame: `account` is its attestation of a verified sign-in (none: an anonymous visitor).
+        "request" if *ready => {
+            let field =
+                |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
+            let ask = AccessAsk {
+                share_id: share_id.to_owned(),
+                account: frame.get("account").and_then(Value::as_str).map(str::to_owned),
+                name: field("name"),
+                avatar_url: frame.get("avatar_url").and_then(Value::as_str).map(str::to_owned),
+            };
+            let directory = mux.session_state_directory();
+            let asked = shares(mux).request_access(directory.as_deref(), ask);
+            let request_id = frame.get("request_id").unwrap_or(&Value::Null);
+            let attempt_id = frame.get("attempt_id").unwrap_or(&Value::Null);
+            match asked {
+                Ok(_) => vec![json!({"v": 1, "t": "requested", "request_id": request_id,
+                    "attempt_id": attempt_id, "state": "requested"})],
+                Err(code) => {
+                    let code =
+                        if GUEST_REFUSALS.contains(&code) { code } else { "share.unavailable" };
+                    vec![json!({"v": 1, "t": "requested", "request_id": request_id,
+                        "attempt_id": attempt_id, "error": code})]
                 }
             }
         }
@@ -1234,6 +1287,39 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
 /// queued `DELETE`. A share a restart left provisioning never answered its create: it is revoked
 /// (a room it made without answering ends at the share's expiry: the owner's token, which its
 /// `DELETE` would need, is not kept).
+/// Names this build's URL scheme for the links it makes (`?app=<scheme>`), unless it is the default a guest
+/// page asks ([`DEFAULT_APP_SCHEME`]) or not a cmux build's scheme. Call before [`start_link_share_bridge`].
+impl Bridge {
+    /// `?app=<scheme>` naming the build that makes a link or invite (`set_link_share_app_scheme`), or nothing.
+    pub(super) fn app_query(&self) -> String {
+        let app = self.app_scheme.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        app.map(|scheme| format!("?app={scheme}")).unwrap_or_default()
+    }
+}
+
+/// Names the build in every `invite_url` of an answer (an invite's, and each listed share's), the way a link's
+/// `url` does, so an invite made by a DEV, tagged or RC build opens in that build.
+pub(super) fn name_app_in_invites(answer: &mut Value, app_query: &str) {
+    if app_query.is_empty() {
+        return;
+    }
+    let name = |value: &mut Value| {
+        if let Some(Value::String(url)) = value.get_mut("invite_url") {
+            url.push_str(app_query);
+        }
+    };
+    name(answer);
+    if let Some(Value::Array(shares)) = answer.get_mut("shares") {
+        shares.iter_mut().for_each(name);
+    }
+}
+
+pub fn set_link_share_app_scheme(mux: &Arc<Mux>, scheme: Option<&str>) {
+    let scheme = scheme.filter(|s| *s != DEFAULT_APP_SCHEME && super::link::is_cmux_scheme(s));
+    *shares(mux).bridge.app_scheme.lock().unwrap_or_else(|e| e.into_inner()) =
+        scheme.map(str::to_owned);
+}
+
 pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
     let shares = shares(mux);
     if !shares.bridge.configure(room, Timing::default()) {

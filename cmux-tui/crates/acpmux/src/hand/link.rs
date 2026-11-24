@@ -44,12 +44,12 @@ fn socket_url(cfg: &HandConfig) -> String {
 pub async fn run(cfg: HandConfig) -> Result<()> {
     // Keep machine consent bound to the enrolled machine, not the hand's
     // separate agent-daemon state directory installed below.
-    crate::cli::cloud_join::retain_machine_consent_home();
+    crate::machine_record::retain_machine_consent_home();
     // First: every acpmux path below (gateway routes, the agent daemon) is the hand's own.
     super::daemon::use_hand_home()?;
     // The hand holds a person key in memory: no same-uid agent may read it (Linux).
     #[cfg(unix)]
-    if let Err(e) = crate::daemon::not_dumpable() {
+    if let Err(e) = crate::daemon_parts::not_dumpable() {
         anyhow::bail!("the hand cannot protect its person key: {e}");
     }
     pair::check_api(&cfg.api)?;
@@ -195,8 +195,9 @@ async fn serve(
         "authorization",
         format!("Bearer {}", cfg.key).parse().map_err(|_| Ended::Failed("bad key".into()))?,
     );
+    cmux_build_space::insert(req.headers_mut()).map_err(|e| Ended::Failed(e.to_string()))?;
     let (ws, _) =
-        match tokio::time::timeout(Duration::from_secs(20), tokio_tungstenite::connect_async(req))
+        match tokio::time::timeout(Duration::from_secs(20), crate::happy_dial::connect_ws(req))
             .await
         {
             Err(_) => return Err(Ended::Failed("connect timed out".into())),
@@ -215,7 +216,7 @@ async fn serve(
     let (mut sink, mut source) = ws.split();
     let hello = json!({
         "t": "hello",
-        "version": crate::hub::VERSION,
+        "version": crate::build_info::VERSION,
         "profile": cfg.profile,
         "roots": cfg.roots,
         "agent_policy": cfg.agent_policy,

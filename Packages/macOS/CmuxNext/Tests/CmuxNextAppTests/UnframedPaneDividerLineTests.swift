@@ -52,10 +52,12 @@ struct UnframedPaneDividerLineTests {
         let root: LayoutRootView
         let window: NSWindow
 
-        init(framed: [PaneID: Bool], separation: PaneSeparation = .borders, hitWidth: CGFloat? = nil) {
+        static let oneSplit = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
+
+        init(framed: [PaneID: Bool], separation: PaneSeparation = .borders, hitWidth: CGFloat? = nil,
+             columns: [LayoutColumn] = Harness.oneSplit) {
             _ = NSApplication.shared
             provider = Panes(framed: framed)
-            let columns = [LayoutColumn(id: "c0", width: 1, root: .split("x", axis: .horizontal, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2")))]
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s",
                                 focusedPane: "p1")
             var style = LayoutStyle()
@@ -113,6 +115,20 @@ struct UnframedPaneDividerLineTests {
         let harness = Harness(framed: ["p1": true, "p2": false], hitWidth: 1)
         defer { harness.window.closeAfterTest() }
         #expect(try harness.handle.isLineVisible)
+    }
+
+    /// Flush columns (no strip gap, as borders at comfortable density): a chat in the next column
+    /// does not light a split between two outlined terminals in this one. Only the split's own
+    /// panes count (review of https://github.com/manaflow-ai/cmux/pull/37451 at b5faf89fe4).
+    @Test func aChatInTheNextColumnDoesNotLightThisColumnsSplit() throws {
+        let columns = [
+            LayoutColumn(id: "c0", width: 0.5, root: .split("y", axis: .vertical, ratio: 0.5, a: .leaf("p1"), b: .leaf("p2"))),
+            LayoutColumn(id: "c1", width: 0.5, root: .leaf("p3")),
+        ]
+        let harness = Harness(framed: ["p1": true, "p2": true, "p3": false], columns: columns)
+        defer { harness.window.closeAfterTest() }
+        let handle = try #require(harness.root.screenViews["s"]?.dividerViews[.split("y")])
+        #expect(!handle.isLineVisible, "the outlined terminals' own split drew a line for the chat beside the column")
     }
 
     /// `none` and `cards` keep their own look: no line at rest beside a chat either.

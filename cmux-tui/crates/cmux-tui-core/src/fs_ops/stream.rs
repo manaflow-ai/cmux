@@ -1,7 +1,9 @@
 //! The `fs.read` and `fs.write` byte streams: one dialed link stream per
 //! transfer (the link's bulk class, transport.md 1), framed as
 //!
-//! read:  `{"id","cmd":"fs.read","path","offset"?,"stream":true}`
+//! read:  `{"id","cmd":"fs.read","path","offset"?,"no_follow"?,"stream":true}`
+//!        (`"no_follow":true` with `fs-read-nofollow-v1`: a symlink as any
+//!        component of `path` is `fs.symlink_in_path`)
 //!        -> header `{"id","ok":true,"data":{"size","length","revision"}}`
 //!        -> exactly `length` raw bytes
 //!        -> end `{"id","ok":true,"data":{"size","revision"}}`, or
@@ -52,6 +54,8 @@ pub enum StreamRequest {
         id: Value,
         path: String,
         offset: u64,
+        /// `fs-read-nofollow-v1`: no symlink on the path is followed.
+        no_follow: bool,
     },
     Write {
         id: Value,
@@ -114,7 +118,12 @@ impl StreamRequest {
             |message: &str| Some(Err((id.clone(), FsError::ParamsInvalid(message.into()))));
         let Some(path) = line.path else { return invalid("path is required") };
         if line.cmd == "fs.read" {
-            return Some(Ok(Self::Read { id: line.id, path, offset: line.offset.unwrap_or(0) }));
+            return Some(Ok(Self::Read {
+                id: line.id,
+                path,
+                offset: line.offset.unwrap_or(0),
+                no_follow: line.no_follow,
+            }));
         }
         let Some(mode) = line.mode else { return invalid("mode is required") };
         let Some(size) = line.size else { return invalid("size is required for a write stream") };
@@ -172,7 +181,9 @@ pub fn serve(
         return send(writer, &answer(&id, Err(FsError::Unavailable)));
     };
     match request {
-        StreamRequest::Read { path, offset, .. } => serve_read(service, &id, &path, offset, writer),
+        StreamRequest::Read { path, offset, no_follow, .. } => {
+            serve_read(service, &id, (&path, no_follow), offset, writer)
+        }
         StreamRequest::Write { path, mode, expected, size, options, .. } => {
             serve_write(service, &id, &path, (&mode, expected, &options), size, reader, writer)
         }
@@ -182,11 +193,11 @@ pub fn serve(
 fn serve_read(
     service: &FsService,
     id: &Value,
-    path: &str,
+    (path, no_follow): (&str, bool),
     offset: u64,
     writer: &mut impl Write,
 ) -> io::Result<()> {
-    let (file, meta) = match service.open_file(path) {
+    let (file, meta) = match service.open_file_with(path, no_follow) {
         Ok(opened) => opened,
         Err(error) => return send(writer, &answer(id, Err(error))),
     };

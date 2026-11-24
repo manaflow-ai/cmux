@@ -3,10 +3,9 @@
 /// 2026-11-05: `ssh host htop` failed with "cannot initialize terminal type
 /// xterm-ghostty" on hosts without Ghostty's terminfo). `xterm-ghostty` is
 /// the opt-in, applied only when its entry is installed on this Mac.
+/// `configPath` and `fallback` are generated from schemas/settings/source/terminal.json.
 public nonisolated struct TerminalTermSetting {
     public nonisolated init() {}
-    public static let configPath = ["terminal", "term"]
-    public static let fallback: TerminalTerm = .xterm256color
 
     /// A missing key is the default with no diagnostic; a bad value is the default plus a diagnostic.
     static func parse(_ root: JSONValue) -> (TerminalTerm, SettingsDiagnostic?) {

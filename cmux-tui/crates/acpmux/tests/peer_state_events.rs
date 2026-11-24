@@ -1,8 +1,8 @@
 //! `_acpmux/peer_state_changed`: a watching connection hears each change of a peer link's
 //! state once, from the code that made it (no timer, no polling): the first state when the
 //! peer is added, connected only once the handshake finished, reconnecting when the WebSocket
-//! drops (and no repeat while the retries fail or a reconnect replaces the instance), and a
-//! last offline when it is removed.
+//! drops (and no other state while the retries fail or a reconnect replaces the instance; each
+//! failed retry only moves `nextRetryAt`), and a last offline when it is removed.
 
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
@@ -186,6 +186,11 @@ async fn a_watcher_hears_each_peer_state_change_once() {
     assert!(connected["lastSeen"].is_u64(), "{connected}");
     assert!(connected["error"].is_null(), "{connected}");
     assert!(connected["at"].is_u64(), "{connected}");
+    // The whole state: what every surface draws.
+    assert_eq!(connected["link"], "connected", "{connected}");
+    assert_eq!(connected["carrier"], "direct", "{connected}");
+    assert!(connected["cause"].is_null(), "{connected}");
+    assert!(connected["since"].is_u64(), "{connected}");
     assert_eq!(a.peers()[0]["connected"], true, "the note follows the peer row");
 
     // A reconnect that is not forced (the app's pick or send) leaves an open link alone: no new
@@ -200,10 +205,17 @@ async fn a_watcher_hears_each_peer_state_change_once() {
     let down = notes(&mut rx, "b", Duration::from_secs(20), Some("reconnecting")).await;
     assert_eq!(states(&down), ["reconnecting"], "{down:?}");
     assert!(down[0]["error"].is_string(), "a drop says why: {down:?}");
-    // A reconnect replaces the instance; it is still reconnecting, so that is no news either.
+    assert_eq!(down[0]["link"], "reconnecting", "{down:?}");
+    assert_eq!(down[0]["cause"], "peerDown", "the relay refused: this host's network works");
+    assert!(down[0]["carrier"].is_null(), "no link is open: {down:?}");
+    // A reconnect replaces the instance; it is still reconnecting. Its failed retries only move
+    // `nextRetryAt`: no other state goes out.
     a.reconnect_peer("b", false).await.unwrap();
     let quiet = notes(&mut rx, "b", Duration::from_secs(6), None).await;
-    assert!(quiet.is_empty(), "a repeat while the state stayed the same: {quiet:?}");
+    assert!(
+        quiet.iter().all(|n| n["link"] == "reconnecting" && n["state"] == "reconnecting"),
+        "another state while it stayed reconnecting: {quiet:?}"
+    );
     assert!(
         a.peers()[0]["attempts"].as_u64().unwrap_or(0) >= 1,
         "the replacement's attempt failed in that window, so a repeat had a chance to go out"

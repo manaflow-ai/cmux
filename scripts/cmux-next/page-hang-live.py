@@ -91,6 +91,13 @@ def open_tab(url):
     quiet_wait(lambda: page_status(), 20)
 
 
+def close_tab():
+    rpc("action.run", {"action": "closeTab", "origin": "script"})
+    # Until the closed tab stops answering.
+    if not quiet_wait(lambda: not page_status(), 10):
+        print(f"note: tab {TAB} still answers 10 s after closeTab", flush=True)
+
+
 def click_page():
     reply = rpc("debug.mouse", {"target": "page"})
     check(reply.get("delivered") == 2, f"a click reaches the page view ({reply})")
@@ -107,18 +114,21 @@ def run_page(name, url, hangs_on_click, typed=None):
         # A debug URL commits nothing; the page still answers until the renderer takes it.
         hung = quiet_wait(lambda: "timed out" in str(rpc("browser.page.eval", {"script": "1", "tab": TAB}, timeout=3).get("error")), 15)
         check(bool(hung), f"{name}: the page stops answering")
-    time.sleep(3)
+    else:
+        # Until the page loaded (its mousedown handler is in).
+        loaded = quiet_wait(lambda: rpc("browser.page.eval", {"script": "document.readyState === 'complete'", "tab": TAB},
+                                        timeout=3).get("value") is True, 20)
+        check(bool(loaded), f"{name}: the page loads")
     before = set(app_windows())
     click_page()
     if not hangs_on_click:
         # chrome://hang already hangs; one more click is the input Chromium waits on.
-        time.sleep(1)
+        time.sleep(1)  # sleep-ok: keeps the second click its own click, past the double-click interval
         click_page()
     shown = quiet_wait(card_shown, HANG_SECONDS)
     check(bool(shown), f"{name}: the pane shows Page unresponsive ({page_status()})")
     if not shown:
-        rpc("action.run", {"action": "closeTab", "origin": "script"})
-        time.sleep(1)
+        close_tab()
         return
     opened = {id: w for id, w in app_windows().items() if id not in before}
     check(not opened, f"{name}: the card is inline, no window or dialog opened ({opened})")
@@ -131,8 +141,7 @@ def run_page(name, url, hangs_on_click, typed=None):
     check(reply.get("pressed") == "1", f"{name}: Exit page runs ({reply})")
     gone = quiet_wait(lambda: page_status().get("gone") == "1" and not card_shown(), 20)
     check(bool(gone), f"{name}: Exit page ends the renderer and shows the page-gone view ({page_status()})")
-    rpc("action.run", {"action": "closeTab", "origin": "script"})
-    time.sleep(1)
+    close_tab()
 
 
 scratch = tempfile.mkdtemp(prefix="page-hang-page-")

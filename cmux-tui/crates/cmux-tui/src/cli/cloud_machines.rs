@@ -141,7 +141,7 @@ fn cloud_row(machine: &Value) -> Option<Value> {
     row.insert("connectable".into(), json!(daemon == "connected"));
     row.insert("deleted".into(), json!(status == "destroyed"));
     row.insert("recoverable".into(), json!(false));
-    row.insert("target".into(), json!(format!("machine:{id}")));
+    row.insert("target".into(), json!(format!("vm:{id}")));
     row.insert("daemon".into(), json!(daemon));
     if let Some(machine_id) = text("machine_id").filter(|machine_id| !machine_id.is_empty()) {
         row.insert("machine_id".into(), json!(machine_id));

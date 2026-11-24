@@ -96,15 +96,13 @@ public final class PageHostPool {
                       focus: Bool = true) -> PageWebView? {
         guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
         guard !projectionIsOpen() else { dropSpare(); return nil }
-        // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
-        latestClaimOptions = options
+        // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium). Its
+        // claim leaves the spare and its options alone: the spare still serves the WebKit page it was
+        // built for (Settings, ``PageWebKitReason/pooledInstantOpen``), and dropping it on every
+        // Chromium History or Cloud open made the next Settings open build its page cold.
         let decision = engineDecision(descriptor, options)
-        guard decision.engine == .webKit else {
-            // A Chromium claim cannot use the parked WebKit view. Cancel any queued/building
-            // WebKit warmup too; the next WebKit claim will arm it with its own options.
-            dropSpare()
-            return nil
-        }
+        guard decision.engine == .webKit else { return nil }
+        latestClaimOptions = options
         isLikely = true
         if target == nil, let window { follow(window) }
         guard let host = spare, spareReady, host.isPooled else {

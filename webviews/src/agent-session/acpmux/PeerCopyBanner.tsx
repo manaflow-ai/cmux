@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
+import { LINK_DOWN_SAID_MS, RESUME_NOTE_DELAY_MS, useAfterDelay } from "./afterDelay";
 import { experimentArm } from "../../experiments/experiment";
 import { Spinner } from "./conversation/icons";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
-import { errorMessage } from "./transportErrors";
 import type { PeerCopyState } from "./peerCopy";
 import type { PeerMachineState } from "./peerCloudMachine";
 import { pausedMachineResume } from "./pausedMachine.experiment";
@@ -23,9 +22,16 @@ import { pausedMachineResume } from "./pausedMachine.experiment";
 /// "offline" first. Its place is taken from the first frame, as before (empty and out of the
 /// accessibility tree until then), so its text fading in moves no row, and it sits above the
 /// transcript, never over it.
-export function PeerCopyBanner(props: Parameters<typeof PeerCopyBannerBody>[0] & { noteDelayMs?: number }) {
-  const { noteDelayMs = RESUME_NOTE_DELAY_MS, ...body } = props;
-  const shown = useAfterDelay(true, noteDelayMs);
+export function PeerCopyBanner(
+  props: Parameters<typeof PeerCopyBannerBody>[0] & { noteDelayMs?: number; asked?: boolean },
+) {
+  const { noteDelayMs = RESUME_NOTE_DELAY_MS, asked = false, ...body } = props;
+  // What the app recovers by itself waits out LINK_DOWN_SAID_MS (Leo, 2026-11-14: connectivity says
+  // nothing the person can do nothing about): a link that dropped ("offline"), and a machine the app
+  // wakes on its own (opening the chat, a send) that reads "starting". A paused machine (it has a
+  // Resume) and a start the person asked for here keep `noteDelayMs`.
+  const quiet = body.machine === undefined || (body.machine === "starting" && !asked);
+  const shown = useAfterDelay(true, quiet && noteDelayMs > 0 ? Math.max(noteDelayMs, LINK_DOWN_SAID_MS) : noteDelayMs);
   return (
     <div className="acpmux-peer-copy-slot" data-shown={shown || undefined}>
       <PeerCopyBannerBody {...body} />
@@ -47,9 +53,7 @@ function PeerCopyBannerBody({
   onReconnect?(peer: string): Promise<unknown>;
 }) {
   const t = useT();
-  const [reconnect, setReconnect] = useState<{ state: "idle" | "reconnecting" | "failed"; error?: string }>({
-    state: "idle",
-  });
+  const [reconnect, setReconnect] = useState<{ state: "idle" | "reconnecting" | "failed" }>({ state: "idle" });
   const detail =
     copy.capturedAt !== undefined
       ? t("peerCopy.offline.savedAt", { time: relativeTime(copy.capturedAt, now, currentLanguage()) })
@@ -96,7 +100,10 @@ function PeerCopyBannerBody({
         setReconnect({ state: "reconnecting" });
         Promise.resolve(onReconnect(copy.peer)).then(
           () => setReconnect({ state: "idle" }),
-          (error: unknown) => setReconnect({ state: "failed", error: errorMessage(error) || String(error) }),
+          (error: unknown) => {
+            console.warn("agent pane: reconnecting the machine failed", error);
+            setReconnect({ state: "failed" });
+          },
         );
       }}
     >
@@ -116,9 +123,9 @@ function PeerCopyBannerBody({
         {reconnectButton}
       </p>
       <p className="acpmux-watch-hint">{detail}</p>
-      {reconnect.state === "failed" && reconnect.error && (
+      {reconnect.state === "failed" && (
         <p className="acpmux-watch-hint" role="alert">
-          {reconnect.error}
+          {t("peerCopy.reconnectFailed")}
         </p>
       )}
     </div>

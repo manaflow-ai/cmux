@@ -3,22 +3,6 @@
   "requests": [
     {
       "params": {
-        "action": "cloud relay-chat",
-        "args": {
-          "agent": "claude",
-          "cwd": "/home/cmux/w",
-          "login": "none",
-          "prompt": "What is 2+2?",
-          "promptId": "p-1"
-        },
-        "cli": true,
-        "target": "machine:vm-1",
-        "wait": true
-      },
-      "source": "cmux cloud start-chat (relay)"
-    },
-    {
-      "params": {
         "action": "app settings",
         "args": {
           "section": "general",
@@ -28,6 +12,17 @@
         "wait": true
       },
       "source": "cmux app settings --section general --setting /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "action customize-reset",
+        "args": {
+          "element": "sidebar"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux action customize-reset --element sidebar"
     },
     {
       "params": {
@@ -816,6 +811,17 @@
     },
     {
       "params": {
+        "action": "tab new-mac-screen",
+        "args": {
+          "device": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab new-mac-screen --device /tmp/contract"
+    },
+    {
+      "params": {
         "action": "tab new-webkit",
         "args": {
           "url": "/tmp/contract"
@@ -1129,6 +1135,18 @@
         "wait": true
       },
       "source": "cmux home send --conversation /tmp/contract --text /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "home start-agent",
+        "args": {
+          "agent": "/tmp/contract",
+          "conversation": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux home start-agent --agent /tmp/contract --conversation /tmp/contract"
     },
     {
       "params": {
@@ -2189,6 +2207,8 @@
       "params": {
         "action": "share chat",
         "args": {
+          "role": "talk",
+          "signedInRole": "talk",
           "surface": "1",
           "ttl": "/tmp/contract",
           "uses": "1"
@@ -2196,7 +2216,7 @@
         "cli": true,
         "wait": true
       },
-      "source": "cmux share chat --surface 1 --ttl /tmp/contract --uses 1"
+      "source": "cmux share chat --surface 1 --ttl /tmp/contract --uses 1 --role talk --signed-in-role talk"
     },
     {
       "params": {
@@ -2364,6 +2384,28 @@
     },
     {
       "params": {
+        "action": "cloud transfer-local",
+        "args": {
+          "path": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud transfer-local --path /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud move-to-machine",
+        "args": {
+          "machine": "machine:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud move-to-machine --machine machine:contract-1"
+    },
+    {
+      "params": {
         "action": "cloud exec",
         "args": {
           "command": "/tmp/contract"
@@ -2473,17 +2515,6 @@
         "wait": true
       },
       "source": "cmux cloud tunnel-detach --path /tmp/contract"
-    },
-    {
-      "params": {
-        "action": "cloud tunnel-rotate-key",
-        "args": {
-          "publicKey": "/tmp/contract"
-        },
-        "cli": true,
-        "wait": true
-      },
-      "source": "cmux cloud tunnel-rotate-key --public-key /tmp/contract"
     },
     {
       "params": {
@@ -2610,18 +2641,6 @@
         "wait": true
       },
       "source": "cmux cloud resize-machine --size small --disk 4"
-    },
-    {
-      "params": {
-        "action": "cloud enroll-machine",
-        "args": {
-          "name": "/tmp/contract",
-          "sshKey": "/tmp/contract"
-        },
-        "cli": true,
-        "wait": true
-      },
-      "source": "cmux cloud enroll-machine --name /tmp/contract --ssh-key /tmp/contract"
     },
     {
       "params": {
@@ -2903,28 +2922,159 @@
         "args": {
           "agent": "/tmp/contract",
           "cwd": "/tmp/contract",
-          "login": "/tmp/contract",
+          "fromFolder": "/tmp/contract",
+          "model": "/tmp/contract",
           "name": "/tmp/contract"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --login /tmp/contract"
+      "source": "cmux cloud start-session --agent /tmp/contract --name /tmp/contract --cwd /tmp/contract --from-folder /tmp/contract --model /tmp/contract"
     },
     {
       "params": {
-        "action": "cloud relay-chat",
+        "action": "cloud team-sessions",
         "args": {
-          "agent": "/tmp/contract",
-          "cwd": "/tmp/contract",
-          "login": "/tmp/contract",
-          "prompt": "/tmp/contract",
-          "promptId": "/tmp/contract"
+          "archived": true,
+          "by": "/tmp/contract",
+          "cursor": "/tmp/contract",
+          "limit": "1",
+          "scope": "mine"
         },
         "cli": true,
         "wait": true
       },
-      "source": "cmux cloud relay-chat --agent /tmp/contract --prompt /tmp/contract --cwd /tmp/contract --prompt-id /tmp/contract --login /tmp/contract"
+      "source": "cmux cloud team-sessions --scope mine --by /tmp/contract --archived --cursor /tmp/contract --limit 1"
+    },
+    {
+      "params": {
+        "action": "cloud team-session",
+        "args": {
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud team-session --arg session=/tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud copy-session-link",
+        "args": {
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud copy-session-link --arg session=/tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud follow",
+        "args": {
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud follow --arg session=/tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud unfollow",
+        "args": {
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud unfollow --arg session=/tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud reassign",
+        "args": {
+          "session": "/tmp/contract",
+          "to": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud reassign --arg session=/tmp/contract --to /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud archive-session",
+        "args": {
+          "archived": true,
+          "session": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud archive-session --arg session=/tmp/contract --archived"
+    },
+    {
+      "params": {
+        "action": "cloud group-members",
+        "args": {
+          "group": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud group-members --group /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud group-member-set",
+        "args": {
+          "group": "/tmp/contract",
+          "role": "owner",
+          "user": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud group-member-set --group /tmp/contract --user /tmp/contract --role owner"
+    },
+    {
+      "params": {
+        "action": "cloud group-member-remove",
+        "args": {
+          "group": "/tmp/contract",
+          "user": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud group-member-remove --group /tmp/contract --user /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud computer-control",
+        "args": {
+          "action": "status",
+          "machine": "/tmp/contract",
+          "reason": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud computer-control --machine /tmp/contract --action status --reason /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "cloud chief-computer",
+        "args": {
+          "args": "/tmp/contract",
+          "chief": "/tmp/contract",
+          "op": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux cloud chief-computer --chief /tmp/contract --op /tmp/contract --args /tmp/contract"
     },
     {
       "params": {
@@ -3089,6 +3239,40 @@
     },
     {
       "params": {
+        "action": "divider insert",
+        "args": {
+          "kind": "terminal",
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider insert --kind terminal --split /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "divider hide",
+        "args": {
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider hide --split /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "divider show",
+        "args": {
+          "split": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux divider show --split /tmp/contract"
+    },
+    {
+      "params": {
         "action": "workspace restore-archived",
         "args": {
           "item": "/tmp/contract"
@@ -3141,6 +3325,28 @@
         "wait": true
       },
       "source": "cmux tab move-to-space --space room:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab move-to-window",
+        "args": {
+          "window": "window:contract-1"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab move-to-window --window window:contract-1"
+    },
+    {
+      "params": {
+        "action": "tab duplicate-to-new-split",
+        "args": {
+          "direction": "right"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux tab duplicate-to-new-split --direction right"
     },
     {
       "params": {
@@ -3257,6 +3463,30 @@
         "wait": true
       },
       "source": "cmux history clear --range hour --kind all"
+    },
+    {
+      "params": {
+        "action": "history remove-site",
+        "args": {
+          "confirm": true,
+          "host": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux history remove-site --host /tmp/contract --confirm"
+    },
+    {
+      "params": {
+        "action": "closed delete",
+        "args": {
+          "closed": "/tmp/contract",
+          "confirm": true
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux closed delete --closed /tmp/contract --confirm"
     },
     {
       "params": {
@@ -3667,6 +3897,29 @@
     },
     {
       "params": {
+        "action": "app run-menu-item",
+        "args": {
+          "app": "/tmp/contract",
+          "item": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux app run-menu-item --app /tmp/contract --item /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "automation show-page",
+        "args": {
+          "name": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux automation show-page --name /tmp/contract"
+    },
+    {
+      "params": {
         "action": "phone open",
         "args": {
           "device": "/tmp/contract"
@@ -3965,6 +4218,29 @@
         "wait": true
       },
       "source": "cmux import suggest --browser /tmp/contract --site /tmp/contract --reason /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent forget-computer-use-approval",
+        "args": {
+          "appId": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent forget-computer-use-approval --app-id /tmp/contract"
+    },
+    {
+      "params": {
+        "action": "agent set-computer-use-approval",
+        "args": {
+          "appId": "/tmp/contract",
+          "decision": "/tmp/contract"
+        },
+        "cli": true,
+        "wait": true
+      },
+      "source": "cmux agent set-computer-use-approval --app-id /tmp/contract --decision /tmp/contract"
     }
   ]
 }

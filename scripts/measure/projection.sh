@@ -57,7 +57,7 @@ if [[ "$app" == build ]]; then
 elif [[ -n "$app" ]]; then
   # A built app (a fleet DEV build's cmux.app.zip), for a commit no NIGHTLY carries yet.
   echo "L10 app $app"
-  curl -fsSL --proto '=https' --retry 3 -A cmux-projection/1 -o "$out/app.zip" "$app" || { echo "L10 download failed"; exit 3; }
+  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-projection/1 -o "$out/app.zip" "$app" || { echo "L10 download failed"; exit 3; }
   ditto -x -k "$out/app.zip" "$out/app" && rm -f "$out/app.zip"
   bundle="$(find "$out/app" -maxdepth 2 -name '*.app' -type d | head -1)"
   [[ -n "$bundle" ]] || { echo "L10 no app in the zip"; exit 3; }
@@ -70,13 +70,13 @@ if [[ -n "$app" ]]; then
 fi
 if [[ "$dmg" == nightly ]]; then
   feed="https://files-next.cmux.com/nightly-next/appcast-arm64.xml"  # the one feed since #36287
-  curl -fsSL --proto '=https' --retry 3 -A cmux-projection/1 -H "Cache-Control: no-cache" -o "$out/feed.xml" "$feed" || { echo "L10 feed download failed"; exit 3; }
+  curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-projection/1 -H "Cache-Control: no-cache" -o "$out/feed.xml" "$feed" || { echo "L10 feed download failed"; exit 3; }
   picked="$(python3 scripts/ci/nightly_next_launch_smoke.py pick --feed "$out/feed.xml")" || { echo "L10 no nightly build on the feed"; exit 3; }
   echo "$picked" | sed 's/^/L10 pick /'
   dmg="$(sed -n 's/^url=//p' <<<"$picked")"
 fi
 echo "L10 dmg $dmg"
-curl -fsSL --proto '=https' --retry 3 -A cmux-projection/1 -o "$out/in.dmg" "$dmg" || { echo "L10 download failed"; exit 3; }
+curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-projection/1 -o "$out/in.dmg" "$dmg" || { echo "L10 download failed"; exit 3; }
 python3 scripts/ci/projection_check.py --dmg "$out/in.dmg" --out "$out/run" ${extra[@]+"${extra[@]}"} 2>&1 | tee "$out/run.log"
 rc=${PIPESTATUS[0]}
 rm -f "$out/in.dmg"

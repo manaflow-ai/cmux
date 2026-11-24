@@ -63,6 +63,8 @@ public final class RetryWake: Sendable {
     private struct State {
         /// An event that came with no waiter (`.event` wins over `.socket`).
         var latched: Cause?
+        /// Counts ``RetryWake/fire()`` calls, for ``RetryWake/eventMark`` (waited for or not).
+        var events: UInt64 = 0
         var waiter: CheckedContinuation<Cause, Never>?
         /// The waiter wakes on a socket change too.
         var waiterTakesSocket = true
@@ -95,8 +97,14 @@ public final class RetryWake: Sendable {
 
     /// Something changed that may let a retry succeed.
     public func fire() {
+        state.withLock { $0.events &+= 1 }
         resume(.event, latchIfIdle: true)
     }
+
+    /// The explicit events so far: take it right before an attempt and pass it to
+    /// ``rebaseline(keepingEventsAfter:)`` after the attempt failed, so an event that came while the
+    /// attempt ran (a link reporting connected again) still wakes the next wait, with no timer.
+    public var eventMark: UInt64 { state.withLock { $0.events } }
 
     /// Watches `path`; a change of `path` itself (created, removed, replaced)
     /// fires, and so does a change of any of `companions` (files in the same
@@ -143,8 +151,16 @@ public final class RetryWake: Sendable {
     /// - Returns: Whether the file is there (and its identity), missing (and watched), or not watched.
     @discardableResult
     public func rebaseline() -> WatchedFile {
+        rebaseline(keepingEventsAfter: nil)
+    }
+
+    /// ``rebaseline()``, except that an explicit event fired after `mark` (``eventMark``) stays
+    /// pending, so the next wait returns at once. Socket changes are rebaselined either way: the
+    /// loop's own attempt may have replaced the socket. Nil keeps nothing.
+    @discardableResult
+    public func rebaseline(keepingEventsAfter mark: UInt64?) -> WatchedFile {
         let needsArm = state.withLock { state -> Bool in
-            state.latched = nil
+            state.latched = mark.map { state.events > $0 } == true ? .event : nil
             state.baseline = state.file.map { Self.identities(of: [$0] + state.companions) } ?? []
             return state.file != nil && (state.source == nil || state.folder?.blocked != nil)
         }

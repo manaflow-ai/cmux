@@ -64,6 +64,38 @@ struct TerminalCommandSuggestionTests {
         #expect(store.suggestions(machine: "local", cwd: cwd).map(\.command) == ["one"])
     }
 
+    /// #35608: credentials passed as arguments, not `key=value`, passed the filter.
+    @Test("refuses credentials passed as arguments", arguments: [
+        "mysql_client --password hunter2", "deploy --password=hunter2", "tool --token abc123", "vault login -token abc123",
+        "app --auth-token abc", "app --access-token abc", "app --secret abc", "app --client-secret abc",
+        "app --private-key ./key.pem", "app --passwd hunter2", "app --pass hunter2",
+        "curl -u bob:pw https://example.com", "curl --user bob:pw https://example.com", "curl -ubob:pw https://example.com",
+        "npm config set //registry.npmjs.org/:_authToken abc", "echo abc | gh auth login --with-token",
+        "mysql -pSECRET -u root", "mysql -u root -pSECRET", "mariadb -h db -pSECRET",
+        "/usr/bin/mysql -pSECRET", "/opt/homebrew/bin/mariadb -u root -pSECRET", "mysqldump -pSECRET db",
+        "mariadb-dump -u root -pSECRET db",
+        // CMUX-278: an empty user still carries the password.
+        "curl -u :pw https://example.com", "curl --user=:pw https://example.com", "curl -u ':pw' https://example.com",
+        // CMUX-279: a quoted flag or client name, or a client inside `sh -c`.
+        "mysql '-psecret' -u root", "mysql -u root \"-psecret\"", "\"/usr/bin/mysql\" -psecret",
+        "'mysqldump' -u root -psecret db", "sh -c 'mysql -psecret'", "bash -c \"mariadb -u root -psecret\"",
+    ])
+    func refusesCredentialArguments(_ text: String) {
+        var store = TerminalCommandSuggestionStore()
+        store.replace([command(1, text, at: 1), command(2, text, at: 2), command(3, text, at: 3)])
+        #expect(store.suggestions(machine: "local", cwd: cwd).isEmpty, "\(text) must not be suggested")
+    }
+
+    @Test("still suggests commands with a bare -p or a plain -u", arguments: [
+        "mkdir -p x", "mysql -p -u root", "mysql -u root --skip-pager", "git push -u origin main",
+        "pnpm --filter web test", "sh -c 'mysql -p -u root'", "\"/usr/bin/mysql\" -u root",
+    ])
+    func allowsOrdinaryFlags(_ text: String) {
+        var store = TerminalCommandSuggestionStore()
+        store.replace([command(1, text, at: 1), command(2, text, at: 2), command(3, text, at: 3)])
+        #expect(store.suggestions(machine: "local", cwd: cwd).map(\.command) == [text])
+    }
+
     @Test("dismissal, clear, and export are explicit")
     func dismissalClearAndExport() throws {
         var store = TerminalCommandSuggestionStore()

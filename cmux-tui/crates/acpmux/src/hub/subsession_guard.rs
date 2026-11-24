@@ -100,7 +100,8 @@ fn policy_rank(p: PermissionPolicy) -> u8 {
     match p {
         PermissionPolicy::DenyAll => 0,
         PermissionPolicy::Ask => 1,
-        PermissionPolicy::ApproveReads => 2,
+        // Review approves what approve-reads does and denies the rest.
+        PermissionPolicy::ApproveReads | PermissionPolicy::Review => 2,
         PermissionPolicy::ApproveEdits => 3,
         PermissionPolicy::ApproveAll => 4,
     }
@@ -442,7 +443,10 @@ impl Hub {
         // starts as a cross-family child would, at the person's start level, which is not full access.
         let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
             && !self.full_access_allowed();
-        let inherit = same_family && !capped;
+        // A toggle (Claude's plan mode) is never inherited (`start_mode.rs`): a chat that starts
+        // a plan's build from its plan approval is still planning, and its builder must not be.
+        let toggled = parent_mode.as_deref().is_some_and(super::start_mode::is_toggle);
+        let inherit = same_family && !capped && !toggled;
         // Another family (or a capped parent): the parent's level on the child's modes
         // (`start_mode.rs`, "Inherit"), which `hold_subsession` then holds to the parent.
         let mode =
@@ -739,6 +743,9 @@ impl Hub {
         if self.caller_access(pm) == Access::Full {
             return Ok(());
         }
+        // As `session/new` does next (`rediscover.rs`): a harness installed since the catalog
+        // loaded is checked here, never passed as not startable and then started.
+        self.rediscover_head(Some(harness), None).await;
         let resolved = {
             let cfg = self.config.read().await;
             self.resolve_new(
@@ -830,8 +837,11 @@ impl Hub {
             .flatten()
             .filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned))
             .collect();
-        let own =
-            crate::web_modes::mode_of(pm).filter(|_| crate::web_modes::family_of(pm) == family);
+        // Never the parent's toggle (plan mode, `start_mode.rs`): a builder held to a planning
+        // chat moves to the family's asking mode; a toggle is only the last of those.
+        let own = crate::web_modes::mode_of(pm).filter(|m| {
+            crate::web_modes::family_of(pm) == family && !super::start_mode::is_toggle(m)
+        });
         let bridge: &[&str] = if crate::codex_app_server::is_profile_launch(&cm.harness_argv) {
             crate::web_modes::BRIDGE_ASKING_MODES
         } else {
@@ -868,48 +878,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::argv_full_access;
-
-    fn argv(a: &[&str]) -> Vec<String> {
-        a.iter().map(|s| (*s).to_owned()).collect()
-    }
-
-    #[test]
-    fn a_command_that_skips_the_checks_is_full_access() {
-        for a in [
-            &["claude", "--dangerously-skip-permissions"][..],
-            &["claude", "--permission-mode", "bypassPermissions"],
-            &["claude", "--permission-mode=bypassPermissions"],
-            &["codex", "-s", "danger-full-access"],
-            &["codex", "--sandbox=danger-full-access"],
-            &["codex", "-c", "sandbox_mode=\"danger-full-access\""],
-            &["codex", "--dangerously-bypass-approvals-and-sandbox"],
-        ] {
-            assert!(argv_full_access(&argv(a)).is_some(), "{a:?}");
-        }
-        for a in [
-            &["claude", "--permission-mode", "default"][..],
-            &["codex", "-s", "workspace-write"],
-            &["opencode", "acp"],
-        ] {
-            assert!(argv_full_access(&argv(a)).is_none(), "{a:?}");
-        }
-    }
-
-    #[test]
-    fn attached_short_flags_and_gemini_auto_approval_are_full_access() {
-        for a in [
-            &["codex", "-sdanger-full-access"][..],
-            &["codex", "-csandbox_mode=danger-full-access"],
-            &["gemini", "-y"],
-            &["qwen", "--approval-mode", "yolo"],
-            &["gemini", "--approval-mode=auto_edit"],
-        ] {
-            assert!(argv_full_access(&argv(a)).is_some(), "{a:?}");
-        }
-        for a in [&["gemini", "--approval-mode", "default"][..], &["codex", "-sworkspace-write"]] {
-            assert!(argv_full_access(&argv(a)).is_none(), "{a:?}");
-        }
-    }
-}
+#[path = "subsession_guard_tests.rs"]
+mod tests;

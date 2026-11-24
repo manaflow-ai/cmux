@@ -9,9 +9,12 @@ output and on a hand-built Mach-O object.
 """
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import re
 import struct
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -62,10 +65,22 @@ class StubTests(unittest.TestCase):
         stubs._run = FakeTools({"a": (DYLIBS, NM), "b": (DYLIBS, "                 (undefined) external _CFRetain (from CoreFoundation)\n")})
         self.tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self.tmp.name)
+        # The tool's own report lines: the cases that expect a refusal print "FAIL stubs: ...", which a CI log
+        # reader took for this suite failing (2026-11-19). They are kept here and shown only when a test fails.
+        self.tool_output = io.StringIO()
+        self.redirect = contextlib.redirect_stdout(self.tool_output)
+        self.redirect.__enter__()
 
     def tearDown(self) -> None:
+        self.redirect.__exit__(None, None, None)
         stubs._run = self.original_run
         self.tmp.cleanup()
+
+    def run(self, result=None):
+        result = super().run(result)
+        if result is not None and any(test is self for test, _ in result.failures + result.errors):
+            sys.stderr.write(f"{self.id()} tool output:\n{self.tool_output.getvalue()}")
+        return result
 
     def test_imports_are_grouped_by_install_name_with_versions(self) -> None:
         libs = stubs.imports("a")
@@ -99,6 +114,15 @@ class StubTests(unittest.TestCase):
         installed = sysroot / "System/Library/Frameworks/CoreFoundation.framework/CoreFoundation.tbd"
         self.assertEqual(installed.read_text(), (self.dir / "CoreFoundation.tbd").read_text())
         self.assertTrue((sysroot / "System/Library/Frameworks/Security.framework/Security.tbd").exists())
+
+    def test_tailnet_headers_and_link_stubs_are_installed_together(self) -> None:
+        stubs.cmd_install(ROOT / "scripts/ci/macos-stubs", self.dir)
+        for name in ["IOKit", "SystemConfiguration"]:
+            self.assertTrue((self.dir / f"System/Library/Frameworks/{name}.framework/{name}.tbd").is_file())
+        self.assertTrue((self.dir / "usr/lib/libresolv.tbd").is_file())
+        self.assertTrue((self.dir / "usr/include/CoreFoundation/CoreFoundation.h").is_file())
+        self.assertTrue((self.dir / "usr/include/IOKit/IOKitLib.h").is_file())
+        self.assertTrue((self.dir / "usr/include/Security/Security.h").is_file())
 
     def test_a_libsystem_routine_bound_to_a_framework_needs_no_stub(self) -> None:
         # A Mac link with the macOS 15 SDK binds log2 to CoreServices (an
@@ -144,6 +168,88 @@ class WeakenTests(unittest.TestCase):
         struct.pack_into("<I", data, 12, 0x2)  # MH_EXECUTE
         with self.assertRaises(SystemExit):
             weaken.weaken(data)
+
+
+class CommittedStubs(unittest.TestCase):
+    """The stubs under scripts/ci/macos-stubs as the Linux link reads them."""
+
+    def test_every_version_fits_the_packed_mach_o_form(self) -> None:
+        # A dylib version packs as X.Y.Z in 16.8.8 bits: ld64.lld refuses the whole stub
+        # ("malformed file") when Y or Z is over 255, and every symbol in it goes undefined.
+        for path in sorted((ROOT / "scripts/ci/macos-stubs").glob("*.tbd")):
+            text = path.read_text()
+            for key in ("current-version", "compatibility-version"):
+                with self.subTest(stub=path.name, key=key):
+                    value = re.search(rf"^{key}:\s*(\S+)$", text, re.M).group(1)
+                    parts = [int(part) for part in value.split(".")]
+                    self.assertLessEqual(len(parts), 3, value)
+                    self.assertLessEqual(parts[0], 0xFFFF, value)
+                    self.assertTrue(all(part <= 0xFF for part in parts[1:]), value)
+
+
+# Imports a dependency in cmux-tui/Cargo.lock adds to the cross-linked daemons, as soon as any code calls into it.
+# The stubs come from Mac-built binaries, so a call added later (acpmux ps's chrono::Local, #49166) fails the Linux
+# link ("undefined symbol: CFTimeZoneCopySystem") before a regenerate; listing them here catches it in this test.
+LOCKED_CRATE_IMPORTS = {
+    # chrono's clock (Local) reads the system zone through iana-time-zone's CoreFoundation calls.
+    "iana-time-zone": ("CoreFoundation", ("_CFTimeZoneCopySystem", "_CFTimeZoneGetName", "_CFTimeZoneResetSystem")),
+}
+
+
+class LockedCrateImportTests(unittest.TestCase):
+    def test_a_locked_crate_that_calls_a_framework_has_its_imports_in_the_stub(self) -> None:
+        lock = (ROOT / "cmux-tui" / "Cargo.lock").read_text()
+        missing = []
+        for crate, (framework, symbols) in LOCKED_CRATE_IMPORTS.items():
+            if f'name = "{crate}"' not in lock:
+                continue
+            stub = (ROOT / "scripts" / "ci" / "macos-stubs" / f"{framework}.tbd").read_text()
+            held = set(re.findall(r"'(_[A-Za-z0-9_$]+)'", stub))
+            missing += [f"{framework}.tbd lacks {symbol} ({crate})" for symbol in symbols if symbol not in held]
+        self.assertEqual(missing, [])
+
+
+# cmux-tui's own `#[link(name = "X", kind = "framework")] extern` blocks: every name declared there must be in
+# X.tbd when we stub X. The stubs come from older Mac-built binaries, so a new declaration (kSecGuestAttributePid in
+# cmux-rd-host's webrtc_child.rs, #51585) failed every Linux cross link of cmux-tui from 2026-11-23 21:04Z
+# ("ld64.lld: undefined symbol: kSecGuestAttributePid", cmux-tui artifacts run 45285325164), and each tree took
+# the macOS fallback build instead: 2 h from landing to a published tree, the nightly waiting on it. A framework
+# with no stub file is not ours to judge here (stubs-check reads what the Mac binaries link).
+FRAMEWORK_EXTERN = re.compile(
+    r'#\[link\(name\s*=\s*"([A-Za-z]+)",\s*kind\s*=\s*"framework"\)\]\s*(?:unsafe\s+)?extern\s+"C"\s*\{')
+EXTERN_ITEM = re.compile(r"\b(?:static(?:\s+mut)?|fn)\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def framework_externs(text: str) -> list[tuple[str, list[str]]]:
+    out = []
+    for match in FRAMEWORK_EXTERN.finditer(text):
+        depth, end = 1, match.end()
+        while depth and end < len(text):
+            depth += {"{": 1, "}": -1}.get(text[end], 0)
+            end += 1
+        out.append((match.group(1), EXTERN_ITEM.findall(text[match.end():end - 1])))
+    return out
+
+
+class SourceExternTests(unittest.TestCase):
+    def test_an_extern_block_names_one_framework_and_each_item(self) -> None:
+        text = ('#[link(name = "Security", kind = "framework")]\nunsafe extern "C" {\n'
+                "    static kSecGuestAttributePid: CFTypeRef;\n    fn SecCodeCopySelf(flags: u32) -> i32;\n}\n")
+        self.assertEqual(framework_externs(text), [("Security", ["kSecGuestAttributePid", "SecCodeCopySelf"])])
+
+    def test_every_framework_name_cmux_tui_declares_is_in_its_stub(self) -> None:
+        stubs, missing = ROOT / "scripts" / "ci" / "macos-stubs", []
+        for path in sorted((ROOT / "cmux-tui").glob("**/*.rs")):
+            if "target" in path.relative_to(ROOT).parts:
+                continue
+            for framework, names in framework_externs(path.read_text(errors="replace")):
+                stub = stubs / f"{framework}.tbd"
+                if not stub.is_file():
+                    continue
+                held = set(re.findall(r"'(_[A-Za-z0-9_$]+)'", stub.read_text()))
+                missing += [f"{path.relative_to(ROOT)}: {framework}.tbd lacks _{name}"
+                            for name in names if f"_{name}" not in held]
+        self.assertEqual(missing, [])
 
 
 if __name__ == "__main__":

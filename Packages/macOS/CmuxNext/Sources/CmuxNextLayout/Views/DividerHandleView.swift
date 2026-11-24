@@ -5,7 +5,7 @@ import QuartzCore
 /// Draggable handle for a split divider, a column's trailing edge or the gap
 /// between two rows. The frame is the hit area; a thin line is drawn in its
 /// center for splits.
-final class DividerHandleView: NSView {
+final class DividerHandleView: NSView, KeyNeutralPressTarget {
     enum Kind: Hashable {
         case split(SplitID)
         case columnEdge(ColumnID)
@@ -39,11 +39,23 @@ final class DividerHandleView: NSView {
     var showsActiveLine = true {
         didSet { if showsActiveLine != oldValue { applyColors() } }
     }
+    /// Hide Divider: no line at rest, whatever the style or a theme's divider color says; hover and
+    /// drag still light it, so a hidden divider still shows where it is while it is grabbed.
+    var isLineHidden = false {
+        didSet { if isLineHidden != oldValue { applyColors() } }
+    }
     var onDrag: ((DragEvent) -> Void)?
+    /// The right-click menu of a split's divider (Insert New, Hide or Show Divider); nil: none.
+    var contextMenu: (() -> NSMenu?)?
     /// The screen's uncovered rect and this handle's scroll area window when it was last placed
     /// (`applyPresentation`): its hidden state and cursor clip follow from them and the frame, so
     /// equal ones skip the work.
     var placedClips: [CGRect?]?
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        ResizeBands.register(self) // the divider has priority over a scroller's knob under it
+    }
 
     private let line = CALayer()
     /// The accent band over the line while hovered or dragged (`DividerGlowBand`).
@@ -204,6 +216,8 @@ final class DividerHandleView: NSView {
     /// rect did. It needs no tracking area of its own for that.
     override func cursorUpdate(with event: NSEvent) {
         guard cursorRectInBounds.contains(convert(event.locationInWindow, from: nil)) else { return super.cursorUpdate(with: event) }
+        // An overlay that takes the mouse here (a toast over the divider) is on top: no resize cursor on it.
+        if let window, WindowOverlayHost.overlayTakesMouse(in: window, atWindowPoint: event.locationInWindow) { return }
         resizeCursor.set()
         (superview as? ScreenContentView)?.dividerPointer.handleDidShow(resizeCursor)
     }
@@ -245,6 +259,12 @@ final class DividerHandleView: NSView {
         isDragging = false
         stopKeyMonitor()
         onDrag?(.ended(event.locationInWindow, event.modifierFlags))
+    }
+
+    /// A right-click anywhere in the handle's grab band opens its divider's menu, a hidden divider's too.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard !isDragging, let contextMenu else { return NSMenu.withoutSystemItems(super.menu(for: event)) }
+        return NSMenu.withoutSystemItems(contextMenu())
     }
 
     override func flagsChanged(with event: NSEvent) {
@@ -297,16 +317,15 @@ final class DividerHandleView: NSView {
             if isEdge {
                 if active {
                     color = Palette.focusRing.withAlphaComponent(isRowEdge ? 0.6 : 0.45)
-                } else if isRowEdge, showsIdleLine {
-                    color = Palette.separator.withAlphaComponent(0.32)
                 } else if showsIdleLine {
-                    // A column edge between two columns: the split's line at rest.
-                    color = Palette.surfaceOverride(.splitDivider) ?? Palette.separator
+                    // A row or column edge: the split's line at rest, the chrome's one divider.
+                    color = Palette.surfaceOverride(.splitDivider) ?? Palette.chromeDivider
                 } else {
                     color = .clear
                 }
             } else {
-                color = active ? Palette.focusRing.withAlphaComponent(0.6) : ((showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil) ? (Palette.surfaceOverride(.splitDivider) ?? Palette.separator) : .clear)
+                let idle = !isLineHidden && (showsIdleLine || Palette.surfaceOverride(.splitDivider) != nil)
+                color = active ? Palette.focusRing.withAlphaComponent(0.6) : (idle ? (Palette.surfaceOverride(.splitDivider) ?? Palette.chromeDivider) : .clear)
             }
             Motion.feedback.transaction(.hover) {
                 line.backgroundColor = color.cgColor

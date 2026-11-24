@@ -258,6 +258,57 @@ fn a_working_chat_names_the_row_over_an_earlier_idle_one() {
     assert_eq!(workspace.agent_tab(), Some(2));
 }
 
+// SidebarChatFrontTests.copyAgentIdentifierKeepsTheFirstChatBehindAnIdleShell
+#[test]
+fn copy_agent_identifier_keeps_the_first_chat_behind_an_idle_shell() {
+    let mut busy = chat("b");
+    busy.agent = Some(AgentState::Working);
+    let workspace = workspace(vec![(shell("~", HOME), 3), (chat("a"), 1), (busy, 2)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.front, Some(0));
+    assert_eq!(row.label, Some(2), "a working chat names the row over an idle shell");
+    assert_eq!(row.chat, Some(2), "the row shows the label's chat");
+    assert_eq!(row.front_chat, Some(1), "Copy Agent Identifier copies the first chat");
+}
+
+/// A chat still on the New Tab page: the label passes over it, Copy Agent
+/// Identifier's first chat does not.
+#[test]
+fn copy_agent_identifier_counts_a_chat_on_a_new_tab_page() {
+    let mut fresh = chat("a");
+    fresh.new_tab_page = true;
+    let workspace = workspace(vec![(shell("zsh", HOME), 3), (fresh, 1), (chat("b"), 2)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.label, Some(2), "the label skips a chat on a New Tab page");
+    assert_eq!(row.chat, Some(2));
+    assert_eq!(row.front_chat, Some(1), "the first chat, New Tab page or not");
+}
+
+/// An idle chat terminal in front (a chat whose agent reports no state,
+/// titled by its shell): the label moves to the working chat, Copy Agent
+/// Identifier keeps the front chat.
+#[test]
+fn copy_agent_identifier_keeps_an_idle_chat_terminal_in_front() {
+    let front = Tab { chat: true, ..shell("zsh", HOME) };
+    let mut busy = chat("b");
+    busy.agent = Some(AgentState::Working);
+    let workspace = workspace(vec![(front, 3), (busy, 1)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.front, Some(0));
+    assert_eq!(row.label, Some(1), "the idle chat terminal yields the label to the working chat");
+    assert_eq!(row.chat, Some(1));
+    assert_eq!(row.front_chat, Some(0), "Copy Agent Identifier copies the front chat");
+}
+
+/// Front and label agree: both chats are the same tab.
+#[test]
+fn front_chat_is_the_row_chat_while_the_front_names_the_row() {
+    let row = face(&chat_front("npm test", HOME, true), &context());
+    assert_eq!((row.label, row.chat, row.front_chat), (Some(0), Some(1), Some(1)));
+    let row = face(&chat_front("~", HOME, false), &context());
+    assert_eq!((row.chat, row.front_chat), (None, None));
+}
+
 /// SidebarWorkTabTests: terminals `a` and `b` in their own panes and a page
 /// in a third, each focused at the given time.
 fn work_split(a: u64, b: u64, page: u64) -> Workspace<'static> {
@@ -582,4 +633,81 @@ fn pane_counts_past_the_tabs_give_no_tab() {
     assert_eq!(row.front, Some(2));
     assert_eq!((row.label, row.face, row.work, row.process), (Some(2), Some(2), None, None));
     assert_eq!(row.kind, Kind::Terminal);
+}
+
+/// A terminal agent: a terminal its agent's hooks report on, with a brand.
+fn agent_terminal(title: &'static str, state: AgentState) -> Tab<'static> {
+    Tab { agent: Some(state), branded: true, ..tab(TabKind::Pty, title) }
+}
+
+#[test]
+fn a_terminal_agent_marks_the_row_as_running_in_a_terminal() {
+    let workspace = workspace(vec![(agent_terminal("claude", AgentState::Other), 1)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.agent, Some(0));
+    assert!(row.agent_in_terminal);
+}
+
+#[test]
+fn a_remote_terminal_agent_runs_in_a_terminal_too() {
+    let remote =
+        Tab { kind: TabKind::RemoteTerminal, ..agent_terminal("claude", AgentState::Other) };
+    let workspace = workspace(vec![(remote, 1)], true);
+    assert!(face(&workspace, &context()).agent_in_terminal);
+}
+
+#[test]
+fn an_agent_chat_does_not_run_in_a_terminal() {
+    let workspace = workspace(vec![(chat("Claude"), 1)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.agent, Some(0));
+    assert!(!row.agent_in_terminal);
+}
+
+#[test]
+fn a_chat_tab_with_agent_hooks_is_still_a_chat() {
+    let hooked = Tab { chat: true, ..agent_terminal("claude", AgentState::Working) };
+    let workspace = workspace(vec![(hooked, 1)], true);
+    assert!(!face(&workspace, &context()).agent_in_terminal);
+}
+
+#[test]
+fn with_both_the_fact_follows_the_tab_the_mark_comes_from() {
+    // The first branded tab supplies the mark while neither is busy.
+    let idle =
+        workspace(vec![(chat("Claude"), 1), (agent_terminal("codex", AgentState::Other), 2)], true);
+    let row = face(&idle, &context());
+    assert_eq!(row.agent, Some(0));
+    assert!(!row.agent_in_terminal);
+    // A working terminal agent supplies it over an earlier idle chat.
+    let working = workspace(
+        vec![(chat("Claude"), 1), (agent_terminal("codex", AgentState::Working), 2)],
+        true,
+    );
+    let row = face(&working, &context());
+    assert_eq!(row.agent, Some(1));
+    assert!(row.agent_in_terminal);
+    // A terminal agent first supplies it over a later idle chat.
+    let terminal_first =
+        workspace(vec![(agent_terminal("codex", AgentState::Other), 1), (chat("Claude"), 2)], true);
+    let row = face(&terminal_first, &context());
+    assert_eq!(row.agent, Some(0));
+    assert!(row.agent_in_terminal);
+}
+
+#[test]
+fn without_an_agent_the_row_runs_no_terminal_agent() {
+    let workspace = workspace(vec![(shell("zsh", HOME), 1)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.agent, None);
+    assert!(!row.agent_in_terminal);
+}
+
+#[test]
+fn an_unbranded_terminal_agent_supplies_no_mark_and_no_fact() {
+    let unbranded = Tab { branded: false, ..agent_terminal("myagent", AgentState::Working) };
+    let workspace = workspace(vec![(unbranded, 1)], true);
+    let row = face(&workspace, &context());
+    assert_eq!(row.agent, None);
+    assert!(!row.agent_in_terminal);
 }

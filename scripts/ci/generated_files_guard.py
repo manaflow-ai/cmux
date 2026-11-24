@@ -38,9 +38,15 @@ What is generated, in one place:
           them (a hand edit the next regeneration would undo), unless the base's manifest gives
           that generator a "check" and the check passes at --head: then the output is what the
           generator writes from the inputs already there (a base that changed an input without
-          regenerating, say), and a later run undoes nothing;
+          regenerating, say), and a later run undoes nothing. A check that runs past its limit is retried
+          once with a longer one; if it times out again, it warns naming the generator and the output and does
+          not fail: the change touches neither the generator nor its inputs (else no check runs), so the
+          timeout is the runner's, not the change's. A busy runner makes the guard slower, never red;
         - leaves a tracked generated file at --head that neither a committed generator nor the
           baseline covers.
+  generated_files_guard.py added --repo DIR --base REV --head REV
+      The first rule above alone (a new committed generated file), read from git objects only: no
+      working tree, no generator check. Seconds; the pre-push gate runs it on every push.
   generated_files_guard.py baseline --repo DIR
       Prints the baseline for DIR's tracked files (the last rule's set), to write the file.
 """
@@ -55,6 +61,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -66,8 +73,21 @@ OUTPUTS = "scripts/cmux-next/generated_outputs.py"
 # What generated_outputs.py reads beside itself; load_exports writes it next to the module.
 SETTINGS_EXPORTS = "scripts/cmux-next/settings-exports.txt"
 
-# How long a generator's check may run before the guard treats it as failed.
+# How long a generator's check may run; one that runs past it is retried once with RETRY_CHECK_TIMEOUT_SECONDS. A
+# check that times out twice warns and does not fail (hand_edits). The guard's workflow step allows for both.
 CHECK_TIMEOUT_SECONDS = 120
+RETRY_CHECK_TIMEOUT_SECONDS = 240
+# Seconds every check of one guard run shares, tries and retries together: checks run one after another, so two slow
+# ones at 120 + 240 s each ran past the workflow step's 8 minutes, Actions killed the guard before it printed its
+# warnings, and the step was red (cmux#41752 review F2). Below the step's limit (cmux-next-guards.yml, "cmux-next no
+# new generated files") with room for the checkout and the tree reads; a check that cannot finish inside it warns.
+DEADLINE_SECONDS = 400
+
+# Run as a script, this directory is already first on sys.path; imported or under `python3 -I`, it is not.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ci_process_tree import run_bounded  # noqa: E402
+# The start of a note main prints as a warning.
+TIMED_OUT = "timed out: "
 
 HEADER_BYTES = 2048
 HEADER_LINES = 6
@@ -236,8 +256,8 @@ def read_head(repo: Path, path: str) -> bytes:
         return b""
 
 
-def why_generated(rules: Rules, repo: Path, path: str) -> str | None:
-    """Why `path` (in the working tree) is a generated file, or None."""
+def why_generated(rules: Rules, repo: Path, path: str, head: dict[str, bytes] | None = None) -> str | None:
+    """Why `path` (in the working tree, or HEAD's first bytes of it when given) is a generated file, or None."""
     if rules.committed_by_design(path):
         return None
     found = rules.generator_of(path)
@@ -247,7 +267,7 @@ def why_generated(rules: Rules, repo: Path, path: str) -> str | None:
         return "the base autofix regenerates it (scripts/cmux-next/generated_outputs.py)"
     if matches(path, rules.conventions):
         return f"its name marks it generated ({MANIFEST} conventions)"
-    if generated_header(read_head(repo, path)):
+    if generated_header(read_head(repo, path) if head is None else head.get(path, b"")):
         return "its header says it is generated"
     return None
 
@@ -294,6 +314,10 @@ def rule_changes(base: Rules, head: Rules, base_tracked: set[str]) -> list[str]:
                           "A committed generator's outputs may only narrow.")
     old_exports = {p for patterns, _ in base.exports for p in patterns}
     for pattern in sorted({p for patterns, _ in head.exports for p in patterns} - old_exports):
+        # Registering an existing output repairs ownership; it adds no generated file.
+        # Only literal paths qualify: a glob would authorize future committed outputs.
+        if pattern in base_tracked and not any(char in pattern for char in "*?["):
+            continue
         errors.append(f"{OUTPUTS}: {pattern} is a new committed export. Exports are committed generated "
                       "files; a new output belongs at build time (gitignored), not in the base autofix's list.")
     known = {json.dumps(e, sort_keys=True) for e in base.committed}
@@ -310,10 +334,37 @@ def rule_changes(base: Rules, head: Rules, base_tracked: set[str]) -> list[str]:
     return errors
 
 
-def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None]) -> str | None:
+class TimedOut(str):
+    """regenerated()'s answer when the check timed out twice: the runner's, not a verdict on the output."""
+
+
+def run_check(repo: Path, script: Path, args: list[str],
+              until: float | None = None) -> subprocess.CompletedProcess[str] | TimedOut:
+    """The check's run, retried once with a longer limit when it times out; TimedOut when both did or the guard's
+    shared deadline (UNTIL, a time.monotonic() value) came first. A timed-out check is stopped with everything it
+    started (run_bounded)."""
+    limits = (CHECK_TIMEOUT_SECONDS, RETRY_CHECK_TIMEOUT_SECONDS)
+    tried: list[str] = []
+    for limit in limits:
+        left = float("inf") if until is None else until - time.monotonic()
+        if left <= 0:
+            tried.append("the guard's shared deadline was spent" + (" before its retry" if tried else
+                                                                     " before it could start"))
+            break
+        limit = min(limit, left)
+        try:
+            return run_bounded([sys.executable, "-I", str(script), *args], cwd=repo,
+                               capture_output=True, text=True, timeout=limit)
+        except subprocess.TimeoutExpired:
+            tried.append(f"{'again' if tried else 'it timed out'} after {limit:g} s")
+    return TimedOut(" and ".join(tried))
+
+
+def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None],
+                until: float | None = None) -> str | None:
     """None when `found`'s check passes in `repo`'s working tree (every output is what the generator
-    writes from the inputs there); otherwise why not. A check that cannot run counts as failed.
-    `verdicts` caches one run per generator."""
+    writes from the inputs there); otherwise why not, a TimedOut when the check timed out twice. A check
+    that cannot run counts as failed. `verdicts` caches one run per generator."""
     if not found.check:
         return "it has no \"check\" in the base's manifest"
     if found.id in verdicts:
@@ -324,21 +375,24 @@ def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None]) -
         verdict = f"{found.generator} is missing"
     else:
         try:
-            result = subprocess.run([sys.executable, "-I", str(script), *found.check], cwd=repo,
-                                    capture_output=True, text=True, timeout=CHECK_TIMEOUT_SECONDS, check=False)
-            verdict = None if result.returncode == 0 else (
+            result = run_check(repo, script, found.check, until)
+        except OSError as error:
+            verdict = f"`{command}` did not start: {error}"
+        else:
+            verdict = result if isinstance(result, TimedOut) else None if result.returncode == 0 else (
                 f"`{command}` exits {result.returncode}: {(result.stdout + result.stderr).strip()[:400]}")
-        except (OSError, subprocess.TimeoutExpired) as error:
-            verdict = f"`{command}` did not finish: {error}"
     verdicts[found.id] = verdict
     return verdict
 
 
-def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None = None) -> list[str]:
+def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None = None,
+               notes: list[str] | None = None, until: float | None = None) -> list[str]:
     """Outputs `changed` edits without changing their generator or inputs. An output whose generator's
     check (from `rules`, the base's) passes in `repo` is a regeneration from inputs already there, not a
     hand edit: a base input that changed without a regeneration leaves the output stale, and only a pull
-    request that changes nothing but the output can bring it back in line."""
+    request that changes nothing but the output can bring it back in line. A check that timed out twice
+    adds a TIMED_OUT note to `notes` instead of an error: the change touches neither the generator nor
+    its inputs here, so the timeout is the runner's."""
     paths = [path for _, path in changed]
     errors = []
     verdicts: dict[str, str | None] = {}
@@ -351,14 +405,86 @@ def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None =
         sources = [found.generator, *found.inputs]
         if any(matches(other, sources) and not found.owns(other) for other in paths):
             continue
-        why = regenerated(repo, found, verdicts) if repo is not None else "no tree to check"
+        why = regenerated(repo, found, verdicts, until) if repo is not None else "no tree to check"
         if why is None:
+            continue
+        if isinstance(why, TimedOut):
+            if notes is not None:
+                notes.append(f"{TIMED_OUT}{path}: {found.id}'s check (python3 -I {found.generator} "
+                             f"{' '.join(found.check)}) did not finish on this runner ({why}), so this edit is not "
+                             "checked. This change touches none of the generator's inputs, so it does not fail; the "
+                             "next regeneration undoes the edit if it was made by hand.")
             continue
         errors.append(
             f"{path}: written by {found.generator}, but this pull request changes none of its inputs "
             f"({', '.join(sources)}), and it is not a regeneration ({why}). Edit the inputs and rerun the "
             f"generator, or drop the change (git checkout origin/feat-cmux-next -- {path}).")
     return errors
+
+
+def blob_heads(repo: Path, rev: str, paths: list[str]) -> dict[str, bytes]:
+    """The first HEADER_BYTES of each regular file PATHS name at REV, from git objects (one cat-file for all)."""
+    wanted = [p for p in paths if "\n" not in p]
+    if not wanted:
+        return {}
+    modes = {}
+    for record in git(repo, "ls-tree", "-z", rev, "--", *wanted).split("\0"):
+        if record:
+            meta, path = record.split("\t", 1)
+            modes[path] = meta.split()[0]
+    regular = [p for p in wanted if modes.get(p) in ("100644", "100755")]
+    if not regular:
+        return {}
+    result = subprocess.run(["git", "-C", str(repo), "cat-file", "--batch"], capture_output=True, check=False,
+                            input="".join(f"{rev}:{p}\n" for p in regular).encode("utf-8", "surrogateescape"))
+    if result.returncode != 0:
+        raise RuntimeError(f"git cat-file --batch: {result.stderr.decode('utf-8', 'replace').strip()}")
+    out, at, heads = result.stdout, 0, {}
+    for path in regular:
+        end = out.index(b"\n", at)
+        header = out[at:end].split()
+        at = end + 1
+        if len(header) != 3:  # "<name> missing"
+            continue
+        size = int(header[2])
+        heads[path] = out[at:at + min(size, HEADER_BYTES)]
+        at += size + 1
+    return heads
+
+
+def new_generated(base: Rules, head: Rules | None, repo: Path, added: list[str],
+                  heads: dict[str, bytes] | None = None) -> list[tuple[str, str]]:
+    """(path, error) per added file that is generated and that no "committed" generator covers. The base's rules decide,
+    and an output the change itself declares (say a new "build" generator's) is generated too unless the head covers
+    it (rule_changes judges that cover). HEADS: the files' first bytes from git (None: the working tree)."""
+    errors = []
+    for path in added:
+        if base.covered(path):
+            continue
+        why = why_generated(base, repo, path, heads) or (
+            None if head is None or head.covered(path) else why_generated(head, repo, path, heads))
+        if why:
+            errors.append((path,
+                f"{path}: a new committed generated file ({why}). Generated files are build output: "
+                "gitignore it and generate it where it is used (the build, the test preload, the install "
+                "hook), the way the web bundles and the page strings are (ce0b9e76, #21946)."))
+    return errors
+
+
+def added_generated(repo: Path, base_rev: str, head_rev: str) -> list[str]:
+    """check()'s first rule alone, from git objects only (no working tree, no generator runs): the pre-push gate's
+    fast pass, so a direct push or a merge meets it before it lands (2026-11-22: #49757 committed
+    SettingsSchema+Appearance5.generated.swift, a settings-sources output the build plugin makes, and the package
+    stopped compiling; the full check runs on a pull request into feat-cmux-next only with full-ci)."""
+    base = rules_at(repo, base_rev)
+    if base is None:
+        return []
+    added = [path for status, path in changes(repo, base_rev, head_rev) if status == "A"]
+    added = [path for path in added if not base.covered(path)]
+    if not added:
+        return []
+    return [error for _, error in new_generated(base, rules_at(repo, head_rev), repo, added,
+                                                blob_heads(repo, head_rev, added))]
 
 
 def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[str], list[str]]:
@@ -369,29 +495,21 @@ def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[
     if head is None:
         return [f"{MANIFEST} is deleted. It is the list of generators this guard reads; keep it."], []
     changed = changes(repo, base_rev, head_rev)
-    errors: list[str] = []
-    reported: set[str] = set()
-    for status, path in changed:
-        if status != "A" or base.covered(path):
-            continue
-        # The base's rules decide, and an output the change itself declares (say a new "build"
-        # generator's) is generated too unless the head covers it (rule_changes judges that cover).
-        why = why_generated(base, repo, path) or (None if head.covered(path) else why_generated(head, repo, path))
-        if why:
-            reported.add(path)
-            errors.append(
-                f"{path}: a new committed generated file ({why}). Generated files are build output: "
-                "gitignore it and generate it where it is used (the build, the test preload, the install "
-                "hook), the way the web bundles and the page strings are (ce0b9e76, #21946).")
-    base_tracked = set(git(repo, "ls-tree", "-r", "--name-only", "-z", base_rev).split("\0")) - {""}
+    found = new_generated(base, head, repo, [path for status, path in changed if status == "A"])
+    errors: list[str] = [error for _, error in found]
+    reported = {path for path, _ in found}
+    # A gitlink is a separate repository, not an existing output file to register.
+    base_tracked = {record.split("\t", 1)[1]
+                    for record in git(repo, "ls-tree", "-r", "-z", base_rev).split("\0")
+                    if record and record.split("\t", 1)[0].split()[1] == "blob"}
     errors += rule_changes(base, head, base_tracked)
-    errors += hand_edits(base, changed, repo)
+    notes: list[str] = []
+    errors += hand_edits(base, changed, repo, notes, until=time.monotonic() + DEADLINE_SECONDS)
     missing = [p for p in uncovered_generated(head, repo) if p not in head.baseline]
     # A file reported above is not reported twice. The rest are this change's when it touched the file
     # or uncovered one the base covered (a dropped baseline line, a narrowed generator); otherwise the
     # base tracks it uncovered already, which is the base's red and only a note here.
     touched = {path for _, path in changed}
-    notes = []
     for path in missing:
         if path in reported:
             continue
@@ -416,8 +534,17 @@ def main(argv: list[str]) -> int:
     run.add_argument("--base", required=True)
     run.add_argument("--head", required=True)
     sub.add_parser("baseline").add_argument("--repo", type=Path, default=Path("."))
+    fast = sub.add_parser("added", help="only the new-generated-file rule, from git objects (the pre-push gate)")
+    fast.add_argument("--repo", type=Path, default=Path("."))
+    fast.add_argument("--base", required=True)
+    fast.add_argument("--head", required=True)
     args = parser.parse_args(argv)
     repo = args.repo.resolve()
+    if args.command == "added":
+        errors = added_generated(repo, args.base, args.head)
+        for error in errors:
+            print(f"error: {error}")
+        return 1 if errors else 0
     if args.command == "baseline":
         manifest = (repo / MANIFEST).read_text(encoding="utf-8")
         outputs = repo / OUTPUTS
@@ -431,8 +558,10 @@ def main(argv: list[str]) -> int:
             print(path)
         return 0
     errors, notes = check(repo, args.base, args.head)
+    warning = "::warning::" if os.environ.get("GITHUB_ACTIONS") == "true" else "warning: "
     for note in notes:
-        print(f"note: {note}")
+        print(f"{warning}generated files guard: {note[len(TIMED_OUT):]}" if note.startswith(TIMED_OUT)
+              else f"note: {note}")
     for error in errors:
         print(f"error: {error}")
     return 1 if errors else 0

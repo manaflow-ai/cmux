@@ -66,6 +66,12 @@ await requireBrowserLane("composer-one-row-layout.test.ts", async () => {
             model: rect(".nt-foot .acpmux-model"),
             foot: rect(".nt-foot .acpmux-composer-foot"),
             footLocation: Boolean(document.querySelector(".nt-foot .acpmux-location-picker")),
+            computerNamed: (() => {
+              const label = document.querySelector<HTMLElement>(
+                '.nt-above .acpmux-location-picker[data-kind="computer"] .acpmux-location-label',
+              );
+              return Boolean(label && getComputedStyle(label).display !== "none");
+            })(),
           };
         });
         // Folder then machine, over the box, one line, one small gap, sized to their names.
@@ -75,7 +81,12 @@ await requireBrowserLane("composer-one-row-layout.test.ts", async () => {
         expect(layout.computer.left - layout.folder.right).toBeGreaterThanOrEqual(0);
         expect(layout.computer.left - layout.folder.right).toBeLessThanOrEqual(6);
         expect(Math.abs(layout.folder.center - layout.computer.center)).toBeLessThanOrEqual(0.5);
-        expect(layout.computer.right - layout.folder.left).toBeLessThan((layout.box.right - layout.box.left) / 2);
+        // The machine keeps its name until the strip runs out of room (#33671), so at 420 px the two
+        // names take more than half the box; they still end inside it.
+        expect(layout.computerNamed).toBe(true);
+        if (width >= 760)
+          expect(layout.computer.right - layout.folder.left).toBeLessThan((layout.box.right - layout.box.left) / 2);
+        else expect(layout.computer.right).toBeLessThanOrEqual(layout.box.right);
         // The strip's first icon stands on the quiet row's icon column.
         expect(Math.abs(layout.folderIcon.left - layout.accessIcon.left)).toBeLessThanOrEqual(2);
         // The quiet row: the mode, then the model on its trailing edge.

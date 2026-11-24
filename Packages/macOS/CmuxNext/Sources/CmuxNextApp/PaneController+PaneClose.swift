@@ -2,10 +2,9 @@ import CmuxNextBridge
 import CmuxNextFocus
 import CmuxNextLayout
 
-/// A pane that closes as a whole (its last tab, or Close Pane) leaves its window in the key's
-/// turn: the layout hides it with the even sizes the close leaves, so its neighbours spring into
-/// its space on one motion from the key's frame, not after the daemon's echo
-/// (plans/cmux-next/close-animation/DESIGN.md). The daemon still decides: a refused close brings
+/// A pane that closes as a whole (its last tab, or Close Pane) leaves its layout in the key's
+/// turn, with the even sizes the close leaves: the next frame shows its neighbours in its space,
+/// not the frame after the daemon's echo. The daemon still decides: a refused close brings
 /// the pane back.
 extension PaneController {
     /// Shows this pane's close now; nil when the layout leaves it to the daemon's tree (the
@@ -20,20 +19,20 @@ extension PaneController {
     /// run that may not move the view still has the focus taken off the closed pane: a topology is
     /// no view change).
     func showPaneClose() -> PendingPaneClose? {
-        guard let workspace, let close = workspace.layoutModel.showPaneClose(layoutPaneID) else { return nil }
-        let focused = isFocusedInWorkspace
-        // The held topology with this pane taken out: no rebuild over every pane (the echo's apply
-        // sends the close's one built topology, the perf gate's split budget). A topology a pane
-        // marked changed this turn is built first, from the layout without this pane. A background
-        // close updates it too: a later close of the focused pane, before this one's echo, must not
-        // pick this hidden pane.
-        let held = workspace.focus.currentState().topology
-        if held.contains(pane: paneKey) { workspace.focus.send(.topology(held.removing(pane: paneKey))) }
-        // The layout shows the reducer's pick in this frame, with or without the window's applier.
-        if focused, let pane = workspace.focus.state.pane, pane != paneKey { workspace.layoutModel.focus(LayoutPaneID(pane), notify: false) }
-        // The store tree has not changed: the view mirrors the hidden pane now, and the daemon's
-        // echo is the close's one apply and topology (the perf gate's split budget).
-        workspace.layoutView.syncWithModel()
+        // The held topology, what this turn queued built while this pane still shows (else it lacks the pane and its moved tabs).
+        guard let workspace, case let held = workspace.focus.currentState().topology, let close = workspace.layoutModel.showPaneClose(layoutPaneID) else { return nil }
+        let focused = isFocusedInWorkspace, store = daemon.store
+        // Sent with this pane taken out: no rebuild over every pane (the echo's apply sends the close's one
+        // built topology, the perf gate's split budget); its tabs the store shows in another pane (moves of
+        // this turn) go there, with the store's kind. A background close updates it too: a later close of
+        // the focused pane, before this one's echo, must not pick this hidden pane.
+        let topology: FocusTopology? = !held.contains(pane: paneKey) ? nil : held.removing(pane: paneKey) { tab in store.tab(idOrResource: tab.id).flatMap { model in
+            store.pane(holding: model).flatMap { $0 === pane ? nil : workspace.pane(for: $0.handle)?.paneKey }.map { (pane: $0, tab: FocusTopology.Tab(id: tab.id, surface: tab.surface, kind: .of(model))) } } }
+        // The layout shows the reducer's pick in this frame, with or without the window's applier; a page the pick focuses takes the keys after it (the draw-ahead).
+        workspace.focus.holdingPageGrants({ if let topology { workspace.focus.send(.topology(topology)) } }) {
+            if focused, let pane = workspace.focus.state.pane, pane != paneKey { workspace.layoutModel.focus(LayoutPaneID(pane), notify: false) }
+            // The view's springs take the hidden pane now and the next frame tick presents it once (S1B, as a resize key); the daemon's echo is the close's one apply and topology (the perf gate's split budget).
+            workspace.layoutView.syncWithModelForNextFrame() }
         return close
     }
 

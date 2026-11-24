@@ -8,7 +8,7 @@ import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow"
 import { MessageCard } from "../src/agent-session/acpmux/conversation/MessageCard";
 import { SentMessageLine } from "../src/agent-session/acpmux/conversation/SentMessageLine";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
-import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosure";
+import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
 const activity = (n: number, background = false): AcpmuxActivity => ({
   kind: "tool",
@@ -58,7 +58,7 @@ test("a sending message row has no spinner", () => {
     />,
   );
   expect(view.textContent).toContain("reviewer");
-  expect(view.querySelector(".cv-sent.is-live")).not.toBeNull();
+  expect(view.querySelector(".cv-sent-msg.is-live")).not.toBeNull();
   expect(view.querySelectorAll(".cv-spinner")).toHaveLength(0);
 });
 

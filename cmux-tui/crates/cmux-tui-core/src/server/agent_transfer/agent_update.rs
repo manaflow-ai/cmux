@@ -12,7 +12,8 @@
 //!   (`_acpmux/harness/health`) rows that are outdated and whose update needs
 //!   no elevated rights, and how many of its chats run an agent (`ready`,
 //!   `running`, `waiting`) and how many are in a turn (`running`,
-//!   `waiting`), from `_acpmux/sessions`, leaving out chats mirrored from a
+//!   `waiting`), from a walk of the v2 list's `live` view (`_acpmux/sessions`
+//!   whole on a daemon without it), leaving out chats mirrored from a
 //!   peer and the Home Chief's. With nothing on the acpmux socket it answers
 //!   no harness and no thread: a plan never starts acpmux.
 //! - `agent-update-apply {ids, continue_threads}` answers `{results: [{id,
@@ -46,7 +47,7 @@ use crate::panic_free::JsonFields;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -100,11 +101,9 @@ impl Drop for ApplySlot {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct PlanParams {}
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ApplyParams {
     ids: Vec<String>,
     #[serde(default)]
@@ -300,8 +299,15 @@ fn plan(socket: &Path) -> Result<Value, Failure> {
     };
     let health =
         link.call("_acpmux/harness/health", json!({}), HEALTH_TIMEOUT).map_err(Failure::of)?;
-    let sessions =
-        link.call_whole_list("_acpmux/sessions", json!({}), CALL_TIMEOUT).map_err(Failure::of)?;
+    let (live, running) = match list_threads(&link, socket)? {
+        Some(counts) => counts,
+        // v1 (a daemon without the v2 list, or without rows by key): every row, whole.
+        None => threads(
+            &link
+                .call_whole_list("_acpmux/sessions", json!({}), CALL_TIMEOUT)
+                .map_err(Failure::of)?,
+        ),
+    };
     // Display names are a nicety: a catalog that does not answer leaves them out.
     let catalog = link.call("_acpmux/harnesses", json!({}), CALL_TIMEOUT).unwrap_or_default();
     drop(link);
@@ -325,8 +331,117 @@ fn plan(socket: &Path) -> Result<Value, Failure> {
             Some(out)
         })
         .collect();
-    let (live, running) = threads(&sessions);
     Ok(json!({"harnesses": harnesses, "live_threads": live, "running_threads": running}))
+}
+
+/// [`threads`] from the v2 list (row 7c): a walk of `live` with origin `local`, each summary
+/// counted as v1's row is. A summary whose `extra` was bounded away holds neither the tags nor
+/// the name the Chief test reads: its row is read by key, a hundred keys a request. `None`:
+/// the daemon serves no v2 list (or no rows by key), and the caller reads v1 whole.
+fn list_threads(link: &AcpmuxLink, socket: &Path) -> Result<Option<(usize, usize)>, Failure> {
+    Ok(list_read(link, socket)?.map(|read| (read.live, read.running)))
+}
+
+/// What [`list_threads`] read: its counts, and how many summaries its walk read (a bounded-away
+/// one counted once, its row by key not again), which a gate checks to prove the read did its work.
+struct ListRead {
+    live: usize,
+    running: usize,
+    // Read by the gate only (`list_tests`): the plan needs the counts.
+    #[cfg_attr(not(test), allow(dead_code))]
+    rows: usize,
+}
+
+/// [`list_threads`], with the rows it read.
+fn list_read(link: &AcpmuxLink, socket: &Path) -> Result<Option<ListRead>, Failure> {
+    use crate::server::agent_session_attach::agent_session_link::list_source::{
+        self, INFO_ROWS, Opened, bounded_away, extras, v1_status,
+    };
+    use acpmux_client::wire::{ListFilter, ListView};
+    use std::ops::ControlFlow;
+    if !link.capabilities(None, CALL_TIMEOUT).iter().any(|c| c == INFO_ROWS) {
+        return Ok(None);
+    }
+    let mut source = match list_source::open(socket, CALL_TIMEOUT).map_err(list_failure)? {
+        Opened::List(source) => source,
+        Opened::V1 => return Ok(None),
+    };
+    let (mut live, mut running, mut read, mut by_key) = (0, 0, 0, Vec::new());
+    let local = ListFilter { origin: Some("local".into()), ..ListFilter::default() };
+    source
+        .walk(ListView::Live, Some(local), |summaries| {
+            read += summaries.len();
+            for summary in summaries {
+                if bounded_away(&summary) {
+                    by_key.push(summary.chat_id);
+                    continue;
+                }
+                let extra = extras(&summary);
+                let name = extra.get("name").and_then(Value::as_str).unwrap_or_default();
+                let chief = extra.get("tags").is_some_and(|tags| tags.get("cmux.chief").is_some())
+                    || name.starts_with("optchat-")
+                    || summary.harness.starts_with("optchat-compact-");
+                if !chief {
+                    count(&v1_status(&summary, &extra), &mut live, &mut running);
+                }
+            }
+            ControlFlow::Continue(())
+        })
+        .map_err(list_failure)?;
+    // A reply past its byte budget answers some keys and names the rest (`rest`): asked again,
+    // every request within one deadline of its own, started once the walk ends.
+    let deadline = Instant::now() + CALL_TIMEOUT;
+    let mut queue: std::collections::VecDeque<String> = by_key.into();
+    while !queue.is_empty() {
+        let keys: Vec<String> = queue.drain(..queue.len().min(100)).collect();
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(Failure::Timeout);
+        }
+        let reply = link
+            .call("_acpmux/info", json!({"sessionIds": keys, "row": true}), left)
+            .map_err(Failure::of)?;
+        let rows = reply.field("rows");
+        let rest: Vec<String> = reply
+            .field("rest")
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
+        // A reply that leaves as many keys as were asked made no progress: never asked again.
+        if rest.len() >= keys.len() {
+            return Err(Failure::AcpmuxUnavailable);
+        }
+        let (more_live, more_running) = threads(&json!({"sessions": rows}));
+        live += more_live;
+        running += more_running;
+        for key in rest.into_iter().rev() {
+            queue.push_front(key);
+        }
+    }
+    Ok(Some(ListRead { live, running, rows: read }))
+}
+
+/// A list read that failed: past its deadline, or a socket or wire error.
+fn list_failure(error: std::io::Error) -> Failure {
+    match error.kind() {
+        std::io::ErrorKind::TimedOut => Failure::Timeout,
+        _ => Failure::AcpmuxUnavailable,
+    }
+}
+
+/// One chat of `status` in [`threads`]' counts.
+fn count(status: &str, live: &mut usize, running: &mut usize) {
+    match status {
+        "ready" => *live += 1,
+        "running" | "waiting" => {
+            *live += 1;
+            *running += 1;
+        }
+        _ => {}
+    }
 }
 
 /// acpmux's own rule (`harness_health::auto::updatable`) over a health row:
@@ -356,14 +471,7 @@ fn threads(sessions: &Value) -> (usize, usize) {
         if summary.get("peer").is_some_and(|peer| !peer.is_null()) || is_chief(summary) {
             continue;
         }
-        match summary.field("status").as_str() {
-            Some("ready") => live += 1,
-            Some("running" | "waiting") => {
-                live += 1;
-                running += 1;
-            }
-            _ => {}
-        }
+        count(summary.field("status").as_str().unwrap_or_default(), &mut live, &mut running);
     }
     (live, running)
 }
@@ -485,3 +593,7 @@ impl Mux {
 #[cfg(all(test, unix))]
 #[path = "agent_update_owner_tests.rs"]
 mod owner_tests;
+
+#[cfg(all(test, unix))]
+#[path = "agent_update_list_tests.rs"]
+mod list_tests;

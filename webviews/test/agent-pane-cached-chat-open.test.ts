@@ -16,6 +16,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -27,7 +28,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.had) Object.assign(scope, { window: saved.window, document: saved.document });
   else {
     delete scope.window;
@@ -591,8 +593,9 @@ test("switching away from a chat twice before its detaches answer attaches it af
     expect(settled).toBe(false);
     expect(attachesOfA()).toBe(before);
     daemon.releaseDetach();
-    // The switch the first detach held was superseded and attached nothing.
-    expect(await first).toBeUndefined();
+    // The first switch was superseded by B, but the newer select of the same chat (A) decides for it
+    // (direct.ts `select`, issue 44964): it resolves with that open's outcome, never undefined.
+    expect(await first).toBe(A);
     expect(await back).toBe(A);
     expect(attachesOfA()).toBe(before + 1);
     const order = daemon.sent.map((message) => `${message.method} ${String(message.params?.sessionId ?? "")}`);

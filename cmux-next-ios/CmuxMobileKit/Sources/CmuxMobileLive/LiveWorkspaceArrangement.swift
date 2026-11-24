@@ -1,6 +1,7 @@
 import CmuxMobileModel
 import CmuxMobileTransport
 import Foundation
+import OSLog
 
 /// Pin, color, order, read marks and Clear All Notifications on the linked
 /// Mac, with the commands the Mac's own sidebar sends (cmux-next-ios/SECURITY.md
@@ -38,15 +39,108 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         _ = try? await sync.listNow()
     }
 
+    /// Mark as Unread goes once. Mark as Read sticks (`StickyRead`): the phone already shows it
+    /// read (`seenAt`), and while the Mac's daemon is down or restarting the write and the tabs'
+    /// acks go again until it answers. It stops once the Mac's tree shows the workspace read, or
+    /// gone, once the person marks it again, or once this phone no longer links that Mac.
     public func setUnread(_ workspace: Workspace, _ unread: Bool) async throws {
-        let client = try daemonClient(workspace.macID)
-        try await metadata(client, workspace, ["marked_unread": unread])
-        if !unread {
-            for surface in Self.unreadSurfaces(of: workspace, in: sync.tree) {
-                _ = try? WorkspaceSync.check(await client.request("ack-tab-notifications", params: ["surface": surface]))
+        let mark = (readMarks[workspace.id] ?? 0) + 1
+        readMarks[workspace.id] = mark
+        guard !unread else {
+            let client = try daemonClient(workspace.macID)
+            try await metadata(client, workspace, ["marked_unread": true])
+            _ = try? await sync.listNow()
+            return
+        }
+        let tabs = Self.unreadMarks(of: workspace, in: sync.tree)
+        // The tree settles the read only once a try went: before it, a Mark as Unread still on its
+        // way may not show there yet, and this read must still go after it.
+        var tried = false
+        do {
+            _ = try await reads.send(stands: { readStands(workspace, mark: mark, settles: tried) }) {
+                tried = true
+                let client = try daemonClient(workspace.macID)
+                var params: [String: Any] = ["marked_unread": false]
+                Self.address(workspace, into: &params)
+                try WorkspaceSync.check(await client.request("set-workspace-metadata", params: params, deadline: Self.readDeadline))
+                try await acknowledge(Self.stillUnread(tabs, in: currentTree()), client: client)
             }
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
         }
         _ = try? await sync.listNow()
+    }
+
+    /// The most a read's try waits for its answer: a daemon that went quiet is tried again.
+    static let readDeadline: Duration = .seconds(15)
+
+    /// Whether Mark as Read `mark` of `workspace` still stands: still the newest, its Mac still
+    /// linked, and (when `settles` and this phone has the Mac's tree) the Mac still shows it unread.
+    private func readStands(_ workspace: Workspace, mark: Int, settles: Bool) -> Bool {
+        guard readMarks[workspace.id] == mark, link.target?.macID == workspace.macID else { return false }
+        guard settles, let tree = sync.tree, sync.macID == workspace.macID else { return true }
+        return tree.workspaces.first { $0.id == workspace.id }?.hasUnread == true
+    }
+
+    /// The Mac's tree as this try's connection lists it: one from before a reconnect may not show
+    /// a notification that came meanwhile. A list that fails leaves the read unanswered.
+    private func currentTree() async throws -> DaemonTree {
+        do {
+            return try await sync.listNow()
+        } catch {
+            throw LinkError(code: "no-tree", message: "The Mac's workspaces are not listed yet")
+        }
+    }
+
+    /// `ack-tab-notifications` for each of `surfaces`. A tab the Mac refuses (closed meanwhile)
+    /// is left; an unanswered one throws, so the read goes again.
+    private func acknowledge(_ surfaces: [Int], client: DaemonClient) async throws {
+        for surface in surfaces {
+            do {
+                try WorkspaceSync.check(await client.request("ack-tab-notifications", params: ["surface": surface], deadline: Self.readDeadline))
+            } catch is DaemonReplyError {
+                continue
+            }
+        }
+    }
+
+    /// A tab a read covers: its surface and the unread notification it showed (nil: no marker).
+    struct UnreadMark: Equatable, Sendable {
+        var surface: Int
+        var notification: Int?
+        /// When that notification was posted: a daemon that restarted numbers its markers anew,
+        /// and the time still names the same one.
+        var createdAt: Date?
+
+        init(surface: Int, marker: DaemonTree.NotificationMarker?) {
+            self.surface = surface
+            notification = marker.flatMap { $0.unread ? $0.notification : nil }
+            createdAt = marker.flatMap { $0.unread ? $0.createdAt : nil }
+        }
+
+        /// Whether `marker` still shows the notification read here unread (not a newer one).
+        func isStill(_ marker: DaemonTree.NotificationMarker?) -> Bool {
+            guard let marker, marker.unread else { return false }
+            if let createdAt, let now = marker.createdAt { return now <= createdAt }
+            return marker.notification == notification
+        }
+    }
+
+    /// `unreadSurfaces` with the notification each one showed.
+    nonisolated static func unreadMarks(of workspace: Workspace, in tree: DaemonTree?) -> [UnreadMark] {
+        unreadSurfaces(of: workspace, in: tree).map { UnreadMark(surface: $0, marker: tree?.notificationMarkers[$0]) }
+    }
+
+    /// The tabs of `marks` still to read in `tree` (all of them while there is none): one read
+    /// meanwhile, or showing a newer notification than the one read, is left (the person has
+    /// not seen a newer one).
+    nonisolated static func stillUnread(_ marks: [UnreadMark], in tree: DaemonTree?) -> [Int] {
+        guard let tree else { return marks.map(\.surface) }
+        return marks.compactMap { mark in
+            let marker = tree.notificationMarkers[mark.surface]
+            guard mark.notification != nil else { return marker?.unread == true ? nil : mark.surface }
+            return mark.isStill(marker) ? mark.surface : nil
+        }
     }
 
     /// The workspace's tabs the Mac shows unread; all of them when the Mac says
@@ -134,17 +228,50 @@ extension LiveWorkspaceCreationBackend: WorkspaceArrangementBackend, Notificatio
         try await resource(client, "notification.clear", [:], key: "cmux-next-ios-notification-clear")
     }
 
+    /// Mark All works while this Mac is linked, also while its daemon is down or reconnecting:
+    /// its reads wait for it (`StickyRead`).
+    public func canMarkAllNotificationsRead(on macID: String) -> Bool { link.target?.macID == macID }
+
     /// The Mac's Mark All Notifications as Read (`markAllNotificationsRead`): each tab whose
     /// notification is unread is read with `ack-tab-notifications`, as the Mac's handler acks
     /// every unread tab. Its notifications stay in the ledger (Clear All removes them).
+    ///
+    /// The tabs are the ones the Mac's last tree showed unread, read on in the background until
+    /// the Mac answers (`StickyRead`): a Mac whose daemon is down, restarting or silent never
+    /// makes another linked Mac's read wait. Returns how many tabs it reads.
     public func markAllNotificationsRead(on macID: String) async throws -> Int {
-        let client = try daemonClient(macID)
-        let surfaces = Self.unreadNotificationSurfaces(sync.tree)
-        for surface in surfaces {
-            try await run(client, "ack-tab-notifications", ["surface": surface])
+        guard canMarkAllNotificationsRead(on: macID) else { throw WorkspaceCreationError("Not connected") }
+        let tree = sync.macID == macID ? sync.tree : nil
+        let marks = Self.unreadNotificationSurfaces(tree).map { UnreadMark(surface: $0, marker: tree?.notificationMarkers[$0]) }
+        guard !marks.isEmpty else { return 0 }
+        let reads = reads
+        // task-owner: one Mark All the person made, sent again while this Mac is unanswered; ends
+        // on its answer, a refusal, every tab settled, or this backend or its Mac gone
+        Task { [weak self] in
+            do {
+                _ = try await reads.send(stands: { self?.markAllStands(marks, on: macID) == true }) {
+                    guard let self else { throw CancellationError() }
+                    let client = try self.daemonClient(macID)
+                    try await self.acknowledgeAll(Self.stillUnread(marks, in: self.currentTree()), client: client)
+                }
+            } catch {
+                creationLog.error("Mark All Notifications as Read refused: \(String(describing: error), privacy: .public)")
+            }
+            _ = try? await self?.sync.listNow()
         }
-        if !surfaces.isEmpty { _ = try? await sync.listNow() }
-        return surfaces.count
+        return marks.count
+    }
+
+    /// Mark All's acks: the first refusal stops it, as before.
+    private func acknowledgeAll(_ surfaces: [Int], client: DaemonClient) async throws {
+        for surface in surfaces {
+            try WorkspaceSync.check(await client.request("ack-tab-notifications", params: ["surface": surface], deadline: Self.readDeadline))
+        }
+    }
+
+    /// Whether Mark All on `macID` still has a tab to read and its Mac is still linked.
+    private func markAllStands(_ marks: [UnreadMark], on macID: String) -> Bool {
+        link.target?.macID == macID && (sync.macID != macID || !Self.stillUnread(marks, in: sync.tree).isEmpty)
     }
 
     /// Every tab the Mac shows with an unread notification, in surface order.

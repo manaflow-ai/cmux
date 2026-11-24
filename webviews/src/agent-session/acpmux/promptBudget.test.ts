@@ -70,6 +70,15 @@ test("a send over the budget waits for the originals still uploading, not for th
   expect(awaitsOriginals("hi", shots.slice(0, 2), () => true)).toBe(false);
 });
 
+test("a capture over the image cap holds a send under the budget until its original is saved", () => {
+  const shots = [screenshot(0, 1.5 * MIB, false), screenshot(1, 1.5 * MIB, false)];
+  const needs = (id: string) => id === shots[1]!.id;
+  // Still uploading: the send waits, so the agent gets the full original and not only the preview.
+  expect(awaitsOriginals("hi", shots, () => true, {}, undefined, needs)).toBe(true);
+  // Saved (or its upload ended): the send goes.
+  expect(awaitsOriginals("hi", shots, (id) => id !== shots[1]!.id, {}, undefined, needs)).toBe(false);
+});
+
 test("text is counted as the UTF-8 JSON it goes as", () => {
   expect(inlineBytes([{ type: "text", text: "é".repeat(1000) }])).toBeGreaterThanOrEqual(2000);
   expect(inlineBytes([{ type: "text", text: '"'.repeat(1000) }])).toBeGreaterThanOrEqual(2000);

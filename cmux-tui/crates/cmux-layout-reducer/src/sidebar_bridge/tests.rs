@@ -297,6 +297,18 @@ fn only_a_dropped_link_reconnects_on_use() {
 }
 
 #[test]
+fn a_machines_row_link_is_connected_first_then_what_its_server_says() {
+    assert_eq!(row_link(true, false, None), LinkState::Connected);
+    assert_eq!(row_link(true, false, Some(ServerState::Paused)), LinkState::Connected);
+    assert_eq!(row_link(false, true, None), LinkState::Connecting);
+    assert_eq!(row_link(false, false, Some(ServerState::Resuming)), LinkState::Connecting);
+    assert_eq!(row_link(false, true, Some(ServerState::Paused)), LinkState::Paused);
+    assert_eq!(row_link(false, false, Some(ServerState::Failed)), LinkState::Offline);
+    assert_eq!(row_link(false, false, Some(ServerState::Deleted)), LinkState::Offline);
+    assert_eq!(row_link(false, false, None), LinkState::Offline);
+}
+
+#[test]
 fn notice_buttons_go_to_their_owner() {
     assert_eq!(
         notice_action("update", "update-remind-day", true, false, false),
@@ -352,6 +364,10 @@ fn an_app_click_prefers_apps_open_then_the_interim_show_action_then_its_page() {
     assert_eq!(
         app_activation("cmux/app-store"),
         vec![open("cmux.apps.open"), show("appStore.show"), open("app.open")]
+    );
+    assert_eq!(
+        app_activation("cmux/cloud"),
+        vec![open("cmux.apps.open"), show("palette.openCloudPane"), open("app.open")]
     );
     assert_eq!(app_activation("acme/notes"), vec![open("cmux.apps.open"), open("app.open")]);
 }

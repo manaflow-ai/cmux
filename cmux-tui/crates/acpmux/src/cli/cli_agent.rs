@@ -53,6 +53,13 @@ pub struct Options {
     /// terminal (stdin stays the prompt pipe), for a program that prints
     /// only to a terminal.
     pub tty: bool,
+    /// The program only prints and changes nothing (the profile's owner says so): the agent
+    /// tells acpmux at `initialize` that it asks before every tool call (`asksBeforeTools`; it
+    /// makes none), so a narrower permission policy, such as the `ask` every remote start asks
+    /// for, holds on it. Without it acpmux refuses such a start (`policy_unenforceable`): the
+    /// Cloud carrier drill's no-model agent (cmuxterm-hq run 43973035740). acpmux believes the
+    /// claim only from a harness entry of its own config (`hub/policy_mode.rs`).
+    pub prints_only: bool,
 }
 
 /// The text one prompt sends to the program: its text blocks, or with
@@ -65,16 +72,25 @@ pub fn prompt_text(blocks: &[Value], last_block: bool) -> String {
     // alongside the last typed block even for stateful CLI adapters (UniiChat).
     let (context, ordinary): (Vec<_>, Vec<_>) =
         blocks.iter().partition(|b| crate::prompt_context::is_context(b));
+    // acpmux's line naming who wrote the prompt (`hub/prompt_attribution.rs`) is none of its
+    // blocks to choose from: it goes first, ahead of the typed text it names.
+    let (lead, ordinary): (Vec<_>, Vec<_>) =
+        ordinary.into_iter().partition(|b| crate::hub::prompt_attribution_lead(b));
     let texts = ordinary
         .iter()
         .filter(|b| b.get("type").and_then(Value::as_str) == Some("text"))
         .filter_map(|b| Some((b.get("text").and_then(Value::as_str)?, is_pasted(b))));
     let (pasted, typed): (Vec<_>, Vec<_>) = texts.partition(|(_, pasted)| *pasted);
-    let mut text = if last_block {
-        typed.last().map(|(t, _)| (*t).to_owned()).unwrap_or_default()
+    let mut text: String = lead
+        .iter()
+        .filter_map(|b| b.get("text").and_then(Value::as_str))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    if last_block {
+        text.push_str(typed.last().map(|(t, _)| *t).unwrap_or_default());
     } else {
-        typed.iter().map(|(t, _)| *t).collect()
-    };
+        text.extend(typed.iter().map(|(t, _)| *t));
+    }
     for block in context {
         if let Some(context) = block.get("text").and_then(Value::as_str) {
             if !text.is_empty() {
@@ -265,6 +281,24 @@ pub async fn run(options: Options) -> Result<()> {
     Ok(())
 }
 
+/// The `initialize` answer: with `prints_only`, the `asksBeforeTools` claim ([`Options`]).
+fn initialize_result(options: &Options) -> Value {
+    let mut capabilities = json!({
+        "loadSession": true,
+        "promptCapabilities": {"image": false, "audio": false, "embeddedContext": false},
+        "mcpCapabilities": {"http": false, "sse": false}
+    });
+    if let (true, Some(fields)) = (options.prints_only, capabilities.as_object_mut()) {
+        fields.insert("_meta".into(), json!({"acpmux": {"asksBeforeTools": true}}));
+    }
+    json!({
+        "protocolVersion": 1,
+        "agentCapabilities": capabilities,
+        "agentInfo": {"name": "acpmux-cli-agent", "version": env!("CARGO_PKG_VERSION")},
+        "authMethods": []
+    })
+}
+
 fn reply(tx: &Out, id: &Value, result: Value) {
     let _ = tx.send(json!({"jsonrpc": "2.0", "id": id, "result": result}));
 }
@@ -281,20 +315,7 @@ async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, t
     let session_of =
         |p: &Value| p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
     match (method.as_str(), id) {
-        ("initialize", Some(id)) => reply(
-            tx,
-            &id,
-            json!({
-                "protocolVersion": 1,
-                "agentCapabilities": {
-                    "loadSession": true,
-                    "promptCapabilities": {"image": false, "audio": false, "embeddedContext": false},
-                    "mcpCapabilities": {"http": false, "sse": false}
-                },
-                "agentInfo": {"name": "acpmux-cli-agent", "version": env!("CARGO_PKG_VERSION")},
-                "authMethods": []
-            }),
-        ),
+        ("initialize", Some(id)) => reply(tx, &id, initialize_result(options)),
         ("session/new", Some(id)) => {
             let mut s = state.lock().await;
             s.next += 1;
@@ -513,9 +534,8 @@ const TTY_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
 /// it and nobody selects in it, and its output is parsed into ACP
 /// `agent_message_chunk` updates (hence `NO_COLOR=1` above). So it sets no
 /// terminal identity and is not one of the terminal child paths that apply
-/// `cmux_pty::UNSET_IN_TERMINAL_CHILDREN` (cmux#22585): a Ghostty version
-/// here cannot cost anyone a mouse selection, and changing what the program
-/// sees would change the text this parses.
+/// `cmux_pty::TERMINAL_IDENTITY`: changing what the program sees would
+/// change the text this parses.
 #[cfg(unix)]
 fn attach_tty(cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::File> {
     use std::os::fd::{FromRawFd, OwnedFd};
@@ -583,100 +603,5 @@ fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn last_block_sends_only_the_new_messages() {
-        let blocks = vec![
-            json!({"type": "text", "text": "view line 1\n"}),
-            json!({"type": "image", "data": "x"}),
-            json!({"type": "text", "text": "hello unii"}),
-        ];
-        assert_eq!(prompt_text(&blocks, true), "hello unii");
-        assert_eq!(prompt_text(&blocks, false), "view line 1\nhello unii");
-        assert_eq!(prompt_text(&[], true), "");
-    }
-
-    #[test]
-    fn last_block_keeps_hidden_context_beside_the_user_request() {
-        let blocks = vec![
-            json!({"type": "text", "text": "older view"}),
-            json!({"type": "text", "text": "fix the grid"}),
-            crate::context_inventory::override_block("read early", "user"),
-        ];
-        for last in [true, false] {
-            let text = prompt_text(&blocks, last);
-            assert!(text.contains("fix the grid"), "{text}");
-            assert!(text.contains("read early"), "{text}");
-            assert_eq!(text.contains("older view"), !last, "{text}");
-        }
-    }
-
-    /// A huge paste in cmux's composer goes as its own text block after the
-    /// typed one (`_meta.cmux.pasted`): the turn is the typed text and every
-    /// paste, a blank line between them, in both modes.
-    #[test]
-    fn a_pasted_block_goes_with_the_typed_text() {
-        let pasted =
-            |text: &str| json!({"type": "text", "text": text, "_meta": {"cmux": {"pasted": true}}});
-        let blocks = vec![
-            json!({"type": "text", "text": "view line 1\n"}),
-            json!({"type": "text", "text": "why does this fail?"}),
-            pasted("line 1\n\nline 3"),
-            pasted("second paste"),
-        ];
-        assert_eq!(
-            prompt_text(&blocks, true),
-            "why does this fail?\n\nline 1\n\nline 3\n\nsecond paste"
-        );
-        assert_eq!(
-            prompt_text(&blocks, false),
-            "view line 1\nwhy does this fail?\n\nline 1\n\nline 3\n\nsecond paste"
-        );
-        assert_eq!(prompt_text(&[pasted("only a paste")], true), "only a paste");
-    }
-
-    #[test]
-    fn strips_escapes() {
-        assert_eq!(strip_ansi("\u{1b}[1mPONG\u{1b}[0m\r"), "PONG");
-        assert_eq!(strip_ansi("a\u{1b}]8;;http://x\u{7}b"), "ab");
-    }
-
-    #[test]
-    fn after_echo_keeps_only_the_reply_after_the_last_echo() {
-        let out = [
-            "  ╭─ result ───╮",
-            "  │ 1 5536+0|user: earlier │",
-            "  ╰──────────────╯",
-            "  ╭──────────────────────╮",
-            "  │ Reply with exactly:  │",
-            "  │ PONG                 │",
-            "  ╰──────────────────────╯",
-            "  An earlier PONG.",
-            "  ╭──────────────────────╮",
-            "  │ Reply with exactly:  │",
-            "  │ PONG                 │",
-            "  ╰──────────────────────╯",
-            "",
-            "  PONG",
-        ];
-        let mut f = ReplyFilter::new("Reply with exactly: PONG", true);
-        assert!(out.iter().all(|l| f.push(l).is_none()));
-        assert_eq!(f.finish().as_deref(), Some("PONG\n"));
-    }
-
-    #[test]
-    fn after_echo_without_an_echo_loses_nothing() {
-        let mut f = ReplyFilter::new("hi", true);
-        assert_eq!(f.push("just text"), None);
-        assert_eq!(f.finish().as_deref(), Some("just text\n"));
-    }
-
-    #[test]
-    fn plain_mode_streams_every_line() {
-        let mut f = ReplyFilter::new("hi", false);
-        assert_eq!(f.push("  hello").as_deref(), Some("  hello\n"));
-        assert_eq!(f.finish(), None);
-    }
-}
+#[path = "cli_agent_tests.rs"]
+mod tests;

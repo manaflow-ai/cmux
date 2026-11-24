@@ -328,6 +328,9 @@ pub struct PresentationSnapshot {
     pub home_workspace: Option<String>,
     /// The app of every live app workspace, by workspace key (`app-screens-v1`).
     pub app_workspaces: HashMap<String, String>,
+    /// Terminal ids the daemon recovered from orphaned hosts (`workspace-recovered-v1`): their
+    /// durable rows keep the recovered launch spec (`mux/orphan_hosts.rs`).
+    pub recovered_terminals: HashSet<String>,
     /// App tab records, by public browser id (`app-screens-v1`).
     pub app_tabs: HashMap<String, crate::state::app_workspaces::AppTabRecord>,
     /// Tab groups of every pane, rendered with Chrome-style colors.
@@ -340,6 +343,8 @@ pub struct PresentationSnapshot {
     pub saved_screen_groups: Vec<super::SavedScreenGroupRecord>,
     /// Keep-layout records of live tabs by public tab id (`kept_tab_store`).
     pub kept_tabs: HashMap<String, super::KeptTabRecord>,
+    /// Attention marks of live tabs by public tab id (`tab-attention-v1`).
+    pub tab_attention: HashMap<String, super::TabAttentionRecord>,
 }
 
 /// The nine tab group colors. Frontends render them as muted tints.
@@ -877,7 +882,16 @@ pub(crate) fn write_workspace_presentation(
         anyhow::ensure!(exists, "unknown workspace group {group}");
     }
     let mut record = read_workspace_presentation(transaction, workspace_key)?;
+    let before = record.clone();
     update.apply_to(&mut record);
+    if record == before {
+        // A repeated update (a script setting the same task status at ~10 Hz) writes no row and
+        // journals no fact.
+        if update.pinned.is_some() {
+            crate::state::sidebar_doc_sync::sync_from_legacy(transaction)?;
+        }
+        return Ok(());
+    }
     if record.is_empty() {
         transaction.execute(
             "DELETE FROM workspace_presentation WHERE workspace_key = ?1",
@@ -1244,12 +1258,27 @@ impl WorkspaceRegistry {
     /// Notification ids acknowledged as read on the shared console. A
     /// restart restores an unread marker only for unacknowledged ones.
     pub(crate) fn acked_notification_ids(&self) -> anyhow::Result<HashSet<String>> {
+        acked_notification_ids_in(&self.connection.get())
+    }
+
+    /// When each notification was first read, by id: its console acknowledgement
+    /// (`notification_acks`) or a client's read (`resource_notification_reads`),
+    /// whichever came first. Both tables keep only retained notifications, so
+    /// this is bounded by the ledger.
+    pub(crate) fn notification_first_reads(&self) -> anyhow::Result<HashMap<String, u64>> {
         let db = self.connection.get();
-        let mut statement = db.prepare("SELECT notification_id FROM notification_acks")?;
-        let ids = statement
-            .query_map([], |row| row.get::<_, String>(0))?
-            .collect::<Result<HashSet<_>, _>>()?;
-        Ok(ids)
+        let mut statement = db.prepare(
+            "SELECT notification_id, MIN(at) FROM (
+               SELECT notification_id, acked_at_ms AS at FROM notification_acks
+               UNION ALL
+               SELECT notification_id, read_at_ms AS at FROM resource_notification_reads
+             ) GROUP BY notification_id",
+        )?;
+        let reads = statement
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+            .map(|row| row.map(|(id, at)| (id, u64::try_from(at).unwrap_or(0))))
+            .collect::<Result<HashMap<_, _>, _>>()?;
+        Ok(reads)
     }
 
     /// Replace every tab group and membership (metadata-only changes that leave tab order alone).
@@ -1279,4 +1308,13 @@ impl WorkspaceRegistry {
         tx.commit()?;
         Ok(removed)
     }
+}
+
+/// The acknowledged notification ids, read on `db` (the registry's connection or the read-only one).
+pub(crate) fn acked_notification_ids_in(db: &Connection) -> anyhow::Result<HashSet<String>> {
+    let mut statement = db.prepare("SELECT notification_id FROM notification_acks")?;
+    let ids = statement
+        .query_map([], |row| row.get::<_, String>(0))?
+        .collect::<Result<HashSet<_>, _>>()?;
+    Ok(ids)
 }

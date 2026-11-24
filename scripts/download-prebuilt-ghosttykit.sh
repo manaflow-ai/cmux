@@ -22,6 +22,9 @@ independently of build caches. --print-release prints the release tag and
 archive name for GHOSTTY_SHA (or the submodule) and exits, without reading the
 checksums (scripts/cmux-next/ghosttykit-checksum.sh pins them from it).
 
+GHOSTTYKIT_VERIFY_BY_DIGEST=1 makes --verify-only accept the release asset's
+published sha256 digest when it equals the pin, without downloading.
+
 GHOSTTYKIT_ARCHIVE_CACHE_DIR, when set, keeps each verified archive there under
 its pinned sha256 and reuses it instead of downloading again. --verify-only
 never reads or writes it.
@@ -157,6 +160,45 @@ if [ -n "$CACHED_ARCHIVE" ] && [ -f "$CACHED_ARCHIVE" ]; then
   fi
 fi
 
+# A release download that keeps failing goes once through the release-assets API, which serves the same file
+# another way (2026-11-08: every release download answered 504 for hours while the API served the same bytes).
+# The checksum below judges what it gets.
+fetch_via_release_api() {
+  [[ "$DOWNLOAD_URL" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$ ]] || return 1
+  local api="https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}" name="${BASH_REMATCH[4]}" asset_url
+  echo "Fetching $ARCHIVE_NAME through the release-assets API" >&2
+  asset_url="$(curl --fail --silent --show-error --location --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" \
+    --max-time "$DOWNLOAD_MAX_TIME" \
+    -H 'Accept: application/vnd.github+json' "$api/releases/tags/${BASH_REMATCH[3]}" \
+    | python3 -c 'import json, sys; print(next(a["url"] for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]))' "$name")" \
+    || return 1
+  rm -f "$ARCHIVE_PATH"
+  curl --fail --show-error --location --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" --max-time "$DOWNLOAD_MAX_TIME" \
+    -H 'Accept: application/octet-stream' -o "$ARCHIVE_PATH" "$asset_url"
+}
+
+# --verify-only with GHOSTTYKIT_VERIFY_BY_DIGEST=1 asks the release-assets API for the asset's
+# sha256 (GitHub computes it at upload) and stops when it equals the pin: the published bytes are
+# the pinned bytes, without downloading 123 MB. On 2026-11-23 a runner holding about 100 KB/s
+# spent 17 min on that download and failed (job 137831575500). Any other answer (no digest, a
+# different one, an API error) falls through to the download and full check below; a PR that
+# changes the pin, which runs no Mac job to unpack it, leaves the variable unset.
+if [ "$VERIFY_ONLY" -eq 1 ] && [ "${GHOSTTYKIT_VERIFY_BY_DIGEST:-0}" = 1 ] &&
+   [[ "$DOWNLOAD_URL" =~ ^https://github\.com/([^/]+)/([^/]+)/releases/download/([^/]+)/([^/]+)$ ]]; then
+  digest_auth=()
+  [ -n "${GITHUB_TOKEN:-}" ] && digest_auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
+  published_digest="$(curl --fail --silent --show-error --location --connect-timeout "$DOWNLOAD_CONNECT_TIMEOUT" \
+    --max-time 60 "${digest_auth[@]}" -H 'Accept: application/vnd.github+json' \
+    "https://api.github.com/repos/${BASH_REMATCH[1]}/${BASH_REMATCH[2]}/releases/tags/${BASH_REMATCH[3]}" \
+    | python3 -c 'import json, sys; print(next((a.get("digest") or "" for a in json.load(sys.stdin)["assets"] if a["name"] == sys.argv[1]), ""))' "${BASH_REMATCH[4]}" \
+    2>/dev/null || true)"
+  if [ "$published_digest" = "sha256:$EXPECTED_SHA256" ]; then
+    echo "Verified $ARCHIVE_NAME for ghostty $GHOSTTY_SHA (release asset digest equals the pinned sha256)"
+    exit 0
+  fi
+  echo "Release asset digest '${published_digest:-none}' is not sha256:$EXPECTED_SHA256; downloading to check" >&2
+fi
+
 # Each attempt is its own curl process so --continue-at resumes from the bytes
 # already on disk; curl's built-in --retry starts the file over.
 if [ "$FROM_CACHE" -eq 0 ]; then
@@ -177,8 +219,7 @@ if [ "$FROM_CACHE" -eq 0 ]; then
       break
     fi
     if [ "$attempt" -gt "$DOWNLOAD_RETRIES" ]; then
-      echo "Failed to download $ARCHIVE_NAME after $attempt attempts (curl exit $status)" >&2
-      exit 1
+      break
     fi
     # 33: the server refused the byte range, so the partial file cannot be resumed.
     if [ "$status" -eq 33 ]; then
@@ -187,6 +228,14 @@ if [ "$FROM_CACHE" -eq 0 ]; then
     echo "Download attempt $attempt failed (curl exit $status); retrying in ${DOWNLOAD_RETRY_DELAY}s" >&2
     sleep "$DOWNLOAD_RETRY_DELAY"
   done
+  # The API fallback runs once, after the retries, never inside the sleeping loop:
+  # the loop must not call the GitHub API (tests/test_ci_no_github_token_polling.py).
+  if [ "$status" -ne 0 ] && ! archive_matches_checksum; then
+    if ! { fetch_via_release_api && archive_matches_checksum; }; then
+      echo "Failed to download $ARCHIVE_NAME after $attempt attempts (curl exit $status)" >&2
+      exit 1
+    fi
+  fi
 fi
 
 ACTUAL_SHA256="$(shasum -a 256 "$ARCHIVE_PATH" | awk '{print $1}')"

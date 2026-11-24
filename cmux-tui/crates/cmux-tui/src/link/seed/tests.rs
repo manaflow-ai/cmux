@@ -108,6 +108,7 @@ fn previous_of(planned: &Planned) -> PreviousSeed {
         head: planned.params.head.clone(),
         index: planned.params.index.clone(),
         work: planned.params.work.clone(),
+        stash: planned.params.stash.clone(),
     }
 }
 
@@ -290,6 +291,10 @@ fn a_seed_plan_never_writes_skipped_secret_blobs_into_local_git_objects() {
         ("config/colon:name.key", "FAKE_KEY_UNTRACKED\n"),
         ("secrets/id_rsa", "FAKE_SSH_KEY_UNTRACKED\n"),
         (".npmrc", "//registry.example.invalid/:_authToken=FAKE_ONLY\n"),
+        // A plain copy's credential folders and files, by the same rule.
+        (".aws/credentials", "[default]\naws_secret_access_key=FAKE_ONLY\n"),
+        (".config/gh/hosts.yml", "github.com:\n  oauth_token: FAKE_ONLY\n"),
+        (".cargo/credentials.toml", "[registry]\ntoken = \"FAKE_ONLY\"\n"),
     ];
     for &(path, contents) in &excluded {
         write(&work.join(path), contents);
@@ -402,8 +407,14 @@ fn sparse_patterns_are_sent() {
 fn lfs_attributes_are_noticed() {
     let f = Fixture::new();
     write(&f.work.join(".gitattributes"), "*.psd filter=lfs diff=lfs merge=lfs -text\n");
+    write(&f.work.join("art/.gitattributes"), "*.png filter=lfs diff=lfs merge=lfs -text\n");
+    write(&f.work.join("docs/.gitattributes"), "*.md text\n");
     let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
     assert!(planned.params.lfs);
+    // Where they are, for a head-first seed to tell whether one reaches its head.
+    let mut files = planned.lfs_attributes;
+    files.sort();
+    assert_eq!(files, [".gitattributes", "art/.gitattributes"]);
 }
 
 #[test]
@@ -456,6 +467,58 @@ fn bases_fall_back_to_the_default_tip() {
     assert!(!machine.join("upstream.txt").exists());
 }
 
+/// A clean checkout of a pushed feature branch, on a local branch with no
+/// upstream, in a clone that fetches only another branch (so no
+/// `origin/HEAD`, `origin/main` or `origin/master`): the seed bases on the
+/// remote branch that has HEAD and sends almost nothing. RED before: no base
+/// was found (`no_base`) and the start copied the whole folder (46,516 files,
+/// 1.8 GB for a cmux checkout) instead of cloning it on the machine.
+#[test]
+fn a_pushed_head_with_no_upstream_and_no_default_branch_seeds_from_the_remote() {
+    let f = Fixture::new();
+    git(&f.work, &["checkout", "-q", "-b", "feature", "--no-track"]);
+    write(&f.work.join("src/feature.rs"), "pub fn feature() {}\n");
+    git(&f.work, &["add", "-A"]);
+    git(&f.work, &["commit", "-q", "-m", "feature"]);
+    git(&f.work, &["push", "-q", "origin", "HEAD:feature"]);
+    // The person's clone tracks one other branch only, and the local branch
+    // has another name with no upstream.
+    git(&f.work, &["checkout", "-q", "-b", "local-name", "--no-track"]);
+    git(&f.work, &["branch", "-q", "-D", "feature"]);
+    git(&f.work, &["update-ref", "-d", "refs/remotes/origin/HEAD"]);
+    git(&f.work, &["update-ref", "-d", "refs/remotes/origin/main"]);
+    git(&f.work, &["fetch", "-q", "origin", "+refs/heads/feature:refs/remotes/origin/feature"]);
+    let head = git(&f.work, &["rev-parse", "HEAD"]);
+    let planned = plan(&f.work, &f.path("seed.bundle")).unwrap();
+    assert_eq!(planned.params.base, head, "the remote branch that has HEAD");
+    assert_eq!(planned.bases, vec![head.clone()]);
+    // The bundle names HEAD as its prerequisite: no commit goes, only the state.
+    assert_eq!(bundle_prerequisites(&f.path("seed.bundle")), vec![head.clone()]);
+    let machine = f.machine(&planned, &f.path("seed.bundle"), "machine");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert_eq!(
+        std::fs::read_to_string(machine.join("src/feature.rs")).unwrap(),
+        "pub fn feature() {}\n"
+    );
+
+    // A commit made since the push: the base is the pushed commit under it.
+    write(&f.work.join("later.txt"), "later\n");
+    git(&f.work, &["add", "later.txt"]);
+    git(&f.work, &["commit", "-q", "-m", "not pushed"]);
+    let planned = plan(&f.work, &f.path("later.bundle")).unwrap();
+    assert_eq!(planned.params.base, head, "the newest pushed commit under HEAD");
+    let machine = f.machine(&planned, &f.path("later.bundle"), "machine-later");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert!(machine.join("later.txt").exists());
+}
+
+/// A submodule whose commit is on its remote seeds at that commit even with
+/// uncommitted changes in it: the changes stay on this Mac and the plan
+/// names the submodule, so the folder is cloned on the machine instead of
+/// copied whole. RED before: any uncommitted change in a submodule refused
+/// the seed (cmuxterm-hq's three submodules), and the start copied 12.8 GB.
+/// A submodule commit that is not on its remote still refuses: the machine
+/// could not fetch it.
 #[test]
 fn submodule_local_work_falls_back() {
     let f = Fixture::new();
@@ -477,8 +540,15 @@ fn submodule_local_work_falls_back() {
 
     let checkout = f.work.join("vendor/lib");
     write(&checkout.join("lib.txt"), "dirty\n");
-    let dirty = plan(&f.work, &f.path("seed.bundle")).unwrap_err();
-    assert_eq!(dirty.code, FallbackCode::SubmoduleLocalWork, "{}", dirty.why);
+    let dirty = plan(&f.work, &f.path("seed.bundle")).unwrap_or_else(|why| panic!("{why:?}"));
+    assert_eq!(dirty.submodules[0].commit, lib_head);
+    let named: Vec<(&str, &str)> =
+        dirty.skipped.iter().map(|item| (item.path.as_str(), item.why.as_str())).collect();
+    assert_eq!(
+        named,
+        [("vendor/lib/", "a submodule's uncommitted changes stay on this Mac")],
+        "{named:?}"
+    );
     git(&checkout, &["commit", "-q", "-am", "local only"]);
     let unpushed = plan(&f.work, &f.path("seed.bundle")).unwrap_err();
     assert_eq!(unpushed.code, FallbackCode::SubmoduleLocalWork, "{}", unpushed.why);
@@ -598,10 +668,72 @@ fn a_delta_seed_needs_the_previous_commits() {
     let f = Fixture::new();
     let head = git(&f.work, &["rev-parse", "HEAD"]);
     let missing = "0123456789abcdef0123456789abcdef01234567".to_string();
-    let previous = PreviousSeed { head: head.clone(), index: missing.clone(), work: missing };
+    let previous =
+        PreviousSeed { head: head.clone(), index: missing.clone(), work: missing, stash: None };
     let fallback = plan_since(&f.work, &f.path("seed.bundle"), &previous).unwrap_err();
     assert_eq!(fallback.code, FallbackCode::NoPrevious, "{}", fallback.why);
-    let short = PreviousSeed { head: head[..7].to_string(), index: head.clone(), work: head };
+    let short =
+        PreviousSeed { head: head[..7].to_string(), index: head.clone(), work: head, stash: None };
     let fallback = plan_since(&f.work, &f.path("seed.bundle"), &short).unwrap_err();
     assert_eq!(fallback.code, FallbackCode::NoPrevious);
+}
+
+#[test]
+fn untracked_heavy_folders_and_files_past_the_cap_stay_here_and_are_named() {
+    // The fixture's .gitignore names node_modules/, so the heavy folder here is one it doesn't.
+    let f = Fixture::new();
+    let work = &f.work;
+    write(&work.join("notes.txt"), "ordinary untracked work\n");
+    write(&work.join("web/package.json"), "{}\n");
+    write(&work.join("web/.next/server/page.js"), "module.exports = 1;\n");
+    write(&work.join("web/.next/build-manifest.json"), "{}\n");
+    write(&work.join("assets/model.bin"), vec![7_u8; 6 * 1024 * 1024]);
+    write(&work.join("assets/icon.png"), vec![7_u8; 64 * 1024]);
+    // Past the one-file cap: sparse, so the test writes nothing.
+    std::fs::File::create(work.join("assets/huge.bin"))
+        .unwrap()
+        .set_len(super::plan::BIG_UNTRACKED_FILE_CAP + 1)
+        .unwrap();
+
+    let planned = plan(work, &f.path("seed.bundle")).unwrap();
+    let skipped: Vec<(&str, &str)> =
+        planned.skipped.iter().map(|item| (item.path.as_str(), item.why.as_str())).collect();
+    let heavy = skipped.iter().filter(|(path, _)| path.contains(".next")).collect::<Vec<_>>();
+    assert_eq!(heavy.len(), 1, "one entry for the heavy folder, none for its files: {skipped:?}");
+    assert_eq!(heavy[0].0, "web/.next/");
+    assert!(heavy[0].1.contains("heavy folder"), "{skipped:?}");
+    // A big file under the cap goes (RFD 0066 piece 4); one past it is named with its size.
+    let huge = skipped.iter().find(|(path, _)| *path == "assets/huge.bin");
+    assert!(huge.is_some_and(|(_, why)| why.contains("100 MB")), "{skipped:?}");
+    assert!(!skipped.iter().any(|(path, _)| *path == "assets/model.bin"), "{skipped:?}");
+    assert!(!skipped.iter().any(|(path, _)| *path == "assets/icon.png"), "{skipped:?}");
+
+    let work_paths = git(work, &["ls-tree", "-r", "--name-only", &planned.params.work]);
+    assert!(work_paths.lines().any(|path| path == "notes.txt"), "{work_paths}");
+    assert!(work_paths.lines().any(|path| path == "web/package.json"), "{work_paths}");
+    assert!(work_paths.lines().any(|path| path == "assets/icon.png"), "{work_paths}");
+    assert!(!work_paths.contains(".next"), "{work_paths}");
+    assert!(work_paths.lines().any(|path| path == "assets/model.bin"), "{work_paths}");
+    assert!(!work_paths.contains("huge.bin"), "{work_paths}");
+    let model =
+        git(work, &["cat-file", "-s", &format!("{}:assets/model.bin", planned.params.work)]);
+    assert_eq!(model, (6 * 1024 * 1024).to_string());
+}
+
+#[test]
+fn big_untracked_files_share_one_budget_and_the_rest_are_named() {
+    use super::plan::{BIG_UNTRACKED_FILE_CAP, BIG_UNTRACKED_TOTAL_CAP, big_left_here};
+    let mut sent = 0;
+    assert_eq!(big_left_here(BIG_UNTRACKED_FILE_CAP, &mut sent), None);
+    assert_eq!(sent, BIG_UNTRACKED_FILE_CAP);
+    let over = big_left_here(BIG_UNTRACKED_FILE_CAP + 1, &mut sent).unwrap();
+    assert!(over.contains("100 MB") && over.contains("limit for one untracked file"), "{over}");
+    assert_eq!(sent, BIG_UNTRACKED_FILE_CAP, "a file left here counts for nothing");
+    sent = BIG_UNTRACKED_TOTAL_CAP - 10_000_000;
+    let past = big_left_here(20_000_000, &mut sent).unwrap();
+    assert!(past.contains("(20 MB)") && past.contains("carries 990 MB"), "{past}");
+    assert!(past.contains("limit is 1 GB"), "{past}");
+    // A smaller one that still fits goes after it.
+    assert_eq!(big_left_here(10_000_000, &mut sent), None);
+    assert_eq!(sent, BIG_UNTRACKED_TOTAL_CAP);
 }

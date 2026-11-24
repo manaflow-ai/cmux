@@ -23,9 +23,11 @@ extension NativePopupContent {
                 return row
             }
         }
-        guard structure(next.rows) == structure(model.rows), structure(next.rail) == structure(model.rail),
-              structure(next.footer) == structure(model.footer) else { return false }
-        let rows = (next.rail ?? []) + next.rows + (next.footer ?? [])
+        // Only the rows' structure counts: the revision and other fields change on every echo.
+        let incoming = next.mappingRows { structure($0) ?? [] }, shown = model.mappingRows { structure($0) ?? [] }
+        guard incoming.rows == shown.rows, incoming.rail == shown.rail, incoming.footer == shown.footer,
+              incoming.columns == shown.columns, incoming.searchAccessory == shown.searchAccessory else { return false }
+        let rows = next.allRows
         for row in rows where row.kind == .slider {
             if let view = rowView(id: row.id) as? NativePopupSliderView { view.update(row: row) }
             else if let slider = editableControls[row.id] as? NativePopupTrackingSlider, !slider.isInteracting {

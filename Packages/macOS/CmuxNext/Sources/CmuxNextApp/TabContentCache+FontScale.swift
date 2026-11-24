@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextTerminal
 import Foundation
 
@@ -9,7 +10,7 @@ import Foundation
 extension TabContentCache {
     /// A session for `tab` that follows its record's font scale.
     func makeSession(io: any TerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
-        let session = TerminalSession(io: io, ownsGeometry: true)
+        let session = TerminalSession(io: io, ownsGeometry: true, localEcho: localEcho)
         let key = tab.id
         if daemon.store.session.known {
             if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }

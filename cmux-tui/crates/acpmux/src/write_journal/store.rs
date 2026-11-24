@@ -2,7 +2,7 @@
 
 use super::Entry;
 use serde::{Deserialize, Serialize};
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -65,7 +65,7 @@ impl FileJournalStore {
     /// Creates the folder and makes its link in its parent durable, once per store.
     fn ensure_dir(&self) -> io::Result<()> {
         use std::sync::atomic::Ordering;
-        std::fs::create_dir_all(&self.dir)?;
+        crate::home_fs::create_dirs(&self.dir)?;
         if !self.dir_durable.load(Ordering::SeqCst) {
             if let Some(parent) = self.dir.parent().filter(|p| !p.as_os_str().is_empty()) {
                 sync_dir(parent)?;
@@ -129,7 +129,7 @@ impl JournalStore for FileJournalStore {
         self.ensure_dir()?;
         let path = self.path_for(machine);
         drop_torn_tail(&path)?;
-        let mut file = OpenOptions::new().create(true).append(true).open(&path)?;
+        let mut file = crate::home_fs::OpenOptions::new().create(true).append(true).open(&path)?;
         let before = file.metadata()?.len();
         let written = file
             .write_all(line_of(&Line::Entry(entry.clone()))?.as_bytes())
@@ -184,7 +184,7 @@ pub(super) fn sync_dir(dir: &Path) -> io::Result<()> {
 /// line of its own. That append's tool result never returned, so nothing relied on it.
 fn drop_torn_tail(path: &Path) -> io::Result<()> {
     use std::io::{Read, Seek, SeekFrom};
-    let mut f = match OpenOptions::new().read(true).write(true).open(path) {
+    let mut f = match crate::home_fs::OpenOptions::new().read(true).write(true).open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(e) => return Err(e),
@@ -205,4 +205,37 @@ fn drop_torn_tail(path: &Path) -> io::Result<()> {
     let keep = bytes.iter().rposition(|&c| c == b'\n').map_or(0, |i| i.saturating_add(1));
     f.set_len(u64::try_from(keep).unwrap_or(len))?;
     f.sync_data()
+}
+
+/// A journal kept in memory only: what a daemon with a memory store (tests, a scratch daemon)
+/// keeps, so nothing it journals outlives it, like the rest of its state.
+#[derive(Default)]
+pub struct MemoryJournalStore {
+    machines: Mutex<std::collections::BTreeMap<String, JournalState>>,
+}
+
+impl MemoryJournalStore {
+    fn guard(&self) -> std::sync::MutexGuard<'_, std::collections::BTreeMap<String, JournalState>> {
+        self.machines.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+impl JournalStore for MemoryJournalStore {
+    fn load(&self, machine: &str) -> io::Result<JournalState> {
+        Ok(self.guard().get(machine).cloned().unwrap_or_default())
+    }
+
+    fn append(&self, machine: &str, entry: &Entry) -> io::Result<()> {
+        self.guard().entry(machine.to_owned()).or_default().entries.push(entry.clone());
+        Ok(())
+    }
+
+    fn clear_through(&self, machine: &str, seq: u64) -> io::Result<()> {
+        let mut all = self.guard();
+        let state = all.entry(machine.to_owned()).or_default();
+        state.cleared_through = state.cleared_through.max(seq);
+        let through = state.cleared_through;
+        state.entries.retain(|e| e.seq > through);
+        Ok(())
+    }
 }

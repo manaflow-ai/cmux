@@ -50,6 +50,7 @@ use crate::protocol::{
 use crate::session_git::SessionGit;
 #[cfg(feature = "http-server")]
 use crate::{HTTP_PROTOCOL_VERSION, health_response};
+use generated_paths::git_generated_paths;
 
 #[derive(Clone)]
 pub struct ServerConfig {
@@ -139,10 +140,6 @@ const MAX_SESSION_PATCH_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_UNSTAGED_UNTRACKED_PATHS: usize = 512;
 /// Upper bound on the `git ls-files` listing read to find those paths.
 const MAX_UNTRACKED_LISTING_BYTES: usize = 4 * 1024 * 1024;
-/// Upper bound on changed paths sent to `git check-attr` for generated-file
-/// detection; larger diffs skip the attribute lookup and only use the
-/// viewer's lockfile heuristic.
-const MAX_GENERATED_ATTRIBUTE_PATHS: usize = 8192;
 /// Upper bound on one untracked file's added-file patch. A larger file is left
 /// out of the unstaged session patch instead of consuming the whole budget.
 const MAX_UNTRACKED_FILE_PATCH_BYTES: u64 = 8 * 1024 * 1024;
@@ -997,124 +994,6 @@ async fn stream_git_stdout(
         return Err(SessionOpenError::Failed);
     }
     Ok(())
-}
-
-/// Changed paths whose `.gitattributes` mark them generated
-/// (`linguist-generated` set or `diff` unset). Best effort: any failure or an
-/// oversized listing yields an empty list so a session never fails over it.
-async fn git_generated_paths(
-    source: &DiffSource,
-    whitespace: Whitespace,
-    git: &SessionGit,
-) -> Vec<String> {
-    let Ok(mut paths) = git_changed_paths(source, whitespace, git).await else {
-        return Vec::new();
-    };
-    if matches!(source, DiffSource::Unstaged { .. })
-        && let Ok(untracked) = git_untracked_paths(git).await
-    {
-        paths.extend(untracked);
-    }
-    if paths.is_empty() || paths.len() > MAX_GENERATED_ATTRIBUTE_PATHS {
-        return Vec::new();
-    }
-    let mut stdin_bytes = Vec::new();
-    for path in &paths {
-        stdin_bytes.extend_from_slice(path.as_bytes());
-        stdin_bytes.push(0);
-    }
-    let mut command = git.command();
-    command
-        .args(["check-attr", "-z", "--stdin", "linguist-generated", "diff"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let Ok(mut child) = command.spawn() else {
-        return Vec::new();
-    };
-    let Some(mut stdin) = child.stdin.take() else {
-        return Vec::new();
-    };
-    let write = async move {
-        let _ = stdin.write_all(&stdin_bytes).await;
-        drop(stdin);
-    };
-    let Ok(((), Ok(output))) = tokio::time::timeout(SESSION_GIT_TIMEOUT, async {
-        tokio::join!(write, child.wait_with_output())
-    })
-    .await
-    else {
-        return Vec::new();
-    };
-    if !output.status.success() {
-        return Vec::new();
-    }
-    // `-z` output is `path NUL attribute NUL value NUL` triplets.
-    let fields: Vec<&[u8]> = output.stdout.split(|byte| *byte == 0).collect();
-    let mut generated = Vec::new();
-    for &[path, attribute, value] in fields.as_chunks::<3>().0 {
-        let path = String::from_utf8_lossy(path).into_owned();
-        let marks_generated = match attribute {
-            b"linguist-generated" => value == b"set" || value == b"true",
-            b"diff" => value == b"unset",
-            _ => false,
-        };
-        if marks_generated && !generated.contains(&path) {
-            generated.push(path);
-        }
-    }
-    generated
-}
-
-/// Paths changed by the source, mirroring the range `run_git_patch` diffs.
-async fn git_changed_paths(
-    source: &DiffSource,
-    whitespace: Whitespace,
-    git: &SessionGit,
-) -> Result<Vec<String>, SessionOpenError> {
-    let mut command = git.command();
-    command.args([
-        "diff",
-        "--no-ext-diff",
-        "--no-textconv",
-        "--name-only",
-        "-z",
-    ]);
-    command.args(whitespace.diff_args());
-    match source {
-        DiffSource::Unstaged { .. } => {}
-        DiffSource::Staged { .. } => {
-            command.arg("--cached");
-        }
-        DiffSource::Branch {
-            base_ref: Some(base_ref),
-            ..
-        } => {
-            command.arg(git_merge_base(git, base_ref).await?);
-        }
-        DiffSource::Branch { base_ref: None, .. } | DiffSource::Patch { .. } => {
-            return Err(SessionOpenError::Failed);
-        }
-    }
-    command
-        .arg("--")
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true);
-    let output = tokio::time::timeout(SESSION_GIT_TIMEOUT, command.output())
-        .await
-        .map_err(|_| SessionOpenError::Failed)?
-        .map_err(|_| SessionOpenError::Failed)?;
-    if !output.status.success() || output.stdout.len() > MAX_UNTRACKED_LISTING_BYTES {
-        return Err(SessionOpenError::Failed);
-    }
-    Ok(output
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| String::from_utf8_lossy(entry).into_owned())
-        .collect())
 }
 
 /// The added-file patch for one untracked `path`, or `None` when git fails on
@@ -2215,6 +2094,7 @@ pub async fn write_handshake_to_stdout() -> Result<(), String> {
 }
 
 mod file_contents;
+mod generated_paths;
 
 #[cfg(all(test, unix))]
 mod file_contents_tests;

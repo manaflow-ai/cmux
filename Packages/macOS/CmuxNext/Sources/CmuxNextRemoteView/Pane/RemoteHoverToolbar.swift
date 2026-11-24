@@ -16,7 +16,7 @@ final class RemoteHoverToolbar: NSView {
     var onUpstream: ((RemoteUpstreamKind) -> Void)?
 
     static let height: CGFloat = 38
-    let surface = Glass.makeOverlayPanel(cornerRadius: RemoteHoverToolbar.height / 2)
+    let surface = Glass.makeOverlayPanel(cornerRadius: RemoteHoverToolbar.height / 2, tone: .neutralGlass(.transient))
     private let icon = RemoteChrome.symbol("display", size: 12)
     private let hostLabel = RemoteChrome.label("", size: 12.5, weight: .semibold)
     private let badge = RemotePathBadgeView()
@@ -66,6 +66,7 @@ final class RemoteHoverToolbar: NSView {
         for (kind, button) in upstreamButtons {
             button.onPress = { [weak self] in self?.onUpstream?(kind) }
         }
+        for control in Self.controls(in: self) { control.refusesFirstResponder = true }
     }
 
     @available(*, unavailable)
@@ -87,7 +88,7 @@ final class RemoteHoverToolbar: NSView {
         hostLabel.textColor = colors.textPrimary
         icon.contentTintColor = colors.textSecondary
         badge.isHidden = !settings.showPathBadge
-        badge.update(status: state.status, ended: state.isEnded, colors: colors)
+        badge.update(status: state.status, ended: state.isEnded, connectionQuiet: state.quietConnecting, colors: colors)
         for view in sessionViews { view.isHidden = !state.showsSessionControls }
         let takesOver = state.modeControl == .takeOver
         toggle.isHidden = !state.showsSessionControls || takesOver
@@ -132,8 +133,33 @@ final class RemoteHoverToolbar: NSView {
         takeOverButton.themedToolTip = help
     }
 
+    /// Whether the pane shows the toolbar. A faded toolbar stays in the view tree, so Accessibility
+    /// still reaches Take over, but takes no clicks and no keyboard focus: they belong to the host.
+    var isRevealed = false {
+        didSet {
+            guard isRevealed != oldValue else { return }
+            for control in Self.controls(in: self) { control.refusesFirstResponder = !isRevealed }
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        isRevealed ? super.hitTest(point) : nil
+    }
+
+    /// Whether the window's keyboard focus is on one of the toolbar's controls.
+    var holdsFocus: Bool {
+        (window?.firstResponder as? NSView)?.isDescendant(of: self) ?? false
+    }
+
+    private static func controls(in view: NSView) -> [NSControl] {
+        view.subviews.flatMap { ($0 as? NSControl).map { [$0] } ?? controls(in: $0) }
+    }
+
     /// The take-over button's title (tests).
     var takeOverTitle: String? { takeOverButton.isHidden ? nil : takeOverButton.title }
+
+    /// Whether the take-over button takes keyboard focus (tests).
+    var takeOverTakesFocus: Bool { !takeOverButton.refusesFirstResponder }
 
     /// Presses the take-over button (tests).
     func pressTakeOver() { takeOverButton.onPress?() }

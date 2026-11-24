@@ -11,6 +11,12 @@ pub(crate) enum SlotPhase {
     Pending,
     Registered,
     ClientControl,
+    /// A daemon socket held open, authenticated, for one inline circuit
+    /// (`crate::inline`). Not a registration.
+    Standby,
+    /// A socket of an inline circuit: its binary frames go to the other
+    /// socket with the same circuit (`crate::inline`).
+    Inline,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,6 +29,51 @@ pub(crate) struct SlotAttachment {
     /// A client Connect waiting for the daemon to register (`crate::park`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parked: Option<ParkedConnect>,
+    /// When a registered daemon's control socket last spoke (its Register or
+    /// a Ping), in ms. Zero on client sockets and on an attachment written
+    /// before this field existed (`crate::daemon`).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub last_seen_ms: u64,
+    /// A daemon owed the slot's unjoined circuits: it resumed after silence
+    /// past the liveness window while its registration wasn't current
+    /// (`crate::daemon::record_ping`), a Connect fell back to another legacy
+    /// registration (`crate::daemon::owed_handover_after_fallback`), or
+    /// another legacy registration closed
+    /// (`crate::daemon::owed_handover_after_close`). Its first Ping once it
+    /// is current is handed them.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub pending_handover: bool,
+    /// An inline circuit's forwarding ledger (`crate::inline`). Idle on every other phase.
+    #[serde(default, skip_serializing_if = "InlineState::is_idle")]
+    pub inline: InlineState,
+}
+
+/// What a socket of an inline circuit keeps beside the route (`relay.circuit`, `relay.lane` and `generation`):
+/// the same outbound ledger a `CircuitAttachment` keeps.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct InlineState {
+    #[serde(default, skip_serializing_if = "OutboundQueue::is_empty")]
+    pub outbound: OutboundQueue,
+}
+
+impl InlineState {
+    pub fn is_idle(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+impl crate::forward::ForwardTarget for SlotAttachment {
+    fn set_idle_deadline_ms(&mut self, deadline_ms: u64) {
+        self.idle_deadline_ms = deadline_ms;
+    }
+}
+
+fn is_zero(value: &u64) -> bool {
+    *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +180,9 @@ mod tests {
             expires_at: 1_000,
             idle_deadline_ms: 2_000,
             parked: None,
+            last_seen_ms: 0,
+            pending_handover: false,
+            inline: InlineState::default(),
         };
 
         let encoded = serde_json::to_vec(&attachment).unwrap();

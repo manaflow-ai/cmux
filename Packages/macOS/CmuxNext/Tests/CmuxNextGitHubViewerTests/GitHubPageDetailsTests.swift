@@ -19,6 +19,7 @@ struct GitHubPageDetailsTests {
     private final class Calls: @unchecked Sendable { // crash-allow: test log touched only on the main actor
         var reads = 0
         var merges: [(String, String)] = []
+        var writes: [[String: String]] = []
     }
 
     private static func cache() -> AgentReplyPullRequests {
@@ -43,6 +44,16 @@ struct GitHubPageDetailsTests {
         }}}}
         """#
 
+    /// Review of #38263, F1: a read that got every comment and review is whole, though the empty
+    /// review wrapper it leaves out makes `conversation` shorter than the total.
+    @Test func aWholeReadCountsTheEmptyReviewItLeavesOut() throws {
+        let whole = Self.answer.replacingOccurrences(of: #""comments": {"totalCount": 3,"#, with: #""comments": {"totalCount": 2,"#)
+        let details = try #require(GitHubPullRequestDetails.parse(Data(whole.utf8)))
+        #expect(details.conversation.count == 3)
+        #expect(details.conversationTotal == 4)
+        #expect(details.conversationRead == details.conversationTotal)
+    }
+
     @Test func theDetailsReadKeepsTheConversationInTimeOrder() throws {
         let details = try #require(GitHubPullRequestDetails.parse(Data(Self.answer.utf8)))
         #expect(details.body == "## Summary\nFixes it.")
@@ -56,11 +67,90 @@ struct GitHubPageDetailsTests {
         #expect(details.conversation[1].state == "changes_requested")
         #expect(details.conversation[1].comments == [.init(path: "a.swift", line: 12, body: "Here", url: nil)])
         #expect(details.conversationTotal == 5)
+        // The read got 2 of 3 comments and both reviews: 4 of 5, counted before the empty review is
+        // left out (review of #38263, F1), so not `conversation.count`.
+        #expect(details.conversationRead == 4)
+        #expect(details.json["conversationRead"] == JSONValue(4))
         // Asked again after reviewing: requested, not "changes requested".
         #expect(details.reviewers.map(\.name) == ["lawrence", "austin", "core"])
         #expect(details.reviewers.map(\.state) == ["approved", "requested", "requested"])
         #expect(details.linked.map(\.number) == [7])
         #expect(GitHubPullRequestDetails.parse(Data(#"{"data": {"repository": null}}"#.utf8)) == nil)
+    }
+
+    /// GitHub's own rendering of each body goes to the page beside its Markdown (Leo, 2026-11-07: "is it
+    /// possible to, like, just add the rendering for the links"), whole or not at all.
+    @Test func eachBodyCarriesGitHubsRenderingWholeOrNotAtAll() throws {
+        #expect(GitHubPullRequestDetails.query.contains("body bodyHTML headRefOid"))
+        #expect(GitHubPullRequestDetails.query.components(separatedBy: "bodyHTML").count - 1 == 4)
+        let long = String(repeating: "x", count: GitHubPullRequestDetails.maximumHTML + 1)
+        let answer = #"""
+            {"data": {"repository": {"pullRequest": {"body": "Hi", "bodyHTML": "<p>Hi</p>", "headRefOid": "",
+              "comments": {"totalCount": 1, "nodes": [{"author": {"login": "bot"}, "body": "b", "bodyHTML": "\#(long)", "createdAt": "2026-11-07T01:00:00Z"}]},
+              "reviews": {"totalCount": 1, "nodes": [{"author": {"login": "rabbit"}, "state": "COMMENTED", "body": "r",
+                "bodyHTML": "<details><summary>More</summary><p>r</p></details>", "submittedAt": "2026-11-07T02:00:00Z",
+                "comments": {"nodes": [{"path": "a.yml", "line": 3, "body": "c", "bodyHTML": "<p><sup>c</sup></p>"}]}}]}
+            }}}}
+            """#
+        let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
+        #expect(details.html == "<p>Hi</p>")
+        #expect(details.conversation.map(\.html) == ["", "<details><summary>More</summary><p>r</p></details>"])
+        #expect(details.conversation[1].comments.first?.html == "<p><sup>c</sup></p>")
+        let json = details.json
+        #expect(json["html"]?.stringValue == "<p>Hi</p>")
+        guard case .array(let entries)? = json["conversation"], entries.count == 2,
+              case .array(let inline)? = entries[1]["comments"], let first = inline.first else {
+            Issue.record("the conversation's JSON lost its shape")
+            return
+        }
+        #expect(first["html"]?.stringValue == "<p><sup>c</sup></p>")
+    }
+
+    /// The conversation's filters: "Mine" needs the signed-in login, "Unresolved" each review comment's thread.
+    @Test func theReadCarriesTheViewerAndEachThreadsState() throws {
+        #expect(GitHubPullRequestDetails.query.contains("viewer { login }"))
+        #expect(GitHubPullRequestDetails.query.contains("reviewThreads(last: 100) { nodes { id isResolved"))
+        let open = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r1"
+        let done = "https://github.com/manaflow-ai/cmux/pull/1#discussion_r2"
+        let answer = #"""
+            {"data": {"viewer": {"login": "teamleaderleo"}, "repository": {"pullRequest": {"body": "", "headRefOid": "",
+              "reviews": {"totalCount": 1, "nodes": [{"author": {"login": "rabbit"}, "state": "COMMENTED", "body": "",
+                "submittedAt": "2026-11-07T02:00:00Z", "comments": {"nodes": [
+                  {"path": "a.yml", "line": 3, "body": "open", "url": "\#(open)"},
+                  {"path": "a.yml", "line": 9, "body": "done", "url": "\#(done)"},
+                  {"path": "b.yml", "line": 1, "body": "unknown", "url": null}]}}]},
+              "reviewThreads": {"nodes": [
+                {"id": "PRRT_open", "isResolved": false, "comments": {"nodes": [{"url": "\#(open)"}]}},
+                {"id": "PRRT_done", "isResolved": true, "comments": {"nodes": [{"url": "\#(done)"}]}}]}
+            }}}}
+            """#
+        let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
+        #expect(details.viewer == "teamleaderleo")
+        #expect(details.conversation.first?.comments.map(\.resolved) == [false, true, nil])
+        #expect(details.conversation.first?.comments.map(\.thread) == ["PRRT_open", "PRRT_done", nil])
+        #expect(details.json["viewer"]?.stringValue == "teamleaderleo")
+    }
+
+    @Test func oneReadSendsAtMostItsHTMLBudgetTheDescriptionAndNewestFirst() throws {
+        // Each body fits its own cap; together they pass the read's budget.
+        let size = GitHubPullRequestDetails.maximumHTML - 10
+        let each = GitHubPullRequestDetails.maximumTotalHTML / size + 2
+        let big = String(repeating: "x", count: size)
+        let comments = (0..<each).map { index in
+            #"{"author": {"login": "bot"}, "body": "b", "bodyHTML": "\#(big)", "createdAt": "2026-11-07T\#(String(format: "%02d", index)):00:00Z"}"#
+        }.joined(separator: ",")
+        let answer = #"""
+            {"data": {"repository": {"pullRequest": {"body": "Hi", "bodyHTML": "\#(big)", "headRefOid": "",
+              "comments": {"totalCount": \#(each), "nodes": [\#(comments)]}}}}}
+            """#
+        let details = try #require(GitHubPullRequestDetails.parse(Data(answer.utf8)))
+        #expect(details.html == big)
+        let sent = details.html.utf8.count + details.conversation.reduce(0) { $0 + $1.html.utf8.count }
+        #expect(sent <= GitHubPullRequestDetails.maximumTotalHTML)
+        // The newest keep theirs; the oldest draw their Markdown.
+        #expect(details.conversation.last?.html == big)
+        #expect(details.conversation.first?.html == "")
+        #expect(details.conversation.count == each)
     }
 
     @Test func theDetailsAreReadOncePerPullRequestHoweverOftenThePageAsks() async throws {
@@ -74,6 +164,22 @@ struct GitHubPageDetailsTests {
             #expect(reply["details"]?["headCommit"]?.stringValue == Self.head)
         }
         #expect(calls.reads == 1)
+    }
+
+    @Test func aNewUpdatedAtReadsTheDetailsAgainAtOnce() async throws {
+        let calls = Calls(), cache = Self.cache()
+        let provider = GitHubPageProvider(cache: cache, diffReader: { _ in nil }, detailsReader: { _ in
+            await MainActor.run { calls.reads += 1 }
+            return GitHubPullRequestDetails.parse(Data(Self.answer.utf8))
+        }, openWeb: { _, _ in false }, openDiff: { _, _, _, _ in false })
+        let params: JSONValue = ["url": .string(Self.pull.absoluteString)]
+        _ = try await provider.call("cmux.github.pr.details", params: params, context: Self.page)
+        // A comment lands: the cache's updatedAt moves, so the next ask reads, inside the minute.
+        let view = #"{"url": "\#(Self.pull.absoluteString)", "number": 36002, "updatedAt": "2026-11-07T09:00:00Z"}"#
+        cache.seed(try #require(AgentPanePullRequest(ghView: Data(view.utf8))), for: Self.pull)
+        _ = try await provider.call("cmux.github.pr.details", params: params, context: Self.page)
+        _ = try await provider.call("cmux.github.pr.details", params: params, context: Self.page)
+        #expect(calls.reads == 2)
     }
 
     @Test func mergeIsPinnedToTheShownHeadAndNeedsAClick() async throws {
@@ -178,5 +284,99 @@ struct GitHubPageDetailsTests {
         #expect(none["patch"]?.isNull == true)
         // One diff read for every file the page expands.
         #expect(calls.reads == 1)
+    }
+
+    /// A pull request whose one review comment sits on thread `PRRT_one`.
+    nonisolated private static let threaded = #"""
+        {"data": {"repository": {"pullRequest": {"body": "", "headRefOid": "\#(head)",
+          "reviews": {"totalCount": 1, "nodes": [{"author": {"login": "austin"}, "state": "COMMENTED", "body": "",
+            "submittedAt": "2026-11-07T02:00:00Z", "comments": {"nodes": [
+              {"path": "a.swift", "line": 3, "body": "Why?", "url": "https://github.com/manaflow-ai/cmux/pull/36002#discussion_r1"}]}}]},
+          "reviewThreads": {"nodes": [{"id": "PRRT_one", "isResolved": false,
+            "comments": {"nodes": [{"url": "https://github.com/manaflow-ai/cmux/pull/36002#discussion_r1"}]}}]}
+        }}}}
+        """#
+
+    private static func writing(_ calls: Calls, ok: Bool = true, reason: String? = nil) -> GitHubPageProvider {
+        GitHubPageProvider(cache: Self.cache(), diffReader: { _ in nil }, detailsReader: { _ in
+            GitHubPullRequestDetails.parse(Data(Self.threaded.utf8))
+        }, writer: { params in
+            let flat = params.mapValues { "\($0)" }
+            await MainActor.run { calls.writes.append(flat) }
+            return ok ? AgentPaneGitHubREST.Answer(ok: true, status: 200, body: Data("{}".utf8), source: "keyring")
+                : AgentPaneGitHubREST.Answer(ok: false, status: reason == nil ? 422 : nil,
+                                             message: "Can not approve your own pull request", reason: reason)
+        }, openWeb: { _, _ in false }, openDiff: { _, _, _, _ in false })
+    }
+
+    /// A review is the person's: it needs their click, a verdict GitHub knows and words unless it
+    /// approves, and goes to the host op as `review.submit` on this pull request.
+    @Test func aReviewNeedsAClickAVerdictAndWords() async throws {
+        let calls = Calls()
+        let provider = Self.writing(calls)
+        let url = JSONValue.string(Self.pull.absoluteString)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.github.review.submit", params: ["url": url, "event": "COMMENT", "body": "ok"], context: Self.page)
+        }
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.github.review.submit", params: ["url": url, "event": "MERGE", "body": "ok"], context: Self.click)
+        }
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.github.review.submit", params: ["url": url, "event": "REQUEST_CHANGES", "body": " "],
+                                        context: Self.click)
+        }
+        #expect(calls.writes.isEmpty)
+        let reply = try await provider.call("cmux.github.review.submit",
+                                            params: ["url": url, "event": "APPROVE", "body": "", "head": .string(Self.head)], context: Self.click)
+        #expect(reply["submitted"]?.boolValue == true)
+        #expect(calls.writes.count == 1)
+        #expect(calls.writes.first?["op"] == "review.submit")
+        #expect(calls.writes.first?["repo"] == "manaflow-ai/cmux")
+        #expect(calls.writes.first?["number"] == "36002")
+        #expect(calls.writes.first?["event"] == "APPROVE")
+        #expect(calls.writes.first?["head"] == Self.head)
+    }
+
+    /// A reply or a resolve names only a thread the page was shown; GitHub's refusal comes back in its words.
+    @Test func aThreadWriteNamesOnlyAShownThread() async throws {
+        let calls = Calls()
+        let provider = Self.writing(calls)
+        let url = JSONValue.string(Self.pull.absoluteString)
+        _ = try await provider.call("cmux.github.pr.details", params: ["url": url], context: Self.page)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.github.thread.reply", params: ["url": url, "thread": "PRRT_other", "body": "hi"],
+                                        context: Self.click)
+        }
+        #expect(calls.writes.isEmpty)
+        _ = try await provider.call("cmux.github.thread.reply", params: ["url": url, "thread": "PRRT_one", "body": "Because."],
+                                    context: Self.click)
+        _ = try await provider.call("cmux.github.pr.details", params: ["url": url], context: Self.page)
+        _ = try await provider.call("cmux.github.thread.resolve", params: ["url": url, "thread": "PRRT_one", "resolved": true],
+                                    context: PageCallContext(page: "cmux.github", userGesture: true, gestureEvent: 2))
+        #expect(calls.writes.map { $0["op"] } == ["thread.reply", "thread.resolve"])
+        #expect(calls.writes.first?["body"] == "Because.")
+        #expect(calls.writes.last?["resolved"] == "true")
+
+        let refusing = Self.writing(Calls(), ok: false)
+        do {
+            _ = try await refusing.call("cmux.github.review.submit", params: ["url": url, "event": "APPROVE"], context: Self.click)
+            Issue.record("a refused review answered")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.github.review_refused")
+            #expect(error.message == "Can not approve your own pull request")
+        }
+    }
+
+    /// An approval the daemon would only send as the person, with no gh login: the page hears
+    /// `person_only`, its own sentence to sign in, never a generic refusal.
+    @Test func anApprovalWithNoLoginSaysSignIn() async throws {
+        let provider = Self.writing(Calls(), ok: false, reason: "github.person_only")
+        let url = JSONValue.string(Self.pull.absoluteString)
+        do {
+            _ = try await provider.call("cmux.github.review.submit", params: ["url": url, "event": "APPROVE"], context: Self.click)
+            Issue.record("a person-only refusal answered")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.github.person_only")
+        }
     }
 }

@@ -65,6 +65,29 @@ struct AgentSideSessionPaneTests {
         #expect(opened == ["chat-1>side-1"])
     }
 
+    /// `/side` (#38042) asks for its side chat with `split: "right"`: the chat's side tracker marks it
+    /// so, and the app's open (``AgentPaneHeaderHooks/openSide``) reads the mark and splits right of
+    /// the chat, never where the right column would put it. New side chat and `/btw` leave no mark.
+    @Test func slashSideOpensItsSideChatAsASplitRightOfTheChat() async throws {
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-side-split")
+        var opened: [String] = []
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, openSide: { chat, fork in
+            opened.append("\(fork) \(AgentSidePanes.chat(chat).takeSplitRight(fork) ? "split right" : "right column")")
+        })
+        model.transport.sessions.add("chat-side-split")
+        model.transport.sessions.add("side-1")
+        model.transport.sessions.add("side-2")
+        let slashSide = AgentPaneRequest(body: ["method": "chat.sideChat", "params": ["sessionId": "side-1", "split": "right"]])
+
+        #expect(await model.respond(to: slashSide)["ok"] as? Bool == true)
+        #expect(await model.respond(to: Self.sideChat("side-2"))["ok"] as? Bool == true)
+        #expect(opened == ["side-1 split right", "side-2 right column"])
+
+        let unrelated = AgentPaneRequest(body: ["method": "chat.sideChat", "params": ["sessionId": "other", "split": "right"]])
+        #expect(await model.respond(to: unrelated)["ok"] as? Bool != true, "a session the pane never made opened")
+        #expect(AgentSidePanes.chat("chat-side-split").takeSplitRight("other") == false, "a refused open left a mark")
+    }
+
     /// A window's panes as the app keeps them (``RightColumnWindow``). A split's move lands later,
     /// as the daemon's does, so an open asked for meanwhile has to wait for it.
     @MainActor final class Layout {

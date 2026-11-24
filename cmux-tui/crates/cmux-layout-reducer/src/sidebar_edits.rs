@@ -10,6 +10,10 @@
 //! A group's `members` list its workspace and item rows in drawn order; an
 //! item is named by the app's own `ref` (item ids need not be unique).
 //!
+//! A workspace's `creator` links it under the workspace that made it (an
+//! agent's or a script's); `creator` keeps every edit inside that tree and
+//! `tree` draws it (depth, guide lines, collapsed count).
+//!
 //! Also here: the keyboard reorder's next slot ([`keyboard_target`]), the
 //! group ordering verbs' index ([`group_index`]), the named-group rules
 //! (`names`) and one window's placement mapped to the daemon's order
@@ -18,11 +22,15 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashSet};
 
+mod creator;
+#[cfg(test)]
+mod creator_tests;
 mod names;
 mod order;
 mod placement;
 #[cfg(test)]
 mod tests;
+pub mod tree;
 
 pub use names::{
     NamedGroup, NamedRow, group_named, predecessor, same_group_name, valid_group_name,
@@ -51,10 +59,17 @@ impl SectionId {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Workspace {
     pub id: String,
     pub machine: String,
+    /// The public id of the workspace that made this one: it lists right
+    /// after that one's subtree, in its group or section.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub creator: Option<String>,
+    /// Its children are hidden behind a count.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub collapsed_children: bool,
 }
 
 /// A group member row: a workspace, or a link, tab or app item.
@@ -187,6 +202,19 @@ pub enum Intent {
     ToggleGroup {
         group: String,
     },
+    /// Breaks the creator links of `ids`; each lists after its old creator's subtree.
+    Detach {
+        ids: Vec<String>,
+    },
+    /// Links `ids` under `creator`, right after its subtree in its group or section.
+    Attach {
+        ids: Vec<String>,
+        creator: String,
+    },
+    /// Hides or shows a creator's children.
+    ToggleChildren {
+        id: String,
+    },
 }
 
 /// Where a workspace sits: its section, its node, and its index among a
@@ -238,6 +266,15 @@ pub fn apply(intent: &Intent, sections: &mut Vec<Section>) -> bool {
 }
 
 fn apply_with(intent: &Intent, sections: &mut Vec<Section>, prunes: bool) -> bool {
+    let listed = creator::listed(sections);
+    if !apply_intent(intent, sections, prunes) {
+        return false;
+    }
+    creator::settle(sections, &listed, intent);
+    true
+}
+
+fn apply_intent(intent: &Intent, sections: &mut Vec<Section>, prunes: bool) -> bool {
     match intent {
         Intent::Reorder { ids, position } => reorder(ids, position, sections, prunes),
         Intent::Move { ids, group } => move_to_group(ids, group, sections),
@@ -271,6 +308,9 @@ fn apply_with(intent: &Intent, sections: &mut Vec<Section>, prunes: bool) -> boo
         Intent::ToggleGroup { group } => {
             mutate_group(group, sections, |group| group.collapsed = !group.collapsed)
         }
+        Intent::Detach { ids } => creator::detach(ids, sections),
+        Intent::Attach { ids, creator } => creator::attach(ids, creator, sections),
+        Intent::ToggleChildren { id } => creator::toggle_children(id, sections),
     }
 }
 
@@ -329,10 +369,17 @@ pub enum Request {
         shown: Vec<String>,
         rowed: Vec<String>,
     },
+    /// The creator tree's rows ([`tree::rows`]); `indent` is the step in points.
+    Tree {
+        sections: Vec<Section>,
+        #[serde(default = "tree::default_indent")]
+        indent: u32,
+    },
 }
 
 /// Answers one request as JSON: an [`EditReply`], a position or index (null
-/// for none), a list of group ids, a bool, an index or a list of placements.
+/// for none), a list of group ids, a bool, an index, a list of placements or
+/// the tree's rows.
 pub fn respond(request: &Request) -> serde_json::Result<Vec<u8>> {
     match request {
         Request::Edit(edit_request) => serde_json::to_vec(&edit(edit_request)),
@@ -363,6 +410,9 @@ pub fn respond(request: &Request) -> serde_json::Result<Vec<u8>> {
         }
         Request::PersonalPlacements { moving, local_index, shown, rowed } => {
             serde_json::to_vec(&personal_placements(moving, *local_index, shown, rowed))
+        }
+        Request::Tree { sections, indent } => {
+            serde_json::to_vec(&tree::TreeReply { rows: tree::rows(sections, *indent) })
         }
     }
 }
@@ -458,6 +508,9 @@ pub(crate) fn wire(index: usize) -> i64 {
 }
 
 fn reorder(ids: &[String], position: &Position, sections: &mut [Section], prunes: bool) -> bool {
+    // A creator carries its children, as a group carries its subgroups.
+    let (ids, position) = creator::carrying(ids, position, sections);
+    let (ids, position) = (ids.as_slice(), &position);
     let Some(target) = sections.iter().find(|section| section.id == position.section) else {
         return false;
     };
@@ -553,7 +606,7 @@ fn create_group(
     index: Option<i64>,
     sections: &mut [Section],
 ) -> bool {
-    let ordered = tree_order(ids, sections);
+    let ordered = tree_order(&creator::with_subtrees(ids, sections), sections);
     // The group forms at `target` (an onto-drop's target row), else at the first workspace in tree order.
     let first = target
         .filter(|target| ordered.iter().any(|id| id == target))

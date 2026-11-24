@@ -30,6 +30,10 @@ extension ThemeTokens {
     /// 2026-10-21). A Ghostty `unfocused-split-opacity` the person set replaces it.
     public nonisolated var inactivePaneDim: Double { 0.10 }
 
+    /// How much the dim over the other panes covers them around a zoom (the surface background at this
+    /// alpha): it comes before a zoom shows and goes after an unzoom showed.
+    public nonisolated var zoomDim: Double { 0.35 }
+
     /// A small capsule behind a label over busy content (the Home header's
     /// name pill): the surface background at ``capsuleScrimOpacity``.
     public nonisolated var capsuleScrim: ThemeRGB { surfaceBackground.withAlpha(Self.capsuleScrimOpacity) }

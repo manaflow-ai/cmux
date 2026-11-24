@@ -4,12 +4,16 @@
 use std::time::Duration;
 
 use boringtun::noise::TunnResult;
+use cmux_transport::classify::WG_DATA_MIN_LEN;
 use cmux_transport::{DatagramClass, classify};
 use tokio::time::Instant;
 
 use super::Driver;
 use crate::probing;
 use crate::timers::SESSION_FRESH;
+use crate::ultra_auto;
+use crate::ultra_hello;
+use crate::underlay::Underlay as _;
 
 /// Waits before each repeat of the shutdown resets: 0.2, 0.4, 0.8 and 1.6 s
 /// after shutdown.
@@ -56,7 +60,33 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
+            self.handshake_retry.on_initiation(Instant::now(), false);
             self.schedule.on_activity(Instant::now());
+        }
+    }
+
+    /// Send the initiation again while data waits for a session and its
+    /// answer is overdue (see `crate::handshake_retry`).
+    /// Not while a crossed handshake is held (`wait_for_handshake_until`):
+    /// a new initiation would drop the state the peer's reply needs.
+    pub(super) fn run_handshake_retry(&mut self) {
+        let now = Instant::now();
+        if self.wait_for_handshake_until.is_some_and(|end| now < end) {
+            return;
+        }
+        if !self.handshake_retry.fire(now, self.pacer.srtt()) {
+            return;
+        }
+        if self.tunn.time_since_last_handshake().is_some() || !self.underlay.has_peer() {
+            return;
+        }
+        if let TunnResult::WriteToNetwork(packet) =
+            self.tunn.format_handshake_initiation(&mut self.scratch, true)
+        {
+            self.underlay.send(packet);
+            self.handshake_retry.on_initiation(now, false);
+            self.schedule.on_activity(now);
         }
     }
 
@@ -80,6 +110,9 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
+            // `false` sends only when no handshake is in progress.
+            self.handshake_retry.on_initiation(Instant::now(), true);
             self.schedule.on_activity(Instant::now());
         }
     }
@@ -95,24 +128,112 @@ impl Driver {
         let result = if fresh {
             self.tunn.encapsulate(&[], &mut self.scratch)
         } else {
+            self.handshake_retry.on_initiation(Instant::now(), true);
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         };
         if let TunnResult::WriteToNetwork(packet) = result {
             self.underlay.send(packet);
+            if !fresh {
+                self.initiated_at = Some(Instant::now());
+            }
         }
         self.schedule.on_activity(Instant::now());
     }
 
+    /// Send this side's ultra hello when one is due and a session exists
+    /// (see `crate::ultra_hello`). A hello never starts a session.
+    pub(super) fn run_ultra_hello(&mut self) {
+        let now = Instant::now();
+        let Some(hello) = self.negotiation.due(now) else { return };
+        let Some((local, remote)) = self.probe_route else { return };
+        if self.tunn.time_since_last_handshake().is_none() {
+            return;
+        }
+        let packet = ultra_hello::packet(local, remote, hello);
+        let copy = self
+            .negotiation
+            .discovering()
+            .then(|| ultra_hello::discovery_packet(local, remote, hello));
+        for packet in std::iter::once(packet).chain(copy) {
+            if let TunnResult::WriteToNetwork(encrypted) =
+                self.tunn.encapsulate(&packet, &mut self.scratch)
+            {
+                self.underlay.send(encrypted);
+            }
+        }
+        self.negotiation.sent(now);
+    }
+
+    /// Ultra mode's Auto: read the loss seen on the way in and the
+    /// segments sent again, and when what Auto wants changed, send in it at
+    /// once and tell the peer (the next `run_ultra_hello`).
+    pub(super) fn run_ultra_auto(&mut self) {
+        let Some(auto) = self.auto.as_mut() else { return };
+        let sample = self.underlay.take_loss();
+        let resent = self.pacer.take_resent();
+        let was_on = auto.is_on();
+        if !auto.observe(Instant::now(), sample, resent) {
+            return;
+        }
+        if !was_on && auto.is_on() {
+            self.underlay.count_auto_on();
+        }
+        let (mode, metered) = auto.wanted();
+        self.negotiation.advertise(mode, metered);
+        self.apply_ultra_mode();
+    }
+
+    /// Send in the mode agreed with the peer, capped when either network is
+    /// metered.
+    pub(super) fn apply_ultra_mode(&mut self) {
+        if self.underlay.set_mode(self.negotiation.mode()) {
+            self.stack.link_repairs_losses();
+        }
+        self.underlay.set_metered(self.negotiation.metered());
+    }
+
+    /// When the loop must wake for the next hello retry. Only while a
+    /// session exists: with none, `run_ultra_hello` sends nothing, so an
+    /// overdue retry would wake the loop at once, forever. The datagram
+    /// that forms the next session wakes the loop, which resumes the
+    /// retries.
+    pub(super) fn hello_deadline(&self) -> Option<Instant> {
+        if self.probe_route.is_none() || self.tunn.time_since_last_handshake().is_none() {
+            return None;
+        }
+        self.negotiation.deadline()
+    }
+
     /// Send due path probes while the session carries traffic; an idle
-    /// session probes nothing.
+    /// session probes nothing, and neither does a held one (`WgNet::hold`):
+    /// its peer is suspended on purpose, and a probe would only wake its
+    /// radio, as a keepalive would. The first pass after the release
+    /// probes again.
     pub(super) fn run_probes(&mut self) {
         let now = Instant::now();
-        self.probe_deadline = if self.schedule.is_active(now) {
+        let mut off_path = Vec::new();
+        self.probe_deadline = if self.schedule.is_active(now) && self.stack.hold().is_none() {
             let (tunn, scratch) = (&mut self.tunn, &mut self.scratch);
-            probing::send_due(tunn, &mut *self.underlay, scratch, self.probe_route, now)
+            let route = self.probe_route;
+            probing::send_due(tunn, &mut self.underlay, scratch, route, now, &mut off_path)
         } else {
             None
         };
+        self.tell_off_path(&off_path);
+    }
+
+    /// Right behind probes, on the data path: tell the peer which counters
+    /// went out on their own paths, so its Auto does not take the ones a
+    /// dead path loses for loss (`crate::ultra_auto`).
+    pub(super) fn tell_off_path(&mut self, counters: &[u64]) {
+        let Some((local, remote)) = self.probe_route else { return };
+        for packet in ultra_auto::off_path_packets(local, remote, counters) {
+            if let TunnResult::WriteToNetwork(encrypted) =
+                self.tunn.encapsulate(&packet, &mut self.scratch)
+            {
+                self.underlay.send(encrypted);
+            }
+        }
     }
 
     /// Run boringtun's timers on any event a tick or more after the last
@@ -130,11 +251,18 @@ impl Driver {
 
     pub(super) fn update_timers(&mut self) {
         if let TunnResult::WriteToNetwork(packet) = self.tunn.update_timers(&mut self.scratch) {
+            // A held tunnel's peer is suspended on purpose (`WgNet::hold`):
+            // its keepalives, persistent or passive, would only wake its
+            // radio. Not sending one is a lost datagram to boringtun.
+            if self.stack.hold().is_some() && packet.len() == WG_DATA_MIN_LEN {
+                return;
+            }
             // A handshake retry keeps the timers running until boringtun
             // gives up; a keepalive alone does not.
             let retry = classify(packet) == DatagramClass::WireGuardInitiation;
             self.underlay.send(packet);
             if retry {
+                self.handshake_retry.on_initiation(Instant::now(), false);
                 self.schedule.on_activity(Instant::now());
             }
         }

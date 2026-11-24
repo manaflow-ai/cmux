@@ -11,7 +11,6 @@ export default settingsPageEntry({
     "pages/settings/editors/ToggleEditor.tsx",
     "pages/settings/editors/TextEditor.tsx",
     "pages/settings/editors/NumberField.tsx",
-    "pages/settings/components/ResetButton.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
   ],
   variants: {

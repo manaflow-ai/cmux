@@ -48,6 +48,10 @@ Rules (Packages/macOS/CmuxNext/Sources, Swift; comment lines are ignored):
                    that subclasses NSPanel or NSWindow) whose file builds no shared glass
                    (Glass.makeOverlayPanel, Glass.makePanel, OverlaySurfaceView, CardSurfaceView or
                    GlassPanelView). One whose glass another file builds is in SURFACE_GLASS_FROM.
+  menu-hosting     in a file that builds a menu panel (Glass.makeMenuPanel), a plain NSHostingView or
+                   NSHostingController: SwiftUI on a menu's glass is hosted in ThemedHostingView, whose
+                   content draws the theme's inks fit to the glass from its first frame. A plain host
+                   draws AppKit's label grays (Chief 2026-11-23: every SwiftUI control on menu glass).
   dense-fill       in a file that builds a floating surface's glass, a backgroundColor, fillColor or
                    .background(...) at 90% or more (withAlphaComponent, withAlpha, opacity): a
                    near-opaque veil laid over the glass reads as a solid card (cmux#22670 did this to
@@ -107,6 +111,9 @@ SURFACE_WINDOW = re.compile(
 ANY_GLASS = re.compile(
     r"\bGlass\.make((Overlay|Menu)?Panel|Surface)\(|\b(OverlaySurfaceView|CardSurfaceView|GlassPanelView)\("
 )
+# A menu panel, and a plain SwiftUI host (a construction, a subclass or a stored type) in the same file.
+MENU_PANEL = re.compile(r"\bmakeMenuPanel\(")
+PLAIN_HOSTING = re.compile(r"\bNSHosting(View|Controller)\s*[(<]")
 # A fill at 90% or more, in a file that builds a floating surface's glass.
 DENSE_FILL = re.compile(
     r"(backgroundColor|fillColor|\.background\()[^\n]*"
@@ -114,10 +121,6 @@ DENSE_FILL = re.compile(
 )
 # path -> (the file that builds its window's glass, why it lives there).
 SURFACE_GLASS_FROM: dict[str, tuple[str, str]] = {
-    SOURCES + "/CmuxNextServer/Views/AddServerCardPanel.swift": (
-        SOURCES + "/CmuxNextServer/ServerHostView.swift",
-        "the card's content view, ServerHostView, is the server surfaces' OverlaySurfaceView",
-    ),
 }
 # A teammate's surfaces this check never flags (their call, not this check's): path -> whose and why.
 # Lawrence R48 (CmuxNextDesignTokens/Windows/ThemeTokens+Surface.swift): the window's one surface
@@ -201,9 +204,6 @@ ALLOWED: dict[str, dict[str, str]] = {
     P + "CmuxNextDesign/ShortcutHintChipView.swift": {"popup-surface": "the chip's .opaque material path (Reduce Transparency)"},
     P + "CmuxNextDesign/CardSurfaceView.swift": {"elevated-fill": "Reduce Transparency's sidebar card"},
     # Not a floating surface: content and in-pane chrome that sits on its own page.
-    P + "CmuxNextAgentQuestion/AgentQuestionCardView.swift": {
-        "elevated-fill": "a pending question card inline in the conversation, set apart from answered ones",
-    },
     P + "CmuxNextTerminal/TerminalCopyModeBadge.swift": {"elevated-fill": "an in-pane badge over terminal text that must stay readable"},
     P + "CmuxNextTerminal/TerminalSizedForChip.swift": {"elevated-fill": "an in-pane chip over terminal text that must stay readable"},
     P + "CmuxNextTerminal/TerminalStatusBanner.swift": {"elevated-fill": "an in-pane banner over terminal text that must stay readable"},
@@ -261,7 +261,7 @@ NOT_POPUP_HOST: dict[tuple[str, str], str] = {
     (P + "CmuxNextPopups/BrowserPopupWindow.swift", "BrowserPopupWindow"): (
         "a site's window.open popup: a browser window, not a menu"
     ),
-    (P + "CmuxNextApp/Server/ServerMenuBarController.swift", "ServerMenuBarController"): (
+    (P + "CmuxNextServer/ServerPage/ServerPanelPopover.swift", "ServerPanelPopover"): (
         "the menu bar status item's system NSPopover (the system's own glass), outside any themed window"
     ),
 }
@@ -542,6 +542,7 @@ def scan(root: str) -> list[str]:
             code_only = [line.split("//", 1)[0] for line in lines if not COMMENT.match(line)]
             makes_glass = any(SHARED_GLASS.search(code) for code in code_only)
             builds_glass = any(ANY_GLASS.search(code) for code in code_only)
+            builds_menu = any(MENU_PANEL.search(code) for code in code_only)
             glass_from = SURFACE_GLASS_FROM.get(rel)
             glass_elsewhere = bool(glass_from) and file_builds_glass(os.path.join(root, glass_from[0]))
             hover = rel not in HOVER_HOSTS and any(HOVER_BODY.search(text) for text in lines)
@@ -577,6 +578,8 @@ def scan(root: str) -> list[str]:
                 hits = [rule for rule, pattern in RULES.items() if pattern.search(code)]
                 if builds_glass and DENSE_FILL.search(code):
                     hits.append("dense-fill")
+                if builds_menu and PLAIN_HOSTING.search(code):
+                    hits.append("menu-hosting")
                 for rule in hits:
                     if rule in allowed:
                         used.add((rel, rule))
@@ -638,6 +641,7 @@ def main() -> int:
         print("  entry in this script (design/overlay-surfaces.md in leo-workspace has the policy).")
         print("  [popup-host]: a menu, picker, popover or web popup host builds its surface with")
         print("  Glass.makeOverlayPanel in its own body, or names the file that does in GLASS_FROM.")
+        print("  [menu-hosting]: SwiftUI on a menu panel is hosted in ThemedHostingView, not NSHostingView.")
         for finding in findings:
             print(finding)
         return 1

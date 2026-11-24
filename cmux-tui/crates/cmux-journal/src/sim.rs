@@ -120,6 +120,10 @@ struct Fs {
     failures: u64,
     /// The next file sync with at least this many dirty pages fails once with this error.
     fail_sync: Option<(usize, io::ErrorKind)>,
+    /// Every file sync fails with this error until cleared (a failing disk).
+    fail_all_syncs: Option<io::ErrorKind>,
+    /// Every file append fails with this error, writing nothing, until cleared (a full disk).
+    fail_all_appends: Option<io::ErrorKind>,
     /// Once an injected failure happened, the operation this many after it crashes.
     crash_after_failure: Option<u64>,
     /// Each read evicts the dropped pages it read (`SimStorage::evict_dropped_pages_after_read`).
@@ -150,6 +154,8 @@ impl Fs {
             peak_open_files: 0,
             failures: 0,
             fail_sync: None,
+            fail_all_syncs: None,
+            fail_all_appends: None,
             crash_after_failure: None,
             evict_after_read: false,
             sync_hold: None,
@@ -290,6 +296,18 @@ impl SimStorage {
     /// disk gets none of them: the worst case of a write-back error ([module docs](self)).
     pub fn fail_next_sync(&self, pages: usize, kind: io::ErrorKind) {
         lock(&self.fs).fail_sync = Some((pages, kind));
+    }
+
+    /// From now on every file sync fails with `kind` and the disk gets none of its pages, until
+    /// called with None: a failing disk, whose writer retries without end.
+    pub fn fail_all_syncs(&self, kind: Option<io::ErrorKind>) {
+        lock(&self.fs).fail_all_syncs = kind;
+    }
+
+    /// From now on every file append fails with `kind` and writes nothing, until called with
+    /// None: a full disk (`StorageFull`), whose writer retries without end.
+    pub fn fail_all_appends(&self, kind: Option<io::ErrorKind>) {
+        lock(&self.fs).fail_all_appends = kind;
     }
 
     /// Once the next injected failure happened, the `n`-th operation after it (1 = the next one)
@@ -624,6 +642,10 @@ impl StorageFile for SimHandle {
         self.check_writable()?;
         let mut fs = lock(&self.fs);
         let step = fs.begin()?;
+        if let (Step::Run, Some(kind)) = (&step, fs.fail_all_appends) {
+            fs.note_failure();
+            return Err(failed(kind));
+        }
         let written = match step {
             Step::Run => bytes,
             Step::Fail(_) | Step::Crash => {
@@ -657,6 +679,11 @@ impl StorageFile for SimHandle {
     fn sync(&mut self, level: SyncLevel) -> io::Result<()> {
         let mut fs = lock(&self.fs);
         let step = fs.begin()?;
+        if let (Step::Run, Some(kind)) = (&step, fs.fail_all_syncs) {
+            fs.machine.file(self.inode)?.failed_sync(None);
+            fs.note_failure();
+            return Err(failed(kind));
+        }
         if let (Step::Run, Some((pages, kind))) = (&step, fs.fail_sync) {
             let file = fs.machine.file(self.inode)?;
             if file.dirty.len() >= pages {

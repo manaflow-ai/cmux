@@ -34,7 +34,7 @@ struct CloudLinkLifecycleAccountSwitchTests {
 
         func ensure(install: String) async throws -> CloudLinkLauncher.Ensured {
             ensureCount += 1
-            return .init(status: "started", pid: 7, socket: "/tmp/native-link.sock")
+            return .init(status: "started", pid: 7)
         }
 
         func stop(install: String?) async { stopCount += 1 }

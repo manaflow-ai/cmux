@@ -127,11 +127,7 @@ enum BrowserHitHandlers {
         }
         guard case let browserTabs = services.cache.browserTabs, case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return }
         let address = url.absoluteString
-        WorkspaceHandlers.createAndShow(services: services, newWindow: newWindow, window: window, room: room) { connection, terminal in
-            guard let pane = terminal.pane else { return }
-            _ = try await connection.newFrontendBrowserTab(url: address, engine: choice.engine, in: pane)
-            if let surface = terminal.surface { try await connection.closeTab(surface) }
-        }
+        WorkspaceHandlers.show(.browser(WorkspaceFirstBrowserTab(url: address, engine: choice.engine), profile: room), services: services, newWindow: newWindow, window: window)
     }
 
     // MARK: Selection

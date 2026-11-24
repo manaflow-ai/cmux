@@ -15,6 +15,7 @@ TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 source "$ROOT/scripts/cmux-next/tests/lib/fake-clock.sh"
 fake_clock_install "$TMP/clock"
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 sha() { shasum -a 256 "$1" | awk '{print $1}'; }
 bin=cmux-tui-aarch64-apple-darwin

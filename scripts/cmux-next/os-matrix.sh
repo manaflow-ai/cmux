@@ -7,7 +7,8 @@
 # Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|fuzz|repro:NAME|exec:NAME]
 #                                       [--seed N] [--minutes N] [--ref SHA] [--attempt N] [--out DIR]
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
-#              (the release socket refuses debug.* calls). The build may be of any commit.
+#              (the release socket refuses debug.* calls) or a bench Release (`--release` of a tag in
+#              release_bench_tags, scripts/cmux-next/cmux-next.dogfood.conf). The build may be of any commit.
 #   --nightly  newest or a NIGHTLY feed build number, in place of --build: the onboarding suite only
 #              (vm.sh downloads that DMG from the feed on the Tart host).
 #   --os       macOS majors, comma-separated, from scripts/fuzz/macos-matrix/images.json

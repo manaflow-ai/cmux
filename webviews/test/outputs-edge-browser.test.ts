@@ -79,9 +79,16 @@ await requireBrowserLane("outputs-edge-browser.test.ts", async () => {
       expect((await edges(page)).top).toBe("1");
       expect((await edges(page)).bottom).toBe("0");
       await page.getByRole("button", { name: "Show less", exact: true }).click();
-      await page.waitForFunction(
-        () => !document.querySelector('ul[data-section="outputs"]')?.hasAttribute("data-fade-bottom"),
-      );
+      // The fold holds the rows it closes over until it settles (foldMotion.ts); then both bands go.
+      await page.waitForFunction(() => {
+        const list = document.querySelector('ul[data-section="outputs"]');
+        return (
+          !!list &&
+          !list.closest("[data-folding]") &&
+          !list.hasAttribute("data-fade-top") &&
+          !list.hasAttribute("data-fade-bottom")
+        );
+      });
       expect((await edges(page)).top).toBe("0");
       expect((await edges(page)).bottom).toBe("0");
       await page.getByRole("button", { name: "Outputs", exact: true }).click();

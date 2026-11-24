@@ -20,7 +20,7 @@ import { artifactRuntimePlugin } from "./artifactRuntimePlugin.mjs";
 // esbuild bundles and minifies as before. Components the compiler skips or bails out on are
 // listed on stderr, and as JSON with --report, so a bailout is visible in review.
 import { build } from "esbuild";
-import { writeFile } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
@@ -28,6 +28,7 @@ import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
 import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 import { katexStylePlugin } from "./katexStylePlugin.mjs";
+import { writeFrameSites } from "./frameSites.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -40,6 +41,25 @@ const split = rest.includes("--split");
 const cssInputsIndex = rest.indexOf("--css-inputs");
 const cssInputsFile = cssInputsIndex >= 0 ? rest[cssInputsIndex + 1] : undefined;
 const cssInputsOnly = rest.includes("--css-inputs-only");
+// --metafile <file> writes esbuild's metafile (every output's bytes, its imports and the inputs in it),
+// for an analyzer: what the page's first script holds and why.
+const metafileIndex = rest.indexOf("--metafile");
+const metafileOut = metafileIndex >= 0 ? rest[metafileIndex + 1] : undefined;
+const artifactMetafileIndex = rest.indexOf("--artifact-metafile");
+const artifactMetafile = artifactMetafileIndex >= 0 ? rest[artifactMetafileIndex + 1] : undefined;
+// --preload-list <file> (with --split) writes the chunks the entry imports statically, directly or
+// through another chunk, one per line relative to <outfile>'s folder: the page names each in a
+// <link rel="modulepreload">, so they load and parse beside the entry instead of after it.
+const preloadIndex = rest.indexOf("--preload-list");
+const preloadFile = preloadIndex >= 0 ? rest[preloadIndex + 1] : undefined;
+// --frame-sites <file> (with --split) writes the pane's site table there (frameSites.mjs): the
+// build makes external source maps only to read them, and deletes them after.
+const frameSitesIndex = rest.indexOf("--frame-sites");
+const frameSitesFile = frameSitesIndex >= 0 ? rest[frameSitesIndex + 1] : undefined;
+if (frameSitesFile && !split) {
+  console.error("--frame-sites needs --split");
+  process.exit(2);
+}
 const srcRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../src");
 
 const mode = reactCompilerMode();
@@ -52,13 +72,19 @@ const reactCompiler = reactCompilerPlugin({
   onDiagnostic: (diagnostic) => bailouts.push(diagnostic),
 });
 
+/** Vite's `import.meta.env` as a production page sees it. */
+const PRODUCTION_ENV = JSON.stringify({ DEV: false, PROD: true, MODE: "production", SSR: false });
+
 const result = await build({
   entryPoints: [entry],
   bundle: true,
   format: "esm",
   platform: "browser",
   target: "es2022",
-  define: { "process.env.NODE_ENV": '"production"' },
+  // `import.meta.env` is Vite's: a browser has none, so a bare `import.meta.env.DEV` left in a shipped
+  // page throws. #50616 put one in the pane's connect path and every NIGHTLY pane sat on
+  // "Reconnecting…" (#51194). Defined here, any read of it is a production build's constant.
+  define: { "process.env.NODE_ENV": '"production"', "import.meta.env": PRODUCTION_ENV },
   minify: !cssInputsOnly,
   write: !cssInputsOnly,
   legalComments: "none",
@@ -78,10 +104,90 @@ const result = await build({
       }
     : { outfile }),
   plugins: cssInputsOnly
-    ? [artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })]
-    : [reactCompiler, artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split })],
-  metafile: Boolean(cssInputsFile),
+    ? [
+        artifactRuntimePlugin({ metafile: artifactMetafile }),
+        tailwindPlugin,
+        jsonParsePlugin,
+        katexStylePlugin({ split }),
+      ]
+    : [
+        reactCompiler,
+        artifactRuntimePlugin({ metafile: artifactMetafile }),
+        tailwindPlugin,
+        jsonParsePlugin,
+        katexStylePlugin({ split }),
+      ],
+  metafile: Boolean(cssInputsFile || metafileOut || preloadFile || frameSitesFile),
+  // External maps add no comment to the scripts: they are the same code, and only the chunks'
+  // content hashes (their names) change, as esbuild hashes a chunk with its map.
+  ...(frameSitesFile && !cssInputsOnly ? { sourcemap: "external" } : {}),
 });
+if (!cssInputsOnly) await refuseRawImportMetaEnv();
+if (frameSitesFile && !cssInputsOnly) {
+  const outdir = path.resolve(path.dirname(outfile));
+  const outputs = Object.keys(result.metafile.outputs)
+    .filter((output) => !output.endsWith(".map"))
+    .map((output) => path.relative(outdir, path.resolve(output)));
+  await writeFrameSites({ outdir, outputs, file: frameSitesFile, webviewsRoot: path.dirname(srcRoot) });
+}
+if (metafileOut) await writeFile(metafileOut, JSON.stringify(result.metafile));
+if (preloadFile) {
+  const outdir = path.resolve(path.dirname(outfile));
+  const entryOut = Object.keys(result.metafile.outputs).find(
+    (output) => path.resolve(output) === path.resolve(outfile),
+  );
+  await writeFile(
+    preloadFile,
+    staticChunks(result.metafile.outputs, entryOut)
+      .map((output) => path.relative(outdir, path.resolve(output)) + "\n")
+      .join(""),
+  );
+}
+
+/**
+ * Fails the build when a written script still holds `import.meta.env`: the define above should
+ * leave none, and one that slipped through (a new spelling esbuild does not match) throws in the
+ * shipped page before it connects.
+ */
+async function refuseRawImportMetaEnv() {
+  const outdir = path.resolve(path.dirname(outfile));
+  const scripts = [path.resolve(outfile)];
+  if (split) {
+    const chunks = path.join(outdir, "chunks");
+    for (const name of await readdir(chunks).catch(() => [])) {
+      if (name.endsWith(".js")) scripts.push(path.join(chunks, name));
+    }
+  }
+  const left = [];
+  for (const file of scripts) {
+    const text = await readFile(file, "utf8").catch(() => "");
+    if (/import\.meta\s*\.\s*env|import\.meta\?\.env/.test(text)) left.push(path.relative(outdir, file));
+  }
+  if (left.length) {
+    console.error(`bundle.mjs: import.meta.env left in ${left.join(", ")}: a browser has none, so the page throws`);
+    process.exit(1);
+  }
+}
+
+/**
+ * The outputs `entryOut` imports statically, directly or through each other, breadth first: what
+ * the browser fetches before the entry runs. Dynamic imports are left out (they load when used).
+ */
+function staticChunks(outputs, entryOut) {
+  if (!entryOut) throw new Error(`--preload-list: no output for ${outfile}`);
+  const order = [];
+  const seen = new Set([entryOut]);
+  const queue = [entryOut];
+  while (queue.length) {
+    for (const item of outputs[queue.shift()].imports ?? []) {
+      if (item.kind !== "import-statement" || item.external || seen.has(item.path)) continue;
+      seen.add(item.path);
+      order.push(item.path);
+      queue.push(item.path);
+    }
+  }
+  return order;
+}
 if (cssInputsFile) {
   const webviewsRoot = path.dirname(srcRoot);
   const sheets = cssInImportOrder(result.metafile.inputs, entry)

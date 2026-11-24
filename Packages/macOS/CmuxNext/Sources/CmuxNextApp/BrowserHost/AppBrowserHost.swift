@@ -132,6 +132,7 @@ final class AppBrowserHost {
     /// from the app's mouse-down observer, after dispatch (focus has moved
     /// to the clicked page).
     func start() {
+        tabs.start()
         provider.start()
         // AppServices.settings follows from its didSet; a controller set before the host is followed here.
         if let settings = services?.settings { follow(settings) }

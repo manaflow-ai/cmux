@@ -43,19 +43,25 @@ const READS = new Set([
   "git.diff",
   "git.checkpoint.diff",
   "_acpmux/status",
+  "_acpmux/host_overload",
   "_acpmux/info",
   "_acpmux/stats",
   "_acpmux/sessions",
   "_acpmux/events",
   "_acpmux/history",
   "_acpmux/attachment",
+  "_acpmux/turn_shots",
   "_acpmux/session_files",
   "_acpmux/native_history",
   "_acpmux/subagent_transcript",
+  "_acpmux/subagents",
   "_acpmux/subsession/get",
   "_acpmux/subsession/list",
   "_acpmux/workflows",
   "_acpmux/bookmark_get",
+  "_acpmux/prompts_list",
+  "_acpmux/stash_list",
+  "_acpmux/stash_get",
   "_acpmux/send_status",
   "_acpmux/process/list",
   "_acpmux/process/tail",
@@ -103,9 +109,16 @@ export function countsAgainstBudget(method: string): boolean {
   return !UNCOUNTED.has(method);
 }
 
+/// `_acpmux/presets` reads presets, and with `set`, `clear` or `approveMode` changes one (a preset
+/// approval card's Approve or Not now): that form is a write, so it goes at once and never again.
+const writesPreset = (method: string, params?: Record<string, unknown>) =>
+  method === "_acpmux/presets" &&
+  params !== undefined &&
+  (params.set !== undefined || params.clear !== undefined || params.approveMode !== undefined);
+
 /// Whether `method` waits for a slot and goes again after a busy refusal: reads only (`READS`).
-export function waitsForSlot(method: string): boolean {
-  return READS.has(method);
+export function waitsForSlot(method: string, params?: Record<string, unknown>): boolean {
+  return READS.has(method) && !writesPreset(method, params);
 }
 
 /// The wait before try `attempt` (1-based) of a refused request: exponential, with full jitter so
@@ -114,6 +127,8 @@ export function busyDelay(attempt: number, random: () => number = Math.random): 
   const cap = Math.min(BUSY_MAX_MS, BUSY_BASE_MS * 2 ** Math.max(0, attempt - 1));
   return Math.round(cap / 2 + (random() * cap) / 2);
 }
+
+type Waiting = { id: number | string; send: () => void };
 
 type Timers = {
   set(run: () => void, ms: number): ReturnType<typeof setTimeout>;
@@ -130,7 +145,13 @@ const realTimers: Timers = {
 export class RequestBudget {
   /// Ids on the wire that the daemon counts: answered or not by the caller, until their reply.
   private readonly unanswered = new Set<number | string>();
-  private readonly waiting: { id: number | string; send: () => void }[] = [];
+  /// Reads waiting for a slot, by id: an answer or a reset removes its own in O(1).
+  private readonly waiting = new Map<number | string, Waiting>();
+  /// The same reads oldest first from `head`; an entry no longer in `waiting` is skipped when
+  /// reached. A scan per answer, or a Map iterated from its start past the slots it deleted, made
+  /// draining a long queue cost its square.
+  private order: Waiting[] = [];
+  private head = 0;
   /// Busy retries waiting for their time; cleared by `reset` (a closed connection).
   private readonly retries = new Map<number | string, ReturnType<typeof setTimeout>>();
   /// The most this connection had unanswered at once (perf harness, wire log).
@@ -146,7 +167,7 @@ export class RequestBudget {
   }
 
   get queued(): number {
-    return this.waiting.length;
+    return this.waiting.size;
   }
 
   /// Whether `id` went out and the daemon still counts it.
@@ -156,11 +177,11 @@ export class RequestBudget {
 
   /// Sends request `id` now, or once a slot frees when `limit` are unanswered. Only a read waits;
   /// any other request goes now whatever the count (the daemon's 64 leaves it room) and counts.
-  admit(id: number | string, method: string, send: () => void): void {
+  admit(id: number | string, method: string, send: () => void, params?: Record<string, unknown>): void {
     if (!countsAgainstBudget(method)) return send();
-    if (!waitsForSlot(method)) return this.start(id, send);
-    if (this.unanswered.size < this.limit && !this.waiting.length) return this.start(id, send);
-    this.waiting.push({ id, send });
+    if (!waitsForSlot(method, params)) return this.start(id, send);
+    if (this.unanswered.size < this.limit && !this.waiting.size) return this.start(id, send);
+    this.enqueue(id, send);
   }
 
   /// The daemon answered `id` (or the request never went): its slot frees.
@@ -170,8 +191,7 @@ export class RequestBudget {
       this.timers.clear(timer);
       this.retries.delete(id);
     }
-    const queuedAt = this.waiting.findIndex((item) => item.id === id);
-    if (queuedAt >= 0) this.waiting.splice(queuedAt, 1);
+    this.waiting.delete(id);
     if (this.unanswered.delete(id)) this.pump();
   }
 
@@ -181,7 +201,7 @@ export class RequestBudget {
     this.settled(id);
     const timer = this.timers.set(() => {
       this.retries.delete(id);
-      this.waiting.push({ id, send });
+      this.enqueue(id, send);
       this.pump();
     }, delayMs);
     this.retries.set(id, timer);
@@ -190,9 +210,11 @@ export class RequestBudget {
   /// The connection closed: the daemon's count went with it. Returns the ids that never went.
   reset(): (number | string)[] {
     for (const timer of this.retries.values()) this.timers.clear(timer);
-    const never = [...this.waiting.map((item) => item.id), ...this.retries.keys()];
+    const never = [...this.waiting.keys(), ...this.retries.keys()];
     this.retries.clear();
-    this.waiting.length = 0;
+    this.waiting.clear();
+    this.order = [];
+    this.head = 0;
     this.unanswered.clear();
     return never;
   }
@@ -203,10 +225,26 @@ export class RequestBudget {
     send();
   }
 
+  private enqueue(id: number | string, send: () => void): void {
+    const entry = { id, send };
+    this.waiting.set(id, entry);
+    this.order.push(entry);
+  }
+
   private pump(): void {
-    while (this.unanswered.size < this.limit && this.waiting.length) {
-      const next = this.waiting.shift()!;
-      this.start(next.id, next.send);
+    while (this.head < this.order.length && this.unanswered.size < this.limit) {
+      const entry = this.order[this.head++]!;
+      if (this.waiting.get(entry.id) !== entry) continue;
+      this.waiting.delete(entry.id);
+      this.start(entry.id, entry.send);
+    }
+    // Drop the sent part once it is most of the array, so the queue's memory follows its length.
+    if (this.head === this.order.length) {
+      this.order = [];
+      this.head = 0;
+    } else if (this.head > 1024 && this.head * 2 > this.order.length) {
+      this.order = this.order.slice(this.head);
+      this.head = 0;
     }
   }
 }

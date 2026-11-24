@@ -47,7 +47,9 @@ export async function main(argv = process.argv): Promise<number> {
   if (!tag) throw new Error("usage: repro.ts --tag <tag> [--out-dir <dir>] [--keep-snapshots]");
   const outDir = path.resolve(argValue("--out-dir", argv) ?? `cmux-vm-image-out/${tag}`);
   const lockPath = path.resolve(argValue("--lock", argv) ?? DEFAULT_LOCK_PATH);
-  const common = { outDir, lockPath, updateLock: false, keepBuilder: false, promotion: false };
+  // Reproducibility compares the production Cloud Native image shape, including
+  // the required cmux-rd desktop closure.
+  const common = { outDir, lockPath, updateLock: false, keepBuilder: false, promotion: false, agentTools: true };
   const [a, b] = await Promise.all([bake({ ...common, tag: `${tag}-a` }), bake({ ...common, tag: `${tag}-b` })]);
   let report: ReproReport;
   try {

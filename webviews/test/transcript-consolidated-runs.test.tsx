@@ -6,7 +6,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { runStretches, ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
+import { runStretches } from "../src/agent-session/acpmux/conversation/toolGroups";
+import { ToolRows } from "../src/agent-session/acpmux/conversation/TurnRows";
 import { toolGroupLabel, toolGroups } from "../src/agent-session/acpmux/conversation/toolGroups";
 import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRunSummary";
 import { translate } from "../src/agent-session/acpmux/i18n";
@@ -73,13 +74,14 @@ test("reads, searches and commands with thoughts between them are one counted li
 });
 
 test("a thought between two calls of one kind stays inside their group", () => {
-  const items = [read("a.ts"), longThought("b"), read("b.ts"), longThought("c"), read("c.ts")];
+  // Searches, since reads stay flat rows since the 2026-11-14 change.
+  const items = [search("a"), longThought("b"), search("b"), longThought("c"), search("c")];
   const groups = toolGroups(items);
   expect(groups).toHaveLength(1);
-  expect(groups[0]).toMatchObject({ type: "group", kind: "reads" });
+  expect(groups[0]).toMatchObject({ type: "group", kind: "searches" });
   const group = groups[0] as Extract<(typeof groups)[number], { type: "group" }>;
   expect(group.items).toEqual(items);
-  expect(toolGroupLabel(translate, "reads", group.items)).toBe("Read 3 files");
+  expect(toolGroupLabel(translate, "searches", group.items)).toBe("Ran 3 searches");
   // A thought after the last call ends the group, in its place.
   const trailing = toolGroups([command("ls"), command("pwd"), longThought("next")]);
   expect(trailing.map((entry) => entry.type)).toEqual(["group", "item"]);

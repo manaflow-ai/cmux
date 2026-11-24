@@ -7,8 +7,8 @@
 // only under Reduce Transparency is it that solid popup surface again, unblurred. Floating surfaces
 // that are not popups keep the solid surface. The two
 // web tooltips (Base UI's `.ui-tooltip`, the title tooltip) match the native tooltip: primary ink,
-// 5 px radius, 4×8 padding, a separator hairline and the caption font; since 2026-10-14 they are
-// frosted glass instead (tooltip-surface.test.ts).
+// 5 px radius, 2×8 padding (compact since #35205), a separator hairline and the caption font;
+// since 2026-10-14 they are frosted glass instead (tooltip-surface.test.ts).
 //
 // The pages are the real stylesheets with the variables the host sets, in a see-through window
 // (a translucent elevated background). The engines come from `playwright install chromium
@@ -84,15 +84,16 @@ ${tooltips}
 <div class="ui-glass icon-bar-pill" id="icon-bar-pill">Icons</div>
 <div class="md-link-bubble" id="md-link-bubble">https://example.com</div>
 <div class="ui-popup ui-glass ui-popover md-link-popover" id="md-link-popover">Edit link</div>
-<div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
-<div class="lg-palette" id="lg-palette">Search conversations</div>
-<div class="lg-form" id="lg-form">New message</div>
+<div class="hc-msg-toolbar ui-glass ui-glass-floats ui-glass-transient" id="hc-msg-toolbar">React</div>
+<div class="ui-dialog lg-palette ui-glass ui-glass-floats ui-glass-transient" id="lg-palette">Search conversations</div>
+<div class="ui-dialog ui-glass ui-glass-floats lg-form" id="lg-form">New message</div>
 <div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
     // The markdown link editor is a ui/Popover: glass, like the menus. The History page menu
     // (pages/shared/PageMenu.tsx) is the menu glass too (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE
     // GLASS, SO JUST USE GLASS.").
-    glass: ["menu", "page-menu", "icon-bar-pill", "md-link-popover"],
+    // Home's form dialogs are the sheet role's glass (ui/popupSurface.css .ui-dialog.ui-glass).
+    glass: ["menu", "page-menu", "icon-bar-pill", "md-link-popover", "lg-form", "hc-msg-toolbar", "lg-palette"],
     surfaces: [
       "menu",
       "page-menu",
@@ -123,6 +124,7 @@ ${tooltips}
       "agent-session/acpmux/needsYou/needsYou.css",
       "agent-session/acpmux/subagents/subagents.css",
       "agent-session/acpmux/addProject.css",
+      "agent-session/acpmux/share/share.css",
     ),
     body: `<div class="acpmux-shell">
 <div class="ui-popup ui-glass acpmux-menu" id="cascade">Model</div>
@@ -141,7 +143,8 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 <div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-needs-you" id="needs-you">Needs you</div></div>
 <div class="acpmux-shell"><dialog open class="ui-popup ui-glass acpmux-agents-list" id="agents-list">Agents</dialog></div>
-<dialog open class="ui-glass acpmux-add-project-dialog" id="add-project">Add project</dialog>
+<div class="ui-positioner"><div class="ui-popup ui-glass ui-popover acpmux-add-project-palette" id="add-project">Add project</div></div>
+<div class="ui-dialog ui-glass ui-glass-floats share-dialog-popup" id="share">Share</div>
 ${tooltips}`,
     glass: [
       "cascade",
@@ -162,8 +165,9 @@ ${tooltips}`,
       // The Summary popover (Outputs, Subagents, Sources, Background tasks) floats over the chat
       // (Leo 2026-10-30: "I don't like the non-glassness").
       "summary",
-      // A dialog, not a popup (no popup elevation), but glass all the same.
       "add-project",
+      // Share uses the glass sheet role.
+      "share",
     ],
     surfaces: [
       "cascade",
@@ -182,6 +186,7 @@ ${tooltips}`,
       "new-tab-suggestions",
       "needs-you",
       "agents-list",
+      "add-project",
     ],
   };
 
@@ -279,7 +284,10 @@ ${tooltips}`,
         const ids = pane.surfaces;
         const seen: Record<string, { border: string; radius: string; shadow: string }> = {};
         for (const id of ids) seen[id] = await look(id);
-        expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, want])));
+        // One elevation, not one corner: the New Tab suggestions take the field's corner (#47587, --nt-box-radius,
+        // 20 px at Default, newtab/screen.css) so their rows stay concentric with the box they serve.
+        const corner = (id: string) => (id === "new-tab-suggestions" ? "20px" : want.radius);
+        expect(seen).toEqual(Object.fromEntries(ids.map((id) => [id, { ...want, radius: corner(id) }])));
         await page.close();
       });
 
@@ -323,13 +331,14 @@ ${tooltips}`,
                 width: Math.round(node.getBoundingClientRect().width),
               };
             });
+            // TooltipMetrics.swift: radius 8, 12/16 text, padding 4 x 8 from the box's edge (the 1px rim inside it).
             expect({ id, ...look }).toEqual({
               id,
               ink: TEXT,
-              radius: "5px",
-              padding: "4px 8px",
+              radius: "8px",
+              padding: "3px 7px",
               border: `1px solid ${SEPARATOR}`,
-              font: "11px/14px",
+              font: "12px/16px",
               shadow: true,
               width: 320,
             });

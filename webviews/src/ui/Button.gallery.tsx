@@ -16,7 +16,7 @@ function ButtonGallery({ variant = "subtle", open = false, disabled = false }: P
   const [count, setCount] = useState(0);
   const press = () => setCount((value) => value + 1);
   return (
-    <div className="ui-controls-stage">
+    <div className="ui-controls-stage" data-gallery-capture="">
       {(["sm", "md", "lg"] as const).map((size) => (
         <div className="ui-controls-row" key={size}>
           <span className="ui-controls-label">{size}</span>

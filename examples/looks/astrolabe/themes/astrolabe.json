@@ -1,0 +1,81 @@
+// Astrolabe: deep navy with a cool ink sidebar a shade darker, warm ivory text, and old gold as
+// the accent (Send, links, the selected row, the frames the stylesheet draws). Hairline edges,
+// flat chrome with a sidebar line, and a slow, soft glow for work in progress.
+{
+  "name": "Astrolabe",
+  "description": "Deep navy, ivory text, old-gold hairlines and a soft gold glow.",
+
+  "appearance.theme": "Builtin Dark",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#0e1628", "foreground": "#efe8d8", "selection": "#2a3550", "accent": "#d4af5f" },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #0e1628",
+    "foreground = #efe8d8",
+    "cursor-color = #d4af5f",
+    "cursor-text = #0e1628",
+    "selection-background = #2a3550",
+    "selection-foreground = #efe8d8",
+    "palette = 0=#18223a",
+    "palette = 1=#e07a6e",
+    "palette = 2=#8fc59a",
+    "palette = 3=#d4af5f",
+    "palette = 4=#7fa3e0",
+    "palette = 5=#c49ad8",
+    "palette = 6=#7cc4c8",
+    "palette = 7=#cfc7b4",
+    "palette = 8=#5b6680",
+    "palette = 9=#f0958a",
+    "palette = 10=#a8d8b1",
+    "palette = 11=#e6c67e",
+    "palette = 12=#9dbbef",
+    "palette = 13=#d6b3e6",
+    "palette = 14=#9ad7da",
+    "palette = 15=#fbf6ea"
+  ],
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "comfortable",
+
+  "appearance.metrics.titlebarHeight": 40,
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.tabStripHeight": 34,
+  "appearance.metrics.tabFontSize": 12,
+  "appearance.metrics.dividerThickness": 1,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#0a1120",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#0e1628",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#0e1628",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.markdown.color": "#0e1628",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#5a4a2a",
+  "appearance.surfaces.splitDivider.opacity": 1,
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "lines",
+
+  // Work in progress is a thin gold arc.
+  "appearance.statusIndicator.style": "arc",
+  "appearance.statusIndicator.animation": "animated",
+  "appearance.statusIndicator.color": "#d4af5f",
+  "appearance.statusIndicator.thickness": 1.25,
+
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.curve": "easeInOut",
+  "appearance.colorTransition.duration": 240,
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "instant"
+}

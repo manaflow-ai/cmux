@@ -10,6 +10,7 @@ pub(crate) struct RemoteClientMessages {
     pub rpc_help: &'static str,
     pub enroll_help: &'static str,
     pub known_daemons_help: &'static str,
+    pub device_key_help: &'static str,
     pub remote_probe_help: &'static str,
     pub remote_link_help: &'static str,
     pub remote_mux_binding_refused: &'static str,
@@ -52,6 +53,7 @@ pub(crate) struct RemoteClientMessages {
     pub known_daemon_key_unavailable: &'static str,
     pub(super) carrier_daemon_requires_carrier: &'static str,
     pub upgrade_requires_ssh: &'static str,
+    pub(super) route_is_link_socket: &'static str,
     pub(super) relay_route_not_candidate: &'static str,
     pub(super) daemon_key_changed: &'static str,
     pub known_daemon_refresh_missing: &'static str,
@@ -59,10 +61,15 @@ pub(crate) struct RemoteClientMessages {
     pub connect_one_route: &'static str,
     pub reconnect_policy_invalid: &'static str,
     pub upgrade_no_install: &'static str,
+    pub upgrade_forced_command: &'static str,
     pub json_requires_headless: &'static str,
     pub help_invalid_options: &'static str,
     pub ssh_destination_required: &'static str,
     pub ssh_destination_invalid: &'static str,
+    pub ssh_carrier_and_ssh: &'static str,
+    pub ssh_carrier_needs_machine: &'static str,
+    pub ssh_carrier_falls_back: &'static str,
+    pub(super) ssh_carrier_refused: &'static str,
     pub forward_workspace_required: &'static str,
     pub forward_port_required: &'static str,
     pub dial_tcp_port_required: &'static str,
@@ -80,6 +87,11 @@ pub(crate) struct RemoteClientMessages {
     pub(super) wireguard_config_invalid: &'static str,
     pub(super) wireguard_start_failed: &'static str,
     pub wireguard_hub_conflict: &'static str,
+    pub via_machine_conflict: &'static str,
+    pub acpmux_socket_unknown: &'static str,
+    pub(super) machine_refused_consent: &'static str,
+    pub(super) machine_refused_service_off: &'static str,
+    pub(super) machine_refused: &'static str,
     pub wireguard_hub_token_needs_hub: &'static str,
     pub stdin_claimed_twice: &'static str,
     pub hub_token_invalid: &'static str,
@@ -93,9 +105,72 @@ pub(crate) struct RemoteClientMessages {
     pub known_daemons_empty: &'static str,
     pub known_daemon_auth_enrolled: &'static str,
     pub known_daemon_auth_carrier: &'static str,
+    pub exec_help: &'static str,
+    pub cp_help: &'static str,
+    pub exec_needs_command: &'static str,
+    pub exec_cwd_absolute: &'static str,
+    pub exec_output_lost: &'static str,
+    pub(super) exec_output_truncated: &'static str,
+    pub cp_usage: &'static str,
+    pub cp_one_remote: &'static str,
+    pub(super) cp_remote_absolute: &'static str,
+    pub(super) cp_directory: &'static str,
+    pub(super) cp_not_a_file: &'static str,
+    pub(super) cp_hash_mismatch: &'static str,
+    pub(super) cp_remote_step_failed: &'static str,
+    pub(super) remote_unexpected_response: &'static str,
 }
 
 impl RemoteClientMessages {
+    /// What a far machine's refusal (`reason`, its `message`) means here, and what to do.
+    pub(crate) fn machine_refused(&self, reason: &str, message: &str) -> String {
+        let template = match reason {
+            "consent_required" | "consent_declined" => self.machine_refused_consent,
+            "service.off" => self.machine_refused_service_off,
+            _ => self.machine_refused,
+        };
+        template.replace("{message}", message).replace("{reason}", reason)
+    }
+
+    /// `cmux ssh HOST`'s carrier refusal, one line: `host`, acpmux's `reason` and `error`.
+    pub(crate) fn ssh_carrier_refused(&self, host: &str, reason: &str, error: &str) -> String {
+        self.ssh_carrier_refused
+            .replace("{host}", host)
+            .replace("{error}", error)
+            .replace("{reason}", reason)
+    }
+
+    pub(crate) fn exec_output_truncated(&self, reason: &str) -> String {
+        self.exec_output_truncated.replace("{reason}", reason)
+    }
+
+    pub(crate) fn cp_remote_absolute(&self, path: &str) -> String {
+        self.cp_remote_absolute.replace("{path}", path)
+    }
+
+    pub(crate) fn cp_directory(&self, path: &str) -> String {
+        self.cp_directory.replace("{path}", path)
+    }
+
+    pub(crate) fn cp_not_a_file(&self, path: &str) -> String {
+        self.cp_not_a_file.replace("{path}", path)
+    }
+
+    pub(crate) fn cp_hash_mismatch(&self, path: &str) -> String {
+        self.cp_hash_mismatch.replace("{path}", path)
+    }
+
+    pub(crate) fn cp_remote_step_failed(&self, step: &str, status: i32, stderr: &str) -> String {
+        self.cp_remote_step_failed
+            .replace("{step}", step)
+            .replace("{status}", &status.to_string())
+            .replace("{stderr}", stderr)
+    }
+
+    pub(crate) fn remote_unexpected_response(&self, request: &str) -> String {
+        self.remote_unexpected_response.replace("{request}", request)
+    }
+
     pub(crate) fn option_needs_value(&self, option: &str) -> String {
         self.option_needs_value.replace("{option}", option)
     }
@@ -213,6 +288,10 @@ impl RemoteClientMessages {
         self.daemon_no_routes.replace("{fingerprint}", fingerprint)
     }
 
+    pub(crate) fn route_is_link_socket(&self, path: &str) -> String {
+        self.route_is_link_socket.replace("{path}", path)
+    }
+
     pub(crate) fn carrier_daemon_requires_carrier(&self, fingerprint: &str) -> String {
         self.carrier_daemon_requires_carrier.replace("{fingerprint}", fingerprint)
     }
@@ -250,6 +329,8 @@ IDENTITY AND SESSION:
   --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
 
+  --local-socket PATH also serves PATH.admin, owner-only: the link's state
+(link-state) and a wait until it is connected by a deadline (await-ready).
   --invite-file avoids exposing the single-use invitation in process arguments.
   Regular files must be owner-only; - reads one line from stdin.
   --carrier dials ws routes with carrier authentication (no enrollment, no
@@ -269,7 +350,13 @@ through an in-process WireGuard peer (owner-only wg-quick file; no root)
   --wireguard-hub PATH  dial ws routes through a running `cmux wg hub` socket
 instead; exclusive with --wireguard-config
   --wireguard-hub-token-stdin  read that hub's client token as one line on stdin
+  --via-machine MACHINE  dial a loopback ws route (ws://127.0.0.1:PORT/) on another
+of your machines through your own carrier (acpmux), with no inbound port; MACHINE
+is a name `acpmux machine ls` lists, an acpmux peer name or its node key
+(`acpmux machine status --json`, wgPublicKey)
   --ssh-binary PATH  --remote-binary PATH  --ssh-arg ARG  --no-install
+  --ssh-forced-command  the SSH key's forced command already runs remote-link,
+so the client never runs remote-probe or an install over it
   --agent-hooks PROVIDER[,PROVIDER...] installs those coding-agent hooks for
 the remote user on each attach (for example claude,codex)
   --remote-state-dir PATH for a non-default daemon state directory
@@ -283,8 +370,18 @@ RECONNECT:
   --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
+  A dropped link redials 3 times, then waits for a network change or a caller
+and tries again, within a redial budget; it never exits on its own.
+--reconnect-attempts is still accepted but no longer limits this.
 "#,
     ssh_help: r#"USAGE: cmux remote ssh [USER@]HOST[:PORT] [OPTIONS]
+
+When HOST is the bare name of one of your machines that this machine's hub
+lists (`acpmux machine ls`), and no other option is given, cmux attaches to that
+machine's cmux session over your hub carrier: no sshd, no keys, nothing to
+install there. When the carrier refuses, cmux prints why and uses system ssh.
+  --carrier  the hub carrier only; a refusal ends here
+  --ssh      system ssh only, skipping the carrier
 
 Direct SSH uses one carrier by default. Pass --lanes auto or isolated to opt in
 to multiple carriers. The remote binary is probed and, unless --no-install is
@@ -304,6 +401,9 @@ other RPC resources reset
   --reconnect-max-ms MS  --reconnect-attempt-timeout-ms MS
   --reconnect-jitter full|none  --heartbeat-interval-ms MS
   --heartbeat-timeout-ms MS
+  A dropped link redials 3 times, then waits for a network change or a caller
+and tries again, within a redial budget; it never exits on its own.
+--reconnect-attempts is still accepted but no longer limits this.
 "#,
     browser_proxy_help: "USAGE: cmux remote browser-proxy [ROUTE] --allowed-host HOST [--allowed-host HOST ...] --workspace-root PATH --wireguard-hub PATH [OPTIONS]\n\nStarts an authenticated local browser proxy to the selected machine's loopback ports. Prints private proxy credentials on stdout.\n",
     forward_help: r#"USAGE: cmux remote forward [ROUTE] --workspace-root PATH --port PORT [OPTIONS]
@@ -347,18 +447,25 @@ ACTIONS:
 OPTIONS:
   --session NAME  --state-dir PATH  --admin-socket PATH  --json
   create: --ttl SECONDS  --advertise ROUTE
+  create: --device-key KEY [--device-name NAME] binds the invitation to the
+device whose key `cmux remote device-key` printed: only that device can use
+it, and it enrolls with no approval step
+  create: --via-machine KEY names the hub route the invitation carries (a
+machine's node key); a machine joined to a hub carries its own by default, so
+redeeming it elsewhere dials through the hub with no --via-machine
   create relay access: repeat --relay-route ROUTE --relay-slot SLOT with
 --relay-ticket-file PATH, in occurrence order,
 for up to two relay fallbacks
   connect accepts every option documented by `cmux remote connect`.
 "#,
     known_daemons_help: "USAGE: cmux remote known-daemons [list] [--state-dir PATH] [--json]\n       cmux remote known-daemons forget FINGERPRINT [--state-dir PATH] [--json]\n",
+    device_key_help: "USAGE: cmux remote device-key [--state-dir PATH] [--json]\n\nPrints this device's public key and fingerprint, creating the device identity if there is none. Give the key to the daemon's owner for `cmux remote enroll create --device-key KEY`: that invitation enrolls only this device, with no approval step. The key is public; the private key never leaves this device.\n",
     remote_probe_help: "USAGE: cmux-tui remote-probe [--json]\n",
     remote_mux_binding_refused: "The running remote sidecar cannot prove the requested --mux-socket. Update the sidecar or use a separate --session for this daemon [remote-mux-binding]",
     remote_link_help: "USAGE: cmux-tui remote-link --stdio [--session NAME] [--state-dir PATH] [--mux-socket PATH] [--link-socket PATH] [--agent-hooks PROVIDERS]\n",
     install_self_help: "USAGE: cmux-tui install-self --destination PATH\n",
-    command_help: "USAGE: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
-    remote_lifecycle_help: "USAGE: cmux remote connect|ssh|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux daemon start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n",
+    command_help: "USAGE: cmux remote <connect|ssh|exec|cp|forward|dial-tcp|rpc|enroll|known-daemons|device-key|stop> [OPTIONS]\n\nRun `cmux remote COMMAND --help` for command-specific routes and options. Legacy top-level aliases remain available for one compatibility cycle.\n",
+    remote_lifecycle_help: "USAGE: cmux remote connect|ssh|exec|cp|forward|rpc [OPTIONS]\n       cmux remote enroll <ACTION> [OPTIONS]\n       cmux remote known-daemons [OPTIONS]\n       cmux remote stop [OPTIONS]\n\nAuthenticated remote operations are explicit under `remote`. Start the owning process with `cmux daemon start` and explicit remote flags. `cmux remote stop` manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n",
     option_needs_value: "{option} needs a value",
     invalid_option_value: "{option} has an invalid value; expected {expected}",
     option_must_be_positive: "{option} must be positive",
@@ -366,7 +473,7 @@ for up to two relay fallbacks
     unknown_option_for_command: "unknown option {option} for {command}",
     remote_link_unknown_option: "remote-link does not know option {option}: the client is newer than this cmux-tui; update cmux-tui on this host [remote-protocol-older]",
     option_once: "{option} may only be specified once",
-    unknown_action: "unknown {command} action {action}",
+    unknown_action: "unknown {command} action {action}; run `cmux {command} --help` for its actions",
     enroll_arity: "enroll {action} expects exactly {expected} positional arguments",
     option_create_only: "{option} is only valid for enroll create",
     inline_invitation_rejected: "inline invitations are not accepted; use --invite-file or stdin",
@@ -395,6 +502,7 @@ for up to two relay fallbacks
     known_daemon_key_unavailable: "known daemon key disappeared",
     carrier_daemon_requires_carrier: "daemon {fingerprint} is known only through a trusted SSH or Unix carrier; use that carrier route or enroll this device for network access",
     upgrade_requires_ssh: "--upgrade requires SSH to be the initial route",
+    route_is_link_socket: "unix://{path} is the local socket of a running `cmux remote connect`, not a daemon route; pass the route that connect dialed (with the same --state-dir) instead",
     relay_route_not_candidate: "relay credential route {route} is not one of this connection's route candidates",
     daemon_key_changed: "daemon key changed for {name}",
     known_daemon_refresh_missing: "known daemon disappeared while refreshing its route",
@@ -402,10 +510,15 @@ for up to two relay fallbacks
     connect_one_route: "connect accepts one route",
     reconnect_policy_invalid: "reconnect delays, attempt timeout, and enabled heartbeat timeout must be positive; max delay must be at least initial",
     upgrade_no_install: "--upgrade cannot be combined with --no-install",
+    upgrade_forced_command: "--upgrade cannot be combined with --ssh-forced-command: that key runs only remote-link, so nothing can be installed over it",
     json_requires_headless: "--json requires --headless for connect and ssh",
     help_invalid_options: "help cannot be combined with invalid connect options",
     ssh_destination_required: "ssh expects the destination before options",
     ssh_destination_invalid: "invalid SSH destination",
+    ssh_carrier_and_ssh: "ssh takes --carrier or --ssh, not both",
+    ssh_carrier_needs_machine: "--carrier reaches one of your machines by its bare name (as `acpmux machine ls` lists it), with no user@, :port or other option",
+    ssh_carrier_falls_back: "trying system ssh (pass --carrier to stop here, --ssh to skip the carrier)",
+    ssh_carrier_refused: "the hub carrier did not reach {host}: {error} ({reason})",
     forward_workspace_required: "forward needs --workspace-root on the daemon",
     forward_port_required: "forward needs --port",
     dial_tcp_port_required: "dial-tcp needs --port",
@@ -423,6 +536,11 @@ for up to two relay fallbacks
     wireguard_config_invalid: "WireGuard config is not a valid wg-quick file: {error}",
     wireguard_start_failed: "could not start the in-process WireGuard tunnel: {error}",
     wireguard_hub_conflict: "--wireguard-config and --wireguard-hub cannot be combined; one link owns a tunnel or dials through a hub, not both",
+    via_machine_conflict: "--via-machine carries the route through another machine; it cannot be combined with --wireguard-config or --wireguard-hub",
+    acpmux_socket_unknown: "--via-machine needs this machine's acpmux, and its socket could not be found (set ACPMUX_SOCKET)",
+    machine_refused_consent: "the owner of that machine has not allowed control from elsewhere: on that Mac, open Settings > Devices and turn on Control, then run this again ({reason})",
+    machine_refused_service_off: "that machine serves no cmux-tui remote daemon to its other machines: on it, run `acpmux config --set remote_daemon=127.0.0.1:PORT` ({reason})",
+    machine_refused: "that machine refused the connection, and retrying will not change it: {message} ({reason})",
     wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin needs --wireguard-hub",
     stdin_claimed_twice: "only one input can come from stdin: --wireguard-hub-token-stdin and --invite-file - cannot be combined",
     hub_token_invalid: "the WireGuard hub token on stdin must be one line of 1 to 255 bytes",
@@ -436,6 +554,67 @@ for up to two relay fallbacks
     known_daemons_empty: "No known daemons.",
     known_daemon_auth_enrolled: "enrolled",
     known_daemon_auth_carrier: "carrier",
+    exec_help: r#"USAGE: cmux remote exec [ROUTE] [OPTIONS] -- COMMAND [ARG]...
+
+Runs COMMAND on the paired machine and streams its stdout and stderr here as
+they arrive. Local stdin goes to the command; EOF on stdin closes its stdin.
+Exits with the command's exit status, 128+N when signal N ended it, and 255
+when the connection or this CLI failed. Ctrl-C sends the command an interrupt;
+a third Ctrl-C stops waiting and exits 130. The command ends when this CLI
+does: it runs only as long as the connection that started it.
+
+OPTIONS:
+  --cwd DIR  absolute remote directory to run in (default /)
+  --env KEY=VALUE  set a variable for the command (repeatable); the rest of
+  the environment is the remote daemon's
+  --tty, -t  run under a terminal sized like this one (80x24 when stdout is
+  not a terminal), with TERM from here; puts a local terminal in raw mode
+  --timeout-seconds N  the remote daemon ends the command after N seconds
+  All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
+  `cmux remote connect` are also accepted.
+
+EXAMPLES:
+  cmux remote exec box --state-dir DIR --cwd /srv/app -- git status
+  tar -C src -cf - . | cmux remote exec box -- tar -C /srv/app -xf -
+"#,
+    cp_help: r#"USAGE: cmux remote cp [ROUTE] [OPTIONS] SRC DST
+
+Copies one file between this machine and the paired machine. Exactly one of
+SRC and DST is remote:PATH, an absolute path on the remote machine. A DST that
+is a directory (or a remote path ending in /) receives the file under its own
+name. Directories are refused: copy a tree with
+`cmux remote exec -- tar` (see `cmux remote exec --help`).
+
+Downloads read the file in 4 MiB chunks, check its SHA-256 against the
+daemon's, write a temporary file beside DST and rename it into place; files
+over 128 MiB stream through `cat`. Uploads up to 8 MiB are one atomic write;
+larger files go up as 8 MiB parts into a private directory (mktemp -d, 0700)
+beside PATH that a remote /bin/sh joins and renames into place. Uploads get the
+local file's permission bits (chmod), once complete. A new download is 0600
+(0700 when the remote file is executable) less your umask; a replaced file
+keeps its mode, narrowed to that, never widened.
+
+OPTIONS:
+  --json  print {"bytes","seconds","mib_per_s"} as one JSON line when done
+  All identity, transport, SSH, relay, Iroh, and reconnect options accepted by
+  `cmux remote connect` are also accepted.
+
+EXAMPLES:
+  cmux remote cp box ./build.tar remote:/srv/app/build.tar
+  cmux remote cp box remote:/var/log/app.log ./
+"#,
+    exec_needs_command: "exec needs the command after `--`: cmux remote exec [ROUTE] [OPTIONS] -- COMMAND [ARG]...",
+    exec_cwd_absolute: "--cwd needs an absolute remote directory",
+    exec_output_lost: "cmux: some remote output was lost (the daemon dropped it before it was read)",
+    exec_output_truncated: "cmux: remote output was cut short: {reason}",
+    cp_usage: "USAGE: cmux remote cp [ROUTE] [OPTIONS] SRC DST, where exactly one of SRC and DST is remote:PATH",
+    cp_one_remote: "exactly one of SRC and DST must be remote:PATH",
+    cp_remote_absolute: "remote path must be absolute: remote:{path}",
+    cp_directory: "{path} is a directory; cp copies files. Copy a tree with `cmux remote exec -- tar` (see `cmux remote cp --help`)",
+    cp_not_a_file: "{path} is not a regular file",
+    cp_hash_mismatch: "{path} arrived with a different SHA-256 than was sent",
+    cp_remote_step_failed: "remote {step} exited with status {status}: {stderr}",
+    remote_unexpected_response: "the daemon answered {request} with an unexpected response",
 };
 
 pub(super) const JAPANESE: RemoteClientMessages = RemoteClientMessages {
@@ -450,6 +629,8 @@ ID とセッション:
   --device-name 名前  --session 名前
   --state-dir パス  --local-socket パス  --headless [--json]
 
+  --local-socket パス は所有者専用の パス.admin も提供します: リンクの状態
+(link-state) と、期限までの接続待ち (await-ready)。
   --invite-file は一回限りの招待をプロセス引数に公開しません。
   通常ファイルは所有者だけが読める必要があります。- は標準入力から 1 行読みます。
   --carrier は ws ルートをキャリア認証で接続します（登録や招待は不要）。
@@ -468,7 +649,12 @@ ID とセッション:
   --wireguard-hub パス  実行中の `cmux wg hub` ソケット経由で ws ルートに接続します。
 --wireguard-config とは併用できません
   --wireguard-hub-token-stdin  そのハブのクライアントトークンを標準入力から 1 行で読みます
+  --via-machine マシン  自分の別のマシンのループバック ws ルート (ws://127.0.0.1:ポート/) に
+自分のキャリア (acpmux) 経由で接続します。受信ポートは不要です。マシンは `acpmux machine ls`
+に出る名前、acpmux のピア名、またはそのノード鍵です (`acpmux machine status --json` の wgPublicKey)
   --ssh-binary パス  --remote-binary パス  --ssh-arg 引数  --no-install
+  --ssh-forced-command  SSH 鍵の強制コマンドがすでに remote-link を実行するため、
+その接続では remote-probe もインストールも実行しません
   --agent-hooks プロバイダー[,プロバイダー...] 接続のたびにリモートユーザーへ
 コーディングエージェントのフックを導入 (例: claude,codex)
   --remote-state-dir パス  既定以外のデーモン状態ディレクトリ
@@ -482,8 +668,18 @@ ID とセッション:
   --reconnect-max-ms ミリ秒  --reconnect-attempt-timeout-ms ミリ秒
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
+  切れたリンクは 3 回再接続を試し、その後はネットワークの変化か呼び出し元を
+待って再試行します (再接続の予算内)。自分から終了することはありません。
+--reconnect-attempts は引き続き受け付けますが、この回数を制限しません。
 "#,
     ssh_help: r#"使用方法: cmux remote ssh [ユーザー@]ホスト[:ポート] [オプション]
+
+ホストがこのマシンのハブに表示される自分のマシンの名前 (`acpmux machine ls`) だけで、
+他のオプションがない場合、cmux はハブの搬送路でそのマシンの cmux セッションに
+接続します。sshd、鍵、インストールは不要です。搬送路が拒否した場合は理由を表示し、
+システムの ssh を使います。
+  --carrier  ハブの搬送路のみ。拒否されたらそこで終了します
+  --ssh      システムの ssh のみ。搬送路を使いません
 
 直接 SSH は既定で 1 本の搬送接続を使用します。複数接続を使うには
 --lanes auto または isolated を指定します。リモートバイナリを確認し、
@@ -502,6 +698,9 @@ ID とセッション:
   --reconnect-max-ms ミリ秒  --reconnect-attempt-timeout-ms ミリ秒
   --reconnect-jitter full|none  --heartbeat-interval-ms ミリ秒
   --heartbeat-timeout-ms ミリ秒
+  切れたリンクは 3 回再接続を試し、その後はネットワークの変化か呼び出し元を
+待って再試行します (再接続の予算内)。自分から終了することはありません。
+--reconnect-attempts は引き続き受け付けますが、この回数を制限しません。
 "#,
     browser_proxy_help: "使用方法: cmux remote browser-proxy [ルート] --allowed-host ホスト [--allowed-host ホスト ...] --workspace-root パス --wireguard-hub パス [オプション]\n\n選択したマシンのループバックポートへの認証付きローカルブラウザプロキシを起動します。非公開のプロキシ認証情報を標準出力に出力します。\n",
     forward_help: r#"使用方法: cmux remote forward [ルート] --workspace-root パス --port ポート [オプション]
@@ -544,17 +743,24 @@ ID とセッション:
 オプション:
   --session 名前  --state-dir パス  --admin-socket パス  --json
   create: --ttl 秒数  --advertise ルート
+  create: --device-key キー [--device-name 名前] で、`cmux remote device-key`
+が出力したキーのデバイスに招待を限定します。そのデバイスだけが使え、
+承認なしで登録されます
+  create: --via-machine キー で、招待が持つハブ経路 (マシンのノード鍵) を
+指定します。ハブに参加したマシンは既定で自分の鍵を持たせるので、別の
+マシンで使うときも --via-machine なしでハブ経由で接続します
   create のリレーアクセスでは --relay-route、--relay-slot、
 --relay-ticket-file の組を出現順に最大 2 回指定します。
   connect では `cmux remote connect` の全オプションを使用できます。
 "#,
     known_daemons_help: "使用方法: cmux remote known-daemons [list] [--state-dir パス] [--json]\n          cmux remote known-daemons forget フィンガープリント [--state-dir パス] [--json]\n",
+    device_key_help: "使用方法: cmux remote device-key [--state-dir パス] [--json]\n\nこのデバイスの公開鍵とフィンガープリントを出力します。デバイス ID がなければ作成します。このキーをデーモンの所有者に渡し、`cmux remote enroll create --device-key キー` を実行してもらいます。その招待はこのデバイスだけを承認なしで登録します。キーは公開情報で、秘密鍵がこのデバイスの外に出ることはありません。\n",
     remote_probe_help: "使用方法: cmux-tui remote-probe [--json]\n",
     remote_mux_binding_refused: "実行中のリモートサイドカーが指定された --mux-socket を使用していることを確認できません。サイドカーを更新するか、このデーモンに別の --session を使用してください [remote-mux-binding]",
     remote_link_help: "使用方法: cmux-tui remote-link --stdio [--session 名前] [--state-dir パス] [--mux-socket パス] [--link-socket パス] [--agent-hooks プロバイダー]\n",
     install_self_help: "使用方法: cmux-tui install-self --destination パス\n",
-    command_help: "使用方法: cmux remote <connect|ssh|forward|dial-tcp|rpc|enroll|known-daemons|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
-    remote_lifecycle_help: "使用方法: cmux remote connect|ssh|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux daemon start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
+    command_help: "使用方法: cmux remote <connect|ssh|exec|cp|forward|dial-tcp|rpc|enroll|known-daemons|device-key|stop> [オプション]\n\nコマンド別のルートとオプションは `cmux remote コマンド --help` で表示します。従来のトップレベル別名は互換期間中も使用できます。\n",
+    remote_lifecycle_help: "使用方法: cmux remote connect|ssh|exec|cp|forward|rpc [オプション]\n          cmux remote enroll <操作> [オプション]\n          cmux remote known-daemons [オプション]\n          cmux remote stop [オプション]\n\n認証済みリモート操作は `remote` で明示的に指定します。所有プロセスは明示的なリモートフラグを付けた `cmux daemon start` で起動します。`cmux remote stop` は置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n",
     option_needs_value: "{option} には値が必要です",
     invalid_option_value: "{option} の値が無効です。{expected} を指定してください",
     option_must_be_positive: "{option} には正の値を指定してください",
@@ -562,7 +768,7 @@ ID とセッション:
     unknown_option_for_command: "{command} の不明なオプションです: {option}",
     remote_link_unknown_option: "remote-link はオプション {option} を知りません。クライアントがこの cmux-tui より新しいので、このホストの cmux-tui を更新してください [remote-protocol-older]",
     option_once: "{option} は 1 回だけ指定できます",
-    unknown_action: "不明な {command} 操作です: {action}",
+    unknown_action: "不明な {command} 操作です: {action}。`cmux {command} --help` で操作を確認してください",
     enroll_arity: "enroll {action} には位置引数をちょうど {expected} 個指定してください",
     option_create_only: "{option} は enroll create でのみ使用できます",
     inline_invitation_rejected: "招待を引数へ直接指定できません。--invite-file または標準入力を使用してください",
@@ -591,6 +797,7 @@ ID とセッション:
     known_daemon_key_unavailable: "登録済みデーモンの鍵が見つかりません",
     carrier_daemon_requires_carrier: "デーモン {fingerprint} は信頼済みの SSH または Unix 搬送路でのみ登録されています。その搬送路を使用するか、ネットワーク接続用にこのデバイスを登録してください",
     upgrade_requires_ssh: "--upgrade を使用するには最初のルートを SSH にしてください",
+    route_is_link_socket: "unix://{path} は実行中の `cmux remote connect` のローカルソケットで、デーモンのルートではありません。その connect が接続したルートを (同じ --state-dir で) 指定してください",
     relay_route_not_candidate: "リレー認証情報のルート {route} はこの接続のルート候補に含まれていません",
     daemon_key_changed: "デーモン {name} の鍵が変更されています",
     known_daemon_refresh_missing: "ルートの更新中に登録済みデーモンが見つからなくなりました",
@@ -598,10 +805,15 @@ ID とセッション:
     connect_one_route: "connect に指定できるルートは 1 つです",
     reconnect_policy_invalid: "再接続遅延、試行タイムアウト、有効なハートビートタイムアウトには正の値が必要です。最大遅延は初期遅延以上にしてください",
     upgrade_no_install: "--upgrade と --no-install は同時に指定できません",
+    upgrade_forced_command: "--upgrade と --ssh-forced-command は同時に指定できません。その鍵は remote-link しか実行しないため、インストールできません",
     json_requires_headless: "connect と ssh で --json を使うには --headless が必要です",
     help_invalid_options: "ヘルプと無効な connect オプションは同時に指定できません",
     ssh_destination_required: "ssh の接続先をオプションより前に指定してください",
     ssh_destination_invalid: "SSH の接続先が無効です",
+    ssh_carrier_and_ssh: "ssh には --carrier と --ssh のどちらか一方だけを指定してください",
+    ssh_carrier_needs_machine: "--carrier は自分のマシンに名前だけ (`acpmux machine ls` に表示される名前) で接続します。ユーザー@、:ポート、その他のオプションは付けられません",
+    ssh_carrier_falls_back: "システムの ssh を試します (ここで止めるには --carrier、搬送路を飛ばすには --ssh)",
+    ssh_carrier_refused: "ハブの搬送路で {host} に接続できませんでした: {error} ({reason})",
     forward_workspace_required: "forward にはデーモン上の --workspace-root が必要です",
     forward_port_required: "forward には --port が必要です",
     dial_tcp_port_required: "dial-tcp には --port が必要です",
@@ -619,6 +831,11 @@ ID とセッション:
     wireguard_config_invalid: "WireGuard 設定は有効な wg-quick ファイルではありません: {error}",
     wireguard_start_failed: "プロセス内 WireGuard トンネルを開始できませんでした: {error}",
     wireguard_hub_conflict: "--wireguard-config と --wireguard-hub は併用できません。1 つのリンクはトンネルを所有するかハブ経由で接続するかのどちらかです",
+    via_machine_conflict: "--via-machine は別のマシン経由でルートを運びます。--wireguard-config や --wireguard-hub とは併用できません",
+    acpmux_socket_unknown: "--via-machine にはこのマシンの acpmux が必要ですが、そのソケットが見つかりません (ACPMUX_SOCKET を設定してください)",
+    machine_refused_consent: "そのマシンの所有者が他のマシンからの操作を許可していません: その Mac で 設定 > デバイス を開いて「操作」をオンにしてから、もう一度実行してください ({reason})",
+    machine_refused_service_off: "そのマシンは他のマシンに cmux-tui リモートデーモンを提供していません: そのマシンで `acpmux config --set remote_daemon=127.0.0.1:PORT` を実行してください ({reason})",
+    machine_refused: "そのマシンが接続を拒否しました。再試行しても変わりません: {message} ({reason})",
     wireguard_hub_token_needs_hub: "--wireguard-hub-token-stdin には --wireguard-hub が必要です",
     stdin_claimed_twice: "標準入力から読めるのは 1 つだけです。--wireguard-hub-token-stdin と --invite-file - は併用できません",
     hub_token_invalid: "標準入力の WireGuard ハブトークンは 1 から 255 バイトの 1 行である必要があります",
@@ -632,4 +849,65 @@ ID とセッション:
     known_daemons_empty: "登録済みのデーモンはありません。",
     known_daemon_auth_enrolled: "登録済み",
     known_daemon_auth_carrier: "信頼済み搬送路",
+    exec_help: r#"使用方法: cmux remote exec [ルート] [オプション] -- コマンド [引数]...
+
+ペアリングしたマシンでコマンドを実行し、その標準出力と標準エラー出力を届いた
+順にここへ出力します。ローカルの標準入力はコマンドに渡し、標準入力の EOF で
+コマンドの標準入力を閉じます。終了コードはコマンドの終了コードです。シグナル
+N で終了したときは 128+N、接続やこの CLI が失敗したときは 255 です。Ctrl-C は
+コマンドに割り込みを送ります。3 回目の Ctrl-C で待つのをやめ、130 で終了します。
+コマンドは開始した接続の間だけ動き、この CLI の終了とともに終了します。
+
+オプション:
+  --cwd ディレクトリ  実行するリモートの絶対パス (既定値 /)
+  --env キー=値  コマンドの環境変数を設定します (複数指定可)。それ以外の
+  環境変数はリモートデーモンのものです
+  --tty, -t  この端末と同じ大きさの端末で実行します (標準出力が端末でない
+  ときは 80x24)。TERM はここの値を使い、ローカル端末を raw モードにします
+  --timeout-seconds N  リモートデーモンが N 秒後にコマンドを終了します
+  `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  全オプションも使用できます。
+
+例:
+  cmux remote exec box --state-dir DIR --cwd /srv/app -- git status
+  tar -C src -cf - . | cmux remote exec box -- tar -C /srv/app -xf -
+"#,
+    cp_help: r#"使用方法: cmux remote cp [ルート] [オプション] コピー元 コピー先
+
+このマシンとペアリングしたマシンの間でファイルを 1 つコピーします。コピー元と
+コピー先のちょうど一方を remote:パス (リモートマシンの絶対パス) にします。
+コピー先がディレクトリ (または / で終わるリモートパス) のときは、同じ名前で
+その中に置きます。ディレクトリはコピーしません。ツリーは
+`cmux remote exec -- tar` でコピーしてください (`cmux remote exec --help`)。
+
+ダウンロードは 4 MiB ずつ読み、SHA-256 をデーモンの値と照合し、コピー先の
+隣の一時ファイルに書いてから名前を変えます。128 MiB を超えるファイルは `cat`
+で流します。8 MiB までのアップロードは 1 回のアトミックな書き込みです。それより
+大きいファイルはパスの隣の専用ディレクトリ (mktemp -d、0700) に 8 MiB ずつ送り、
+リモートの /bin/sh が結合して名前を変えます。アップロードは完成後にローカルの
+ファイルと同じパーミッションにします (chmod)。新しくダウンロードしたファイルは
+0600 (リモートのファイルが実行可能なら 0700) から umask を除いたものです。既存の
+ファイルを置き換えるときはそのパーミッションを保ち、広げることはありません。
+
+オプション:
+  --json  完了時に {"bytes","seconds","mib_per_s"} を JSON 1 行で出力します
+  `cmux remote connect` の ID、トランスポート、SSH、リレー、Iroh、再接続の
+  全オプションも使用できます。
+
+例:
+  cmux remote cp box ./build.tar remote:/srv/app/build.tar
+  cmux remote cp box remote:/var/log/app.log ./
+"#,
+    exec_needs_command: "exec には `--` の後にコマンドが必要です: cmux remote exec [ルート] [オプション] -- コマンド [引数]...",
+    exec_cwd_absolute: "--cwd にはリモートの絶対パスを指定してください",
+    exec_output_lost: "cmux: リモート出力の一部が失われました (読み取る前にデーモンが破棄しました)",
+    exec_output_truncated: "cmux: リモート出力が途中で切れました: {reason}",
+    cp_usage: "使用方法: cmux remote cp [ルート] [オプション] コピー元 コピー先 (ちょうど一方を remote:パス にします)",
+    cp_one_remote: "コピー元とコピー先のちょうど一方を remote:パス にしてください",
+    cp_remote_absolute: "リモートパスは絶対パスにしてください: remote:{path}",
+    cp_directory: "{path} はディレクトリです。cp はファイルをコピーします。ツリーは `cmux remote exec -- tar` でコピーしてください (`cmux remote cp --help`)",
+    cp_not_a_file: "{path} は通常のファイルではありません",
+    cp_hash_mismatch: "{path} の SHA-256 が送信したものと一致しません",
+    cp_remote_step_failed: "リモートの {step} が終了コード {status} で終了しました: {stderr}",
+    remote_unexpected_response: "デーモンが {request} に予期しない応答を返しました",
 };

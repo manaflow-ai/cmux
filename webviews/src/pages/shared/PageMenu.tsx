@@ -3,8 +3,9 @@
 // refuses, Base UI owns the menu semantics, keyboard navigation, dismissal and
 // focus restoration; this adapter only supplies the pointer location and
 // page-specific actions.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { hasNativeMenuPick, nativeMenu, pickedId, type NativeMenuRow } from "../../ui/nativeMenu";
+import { pointerAnchor, usePointerMenuPosition } from "../../ui/pointerMenuPosition";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator } from "../../ui/Menu";
 import type { NativePopupDescription, NativePopupEvent } from "../../ui/nativePopup";
@@ -28,6 +29,20 @@ export interface PageMenuProps {
   onClose: () => void;
   /** The row or button that opened the menu, restored on Escape or dismissal. */
   returnFocus?: HTMLElement | null;
+}
+
+/** The keyboard's way to a row's menu: Shift-F10 or the context-menu key on a focused control
+ * opens it at the control's bottom start corner, as `ContextMenu` does (ui/ContextMenu.tsx). Null
+ * for any other key; a hit is handled (default prevented). */
+export function pageMenuKey(event: KeyboardEvent): { x: number; y: number; returnFocus: HTMLElement } | null {
+  if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return null;
+  if (!(event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey))) return null;
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return null;
+  event.preventDefault();
+  const rect = target.getBoundingClientRect();
+  const rtl = getComputedStyle(target).direction === "rtl";
+  return { x: rtl ? rect.right : rect.left, y: rect.bottom, returnFocus: target };
 }
 
 export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
@@ -104,7 +119,7 @@ function NativePageMenu({ x, y, items, onClose, onRefused, returnFocus }: PageMe
           <span aria-hidden="true" />
         </MenuButton>
       </span>
-      <MenuPopup finalFocus={finalFocus}>
+      <MenuPopup atPointer finalFocus={finalFocus}>
         {items.map((item) => (
           <span key={item.id}>
             {item.separatorBefore ? <MenuSeparator /> : null}
@@ -134,25 +149,10 @@ function LegacyPageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
       mounted.current = false;
     };
   }, []);
-  const anchor = useMemo(
-    () => ({
-      getBoundingClientRect: () => ({
-        x,
-        y,
-        left: x,
-        top: y,
-        right: x,
-        bottom: y,
-        width: 0,
-        height: 0,
-        toJSON: () => ({}),
-      }),
-    }),
-    [x, y],
-  );
-  // No room above or below the pointer in the page: past the window's edge (popupHost.ts).
+  const anchor = useMemo(() => pointerAnchor(x, y), [x, y]);
   const host = usePopupHost();
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  const place = usePointerMenuPosition(popup, anchor);
   useEscapingPopup(host, popup, () => anchor, { side: "bottom", align: "start", gap: 0 });
   // The app's native menu, asked once per opening; a refusal (an older app) draws the page's.
   const [drawn, setDrawn] = useState(() => nativeMenu() === null);
@@ -198,14 +198,16 @@ function LegacyPageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
       <BaseMenu.Portal container={container}>
         <BaseMenu.Positioner
           className="page-menu-positioner"
-          anchor={anchor}
+          anchor={place?.anchor ?? anchor}
+          collisionPadding={0}
           positionMethod="fixed"
-          side="bottom"
+          side={place?.side ?? "bottom"}
           align="start"
           sideOffset={0}
         >
           <BaseMenu.Popup
-            ref={host ? setPopup : undefined}
+            ref={setPopup}
+            data-pointer-menu=""
             className="page-menu ui-popup ui-glass"
             finalFocus={() => opener.current}
           >

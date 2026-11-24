@@ -70,4 +70,32 @@ describe("native popup event fence", () => {
     expect(fence.accepts({ ...navigate, value: "sideways" })).toBe(false);
     expect(fence.accepts({ ...navigate, id: "claude" })).toBe(false);
   });
+
+  test("rows in columns and the search accessory take events, including the accessory's children", () => {
+    const fence = new NativePopupEventFence();
+    fence.update({
+      ...model(1, false, "low"),
+      rows: [],
+      search: { id: "query", value: "", placeholder: "Search" },
+      searchAccessory: {
+        id: "account",
+        kind: "submenu",
+        label: "Account",
+        monogram: "L",
+        children: [{ id: "account-add", kind: "action", label: "Add account…" }],
+      },
+      columns: [
+        { id: "rail", label: "Harness", width: 48, rail: true, rows: [{ id: "tab", kind: "action", label: "Claude" }] },
+        { id: "models", label: "Model", width: 149, rows: [{ id: "opus", kind: "action", label: "Opus" }] },
+        { id: "tune", label: "Effort", rows: [{ id: "fast", kind: "toggle", label: "Fast", checked: false }] },
+      ],
+      columnsHeight: 220,
+    });
+    const at = { popupId: "popup", revision: 1 } as const;
+    expect(fence.accepts({ ...at, type: "pick", id: "tab" })).toBe(true);
+    expect(fence.accepts({ ...at, type: "highlight", id: "opus" })).toBe(true);
+    expect(fence.accepts({ ...at, type: "change", id: "fast", value: "true" })).toBe(true);
+    expect(fence.accepts({ ...at, type: "pick", id: "account-add" })).toBe(true);
+    expect(fence.accepts({ ...at, type: "pick", id: "nowhere" })).toBe(false);
+  });
 });

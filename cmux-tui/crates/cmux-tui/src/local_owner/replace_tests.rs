@@ -126,5 +126,41 @@ fn connection_limit_recovery_gets_a_full_identify_deadline() {
     });
     let stuck = unresponsive(&spec, Box::new(initial));
     server.join().unwrap();
-    assert!(!stuck, "Restart must keep an owner that recovers near the busy deadline");
+    assert_eq!(stuck, None, "Restart must keep an owner that recovers near the busy deadline");
+}
+
+/// An owner that refuses every connection at its limit for the whole probe
+/// reads as saturated, not silent, so its clients' work never keeps it from
+/// being replaced (only a silent, parking owner may be a restoring one).
+#[test]
+fn an_owner_refusing_every_connection_reads_as_saturated() {
+    let dir = tempfile::tempdir_in("/tmp").unwrap();
+    let spec = super::super::recovery_tests::owner_spec(dir.path().join("owner.sock"));
+    let listener = UnixListener::bind(&spec.socket).unwrap();
+    let (initial, first_peer) = UnixStream::pair().unwrap();
+    let refuse = |stream: UnixStream| {
+        let mut connection = BufReader::new(stream);
+        let _ = connection.read_line(&mut String::new());
+        let _ = writeln!(
+            connection.get_mut(),
+            r#"{{"protocol":"cmux.protocol/2","type":"refused","code":"server.busy"}}"#
+        );
+    };
+    let server = std::thread::spawn(move || {
+        refuse(first_peer);
+        listener.set_nonblocking(true).unwrap();
+        let until = Instant::now() + PROBE_DEADLINE + Duration::from_secs(2);
+        while Instant::now() < until {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    refuse(stream);
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+    });
+    let stuck = unresponsive(&spec, Box::new(initial));
+    server.join().unwrap();
+    assert_eq!(stuck, Some(Stuck::Saturated));
 }

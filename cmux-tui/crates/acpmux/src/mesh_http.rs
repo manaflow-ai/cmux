@@ -15,145 +15,13 @@ use crate::mesh::{
     Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt, TeamPage,
 };
 use futures::future::BoxFuture;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 use zeroize::Zeroizing;
 
-/// `meshRelay` in config.json.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MeshRelayConfig {
-    /// The hub's origin, `https://` (`http://` only for a loopback address).
-    pub url: String,
-    /// The program that prints a cmux access token, and its own arguments.
-    #[serde(default)]
-    pub token_command: Vec<String>,
-    /// Team-scoped addresses and inboxes (`@member/agent`, `@team/role`). On wherever a hub is
-    /// configured; `"teamMessaging": false` turns them off (Leo, 2026-10-29: "can this be a proper
-    /// feat inside acpmux/the multiplayer and team situation?").
-    #[serde(default = "team_messaging_on", skip_serializing_if = "is_on")]
-    pub team_messaging: bool,
-    /// Read the joined machine credential from the owner-only store.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credential: Option<String>,
-    /// Senders whose authenticated mesh messages may run lifecycle controls here. An empty
-    /// list is fail-closed. `host join` writes one [`MeshControlFrom::same_user`] entry; any
-    /// other sender the machine owner opts in by its daemon id.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub control_from: Vec<MeshControlFrom>,
-}
-
-/// An owner-configured control sender: one daemon by its hub-stamped id (`daemonId`), or every
-/// daemon the hub stamps with this machine's own person (`sameUser`, the person recorded at
-/// `host join`). Claimed session, name and host fields are never authority, and only listed ops
-/// are granted.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MeshControlFrom {
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub daemon_id: String,
-    /// Any daemon whose hub-stamped `from.user` is this machine's own person (Tailscale's
-    /// `autogroup:self`): "allow access for any user that is authenticated as the same user as
-    /// the source". A machine with no recorded person grants nothing through it.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub same_user: bool,
-    /// Omitted means all three lifecycle operations; an explicit empty list grants nothing.
-    #[serde(default = "lifecycle_ops")]
-    pub ops: Vec<String>,
-}
-
-impl Default for MeshRelayConfig {
-    fn default() -> Self {
-        Self {
-            url: String::new(),
-            token_command: Vec::new(),
-            team_messaging: true,
-            credential: None,
-            control_from: Vec::new(),
-        }
-    }
-}
-
-fn team_messaging_on() -> bool {
-    true
-}
-
-fn is_on(on: &bool) -> bool {
-    *on
-}
-
-fn lifecycle_ops() -> Vec<String> {
-    ["start", "resume", "stop"].map(str::to_owned).to_vec()
-}
-
-impl MeshControlFrom {
-    /// The entry `host join` writes: the person's own other machines, for every lifecycle op.
-    pub fn same_user() -> Self {
-        Self { daemon_id: String::new(), same_user: true, ops: lifecycle_ops() }
-    }
-
-    /// Whether this entry lets `from` run `op` here. `from` is the hub-stamped sender (its
-    /// `daemonId` and `user` come from the sender's verified credential); `own_user` is the
-    /// person this machine recorded at join, if any. A `read` (one page of a session, nothing
-    /// changed) is granted to a sender this entry trusts with any lifecycle op, or one that lists
-    /// `read`; an explicit empty list grants nothing.
-    pub fn allows(&self, from: &crate::mesh::Sender, own_user: Option<&str>, op: &str) -> bool {
-        let granted = match op {
-            "start" | "resume" | "stop" => self.ops.iter().any(|allowed| allowed == op),
-            "read" => self
-                .ops
-                .iter()
-                .any(|allowed| matches!(allowed.as_str(), "start" | "resume" | "stop" | "read")),
-            _ => false,
-        };
-        if !granted {
-            return false;
-        }
-        fn present(value: Option<&str>) -> Option<&str> {
-            value.filter(|value| !value.is_empty())
-        }
-        let by_daemon = present(Some(&self.daemon_id))
-            .is_some_and(|id| present(from.daemon_id.as_deref()) == Some(id));
-        let by_user = self.same_user
-            && present(own_user).is_some_and(|own| present(from.user.as_deref()) == Some(own));
-        by_daemon || by_user
-    }
-}
-
-impl MeshRelayConfig {
-    /// The origin without a trailing slash, when it is one the relay may use.
-    pub fn origin(&self) -> Result<String, String> {
-        let url = reqwest::Url::parse(self.url.trim())
-            .map_err(|e| format!("meshRelay.url is no URL: {e}"))?;
-        let loopback = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-        if !(url.scheme() == "https" || (url.scheme() == "http" && loopback)) {
-            return Err("meshRelay.url must be https (http only on a loopback address)".into());
-        }
-        // Nothing secret may ride in the URL: it is logged, and the token goes in a header.
-        if !url.username().is_empty() || url.password().is_some() {
-            return Err("meshRelay.url must carry no user or password".into());
-        }
-        if url.query().is_some() || url.fragment().is_some() {
-            return Err("meshRelay.url must carry no query or fragment".into());
-        }
-        if self.credential.as_deref() != Some("join")
-            && self.token_command.first().is_none_or(|p| p.trim().is_empty())
-        {
-            return Err("meshRelay.tokenCommand names no program".into());
-        }
-        let path = url.path().trim_end_matches('/');
-        Ok(format!("{}{path}", url.origin().ascii_serialization()))
-    }
-
-    /// What a log may say of the hub: its scheme, host and port, never its path.
-    pub fn shown(&self) -> String {
-        reqwest::Url::parse(self.url.trim())
-            .map(|u| u.origin().ascii_serialization())
-            .unwrap_or_default()
-    }
-}
+pub use crate::mesh_relay_config::{MeshControlFrom, MeshRelayConfig};
 
 /// Whether config.json names a hub, read on its own (a send loads no profiles): a waiting send to
 /// a name nobody here resolves then asks the daemon's outbox, which posts it to the hub.
@@ -209,9 +77,73 @@ pub struct HttpHub {
     credential: Option<String>,
     http: reqwest::Client,
     token: tokio::sync::Mutex<Option<Token>>,
+    /// A browser's own enrolled device credential (`server/web_device.rs`): the one token this
+    /// client ever sends. It is never refreshed, and no command runs.
+    device: bool,
+    /// The hub answered 401 to the device credential, and no later call is sent: [`REVOKED`]
+    /// (`machine.revoked`: revoked, or a `cmm_` credential it does not know) or [`UNAUTHORIZED`]
+    /// (`mesh.unauthorized`: no credential of the hub's at all). 0 while it takes it.
+    refused: std::sync::atomic::AtomicU8,
+}
+
+const REVOKED: u8 = 1;
+const UNAUTHORIZED: u8 = 2;
+
+/// The hub's calls a browser's device never makes: it registers nothing (no heartbeat, so no
+/// session rows and no carrier slot) and takes no inbox (cmux-platform refuses each for a web
+/// caller with 403 `mesh.forbidden`). Refused here before any request.
+fn not_for_a_device() -> HubError {
+    let mut error = HubError::refused("a web device only reads and prompts through the hub");
+    error.code = Some("mesh.forbidden".into());
+    error
 }
 
 impl HttpHub {
+    /// A client that sends only `credential`, a browser's own enrolled device credential, to the
+    /// hub at `origin` (a [`MeshRelayConfig::origin`]). It never runs a token command and never
+    /// reads this machine's join credential. After the hub refuses the credential (401) it sends
+    /// nothing more ([`HttpHub::refused`]).
+    pub fn with_credential(origin: String, credential: Zeroizing<String>) -> Result<Self, String> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let http = crate::happy_dial::http_client()
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
+            origin,
+            command: Vec::new(),
+            credential: None,
+            http,
+            token: tokio::sync::Mutex::new(Some((Arc::new(credential), 0))),
+            device: true,
+            refused: Default::default(),
+        })
+    }
+
+    pub(crate) async fn browser_identity(&self, hub_origin: &str) -> Result<Value, HubError> {
+        if !self.device || self.origin != hub_origin {
+            return Err(HubError::refused("browser credential belongs to a different authority"));
+        }
+        self.call(reqwest::Method::GET, "/v1/machines/credentials/self", None, CALL_WAIT).await
+    }
+
+    /// Why the hub refused this client's device credential, as the browser is told:
+    /// `device.revoked` (`machine.revoked`) or `device.unauthorized` (`mesh.unauthorized`). None
+    /// while the hub takes it.
+    pub fn refused(&self) -> Option<&'static str> {
+        match self.refused.load(std::sync::atomic::Ordering::SeqCst) {
+            REVOKED => Some("device.revoked"),
+            UNAUTHORIZED => Some("device.unauthorized"),
+            _ => None,
+        }
+    }
+
+    /// A device client refuses every call but a read or a prompt's (`not_for_a_device`).
+    fn registers(&self) -> Result<(), HubError> {
+        if self.device { Err(not_for_a_device()) } else { Ok(()) }
+    }
+
     async fn team_receipt(&self, id: &str, action: &str) -> Result<Receipt, HubError> {
         if !crate::mesh::is_message_id(id) {
             return Err(HubError::refused("the message id is not valid"));
@@ -230,7 +162,8 @@ impl HttpHub {
     pub fn new(config: &MeshRelayConfig) -> Result<Self, String> {
         let origin = config.origin()?;
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = reqwest::Client::builder()
+        let http = crate::happy_dial::http_client()
+            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
             .build()
@@ -241,12 +174,67 @@ impl HttpHub {
             credential: config.credential.clone(),
             http,
             token: Default::default(),
+            device: false,
+            refused: Default::default(),
         })
+    }
+
+    /// The hub carrier's relay ticket (`POST /v1/mesh/carrier`, `hub_carrier.rs`): a Register
+    /// ticket for this machine's own slot, or a Connect ticket for `peer`'s. Only a joined
+    /// machine's `cmm_` credential gets one.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) async fn carrier(
+        &self,
+        peer: Option<&str>,
+    ) -> Result<crate::hub_carrier::CarrierAnswer, String> {
+        self.registers().map_err(|e| e.to_string())?;
+        let body = match peer {
+            Some(peer) => json!({"peer": peer}),
+            None => json!({}),
+        };
+        let value = self
+            .call(reqwest::Method::POST, "/v1/mesh/carrier", Some(&body), CALL_WAIT)
+            .await
+            .map_err(|e| e.to_string())?;
+        decode(value).map_err(|e| e.to_string())
+    }
+
+    /// Connect tickets the platform pre-minted for every machine this one's Register ticket lets
+    /// in (`{"connects": true}`, RFD 0039 cut 5). `None` from a platform that mints none: an older
+    /// one refuses the field (400) or answers without `connects`.
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) async fn carrier_connects(
+        &self,
+    ) -> Result<Option<Vec<crate::hub_carrier::CarrierAnswer>>, String> {
+        self.registers().map_err(|e| e.to_string())?;
+        let body = json!({"connects": true});
+        let value = match self
+            .call(reqwest::Method::POST, "/v1/mesh/carrier", Some(&body), CALL_WAIT)
+            .await
+        {
+            Ok(value) => value,
+            // An older platform refuses the field ("unknown field connects").
+            Err(e) if e.status == Some(400) => return Ok(None),
+            Err(e) => return Err(e.to_string()),
+        };
+        match value.get("connects") {
+            Some(connects) => {
+                serde_json::from_value(connects.clone()).map(Some).map_err(|e| e.to_string())
+            }
+            None => Ok(None),
+        }
     }
 
     /// A token: the one held while it is good, else a new one from the command.
     pub(crate) async fn token(&self, fresh: bool) -> Result<Arc<Zeroizing<String>>, HubError> {
         let mut held = self.token.lock().await;
+        if self.device {
+            // The device credential is the only token: never refreshed, never another's.
+            return match held.as_ref() {
+                Some((token, _)) if self.refused().is_none() => Ok(Arc::clone(token)),
+                _ => Err(device_refused()),
+            };
+        }
         if self.credential.as_deref() == Some("join") {
             let value = crate::cli::cloud_join::read_join_credential(&self.origin)
                 .map_err(|_| HubError::refused("machine credential is unavailable"))?;
@@ -270,11 +258,11 @@ impl HttpHub {
             .stderr(std::process::Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .map_err(|e| HubError::unavailable(format!("cannot run the token command: {e}")))?;
+            .map_err(|e| HubError::local(format!("cannot run the token command: {e}")))?;
         let mut pipe = child
             .stdout
             .take()
-            .ok_or_else(|| HubError::unavailable("the token command has no stdout"))?;
+            .ok_or_else(|| HubError::local("the token command has no stdout"))?;
         // Read into one buffer that never grows (no copy left behind) and is wiped on drop; the
         // child is killed when this is dropped (a timeout, too much output).
         let run = async move {
@@ -296,17 +284,17 @@ impl HttpHub {
         };
         let (out, len, status) = tokio::time::timeout(TOKEN_COMMAND_WAIT, run)
             .await
-            .map_err(|_| HubError::unavailable("the token command did not answer in 30 s"))?
-            .map_err(|e| HubError::unavailable(format!("the token command: {e}")))?;
+            .map_err(|_| HubError::local("the token command did not answer in 30 s"))?
+            .map_err(|e| HubError::local(format!("the token command: {e}")))?;
         let Some(status) = status else {
-            return Err(HubError::unavailable("the token command printed too much"));
+            return Err(HubError::local("the token command printed too much"));
         };
         if !status.success() {
-            return Err(HubError::unavailable(format!("the token command failed ({status})")));
+            return Err(HubError::local(format!("the token command failed ({status})")));
         }
         let stdout = std::str::from_utf8(out.get(..len).unwrap_or_default())
-            .map_err(|_| HubError::unavailable("the token command printed no text"))?;
-        let token = parse_token(stdout).map_err(HubError::unavailable)?;
+            .map_err(|_| HubError::local("the token command printed no text"))?;
+        let token = parse_token(stdout).map_err(HubError::local)?;
         *held = Some((Arc::clone(&token.0), token.1));
         Ok(token.0)
     }
@@ -336,8 +324,15 @@ impl HttpHub {
             let status = response.status().as_u16();
             if self.credential.as_deref() == Some("join") {
                 if status == 401 {
+                    // A rotation since this request left: the retired credential's 401 says
+                    // nothing about the one on disk now, which is tried once before the relay
+                    // ends. Only a 401 on the current credential is a revoke.
+                    let now = crate::cli::cloud_join::read_join_credential(&self.origin).ok();
+                    if !retry && rotated_since(token.as_str(), now.as_deref()) {
+                        continue;
+                    }
                     let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), true, false);
-                    return Err(HubError::refused("revoked: run machine add again"));
+                    return Err(HubError::refused("revoked: run machine add again").from_hub());
                 }
                 if (200..300).contains(&status) && path == "/v1/mesh/heartbeat" {
                     let _ = crate::cli::cloud_join::record_auth_result(token.as_str(), false, true);
@@ -351,17 +346,40 @@ impl HttpHub {
                 .map_err(|e| HubError::unavailable(format!("the hub: {}", e.without_url())))?
             {
                 if bytes.len() + chunk.len() > MAX_ANSWER_BYTES {
-                    return Err(HubError::unavailable("the hub's answer is too large"));
+                    return Err(HubError::unavailable("the hub's answer is too large").from_hub());
                 }
                 bytes.extend_from_slice(&chunk);
+            }
+            if status == 401 && self.device {
+                // No other token to try: the device is cut off, and nothing more is sent.
+                let refusal = answer(status, &bytes);
+                let why = match refusal.as_ref().err().and_then(|e| e.code.as_deref()) {
+                    Some("mesh.unauthorized") => UNAUTHORIZED,
+                    _ => REVOKED,
+                };
+                self.refused.store(why, std::sync::atomic::Ordering::SeqCst);
+                return refusal;
             }
             if status == 401 && !retry {
                 continue;
             }
             return answer(status, &bytes);
         }
-        Err(HubError::unavailable("the hub refused two tokens"))
+        Err(HubError::unavailable("the hub refused two tokens").from_hub())
     }
+}
+
+/// The refusal of a device credential the hub already refused: sent nowhere.
+fn device_refused() -> HubError {
+    let mut error = HubError::refused("the hub answered 401 machine.revoked");
+    error.status = Some(401);
+    error.code = Some("machine.revoked".into());
+    error
+}
+
+/// Whether the joined credential on disk (`now`) replaced the one a refused request sent.
+fn rotated_since(sent: &str, now: Option<&str>) -> bool {
+    now.is_some_and(|now| now != sent)
 }
 
 /// The hub's error codes this client acts on or names in a log (the contract leaves `code` a free
@@ -372,6 +390,8 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.forbidden",
     "mesh.bad_request",
     "mesh.unknown_recipient",
+    // A message to a machine the hub revoked: gone for good (`hub/transfer_pull.rs`).
+    "mesh.recipient_revoked",
     "mesh.ambiguous",
     "mesh.conflict",
     "mesh.idempotency_conflict",
@@ -379,6 +399,8 @@ const KNOWN_CODES: &[&str] = &[
     "mesh.too_large",
     "mesh.unavailable",
     "mesh.not_found",
+    "mesh.carrier_unconfigured",
+    "machine.not_found",
     "team.messaging_disabled",
     "team.forbidden",
     "team.unknown_recipient",
@@ -400,7 +422,8 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
         .map(str::to_owned);
     let mut error = HubError::refused(
         format!("the hub answered {status} {}", code.as_deref().unwrap_or("")).trim().to_owned(),
-    );
+    )
+    .from_hub();
     error.refused = !(status == 408 || status == 429 || status >= 500);
     error.status = Some(status);
     error.retry_after =
@@ -413,8 +436,9 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
 fn decode<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, HubError> {
     // Never serde's message: it quotes the value it refused, which could be anything the answer
     // carried.
-    serde_json::from_value(value)
-        .map_err(|_| HubError::unavailable("the hub's answer is not the shape its contract gives"))
+    serde_json::from_value(value).map_err(|_| {
+        HubError::unavailable("the hub's answer is not the shape its contract gives").from_hub()
+    })
 }
 
 const CALL_WAIT: Duration = Duration::from_secs(30);
@@ -422,6 +446,7 @@ const CALL_WAIT: Duration = Duration::from_secs(30);
 impl MeshHub for HttpHub {
     fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
         Box::pin(async move {
+            self.registers()?;
             let path = format!(
                 "/v1/mesh/inbox?waitSeconds={}&max={}",
                 wait.as_secs().min(25),
@@ -461,6 +486,7 @@ impl MeshHub for HttpHub {
 
     fn ack<'a>(&'a self, id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>> {
         Box::pin(async move {
+            self.registers()?;
             if !crate::mesh::is_message_id(id) {
                 return Err(HubError::refused("the message id is not valid"));
             }
@@ -481,6 +507,7 @@ impl MeshHub for HttpHub {
         beat: &'a Heartbeat,
     ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
         Box::pin(async move {
+            self.registers()?;
             let body = serde_json::to_value(beat).unwrap_or_default();
             decode(
                 self.call(reqwest::Method::POST, "/v1/mesh/heartbeat", Some(&body), CALL_WAIT)
@@ -666,6 +693,16 @@ mod tests {
     }
 
     #[test]
+    fn a_401_on_a_credential_rotated_since_is_tried_again_with_the_new_one() {
+        // A heartbeat sent with the old credential, answered 401 after the rotation saved the new.
+        assert!(rotated_since("cmm_old", Some("cmm_new")));
+        // The credential on disk is the one refused: a revoke.
+        assert!(!rotated_since("cmm_new", Some("cmm_new")));
+        // No credential on disk (left, or revoked): nothing to try.
+        assert!(!rotated_since("cmm_old", None));
+    }
+
+    #[test]
     fn only_a_refused_credential_ends_the_relay() {
         assert!(answer(401, br#"{"code": "mesh.unauthorized"}"#).unwrap_err().ends_relay());
         assert!(answer(401, br#"{"code": "machine.revoked"}"#).unwrap_err().ends_relay());
@@ -722,7 +759,9 @@ mod tests {
     #[test]
     fn same_user_allows_only_the_hub_stamped_person_this_machine_recorded() {
         let entry: MeshControlFrom = serde_json::from_value(json!({"sameUser": true})).unwrap();
-        assert_eq!(entry, MeshControlFrom::same_user());
+        // What a join wrote before `maxPolicy`: the same grant, held to `ask`.
+        assert!(entry.is_unmarked_join_entry());
+        assert_eq!(entry, MeshControlFrom { max_policy: None, ..MeshControlFrom::same_user() });
         // Same person, any of its daemons: allowed for every lifecycle op.
         for op in ["start", "resume", "stop"] {
             assert!(entry.allows(&from(Some("d9"), Some("u1")), Some("u1"), op), "{op}");
@@ -752,8 +791,33 @@ mod tests {
         assert!(!off.allows(&from(Some("d9"), Some("u1")), Some("u1"), "start"));
         assert_eq!(
             serde_json::to_value(MeshControlFrom::same_user()).unwrap(),
-            json!({"sameUser": true, "ops": ["start", "resume", "stop"]})
+            json!({"sameUser": true, "ops": ["start", "resume", "stop"], "maxPolicy": "approve-all"})
         );
+    }
+
+    #[test]
+    fn a_controls_policy_cap_is_the_widest_its_granting_entries_name_and_ask_by_default() {
+        use crate::config::PermissionPolicy as P;
+        use crate::mesh_relay_config::control_cap;
+        let entry = |v: serde_json::Value| serde_json::from_value::<MeshControlFrom>(v).unwrap();
+        let by_daemon = entry(json!({"daemonId": "d9"}));
+        assert_eq!(by_daemon.policy_cap(), P::Ask, "omitted is ask");
+        let sender = from(Some("d9"), Some("u1"));
+        assert_eq!(control_cap(&[by_daemon.clone()], &sender, Some("u1"), "start"), Some(P::Ask));
+        let edits = entry(json!({"daemonId": "d9", "maxPolicy": "approve-edits"}));
+        let entries = [by_daemon.clone(), edits, MeshControlFrom::same_user()];
+        assert_eq!(control_cap(&entries, &sender, Some("u1"), "start"), Some(P::ApproveAll));
+        // Only entries that grant the op to this sender count.
+        assert_eq!(control_cap(&entries, &sender, Some("u2"), "start"), Some(P::ApproveEdits));
+        assert_eq!(control_cap(&entries, &from(Some("d8"), Some("u2")), Some("u1"), "start"), None);
+        // A value this build does not know reads as ask.
+        assert_eq!(entry(json!({"daemonId": "d9", "maxPolicy": "rocket"})).policy_cap(), P::Ask);
+        // `yolo` is approve-all's alias, not an unknown value.
+        assert_eq!(
+            entry(json!({"daemonId": "d9", "maxPolicy": "yolo"})).policy_cap(),
+            P::ApproveAll
+        );
+        assert!(!MeshControlFrom::same_user().is_unmarked_join_entry());
     }
 
     #[test]

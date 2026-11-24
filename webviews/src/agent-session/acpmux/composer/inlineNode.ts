@@ -171,6 +171,9 @@ function normalize(transactions: readonly Transaction[], previous: EditorState, 
 const CHIP_FACE =
   ".acpmux-attachment-open, .acpmux-attachment-pasted-open, .acpmux-attachment-document-open, .acpmux-text-card__open";
 
+/// A chip's content opened in place under its face (ContentChip.tsx).
+const OPENED_CONTENT = ".acpmux-paste-chip__panel";
+
 /// A drag's own events: the editor's wherever they land on a chip, its buttons too, so a chip dragged
 /// over another one's thumbnail or × still drops into the text there.
 const DRAG_EVENTS = new Set(["dragstart", "drag", "dragend", "dragenter", "dragover", "dragleave", "drop"]);
@@ -247,6 +250,11 @@ function nodeView(node: ProseNode, view: EditorView, views: InlineViews): NodeVi
     // face's (`handleClickOn` below). A press elsewhere on it selects the node.
     stopEvent: (event) => {
       if (DRAG_EVENTS.has(event.type)) return false;
+      // A chip's opened content (ContentChip.tsx's panel: an inspector pick's report, its Collapse)
+      // is the chip's own: its keys scroll the report and never reach the editor, whose Enter sends
+      // the draft and whose arrows move its caret; a press there selects the report's text, not the
+      // node. The chip's own handler still folds it on Escape.
+      if (event.target instanceof Element && event.target !== dom && event.target.closest(OPENED_CONTENT)) return true;
       const button = buttonIn(event.target, dom);
       if (!button) return false;
       return !(event.type === "mousedown" && button.matches(CHIP_FACE));
@@ -381,9 +389,26 @@ export function inlinePlugin(views: InlineViews) {
 /// (Leo, 2026-11-07: "you expect it to be right at my caret ... It tries to place it above"). Without
 /// it (an attachment placed later, once read or once the field can take it) nothing typed is ever
 /// replaced: the attachments go in at the selection's end.
-export function insertInline(view: EditorView, ids: readonly string[], replace = false): boolean {
+///
+/// `at` "start": an attachment with no caret of its own to go to (its placeholder lost its node to a
+/// value from outside, or its caret was in a code block) goes at the start of the prompt's first
+/// line that can hold it, where its tile would have shown above the text, and the person's selection
+/// stays where it is: one place for every attachment, never the strip above the text (Leo,
+/// 2026-11-09: "we have inline stuff, so why is this not inline?"), and never in the middle of what
+/// was typed meanwhile. A prompt that is all code gets a new first line for it.
+///
+/// `at` "restore": the same place, as no undo step of its own: a node the attachment already had and
+/// lost to a value from outside, put back so what replaces it next (Keep as .txt) is undone into it.
+export type InlinePlace = "caret" | "start" | "restore";
+export function insertInline(
+  view: EditorView,
+  ids: readonly string[],
+  replace = false,
+  at: InlinePlace = "caret",
+): boolean {
   const type = view.state.schema.nodes[INLINE_NODE];
   if (!type || ids.length === 0) return false;
+  if (at !== "caret") return insertInlineAtStart(view, ids, at === "start");
   const tr = view.state.tr;
   const { selection } = tr;
   if (!replace) {
@@ -413,10 +438,41 @@ export function insertInline(view: EditorView, ids: readonly string[], replace =
   return true;
 }
 
+function insertInlineAtStart(view: EditorView, ids: readonly string[], recorded: boolean): boolean {
+  const { schema, doc } = view.state;
+  const type = schema.nodes[INLINE_NODE]!;
+  const nodes = Fragment.from(ids.map((id) => type.create({ id })));
+  let lands: number | undefined;
+  doc.descendants((node, pos) => {
+    if (lands !== undefined) return false;
+    if (!node.isTextblock) return true;
+    if (node.inlineContent && !node.type.spec.code && node.canReplace(0, 0, nodes)) lands = pos + 1;
+    return false;
+  });
+  const tr = view.state.tr;
+  if (lands !== undefined) tr.insert(lands, nodes);
+  else {
+    const line = schema.nodes.paragraph?.createAndFill(null, nodes);
+    if (!line || !doc.canReplace(0, 0, Fragment.from(line))) return false;
+    tr.insert(0, line);
+  }
+  if (!recorded) tr.setMeta("addToHistory", false);
+  view.dispatch(tr);
+  return true;
+}
+
 /// Takes attachment `id`'s node out of the prompt, as an undoable edit.
 export function removeInline(view: EditorView, id: string, caret = false) {
   const found = inlineNodes(view.state.doc).filter((node) => node.id === id);
-  if (!found.length) return;
+  if (!found.length) {
+    // A chip with no place (an oversized paste in a code fence keeps its chip in the strip): what
+    // goes in next goes after the selection, never over the person's selected draft.
+    const { selection } = view.state;
+    if (caret && !selection.empty) {
+      view.dispatch(view.state.tr.setSelection(TextSelection.near(view.state.doc.resolve(selection.to), -1)));
+    }
+    return;
+  }
   // `caret`: what goes in next (a pasted chip's text) takes the attachment's place, not the caret's,
   // and the two are one undo step of their own, as a Backspace over the node is: an undo brings the
   // chip back, never the typing before it.

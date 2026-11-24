@@ -55,6 +55,7 @@ extension DaemonStore {
                 }
             }
             totals.tabs += count == 0 && workspace.markedUnread ? 1 : count
+            if workspace.markedUnread { totals.markedWorkspaces += 1 }
         }
         return totals
     }

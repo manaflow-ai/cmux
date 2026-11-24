@@ -2,6 +2,7 @@
 #if DEBUG
 import CmuxAgentQuestion
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 
 /// An offline `AgentSessionSource` that streams a realistic Claude Code style
@@ -56,13 +57,35 @@ public final class MockAgentSession: AgentSessionSource {
         let replayed = batch ?? []
         batch = nil
         continuation.yield(.batch(replayed))
+        // `CMUX_MOBILE_MOCK_LINK=down`: the chat's history is there, its Mac is not.
+        if link == .down { continuation.yield(.status(.disconnected)) }
         return stream
     }
 
+    /// The link to the "Mac" (`CMUX_MOBILE_MOCK_LINK`): a slow one holds what each side
+    /// sends and lets it through in bursts; a down one carries nothing.
+    let link = MockLinkCondition.current
+    private var held: [AgentSessionEvent] = []
+    private var burst: Task<Void, Never>?
+
     public func send(_ intent: AgentClientIntent) {
+        switch link {
+        case .healthy: receive(intent)
+        case .down: return
+        case .slow:
+            Task { [weak self] in
+                try? await Task.sleep(for: MockLinkCondition.burst)
+                self?.receive(intent)
+            }
+        }
+    }
+
+    private func receive(_ intent: AgentClientIntent) {
         switch intent {
-        case .prompt(let text, let attachments, let steer, _, _):
-            let promptID = UUID().uuidString
+        case .prompt(let text, let attachments, let steer, let sentID, _):
+            // The client's id comes back on the echo, as acpmux does: the store
+            // matches its send to it (`chat_send_acked`, a resend's dedupe).
+            let promptID = sentID.isEmpty ? UUID().uuidString : sentID
             if running != nil, !steer {
                 queued.append((promptID, text, attachments))
                 emit(.queued(text: text, promptId: promptID, position: queued.count))
@@ -128,6 +151,10 @@ public final class MockAgentSession: AgentSessionSource {
             emit(.dequeued(promptId: promptID))
         case .resumeQueue:
             emit(.queuePaused(false, reason: nil))
+        case .cancelSend:
+            break
+        case .answerElevation(let ask, _):
+            emit(.elevationDecision(id: ask.id))
         }
     }
 
@@ -150,7 +177,18 @@ public final class MockAgentSession: AgentSessionSource {
     func emit(_ event: AgentSessionEvent) {
         if batch != nil {
             batch?.append(event)
-        } else {
+        } else if link == .slow {
+            held.append(event)
+            guard burst == nil else { return }
+            burst = Task { [weak self] in
+                try? await Task.sleep(for: MockLinkCondition.burst)
+                guard let self else { return }
+                let events = self.held
+                self.held = []
+                self.burst = nil
+                for event in events { self.continuation?.yield(event) }
+            }
+        } else if link == .healthy {
             continuation?.yield(event)
         }
     }
@@ -267,7 +305,10 @@ public final class MockAgentSession: AgentSessionSource {
         running = Task { [weak self] in
             guard let self else { return }
             do {
-                if ListStressSettings.shared.streams {
+                if ListStressSettings.shared.holdsTurn {
+                    // The rig's running chat: the turn stays open, with no output, until stopped.
+                    try await Task.sleep(for: .seconds(24 * 3600))
+                } else if ListStressSettings.shared.streams {
                     try await self.stream(MockStressContent.streamedAnswer, messageID: "stress-stream-\(turnID)")
                 } else if rich {
                     try await self.richTurn()

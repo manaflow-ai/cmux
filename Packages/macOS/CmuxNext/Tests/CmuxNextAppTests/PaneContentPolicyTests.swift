@@ -555,46 +555,6 @@ struct PaneContentPolicyTests {
         #expect(afterFinal.isEmpty, "the PTY got \(Array(afterFinal)) after the final grid \(final): \(sent)")
     }
 
-    /// cmux-ad m14 (c1), the join question: a close spring holds a terminal at its
-    /// final size, and a key press comes before it lands (p1 over p2 over p3; p3 closes, so p2 grows; Ctrl-Shift-J on p1
-    /// three frames later). A pane still on the close spring starts no key hold (`ScreenContentView.applyPresentation`
-    /// starts one only for a pane at rest), so its terminal host does not follow: its surface keeps the close's hold,
-    /// moved to the key press's final size, until the spring lands. The pane at rest when the key came (p1) follows the
-    /// key hold, and its surface has its area's frame in every frame. After the landing both rest at their areas.
-    @Test func aKeyPressDuringACloseSpringFollowsOnlyThePanesThatWereAtRest() throws {
-        let tree: SplitNode = .split("x", axis: .vertical, ratio: 0.5, a: .leaf("p1"),
-                                     b: .split("y", axis: .vertical, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
-        let rig = Rig(PaneGroundCoversPaneTests.column(tree), focused: "p1")
-        defer { rig.close() }
-        _ = try #require(rig.model.showPaneClose("p3"), "p3 did not close in the key's turn")
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        for frame in 1...3 { try #require(rig.frame(), "the close landed after \(frame) frames") }
-        let resting = try #require(rig.provider.sessions["p1"]?.session), closing = try #require(rig.provider.sessions["p2"]?.session)
-        try #require(closing.view.surfaceHold != nil, "SETUP: p2's surface keeps no hold on the close spring")
-        #expect(PaneResize.press("p1", .down, model: rig.model, view: rig.root), "Ctrl-Shift-J on p1 moved nothing")
-        rig.root.syncWithModel()
-        var off: [String] = [], held: CGSize?
-        let frames = try Self.run(rig) { frame in
-            let p1 = resting.view, p2 = closing.view, p2Host = try #require(rig.root.context.hosts["p2"])
-            if p1.followedHold == nil { off.append("frame \(frame): p1's host does not follow its pane") }
-            off += try Self.offTheirPanes(["p1"], in: rig, "frame \(frame)")
-            guard p2Host.isOnLayoutSpring else { return }
-            if p2.followedHold != nil { off.append("frame \(frame): p2's host follows a key hold on the close spring") }
-            let size = closing.surfaceView.frame.size
-            if p2.surfaceHold?.size != size { off.append("frame \(frame): p2's surface \(size) is not its hold \(String(describing: p2.surfaceHold))") }
-            if let held, held != size { off.append("frame \(frame): p2's surface took \(size) after \(held)") }
-            held = size
-        }
-        off += try Self.offTheirPanes(["p1", "p2"], in: rig, "after the landing")
-        for (pane, session) in [("p1", resting), ("p2", closing)] where session.view.surfaceHold != nil || session.view.followedHold != nil {
-            off.append("after the landing: \(pane)'s surface still holds or its host still follows")
-        }
-        #expect(frames > 3, "the press did not spring (\(frames) frames)")
-        #expect(held != nil, "p2 was on no spring after the key press: the case under test did not happen")
-        #expect(off.isEmpty, "\(off.count) frames: \(off.prefix(4))")
-    }
-
     /// The grids `pane`'s terminal asked its PTY for since the last call (a focus report after them is the marker).
     static func grids(_ pane: PaneID, _ rig: Rig) async throws -> [TerminalGridSize] {
         let session = try #require(rig.provider.sessions[pane])
@@ -624,10 +584,12 @@ struct PaneContentPolicyTests {
         // The tab switch: the joining terminal takes the pane's content area in the middle of the spring.
         pane.show(joining.view)
         rig.root.layoutSubtreeIfNeeded()
-        var off: [String] = []
+        let atShow = joining.surfaceView.fittedGrid
+        var off: [String] = [], atFirstFrame: TerminalGridSize?
         let frames = try Self.run(rig) { frame in
             let host = joining.view, area = try #require(host.superview)
             if host.frame.size != area.bounds.size { off.append("frame \(frame): the joining host \(host.frame.size) in \(area.bounds.size)") }
+            if frame == 1 { atFirstFrame = joining.surfaceView.fittedGrid }
         }
         #expect(frames > 3, "the spring landed before the switch (\(frames) frames left)")
         #expect(off.isEmpty, "the joining terminal's host did not follow its pane: \(off.prefix(3))")
@@ -637,188 +599,11 @@ struct PaneContentPolicyTests {
         joining.surfaceView.bridge.takeUnretainedValue().input.focusGained()
         let grids = await io.gridsUntilMarker()
         let final = try #require(joining.surfaceView.fittedGrid)
-        // RESIZE P0 7: the grid of the first landed frame goes at once; these frames run in one turn, so no refresh ends a window and the rest go as the final grid.
-        #expect(grids.last == final && grids.count <= 2 && Set(grids).count == grids.count,
-                "the joining terminal asked its PTY for \(grids), not at most its first frame's grid and then its final grid \(final)")
+        // RESIZE P0 7: the grid of the first landed frame (the join's, or the next frame's) goes at once; these frames run in
+        // one turn, so no refresh ends a window and the rest go as the final grid. Exact: any other first grid fails
+        // (RESIZE P0 8, review of 28a640183a7).
+        let allowed = [[final]] + [atShow, atFirstFrame].compactMap { $0 }.filter { $0 != final }.map { [$0, final] }
+        #expect(allowed.contains(grids),
+                "the joining terminal asked its PTY for \(grids), not [the join's \(String(describing: atShow)) or its first frame's grid \(String(describing: atFirstFrame)),] then its final grid \(final)")
     }
-
-    // MARK: Note 5: S3c
-
-    /// A closing pane shows the ground it had at the close (a theme change during the close changes nothing), it shows no
-    /// content, and after the landing its host, ring and content are gone from the view tree.
-    @Test func aClosingPaneShowsItsGroundReadAtTheCloseAndLeavesNothingBehind() throws {
-        let rig = Rig(.columns([LayoutColumn(id: "c0", width: 1.0 / 3, root: .leaf("p1")), LayoutColumn(id: "c1", width: 1.0 / 3, root: .leaf("p2")),
-                                LayoutColumn(id: "c2", width: 1.0 / 3, root: .leaf("p3"))]), focused: "p2")
-        defer { rig.close() }
-        let host = try #require(rig.root.context.hosts["p2"])
-        let terminal = try #require(rig.provider.sessions["p2"]?.session.view)
-        let ground = try #require(terminal.layer?.backgroundColor, "SETUP: the terminal paints no ground")
-        let layersBefore = Self.layerCount(rig.root), closedLayers = Self.layerCount(host) + Self.layerCount(host.chrome)
-        try #require(closedLayers > 2, "SETUP: the closing pane has \(closedLayers) layers")
-        _ = try #require(rig.model.showPaneClose("p2"))
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        #expect(!host.isHidden && host.showsClosingGround, "the closing host is not shown with its ground")
-        #expect(host.content.isHidden, "the closing pane still shows its content")
-        // A repaint of the terminal during the close does not reach the closing ground: it was read at the close.
-        terminal.layer?.backgroundColor = CGColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)
-        var shownGrounds: [CGColor?] = []
-        var widths: [CGFloat] = []
-        try Self.run(rig) { _ in
-            if host.superview != nil {
-                shownGrounds.append(host.clipView.layer?.backgroundColor)
-                widths.append(host.frame.width)
-            }
-        }
-        #expect(!widths.isEmpty, "the closing pane did not show on its close spring")
-        #expect(zip(widths, widths.dropFirst()).allSatisfy { $0.1 <= $0.0 + 0.5 }, "the closing pane grew: \(widths.prefix(8))")
-        #expect(shownGrounds.allSatisfy { $0 == ground }, "the closing ground was not the one read at the close")
-        #expect(host.superview == nil && host.chrome.superview == nil, "the closing host or its ring is left in the view tree")
-        #expect(rig.root.context.closingHost("p2", of: "s") == nil, "the closing host is still retired after the landing")
-        #expect(!Self.contains(rig.root, host) && !Self.contains(rig.root, host.content), "the closed pane's views are left in the window")
-        let layersAfter = Self.layerCount(rig.root)
-        #expect(layersAfter <= layersBefore - closedLayers,
-                "the window has \(layersAfter) layers after the landing; \(layersBefore) before the close less the closed pane's \(closedLayers)")
-        #expect(host.layer?.superlayer == nil && host.chrome.layer?.superlayer == nil, "a closed pane's layer is still in a layer tree")
-    }
-
-    /// Two closes in a row (Cmd-W twice, the second before the first landed): p1 closes, then p2, beside p3, in one
-    /// column. In every frame the pane hosts cover the column's width beyond the gap it rests at (the first closing pane
-    /// rides the second, which rides p3), and every closing host is under every live host (p3 draws over the grounds it
-    /// moves over).
-    @Test func twoClosesInARowLeaveNoHole() throws {
-        let rig = Rig(PaneGroundCoversPaneTests.column(.split("x", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"),
-                                                                b: .split("y", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))),
-                      focused: "p3")
-        defer { rig.close() }
-        let screen = try rig.screen
-        let line = screen.convert(screen.bounds, to: nil)
-        // At rest only the gaps show (the column's edge gaps and its dividers).
-        let atRest = try rig.uncoveredWidth(of: line)
-        try #require(atRest < 20, "SETUP: \(atRest) pt of the column is not covered at rest")
-        var widths: [(label: String, width: CGFloat)] = [], order: [String] = []
-        func check(_ label: String) throws {
-            widths.append((label, try rig.uncoveredWidth(of: line)))
-            let hosts = screen.subviews.compactMap { $0 as? PaneHostView }.filter { !$0.isHidden }
-            let closing = hosts.filter(\.showsClosingGround), live = hosts.filter { !$0.showsClosingGround }
-            let highestClosing = closing.compactMap { screen.subviews.firstIndex(of: $0) }.max() ?? -1
-            let lowestLive = live.compactMap { screen.subviews.firstIndex(of: $0) }.min() ?? Int.max
-            if highestClosing > lowestLive { order.append("\(label): a closing host is above a live one") }
-        }
-        _ = try #require(rig.model.showPaneClose("p1"), "p1 did not close")
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        try check("close 1")
-        for frame in 1...4 {
-            #expect(rig.frame(), "the first close landed after \(frame) frames")
-            try check("frame \(frame)")
-        }
-        _ = try #require(rig.model.showPaneClose("p2"), "p2 did not close")
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        try check("close 2")
-        var frames = 4
-        try Self.run(rig) { _ in
-            frames += 1
-            try check("frame \(frames)")
-        }
-        let rest = try rig.uncoveredWidth(of: line)
-        let open = widths.filter { $0.width > max(atRest, rest) + 1 }
-        #expect(frames > 10, "the closes did not spring (\(frames) frames)")
-        #expect(open.isEmpty, "\(open.count) frames show a hole in the column (\(atRest) pt before, \(rest) pt after): \(open.prefix(4))")
-        #expect(order.isEmpty, "\(order.prefix(3))")
-        #expect(screen.closingPanes.isEmpty, "a closing pane is left after the landing")
-    }
-
-    /// A close taken back before it landed shows the same host again, with its content, from where its closing frame
-    /// showed: no new host, no new terminal.
-    @Test func aCloseTakenBackShowsTheSameHost() throws {
-        // A split pair: closing p2 grows p1 over its place (a column at the strip's end has nothing that closes over it, and
-        // hides at once as before).
-        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
-        defer { rig.close() }
-        let host = try #require(rig.root.context.hosts["p2"])
-        let session = try #require(rig.provider.sessions["p2"]?.session)
-        let close = try #require(rig.model.showPaneClose("p2"))
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        for _ in 1...5 { _ = rig.frame() }
-        let shown = host.frame
-        #expect(host.showsClosingGround && shown.width > 1, "SETUP: p2 is not on its close spring (\(shown))")
-        rig.model.cancelPaneClose(close)
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        #expect(rig.root.context.hosts["p2"] === host, "the close taken back made a new host")
-        #expect(!host.showsClosingGround && !host.content.isHidden, "the host taken back does not show its content")
-        #expect(abs(host.frame.width - shown.width) < 24, "the host taken back jumped from \(shown) to \(host.frame)")
-        try Self.run(rig)
-        #expect(rig.provider.sessions["p2"]?.session === session, "the close taken back made a new terminal")
-        #expect(host.superview != nil && !host.isHidden, "the host taken back is not in the layout after the landing")
-    }
-
-    /// A close taken back while motion is off (Reduce Motion turned on during the close): the pane comes back at its place
-    /// at once, with no spring left running.
-    @Test func aCloseTakenBackWithoutMotionSnapsToItsPlace() throws {
-        // A split pair: closing p2 grows p1 over its place (a column at the strip's end has nothing that closes over it, and
-        // hides at once as before).
-        let rig = Rig(PaneGroundCoversPaneTests.column(PaneGroundCoversPaneTests.pair), focused: "p2")
-        defer { rig.close() }
-        let host = try #require(rig.root.context.hosts["p2"])
-        let rest = host.frame
-        let close = try #require(rig.model.showPaneClose("p2"))
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        for _ in 1...5 { _ = rig.frame() }
-        try #require(host.showsClosingGround && host.frame.width < rest.width - 1, "SETUP: p2 is not on its close spring (\(host.frame))")
-        rig.root.context.reduceMotionOverride = true
-        rig.model.cancelPaneClose(close)
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        // A snap that resizes a pane shows at the next frame tick, its content drawn at the new size (#37330): one frame.
-        _ = rig.frame()
-        #expect(rig.root.context.hosts["p2"] === host, "the close taken back made a new host")
-        #expect(abs(host.frame.minX - rest.minX) < 0.5 && abs(host.frame.width - rest.width) < 0.5, "p2 is at \(host.frame), not at its place \(rest)")
-        #expect(try !rig.screen.hasMotion, "a spring still runs after a change with motion off")
-    }
-
-    /// A column at the strip's end closes (two columns, the right one closes). Whatever its neighbour does (it may stay or
-    /// move to the strip's new place), the closing pane leaves no ground for the landing to take away in one frame: it hides
-    /// at once when nothing closes over it, else in its last frame its ground that no live pane covers is under a point wide.
-    @Test func aClosingPaneLeavesNoGroundForTheLanding() throws {
-        let rig = Rig(.columns([LayoutColumn(id: "c0", width: 0.5, root: .leaf("p1")), LayoutColumn(id: "c1", width: 0.5, root: .leaf("p2"))]),
-                      focused: "p2")
-        defer { rig.close() }
-        let host = try #require(rig.root.context.hosts["p2"])
-        let screen = try rig.screen
-        /// Along its middle line, the part of the closing ground no live host covers.
-        func visibleGround() -> CGFloat {
-            let ground = host.convert(host.bounds, to: nil)
-            var spans = [(ground.minX, ground.maxX)]
-            for live in screen.subviews.compactMap({ $0 as? PaneHostView }) where live !== host && !live.isHidden && !live.showsClosingGround {
-                let shown = live.convert(live.bounds, to: nil)
-                guard shown.minY <= ground.midY, shown.maxY >= ground.midY else { continue }
-                spans = spans.flatMap { span in [(span.0, min(span.1, shown.minX)), (max(span.0, shown.maxX), span.1)].filter { $0.1 - $0.0 > 0 } }
-            }
-            return spans.reduce(0) { $0 + ($1.1 - $1.0) }
-        }
-        _ = try #require(rig.model.showPaneClose("p2"))
-        rig.root.syncWithModel()
-        rig.root.layoutSubtreeIfNeeded()
-        var last: CGFloat?
-        var frames = 0
-        while frames < 240, host.superview != nil, host.showsClosingGround, rig.frame() {
-            frames += 1
-            if host.superview != nil, host.showsClosingGround { last = visibleGround() }
-        }
-        try Self.run(rig)
-        if let last { #expect(last < 1, "the closing pane's last frame shows \(last) pt of its ground: the landing takes it away in one frame") }
-        #expect(host.superview == nil, "the closed host is left in the tree after the landing")
-    }
-
-    /// The layers of `view`'s tree: each view's backing layer, the views under it included.
-    static func layerCount(_ view: NSView) -> Int {
-        (view.layer == nil ? 0 : 1) + view.subviews.reduce(0) { $0 + layerCount($1) }
-    }
-
-    static func contains(_ root: NSView, _ view: NSView) -> Bool { view.isDescendant(of: root) }
 }

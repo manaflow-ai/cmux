@@ -57,4 +57,25 @@ import Testing
         #expect(host.statusText == "Restoring…", "the deadline passed: the label shows, the wait does not start again")
         #expect(!host.statusLabelWaits)
     }
+
+    /// Leo, 2026-11-07: "the loading in-between indicator shouldn't all of a sudden become opaque ... we can just have
+    /// the small symbols as loading indicators, like really transparent things." "Restoring…" showed as a pill on the
+    /// theme's raised surface over the pane. An in-between state has no surface of its own: no fill, no edge, its
+    /// words only its accessibility label; a lasting status still reads as words on the pill.
+    @Test func anInBetweenStateHasNoSurfaceOfItsOwn() async throws {
+        let clock = ManualClock()
+        let host = TerminalHostView(clock: clock)
+        host.showStatus(.restoring)
+        try await clock.waitForSleeper()
+        clock.advance(by: .seconds(TerminalStatusBanner.restoringRevealDelay))
+        var turns = 0
+        while host.statusText == nil, turns < 10_000 { await Task.yield(); turns += 1 }
+        #expect(host.statusText == "Restoring…", "VoiceOver still reads the state")
+        let banner = try #require(Self.banners(in: host).first)
+        #expect(banner.layer?.backgroundColor == nil, "an opaque pill over the pane while it restores")
+        #expect(banner.layer?.borderWidth == 0)
+        #expect(banner.fittingSize.width < 40, "a small mark, not a label")
+        host.showStatus(.exited)
+        #expect(banner.layer?.backgroundColor != nil, "a lasting status reads as words on its pill")
+    }
 }

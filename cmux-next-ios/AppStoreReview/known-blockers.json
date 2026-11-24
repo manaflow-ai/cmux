@@ -1,0 +1,8 @@
+{
+  "_comment": [
+    "Blockers the App Review gate found on feat-cmux-next at 42408e0e5 (run 43002601165), when pushes and pull requests began failing on new ones.",
+    "A push or pull request fails only on a blocker whose key is not listed here. Remove an entry in the PR that fixes it; never add one to get a change past the gate.",
+    "A submission (dispatch, or the production pipeline's call) ignores this file and refuses every blocker."
+  ],
+  "blockers": []
+}

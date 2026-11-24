@@ -155,6 +155,15 @@ extension SidebarViewComponents {
             .max { $0.y < $1.y }
     }
 
+    /// The middle of workspace `id`'s pull request badge in window coordinates (bottom-left origin), for a
+    /// synthetic pointer (`debug.update_surfaces {action: "pull-request-badge"}`, hovercard-delay-live.py);
+    /// nil when its row shows no badge.
+    public func debugPullRequestBadgeCenterInWindow(workspace id: String) -> CGPoint? {
+        guard let badge = (debugRowView(workspace: id) as? WorkspaceRowView)?.pullRequests, badge.window != nil,
+              !badge.isHiddenOrHasHiddenAncestor else { return nil }
+        return badge.convert(CGPoint(x: badge.bounds.midX, y: badge.bounds.midY), to: nil)
+    }
+
     /// The middle of workspace `id`'s drawn row in window coordinates (bottom-left origin), read now, for a
     /// synthetic pointer (`debug.pointer_hover {row}`, `debug.pointer_sweep`); nil when the row has no shown view.
     /// `id` is the workspace's id, or its daemon id when the list qualifies it by machine.
@@ -199,6 +208,16 @@ extension SidebarViewComponents {
     /// The list's rows and their views, the selection and the drag (debug).
     /// The drag's last drop probe (debug): nil while nothing is dragged.
     public func debugDropProbe() -> SidebarDropProbe? { list.drag?.probe }
+
+    /// The relaunch bench's layout film (relaunch_restore_check.py --layout-film, hq#18554 ask 2): in a bench-hooks
+    /// build started with CMUX_BENCH_LAUNCH_MOTION=1, each sidebar samples every display frame from before its first on
+    /// screen, so a row that moves after it shows is seen. `debug.sidebar_rows {motion: "stop"}` ends the first window's.
+    func startLaunchFilmIfAsked() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard ProcessInfo.processInfo.environment["CMUX_BENCH_LAUNCH_MOTION"] == "1" else { return }
+        list.motionProbe.start()
+        #endif
+    }
 
     /// Starts (`start` true) or stops the per-display-frame motion samples; stop returns them.
     public func debugMotion(start: Bool) -> [SidebarMotionFrame] {
@@ -254,7 +273,6 @@ extension SidebarViewComponents {
             info["neighbor"] = describe(neighbor.view)
             info["neighbor_rows"] = "\(neighbor.list.displayed.rows.count) views=\(neighbor.list.rowViews.count) frame=\(neighbor.list.frame)"
         }
-        info["snapshot"] = describe(spacePaging.snapshotView)
         return info
     }
 }

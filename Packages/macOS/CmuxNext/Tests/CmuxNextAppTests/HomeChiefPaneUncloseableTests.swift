@@ -34,11 +34,10 @@ struct HomeChiefPaneUncloseableTests {
         home.isClosable = false
         let alone = TabStripModel(tabs: [home], selectedID: "home")
         #expect(alone.keyboardClose("home") == .ignore)
-        #expect(alone.keyboardClose("home", closesPinned: true) == .ignore)
-        // A pinned (not Home) tab alone keeps the old notice.
+        // A pinned (not Home) tab alone closes, as Chrome's Cmd-W closes it (cmux-ad i8).
         var pinned = TabItem(id: "p", title: "p")
         pinned.isPinned = true
-        #expect(TabStripModel(tabs: [pinned], selectedID: "p").keyboardClose("p") == .keep)
+        #expect(TabStripModel(tabs: [pinned], selectedID: "p").keyboardClose("p") == .close)
     }
 
     /// Close Other Tabs / to the Left / to the Right never list a tab that cannot close.

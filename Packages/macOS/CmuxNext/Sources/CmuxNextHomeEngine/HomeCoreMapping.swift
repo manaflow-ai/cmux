@@ -44,6 +44,10 @@ public nonisolated enum HomeCoreMapping {
                   let question = AgentQuestion(conversationPart: json, messageID: messageID, partIndex: index)
             else { return .text("question") }
             return .question(question)
+        case .unknown("widget", let payload):
+            // Chat widgets are gone; a message an older build stored with one shows its fallback text.
+            if let fallback = payload["fallback"]?.stringValue, !fallback.isEmpty { return .text(fallback) }
+            return .text(part.plainText)
         case .linkPreview(let link):
             return .linkPreview(LinkPreview(url: link.url, title: link.title, site: link.site, image: link.image.map {
                 AttachmentDerivedImage(hash: $0.hash, mimeType: $0.mimeType, byteCount: $0.byteCount)

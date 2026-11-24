@@ -195,7 +195,7 @@ struct CloudAgentChatTests {
 
         /// The chat's pane host as the agent pane gets it, and its handshake.
         func page(_ key: String) async throws -> (machineName: String?, wire: (any AcpmuxPaneWire)?) {
-            let host = try #require(services.agentTabs.remoteHost(key), "the chat has no pane host")
+            let host = try #require(services.agentTabs.host(for: services.agentTabs.tabKey(key, machine: machine.daemon.machineID)), "the chat has no pane host")
             #expect(host is AgentTabRemoteHost, "the chat's host is \(type(of: host)), not the machine's")
             let handshake = try await host.handshake(sessionId: nil)
             return (handshake.machineName, handshake.connection?.remote?.makeWire())
@@ -368,8 +368,8 @@ struct CloudAgentChatTests {
             machine.daemon.start(remote: { vmSocket })
             // The link's connect answer: the app starts a chat on a Cloud machine only on its owner word.
             if ownerLink {
-                _ = try await machine.appLink?.connect(origin: .script)
-                try #require(await machine.appLink?.ownerLink != nil, "the machine's link gave no owner answer")
+                _ = try await machine.appLink.connect(origin: .script)
+                try #require(await machine.appLink.ownerLink != nil, "the machine's link gave no owner answer")
             }
 
             let deadline = ContinuousClock.now + .seconds(60)
@@ -404,7 +404,7 @@ struct CloudAgentChatTests {
         await CloudMoveTests.end(services.daemon)
         if let cloudMachine {
             await CloudMoveTests.end(cloudMachine.daemon)
-            await cloudMachine.appLink?.close()
+            await cloudMachine.appLink.close()
         }
         _ = run(binary, ["acp", "daemon", "shutdown", "--end-agents"], environment: ["ACPMUX_HOME": acpmuxHome.path, "HOME": home.path])
         // A chat that wrongly ran on this Mac would have started its acpmux here.

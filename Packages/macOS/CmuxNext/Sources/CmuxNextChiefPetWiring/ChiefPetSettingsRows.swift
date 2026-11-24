@@ -40,6 +40,13 @@ public final class ChiefPetSettingsRows: NSObject {
     /// Runs when this Chief's character is first read and each time it changes: the Home header
     /// wears it when its Chief has no avatar of its own.
     public var onMascot: (@MainActor () -> Void)?
+    /// Whether the character row shows only while the pet is on (the Chief's profile: no grid of 18 characters
+    /// for a pet that is off; Lawrence 2026-11-23). Off by default.
+    public var hidesPickerWhileOff = false
+    /// The rows grew or shrank (the character row came or went): the card fits its new height.
+    public var onResize: (@MainActor () -> Void)?
+    /// The character row's control, whose row ``hidesPickerWhileOff`` shows and hides.
+    private var picker: NSView?
     /// The participant id of the Chief whose popover these rows are in (nil: the default Chief); a
     /// new one shows its character, and the rows follow that Chief's inputs from then on.
     public var chief: String? {
@@ -100,7 +107,9 @@ public final class ChiefPetSettingsRows: NSObject {
         let enabledTitle = SettingsSchema.descriptor(for: HomeChiefPetSetting.configPath)?.title ?? ""
         toggle.setAccessibilityLabel(enabledTitle)
         addRow(enabledTitle, toggle)
-        addRow(ChiefPetMascot.pickerTitle, uploads == nil ? mascot : uploadStack())
+        let picker = uploads == nil ? mascot : uploadStack()
+        self.picker = picker
+        addRow(ChiefPetMascot.pickerTitle, picker)
         follow()
     }
 
@@ -153,6 +162,10 @@ public final class ChiefPetSettingsRows: NSObject {
     func show(_ shown: Shown) {
         toggle.state = shown.enabled ? .on : .off
         toggle.isEnabled = !shown.enabledManaged
+        if hidesPickerWhileOff, let row = picker?.superview, row.isHidden == shown.enabled {
+            row.isHidden = !shown.enabled
+            onResize?()
+        }
         if uploads != nil {
             mascot.showUpload(shown.upload.map { (uploads?.image(at: $0.still), $0.still) }, tile: shown.affordance == .tile)
             uploadButton.isHidden = shown.affordance != .button || shown.upload != nil
@@ -282,7 +295,7 @@ public final class ChiefPetSettingsRows: NSObject {
     /// Each mascot id with its name as the Settings page shows it (the schema's choice titles).
     static func mascotItems() -> [(id: String, title: String)] {
         guard case .choice(let choices)? = SettingsSchema.descriptor(for: HomeChiefPetSetting.mascotPath)?.kind else {
-            return HomeChiefPetSetting.mascots.map { ($0, $0) }
+            return HomeChiefPetSetting.mascotValues.map { ($0, $0) }
         }
         return choices.map { ($0.value, $0.title) }
     }

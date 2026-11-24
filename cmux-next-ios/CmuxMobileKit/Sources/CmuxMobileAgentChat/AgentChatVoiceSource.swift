@@ -19,6 +19,7 @@ public final class AgentChatVoiceSource: AgentVoiceSource {
 
     public var voiceSourceID: String { "chat:\(store.summary.macID):\(store.summary.id)" }
     public var voiceAgentName: String { store.summary.agentName }
+    public var voiceMacID: String? { store.summary.macID.isEmpty ? nil : store.summary.macID }
 
     public func startVoiceFeed(_ speak: @escaping @MainActor (String) -> Void) -> AgentVoiceFeed {
         let follower = Follower(store: store, tracker: AgentChatVoiceTracker(speech: speech), speak: speak)
@@ -111,8 +112,9 @@ struct AgentChatVoiceTracker {
                     guard case .pending = question.state else { continue }
                     let prompts = question.items.compactMap { speech.speakable($0.prompt) }
                     if !prompts.isEmpty { out.append(prompts.joined(separator: " ")) }
-                case .tool, .thought, .plan, .subagents:
-                    // Not for the ear: tool calls, diffs, reasoning and plans stay on screen.
+                case .tool, .thought, .plan, .subagents, .steer:
+                    // Not for the ear: tool calls, diffs, reasoning, plans and the messages sent
+                    // into the turn stay on screen.
                     said.insert(item.id)
                 }
             }

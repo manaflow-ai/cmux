@@ -194,7 +194,7 @@ fn dead_now_in(dirs: &[PathBuf], session_id: &str, start_nonce: &str) -> bool {
     use std::os::fd::AsRawFd;
     for dir in dirs {
         let path = live_path(dir, session_id, start_nonce);
-        let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&path) else {
+        let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(&path) else {
             continue;
         };
         // SAFETY: a non-blocking lock on a descriptor this function owns.
@@ -230,6 +230,11 @@ mod dead_now_tests {
         assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_EX) }, 0);
         assert!(!dead_now_in(&dirs, "s1", "n1"), "a held lock is a live host");
         assert!(!dead_now_in(&dirs, "s1", "n1"), "a probe leaves a held lock held");
+        // The host lets go with an explicit unlock, not only by closing its descriptor: a test
+        // on another thread that starts a process copies every open descriptor into the child
+        // until its exec closes them, and a close here then left that copy holding the lock.
+        // SAFETY: same descriptor.
+        assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_UN) }, 0);
         drop(host);
         assert!(dead_now_in(&dirs, "s1", "n1"), "a free lock is a dead host");
         assert!(dead_now_in(&dirs, "s1", "n1"), "a probe releases what it took");

@@ -34,6 +34,13 @@ public final class ChiefPetController {
     var sending = false
     /// Ordering the reply box out takes its keys, which would close it again.
     var closingReply = false
+    /// The reply box is up because the pointer is on the pet (the hover dock), not from a click:
+    /// leaving closes it after `ChiefPetHoverDock.closeDelay` unless it is in use.
+    var replyByHover = false
+    /// The hover dock's close, `ChiefPetHoverDock.closeDelay` after the pointer leaves the pet and the box.
+    let hoverClose: DemandTimer
+    /// The pointer in screen points (the hover dock's check when its close fires); tests pin their own.
+    var pointer: () -> CGPoint = { NSEvent.mouseLocation }
     /// Finished notices' leave timers, by notification id (one-shot `DemandTimer`s).
     private var expiries: [UInt64: DemandTimer] = [:]
     /// Folds the card away `toastSeconds` after the newest arrival.
@@ -71,6 +78,14 @@ public final class ChiefPetController {
     /// Message the Chief ran while `home.chiefPetEnabled` was off: the pet shows for this message only
     /// and goes when its reply box closes; the setting turning on keeps it.
     var transient = false
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Where `debug.chief_pet`'s drag holds the pointer, in screen points (nil: no press; ChiefPetController+Debug).
+    var debugPointer: CGPoint?
+    /// `debug.chief_pet` `motion`: the frames move as over an active cmux (a capture app is never active); Reduce Motion still stops them.
+    var debugMotion = false
+    /// When `motion` turned on (`CACurrentMediaTime`): a `snapshot`'s `at` counts from here.
+    var debugMotionStart: CFTimeInterval?
+    #endif
 
     /// `appIsActive`: whether cmux is the active app (the App passes `NSApp.isActive`; tests pin one).
     /// `notifications`: where AppKit posts the app's activation changes; tests give their own.
@@ -85,6 +100,7 @@ public final class ChiefPetController {
         self.appIsActive = appIsActive
         toast = DemandTimer(owner: "chiefPet.toast", clock: clock)
         doneTimer = DemandTimer(owner: "chiefPet.done", clock: clock)
+        hoverClose = DemandTimer(owner: "chiefPet.hoverClose", clock: clock)
         motionSubscription = Motion.changes.subscribe { [weak self] _ in self?.drawCharacter() }
         // Switching to another app takes the card down at once; coming back shows it if its time is not up.
         activationObservers = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification].map {
@@ -182,6 +198,9 @@ public final class ChiefPetController {
     /// cmux in the background, or Reduce Motion; then it shows its state's first frame and runs nothing.
     var characterMoves: Bool {
         guard isOn || transient, let panel, panel.isVisible, panel.occlusionState.contains(.visible) else { return false }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if debugMotion { return !reduceMotion() }
+        #endif
         return appIsActive() && !reduceMotion()
     }
 
@@ -344,6 +363,7 @@ public final class ChiefPetController {
         made.pet.name(ChiefPetReply.title(home.target))
         made.onVisibilityChange = { [weak self] in self?.drawCharacter() }
         made.onClick = { [weak self] in self?.toggleReply() }
+        made.onHover = { [weak self] inside in self?.hover(inside, onPet: true) }
         // The right-click menu: the settings close the reply box first, so they come up alone.
         made.onSettings = { [weak self] in
             self?.closeReply()

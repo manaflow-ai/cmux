@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import Foundation
 
 /// Live preview (R93): the palette shows a value before it is written.
@@ -19,20 +20,38 @@ extension SettingsController {
         }
         // From the settings under the theme file, so a previewed theme file replaces the active one.
         var root = edit(themeFile == nil ? snapshot.root : rootUnderThemeFile)
+        var themeDensity: DensityTokens?
         if let name = ThemeFileSetting.name(in: root) {
             // The theme file applies (the last load's read: no disk read here), then the previewed
             // value over it, so a previewed key shows even where the file sets it.
             let overlay = name == themeFile?.name ? themeFile
-                : ThemeFileOverlay(name: name, source: themeFileSources[name].map { .success($0) }, base: root)
-            if let overlay { root = edit(overlay.applied(to: root, managed: Set(managedKeys.keys))) }
+                : ThemeFileOverlay(name: name, source: themeFileSources[name].map { .success($0) }, base: root,
+                                   folder: ThemeFileSetting.folder(configDirectory: file.url.deletingLastPathComponent()))
+            // Another file previews as choosing it applies: whole, with no exceptions (#44894).
+            let kept = name == themeFile?.name ? ThemeFileExceptionsSetting.keys(in: root) : []
+            if let overlay {
+                let held = Set(managedKeys.keys).union(kept)
+                root = edit(overlay.applied(to: root, managed: held))
+                // A previewed density row shows over the file's own density, as any previewed key over the file.
+                let densityRows = [DensitySetting.configPath, CustomDensitySelectionSetting.configPath]
+                themeDensity = densityRows.contains(descriptor.path) ? nil : overlay.density(under: held)
+            }
         }
-        let previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
+        var previewed = CmuxConfigSnapshot.parse(root, validDensities: SettingsApplier.validDensities,
                                                  validMetrics: SettingsApplier.validMetrics,
                                                  configDirectory: file.url.deletingLastPathComponent())
+        previewed.themeDensity = themeDensity
         applier.apply(previewed)
         previewingKey = descriptor.id
         previewSnapshot = previewed
         return true
+    }
+
+    /// The settings the terminal font and the surface backgrounds follow: the loaded ones, so a font
+    /// size slider's preview never reloads Ghostty per tick, or the previewed ones while a Theme File
+    /// previews (one hover shows a whole look, its terminal font included).
+    public var lookFollowed: CmuxConfigSnapshot {
+        previewingKey == ThemeFileSetting.configPath.joined(separator: ".") ? applied : snapshot
     }
 
     /// Ends a preview and restores the loaded settings.

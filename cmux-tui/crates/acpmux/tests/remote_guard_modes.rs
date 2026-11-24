@@ -203,7 +203,7 @@ async fn each_harness_starts_and_stays_in_a_reviewed_asking_mode_for_the_web() {
         let r = web.call("session/fork", json!({"sessionId": src})).await;
         // A Claude session the Mac started is refused before its mode (D13).
         assert!(
-            err(&r).contains("does not ask") || err(&r).contains("Mac's Claude permissions"),
+            err(&r).contains("does not ask") || err(&r).contains("Claude chat started on this Mac"),
             "{harness}: {r}"
         );
     }

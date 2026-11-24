@@ -120,10 +120,11 @@ public final class CookieImportService {
         } catch let error as CookieImportError {
             return ActionWorkFailure(CookieImportStrings.failed(Self.describe(error)))
         } catch {
-            // The type only: an error's text could hold a path or a cookie row.
-            return ActionWorkFailure(CookieImportStrings.failed(String(describing: type(of: error))))
+            // Plain words: an error's text could hold a path or a cookie row, and its type name is no reason.
+            return ActionWorkFailure(CookieImportStrings.failed(PlainErrorText.text(error)))
         }
         if report.written == 0 && report.rejected == 0 && !filter.keepsAll { return ActionWorkFailure(CookieImportStrings.nothingMatched) }
+        if report.written > 0 { host.imported(ImportCounts(cookies: report.written)) }
         if let window = host.window() {
             _ = CmuxToastCenter.shared.show(CmuxToast(id: "cookieImport", message: CookieImportStrings.done(count: report.written, browser: sourceName)),
                                             in: window)

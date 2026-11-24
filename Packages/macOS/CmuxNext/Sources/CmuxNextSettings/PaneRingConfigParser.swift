@@ -35,20 +35,20 @@ enum PaneRingConfigParser {
         if let value = reader.color("color") { settings.color = value }
         if let value = reader.choice("terminals", FocusRingStyle.self) { settings.terminalRing = value }
         if let value = reader.choice("agentChats", FocusRingStyle.self) { settings.agentChatRing = value }
-        if let value = reader.points("width", range: AttentionSettings.widthRange) { settings.width = value }
-        let blinks = AttentionSettings.blinkRange
-        if let value = reader.number("blinkCount", range: Double(blinks.lowerBound)...Double(blinks.upperBound)) {
+        if let value = reader.number("width", range: AttentionSettings.widthRange) { settings.width = .init(value) }
+        if let value = reader.number("blinkCount", range: AttentionSettings.blinkCountRange) {
             settings.blinkCount = Int(value.rounded())
         }
-        if let value = reader.number("agentChatBlinkCount", range: Double(blinks.lowerBound)...Double(blinks.upperBound)) {
+        if let value = reader.number("agentChatBlinkCount", range: AttentionSettings.agentChatBlinkCountRange) {
             settings.agentChatBlinkCount = Int(value.rounded())
         }
-        if let value = reader.number("duration", range: AttentionSettings.durationRange) { settings.duration = value }
+        if let value = reader.number("duration", range: AttentionSettings.pulseDurationRange) { settings.duration = value }
         if let value = reader.bool("persist") { settings.persists = value }
         if let value = reader.bool("flash") { settings.flashesOnRead = value }
         if let value = reader.bool("flashOnTyping") { settings.flashesOnTyping = value }
         if let value = reader.bool("showOnTab") { settings.showsOnTab = value }
         if let value = reader.bool("showOnSidebar") { settings.showsOnSidebar = value }
+        if let value = reader.choice("mark", AttentionMarkLook.self) { settings.mark = value }
         if let value = reader.bool("moveToTop") { settings.movesToTop = value }
         if let value = reader.bool("moveToTopOnAgentFinish") { settings.movesToTopOnAgentFinish = value }
         diagnostics += reader.diagnostics

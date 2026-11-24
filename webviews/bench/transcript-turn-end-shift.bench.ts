@@ -27,7 +27,8 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium, webkit, type Browser, type Page } from "playwright";
+import { chromium, webkit } from "./browsers";
+import type { Browser, Page } from "playwright";
 import { scoreBoxFrames, type BoxFrame } from "../src/gallery/shift";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { perfRow } from "./perfRow";
@@ -414,7 +415,7 @@ if (import.meta.main) {
       },
     });
     releases.push(["static server", () => statics.stop(true)]);
-    const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${SESSION}`;
+    const url = `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${SESSION}`;
 
     let failed = 0;
     for (const engine of ENGINES) {
@@ -423,9 +424,6 @@ if (import.meta.main) {
       try {
         browser = isChromium
           ? await chromium.launch({
-              ...(process.env.CMUX_CHROME_HEADLESS_SHELL
-                ? { executablePath: process.env.CMUX_CHROME_HEADLESS_SHELL }
-                : { channel: "chrome" }),
               headless: true,
             })
           : await webkit.launch({ headless: true });

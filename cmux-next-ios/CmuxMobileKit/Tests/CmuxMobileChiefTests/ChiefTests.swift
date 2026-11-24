@@ -68,6 +68,79 @@ import Testing
         #expect(read.sentAt.timeIntervalSince1970 > 1_791_000_000)
         #expect(wire.message(object, peerReadSeq: 3)?.delivery == .delivered)
     }
+
+    private func chiefSays(_ text: String) throws -> ConversationMessage {
+        try #require(wire.message([
+            "id": "msg_t", "conversation": "conv_1", "seq": 5, "client_msg_id": "t", "author": "agent_mux",
+            "parts": [["type": "text", "text": text]], "created_at": "2026-10-12T09:41:07.123Z", "reactions": [],
+        ], peerReadSeq: 5))
+    }
+
+    /// CMUX-19: Chief's Markdown tables show as a table, not pipe syntax.
+    /// A narrow one becomes rows of tab-separated cells (the bubble puts each
+    /// on a column's tab stop); every cell's text is kept.
+    @Test func chiefTableShowsAsColumns() throws {
+        let read = try chiefSays("Agents:\n\n| Agent | State |\n| --- | :---: |\n| a12 | done |\n| [a13](cmux://agent/x) | open |\n\nThat's all.")
+        #expect(read.text == "Agents:\n\nAgent\tState\na12\tdone\na13\topen\n\nThat's all.")
+        #expect(!read.text.contains("|"))
+        #expect(!read.text.contains("---"))
+        #expect(read.tables.map(\.alignments) == [[.leading, .center]])
+        let table = try #require(read.tables.first)
+        #expect((read.text as NSString).substring(with: table.range) == "Agent\tState\na12\tdone\na13\topen")
+        // The header is bold; the link inside a cell still opens.
+        #expect(read.textRuns.map { (read.text as NSString).substring(with: $0.range) } == ["Agent", "State"])
+        #expect(read.links.map { (read.text as NSString).substring(with: $0.range) } == ["a13"])
+        #expect(read.links.first?.url.absoluteString == "cmux://agent/x")
+    }
+
+    /// A table too wide for a phone bubble becomes one record per row, each
+    /// cell after its bold header, so it reads on a narrow screen.
+    @Test func wideChiefTableShowsAsRecords() throws {
+        let read = try chiefSays("| Workspace | Agent | Status |\n|---|---|---|\n| cmux-next iOS | Claude (a42) | building on aws-m4pro-5 |\n| Feed chips | Codex | waiting for review |")
+        #expect(read.text == "Workspace: cmux-next iOS\nAgent: Claude (a42)\nStatus: building on aws-m4pro-5\n\nWorkspace: Feed chips\nAgent: Codex\nStatus: waiting for review")
+        #expect(read.tables.isEmpty)
+        #expect(read.textRuns.count == 6)
+    }
+
+    /// A Chief transcript kept on the phone by a build before tables
+    /// (no "tables" key) still loads, so relaunching shows it with no spinner.
+    @Test func messageKeptBeforeTablesStillDecodes() throws {
+        let read = try chiefSays("| a | b |\n| - | - |\n| 1 | 2 |")
+        let data = try JSONEncoder().encode(read)
+        var object = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(object["tables"] != nil)
+        #expect(try JSONDecoder().decode(ConversationMessage.self, from: data) == read)
+        object["tables"] = nil
+        let old = try JSONDecoder().decode(ConversationMessage.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(old.tables.isEmpty)
+        #expect(old.text == read.text)
+    }
+
+    /// Text that is not a table is left as it was: pipes in prose, a table
+    /// inside a code fence, and my own messages.
+    @Test func nonTableMarkdownIsUnchanged() throws {
+        for text in [
+            "Run `a | b` then pick yes | no.",
+            "Heading\n---\nbody",
+            "```\n| a | b |\n| - | - |\n| 1 | 2 |\n```",
+            "See [#1](https://github.com/o/r/pull/1) and more.",
+        ] {
+            let read = try chiefSays(text)
+            #expect(read.tables.isEmpty, "\(text)")
+            #expect(read.textRuns.isEmpty, "\(text)")
+            #expect(read.text == text.replacingOccurrences(of: "[#1](https://github.com/o/r/pull/1)", with: "#1"), "\(text)")
+        }
+        // Bold (CMUX-20) inside a table cell stays bold once the table is rewritten.
+        let bold = try chiefSays("| Agent | State |\n| - | - |\n| a1 | **done** |")
+        #expect(bold.text == "Agent\tState\na1\tdone")
+        #expect(bold.textRuns.map { (bold.text as NSString).substring(with: $0.range) } == ["Agent", "State", "done"])
+        let mine = try #require(wire.message([
+            "id": "msg_m", "conversation": "conv_1", "seq": 6, "client_msg_id": "m", "author": "user_local",
+            "parts": [["type": "text", "text": "| a | b |\n| - | - |\n| 1 | 2 |"]], "created_at": "2026-10-12T09:41:07.123Z", "reactions": [],
+        ], peerReadSeq: 6))
+        #expect(mine.text == "| a | b |\n| - | - |\n| 1 | 2 |")
+        #expect(mine.tables.isEmpty)
+    }
 }
 
 /// A fake cmux-tui daemon behind `MockMacLink`: the local conversation
@@ -567,22 +640,48 @@ let waitBackstop: Duration = .seconds(600)
     }
 }
 
-/// Audit B9: a message written to Chief before it connects is kept and sent
-/// once it does, never dropped.
-@Suite @MainActor struct ChiefOutboxTests {
-    @Test func waitsOnDiskAndSendsOnConnect() async throws {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("outbox-\(UUID().uuidString).json")
-        let outbox = ChiefOutbox(file: file)
-        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox)
-        session.send(ConversationComposeMessage(text: "run the tests"))
-        #expect(session.outbox.count == 1)
-        #expect(outbox.load().map(\.message.text) == ["run the tests"])
-        // A relaunch keeps it.
-        #expect(ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox).outbox.count == 1)
-        session.use(ChiefMockBackend(sleep: { _ in }))
-        try await waitUntil("the outbox message to go out") { session.store.messages.contains(where: { $0.text == "run the tests" && $0.seq != nil }) }
-        #expect(session.outbox.isEmpty)
-        #expect(outbox.load().isEmpty)
+/// A Mac Chief whose sends never come back (a link that died mid-send): the
+/// rest of the conversation is the mock Chief's.
+private final class StalledSendBackend: ConversationBackend, @unchecked Sendable {
+    let inner = ChiefMockBackend(sleep: { _ in })
+    func events() -> AsyncStream<ConversationBackendEvent> { inner.events() }
+    func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage { try await inner.history(beforeSeq: beforeSeq, limit: limit) }
+    func send(_ draft: ConversationOutgoingDraft) async throws -> ConversationMessage {
+        try await Task.sleep(for: .seconds(3600))
+        throw CancellationError()
+    }
+    func react(messageID: String, reaction: ConversationReaction?) async throws -> ConversationMessage { try await inner.react(messageID: messageID, reaction: reaction) }
+    func edit(messageID: String, text: String) async throws -> ConversationMessage { try await inner.edit(messageID: messageID, text: text) }
+    func unsend(messageID: String) async throws -> ConversationMessage { try await inner.unsend(messageID: messageID) }
+    func setTyping(_ isTyping: Bool) async { await inner.setTyping(isTyping) }
+    func markRead(upToSeq: Int) async { await inner.markRead(upToSeq: upToSeq) }
+    func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment { try await inner.uploadImage(data, mimeType: mimeType) }
+    func close() { inner.close() }
+    func linkPreview(for url: URL) async throws -> ConversationLinkPreview? { nil }
+    func votePoll(messageID: String, optionID: String, selected: Bool) async throws -> ConversationMessage {
+        try await inner.votePoll(messageID: messageID, optionID: optionID, selected: selected)
+    }
+    func addPollOption(messageID: String, text: String) async throws -> ConversationMessage { try await inner.addPollOption(messageID: messageID, text: text) }
+    func scheduledMessages() async throws -> [ConversationMessage] { [] }
+    func scheduleSend(_ draft: ConversationOutgoingDraft, at date: Date) async throws -> ConversationMessage { try await inner.scheduleSend(draft, at: date) }
+    func reschedule(scheduledID: String, to date: Date) async throws -> ConversationMessage { try await inner.reschedule(scheduledID: scheduledID, to: date) }
+    func cancelScheduled(scheduledID: String) async throws { try await inner.cancelScheduled(scheduledID: scheduledID) }
+    func sendScheduledNow(scheduledID: String) async throws -> ConversationMessage { try await inner.sendScheduledNow(scheduledID: scheduledID) }
+}
+
+/// No outbox (Aziz 2026-11-14), and nothing lost on a backend swap: a send the old store never
+/// confirmed (the link died mid-send) comes back into Chief's composer, to send again.
+@Suite @MainActor struct ChiefSwapKeepsUnsentTextTests {
+    @Test(.timeLimit(.minutes(1))) func anUnconfirmedSendComesBackToTheComposer() async throws {
+        let session = ChiefSession(backend: StalledSendBackend())
+        defer { session.store.stop() }
+        try await waitUntil("Chief to connect") { session.store.meID != nil }
+        #expect(session.send(ConversationComposeMessage(text: "in flight when the link died"), asksForAlerts: false))
+        try await waitUntil("the send to show as sending") { session.store.messages.contains { $0.text == "in flight when the link died" } }
+        session.use(ChiefOfflineBackend())
+        #expect(session.takeUnsentText() == "in flight when the link died")
+        // Not resent on its own: the offline store has no message for it.
+        #expect(!session.store.messages.contains { $0.text == "in flight when the link died" && $0.seq == nil })
     }
 }
 

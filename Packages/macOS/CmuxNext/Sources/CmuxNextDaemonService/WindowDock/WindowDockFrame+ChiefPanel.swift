@@ -1,8 +1,9 @@
 public import CmuxNextLayout
 
 // The Chief panel (user 2026-11-06): the Chief chat floating over the workspace a window shows, or docked at one
-// edge as a Chief-only pane, never over Home. It opens only on purpose: a link clicked in the Chief (the next
-// workspace that link shows gets it, floating), or Show/Hide Chief (Cmd-I). A workspace opened any other way (the
+// edge as a Chief-only pane, never over Home. It opens only on purpose: Show/Hide Chief (Cmd-I), or, with
+// `home.chiefDock.openBeside` on (off by default, cmux#45889), a link clicked in the Chief (the next workspace that
+// link shows gets it, floating). A workspace opened any other way (the
 // sidebar, Cmd-P, a switch, a restore, a launch, a new window) shows no Chief. Docking is the person's choice (Dock
 // in its bar, or Dock Workspace on Home); Float floats it again. Every entry point ends in one of these operations,
 // which change window view state in this turn.
@@ -19,13 +20,14 @@ public extension WindowDockFrame {
         frameChiefPanelArm = now.advanced(by: Self.chiefPanelLinkWindow)
     }
 
-    /// A show of `target` is about to replace the shown workspace: an armed link opens the panel over it. Any show
-    /// of another workspace takes the arm, used or not.
+    /// A show of `target` is about to replace the shown workspace: an armed link opens the panel floating over it,
+    /// also when the person docked it before (cmux#37372: no link click docks the Chief). Any show of another
+    /// workspace takes the arm, used or not.
     func openChiefPanelOnLeave(for target: String, now: ContinuousClock.Instant = .now) {
         guard let until = frameChiefPanelArm, target != frameHome else { return }
         frameChiefPanelArm = nil
         guard now < until else { return }
-        frameChiefPanel.open()
+        frameChiefPanel.openFloating()
         frameSaveRecord()
     }
 
@@ -64,6 +66,49 @@ public extension WindowDockFrame {
     func floatChiefPanel() -> Bool {
         guard frameChiefPanel.undock() else { return false }
         frameChiefPanelDidChange()
+        return true
+    }
+
+    /// Undock Chief (cmux#37372): a docked panel floats again and shows, also when the person had hidden it, so
+    /// the action always has a visible result. False when it was not docked.
+    @discardableResult
+    func undockChiefPanel() -> Bool {
+        guard frameChiefPanel.dockedEdge != nil else { return false }
+        frameChiefPanel.openFloating()
+        frameChiefPanelDidChange()
+        return true
+    }
+
+    /// Chief in Side Panel (`home.chiefDock.sidePanel`, ``ChiefSidePanel``): on, the panel docks at `edge` and opens, a
+    /// Chief-only pane beside every workspace but Home; off, a docked panel floats again and hides. False when nothing
+    /// changed (already so), so a repeat never re-places the window.
+    @discardableResult
+    func applyChiefSidePanel(_ on: Bool, edge: DockEdge) -> Bool {
+        if on {
+            guard frameChiefPanel.dockedEdge != edge || !frameChiefPanel.isOpen else { return false }
+            dockChiefPanel(at: edge)
+            return true
+        }
+        guard frameChiefPanel.dockedEdge != nil else { return false }
+        let hadKeys = frameChiefPanelHasKeys
+        frameChiefPanel.undock()
+        frameChiefPanel.hide()
+        frameChiefPanelDidChange()
+        if hadKeys { frameFocusStage(toward: nil) }
+        return true
+    }
+
+    /// The sidebar's Chief row while the Chief is a side panel (``ChiefSidePanel``): the docked panel shows again (when
+    /// Cmd-I hid it) and its message box takes the keys, the stage keeping its workspace. False when the panel is not
+    /// docked or the window shows Home, where the row opens the Chief's conversation instead.
+    @discardableResult
+    func showChiefSidePanel() -> Bool {
+        guard frameChiefPanel.dockedEdge != nil, let home = frameHome, let stage = chiefPanelStage, stage != home else { return false }
+        if !frameChiefPanel.isOpen {
+            frameChiefPanel.open()
+            frameChiefPanelDidChange()
+        }
+        frameFocusChiefPanel()
         return true
     }
 

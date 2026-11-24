@@ -15,6 +15,10 @@
 //! slow or dead host never holds a slot past one attempt. A terminal that a
 //! request waits on (a reopen, `wait_for_terminal_adoption`) gives its place
 //! up and adopts at once, without a turn.
+//!
+//! The respawn gate (`Mux::respawn_gate`) is the same type. There a terminal
+//! the person sees or asked for does not wait for the line
+//! ([`StartupAdoptionGate::turn_first_if`]).
 
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -27,6 +31,7 @@ pub(super) const STARTUP_ADOPTION_SLOTS: usize = 8;
 struct GateState {
     next_ticket: u64,
     serving: u64,
+    /// Turns of the line that run now.
     active: usize,
     /// Tickets dropped before their turn (a thread that never started, an
     /// adoption that ended first); `serving` steps over them.
@@ -34,9 +39,12 @@ struct GateState {
     /// Counts every wake-up, so a waiter that checked outside the lock
     /// ([`StartupAdoptionGate::turn_first_if`]) sees one it would have missed.
     wakes: u64,
-    /// Waiters the person now sees: they take the next free slot before any
-    /// ticket in line ([`StartupAdoptionGate::turn_first_if`]).
-    first: usize,
+    /// Waiters that go first and have no turn yet: the person sees their
+    /// terminal or asked for it ([`StartupAdoptionGate::turn_first_if`]).
+    /// The line starts no turn while one waits.
+    first_waiting: usize,
+    /// Turns that run now of waiters that went first.
+    first_active: usize,
 }
 
 impl GateState {
@@ -90,7 +98,11 @@ impl Drop for Ticket {
 }
 
 /// A running first attempt; its drop frees the slot.
-pub(crate) struct Turn<'a>(&'a StartupAdoptionGate);
+pub(crate) struct Turn<'a> {
+    gate: &'a StartupAdoptionGate,
+    /// The turn of a waiter that went first.
+    first: bool,
+}
 
 impl StartupAdoptionGate {
     /// A gate that lets `slots` turns run at once (at least one).
@@ -118,14 +130,30 @@ impl StartupAdoptionGate {
         self.turn_first_if(ticket, give_up, || false)
     }
 
-    /// [`Self::turn`], and once `first` holds the waiter takes the next free
-    /// slot before every ticket in line (the person now sees its terminal).
-    /// It still takes a slot: the slots bound the waiters that go first too.
+    /// [`Self::turn`], and a waiter for which `first` holds (the person sees
+    /// its terminal, or asked for it) does not wait for the line: it takes
+    /// its turn at once, also when turns of the line hold every slot. The
+    /// terminal the person waits for started only when the launch of a
+    /// hidden one had ended, and a restart the person asked for in a hidden
+    /// workspace waited behind every restore in line. Chromium's session
+    /// restore has the same split: the active tab loads when it is shown,
+    /// and only the background tabs wait for a loading slot of the tab
+    /// loader (`session_restore.cc`, `background_tab_loading_policy.cc`).
+    ///
+    /// The slots still bound the waiters that go first, among themselves: a
+    /// workspace with many tabs never starts them all at once. The line gets
+    /// a new turn only while no waiter that goes first has to wait and the
+    /// turns of both kinds are fewer than the slots. So it gives its room to
+    /// the person, and the turns that run are more than the slots only by
+    /// the line's turns that ran when the person's waiter came. The line is
+    /// not stopped while a turn of the person runs (such a turn can be long:
+    /// a restart waits for its old hosts), only while it fills the slots.
     /// Once `first` held the waiter keeps its priority, also if the person
-    /// looks away again (bounded: it still waits for a slot).
+    /// looks away again.
     /// `first` runs with the gate's lock released (it may take the mux's
-    /// locks), at the start and after each wake-up, until it holds; a wake-up
-    /// while it runs is not lost (the waiter checks again before it sleeps).
+    /// locks), before the waiter looks at the line and after each wake-up,
+    /// until it holds; a wake-up while it runs is not lost (the waiter looks
+    /// again before it sleeps).
     pub(super) fn turn_first_if(
         &self,
         mut ticket: Ticket,
@@ -137,9 +165,18 @@ impl StartupAdoptionGate {
         let mut goes_first = false;
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
+            let wakes = state.wakes;
+            if !goes_first {
+                drop(state);
+                goes_first = first();
+                state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                if goes_first {
+                    state.first_waiting += 1;
+                }
+            }
             if give_up() {
                 if goes_first {
-                    state.first -= 1;
+                    state.first_waiting -= 1;
                     state.wakes += 1;
                     self.changed.notify_all();
                 }
@@ -147,12 +184,20 @@ impl StartupAdoptionGate {
                 drop(state);
                 return None;
             }
-            let admitted = state.active < self.slots
-                && (goes_first || (state.first == 0 && state.serving == ticket.number));
+            let admitted = if goes_first {
+                state.first_active < self.slots
+            } else {
+                state.first_waiting == 0
+                    && state.active + state.first_active < self.slots
+                    && state.serving == ticket.number
+            };
             if admitted {
                 ticket.used = true;
                 if goes_first {
-                    state.first -= 1;
+                    state.first_waiting -= 1;
+                    state.first_active += 1;
+                } else {
+                    state.active += 1;
                 }
                 // Out of order (a waiter that goes first): `serving` steps over
                 // this place when it gets there.
@@ -162,24 +207,13 @@ impl StartupAdoptionGate {
                     state.abandoned.insert(ticket.number);
                 }
                 state.skip_abandoned();
-                state.active += 1;
                 state.wakes += 1;
                 self.changed.notify_all();
-                return Some(Turn(self));
+                return Some(Turn { gate: self, first: goes_first });
             }
-            if !goes_first {
-                let wakes = state.wakes;
-                drop(state);
-                let now_first = first();
-                state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-                if now_first {
-                    goes_first = true;
-                    state.first += 1;
-                    continue;
-                }
-                if state.wakes != wakes {
-                    continue;
-                }
+            // A wake-up while `first` ran with the lock released: look again.
+            if !goes_first && state.wakes != wakes {
+                continue;
             }
             state = self.changed.wait(state).unwrap_or_else(PoisonError::into_inner);
         }
@@ -211,9 +245,13 @@ impl Drop for WaitingGuard<'_> {
 
 impl Drop for Turn<'_> {
     fn drop(&mut self) {
-        let mut state = self.0.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.active = state.active.saturating_sub(1);
+        let mut state = self.gate.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.first {
+            state.first_active = state.first_active.saturating_sub(1);
+        } else {
+            state.active = state.active.saturating_sub(1);
+        }
         state.wakes += 1;
-        self.0.changed.notify_all();
+        self.gate.changed.notify_all();
     }
 }

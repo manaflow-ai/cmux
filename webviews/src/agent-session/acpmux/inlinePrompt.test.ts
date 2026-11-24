@@ -2,12 +2,14 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { inlineToken, type ComposerAttachment } from "./attachments";
 import type { AcpmuxRow, QueuedPrompt } from "./model";
-import { takeBackSteer } from "./conversation/PendingSteer";
+import { takeBackSteer } from "./conversation/pendingSteerModel";
+import { settleReact } from "../../../test/support/domTeardown";
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
 const saved = { window: scope.window, document: scope.document };
 beforeAll(() => Object.assign(scope, { window: dom.window, document: dom.window.document }));
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, value] of Object.entries(saved)) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;
@@ -25,7 +27,7 @@ type Hooks = {
   answer: (method: string, params: any) => Promise<unknown>;
   emit: (target: string, step: any) => void;
 };
-async function connect(hold = false, refuse = false) {
+async function connect(hold = false, refuse = false, unreadable = false) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const sent: any[] = [];
@@ -42,7 +44,7 @@ async function connect(hold = false, refuse = false) {
           if (refuse) throw new Error("attachment test refused");
           return hold ? new Promise(() => undefined) : { stopReason: "end_turn" };
         }
-        if (method === "_acpmux/attachment") return { mimeType: "image/png", data: "AQID" };
+        if (method === "_acpmux/attachment") return unreadable ? {} : { mimeType: "image/png", data: "AQID" };
         return answer(method, params);
       };
     }
@@ -509,4 +511,96 @@ test("a mixed draft marks only the attachment it placed in the text", async () =
     "two.png:-",
   ]);
   expect(placedBy(built.display)).toEqual(["one.png:true", "two.png:-"]);
+});
+// A prompt of only a document or a recording echoes with no text and no images: its recorded part
+// is what it says, so its row stays drawn with its footer, never hidden as a blank prompt.
+for (const kind of ["document", "audio"] as const) {
+  test(`a ${kind}-only echo keeps a drawn row with its recorded part`, async () => {
+    const io = await connect();
+    try {
+      await io.client.send("warm");
+      const sessionId = io.sent[0].sessionId;
+      const name = kind === "audio" ? "memo.mp3" : "spec.pdf";
+      io.emit(sessionId, {
+        mux: "user_message",
+        msg: { text: "", inlineParts: [{ kind, name, mimeType: "application/octet-stream", blockIndex: 0 }] },
+      });
+      await settle(() => io.rows().some((row) => row.inlineParts?.some((part) => part.kind === kind)));
+      const row = io.rows().find((row) => row.inlineParts?.some((part) => part.kind === kind))!;
+      expect(row.kind).toBe("user");
+      expect(row.incoming?.kind).not.toBe("hidden");
+    } finally {
+      io.client.close?.();
+    }
+  });
+}
+
+// After a reload or eviction acpmux may no longer hold a sent image's bytes. Retry then fails as a
+// whole, with the image named, instead of sending the prompt empty or without that image.
+for (const recorded of [false, true]) {
+  test(`Retry of an image-only prompt whose image cannot be read back fails${recorded ? " (recorded parts)" : ""}`, async () => {
+    const io = await connect(false, false, true);
+    try {
+      await io.client.send("warm");
+      const sessionId = io.sent[0].sessionId;
+      const image = { id: "gone-sha", mimeType: "image/png", name: "gone.png" };
+      io.emit(sessionId, {
+        mux: "user_message",
+        msg: { text: "", images: [image], ...(recorded ? { inlineParts: [{ kind: "image", ...image }] } : {}) },
+      });
+      await settle(() => io.rows().some((row) => row.images?.some((each) => each.id === "gone-sha")));
+      const row = io.rows().find((row) => row.images?.some((each) => each.id === "gone-sha"))!;
+      await expect(io.client.resendPrompt(row.id, "")).rejects.toThrow("gone.png");
+    } finally {
+      io.client.close?.();
+    }
+  });
+}
+
+test("Retry keeps an image recorded only in the legacy images shape beside inline parts", async () => {
+  const { restoreInline } = await import("./inlinePrompt");
+  const row: AcpmuxRow = {
+    id: "mixed",
+    kind: "user",
+    version: 1,
+    at: 1,
+    text: "",
+    images: [
+      { id: "inline-image", mimeType: "image/png", name: "inline.png" },
+      { id: "legacy-image", mimeType: "image/png", name: "legacy.png" },
+    ],
+    inlineParts: [
+      { kind: "image", id: "inline-image", name: "inline.png", mimeType: "image/png" },
+      { kind: "file", name: "notes.txt", uri: "file:///home/dev/notes.txt", mimeType: "text/plain" },
+    ],
+  };
+  const read: string[] = [];
+  const restored = await restoreInline(row, "", async (id) => {
+    read.push(id);
+    return { mimeType: "image/png", data: "aW1hZ2U=" };
+  });
+  expect(read).toEqual(["inline-image", "legacy-image"]);
+  expect(restored.attachments.map((a) => a.name)).toEqual(["inline.png", "notes.txt", "legacy.png"]);
+  const lost = (id: string) =>
+    Promise.resolve(id === "legacy-image" ? undefined : { mimeType: "image/png", data: "aW1hZ2U=" });
+  await expect(restoreInline(row, "", lost)).rejects.toThrow();
+});
+
+// Leo, 2026-11-07: "know beforehand the size we're going to go for rather than say, like, Oh wait,
+// well now we're going to expand". The pane's own row carries each image's size from its bytes, so
+// the row's estimate and its first frame are the image's sent shape, never a square slot.
+test("a sent image's own part carries its size from the send", async () => {
+  const { inlinePrompt } = await import("./inlinePrompt");
+  // A PNG's signature and IHDR chunk: 640 x 400.
+  const png = new Uint8Array(33);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  new DataView(png.buffer).setUint32(16, 640);
+  new DataView(png.buffer).setUint32(20, 400);
+  const data = btoa(String.fromCharCode(...png));
+  const wide: ComposerAttachment = { ...image("wide"), data };
+  const built = inlinePrompt(`look${inlineToken("wide")}`, [wide])!;
+  expect(built.parts.find((part) => part.kind === "image")).toMatchObject({ width: 640, height: 400 });
+  // The strip view's row (its `images`) carries it too.
+  const { attachedImages } = await import("./direct/queue");
+  expect(attachedImages([wide])[0]).toMatchObject({ width: 640, height: 400 });
 });

@@ -24,19 +24,27 @@ use serde_json::{Value, json};
 use crate::protocol::{AppInfo, FatalReason, FromHost};
 
 /// The engine-neutral runtime, built from `js/src` by `js/build.ts`.
-pub const RUNTIME_JS: &str = include_str!("../js/dist/cmux-app-runtime.js");
+pub static RUNTIME_JS: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../js/dist/cmux-app-runtime.js"));
 
 /// Longest log message kept; longer ones are cut.
 const MAX_LOG_CHARS: usize = 4096;
 /// Bytes of messages one entry point may produce; more kills the VM (the
 /// outbox lives outside the counted engine heap).
 const MAX_OUTBOX_BYTES: usize = 8 * 1024 * 1024;
+/// What one call refused by the pending cap charges to the outbox budget (its id and the
+/// `app.limit` answer it is owed).
+const REFUSED_CALL_BYTES: usize = 64;
 /// Armed timers and live subscriptions per VM; more kills the VM.
 const MAX_TIMERS: usize = 256;
 const MAX_SUBSCRIPTIONS: usize = 256;
 /// One-shot timers fire no sooner than this, so a self-rearming timer cannot
 /// spin the host.
 const MIN_TIMER: Duration = Duration::from_millis(50);
+/// Repeating timers, and a one-shot armed while a timer fires (a chain of one-shots, the
+/// `after` loop), fire no sooner than this: no timer path runs faster than once a second
+/// (extensions DESIGN.md section 5, "Timers").
+const SLOW_TIMER: Duration = Duration::from_secs(1);
 
 /// Per-VM limits (plans/cmux-next/app-platform.md section 13.1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +111,9 @@ pub struct InitParams {
     pub locale: Option<String>,
     pub strings: Value,
     pub main: String,
+    /// The script's file name, so an error names `main.js:2:12`; `None`
+    /// keeps QuickJS's `eval_script`.
+    pub main_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,21 +135,32 @@ struct Shared {
     next_sub: u64,
     next_timer: u64,
     timers: BTreeMap<u64, Timer>,
+    /// A timer entry is running: a one-shot armed now is a chained one and gets [`SLOW_TIMER`].
+    in_timer: bool,
     pending_calls: BTreeSet<u64>,
     /// Calls refused by the pending-call cap; answered after the entry.
     overflow: Vec<u64>,
     max_pending_calls: usize,
     subscriptions: BTreeSet<u64>,
+    /// Live watches of the daemon's signals cache (`watch`), under the same cap.
+    watches: BTreeSet<u64>,
     outbox_bytes: usize,
     /// The VM produced more messages, timers or subscriptions than allowed.
     flooded: bool,
+    /// [`Gate::stopping`], set with `flooded`.
+    stopping: Arc<AtomicBool>,
 }
 
 impl Shared {
+    fn flood(&mut self) {
+        self.flooded = true;
+        self.stopping.store(true, Ordering::Relaxed);
+    }
+
     fn push(&mut self, message: FromHost, bytes: usize) {
         self.outbox_bytes = self.outbox_bytes.saturating_add(bytes);
         if self.outbox_bytes > MAX_OUTBOX_BYTES {
-            self.flooded = true;
+            self.flood();
             return;
         }
         self.outbox.push(message);
@@ -205,19 +227,66 @@ impl CpuWindow {
     }
 }
 
+/// What the interrupt handler, the allocator and the native functions share to stop a VM.
+///
+/// The engine polls the interrupt handler once per few thousand calls and loop iterations, so
+/// a step that costs milliseconds (a native call copying a large string, a large allocation)
+/// runs unseen between polls. Native functions and large allocations ask [`Gate::stopped`]
+/// themselves; once any limit is hit (the deadline, memory, the outbox) the VM is `stopping`:
+/// the handler interrupts at every poll, native functions return before they read their
+/// arguments, and large allocations fail, so every step is cheap until the next poll.
+#[derive(Clone)]
+struct Gate {
+    base: Instant,
+    skipped: Arc<AtomicU64>,
+    /// VM-clock nanoseconds at which the running entry is interrupted; 0 = none.
+    deadline: Arc<AtomicU64>,
+    interrupted: Arc<AtomicBool>,
+    stopping: Arc<AtomicBool>,
+}
+
+impl Gate {
+    /// True once the VM must stop: a limit was hit, or the running entry is past its deadline.
+    fn stopped(&self) -> bool {
+        if self.stopping.load(Ordering::Relaxed) {
+            return true;
+        }
+        let due = self.deadline.load(Ordering::Relaxed);
+        // `>=`: a clock saturated at its end still reaches a deadline saturated there.
+        if due != 0 && clock(self.base, &self.skipped) >= due {
+            self.interrupted.store(true, Ordering::Relaxed);
+            self.stopping.store(true, Ordering::Relaxed);
+            return true;
+        }
+        false
+    }
+}
+
+/// Growth at or past this size asks the [`Gate`] first. One engine step can fill megabytes
+/// (`"x".repeat(1 << 23)`) and the engine polls the interrupt handler only once per few thousand
+/// steps, so the allocator is where such steps meet the deadline.
+const LARGE_ALLOC_BYTES: usize = 64 * 1024;
+
 /// Counts every byte the VM holds and refuses to grow past the limit.
 struct CountingAllocator {
     inner: RustAllocator,
     used: Arc<AtomicUsize>,
     limit: usize,
     exceeded: Arc<AtomicBool>,
+    /// A stopping VM is refused every large allocation.
+    gate: Gate,
 }
 
 impl CountingAllocator {
     fn admit(&self, current: usize, grow_to: usize) -> bool {
+        // Refused without marking memory exceeded: the VM stops for its deadline or another limit.
+        if grow_to.saturating_sub(current) >= LARGE_ALLOC_BYTES && self.gate.stopped() {
+            return false;
+        }
         let used = self.used.load(Ordering::Relaxed);
         if used.saturating_sub(current).saturating_add(grow_to) > self.limit {
             self.exceeded.store(true, Ordering::Relaxed);
+            self.gate.stopping.store(true, Ordering::Relaxed);
             return false;
         }
         true
@@ -301,12 +370,9 @@ pub struct AppVm {
     context: Context,
     runtime: Runtime,
     shared: Rc<RefCell<Shared>>,
-    base: Instant,
-    /// Nanoseconds the VM clock is ahead of `base.elapsed()` ([`AppVm::advance_clock`]).
-    skipped: Arc<AtomicU64>,
-    /// VM-clock nanoseconds at which the running entry is interrupted; 0 = none.
-    deadline: Arc<AtomicU64>,
-    interrupted: Arc<AtomicBool>,
+    /// The VM clock (`base`, plus `skipped`: nanoseconds it is ahead of `base.elapsed()`,
+    /// [`AppVm::advance_clock`]), the entry deadline and the stop flags.
+    gate: Gate,
     cpu: Option<CpuWindow>,
     /// The running entry's deadline is the CPU window's remainder, not the entry deadline.
     window_bound: bool,
@@ -322,46 +388,38 @@ impl AppVm {
     pub fn new(limits: Limits) -> Result<Self, String> {
         let memory_used = Arc::new(AtomicUsize::new(0));
         let memory_exceeded = Arc::new(AtomicBool::new(false));
+        let gate = Gate {
+            base: Instant::now(),
+            skipped: Arc::new(AtomicU64::new(0)),
+            deadline: Arc::new(AtomicU64::new(0)),
+            interrupted: Arc::new(AtomicBool::new(false)),
+            stopping: Arc::new(AtomicBool::new(false)),
+        };
         let runtime = Runtime::new_with_alloc(CountingAllocator {
             inner: RustAllocator,
             used: memory_used.clone(),
             limit: limits.memory_bytes,
             exceeded: memory_exceeded.clone(),
+            gate: gate.clone(),
         })
         .map_err(|e| format!("engine: {e}"))?;
-        let base = Instant::now();
-        let skipped = Arc::new(AtomicU64::new(0));
-        let deadline = Arc::new(AtomicU64::new(0));
-        let interrupted = Arc::new(AtomicBool::new(false));
         {
-            let skipped = skipped.clone();
-            let deadline = deadline.clone();
-            let interrupted = interrupted.clone();
-            runtime.set_interrupt_handler(Some(Box::new(move || {
-                let due = deadline.load(Ordering::Relaxed);
-                // `>=`: a clock saturated at its end still reaches a deadline saturated there.
-                if due != 0 && clock(base, &skipped) >= due {
-                    interrupted.store(true, Ordering::Relaxed);
-                    return true;
-                }
-                false
-            })));
+            let gate = gate.clone();
+            runtime.set_interrupt_handler(Some(Box::new(move || gate.stopped())));
         }
         let context = Context::full(&runtime).map_err(|e| format!("engine: {e}"))?;
         let shared = Rc::new(RefCell::new(Shared {
             next_sub: 1,
             next_timer: 1,
             max_pending_calls: limits.max_pending_calls,
+            stopping: gate.stopping.clone(),
             ..Shared::default()
         }));
         let mut vm = Self {
             context,
             runtime,
             shared,
-            base,
-            skipped,
-            deadline,
-            interrupted,
+            gate,
             cpu: limits.cpu.map(CpuWindow::new),
             window_bound: false,
             memory_exceeded,
@@ -369,10 +427,10 @@ impl AppVm {
             limits,
             dead: None,
         };
-        let shared = vm.shared.clone();
+        let (shared, gate) = (vm.shared.clone(), vm.gate.clone());
         vm.enter("runtime", move |ctx| {
-            install_native(ctx, &shared)?;
-            ctx.eval::<(), _>(RUNTIME_JS)
+            install_native(ctx, &shared, &gate)?;
+            ctx.eval::<(), _>(RUNTIME_JS.get())
         })
         .map_err(|e| format!("{e:?}"))?
         .map_err(|e| format!("runtime: {e}"))?;
@@ -382,7 +440,11 @@ impl AppVm {
     /// Evaluates the app's main script and calls `__cmuxAppInit`.
     pub fn init(&mut self, params: InitParams) -> Result<(), VmError> {
         let main = params.main;
-        if let Err(error) = self.enter("main", move |ctx| ctx.eval::<(), _>(main))? {
+        let mut options = rquickjs::context::EvalOptions::default();
+        options.filename = params.main_name;
+        if let Err(error) =
+            self.enter("main", move |ctx| ctx.eval_with_options::<(), _>(main, options))?
+        {
             return Err(VmError::Init(format!("main: {error}")));
         }
         let init = json!({
@@ -437,6 +499,12 @@ impl AppVm {
         self.entry_unit("dispatch", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppDispatch", args))
     }
 
+    /// A widget mount's host-owned tick: sets its `now()` clock to `now_ms`.
+    pub fn tick(&mut self, mount: &str, now_ms: u64) -> Result<(), VmError> {
+        let args = (mount.to_string(), now_ms as f64);
+        self.entry_unit("tick", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppTick", args))
+    }
+
     /// Answers one `call`. Unknown callback ids are ignored.
     pub fn resolve(&mut self, cb: u64, ok: bool, body: &Value) -> Result<(), VmError> {
         if !self.shared.borrow_mut().pending_calls.remove(&cb) {
@@ -449,6 +517,15 @@ impl AppVm {
     pub fn event(&mut self, sub: u64, body: &Value) -> Result<(), VmError> {
         let args = (sub as f64, body.to_string());
         self.entry_unit("event", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppEvent", args))
+    }
+
+    /// A daemon signals cache state for watch `watch` (`__cmuxAppWatch`).
+    pub fn watch_state(&mut self, watch: u64, state: &Value) -> Result<(), VmError> {
+        if !self.shared.borrow().watches.contains(&watch) {
+            return Ok(());
+        }
+        let args = (watch as f64, state.to_string());
+        self.entry_unit("watch", move |ctx| call_global::<_, ()>(ctx, "__cmuxAppWatch", args))
     }
 
     pub fn set_settings(&mut self, values: &Value) -> Result<(), VmError> {
@@ -498,9 +575,12 @@ impl AppVm {
             ids
         };
         for id in due {
-            self.entry_unit("timer", move |ctx| {
+            self.shared.borrow_mut().in_timer = true;
+            let fired = self.entry_unit("timer", move |ctx| {
                 call_global::<_, ()>(ctx, "__cmuxAppTimer", (id as f64,))
-            })?;
+            });
+            self.shared.borrow_mut().in_timer = false;
+            fired?;
         }
         Ok(())
     }
@@ -530,6 +610,7 @@ impl AppVm {
     pub fn advance_clock(&mut self, by: Duration) {
         let by = by.as_nanos().min(u128::from(u64::MAX)) as u64;
         let _ = self
+            .gate
             .skipped
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |s| Some(s.saturating_add(by)));
     }
@@ -582,10 +663,10 @@ impl AppVm {
                 (allowed, self.window_bound) = (left, true);
             }
         }
-        self.deadline.store(start.saturating_add(allowed).max(1), Ordering::Relaxed);
+        self.gate.deadline.store(start.saturating_add(allowed).max(1), Ordering::Relaxed);
         let result = self.context.with(|ctx| f(&ctx).catch(&ctx).map_err(|e| e.to_string()));
         self.settle();
-        self.deadline.store(0, Ordering::Relaxed);
+        self.gate.deadline.store(0, Ordering::Relaxed);
         let end = self.now();
         if let Some(cpu) = self.cpu.as_mut() {
             cpu.charge(start, end);
@@ -595,7 +676,7 @@ impl AppVm {
     }
 
     fn now(&self) -> u64 {
-        clock(self.base, &self.skipped)
+        clock(self.gate.base, &self.gate.skipped)
     }
 
     fn settle(&mut self) {
@@ -606,6 +687,11 @@ impl AppVm {
                 break;
             }
             for cb in overflow {
+                // The deadline stays armed while refused calls are answered; past it (or any
+                // other limit) the rest go unanswered, since the VM dies at the end of the entry.
+                if self.limit_hit() {
+                    return;
+                }
                 let body = json!({"code": "app.limit", "message": "too many pending calls", "retryable": true}).to_string();
                 let outcome = self.context.with(|ctx| {
                     call_global::<_, ()>(&ctx, "__cmuxAppResolve", (cb as f64, false, body))
@@ -646,7 +732,7 @@ impl AppVm {
     }
 
     fn limit_hit(&self) -> bool {
-        self.interrupted.load(Ordering::Relaxed)
+        self.gate.interrupted.load(Ordering::Relaxed)
             || self.memory_exceeded.load(Ordering::Relaxed)
             || self.shared.borrow().flooded
     }
@@ -655,7 +741,7 @@ impl AppVm {
         let reason = if self.memory_exceeded.load(Ordering::Relaxed) || self.shared.borrow().flooded
         {
             FatalReason::Memory
-        } else if self.interrupted.load(Ordering::Relaxed) {
+        } else if self.gate.interrupted.load(Ordering::Relaxed) {
             if self.window_bound { FatalReason::CpuBudget } else { FatalReason::Interrupt }
         } else {
             return Ok(());
@@ -689,24 +775,46 @@ fn parse(json: &str) -> Value {
     serde_json::from_str(json).unwrap_or(Value::Null)
 }
 
-fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs::Result<()> {
+/// A string argument of a native function, read only after the [`Gate`] check: a stopping VM's
+/// call returns before it pays for copying a large string.
+fn text(value: &rquickjs::Value<'_>) -> rquickjs::Result<String> {
+    value.get::<String>()
+}
+
+fn install_native<'js>(
+    ctx: &Ctx<'js>,
+    shared: &Rc<RefCell<Shared>>,
+    gate: &Gate,
+) -> rquickjs::Result<()> {
+    use rquickjs::Value as V;
     let native = Object::new(ctx.clone())?;
-    let s = shared.clone();
+    let (s, g) = (shared.clone(), gate.clone());
     native.set(
         "call",
         Function::new(
             ctx.clone(),
-            move |name: String, params: String, options: String, cb: f64| {
+            move |name: V<'js>, params: V<'js>, options: V<'js>, cb: f64| -> rquickjs::Result<()> {
+                if g.stopped() {
+                    return Ok(());
+                }
+                let (name, params, options) = (text(&name)?, text(&params)?, text(&options)?);
                 let cb = cb as u64;
                 let mut shared = s.borrow_mut();
                 // A repeated id (app code calling the native function itself)
                 // never counts twice toward the cap or reaches the supervisor.
                 if shared.pending_calls.contains(&cb) {
-                    return;
+                    return Ok(());
                 }
                 if shared.pending_calls.len() >= shared.max_pending_calls {
+                    // Refused ids live outside the engine heap until the entry ends; they count
+                    // toward the outbox budget so a flood of them floods the VM.
+                    shared.outbox_bytes = shared.outbox_bytes.saturating_add(REFUSED_CALL_BYTES);
+                    if shared.outbox_bytes > MAX_OUTBOX_BYTES {
+                        shared.flood();
+                        return Ok(());
+                    }
                     shared.overflow.push(cb);
-                    return;
+                    return Ok(());
                 }
                 shared.pending_calls.insert(cb);
                 let bytes = name.len() + params.len() + options.len();
@@ -714,59 +822,131 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
                     FromHost::Call { cb, name, params: parse(&params), options: parse(&options) },
                     bytes,
                 );
+                Ok(())
             },
         )?,
     )?;
-    let s = shared.clone();
+    let (s, g) = (shared.clone(), gate.clone());
     native.set(
         "subscribe",
-        Function::new(ctx.clone(), move |stream: String, filter: String| -> f64 {
-            let mut shared = s.borrow_mut();
-            let sub = shared.next_sub;
-            shared.next_sub += 1;
-            if shared.subscriptions.len() >= MAX_SUBSCRIPTIONS {
-                shared.flooded = true;
-                return sub as f64;
-            }
-            shared.subscriptions.insert(sub);
-            let bytes = stream.len() + filter.len();
-            shared.push(FromHost::Subscribe { sub, stream, filter: parse(&filter) }, bytes);
-            sub as f64
-        })?,
+        Function::new(
+            ctx.clone(),
+            move |stream: V<'js>, filter: V<'js>| -> rquickjs::Result<f64> {
+                if g.stopped() {
+                    return Ok(0.0);
+                }
+                let (stream, filter) = (text(&stream)?, text(&filter)?);
+                let mut shared = s.borrow_mut();
+                let sub = shared.next_sub;
+                shared.next_sub += 1;
+                if shared.subscriptions.len() >= MAX_SUBSCRIPTIONS {
+                    shared.flood();
+                    return Ok(sub as f64);
+                }
+                shared.subscriptions.insert(sub);
+                let bytes = stream.len() + filter.len();
+                shared.push(FromHost::Subscribe { sub, stream, filter: parse(&filter) }, bytes);
+                Ok(sub as f64)
+            },
+        )?,
     )?;
-    let s = shared.clone();
+    let (s, g) = (shared.clone(), gate.clone());
     native.set(
         "unsubscribe",
         Function::new(ctx.clone(), move |sub: f64| {
+            if g.stopped() {
+                return;
+            }
             let mut shared = s.borrow_mut();
             if shared.subscriptions.remove(&(sub as u64)) {
                 shared.push(FromHost::Unsubscribe { sub: sub as u64 }, 16);
             }
         })?,
     )?;
-    let s = shared.clone();
+    let (s, g) = (shared.clone(), gate.clone());
     native.set(
-        "scene",
-        Function::new(ctx.clone(), move |mount: String, ops: String| {
-            let bytes = mount.len() + ops.len();
-            s.borrow_mut().push(FromHost::Scene { mount, ops: parse(&ops) }, bytes);
+        "watch",
+        Function::new(
+            ctx.clone(),
+            move |name: V<'js>,
+                  params: V<'js>,
+                  mount: V<'js>,
+                  every: f64|
+                  -> rquickjs::Result<f64> {
+                if g.stopped() {
+                    return Ok(0.0);
+                }
+                let (name, params, mount) = (text(&name)?, text(&params)?, text(&mount)?);
+                let mut shared = s.borrow_mut();
+                let watch = shared.next_sub;
+                shared.next_sub += 1;
+                if shared.subscriptions.len() + shared.watches.len() >= MAX_SUBSCRIPTIONS {
+                    shared.flood();
+                    return Ok(watch as f64);
+                }
+                shared.watches.insert(watch);
+                let bytes = name.len() + params.len() + mount.len();
+                let message = FromHost::Watch {
+                    watch,
+                    name,
+                    params: parse(&params),
+                    mount: (!mount.is_empty()).then_some(mount),
+                    every_seconds: (every.is_finite() && every > 0.0).then_some(every),
+                };
+                shared.push(message, bytes);
+                Ok(watch as f64)
+            },
+        )?,
+    )?;
+    let (s, g) = (shared.clone(), gate.clone());
+    native.set(
+        "unwatch",
+        Function::new(ctx.clone(), move |watch: f64, refresh: bool| {
+            if g.stopped() {
+                return;
+            }
+            let mut shared = s.borrow_mut();
+            let watch = watch as u64;
+            if !shared.watches.contains(&watch) {
+                return;
+            }
+            if !refresh {
+                shared.watches.remove(&watch);
+            }
+            shared.push(FromHost::Unwatch { watch, refresh }, 16);
         })?,
     )?;
-    let s = shared.clone();
+    let (s, g) = (shared.clone(), gate.clone());
+    native.set(
+        "scene",
+        Function::new(ctx.clone(), move |mount: V<'js>, ops: V<'js>| -> rquickjs::Result<()> {
+            if g.stopped() {
+                return Ok(());
+            }
+            let (mount, ops) = (text(&mount)?, text(&ops)?);
+            let bytes = mount.len() + ops.len();
+            s.borrow_mut().push(FromHost::Scene { mount, ops: parse(&ops) }, bytes);
+            Ok(())
+        })?,
+    )?;
+    let (s, g) = (shared.clone(), gate.clone());
     native.set(
         "timer",
         Function::new(ctx.clone(), move |ms: f64, repeat: bool| -> f64 {
+            if g.stopped() {
+                return 0.0;
+            }
             let mut shared = s.borrow_mut();
             let id = shared.next_timer;
             shared.next_timer += 1;
             if shared.timers.len() >= MAX_TIMERS {
-                shared.flooded = true;
+                shared.flood();
                 return id as f64;
             }
             let every =
                 Duration::from_millis(if ms.is_finite() && ms > 0.0 { ms as u64 } else { 0 });
-            let every =
-                if repeat { every.max(Duration::from_millis(1000)) } else { every.max(MIN_TIMER) };
+            let floor = if repeat || shared.in_timer { SLOW_TIMER } else { MIN_TIMER };
+            let every = every.max(floor);
             shared
                 .timers
                 .insert(id, Timer { due: Instant::now() + every, repeat: repeat.then_some(every) });
@@ -780,25 +960,73 @@ fn install_native<'js>(ctx: &Ctx<'js>, shared: &Rc<RefCell<Shared>>) -> rquickjs
             s.borrow_mut().timers.remove(&(id as u64));
         })?,
     )?;
-    let s = shared.clone();
+    let (s, g) = (shared.clone(), gate.clone());
     native.set(
         "log",
-        Function::new(ctx.clone(), move |level: String, message: String| {
-            let level = match level.as_str() {
-                "debug" | "info" | "warn" | "error" => level,
-                _ => "info".to_string(),
-            };
-            s.borrow_mut().log(&level, &message);
-        })?,
+        Function::new(
+            ctx.clone(),
+            move |level: V<'js>, message: V<'js>| -> rquickjs::Result<()> {
+                if g.stopped() {
+                    return Ok(());
+                }
+                let (level, message) = (text(&level)?, text(&message)?);
+                let level = match level.as_str() {
+                    "debug" | "info" | "warn" | "error" => level,
+                    _ => "info".to_string(),
+                };
+                s.borrow_mut().log(&level, &message);
+                Ok(())
+            },
+        )?,
     )?;
-    let s = shared.clone();
+    let (s, g) = (shared.clone(), gate.clone());
     native.set(
         "commandDone",
-        Function::new(ctx.clone(), move |cb: f64, ok: bool, json: String| {
-            let bytes = json.len();
-            s.borrow_mut().push(FromHost::Done { cb: cb as u64, ok, body: parse(&json) }, bytes);
+        Function::new(
+            ctx.clone(),
+            move |cb: f64, ok: bool, json: V<'js>| -> rquickjs::Result<()> {
+                if g.stopped() {
+                    return Ok(());
+                }
+                let json = text(&json)?;
+                let bytes = json.len();
+                s.borrow_mut()
+                    .push(FromHost::Done { cb: cb as u64, ok, body: parse(&json) }, bytes);
+                Ok(())
+            },
+        )?,
+    )?;
+    // Pure and local: no message to the supervisor, no state.
+    let g = gate.clone();
+    native.set(
+        "zone",
+        Function::new(ctx.clone(), move |name: V<'js>, at: f64| -> rquickjs::Result<String> {
+            if g.stopped() {
+                return Ok(json!({ "error": "stopped" }).to_string());
+            }
+            Ok(zone_json(&text(&name)?, at))
         })?,
     )?;
     ctx.globals().set("__cmuxAppNative", native)?;
     Ok(())
+}
+
+/// `__cmuxAppNative.zone(name, atMs)`: an IANA zone's UTC offset and abbreviation at
+/// an instant, as JSON (`{"offsetMinutes","abbreviation"}`, or `{"error"}` for a name
+/// the database does not know). QuickJS has no Intl, so this is how an extension shows
+/// the time in another zone (`cmux.time.zone`).
+pub(crate) fn zone_json(name: &str, at_ms: f64) -> String {
+    use chrono::{Offset as _, TimeZone as _};
+    use chrono_tz::OffsetName as _;
+    let Ok(tz) = name.parse::<chrono_tz::Tz>() else {
+        return json!({ "error": format!("{name} is not an IANA time zone") }).to_string();
+    };
+    let ms = if at_ms.is_finite() { at_ms as i64 } else { 0 };
+    let Some(instant) = chrono::DateTime::from_timestamp_millis(ms) else {
+        return json!({ "error": format!("{at_ms} is not a time") }).to_string();
+    };
+    let offset = tz.offset_from_utc_datetime(&instant.naive_utc());
+    let minutes = offset.fix().local_minus_utc() / 60;
+    let abbreviation = offset.abbreviation().unwrap_or_default();
+    json!({ "offsetMinutes": minutes, "abbreviation": abbreviation }).to_string()
 }

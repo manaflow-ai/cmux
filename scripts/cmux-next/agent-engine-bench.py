@@ -11,16 +11,24 @@ the first text and to a visible composer, for the first chat and for each of `--
 (physical footprint of the app, its Chromium helpers and the WebKit processes it is responsible
 for, bench_memory.py) at launch, with one chat and with `--chats`; flings over `--rows` seeded rows; and
 typing latency in the composer (keydown to the next frame and to its paint, the page's own
-typingStats) for `--keys` keys sent with `debug.key`. With `--activate` the app runs active and the
+typingStats) for `--keys` keys sent with `debug.key`; and scroll ticks (Leo, 2026-11-07: "I do one
+tick up, one tick down ... it doesn't jolt as, like, the jumpy sort of spry, springy feel"): native
+scroll events at the chat (`debug.mouse` scroll, at the page view in Chromium), `--ticks` single ticks
+up and down of 120 px in 20 eased events 8 ms apart and one 3,000 px flick each way, over a
+`--tick-small-rows` chat and the `--rows` chat, once as a trackpad gesture (scroll phases) and once as
+plain pixel wheel events (a smoothing tool such as Mos), read with the page's `tick_watch`: frame
+intervals and work, the wheel events wheelGlide.ts took as notches, and the page's own offset writes
+during the input. With `--activate` the app runs active and the
 report adds which window holds the keys once the chat is focused (a Chromium page is its own child
 window). Runs on a fleet mini, never a laptop:
   agent-engine-bench.py --tag TAG --app BUNDLE [--modes own,page,chromium] [--chats 10] [--json FILE]
 """
-import argparse, glob, json, math, os, signal, socket, statistics, subprocess, sys, tempfile, time
+import argparse, glob, hashlib, json, math, os, signal, socket, statistics, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402
-from bench_launch import LaunchError, launch_app, bundle_id  # noqa: E402
+from bench_launch import LaunchError, launch_app, bundle_id, require_no_person_mac  # noqa: E402
+from state_wait import wait_until, wait_stable, StateWaitTimeout  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -32,14 +40,22 @@ parser.add_argument("--flings", type=int, default=3)
 parser.add_argument("--rows", type=int, default=5000, help="seeded transcript rows")
 parser.add_argument("--fling-seconds", type=float, default=3, help="duration of each measured bottom-to-top fling")
 parser.add_argument("--target-hz", type=float, help="count lost refresh slots against this target instead of idle cadence")
+parser.add_argument("--ticks", type=int, default=6, help="single scroll ticks each way per variant (0: none)")
+parser.add_argument("--tick-small-rows", type=int, default=60, help="seeded rows of the small chat the ticks also run on")
 parser.add_argument("--settle", type=float, default=10)
 parser.add_argument("--activate", action="store_true", help="run the app active, to see which window takes the keys")
 parser.add_argument("--open", action="store_true",
                     help="launch through LaunchServices (`open -n`), for a shell outside the console's GUI session (ssh)")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--json")
+parser.add_argument("--rate-arms", action="store_true",
+                    help="also type, and read the page's frame cadence, at the WebKit page's capped and full render rates")
+parser.add_argument("--nolimit-switches", default="disable-frame-rate-limit:disable-gpu-vsync",
+                    help="Chromium switches (colon-separated) the chromium-nolimit mode launches with")
 parser.add_argument("--shots", help="a folder: light and dark screen captures of the open session in each mode, with the window glass on")
 opts = parser.parse_args()
+if opts.activate:
+    require_no_person_mac("agent-engine-bench")  # --open --activate takes focus without BenchApp's check
 if (opts.rows < 1 or opts.flings < 1 or not math.isfinite(opts.fling_seconds) or opts.fling_seconds <= 0
         or opts.target_hz is not None and (not math.isfinite(opts.target_hz) or opts.target_hz <= 0)):
     parser.error("--rows, --flings, --fling-seconds and --target-hz must be positive and finite")
@@ -49,7 +65,9 @@ BUNDLE_ID = bundle_id(APP) or f"com.cmuxterm.app.debug.{TAG}"
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 BINARY = next((p for p in sorted(glob.glob(os.path.join(APP, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-TUNABLES = {"own": {"agent.chromium": False}, "page": {"agent.pageHost": True, "agent.chromium": False}, "chromium": {"agent.chromium": True}}
+TUNABLES = {"own": {"agent.chromium": False}, "page": {"agent.pageHost": True, "agent.chromium": False}, "chromium": {"agent.chromium": True},
+            "chromium-nolimit": {"agent.chromium": True}}
+CADENCE_SECONDS = 1.5
 app = None
 
 
@@ -87,6 +105,19 @@ def wait(check, seconds, step=0.25):
             return value
         time.sleep(step)  # test harness polling a live app
     return None
+
+
+def page_settled(what, timeout=30):
+    """The chat page's readiness (rows, text lengths, composer) read the same several times in a row."""
+    def read():
+        ready = pane("readiness", timeout=5)
+        if ready.get("error"):
+            raise RuntimeError(ready["error"])
+        return ready
+    try:
+        wait_stable(read, what, timeout=timeout, interval=0.1, reads=5)
+    except StateWaitTimeout:
+        print(f"warning: {what} never settled in {timeout} s", flush=True)
 
 
 def median(values):
@@ -157,6 +188,54 @@ def measured_fling(seed):
     return fling
 
 
+def gesture(target, total, events, phased, errors):
+    """One scroll of `total` px (positive scrolls up) in `events` eased native events 8 ms apart; a
+    refused event's error goes into `errors`."""
+    weights = [(1 - index / events) ** 2 for index in range(events)]
+    whole = sum(weights)
+    start = time.monotonic()
+    for index, weight in enumerate(weights):
+        # Paced from the gesture's start, so a slow call does not stretch the spacing.
+        time.sleep(max(0.0, start + index * 0.008 - time.monotonic()))  # test harness: input pacing
+        params = dict(target, action="scroll", dy=total * weight / whole, hover=index == 0)
+        if phased:
+            params["phase"] = "began" if index == 0 else "ended" if index == events - 1 else "changed"
+        sent = rpc("debug.mouse", params)
+        if isinstance(sent, dict) and sent.get("error"):
+            errors.append(str(sent["error"])[:200])
+    # sleep-ok: input pacing in the measured sequence, the gap that keeps gestures separate (no scroll offset is exposed)
+    time.sleep(0.4)
+
+
+def scroll_ticks(rows):
+    """The page's frames while native scroll ticks and flicks move a `rows`-row chat, per input kind."""
+    seeded = pane("seed_rows", count=rows, timeout=60)
+    seed_error = seeded.get("error") if isinstance(seeded, dict) else "no seed reply"
+    page_settled(f"the seeded {rows}-row transcript")
+    engine = pane("engine")
+    target = {"target": "page", "pane": engine.get("pane")} if engine.get("engine") == "cef" else {"pane": engine.get("pane")}
+    out = {"rows": rows, "seed": seeded}
+    for kind, phased in (("trackpad", True), ("wheel", False)):
+        errors = [f"seed_rows {rows}: {seed_error}"[:200]] if seed_error else []
+        started = pane("tick_watch")
+        if not started.get("started"):
+            errors.append(f"tick_watch start: {started.get('error') or started}"[:200])
+        for _ in range(opts.ticks):
+            gesture(target, 120, 20, phased, errors)
+            gesture(target, -120, 20, phased, errors)
+        gesture(target, 3000, 60, phased, errors)
+        gesture(target, -3000, 60, phased, errors)
+        watch = {"stop": True, **({"nominal_ms": 1000 / opts.target_hz} if opts.target_hz else {})}
+        out[kind] = pane("tick_watch", **watch)
+        if out[kind].get("error"):
+            errors.append(f"tick_watch stop: {out[kind]['error']}"[:200])
+        # A tick run is only a measurement when every event went in and the page saw them move it.
+        out[kind]["errors"] = errors[:5]
+        out[kind]["complete"] = not errors and bool(out[kind].get("moved_frames"))
+        print(f"ticks rows={rows} {kind}", json.dumps(out[kind]), flush=True)
+    return out
+
+
 def flings_complete(flings, requested):
     return (isinstance(flings, list) and len(flings) == requested
             and all(isinstance(f, dict) and (f.get("frame_metrics") or {}).get("complete") is True for f in flings))
@@ -207,10 +286,47 @@ def typing():
     for index in range(opts.keys):
         replies.append(rpc("debug.key", dict(target, key=letters[index % len(letters)])))
         time.sleep(0.08)  # test harness: about a fast typist's pace
-    time.sleep(0.5)  # test harness: the last key's frame lands
     errors = [r.get("error") for r in replies if isinstance(r, dict) and r.get("error")]
+    # Wait for the keys that went in to reach the composer, then for the typing stats to stop changing (the last frame).
+    sent = len(replies) - len(errors)
+    if focused and not wait_until(lambda: (pane("readiness", timeout=5).get("composer_text_length") or 0) >= sent,
+                                  f"{sent} typed keys in the composer", timeout=10, raise_on_timeout=False):
+        print(f"warning: the composer never showed {sent} typed keys", flush=True)
+    wait_stable(lambda: pane("typing_stats"), "the typing stats", timeout=10, interval=0.1, reads=4, raise_on_timeout=False)
     return {"composer_focused": focused, "first_key_reply": replies[0] if replies else None, "key_errors": len(errors),
             "composer_text_length": pane("readiness").get("composer_text_length"), **pane("typing_stats")}
+
+
+def cadence():
+    """The page's own frame cadence at rest: tick_watch's requestAnimationFrame loop for CADENCE_SECONDS with no input,
+    its intervals' p50/p95 (frames.p50_ms is the interval the page draws at: 8.3 ms at 120 Hz, 16.7 ms at 60 Hz)."""
+    started = pane("tick_watch")
+    if not started.get("started"):
+        return {"error": started.get("error") or "tick_watch did not start"}
+    time.sleep(CADENCE_SECONDS)  # test harness: the watch counts the page's frames
+    stopped = pane("tick_watch", stop=True)
+    frames = stopped.get("frames") if isinstance(stopped.get("frames"), dict) else None
+    return {"frames": frames} if frames else {"error": stopped.get("error") or "no frames"}
+
+
+def rate_arms(mode):
+    """Typing and cadence at the WebKit page's capped render rate (PreferPageRenderingUpdatesNear60FPSEnabled on) and at
+    its full rate (off), through `debug.agent_pane full_rate`; the page's starting rate is put back after. A Chromium
+    page has no WebKit rate: none."""
+    if pane("engine").get("engine") == "cef":
+        return {}
+    start = pane("full_rate").get("full_rate")
+    arms = {}
+    for arm, enabled in (("capped", False), ("full", True)):
+        set_to = pane("full_rate", enabled=enabled).get("full_rate")
+        time.sleep(1.5)  # test harness: WebKit applies the rate when the page is shown again (reshow under a snapshot)
+        arms[arm] = {"full_rate": set_to, "cadence": cadence(), "typing": typing()}
+        print(mode, arm, json.dumps({"full_rate": set_to, "cadence": arms[arm]["cadence"],
+                                      **{k: arms[arm]["typing"].get(k) for k in ("to_work", "to_frame")}}), flush=True)
+    if isinstance(start, bool):
+        pane("full_rate", enabled=start)
+        time.sleep(1.5)  # test harness: the starting rate is shown again before the flings
+    return arms
 
 
 def screen_shots(mode):
@@ -222,11 +338,17 @@ def screen_shots(mode):
     taken = {}
     for look in ("light", "dark"):
         rpc("debug.appearance", {"mode": look})
-        time.sleep(3)  # test harness: the theme reload and the page's repaint land
         # screencapture takes one file per display; a single-display mini writes only d1.
         names = [os.path.join(opts.shots, f"{mode}-{look}-d{n}.png") for n in (1, 2)]
-        done = subprocess.run(["/usr/sbin/screencapture", "-x", "-o", *names], capture_output=True, text=True, timeout=30)
-        taken[look] = {"files": [n for n in names if os.path.exists(n)], "error": done.stderr.strip() or None}
+        last = {}
+
+        def capture():
+            done = subprocess.run(["/usr/sbin/screencapture", "-x", "-o", *names], capture_output=True, text=True, timeout=30)
+            last["error"] = done.stderr.strip() or None
+            return tuple(hashlib.sha1(open(n, "rb").read()).hexdigest() for n in names if os.path.exists(n))
+        # Capture until two captures in a row match: the theme reload and the page's repaint have landed.
+        wait_stable(capture, f"the {look} screen", timeout=20, interval=0.1, reads=2, raise_on_timeout=False)
+        taken[look] = {"files": [n for n in names if os.path.exists(n)], "error": last.get("error")}
     rpc("debug.appearance", {"mode": "system"})
     taken["windows"] = rpc("debug.window_list")
     return taken
@@ -236,10 +358,13 @@ def focus_probe():
     if not opts.activate:
         return None
     subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE_ID}" to activate'], capture_output=True, timeout=30)
-    time.sleep(1)  # test harness: activation settles
+    if not wait_until(lambda: (rpc("debug.focus") or {}).get("app_active"), "the app to become active", timeout=10,
+                      raise_on_timeout=False):
+        print("warning: the app never reported itself active", flush=True)
     focused = pane("focus_composer").get("focused")
-    time.sleep(0.5)  # test harness: focus settles
-    report = rpc("debug.focus") or {}
+    # The focus report (key window, first responders) read the same several times: focus has settled.
+    report = wait_stable(lambda: rpc("debug.focus") or {}, "the focus report", timeout=10, interval=0.1, reads=4,
+                         raise_on_timeout=False) or {}
     windows = [w for w in report.get("windows", []) if isinstance(w, dict)]
     return {"composer_focused": focused, "app_active": report.get("app_active"), "key_window": report.get("key_window"),
             "shell_window_is_key": any(w.get("is_key") for w in windows),
@@ -273,6 +398,8 @@ def launch(mode, scratch):
            "CMUX_NEXT_AGENT_PANE_MOCK": "1", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables,
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"),
            "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
+    if mode == "chromium-nolimit":
+        env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = opts.nolimit_switches  # read by DEBUG builds only (CEFSwitches)
     if not opts.activate:
         env["CMUX_NEXT_NO_ACTIVATE"] = "1"
     log_path = os.path.join(opts.out, f"app-{TAG}-{mode}.log")
@@ -325,25 +452,37 @@ def run_mode(mode):
         os.remove(SOCKET)
     if not launch(mode, tempfile.mkdtemp(prefix=f"agent-engine-{mode}-")):
         return {"error": "the tagged app did not come up"}
-    time.sleep(opts.settle)  # test harness: launch settles before the baseline
+    # sleep-ok: benchmark protocol, the fixed --settle s idle before each memory sample so runs compare
+    time.sleep(opts.settle)
     result = {"baseline": memory("baseline", 0)}
     first = open_chat()
     result["first_chat"] = first
     print(mode, "first chat", json.dumps(first), flush=True)
-    time.sleep(opts.settle)  # test harness: the chat settles before it is measured
+    # sleep-ok: benchmark protocol, the fixed --settle s idle before each memory sample so runs compare
+    time.sleep(opts.settle)
     result["one_chat"] = memory("one chat", 1)
     result["session"] = open_session()
     result["focus"] = focus_probe()
     result["shots"] = screen_shots(mode)
+    result["cadence"] = cadence()
     result["typing"] = typing()
+    print(mode, "typing", json.dumps({k: result["typing"].get(k) for k in ("keys", "to_listener", "to_work", "to_frame", "to_paint", "native_posts")}), flush=True)
+    print(mode, "cadence", json.dumps(result["cadence"]), flush=True)
+    if opts.rate_arms:
+        result["rate_arms"] = rate_arms(mode)
     result["seed"] = pane("seed_rows", count=opts.rows, timeout=60)
-    time.sleep(3)  # test harness: the seeded transcript lays out
+    page_settled(f"the seeded {opts.rows}-row transcript")
     pane("fling", seconds=3, wait=True, timeout=60)  # warms the transcript's layout, not reported
     result["flings"] = [measured_fling(result["seed"]) for _ in range(opts.flings)]
     result["measurement_complete"] = flings_complete(result["flings"], opts.flings)
+    if opts.ticks > 0:
+        result["ticks"] = [scroll_ticks(rows) for rows in (opts.tick_small_rows, opts.rows)]
+        ticks_complete = all(t[kind].get("complete") for t in result["ticks"] for kind in ("trackpad", "wheel"))
+        result["measurement_complete"] = result["measurement_complete"] and ticks_complete
     more = [open_chat() for _ in range(opts.chats - 1)]
     result["more_chats"] = more
-    time.sleep(opts.settle)  # test harness: the chats settle before they are measured
+    # sleep-ok: benchmark protocol, the fixed --settle s idle before each memory sample so runs compare
+    time.sleep(opts.settle)
     result[f"chats_{opts.chats}"] = memory(f"{opts.chats} chats", opts.chats)
     base, one, many = (result[k]["total_footprint_mb"] for k in ("baseline", "one_chat", f"chats_{opts.chats}"))
     result["summary"] = {
@@ -354,10 +493,18 @@ def run_mode(mode):
         "first_chat_mb": round(one - base, 1), f"chats_{opts.chats}_mb": round(many - base, 1),
         "per_more_chat_mb": round((many - one) / max(1, opts.chats - 1), 1),
         "typing_to_frame": result["typing"].get("to_frame"), "typing_to_paint": result["typing"].get("to_paint"),
+        "typing_to_listener": result["typing"].get("to_listener"), "typing_to_work": result["typing"].get("to_work"),
         "session_composer_ms": result["session"].get("composer_ms"),
         "typing_keys": result["typing"].get("keys"), "focus": result["focus"],
+        "frame_interval": (result.get("cadence") or {}).get("frames"),
+        "rate_arms": {arm: {"full_rate": a.get("full_rate"), "frame_interval": (a.get("cadence") or {}).get("frames"),
+                            "typing_to_frame": a["typing"].get("to_frame"), "typing_to_work": a["typing"].get("to_work")}
+                      for arm, a in (result.get("rate_arms") or {}).items()},
         "fling_dropped_frames": [f.get("dropped_frames") for f in result["flings"]],
         "fling_p95_ms": [f.get("p95_ms") for f in result["flings"]],
+        "ticks": [{"rows": t["rows"], **{kind: {key: (t.get(kind) or {}).get(key) for key in
+                   ("complete", "frames", "work", "work_over_8ms", "notch_events", "js_writes", "js_write_max_px")}
+                   for kind in ("trackpad", "wheel")}} for t in result.get("ticks", [])],
     }
     return result
 

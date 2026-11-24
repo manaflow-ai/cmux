@@ -15,9 +15,14 @@
 # exit, full exit, tests, tests whose first outcome differs, tests whose settled outcome differs,
 # flaky tests on the lane and full side) and per pair the outcome lists and diffs. Only one target
 # dir is on disk at a time (two of them filled a runner's disk). Never run cargo on a laptop: this
-# is a fleet step (cmux-ci test).
+# is a fleet step (cmux-ci test). A build cargo refused for a stale Cargo.lock (--locked) is a
+# `stale-lock` row, with cargo-locks.py explain's cause and fix on stderr, not `base-build-failed`
+# or a row of empty outcomes.
 set -uo pipefail
 root="$(git rev-parse --show-toplevel)"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# stale_lock LOG: cargo-locks.py explain prints the cause and fix when LOG holds cargo's stale-lock refusal.
+stale_lock() { python3 "$here/cargo-locks.py" explain "$1" --repo "$wt"; }
 out="${FAST_CHECKS_OUT:-$(mktemp -d)}"
 mkdir -p "$out"
 work="$(mktemp -d -p "${RUNNER_TEMP:-${TMPDIR:-/tmp}}")"
@@ -65,7 +70,9 @@ failed=0
 for pair in "$@"; do
   n=$((n + 1))
   base="${pair%%:*}" head="${pair##*:}" tag="$n-${head:0:12}"
-  if ! git -C "$root" fetch -q --no-tags --depth=200 origin "$base" "$head"; then
+  depth=()  # --depth only in a checkout that is already shallow, so a full clone stays full
+  [[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=200)
+  if ! git -C "$root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "$base" "$head"; then
     printf '%s\t%s\tfetch-failed\n' "$base" "$head" >> "$out/results.tsv"; failed=1; continue
   fi
   wt="$work/wt-$n"
@@ -87,13 +94,22 @@ for pair in "$@"; do
   git -C "$wt" checkout -q --detach "$base"
   if ! (cd "$wt/cmux-tui" && CARGO_TARGET_DIR="$work/lane" cargo test --locked --no-run "${sel[@]}") > "$out/$tag.base.log" 2>&1; then
     # No warm baseline, so no comparison: say so instead of reporting zero differing tests.
-    printf '%s\t%s\t%s\tbase-build-failed\n' "$base" "$head" "${sel[*]}" >> "$out/results.tsv"; failed=1
+    outcome=base-build-failed
+    stale_lock "$out/$tag.base.log" && outcome=stale-lock
+    printf '%s\t%s\t%s\t%s\n' "$base" "$head" "${sel[*]}" "$outcome" >> "$out/results.tsv"; failed=1
     rm -rf "$work/lane"; git -C "$root" worktree remove --force "$wt"; continue
   fi
   git -C "$wt" checkout -q --detach "$head"
   t0=$SECONDS
-  (cd "$wt/cmux-tui" && CARGO_TARGET_DIR="$work/lane" cargo test --locked --no-run "${sel[@]}") > "$out/$tag.lane-build.log" 2>&1
+  lane_build_exit=0
+  (cd "$wt/cmux-tui" && CARGO_TARGET_DIR="$work/lane" cargo test --locked --no-run "${sel[@]}") > "$out/$tag.lane-build.log" 2>&1 \
+    || lane_build_exit=$?
   lane_build=$((SECONDS - t0))
+  # The head's lock refused: nothing on either side would build, so no outcomes to compare.
+  if (( lane_build_exit != 0 )) && stale_lock "$out/$tag.lane-build.log"; then
+    printf '%s\t%s\t%s\tstale-lock\n' "$base" "$head" "${sel[*]}" >> "$out/results.tsv"
+    rm -rf "$work/lane"; git -C "$root" worktree remove --force "$wt"; continue
+  fi
   lane_exit="$(side lane)"
   rm -rf "$work/lane"
   # full: a clean target dir at the same head.

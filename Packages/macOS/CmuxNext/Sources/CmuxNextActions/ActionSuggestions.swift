@@ -29,15 +29,31 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let sidebarItems = "sidebarItems"
     /// Every density: the built-ins, then the user's custom ones (the App lists them).
     public static let densities = "densities"
+    /// The sidebar toggle's glyphs (`debug.sidebarToggleIcon`, the Debug Settings choice).
+    public static let debugSidebarToggleIcons = "debugSidebarToggleIcons"
+    /// The status indicators' icon sets (`debug.statusIconSet`, the Debug Settings choice).
+    public static let debugStatusIconSets = "debugStatusIconSets"
     /// The Home conversations a message can go to (Send Message To…, Send To…; Chiefs first).
     public static let homeRecipients = "homeRecipients"
     /// The people and Chiefs a new group can have (New Group Chat's `members`), by participant id:
     /// the user's Chiefs (main first), the team, then the people of their DMs.
     public static let homeMembers = "homeMembers"
+    /// The user's Chiefs (Archive Chief, Make Primary Chief, Delete Chief…'s `chief`), by agent id, the
+    /// primary first: the palette's pick of which Chief, where the CLI takes its id.
+    public static let homeChiefs = "homeChiefs"
+    /// This Mac's Chiefs (Edit Chief…, Set Chief Model…, Set Chief Effort…'s `chief`), by agent id: the
+    /// Chiefs of its own registry, which `cmux chief edit|engine` change.
+    public static let localChiefs = "localChiefs"
+    /// The agents in this Mac's conversations that are no Chief (Make Agent a Chief…'s `agent`), by
+    /// participant id.
+    public static let adoptableAgents = "adoptableAgents"
     /// The names of this Mac's layout templates (New Workspace from Template's `template`).
     public static let layoutTemplates = "layoutTemplates"
     /// Backgrounds a pane may take (`pane.setBackground`): the bundled art, by title.
     public static let paneBackgrounds = "paneBackgrounds"
+    /// The window's recent backgrounds (Recent Backgrounds…'s `background`, appearance.backgroundRecents),
+    /// newest first, by background value.
+    public static let backgroundRecents = "backgroundRecents"
     /// Marker tints a pane may take (`pane.setTint`): the pinned named colors.
     public static let paneTints = "paneTints"
     /// The cmux Cloud teams of the signed-in account (Team Picker's `team`), by team id.
@@ -54,4 +70,17 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     /// The hosts New Remote Group offers (its `destination`): connected machines, online Tailscale
     /// peers, then `~/.ssh/config` aliases, each once, by SSH destination.
     public static let remoteHosts = "remoteHosts"
+    /// The focused tab's back/forward entries (Go Back or Forward to…'s `entry`), by their offset from the
+    /// current page, earlier pages nearest first, then later ones.
+    public static let browserBackForwardEntries = "browserBackForwardEntries"
+    /// The browser's downloads (the `browser.download.*` rows' `download`), by id, newest first.
+    public static let browserDownloads = "browserDownloads"
+    /// The browser toolbar's pinnable buttons (Pin or Unpin Browser Toolbar Button…'s `button`), in toolbar order,
+    /// the pinned ones marked.
+    public static let browserToolbarButtons = "browserToolbarButtons"
+    /// The tab bar's pinnable actions (Pin or Unpin Tab Bar Button…'s `button`, `tabs.toolbarButtons`), the pinned
+    /// ones marked.
+    public static let tabBarButtons = "tabBarButtons"
+    /// The code editors installed on this Mac, the default first (Open In ▸'s `app`; the App lists them).
+    public static let editors = "editors"
 }

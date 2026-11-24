@@ -5,7 +5,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use cmux_app_host::{FatalReason, Limits, VmError};
+use cmux_app_host::{AppInfo, AppVm, FatalReason, InitParams, Limits, VmError};
 use common::{Harness, app};
 use serde_json::{Value, json};
 
@@ -13,6 +13,29 @@ use serde_json::{Value, json};
 /// every app platform test in the workspace.
 mod apps {
     use super::*;
+
+    /// A script that does not parse names its own file and line (`main.js:2:7`), not QuickJS's
+    /// `eval_script`, so the error a sidebar section shows points at the line to fix.
+    #[test]
+    fn a_syntax_error_names_the_script_file_and_line() {
+        let mut vm = AppVm::new(Limits::default()).expect("vm");
+        let error = vm
+            .init(InitParams {
+                app: AppInfo { id: "local/customize".into(), version: "1.0.0".into() },
+                settings: json!({}),
+                api_version: "1.0.0".into(),
+                ops: None,
+                known_ops: None,
+                locale: None,
+                strings: Value::Null,
+                main: "const ok = 1\nconst a b = 2\n".into(),
+                main_name: Some("main.js".into()),
+            })
+            .expect_err("a syntax error fails init");
+        let VmError::Init(message) = error else { panic!("not an init error: {error:?}") };
+        assert!(message.contains("main.js:2"), "{message}");
+        assert!(!message.contains("eval_script"), "{message}");
+    }
 
     #[test]
     fn initial_mount_emits_create_children_and_root_in_one_batch() {
@@ -137,6 +160,53 @@ mod apps {
         assert!(h.vm.next_timer_due().expect("re-armed") > due);
         h.vm.unmount("m").expect("unmount");
         assert_eq!(h.vm.next_timer_due(), None, "unmount clears the app's timers");
+    }
+
+    /// A one-shot armed while a timer fires is a chain (`after` re-arming itself): the host floors
+    /// it at 1 s like a repeating timer, so a chain of 50 ms one-shots cannot run at 20 Hz. A
+    /// one-shot armed outside a timer (a render, a tap) keeps the 50 ms floor.
+    #[test]
+    fn a_chained_one_shot_timer_is_floored_at_one_second_in_the_host() {
+        let mut h = Harness::new(&app(r#"const [n, setN] = signal(0)
+        const tick = () => { setN((v) => v + 1); cmux.timer.after(5, tick) }
+        const fromJob = () => { setN((v) => v + 1); Promise.resolve().then(() => cmux.timer.after(5, fromJob)) }
+        return {
+          render: () => { cmux.timer.after(5, tick); return Text(() => "t" + n()) },
+          job: () => { cmux.timer.after(5, fromJob); return Text(() => "j" + n()) },
+        }"#));
+        h.mount("m", "render", json!({}));
+        let first = h.vm.next_timer_due().expect("armed");
+        assert!(
+            first < Instant::now() + Duration::from_millis(500),
+            "a first one-shot keeps 50 ms"
+        );
+        h.vm.fire_due_timers(first).expect("fire");
+        h.pump().expect("pump");
+        assert!(h.texts("m").contains(&"t1".to_string()), "{:?}", h.texts("m"));
+        let chained = h.vm.next_timer_due().expect("re-armed by the callback");
+        assert!(
+            chained >= Instant::now() + Duration::from_millis(900),
+            "a one-shot armed in a timer callback is floored to 1 s"
+        );
+        h.vm.unmount("m").expect("unmount");
+
+        h.mount("j", "job", json!({}));
+        let first = h.vm.next_timer_due().expect("armed");
+        h.vm.fire_due_timers(first).expect("fire");
+        h.pump().expect("pump");
+        let chained = h.vm.next_timer_due().expect("re-armed from a microtask");
+        assert!(
+            chained >= Instant::now() + Duration::from_millis(900),
+            "a microtask of the timer entry counts as the chain too"
+        );
+        h.vm.unmount("j").expect("unmount");
+
+        h.mount("m", "render", json!({}));
+        let after_timer = h.vm.next_timer_due().expect("armed");
+        assert!(
+            after_timer < Instant::now() + Duration::from_millis(500),
+            "a one-shot armed outside a timer entry is not chained"
+        );
     }
 
     #[test]
@@ -368,5 +438,33 @@ mod apps {
         assert_eq!(gestures, vec![json!("g9"), json!("g9"), Value::Null]);
         assert_eq!(h.eval("globalThis.seen"), json!("g9"));
         assert!(h.done[&3].0);
+    }
+
+    /// QuickJS has no Intl, and `toLocaleTimeString(..., { timeZone })` ignores the zone, so an
+    /// extension (a world clock) reads another zone's offset from `cmux.time.zone`.
+    #[test]
+    fn cmux_time_zone_answers_any_iana_zone_with_its_offset_at_an_instant() {
+        let mut h = Harness::new("");
+        assert_eq!(
+            h.eval(r#"cmux.time.zone("Asia/Tokyo", 0)"#),
+            json!({ "zone": "Asia/Tokyo", "offsetMinutes": 540, "abbreviation": "JST" })
+        );
+        // 2026-07-01 and 2026-01-15, 12:00 UTC: daylight time, then standard time.
+        assert_eq!(
+            h.eval(r#"cmux.time.zone("America/New_York", Date.UTC(2026, 6, 1, 12))"#),
+            json!({ "zone": "America/New_York", "offsetMinutes": -240, "abbreviation": "EDT" })
+        );
+        assert_eq!(
+            h.eval(r#"cmux.time.zone("America/New_York", Date.UTC(2026, 0, 15, 12))"#),
+            json!({ "zone": "America/New_York", "offsetMinutes": -300, "abbreviation": "EST" })
+        );
+        // A half-hour zone, and no instant given means now.
+        assert_eq!(h.eval(r#"cmux.time.zone("Asia/Kolkata").offsetMinutes"#), json!(330));
+        assert_eq!(
+            h.eval(
+                r#"(() => { try { cmux.time.zone("Mars/Olympus", 0); return null } catch (e) { return [e.name, e.code] } })()"#
+            ),
+            json!(["CmuxError", "zone.unknown"])
+        );
     }
 }

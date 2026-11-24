@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { agentDisplayName } from "./agents";
 import { translate, type Translate } from "./i18n";
+import { providerName } from "./modelVariants";
 /** The session/selected-route auth verdict from acpmux. Unknown is never a refusal. */
 export type SessionAuthState =
   | "ready"
@@ -10,6 +12,8 @@ export type SessionAuthState =
   | "peerUnreachable"
   | "unknown";
 export type SessionAuthSource = "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+/** Whose credential refused the chat: the agent's own login, a provider's API key, or the cmux account. */
+export type SessionAuthCredential = "login" | "apiKey" | "cmux";
 export type SessionAuth = {
   state: SessionAuthState;
   source: SessionAuthSource;
@@ -19,6 +23,9 @@ export type SessionAuth = {
   host?: string | null;
   routeId?: string | null;
   fromSessionId?: string | null;
+  credential?: SessionAuthCredential;
+  /** The provider id that issued a refused API key ("opencode-go"). */
+  provider?: string;
   login?: { kind: "terminal" | "route"; command?: string; host?: string | null; routeId?: string | null };
 };
 export const UNKNOWN_AUTH: SessionAuth = { state: "unknown", source: "none", evidenceAt: null };
@@ -60,6 +67,10 @@ export function readSessionAuth(reply: unknown): SessionAuth {
     ...(typeof row.fromSessionId === "string" || row.fromSessionId === null
       ? { fromSessionId: row.fromSessionId as string | null }
       : {}),
+    ...(row.credential === "login" || row.credential === "apiKey" || row.credential === "cmux"
+      ? { credential: row.credential }
+      : {}),
+    ...(typeof row.provider === "string" && row.provider ? { provider: row.provider } : {}),
     ...(login && (login.kind === "terminal" || login.kind === "route")
       ? {
           login: {
@@ -124,61 +135,115 @@ export function useRouteAuthSwitch(apply: (sessionId: string, routeId: string) =
 export function authBlocksSend(auth: SessionAuth | undefined): boolean {
   return auth?.state === "signedOut" || auth?.state === "expired" || auth?.state === "routeAuthNeeded";
 }
-export function authLoginText(auth: SessionAuth | undefined, t: Translate = translate): string {
-  return t(
-    auth?.state === "expired" ||
-      auth?.state === "routeAuthNeeded" ||
-      (auth?.state === "signedOut" && auth.source === "turn")
-      ? "turn.signInAgain"
-      : "harness.logIn",
-  );
-}
-export function authText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
-  if (!auth) return undefined;
-  const harness = auth.harness ?? t("picker.model");
-  const label =
-    auth.state === "signedOut"
-      ? t("harness.signedOut", { agent: harness })
-      : auth.state === "expired"
-        ? t("turn.authExpired")
-        : auth.state === "routeAuthNeeded"
-          ? `${t("picker.account")} · ${authLoginText(auth, t)}`
-          : auth.state === "routeUnreachable"
-            ? t("turn.failure.unreachableVia", { harness, via: auth.routeId ?? t("picker.account") })
-            : auth.state === "peerUnreachable"
-              ? t("turn.failure.unreachableVia", { harness, via: auth.host ?? t("environment.host") })
-              : undefined;
-  if (!label) return undefined;
-  const host = auth.login?.host ?? auth.host;
-  const recovery =
-    auth.login?.kind === "terminal" && host && auth.login.command
-      ? `${t("picker.unavailable")} · ${host}: ${auth.login.command}`
-      : auth.login?.kind === "route"
-        ? `${t("picker.accountHint")} · ${auth.login.routeId ?? auth.routeId ?? ""}`
-        : undefined;
-  return [label, auth.detail, recovery].filter(Boolean).join(" · ");
+/// Who refused the chat, so the words name that party and the button offers the one fix that works
+/// (user, Nov 19: "hard to tell if cmux is signed out or the model provider is signed out"): the
+/// person's cmux account, a provider's API key (signing in again never renews one), a route by its
+/// name, else the agent's own login.
+export type AuthParty =
+  | { kind: "cmux" }
+  | { kind: "apiKey"; provider: string }
+  | { kind: "route"; route?: string }
+  | { kind: "login"; agent?: string };
+
+/// An answer that names no harness (or no route) keeps the plain words it always had: a name
+/// there would be a guess.
+export function authParty(auth: SessionAuth, t: Translate = translate): AuthParty {
+  const agent = auth.harness ? agentDisplayName(auth.harness) : undefined;
+  if (auth.credential === "cmux") return { kind: "cmux" };
+  if (auth.credential === "apiKey")
+    return { kind: "apiKey", provider: auth.provider ? providerName(auth.provider) : (agent ?? t("picker.model")) };
+  if (auth.state === "routeAuthNeeded") {
+    const route = auth.login?.routeId ?? auth.routeId ?? undefined;
+    return route ? { kind: "route", route } : { kind: "route" };
+  }
+  return agent ? { kind: "login", agent } : { kind: "login" };
 }
 
+/// The button (and the model chip's word) that fixes the refusal: "Replace key", "Sign in to cmux",
+/// "Sign in to Claude Code". It says what it does, the same wherever it shows.
+export function authLoginText(auth: SessionAuth | undefined, t: Translate = translate): string {
+  if (!auth) return t("harness.logIn");
+  const party = authParty(auth, t);
+  switch (party.kind) {
+    case "cmux":
+      return t("auth.fix.signInCmux");
+    case "apiKey":
+      return t("auth.fix.replaceKey");
+    case "route":
+      return party.route ? t("auth.fix.signInTo", { name: party.route }) : t("turn.signInAgain");
+    case "login":
+      if (party.agent) return t("auth.fix.signInTo", { name: party.agent });
+      return auth.state === "expired" || auth.source === "turn" ? t("turn.signInAgain") : t("harness.logIn");
+  }
+}
+
+/// One plain sentence that names who refused the chat and what fixes it. Never the daemon's
+/// `detail` (its diagnostic, with the agent's raw error), and never two messages joined.
+export function authText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
+  if (!auth) return undefined;
+  const harness = auth.harness ? agentDisplayName(auth.harness) : t("picker.model");
+  if (auth.state === "routeUnreachable")
+    return t("turn.failure.unreachableVia", { harness, via: auth.routeId ?? t("picker.account") });
+  if (auth.state === "peerUnreachable")
+    return t("turn.failure.unreachableVia", { harness, via: auth.host ?? t("environment.host") });
+  if (!authBlocksSend(auth)) return undefined;
+  const party = authParty(auth, t);
+  const expired = auth.state === "expired";
+  const label =
+    party.kind === "cmux"
+      ? t("auth.cmux.signedOut")
+      : party.kind === "apiKey"
+        ? t(expired ? "auth.key.expired" : "auth.key.refused", { provider: party.provider })
+        : party.kind === "route"
+          ? party.route
+            ? t("auth.route.signedOut", { name: party.route })
+            : t("turn.authExpired")
+          : party.agent
+            ? t(expired ? "auth.login.expired" : "auth.login.signedOut", { agent: party.agent })
+            : expired
+              ? t("turn.authExpired")
+              : t("harness.signedOut", { agent: harness });
+  // A chat on another machine signs in there: say where and what to run, as its own sentence.
+  const host = auth.login?.host ?? auth.host;
+  if (auth.login?.kind === "terminal" && host && auth.login.command && party.kind !== "cmux")
+    return `${label} ${t("auth.runOnHost", { host, command: auth.login.command })}`;
+  return label;
+}
+
+/// The model chip's word before the model. A chat whose machine is down gets none: the link is the
+/// machine's, not the model's, and the quiet row's machine link says it in the sidebar's words
+/// (MachineLinkStatus.tsx); "Unavailable" there read as the model being unavailable. The chip's
+/// label (authText) still names the cause.
 export function authChipText(auth: SessionAuth | undefined, t: Translate = translate): string | undefined {
   return authBlocksSend(auth)
     ? authLoginText(auth, t)
-    : auth?.state === "routeUnreachable" || auth?.state === "peerUnreachable"
+    : auth?.state === "routeUnreachable"
       ? t("picker.unavailable")
       : undefined;
 }
 
 export const canSessionLogin = (auth: SessionAuth | undefined): boolean =>
-  authBlocksSend(auth) &&
-  auth?.login?.kind === "terminal" &&
-  Boolean(auth.login.command) &&
-  (auth.login.host === undefined || auth.login.host === null) &&
-  auth.host === null;
+  (authBlocksSend(auth) && auth?.credential === "cmux") ||
+  (authBlocksSend(auth) &&
+    auth?.login?.kind === "terminal" &&
+    Boolean(auth.login.command) &&
+    (auth.login.host === undefined || auth.login.host === null) &&
+    auth.host === null);
 
+/// The fix the button runs, one path for every place it shows (the composer menu, the quick menu,
+/// `/login`): the app's own cmux sign-in for the cmux account, else the agent's login command in a
+/// terminal (for an API key, the agent's key entry, `opencode auth login`).
 export async function sessionLogin(
   auth: SessionAuth,
   open: (params: Record<string, unknown>) => Promise<unknown>,
   cwd?: string,
+  signInCmux?: () => Promise<unknown>,
 ): Promise<string | undefined> {
+  if (auth.credential === "cmux" && authBlocksSend(auth)) {
+    if (!signInCmux) return authText(auth);
+    await signInCmux();
+    return;
+  }
   const command = auth.login?.command;
   if (!command || !canSessionLogin(auth)) return authText(auth);
   await open({ kind: "terminal", text: command, ...(cwd ? { cwd } : {}), run: true });

@@ -68,6 +68,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
     /// Where a video's private copies are read and played from (``AgentPaneVideoInfo/snapshot(_:in:into:)``).
     var videoFolder = AgentPaneImageCopies.defaultFolder().deletingLastPathComponent().appendingPathComponent("Agent Videos", isDirectory: true)
+    /// The copies of ``videoFolder`` a video's reads share (``AgentPaneVideoCopies``).
+    let videoCopies = AgentPaneVideoCopies()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
     /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
     /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
@@ -124,7 +126,7 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
             guard consumeGesture() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             browsers.open(url, withApplicationAt: app)
             return AgentPaneReply.success()
-        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .videoFrames, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
+        case .inspect, .openPath, .loadImage, .loadMedia, .videoInfo, .videoProbes, .videoTranscript, .videoFrames, .quickLookVideo, .revealImage, .openImageInPane, .copyImage, .saveImage,
              .quickLookImage, .dragImage, .dragFile, .previewPath, .copyComposer:
             return AgentPaneModel.replyFailure(.openFailed)
         }
@@ -202,24 +204,27 @@ extension AgentPaneModel {
                 if let title = site.title, !title.isEmpty { entry["title"] = String(title.prefix(300)) }
                 if !entry.isEmpty { sites[text] = entry }
             }
-            // The reply's pull request links are read now, in the background, so a card has them
-            // before the pointer arrives and no hover ever waits on GitHub.
-            replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.pullRequestURL))
+            // The reply's pull request and issue links are read now, in the background, so a card
+            // has them before the pointer arrives and no hover ever waits on GitHub.
+            replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.githubItemURL))
             return AgentPaneReply.success([
                 "paths": places, "sites": sites,
                 "policy": [
                     "outsideRoots": setting.outsideRoots.rawValue, "remoteImages": setting.remoteImages.rawValue,
+                    "supportsFileLine": true,
                     "clickFreeImageHosts": AgentPaneSafeFetch.clickFreeImageHosts.sorted(),
                 ],
             ])
-        case .openPath(let path):
-            return Self.replyResult(await openReplyPath(path))
+        case .openPath(let path, let line):
+            return Self.replyResult(await openReplyPath(path, line: line))
         case .loadImage(let src, let auto):
             return await loadReplyImage(src, auto: auto)
         case .loadMedia(let src):
             return await loadReplyMedia(src)
         case .videoInfo(let src):
             return await videoInfo(src)
+        case .videoProbes(let src):
+            return await videoProbes(src)
         case .videoTranscript(let src):
             return await videoTranscript(src)
         case .videoFrames(let src, let times):
@@ -249,10 +254,10 @@ extension AgentPaneModel {
 
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
-    func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
+    func openReplyPath(_ text: String, line: Int? = nil) async -> Result<Void, AgentPaneReplyError> {
         // A chat on another machine never opens this Mac's files (cx-k21v), whatever
-        // `agentPane.links.outsideRoots` says: its paths are all outside the (empty) roots here.
-        guard !chatIsElsewhere else { return .failure(.pathOutsideRoots) }
+        // `agentPane.links.outsideRoots` says: its path opens on that machine, or not at all.
+        guard !chatIsElsewhere else { return await openMachinePath(text) }
         let paths = replyPaths()
         let resolved = AgentPaneReplyPaths.isImagePath(text) ? paths.resolveImage(text) : paths.resolve(text)
         guard let resolved else { return .failure(.pathInvalid) }
@@ -267,15 +272,44 @@ extension AgentPaneModel {
             case .confirm:
                 guard transport.gestures.consume() else { return .failure(.gestureRequired) }
                 guard await confirmOutside(resolved.path) else { return .failure(.notConfirmed) }
-                return await openResolved(resolved.path)
+                return await openResolved(resolved.path, line: line)
             }
         }
         guard transport.gestures.consume() else { return .failure(.gestureRequired) }
-        return await openResolved(resolved.path)
+        return await openResolved(resolved.path, line: line)
+    }
+
+    /// A Cloud chat's path chip (Leo, 2026-11-08: everything a local chat does): the file on the
+    /// chat's machine, in cmux's file pages, which read it through that machine's daemon. A relative
+    /// path starts from the chat's folder there; the deny list applies by spelling, and the host
+    /// refuses a path that reaches through a symlink there. Nothing on this Mac is looked up or
+    /// opened (cx-k21v): only the machine's path goes to ``onOpenMachineFile``.
+    private func openMachinePath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
+        // Only a chat the handshake marked remote has a machine to open on; a remote wire alone,
+        // before that, opens nothing anywhere.
+        guard remoteChat, let open = onOpenMachineFile else { return .failure(.pathOutsideRoots) }
+        let cwd = sessionId.flatMap(transport.sessions.folder(of:)) ?? handshakeCwd
+        guard let path = AgentPaneReplyPaths.machinePath(text, cwd: cwd) else { return .failure(.pathInvalid) }
+        guard !AgentPaneReplyPaths.isDeniedOnMachine(path) else { return .failure(.pathDenied) }
+        // Outside the chat's folder there, `agentPane.links.outsideRoots` decides, as it does for a
+        // local chat: plain text opens nothing, Ask shows the same sheet first.
+        let folder = cwd.flatMap { AgentPaneReplyPaths.machinePath(".", cwd: $0) }
+        let inside = folder.map { $0 == "/" || path == $0 || path.hasPrefix($0 + "/") } ?? false
+        switch inside ? .open : replyLinks.settings().outsideRoots {
+        case .text: return .failure(.pathOutsideRoots)
+        case .open:
+            guard transport.gestures.consume() else { return .failure(.gestureRequired) }
+        case .confirm:
+            guard transport.gestures.consume() else { return .failure(.gestureRequired) }
+            guard await confirmOutside(path) else { return .failure(.notConfirmed) }
+            // The chat may have changed while the sheet was up.
+            guard remoteChat, onOpenMachineFile != nil else { return .failure(.pathOutsideRoots) }
+        }
+        return await open(path) ? .success(()) : .failure(.openFailed)
     }
 
     /// Opens `path` after every check: a folder in Finder, a file in the pane's file pages.
-    private func openResolved(_ path: String) async -> Result<Void, AgentPaneReplyError> {
+    private func openResolved(_ path: String, line: Int?) async -> Result<Void, AgentPaneReplyError> {
         // Checked again here, after any confirmation: the chat may have turned remote while the
         // sheet was up (cx-k21v).
         guard !chatIsElsewhere else { return .failure(.pathOutsideRoots) }
@@ -287,8 +321,11 @@ extension AgentPaneModel {
             return .success(())
         }
         guard let url = AgentPaneFileOpen.resolve(canonical), let onOpenFile else { return .failure(.pathInvalid) }
+        if let line, replyLinks.settings().openCitationsInEditor {
+            return await onOpenFile(url, .editor, line) ? .success(()) : .failure(.openFailed)
+        }
         // A tab is cmux's file pages, which show any file as text and never run it.
-        return await onOpenFile(url, .tab) ? .success(()) : .failure(.openFailed)
+        return await onOpenFile(url, .tab, nil) ? .success(()) : .failure(.openFailed)
     }
 
     private func confirmOutside(_ path: String) async -> Bool {
@@ -382,6 +419,6 @@ extension AgentPaneModel {
     }
 
     static var replyFailedMessage: String {
-        String(localized: "agentPane.error.replyLink", defaultValue: "The app refused this link.", bundle: .module)
+        String(localized: "agentPane.error.replyLink", defaultValue: "The app refused this link.", bundle: .localizedModule)
     }
 }

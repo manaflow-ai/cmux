@@ -26,6 +26,8 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
     /// Return (or ⌘Return) in the field with the chosen target and the text.
     var onSubmit: ((ChiefPetReplyTarget, String, _ command: Bool) -> Void)?
     var onClose: (() -> Void)?
+    /// The pointer came onto the box (true) or left it (false): the hover dock keeps it open while the pointer is on it.
+    var onHover: ((Bool) -> Void)?
     /// The box's height changed (a reply shown, gone, unfolded): the controller places it again.
     var onResize: (() -> Void)?
     let field = ThemedTextField(frame: .zero)
@@ -66,6 +68,8 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         let container = NSView(frame: NSRect(origin: .zero, size: Self.size))
         container.addSubview(surface)
         contentView = container
+        // Owned by the panel (an NSResponder): the hover dock follows the pointer over the box too.
+        container.addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         picker.controlSize = .small
         picker.isBordered = false
         picker.setAccessibilityLabel(ChiefPetStrings.replyTarget)
@@ -203,6 +207,13 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         }
     }
 
+    override func mouseEntered(with event: NSEvent) { onHover?(true) }
+
+    override func mouseExited(with event: NSEvent) { onHover?(false) }
+
+    /// The field holds the caret (the box took the keys: a click in it, or a click on the pet).
+    var isEditing: Bool { isKeyWindow }
+
     override func cancelOperation(_ sender: Any?) {
         onClose?()
     }
@@ -223,8 +234,16 @@ final class ChiefPetReplyPanel: NSPanel, NSTextFieldDelegate {
         return flags.contains(.command) && !editing
     }
 
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `debug.chief_pet` holds the box open when it loses the keys (a capture slot's app is never active).
+    var debugHold = false
+    #endif
+
     override func resignKey() {
         super.resignKey()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if debugHold { return }
+        #endif
         // A click in another app or window puts it away; the typed text stays for the next open.
         onClose?()
     }

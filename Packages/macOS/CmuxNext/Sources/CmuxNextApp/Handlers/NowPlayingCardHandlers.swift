@@ -63,15 +63,15 @@ enum NowPlayingCardHandlers {
 enum NowPlayingCardStrings {
     static var disabledToast: String {
         String(localized: "nowPlaying.toast.disabled",
-               defaultValue: "Media card turned off. Turn it on again in Settings › Appearance › Show Now Playing, or run “Show Media Card” from the command palette.",
-               table: "Music", bundle: .module)
+               defaultValue: "Media card turned off.",
+               table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var noCard: String {
-        String(localized: "nowPlaying.refusal.noCard", defaultValue: "No media card is showing.", table: "Music", bundle: .module)
+        String(localized: "nowPlaying.refusal.noCard", defaultValue: "No media card is showing.", table: "Music", bundle: .module.inAppLanguage)
     }
 
     static var nothingPlaying: String {
-        String(localized: "nowPlaying.refusal.nothingPlaying", defaultValue: "Nothing is playing.", table: "Music", bundle: .module)
+        String(localized: "nowPlaying.refusal.nothingPlaying", defaultValue: "Nothing is playing.", table: "Music", bundle: .module.inAppLanguage)
     }
 }

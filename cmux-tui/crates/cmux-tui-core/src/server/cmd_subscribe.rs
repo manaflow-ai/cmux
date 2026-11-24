@@ -5,6 +5,7 @@
 
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
+use super::ResourceWorkerAdmissionError;
 use super::SHARED_SIZING_CAPABILITY;
 use super::machine_usage_json;
 use super::size_state_event_json;
@@ -39,6 +40,9 @@ pub(crate) const SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY: &str = "subscribe-scroll
 /// tree delta as `selection-changed` (the changed workspace's whole selection) instead of a
 /// `tree-changed` that makes it read the whole tree again (#32408).
 pub(crate) const TREE_SELECTION_DELTAS_CAPABILITY: &str = "tree-selection-deltas-v1";
+/// An owner app that understands the authenticated worker's screen identity
+/// opts into its initial replay and live `screen-device-changed` events.
+pub(crate) const SCREEN_DEVICE_IDENTITY_CAPABILITY: &str = "screen-device-identity-v1";
 
 pub(super) fn subscribe_command(
     mux: &Arc<Mux>,
@@ -52,6 +56,22 @@ pub(super) fn subscribe_command(
         "deltas" => true,
         other => anyhow::bail!("bad request: unsupported tree_events {other:?}"),
     };
+    // Its thread holds the permit until the stream ends (the connection
+    // closed or the stream overflowed), so a client that sends `subscribe`
+    // in a loop gets refusals, not a thread and a mailbox per line.
+    let admission = &mux.control_clients.event_subscription_admission;
+    let permit = admission.try_reserve(client).map_err(|error| match error {
+        ResourceWorkerAdmissionError::ClientCapacity => anyhow::anyhow!(
+            "too many event subscriptions are open on this connection (limit {}); \
+             subscribe was not executed",
+            admission.per_client_capacity
+        ),
+        ResourceWorkerAdmissionError::ServerCapacity => anyhow::anyhow!(
+            "too many event subscriptions are open on this daemon (limit {}); \
+             subscribe was not executed",
+            admission.server_capacity
+        ),
+    })?;
     let events = match surface {
         Some(surface) => mux
             .subscribe_surface_session(surface)
@@ -71,6 +91,12 @@ pub(super) fn subscribe_command(
     // A page relay hears only its page's events (page-router.json `events`;
     // client_hello admits its `subscribe` only when there are some).
     let page_events = super::origin_gate::page_relay_events(mux, client);
+    // Screen identity is an app-owned projection. The local app may arrive
+    // over its authenticated owner WebSocket as well as the Unix socket;
+    // page relays and unowned carriers never receive it.
+    let trusted_screen_client = mux.control_clients.is_owner_client(client)
+        && page_events.is_none()
+        && mux.control_clients.supports_capability(client, SCREEN_DEVICE_IDENTITY_CAPABILITY);
     // Its events are never tree deltas: render none only to drop them.
     let tree_deltas = tree_deltas && page_events.is_none();
     // A remote device hears nothing of an incognito workspace (#31210).
@@ -83,7 +109,24 @@ pub(super) fn subscribe_command(
     let writer = writer.clone();
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
     std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
+        let _permit = permit;
         let mut transport_overflow = false;
+        // Replay the current authenticated worker identity before consuming
+        // live events. This closes the identify -> subscribe race and also
+        // clears stale aliases when the worker has gone away.
+        if trusted_screen_client {
+            let initial = json!({
+                "event": "screen-device-changed",
+                "screen_device_id": event_mux.control_clients.remote_host.screen_device_id(),
+            });
+            if let Err(error) = writer.send_stream_backpressured(&initial, &outbound_stream) {
+                transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
+            }
+        }
+        if transport_overflow {
+            let _ = writer.send_terminal(&subscription_overflow_json(), &outbound_stream);
+            return;
+        }
         for challenge in pending_pairings {
             let value = json!({
                 "event": "pairing-requested",
@@ -115,6 +158,21 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                // A chat's shares changed: only to the owner's own connections that asked
+                // (`agent-session-share-events-v1`).
+                #[cfg(unix)]
+                MuxEvent::AgentSessionShareChanged { .. }
+                    if !super::agent_session_attach::hears_share_events(&event_mux, client) =>
+                {
+                    continue;
+                }
+                MuxEvent::ScreenDeviceChanged(_) if !trusted_screen_client => continue,
+                // Read the cache at send time rather than trusting a queued
+                // payload; a rapid rotation/removal cannot regress the app.
+                MuxEvent::ScreenDeviceChanged(_) => json!({
+                    "event": "screen-device-changed",
+                    "screen_device_id": event_mux.control_clients.remote_host.screen_device_id(),
+                }),
                 // A draft goes only to a trusted local connection that asked
                 // for drafts in set-client-info (the admission of
                 // `conversation.events`; old clients never see the event).
@@ -147,6 +205,9 @@ pub(super) fn subscribe_command(
                     if matches!(
                         event.as_ref(),
                         crate::conversation_store::ConversationEvent::Inbox { participant, .. }
+                            | crate::conversation_store::ConversationEvent::Scheduled {
+                                participant, ..
+                            }
                             if *participant != event_mux.conversation_principal(client)
                     ) =>
                 {
@@ -213,6 +274,13 @@ pub(super) fn subscribe_command(
                     continue;
                 }
                 MuxEvent::CloudConversation(_) if !conversation_client => {
+                    continue;
+                }
+                // The person's feed only to their own clients, as for the
+                // cloud conversations.
+                MuxEvent::FeedViewChanged { .. } | MuxEvent::FeedReportsChanged { .. }
+                    if !conversation_client =>
+                {
                     continue;
                 }
                 MuxEvent::CloudConversation(event)
@@ -330,8 +398,21 @@ pub(super) fn subscribe_command(
                 // Apps clients already hear it on their own sink; only a page
                 // relay (whose page names it) gets it from the event stream.
                 MuxEvent::AppsChanged(_) if page_events.is_none() => continue,
+                // Other clients hear a stash change as a `stash` resource on
+                // `session.events`; only the Stashed Tabs page's relay gets it here.
+                MuxEvent::StashChanged { .. } if page_events.is_none() => continue,
                 // Only the Tasks page hears its owner's changes.
                 MuxEvent::TasksChanged(_) if page_events.is_none() => continue,
+                // What agents do with the person's apps: their own local connections only.
+                MuxEvent::ComputerUseActivity(_) | MuxEvent::ComputerUsePreview(_)
+                    if !trusted_pairing_client || page_events.is_some() =>
+                {
+                    continue;
+                }
+                // Apps hear it as `chat.changed`; no subscribe event carries it yet.
+                MuxEvent::ChatsChanged { .. } => continue,
+                // Apps hear it as `github.changed`; no subscribe event carries it.
+                MuxEvent::GitHubChanged { .. } => continue,
                 _ => subscribed_event_json(&event),
             };
             if incognito.hides(&event_mux, client, &event, &mut value) {
@@ -389,11 +470,18 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::SizeStateChanged { surface, runtime, state } => {
             size_state_event_json(*surface, *runtime, state, None)
         }
-        MuxEvent::TitleChanged { surface, title } => {
-            json!({"event": "title-changed", "surface": surface, "title": title.as_ref()})
-        }
+        // `text` and `activity` are what the tab shows (D2); `title` stays raw
+        // for clients from before them, which split the glyphs themselves.
+        MuxEvent::TitleChanged { surface, title, shown } => json!({
+            "event": "title-changed",
+            "surface": surface,
+            "title": title.as_ref(),
+            "text": shown.text.as_ref(),
+            "activity": shown.activity.map(crate::TitleActivity::as_str),
+        }),
         MuxEvent::AgentChanged {
             surface,
+            terminal_id,
             state,
             source,
             session,
@@ -402,18 +490,25 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             updated_at_ms,
             since_ms,
             last_prompt,
-        } => json!({
-            "event": "agent-changed",
-            "surface": surface,
-            "state": state.as_ref(),
-            "source": source.as_ref(),
-            "session": session.as_deref(),
-            "agent": agent.as_deref(),
-            "agent_session_id": agent_session_id.as_deref(),
-            "updated_at_ms": updated_at_ms,
-            "since_ms": since_ms,
-            "last_prompt": last_prompt.as_deref(),
-        }),
+        } => {
+            let mut event = json!({
+                "event": "agent-changed",
+                "surface": surface,
+                "state": state.as_ref(),
+                "source": source.as_ref(),
+                "session": session.as_deref(),
+                "agent": agent.as_deref(),
+                "agent_session_id": agent_session_id.as_deref(),
+                "updated_at_ms": updated_at_ms,
+                "since_ms": since_ms,
+                "last_prompt": last_prompt.as_deref(),
+            });
+            // Optional, never null: an older remote daemon's forwarded event names no terminal.
+            if let Some(terminal_id) = terminal_id.as_deref() {
+                event["terminal_id"] = json!(terminal_id);
+            }
+            event
+        }
         MuxEvent::AgentPresenceChanged { surface, presence } => {
             let presence = presence.as_deref();
             json!({
@@ -479,6 +574,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             }),
         },
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
+        MuxEvent::ScreenDeviceChanged(screen_device_id) => json!({
+            "event": "screen-device-changed",
+            "screen_device_id": screen_device_id,
+        }),
         MuxEvent::MachineUsageChanged(usage) => {
             let mut payload = machine_usage_json(usage.as_ref());
             payload.insert("event", json!("machine-usage-changed"));
@@ -525,10 +624,23 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
         }),
+        MuxEvent::StashChanged { revision } => json!({
+            "event": "stash-changed",
+            "revision": revision,
+        }),
         MuxEvent::HistoryChanged { revision, kinds } => json!({
             "event": "history-changed",
             "revision": revision,
             "kinds": kinds,
+        }),
+        MuxEvent::FeedViewChanged { revision, changed } => json!({
+            "event": "feed-view-changed",
+            "revision": revision,
+            "changed": changed.as_ref(),
+        }),
+        MuxEvent::FeedReportsChanged { revision } => json!({
+            "event": "feed-reports-changed",
+            "revision": revision,
         }),
         MuxEvent::SettingsChanged(change) => json!({
             "event": "settings-changed",
@@ -540,6 +652,10 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "keybindings-changed",
             "revision": change.revision,
             "origin": change.origin.as_str(),
+        }),
+        MuxEvent::AgentSessionShareChanged { session } => json!({
+            "event": "agent-session-share-changed",
+            "session": session,
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({
             "event":"terminal-registry-changed",
@@ -597,7 +713,13 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         }
         MuxEvent::AppsChanged(payload) => payload.as_ref().clone(),
         MuxEvent::TasksChanged(payload) => payload.as_ref().clone(),
-        MuxEvent::Empty => json!({"event": "empty"}),
+        MuxEvent::ComputerUseActivity(payload) | MuxEvent::ComputerUsePreview(payload) => {
+            payload.as_ref().clone()
+        }
+        // The subscribe loop never sends a chat change (apps hear it as `chat.changed`).
+        MuxEvent::ChatsChanged { .. } | MuxEvent::GitHubChanged { .. } | MuxEvent::Empty => {
+            json!({"event": "empty"})
+        }
     }
 }
 

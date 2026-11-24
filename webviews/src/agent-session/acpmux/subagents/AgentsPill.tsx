@@ -5,46 +5,19 @@
 // sits right under it, moved in (`nestAgents`). A click on an agent opens
 // it: its pane, or its view in this pane (App.tsx `showSubagent`). The pill is a part of the
 // bottom stack (bottomStack.css), not laid over the transcript, so it never hides the latest row.
-import { memo, useId } from "react";
+import { memo, useContext, useId } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { elapsed, running, useNow } from "./SubagentGroup";
+import { elapsed, running, SubagentHarnessContext, useNow } from "./subagentGroupModel";
 import type { Subagent } from "./subagentFold";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentDisplayName } from "./subsessions";
-
-/// A section's agents in its order, each nested agent moved right under the agent that spawned it
-/// when that one is in the section too, with how deep it then sits. An agent whose parent is in
-/// another section, or unknown, stays at the top level.
-export function nestAgents(agents: readonly Subagent[]): { agent: Subagent; depth: number }[] {
-  const ids = new Set(agents.map((agent) => agent.id));
-  const under = new Map<string | null, Subagent[]>();
-  for (const agent of agents) {
-    const parent = agent.parent !== null && ids.has(agent.parent) ? agent.parent : null;
-    const siblings = under.get(parent);
-    if (siblings) siblings.push(agent);
-    else under.set(parent, [agent]);
-  }
-  const rows: { agent: Subagent; depth: number }[] = [];
-  const placed = new Set<string>();
-  const visit = (parent: string | null, depth: number) => {
-    for (const agent of under.get(parent) ?? []) {
-      if (placed.has(agent.id)) continue;
-      placed.add(agent.id);
-      rows.push({ agent, depth });
-      visit(agent.id, depth + 1);
-    }
-  };
-  visit(null, 0);
-  // A parent loop never reaches the top level: list those agents flat rather than drop them.
-  for (const agent of agents) if (!placed.has(agent.id)) rows.push({ agent, depth: 0 });
-  return rows;
-}
-
+import { nestAgents } from "./agentsPillModel";
+import { namedAction } from "./trayDetail";
 /// Memoized: App.tsx keeps its props the same while text streams.
 export const AgentsPill = memo(function AgentsPill({
   agents,
@@ -60,6 +33,8 @@ export const AgentsPill = memo(function AgentsPill({
   onOpen: (id: string) => void;
 }) {
   const t = useT();
+  // A harness's own subagent names no harness: it runs on the chat's, and wears its mark.
+  const chatHarness = useContext(SubagentHarnessContext);
   const { open, setOpen, button, popover, toggle } = usePopover();
   const listId = useId();
   const live = agents.filter(running);
@@ -101,7 +76,8 @@ export const AgentsPill = memo(function AgentsPill({
                 {nestAgents(section.agents).map(({ agent, depth }) => {
                   const status = subagentStatus(agent, waiting);
                   const state =
-                    status === "running" && agent.action ? agent.action : t(subagentStatusLabel(agent, waiting));
+                    (status === "running" && namedAction(t, agent.action, agent.actionShell)) ||
+                    t(subagentStatusLabel(agent, waiting));
                   return (
                     <li key={agent.id}>
                       <button
@@ -121,7 +97,7 @@ export const AgentsPill = memo(function AgentsPill({
                         {/* The harness's mark when it has one, else the agent's dot in its own tone. */}
                         <AgentIdentity
                           className="acpmux-agents-list__mark"
-                          harness={agent.harness}
+                          harness={agent.harness ?? chatHarness}
                           tone={tones.get(agent.id) ?? agentTone(agent.id)}
                           size={9}
                           fallbackNode={<span className="acpmux-agents-list__dot" />}

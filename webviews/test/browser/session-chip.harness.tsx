@@ -66,6 +66,9 @@ const shellSend: Tool = {
   output: "queued",
 };
 
+/// A transcript row's frame in flow, as transcript-glyph-alignment.harness.tsx draws one.
+const ROW = { position: "relative", left: 0, right: 0, width: "100%" } as const;
+
 function App() {
   return (
     <main
@@ -81,7 +84,9 @@ function App() {
       }}
     >
       <SubsessionContext.Provider value={{ store, open }}>
-        <div data-chip-row="received">
+        {/* Each line in a transcript row's frame (`.acpmux-row`, VirtualTranscript.tsx), which gives a
+            message line its muted rest tone (AgentMessageRow.css, #34724), in flow rather than placed. */}
+        <div className="acpmux-row" style={ROW} data-chip-row="received">
           <IncomingMessageLine
             id="chip-received"
             message={{
@@ -92,14 +97,14 @@ function App() {
             onOpen={open}
           />
         </div>
-        <div data-chip-row="received-plain">
+        <div className="acpmux-row" style={ROW} data-chip-row="received-plain">
           <IncomingMessageLine
             id="chip-received-plain"
             message={{ name: "gone-lane", text: "Done here.", raw: "[gone-lane] Done here." }}
             onOpen={open}
           />
         </div>
-        <div data-chip-row="sent">
+        <div className="acpmux-row" style={ROW} data-chip-row="sent">
           <AcpmuxSendLine tool={shellSend} send={acpmuxSendCall(shellSend)!} />
         </div>
         <p className="cv-md" data-chip-row="reply">

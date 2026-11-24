@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixtures.
-// An opened read or file search draws what it found (FileResultCard.tsx), never its input fields and
-// raw output: a read as its file, line range and numbered lines cut to eight; a search as its counts
-// and each file's matching lines, each opening the file in cmux. Find reads what the card draws.
+// An opened file search draws what it found (FileResultCard.tsx), never its input fields and raw
+// output: its counts and each file's matching lines, each opening the file in cmux. A read no longer
+// opens (2026-11-14 change). Find reads what the card draws.
 import { afterEach, expect, test } from "bun:test";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -13,7 +13,8 @@ import { resetLinkStore } from "../chips/linkStore";
 import { activityText } from "./chatFind";
 import { TranscriptReadOnly } from "./readOnly";
 import { ToolRow } from "./ToolRow";
-import { resetTranscriptDisclosure } from "./transcriptDisclosure";
+import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -28,6 +29,7 @@ const GLOBALS = [
   "HTMLElement",
   "Element",
   "MutationObserver",
+  "customElements",
   "IS_REACT_ACT_ENVIRONMENT",
 ];
 
@@ -37,6 +39,7 @@ afterEach(async () => {
   setChipHost(undefined);
   resetLinkStore();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -50,7 +53,7 @@ async function render(node: ReactNode): Promise<HTMLElement> {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
   });
-  for (const key of GLOBALS) saved.set(key, scope[key]);
+  for (const key of GLOBALS) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -61,6 +64,9 @@ async function render(node: ReactNode): Promise<HTMLElement> {
     Element: dom.window.Element,
     // The highlighted lines watch the page's theme (HighlightedCode.tsx) when a highlight pool is up.
     MutationObserver: dom.window.MutationObserver,
+    // A read's lines load @pierre/diffs, whose web component registers itself once wherever there
+    // is an HTMLElement: with no customElements beside it the import fails, for every later file too.
+    customElements: dom.window.customElements,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   const container = dom.window.document.getElementById("root")!;
@@ -89,25 +95,19 @@ const READ = Array.from({ length: 12 }, (_, index) => `${String(120 + index).pad
 const GREP =
   "/work/app/src/a.ts:12:  const x = useTool();\n/work/app/src/a.ts:40:useTool(b)\n/work/app/src/lib/b.ts:3:import { useTool }";
 
-test("an opened Read is its file, line range and numbered lines, cut to eight; closed, one row", async () => {
+// Since the 2026-11-14 change a read is a static row named by its file name: it does not open, so it
+// never draws its file card.
+test("a Read is one static row named by its file, its full path on hover, with no file card", async () => {
   const container = await render(<ToolRow item={item(HARNESS_CALLS.claude.read, READ)} />);
+  expect(container.querySelector("button.cv-tool")).toBeNull();
+  const row = container.querySelector("div.cv-tool");
+  expect(row).not.toBeNull();
+  expect(row!.getAttribute("aria-expanded")).toBeNull();
+  expect(container.querySelector(".cv-tool__text")?.textContent).toBe("Read foo.ts");
+  expect(container.querySelector(".cv-tool__file")?.getAttribute("title")).toBe("/work/app/src/foo.ts");
+  await act(async () => (row as HTMLElement).click());
   expect(container.querySelector(".cv-filepeek")).toBeNull();
-  await open(container);
   expect(container.querySelector(".cv-tool-detail")).toBeNull();
-  expect(container.querySelector(".cv-edit-diff__name")?.textContent).toBe("foo.ts");
-  expect(container.querySelector(".cv-filepeek__range")?.textContent).toBe("Lines 120–131");
-  expect(container.querySelector(".cv-filepeek__gutter")?.textContent?.split("\n")).toEqual(
-    Array.from({ length: 12 }, (_, index) => String(120 + index)),
-  );
-  // The lines without Claude's numbers and arrows.
-  expect(container.querySelector(".cv-filepeek__lines")?.textContent).toContain("line 1");
-  expect(container.querySelector(".cv-filepeek__lines")?.textContent).not.toContain("→");
-  const body = container.querySelector(".cv-filepeek__body")!;
-  expect(body.getAttribute("data-preview")).toBe("cut");
-  const more = container.querySelector<HTMLButtonElement>(".cv-filepeek .cv-output-more")!;
-  expect(more.textContent).toBe("Show all 12 lines");
-  await act(async () => more.click());
-  expect(body.getAttribute("data-preview")).toBe("all");
 });
 
 test("an opened Grep lists matches by file with their line numbers, and a line opens its file", async () => {
@@ -116,6 +116,7 @@ test("an opened Grep lists matches by file with their line numbers, and a line o
   setChipHost(async (method, params) => {
     if (method === "link.inspect")
       return {
+        policy: { supportsFileLine: true },
         paths: Object.fromEntries((params.paths as string[]).map((path) => [path, { place: "root", folder: false }])),
       };
     calls.push([method, params]);
@@ -134,7 +135,7 @@ test("an opened Grep lists matches by file with their line numbers, and a line o
   expect(lines[0]!.title).toBe("/work/app/src/a.ts:12");
   await act(async () => lines[2]!.click());
   await act(async () => {});
-  expect(calls).toEqual([["link.openPath", { path: "/work/app/src/lib/b.ts" }]]);
+  expect(calls).toEqual([["link.openPath", { path: "/work/app/src/lib/b.ts", line: 3 }]]);
 });
 
 test("a chat on another machine, whose paths the host does not place, draws its files as text", async () => {

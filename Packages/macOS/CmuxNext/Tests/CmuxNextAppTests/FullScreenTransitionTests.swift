@@ -24,22 +24,22 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         center.post(name: NSWindow.willEnterFullScreenNotification, object: window)
-        #expect(windows.isActive, "the enter animation springs content toward sizes the next frame replaces")
+        #expect(windows.isTransitioning(window), "the enter animation springs content toward sizes the next frame replaces")
         #expect(windows.isFullScreenTransitionActive)
         center.post(name: NSWindow.didEnterFullScreenNotification, object: window)
-        #expect(!windows.isActive)
+        #expect(!windows.isTransitioning(window))
         #expect(!windows.isFullScreenTransitionActive)
         center.post(name: NSWindow.willExitFullScreenNotification, object: window)
-        #expect(windows.isActive, "the exit animation springs content toward sizes the next frame replaces")
+        #expect(windows.isTransitioning(window), "the exit animation springs content toward sizes the next frame replaces")
         center.post(name: NSWindow.didExitFullScreenNotification, object: window)
-        #expect(!windows.isActive)
+        #expect(!windows.isTransitioning(window))
         // A transition AppKit gives up on ends too (its delegate hears `windowDidFailToEnterFullScreen`).
         center.post(name: NSWindow.willEnterFullScreenNotification, object: window)
         windows.endTransition(of: window)
-        #expect(!windows.isActive, "a failed enter holds every spring forever")
+        #expect(!windows.isTransitioning(window), "a failed enter holds the window's springs forever")
         center.post(name: NSWindow.willExitFullScreenNotification, object: window)
         center.post(name: NSWindow.willCloseNotification, object: window)
-        #expect(!windows.isActive, "a window closed mid-transition holds every spring forever")
+        #expect(!windows.isTransitioning(window), "a window closed mid-transition stays in the tracker")
     }
 
     // MARK: Terminals: one grid to the daemon, at the end

@@ -12,7 +12,7 @@ import type { PlayContext } from "../../../gallery/play";
 import type { ComposerHatHeadState } from "../../../gallery/fixtures/ComposerHatHeadStage";
 import { hatChevronLook } from "./hatParts.experiment";
 
-type Props = { start?: ComposerHatHeadState };
+type Props = { start?: ComposerHatHeadState; stepLook?: "default" };
 
 const stage = (name: string) => ({ selector: `[data-stage="${name}"]` });
 const head = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
@@ -52,11 +52,22 @@ export const composerHatHeadScript = [
     run: async (ctx: PlayContext) => {
       await ctx.click(stage("command"));
       await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__more")?.textContent === "+2 more");
+      // Its "+" sits on the figures' centre, and the time keeps one width as it ticks (Typography.tsx).
+      await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-running-tray__more .ui-sign")));
+      await ctx.waitFor(() =>
+        Boolean(
+          ctx.document.querySelector(".acpmux-running-tray__time.ui-clock, .acpmux-running-tray__time > .ui-clock"),
+        ),
+      );
     },
   },
 ];
 
 const variants = {
+  calm: {
+    note: "One subagent runs, its step in the shipped arm (one word for the kind of call, held 1.6 s); the header's words and count are held 1.6 s too. The feel test feeds this one bursts.",
+    props: { start: "running" as const, stepLook: "default" as const },
+  },
   running: {
     note: 'One subagent runs: the header names its task, what it does now ("Bash") and its time; a click expands the hat.',
     props: { start: "running" as const },

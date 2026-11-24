@@ -40,11 +40,34 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
     public let motion: String
     /// `lens`, `plain` or `spectrum` (``GlassLensMode/current``, already `plain` under Reduce
-    /// Transparency and Low Power Mode): `data-glass` on `<html>`, which `.ui-glass` reads.
+    /// Transparency and Low Power Mode), or ``glassOff`` while `appearance.liquidGlass` is off:
+    /// `data-glass` on `<html>`, which `.ui-glass` reads.
     public let glass: String
+
+    /// `glass` while `appearance.liquidGlass` is off: every web glass surface draws solid, with a
+    /// hairline rim and no blur (webviews ui/glass/glass.css, `GLASS_OFF` in glassState.ts).
+    public static let glassOff = "off"
+    /// `current`, or ``glassLevelsPrevious`` while `appearance.previousGlass` is on:
+    /// `data-glass-levels` on `<html>`, which webviews ui/glass/glass.css reads to draw the glass
+    /// numbers from before the one glass system (design/glass-system.md). `current` removes it.
+    public let glassLevels: String
+
+    /// ``glassLevels`` while `appearance.previousGlass` is on.
+    public static let glassLevelsPrevious = "previous"
+    /// `antialiased` or `subpixel` (`appearance.fontSmoothing`, ``FontSmoothing``, with `auto`
+    /// resolved to native text's smoothing by ``pageSmoothing(_:native:)``):
+    /// `data-cmux-font-smoothing` on `<html>`. The bootstrap stylesheet sets
+    /// `-webkit-font-smoothing` on every element over the page's own; the page script still takes
+    /// `auto` (no rule, the page's own).
+    public let fontSmoothing: String
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// The `experiments.*` switches that are on, by name (``DesignSettings/experiments``):
+    /// `window.cmuxExperimentSettings`, which webviews/src/experiments/hostSettings.ts maps to
+    /// experiment arms, and a `cmux-experiment-settings` event when it changes. Empty sends no
+    /// `experiments` key; the page then clears the switches.
+    public let experiments: [String: Bool]
 
     /// The terminal colors a page highlights code with: the scope's opaque background and
     /// readable foreground, and its ANSI palette as the theme names it (the page lifts each
@@ -61,19 +84,23 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         /// The terminal's font family (`DesignSettings.effectiveTerminalFontFamily`); nil when
         /// neither cmux.json nor the Ghostty config names one.
         public let fontFamily: String?
+        /// Ghostty's configured fallback chain, after the selected family.
+        public let fallbackFamilies: [String]
 
-        init(_ tokens: ThemeTokens, fontFamily: String?) {
+        init(_ tokens: ThemeTokens, fontFamily: String?, fallbackFamilies: [String]) {
             type = tokens.isDark ? "dark" : "light"
             background = WebTheme.hex(tokens.surfaceBackground)
             foreground = WebTheme.hex(tokens.textPrimary)
             palette = Dictionary(uniqueKeysWithValues: tokens.ansi.prefix(16).enumerated().map { (String($0.offset), WebTheme.hex($0.element)) })
             selectionBackground = WebTheme.hex(tokens.textSelection)
             self.fontFamily = fontFamily
+            self.fallbackFamilies = fallbackFamilies
         }
 
         var json: [String: Any] {
             ["type": type, "background": background, "foreground": foreground, "palette": palette,
-             "selectionBackground": selectionBackground, "fontFamily": fontFamily.map { $0 as Any } ?? NSNull()]
+             "selectionBackground": selectionBackground, "fontFamily": fontFamily.map { $0 as Any } ?? NSNull(),
+             "fallbackFamilies": fallbackFamilies]
         }
     }
 
@@ -114,14 +141,19 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         variables = [
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
+            // The tint the window lays natively over a picture or the desktop under a see-through
+            // page (WindowBackdrop's tint opacity): a highlight fit to the page's surfaces measures
+            // them over it (webviews ui/highlightContrast.ts `pageCanvases`), as the page cannot see it.
+            "--cmux-window-tint": Self.css(tokens.windowBackground.withAlpha(windowTint)),
             // The page color made opaque (its own background over the theme's, if it has one),
             // for rings, pills and glyphs on fills that must hide what is under them.
             "--cmux-surface-solid": Self.css(surfaceKind.map {
                 backgrounds.opaqueFill(for: $0, tokens: tokens, base: surface.withAlpha(1), windowTint: windowTint)
             } ?? surface.withAlpha(1)),
-            // Reading pages (the Markdown viewer): clear over a picture, which hides what is behind
-            // the window, so they show the App Theme's one veil like the terminals; else the page
-            // color made opaque, so desktop text never reads through a document (#30818).
+            // Reading pages (the Markdown viewer): clear over a picture (Window Glass's included),
+            // which covers what is behind the window, so they show the App Theme's one veil like the
+            // terminals; else the page color made opaque, so desktop text never reads through a
+            // document (#30818).
             "--cmux-reading-background": Self.css(WindowBackdrop.current(tokens, reduceTransparency: reduceTransparency).hidesWhatIsBehind
                 ? tokens.surfaceBackground.withAlpha(0) : tokens.surfaceBackground.withAlpha(1)),
             "--cmux-elevated-background": Self.css(tokens.elevatedBackground),
@@ -138,11 +170,37 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // and secondary text 4.5:1 over any backdrop, and its rim.
             "--cmux-card-tint": Self.css(cardMaterial.tint),
             "--cmux-card-rim": Borders.drawsLines ? Self.css(cardMaterial.rim) : "transparent",
+            // A menu's veil (``GlassMenuMaterial/webClear(for:)``) as the share a web menu's own glass lets through:
+            // glass.css lays the menu tint at 100% - (100% - its level tint) × this, so a web menu is as much denser
+            // as a native one, and its own inks read over any page.
+            "--cmux-menu-clear": Self.menuClear(tokens),
             "--cmux-text": Self.css(tokens.textPrimary),
             "--cmux-text-secondary": Self.css(tokens.textSecondary),
             "--cmux-text-tertiary": Self.css(tokens.textTertiary),
             "--cmux-separator": Borders.drawsLines ? Self.css(tokens.separator) : "transparent",
+            // The chrome's one divider (`Palette.chromeDivider`: the sidebar's edge, the split lines, the
+            // tab row's divider), from this scope's tokens, so a page's lines match the native ones.
+            "--cmux-chrome-divider": Self.chromeDivider(tokens, backgrounds: backgrounds),
+            // The window sidebar's edge line at rest, so a page's hairlines can match it (Settings,
+            // Lucas 2026-11-11): the chrome's divider, which the native edge draws.
+            "--cmux-sidebar-line": Self.chromeDivider(tokens, backgrounds: backgrounds),
+            // 1 where the native chrome draws folder tabs (the flush corner, its tone shade reading: Subtle
+            // Tone), else 0 (One Color, or a picked chrome style that keeps its pills): a page's selected item
+            // is a folder tab exactly when the native one is.
+            "--cmux-chrome-tone": Self.drawsFolderTabs(tokens) ? "1" : "0",
+            // The fill a selected item takes to join the content (the native folder tab,
+            // `Palette.folderTabFill`): the page's surface under the tone, else none.
+            "--cmux-folder-fill": Self.drawsFolderTabs(tokens) ? Self.css(page) : "transparent",
+            // The window sidebar's own fill over the window's color, so a page's sidebar can match it
+            // (Settings, Lucas 2026-11-12: Lawrence did not like a lighter one): the user's sidebar
+            // color (`appearance.surfaces.sidebar`), else the separate chrome shade
+            // (`appearance.sidebarSurface` separate), else none: by default the sidebar is the
+            // window's own color, parted only by its line (`SidebarSurface.same`).
+            "--cmux-sidebar-surface": Self.sidebarSurface(tokens, backgrounds: backgrounds, windowTint: windowTint),
             "--cmux-hover": Self.css(tokens.hoverFill),
+            // A pressed row's fill (`Palette.pressedFill`, `PopupRowView`'s press), so a web menu row
+            // pressed is the native one's.
+            "--cmux-pressed": Self.css(tokens.pressedFill),
             "--cmux-selection": Self.css(tokens.selectionFill),
             // Selected text and the caret in the Ghostty config's colors (`selection-background`,
             // with `appearance.highlightColor` over it, and `cursor-color`). Without a readable
@@ -161,16 +219,33 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         ].merging((app ?? ThemeScope.app.store.appTheme ?? tokens.app).cssVariables) { own, _ in own }
             // The sidebar cards' sizes at `sidebar.density` (the Updated card's page, 2026-11-01).
             .merging(SidebarRowTokens.current.card.cssVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
+            // The sidebar's workspace row (height, corner, inset): Settings rows match it.
+            .merging(SidebarRowTokens.current.rowCSSVariables(pageZoom: DesignSettings.shared.uiScale)) { own, _ in own }
+            // Every button's corner, the tab's (Metrics.buttonCornerRadius): `--ds-radius-control` reads it.
+            .merging(["--cmux-button-radius": SidebarCardMetrics.px(Metrics.buttonCornerRadius / max(DesignSettings.shared.uiScale, 0.01))]) { own, _ in own }
         colorScheme = tokens.isDark ? "dark" : "light"
         let colors = ColorTransition.current
         transition = ["duration": colors.cssDuration, "easing": colors.cssEasing, "space": colors.space.rawValue]
         self.scrollers = scrollers ?? SystemScrollers.pageValue
-        terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
+        terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily,
+                            fallbackFamilies: DesignSettings.shared.terminalConfigFontFamilies)
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
         workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
-        self.glass = (glass ?? .current).rawValue
+        self.glass = DesignSettings.shared.liquidGlass ? (glass ?? .current).rawValue : Self.glassOff
+        glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
+        fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
+        experiments = DesignSettings.shared.experiments
+    }
+
+    /// `data-cmux-font-smoothing` for `setting`: an explicit choice as it is; ``FontSmoothing/auto``
+    /// the smoothing native text draws with now (`native`, ``ProcessFontSmoothing/chrome``), so text
+    /// on a page and native text beside it draw the same pixels (the Liquid Glass Parity matrix:
+    /// WebKit text on glass is exact only with the same smoothing on both sides).
+    public static func pageSmoothing(_ setting: FontSmoothing, native: ProcessFontSmoothing) -> String {
+        guard setting == .auto else { return setting.rawValue }
+        return native.smoothsStems ? FontSmoothing.subpixel.rawValue : FontSmoothing.antialiased.rawValue
     }
 
     /// `data-cmux-motion` for `policy`: `off` when the web category, the master switch or speed
@@ -181,7 +256,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`,
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass, fontSmoothing}`,
     /// and `decorations` while a personality slot is filled
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
@@ -191,8 +266,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         var object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "workingLook": workingLook, "motion": motion, "glass": glass]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if !experiments.isEmpty { object["experiments"] = experiments }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -208,6 +284,12 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     (function () {
       if (window.cmuxTheme) return;
       var style = null;
+      // appearance.fontSmoothing: antialiased or subpixel wins over every rule of the page (many set
+      // antialiased); auto (no rule) leaves the page's own.
+      function smoothing(mode, value) {
+        var root = 'html[data-cmux-font-smoothing="' + mode + '"]';
+        return root + ',' + root + ' *,' + root + ' *::before,' + root + ' *::after{-webkit-font-smoothing:' + value + ' !important}';
+      }
       function ensureStyle() {
         if (style || !document.documentElement) return;
         style = document.createElement('style');
@@ -219,7 +301,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           'body{background:transparent !important}' +
           still + ' *,' + still + ' *::before,' + still + ' *::after,' + still +
           '{transition-duration:0s !important;transition-delay:0s !important;animation-duration:0s !important;' +
-          'animation-delay:0s !important;animation-iteration-count:1 !important;scroll-behavior:auto !important}';
+          'animation-delay:0s !important;animation-iteration-count:1 !important;scroll-behavior:auto !important}' +
+          smoothing('antialiased', 'antialiased') + smoothing('subpixel', 'subpixel-antialiased');
         (document.head || document.documentElement).appendChild(style);
       }
       // appearance.colorTransition: every color variable is a registered <color>, so a theme or
@@ -300,6 +383,13 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       window.cmuxTheme = {
         current: null,
         apply: function (payload) {
+          // The experiments.* switches (WebTheme.experiments), before the root wait: a page's modules
+          // read them as they load. The event only when they changed.
+          var switches = payload.experiments || {};
+          if (JSON.stringify(switches) !== JSON.stringify(window.cmuxExperimentSettings || {})) {
+            window.cmuxExperimentSettings = switches;
+            window.dispatchEvent(new Event('cmux-experiment-settings'));
+          }
           var root = document.documentElement;
           // Chromium runs new-document scripts before the parser makes <html>, so its document-start
           // apply finds no root. It waits for one (awaitRoot): registering every color first and then
@@ -333,6 +423,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
+          if (payload.glassLevels === 'previous') root.setAttribute('data-glass-levels', 'previous');
+          else if (payload.glassLevels) root.removeAttribute('data-glass-levels');
+          if (payload.fontSmoothing) root.setAttribute('data-cmux-font-smoothing', payload.fontSmoothing);
           // The filled personality slots (ThemeDecorations): one attribute per slot; a slot the
           // last theme filled and this one leaves empty loses its attribute.
           var decorations = payload.decorations || {};
@@ -394,17 +487,68 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return String(format: "#%02x%02x%02x", channel(color.red), channel(color.green), channel(color.blue))
     }
 
+    /// `--cmux-sidebar-surface`: the window sidebar's own fill over the window's color, as CSS.
+    /// The native chrome draws folder tabs for `tokens`: the flush corner is on and its shade reads
+    /// (`Palette.folderTabFill`'s test, in this scope's light or dark).
+    @MainActor
+    static func drawsFolderTabs(_ tokens: ThemeTokens) -> Bool {
+        CornerFlush.current.isOn && Metrics.mainPaneChromeShade(isDark: tokens.isDark) >= Metrics.folderTabMinimumShade
+    }
+
+    @MainActor
+    static func sidebarSurface(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds, windowTint: Double) -> String {
+        if let fill = backgrounds.fill(for: .sidebar, tokens: tokens, windowTint: windowTint) { return css(fill) }
+        let shade = Metrics.mainPaneChromeShade(isDark: tokens.isDark)
+        return shade > 0 ? css(ThemeRGB(red: 0, green: 0, blue: 0, alpha: Double(shade))) : "transparent"
+    }
+
+    /// `--cmux-chrome-divider`: `Palette.chromeDivider` for `tokens`, as CSS: the split divider's color
+    /// override when set, else the separator with its alpha × `chrome.dividerStrength`; none under
+    /// `appearance.borders` none.
+    @MainActor
+    static func chromeDivider(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds) -> String {
+        guard Borders.drawsLines else { return "transparent" }
+        let separator = tokens.separator
+        let base = separator.withAlpha(min(1, separator.alpha * ChromeTunables.dividerStrength.value))
+        return css(backgrounds.dividerLine(base: base) ?? base)
+    }
+
+    /// The inputs of the page theme that no theme change pushes: `appearance.borders`, `appearance.fontSmoothing`,
+    /// `appearance.liquidGlass`, `appearance.previousGlass`, the divider
+    /// strength (`--cmux-chrome-divider`), the title area's tone and contrast and the chrome shade they
+    /// make (`--cmux-sidebar-surface`, `--cmux-chrome-tone`, `--cmux-folder-fill`). The app repaints
+    /// every page when one changes (`AppServices.observeBorders`).
+    @MainActor
+    public static var pushInputs: [String] {
+        let design = DesignSettings.shared
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, "\(design.liquidGlass)", "\(design.previousGlass)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+                "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
+    }
+
+    /// `--cmux-menu-clear` for `tokens` (``GlassMenuMaterial/webClear(for:)``), to 3 decimals: 1 where the theme keeps
+    /// the 40% veil, 1/6 at the 90% cap.
+    static func menuClear(_ tokens: ThemeTokens) -> String {
+        String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), GlassMenuMaterial.webClear(for: tokens))
+    }
+
     /// `rgba(r, g, b, a)` with 0-255 channels.
     public static func css(_ color: ThemeRGB) -> String {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
-        let alpha = (color.alpha * 1000).rounded() / 1000
-        return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
+        return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(cssAlpha(color.alpha)))"
     }
 
-    /// `color` as pages read it from `css`: each channel rounded to 8 bits, the alpha to 3 decimals.
+    /// `alpha` as the 8-bit alpha the native layer draws (round(alpha x 255) / 255), written to 3 decimals, which
+    /// every engine reads back as that same 8-bit value. Before, an alpha on a half step (0.1 x 255 = 25.5, the
+    /// light theme's pressed row) drew 26/255 natively and 25/255 in WebKit, a level apart over the whole row
+    /// (Liquid Glass Parity, fleet step e573c84a).
+    static func cssAlpha(_ alpha: Double) -> Double {
+        ((alpha * 255).rounded() / 255 * 1000).rounded() / 1000
+    }
+
+    /// `color` as pages read it from `css`: each channel and the alpha rounded to 8 bits.
     public static func cssRounded(_ color: ThemeRGB) -> ThemeRGB {
         func channel(_ value: Double) -> Double { (value * 255).rounded() / 255 }
         return ThemeRGB(red: channel(color.red), green: channel(color.green), blue: channel(color.blue),
-                        alpha: (color.alpha * 1000).rounded() / 1000)
+                        alpha: cssAlpha(color.alpha))
     }
 }

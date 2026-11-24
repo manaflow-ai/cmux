@@ -2,15 +2,22 @@ import { useState } from "react";
 import { Button } from "../../../ui/Button";
 import { SignInButton } from "../../../ui/SignInButton";
 import { useSettingsState, useStore } from "../context";
+import { LOAD_FADE_CLASS, useLoadFade } from "../../../agent-session/shared/loadFade";
 
 /** The host owns GitHub App authentication; this card never receives a credential. */
 export function GitHubAccountsCard() {
   const github = useSettingsState().accounts?.github;
   const store = useStore();
   const [confirming, setConfirming] = useState<string | null>(null);
+  // The card arrives with the host's lists: after a blank first paint it fades in (shared/loadFade.ts).
+  const fade = useLoadFade(Boolean(github));
   if (!github) return null;
   return (
-    <section className="group" data-card="github-connection" aria-busy={github.busy}>
+    <section
+      className={fade ? `group ${LOAD_FADE_CLASS}` : "group"}
+      data-card="github-connection"
+      aria-busy={github.busy}
+    >
       <h3 className="group-title">{github.title}</h3>
       <div className="rows">
         <div className="row accounts-row">
@@ -71,15 +78,28 @@ export function GitHubAccountsCard() {
                     </Button>
                   </>
                 ) : (
-                  <Button
-                    danger
-                    className="button danger"
-                    data-github-action="disconnect"
-                    disabled={github.busy || !connection.canDisconnect}
-                    onClick={() => setConfirming(connection.id)}
-                  >
-                    {github.disconnect}
-                  </Button>
+                  <>
+                    {github.reconfigure && connection.canReconfigure && (
+                      // The installation's own page on GitHub: which repositories, and the account or org access.
+                      <Button
+                        className="button"
+                        data-github-action="reconfigure"
+                        disabled={github.busy}
+                        onClick={() => void store.runAccounts({ action: "githubReconfigure", account: connection.id })}
+                      >
+                        {github.reconfigure}
+                      </Button>
+                    )}
+                    <Button
+                      danger
+                      className="button danger"
+                      data-github-action="disconnect"
+                      disabled={github.busy || !connection.canDisconnect}
+                      onClick={() => setConfirming(connection.id)}
+                    >
+                      {github.disconnect}
+                    </Button>
+                  </>
                 )}
               </div>
             </div>

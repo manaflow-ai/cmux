@@ -22,7 +22,12 @@
 //! final: the CLI prints it and no retry note, as nothing may still apply.
 //!
 //! The app's `openBrowser` takes a tab target, so a named pane is given by
-//! one of its tabs (the daemon resolves the selectors). The reply is the
+//! one of its tabs (the daemon resolves the selectors). A workspace or
+//! screen with no pane named is only that place's shown pane: the run says
+//! so (`beside_chat`), and the app opens the tab in the column right of an
+//! agent chat that pane holds, never among the chat's own tabs (Lawrence
+//! 2026-11-19: "agent chat that is on left, will open stuff to the right").
+//! A named pane gets the tab. The reply is the
 //! daemon's created path of the new tab, the same shape `tab.create_browser`
 //! answers.
 
@@ -153,8 +158,7 @@ pub(super) fn open_in_app(
     // The caller's session: no session named, by the server's options or
     // by the call (a named session is in `global.session` or the plan).
     let named = plan.params.get("session").and_then(Value::as_str);
-    let caller_route = global.socket.is_none()
-        && global.session.is_none()
+    let caller_route = super::wire::routes_to_caller_session(global)
         && named.is_none_or(|session| session == "current");
     let _ = reader.get_mut().set_read_timeout(super::wire::response_read_timeout(plan, true));
     Some(open(reader, &mut app, plan, caller_route, key))
@@ -181,16 +185,17 @@ pub(super) fn open(
     let engine = params.get("engine").and_then(Value::as_str);
     let caller_terminal = caller_terminal(caller_route);
     let target = target_tab(reader, &route, params, caller_terminal.as_deref())?;
+    let beside_chat = names_no_pane(&route, params);
     let caller = (!caller_route).then(other_session_caller);
     let key = match key {
         Some(key) => key.to_owned(),
         None => super::command::random_prefixed("mutation")
             .map_err(|error| app_failure("app.transport", error.to_string()))?,
     };
-    let opened = run_open(app, url, engine, target.as_deref(), caller.as_ref(), &key);
+    let opened = run_open(app, url, engine, target.as_deref(), beside_chat, caller.as_ref(), &key);
     let (reply, tab, on_default_pane) = match opened {
         // The window shows a page: no focused pane to open in.
-        Err(failure) if target.is_none() && never_ran(&failure) => {
+        Err(failure) if target.is_none() && opens_on_default_pane(&failure) => {
             // No default pane either: the app's refusal says why.
             let Ok(default) = read(reader, ResourceOperation::TabGet, default_pane_tab(&route))
                 .and_then(|tab| string_field(&tab, "id", "tab"))
@@ -199,7 +204,7 @@ pub(super) fn open(
             };
             let default_key = format!("{key}.default");
             let (reply, tab) =
-                run_open(app, url, engine, Some(&default), caller.as_ref(), &default_key)?;
+                run_open(app, url, engine, Some(&default), false, caller.as_ref(), &default_key)?;
             (reply, tab, true)
         }
         opened => {
@@ -242,17 +247,23 @@ pub(super) fn reveal_failure(workspace: &str, error: &Value) -> String {
 
 /// Runs `openBrowser` for `url` (in `engine`, else the app's default) on
 /// `target` with idempotency key `key`:
-/// the app's reply and the tab it created. `caller` replaces the caller the
+/// the app's reply and the tab it created. `beside_chat`: `target` is the
+/// shown pane of a workspace or screen the command named, not a pane it
+/// named ([`names_no_pane`]). `caller` replaces the caller the
 /// environment names (`app::with_caller`); `None` keeps that one.
 fn run_open(
     app: &mut UnixStream,
     url: &str,
     engine: Option<&str>,
     target: Option<&str>,
+    beside_chat: bool,
     caller: Option<&Value>,
     key: &str,
 ) -> Result<(Value, String), Failure> {
     let mut params = open_browser_params(url, engine, target);
+    if beside_chat {
+        params.insert("beside_chat".into(), json!(true));
+    }
     if let Some(caller) = caller {
         params.insert("caller".into(), caller.clone());
     }
@@ -278,6 +289,15 @@ pub(super) fn never_ran(failure: &Failure) -> bool {
     let Failure::Resource(error) = failure else { return false };
     let details = &error["details"];
     error["code"] == "unavailable" || details["not_run"] == true || details["state"] == "not_run"
+}
+
+/// Whether an untargeted run the app refused opens on the daemon's default
+/// pane instead (the window shows a page, so there is no focused pane). A
+/// caller the app cannot place (`caller_unavailable`) never does: the default
+/// pane is the focused workspace, Home, not the agent's own (user, 2026-11-18).
+pub(super) fn opens_on_default_pane(failure: &Failure) -> bool {
+    never_ran(failure)
+        && !matches!(failure, Failure::Resource(error) if error["code"] == "caller_unavailable")
 }
 
 /// The `tab.get` selector for the shown tab of the daemon's default pane
@@ -359,6 +379,13 @@ fn named_pane_tab(
         selector.insert(parent.into(), json!(string_field(&snapshot, field, child)?));
     }
     Ok(Some(with_current_below(selector)))
+}
+
+/// Whether the command names a workspace or a screen and no pane: its
+/// target is then that place's shown pane, which the app leaves to an agent
+/// chat it holds (`beside_chat`).
+pub(super) fn names_no_pane(route: &Map<String, Value>, params: &Map<String, Value>) -> bool {
+    !params.contains_key("pane") && named_parents(route, params).is_some()
 }
 
 /// The route and the parents the command names; `None` when it names none.
@@ -463,7 +490,10 @@ fn mutate(
     send_request(reader, &encoded)?;
     match read_response(reader, &id).map_err(response_failure)? {
         Ok(result) => Ok(result),
-        Err(error) => Err(Failure::Resource(error)),
+        Err(error) => Err(Failure::Resource(
+            super::older_daemon::replace(reader, &error, operation.wire_name(), None)
+                .unwrap_or(error),
+        )),
     }
 }
 

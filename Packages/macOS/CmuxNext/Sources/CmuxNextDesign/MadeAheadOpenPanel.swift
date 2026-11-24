@@ -10,10 +10,12 @@ public import AppKit
 /// later; the panel made ahead shows it after 95 ms, then 45 to 65 ms. One panel is made while
 /// the person is idle and reused. The warm-up still costs that main-thread time once, at a
 /// pause or while cmux is in the background, and it has no deadline: AppKit makes the panel only
-/// on the main thread and cannot ask its view service first, so with a hung panel service the
-/// warm-up (or a click with no panel made ahead) blocks the main thread once, up to about 40 s,
-/// before the dead panel stops further warm-ups. The logic is ``MadeAheadPanelStore``'s; when
-/// the warm-up may run is ``OpenPanelWarmGate``'s.
+/// on the main thread and cannot ask its view service first. So the warm-up makes a panel only
+/// when this app's last `NSOpenPanel()` (any launch, ``OpenPanelMakeHistory``) was fast, and once
+/// per process: no record, a slow, dead or unfinished make stops every warm-up until a click shows
+/// the service fast again (a loaded Mac held the main thread 2 to 60 s per launch in the warm-up,
+/// hang 2dc58e2ab1). A click with no panel made ahead still waits for its panel. The logic is
+/// ``MadeAheadPanelStore``'s; when the warm-up may run is ``OpenPanelWarmGate``'s.
 ///
 /// The app makes one, at its composition root (`AppServices.openPanel`), and passes it to every picker that takes
 /// it: `AgentPaneView` (and its `AgentPaneFilePicker`), Home's `HomeAttachmentPanel`, and a WebKit view's
@@ -35,7 +37,8 @@ public final class MadeAheadOpenPanel {
 
     public init() {
         let gate = OpenPanelWarmGate()
-        store = MadeAheadPanelStore(makePanel: { NSOpenPanel() }, warmCheck: { gate.check() })
+        store = MadeAheadPanelStore(makePanel: { NSOpenPanel() }, warmCheck: { gate.check() },
+                                    history: OpenPanelMakeHistory())
     }
 
     /// The panel made ahead when it is free (no sheet or window shows it), else a new one (it

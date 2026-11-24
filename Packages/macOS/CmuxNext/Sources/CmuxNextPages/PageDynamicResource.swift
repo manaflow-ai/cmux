@@ -59,3 +59,11 @@ public nonisolated struct PageRangedResource: Sendable, Equatable {
 public protocol PageRangedResourceSource: AnyObject {
     func rangedResource(for request: PageResourceRequest, range: String?) async -> PageRangedResource?
 }
+
+/// A page's dynamic source that can answer some requests at once, from what it already holds, in
+/// the turn the request arrives: a script the document loads at its start (an agent chat's copy,
+/// `__snapshot/chat.js`) then waits on no main-actor task queued behind a busy launch. Nil sends
+/// the request the usual way (``PageDynamicResourceSource``). Chromium pages only.
+public protocol PageReadyResourceSource: AnyObject {
+    func readyResource(for request: PageResourceRequest) -> PageResource?
+}

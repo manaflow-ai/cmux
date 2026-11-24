@@ -1,11 +1,13 @@
 import type { Env } from "./env.ts"
-import { isIncludedMode } from "./billing-catalog.ts"
+import { defaultTeamMode, isIncludedMode } from "./billing-catalog.ts"
+import { usagePriceSet } from "./billing-usage-sync.ts"
 import { stackTeamIdFor } from "./domains/user.ts"
 import { readRawBody, timingSafeEqual } from "./ingress/verify.ts"
 
 /**
  * The operator's included-mode setting for a Team customer (cx-y79zh.1, Lawrence 2026-10-14): per team
- * (the plan's amount for the team) or per seat (the amount x paid seats). New teams are per team. A
+ * (the plan's amount for the team) or per seat (the amount x paid seats). A team with no setting gets
+ * the price set's default (billing-catalog.ts defaultTeamMode: per team in v1, per seat in v2). A
  * change applies from the team's next period start, never inside a running period
  * (usage-billing-store.ts teamModeAt). Operator only: team admins never see or set it.
  *
@@ -46,14 +48,15 @@ export const handleBillingTeamMode = async (request: Request, env: Env): Promise
   const team = stackTeamIdFor(env.STACK_PROJECT_ID, stackTeam)
   const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
   const fields = { team, stack_team: stackTeam, actor: body.actor }
+  const fallback = defaultTeamMode(usagePriceSet(env))
   if (body.mode === undefined) {
-    const modes = await meter.includedModes(team)
+    const modes = await meter.includedModes(team, fallback)
     console.log(JSON.stringify({ msg: "billing.team_mode.read", ...fields }))
     return json({ team, stack_team: stackTeam, ...modes })
   }
   const reason = typeof body.reason === "string" ? body.reason : null
-  const r = await meter.setIncludedMode(team, body.mode, body.actor, reason)
+  const r = await meter.setIncludedMode(team, body.mode, body.actor, reason, fallback)
   // The change log line (Lawrence: log every change); an unchanged request is logged too.
   console.log(JSON.stringify({ msg: r.changed ? "billing.team_mode.set" : "billing.team_mode.unchanged", ...fields, before: r.before, after: body.mode, reason, applies: "next_period_start" }))
-  return json({ team, stack_team: stackTeam, before: r.before, mode: body.mode, changed: r.changed, applies: "next_period_start", ...(await meter.includedModes(team)) })
+  return json({ team, stack_team: stackTeam, before: r.before, mode: body.mode, changed: r.changed, applies: "next_period_start", ...(await meter.includedModes(team, fallback)) })
 }

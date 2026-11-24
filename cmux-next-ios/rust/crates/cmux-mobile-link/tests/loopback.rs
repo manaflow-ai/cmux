@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bytes::Bytes;
 use cmux_mobile_link::dial::{self, SessionEvents};
-use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, TEST_RELAY_PORTS_START, TestTurn};
+use cmux_mobile_link::testing::{FakeOptions, FakeSignaling, TestTurn, is_test_relay};
 use cmux_mobile_link::{
     ChannelEvent, DialOptions, Lane, LaneState, LinkConfig, LinkPath, SignalingClient, TransportKind,
 };
@@ -79,6 +79,8 @@ async fn exercise(kind: TransportKind, fake: FakeOptions) -> (LinkPath, u64) {
         Some(ChannelEvent::Closed(info)) => assert_eq!(info.code, "unknown_service"),
         other => panic!("unexpected {other:?}"),
     }
+    // On WireGuard the pings ride the tunnel's liveness datagrams.
+    assert_eq!(connected.link.pings_as_datagrams(), kind == TransportKind::WireGuard);
     let rtt = connected.link.ping().await.unwrap();
     assert!(rtt < Duration::from_secs(5));
     let path = *connected.path.borrow();
@@ -314,8 +316,9 @@ fn with_turn(turn: &TestTurn, options: DialOptions) -> DialOptions {
 }
 
 /// Relay only with a TURN server: WireGuard offers only its relayed address
-/// and never sends plain UDP, so the link runs through TURN over UDP (UDP
-/// is not blocked, so no TLS connection is ever opened).
+/// and never sends plain UDP, so the link runs through TURN over UDP. The
+/// dial opens its TURN-over-TLS attempt beside UDP from the start (relay
+/// first), so at most that one TLS connection opens, and UDP still wins.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn wireguard_relay_only_uses_turn() {
     let turn = TestTurn::start().await;
@@ -324,7 +327,7 @@ async fn wireguard_relay_only_uses_turn() {
     assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
     assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
-    assert_eq!(turn.stream_connections(), 0, "a TLS connection was opened with UDP working");
+    assert!(turn.stream_connections() <= 1, "more than the dial's one TLS attempt with UDP working");
     assert_eq!(run.binary, 0);
 }
 
@@ -448,7 +451,7 @@ async fn wireguard_without_turn_and_without_udp_fails_fast() {
 async fn wireguard_one_way_lan_settles_on_turn() {
     let turn = TestTurn::start().await;
     let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
-    let mac = DialOptions { refuse_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START), ..options() };
+    let mac = DialOptions { refuse_udp_to: Some(|addr| !is_test_relay(addr)), ..options() };
     let run = exercise_turn(phone, mac).await;
     assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
     assert!(run.changes.is_empty(), "path flapped: {run:?}");
@@ -464,7 +467,7 @@ async fn wireguard_one_way_lan_settles_on_turn() {
 async fn wireguard_survives_one_way_udp_through_the_peers_turn() {
     let turn = TestTurn::start().await;
     let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
-    let mac = DialOptions { drop_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START), ..options() };
+    let mac = DialOptions { drop_udp_to: Some(|addr| !is_test_relay(addr)), ..options() };
     // Busy, then idle past a keepalive interval (only keepalives, each
     // answered by one `reach`), then busy again: the Mac stays on the route
     // the phone confirmed.
@@ -485,7 +488,7 @@ async fn wireguard_takes_the_turn_allocation_it_missed_while_dialing() {
     let turn = TestTurn::start().await;
     turn.set_udp_blocked(true);
     let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
-    let mac = DialOptions { drop_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START), ..options() };
+    let mac = DialOptions { drop_udp_to: Some(|addr| !is_test_relay(addr)), ..options() };
     let (run, ()) = tokio::join!(exercise_turn_for(phone, mac, Duration::from_secs(2)), async {
         // Past the dial's 2 s allocation window, well inside its 20 s timeout.
         tokio::time::sleep(Duration::from_secs(4)).await;
@@ -508,7 +511,7 @@ async fn wireguard_mac_takes_the_turn_allocation_it_missed_while_answering() {
         cmux_mobile_link::api::IceServer { urls: vec!["stun:127.0.0.1:9".into()], ..turn.udp_only() };
     let mac = DialOptions {
         ice_servers: vec![turn.udp_only(), silent_stun],
-        drop_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START),
+        drop_udp_to: Some(|addr| !is_test_relay(addr)),
         ..options()
     };
     let (run, ()) = tokio::join!(exercise_turn_for(options(), mac, Duration::from_secs(2)), async {
@@ -543,9 +546,7 @@ async fn wireguard_upgrades_from_the_peers_turn_once_direct_works() {
     MAC_LAN_DOWN.store(true, Ordering::Relaxed);
     let phone = DialOptions { ice_servers: vec![turn.udp_only()], ..options() };
     let mac = DialOptions {
-        drop_udp_to: Some(|addr| {
-            MAC_LAN_DOWN.load(Ordering::Relaxed) && addr.port() < TEST_RELAY_PORTS_START
-        }),
+        drop_udp_to: Some(|addr| MAC_LAN_DOWN.load(Ordering::Relaxed) && !is_test_relay(addr)),
         ..options()
     };
     let lan_back = tokio::spawn(async {

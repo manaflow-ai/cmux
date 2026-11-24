@@ -40,6 +40,15 @@ struct Wire {
     /// Clone only: the branch, tag or commit to check out.
     #[serde(default, rename = "ref")]
     git_ref: Option<String>,
+    /// The checkout may open at its head first ([`HeadFirst`]).
+    #[serde(default)]
+    head_first: bool,
+    /// With `head_first`: the folder below the repository's root the chat opens in.
+    #[serde(default)]
+    subpath: Option<String>,
+    /// `git-seed-carry-v1`: the uploaded pack of `base` at depth 1 ([`StartParams::carry`]).
+    #[serde(default)]
+    carry: Option<String>,
 }
 
 /// A checked start request. The paths are not yet placed in the sandbox
@@ -63,6 +72,65 @@ pub struct StartParams {
     /// Clone only (no bundle, no Mac folder): `Some(ref)` with the branch,
     /// tag or commit to check out (`None` inside: the remote's default).
     pub clone_only: Option<Option<String>>,
+    /// The checkout opens at its head first: only for a whole seed (no `since`) without
+    /// the Mac's sparse patterns, and only when the subpath can be written as a pattern.
+    pub head_first: Option<HeadFirst>,
+    /// `git-seed-carry-v1`: the path (under the roots, like `bundle`) of a pack the sender made
+    /// from its own objects with `base`, its tree and every blob of it, and nothing older. A fresh
+    /// folder becomes a shallow repository at `base` from it instead of a clone (no GitHub, no
+    /// credential); a folder with a repository already, or a pack that does not index, clones as
+    /// before. Only for a whole seed (no `since`).
+    pub carry: Option<String>,
+}
+
+/// A seed that marks its head (`cmux_git::sync_barrier::Sync::head_ready`) before it fills
+/// the rest of the checkout: the root's files, the harness folders and each folder on
+/// `subpath` with its own files (`super::run`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeadFirst {
+    /// The subpath's folders, outermost first (`a`, `b` for `a/b`).
+    pub subpath: Vec<String>,
+}
+
+/// Deepest subpath a head names.
+const MAX_SUBPATH_PARTS: usize = 32;
+
+impl HeadFirst {
+    /// `None` when the subpath has a part a non-cone pattern cannot name literally: such a
+    /// seed fills whole before it answers, as it did before heads.
+    pub(super) fn of(subpath: Option<&str>) -> Option<Self> {
+        let subpath = subpath.unwrap_or("").trim_matches('/');
+        if subpath.is_empty() {
+            return Some(Self { subpath: Vec::new() });
+        }
+        let parts: Vec<String> = subpath.split('/').map(str::to_owned).collect();
+        let literal = |part: &String| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part.len() <= 255
+                && !part.starts_with(' ')
+                && !part.ends_with(' ')
+                && !part.chars().any(|c| c.is_control() || "*?[]\\!#".contains(c))
+        };
+        (parts.len() <= MAX_SUBPATH_PARTS && parts.iter().all(literal))
+            .then_some(Self { subpath: parts })
+    }
+
+    /// The subpath's folders, each relative to the root (`a`, `a/b`).
+    pub fn folders(&self) -> Vec<String> {
+        let mut at = String::new();
+        self.subpath
+            .iter()
+            .map(|part| {
+                if !at.is_empty() {
+                    at.push('/');
+                }
+                at.push_str(part);
+                at.clone()
+            })
+            .collect()
+    }
 }
 
 impl StartParams {
@@ -112,6 +180,12 @@ impl StartParams {
         {
             return Err(SeedRefusal::bad_request("invalid sparse patterns"));
         }
+        if wire.carry.is_some() && wire.since.is_some() {
+            return Err(SeedRefusal::bad_request("carry is for a whole seed, not a delta"));
+        }
+        let head_first = (wire.head_first && wire.since.is_none() && wire.sparse.is_none())
+            .then(|| HeadFirst::of(wire.subpath.as_deref()))
+            .flatten();
         Ok(Self {
             folder: wire.folder,
             url: wire.url,
@@ -126,6 +200,8 @@ impl StartParams {
             lfs: wire.lfs,
             since: wire.since,
             clone_only: None,
+            head_first,
+            carry: wire.carry,
         })
     }
 
@@ -135,6 +211,9 @@ impl StartParams {
         }
         if wire.sparse.is_some() {
             return Err(SeedRefusal::bad_request("sparse needs a seed bundle"));
+        }
+        if wire.carry.is_some() {
+            return Err(SeedRefusal::bad_request("carry needs a seed bundle"));
         }
         Ok(Self {
             folder: wire.folder,
@@ -150,6 +229,8 @@ impl StartParams {
             lfs: wire.lfs,
             since: None,
             clone_only: Some(wire.git_ref),
+            head_first: None,
+            carry: None,
         })
     }
 }
@@ -239,83 +320,5 @@ fn check_head_ref(head_ref: &str) -> Result<String, SeedRefusal> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn urls_are_exactly_github_https_matching_repo() {
-        assert!(check_url("https://github.com/o/n.git", "o/n").is_ok());
-        assert!(check_url("https://github.com/manaflow-ai/cmux.git", "manaflow-ai/cmux").is_ok());
-        for (url, repo) in [
-            ("https://github.com/o/n.git", "o/m"),
-            ("https://github.com/o/n", "o/n"),
-            ("http://github.com/o/n.git", "o/n"),
-            ("https://x@github.com/o/n.git", "o/n"),
-            ("https://github.com.evil.com/o/n.git", "o/n"),
-            ("https://github.com/o/n/x.git", "o/n/x"),
-            ("https://github.com/-o/n.git", "-o/n"),
-            ("https://github.com/./n.git", "./n"),
-            ("https://github.com/o/n?.git", "o/n?"),
-            ("git@github.com:o/n.git", "o/n"),
-            ("file:///tmp/o/n.git", "o/n"),
-        ] {
-            assert!(check_url(url, repo).is_err(), "{url} {repo}");
-        }
-    }
-
-    #[test]
-    fn shas_are_full_lowercase_hex() {
-        assert!(check_sha("x", &"a".repeat(40)).is_ok());
-        assert!(check_sha("x", &"0".repeat(64)).is_ok());
-        for sha in ["", "abc", &"A".repeat(40), &"g".repeat(40), &"a".repeat(41), "HEAD"] {
-            assert!(check_sha("x", sha).is_err(), "{sha}");
-        }
-    }
-
-    #[test]
-    fn clone_refs_are_a_safe_subset() {
-        for git_ref in ["main", "feature/x", "v1.2.3", &"a".repeat(40)] {
-            assert!(check_clone_ref(git_ref).is_ok(), "{git_ref}");
-        }
-        for git_ref in ["", "HEAD", "-x", "a..b", "a b", "x.lock", "a~1", "/a", "a/", ".a", "a//b"]
-        {
-            assert!(check_clone_ref(git_ref).is_err(), "{git_ref}");
-        }
-    }
-
-    #[test]
-    fn a_start_is_a_seed_or_a_clone_never_half_of_each() {
-        let clone = StartParams::parse(&serde_json::json!({
-            "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n", "ref": "v1",
-        }))
-        .unwrap();
-        assert_eq!(clone.clone_only, Some(Some("v1".into())));
-        let default = StartParams::parse(&serde_json::json!({
-            "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n",
-            "bundle": null, "head": null, "index": null, "work": null, "stash": null, "since": null, "base": null,
-        }))
-        .unwrap();
-        assert_eq!(default.clone_only, Some(None));
-        let half = StartParams::parse(&serde_json::json!({
-            "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n", "bundle": "/h/b",
-        }));
-        assert_eq!(half.unwrap_err().code, "seed.bad_request");
-    }
-
-    #[test]
-    fn head_refs_are_checked_by_git() {
-        assert_eq!(check_head_ref("refs/heads/feature/x").unwrap(), "feature/x");
-        for head_ref in [
-            "refs/heads/",
-            "refs/tags/v1",
-            "main",
-            "refs/heads/-x",
-            "refs/heads/a..b",
-            "refs/heads/a b",
-            "refs/heads/x.lock",
-            "refs/heads/a~1",
-        ] {
-            assert!(check_head_ref(head_ref).is_err(), "{head_ref}");
-        }
-    }
-}
+#[path = "params_tests.rs"]
+mod tests;

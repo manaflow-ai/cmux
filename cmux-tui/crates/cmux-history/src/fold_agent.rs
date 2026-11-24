@@ -2,7 +2,7 @@
 //! `AgentSessionFold` and `AgentSession`, plus the entry mapping of the app's
 //! `AgentHistory.entries()`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -149,6 +149,54 @@ impl AgentSessionFold {
             .collect()
     }
 
+    /// As `entries`, with each session's last activity the newer of the
+    /// journal's and `live` (keyed `<provider>/<session id>`): the host's own
+    /// report times, which the journal gets only each few minutes.
+    pub fn entries_with_live(
+        &self,
+        context: &EntryContext<'_>,
+        hidden: &HiddenHistory,
+        live: &HashMap<String, i64>,
+    ) -> Vec<HistoryEntry> {
+        let mut sessions: Vec<AgentSession> = self
+            .sessions
+            .iter()
+            .map(|(key, session)| {
+                let mut session = session.clone();
+                if let Some(time) = live.get(key) {
+                    session.last_activity_ms = session.last_activity_ms.max(*time);
+                }
+                session
+            })
+            .collect();
+        sessions.sort_by(|a, b| {
+            (b.last_activity_ms, &b.session_id).cmp(&(a.last_activity_ms, &a.session_id))
+        });
+        sessions
+            .iter()
+            .filter(|session| {
+                !hidden.hides(&session.qualified_id(), session.last_activity_ms, Some("agent"))
+            })
+            .map(|session| session.entry(context))
+            .collect()
+    }
+
+    /// One stamp of a coalesced activity row: a known session's last
+    /// activity moves forward. It never makes a session and never changes
+    /// when one started or ended.
+    fn apply_activity_stamp(&mut self, stamp: &Value) {
+        let provider = string_at(Some(stamp), &["adapter"]);
+        let session_id = string_at(Some(stamp), &["agent_session_id"]);
+        let time =
+            string_at(Some(stamp), &["observed_at_ms"]).and_then(|text| text.parse::<i64>().ok());
+        let (Some(provider), Some(session_id), Some(time)) = (provider, session_id, time) else {
+            return;
+        };
+        if let Some(session) = self.sessions.get_mut(&format!("{provider}/{session_id}")) {
+            session.last_activity_ms = session.last_activity_ms.max(time);
+        }
+    }
+
     fn apply_one(&mut self, record: &Envelope<'_>) {
         if !record.kind.starts_with("agent.") {
             return;
@@ -157,6 +205,14 @@ impl AgentSessionFold {
             return;
         };
         if !normalized.is_object() {
+            return;
+        }
+        // The daemon's coalesced activity row: report times of many
+        // sessions, no session of its own.
+        if let Some(stamps) = normalized.get("activity").and_then(Value::as_array) {
+            for stamp in stamps {
+                self.apply_activity_stamp(stamp);
+            }
             return;
         }
         let session_id = string_at(Some(normalized), &["agent_session_id"])

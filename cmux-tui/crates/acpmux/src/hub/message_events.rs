@@ -50,7 +50,7 @@ pub(super) fn embed_message_context(
 }
 
 fn resolve_exact(hub: &Hub, id: &str) -> Option<Arc<Session>> {
-    hub.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()
+    hub.session_get(id)
 }
 
 pub(super) fn message_context_from_provenance(provenance: &Value) -> Option<MessageContext> {
@@ -93,13 +93,25 @@ pub(super) fn restore_message_options(opts: &mut PromptOptions, provenance: Opti
 /// after persisting a prompt or queue record. The append path deduplicates by
 /// `messageId` and the outgoing target scope, so this is safe on every log load.
 pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
+    recover_message_events_after(hub, session, 0);
+}
+
+/// [`recover_message_events`] of the records past `after`, a restore point's seq: every copy of
+/// a message before it was written (`restore_point.rs`). Returns whether every copy is written
+/// now, none left for a later repair.
+pub(super) fn recover_message_events_after(
+    hub: &Arc<Hub>,
+    session: &Arc<Session>,
+    after: u64,
+) -> bool {
     let mut pending = Vec::new();
     // A fork copies historical `user_message` records before its `forked` marker. Those records
     // describe the parent's delivery and must never recreate a sender-side copy in the child.
     // Stay conservative if a crash left no marker: skip the inherited prefix entirely.
     let mut inherited = session.meta().fork_seq.is_some();
-    let _ = hub.store.scan_kinds(
+    let scanned = hub.store.scan_kinds_after(
         &session.id,
+        after,
         &["queued", "user_message", "inbox", "forked"],
         &mut |record| {
             if inherited {
@@ -115,16 +127,21 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
             let Some(provenance) = crate::prompt_provenance::recorded(&record.msg) else {
                 return true;
             };
-            collect_message_contexts(&provenance, &session.id, &mut pending);
+            let held = record.msg.get("surgeHeld") == Some(&Value::Bool(true));
+            collect_message_contexts(&provenance, &session.id, held, &mut pending);
             true
         },
     );
-    for message in pending {
-        append_or_repair(hub, &session.id, &message, None);
+    let mut written = scanned.is_ok();
+    for (message, held) in pending {
+        if !held {
+            written &= append_or_repair(hub, &session.id, &message, None);
+        }
         if message.record_sender_copy && message.sender_session != session.id {
-            append_or_repair(hub, &message.sender_session, &message, Some(&session.id));
+            written &= append_or_repair(hub, &message.sender_session, &message, Some(&session.id));
         }
     }
+    written
 }
 
 /// A digest user message carries each joined prompt's original provenance one level down. Keep
@@ -134,18 +151,19 @@ pub(super) fn recover_message_events(hub: &Arc<Hub>, session: &Arc<Session>) {
 fn collect_message_contexts(
     provenance: &Value,
     session_id: &str,
-    pending: &mut Vec<MessageContext>,
+    held: bool,
+    pending: &mut Vec<(MessageContext, bool)>,
 ) {
     if addressed_elsewhere(provenance, session_id) {
         return;
     }
     if let Some(message) = message_context_from_provenance(provenance) {
-        pending.push(message);
+        pending.push((message, held));
     }
     if let Some(messages) = provenance.get("messages").and_then(Value::as_array) {
         for message in messages {
             if let Some(nested) = message.get("provenance") {
-                collect_message_contexts(nested, session_id, pending);
+                collect_message_contexts(nested, session_id, held, pending);
             }
         }
     }
@@ -225,7 +243,11 @@ pub(super) fn message_context(
     let mut sender = if let Some(sender) = opts.message_sender.as_ref() {
         sender.clone()
     } else {
-        json!({"name": name, "sessionId": sender_session, "host": host_label()})
+        let mut sender = json!({"name": name, "sessionId": sender_session, "host": host_label()});
+        if let Some(given) = crate::prompt_provenance::display_name_of(opts.provenance.as_ref()) {
+            sender.set("displayName", json!(given));
+        }
+        sender
     };
     if let Some(label) = crate::prompt_provenance::declared_label(opts.provenance.as_ref()) {
         sender.set("label", json!(label));
@@ -285,7 +307,10 @@ pub(super) fn name_message(accepted: &mut Value, message: &MessageContext) {
 }
 
 pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &str) {
-    if opts.provenance.is_some() {
+    // A peer's message names its sender here: it takes the place of an `unverified` mark.
+    if opts.provenance.is_some()
+        && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
+    {
         return;
     }
     let Some(sender) = opts.message_sender.as_ref().and_then(Value::as_object) else { return };
@@ -293,6 +318,12 @@ pub(super) fn ensure_message_provenance(opts: &mut PromptOptions, target_id: &st
     let Some(name) = sender.get("name").and_then(Value::as_str) else { return };
     let mut provenance = crate::prompt_provenance::named_sender(name, target_id);
     provenance.set("sessionId", json!(id));
+    // It keeps how it came and who passed it on, as the daemon saw them.
+    for key in [crate::prompt_provenance::TRANSPORT, crate::prompt_provenance::FORWARDED_BY] {
+        if let Some(value) = opts.provenance.as_ref().and_then(|p| p.get(key)) {
+            provenance.set(key, value.clone());
+        }
+    }
     if let Some(label) = sender.get("label").and_then(Value::as_str) {
         provenance = crate::prompt_provenance::stamp_declared(provenance, Some(label));
     }
@@ -303,30 +334,35 @@ pub(super) fn record_message_context(
     hub: &Arc<Hub>,
     target_session: &str,
     message: &MessageContext,
+    receipt: &Value,
 ) {
-    append_or_repair(hub, target_session, message, None);
+    if receipt.get("surgeHeld") != Some(&Value::Bool(true)) {
+        append_or_repair(hub, target_session, message, None);
+    }
     if message.record_sender_copy && message.sender_session != target_session {
         append_or_repair(hub, &message.sender_session, message, Some(target_session));
     }
 }
 
+/// Whether the copy is written now (or has no chat to go to); false while a repair or the
+/// store's load still holds it.
 fn append_or_repair(
     hub: &Arc<Hub>,
     session_id: &str,
     message: &MessageContext,
     target_scope: Option<&str>,
-) {
+) -> bool {
     let session = match resolve_exact(hub, session_id) {
         Some(session) => session,
         // The load may have installed it since the lookup: once loaded, a second lookup is the
         // answer.
         None if hub.store_loaded() => match resolve_exact(hub, session_id) {
             Some(session) => session,
-            None => return,
+            None => return true,
         },
         None => {
             append_once_loaded(hub, session_id, message, target_scope);
-            return;
+            return false;
         }
     };
     if !hub.append_message_event_scoped(
@@ -339,7 +375,9 @@ fn append_or_repair(
         None,
     ) {
         schedule_projection_repair(hub, session_id, message, target_scope);
+        return false;
     }
+    true
 }
 
 /// A session not installed yet while the saved sessions still load (a lazy `session/load` of
@@ -355,9 +393,10 @@ fn append_once_loaded(
     if tokio::runtime::Handle::try_current().is_err() {
         return;
     }
+    let owner = hub.clone();
     let (hub, id, message) = (hub.clone(), session_id.to_owned(), message.clone());
     let target_scope = target_scope.map(str::to_owned);
-    tokio::spawn(async move {
+    owner.scope.spawn_until_cancelled("message-projection", async move {
         hub.session_meta(&id).await;
         if resolve_exact(&hub, &id).is_some() {
             append_or_repair(&hub, &id, &message, target_scope.as_deref());
@@ -388,7 +427,8 @@ fn schedule_projection_repair(
     let hub = hub.clone();
     let target_scope = target_scope.map(str::to_owned);
     let guard = ProjectionRepairGuard { hub: hub.clone(), key: key.clone() };
-    tokio::spawn(async move {
+    let owner = hub.clone();
+    owner.scope.spawn_until_cancelled("message-projection-repair", async move {
         // Constructed before spawning so cancellation before the future is first polled still
         // removes the in-flight key.
         let _guard = guard;
@@ -658,7 +698,7 @@ mod message_recovery_tests {
         // invoking prompt delivery.
         hub.message_projection_failures.lock().unwrap().insert(sender.id.clone());
         let mut events = hub.subscribe();
-        record_message_context(&hub, &receiver_id, &message);
+        record_message_context(&hub, &receiver_id, &message, &Value::Null);
         assert_eq!(message_count(&hub, &receiver_id), 1);
         assert_eq!(message_count(&hub, &sender_id), 0);
         tokio::time::timeout(std::time::Duration::from_secs(4), async {

@@ -7,7 +7,7 @@ public import Foundation
 ///
 /// - `link.inspect {paths, urls}`: where each path is (``AgentPaneReplyPaths``) and the favicon
 ///   and title cmux already has for each URL (no fetch). Passive: no gesture, no effect.
-/// - `link.openPath {path}`: open a path chip. Spends a user gesture.
+/// - `link.openPath {path, line?}`: open a path chip. Spends a user gesture.
 /// - `image.load {src, auto?}`: a reply image, a file inside the roots or an https URL (host
 ///   fetch). A web image spends a gesture unless `agentPane.images.remote` is `always` or it is
 ///   from a click-free site; `auto: true` (the page loading it without a click) never spends one.
@@ -15,6 +15,8 @@ public import Foundation
 ///   (``AgentPaneMediaGrants``). Passive.
 /// - `video.info {src}`: an attached video's length, size, poster and key frames
 ///   (``AgentPaneVideoInfo``), for a chat on this Mac. Passive.
+/// - `video.probes {src}`: what follows `video.info`'s poster (its answer says `more`): the key
+///   frames and the probes for the page's scene pick. Passive.
 /// - `video.transcript {src}`: the speech in that video, transcribed on this Mac with timestamps
 ///   (``AgentPaneVideoTranscript``), for a chat on this Mac. Passive.
 /// - `video.quickLook {src}`: plays that video in Quick Look. Spends a user gesture.
@@ -32,9 +34,10 @@ public import Foundation
 /// - `image.drag {src, name}`, `file.drag {path}`: a drag the person started on an image or a file
 ///   chip, as the host's own drag of a real file (the image's named copy; the file only inside the
 ///   roots of a local chat). Need the press still held (``AgentPaneReplyLinks/mouseHeld``).
-/// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
-///   the pull request bars link to (its hover card). Only a plain
-///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
+/// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request or issue a
+///   reply or the pull request bars link to (its hover card). Only a plain
+///   `https://github.com/<owner>/<repo>/pull/<n>` or `.../issues/<n>` is taken
+///   (``githubItemURL(_:)``). Passive.
 ///   `cached: true` (Session Info's Changes, which asks for many links) answers from the cache
 ///   only and never starts a read: its links are read in batches when it registers them.
 /// - `link.preview {path}`: the first lines of a text file a path chip names, for its hover card
@@ -46,10 +49,12 @@ public import Foundation
 ///   pasteboard (``AgentPaneImageCopies/copyComposer(text:items:in:)``). Spends a user gesture.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
-    case openPath(String)
+    case openPath(String, line: Int? = nil)
     case loadImage(String, auto: Bool)
     case loadMedia(String)
     case videoInfo(String)
+    /// `video.probes {src}`: what follows the poster `video.info` answered, the key frames and probes.
+    case videoProbes(String)
     case videoTranscript(String)
     /// `video.frames {src, times}`: the frames at the page's picked times, in milliseconds.
     case videoFrames(String, times: [Int])
@@ -71,17 +76,18 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     public static let methods: Set<String> = [
         "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
         "image.openInPane", "image.copy", "image.save", "image.quickLook", "image.drag", "file.drag", "pr.inspect",
-        "video.info", "video.transcript", "video.frames", "video.quickLook", "link.preview", "composer.copy",
+        "video.info", "video.probes", "video.transcript", "video.frames", "video.quickLook", "link.preview", "composer.copy",
     ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list, and
     /// `image.load`'s `auto` may be left out).
     static let knownParams: [String: Set<String>] = [
         "link.inspect": ["paths", "urls"],
-        "link.openPath": ["path"],
+        "link.openPath": ["path", "line"],
         "image.load": ["src", "auto"],
         "media.load": ["src"],
         "video.info": ["src"],
+        "video.probes": ["src"],
         "video.transcript": ["src"],
         "video.frames": ["src", "times"],
         "video.quickLook": ["src"],
@@ -128,7 +134,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .videoTranscript, .videoFrames, .inspectPullRequest, .previewPath: true
+        case .inspect, .listBrowsers, .loadImage, .loadMedia, .videoInfo, .videoProbes, .videoTranscript, .videoFrames, .inspectPullRequest, .previewPath: true
         case .openPath, .openIn, .revealImage, .openImageInPane, .copyImage, .saveImage, .quickLookImage, .quickLookVideo, .dragImage,
              .dragFile, .copyComposer: false
         }
@@ -159,7 +165,13 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             self = .inspect(paths: paths, urls: urls)
         case "link.openPath":
             guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
-            self = .openPath(path)
+            var line: Int?
+            if let value = params["line"] {
+                guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+                      let position = Int(exactly: number.doubleValue), (1...10_000_000).contains(position) else { return nil }
+                line = position
+            }
+            self = .openPath(path, line: line)
         case "image.load":
             guard let src = text("src", Self.maximumURL) else { return nil }
             let auto = params["auto"]
@@ -179,10 +191,11 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
                 times.append(number.intValue)
             }
             self = .videoFrames(src, times: times)
-        case "video.info", "video.transcript", "video.quickLook":
+        case "video.info", "video.probes", "video.transcript", "video.quickLook":
             guard let src = text("src", AgentPaneReplyPaths.maximumLength) else { return nil }
             self = switch method {
             case "video.info": .videoInfo(src)
+            case "video.probes": .videoProbes(src)
             case "video.transcript": .videoTranscript(src)
             default: .quickLookVideo(src)
             }
@@ -215,7 +228,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
                 self = .revealImage(src: src, name: name, path: nil)
             }
         case "pr.inspect":
-            guard let raw = text("url", Self.maximumURL), let url = Self.pullRequestURL(raw) else { return nil }
+            guard let raw = text("url", Self.maximumURL), let url = Self.githubItemURL(raw) else { return nil }
             let cached = params["cached"].map { $0 as? Bool } ?? false
             guard let cached else { return nil }
             self = .inspectPullRequest(url, cached: cached)
@@ -247,11 +260,21 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     /// anything else, so nothing but that URL ever reaches `gh`: no other host, no user info, no
     /// query or fragment, and no part that starts with `-`.
     public static func pullRequestURL(_ text: String) -> URL? {
+        // The rebuilt path is `/owner/repo/kind/n`: its kind, not a name that happens to read `pull`.
+        guard let url = githubItemURL(text), url.pathComponents.dropFirst(3).first == "pull" else { return nil }
+        return url
+    }
+
+    /// `text` as a GitHub pull request or issue: ``pullRequestURL(_:)``'s rule, with `issues` as
+    /// well as `pull` (`https://github.com/<owner>/<repo>/issues/<n>`), rebuilt the same way. A
+    /// hover card reads either (`pr.inspect`); an issue has no tab, so only a pull request keeps
+    /// one.
+    public static func githubItemURL(_ text: String) -> URL? {
         guard text.utf8.count <= maximumURL, let url = URL(string: text), url.scheme == "https",
               url.host(percentEncoded: false)?.lowercased() == "github.com", url.port == nil,
               url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { return nil }
         let parts = url.path(percentEncoded: true).split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-        guard parts.count == 4 || parts.count == 5, parts[2] == "pull", !parts[0].allSatisfy({ $0 == "." }),
+        guard parts.count == 4 || parts.count == 5, parts[2] == "pull" || parts[2] == "issues", !parts[0].allSatisfy({ $0 == "." }),
               !parts[1].allSatisfy({ $0 == "." }) else { return nil }
         func only(_ part: String, _ allowed: (Unicode.Scalar) -> Bool, max: Int) -> Bool {
             !part.isEmpty && part.unicodeScalars.count <= max && part.unicodeScalars.allSatisfy(allowed)
@@ -260,7 +283,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         let digit: (Unicode.Scalar) -> Bool = { ("0"..."9").contains($0) }
         guard only(parts[0], name, max: 100), only(parts[1], name, max: 100), !parts[0].hasPrefix("-"), !parts[1].hasPrefix("-"),
               only(parts[3], digit, max: 10), !parts[3].hasPrefix("0") else { return nil }
-        if parts.count == 5, !only(parts[4], { ("a"..."z").contains($0) }, max: 20) { return nil }
-        return URL(string: "https://github.com/\(parts[0])/\(parts[1])/pull/\(parts[3])")
+        if parts.count == 5, parts[2] != "pull" || !only(parts[4], { ("a"..."z").contains($0) }, max: 20) { return nil }
+        return URL(string: "https://github.com/\(parts[0])/\(parts[1])/\(parts[2])/\(parts[3])")
     }
 }

@@ -12,11 +12,19 @@
 public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     /// The Markdown viewer keys the chat follows.
     public static let followedMarkdownPaths: [[String]] = [
-        ["markdown", "font", "preset"], ["markdown", "code", "family"], ["markdown", "code", "scale"],
+        MarkdownViewerSettingsSchema.fontPresetPath, MarkdownViewerSettingsSchema.codeFamilyPath, MarkdownViewerSettingsSchema.codeScalePath,
     ]
     /// The app keys the chat follows: Minimal Mode (``SidebarSectionsSetting/minimalPath``) and
-    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx).
-    public static let followedAppPaths: [[String]] = [SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath]
+    /// Show Feature Tips (``UpdatesSettings/showFeatureTipsPath``; webviews featureTips.tsx), and
+    /// AutoCloud (``CloudNewWorkspaceSetting/autoCloudPath``; webviews autoCloud.ts), hidden in cmux-next.json.
+    public static let followedAppPaths: [[String]] = [
+        SidebarSectionsSetting.minimalPath, UpdatesSettings.showFeatureTipsPath, CloudNewWorkspaceSetting.autoCloudPath,
+    ]
+    /// The transcript look keys, which a theme file may set (``ThemeFileOverlay/lookKeys``): read from the
+    /// effective root, not the user's own file (docs/cmux-next/transcript-customization.md).
+    public static let themedPaths: Set<[String]> = [
+        AgentPaneDisplaySettingsSchema.transcriptLookPath, AgentPaneDisplaySettingsSchema.transcriptTokensPath,
+    ]
 
     /// The accepted values by dotted key.
     public var values: [String: JSONValue]
@@ -32,26 +40,58 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     public static let fallback = AgentPaneDisplaySetting()
 
     /// Reads the chat's keys and the followed Markdown viewer keys from a cmux.json root, keeping
-    /// each value its row accepts and dropping the rest.
+    /// each value its row accepts and dropping the rest. With `fontFaces`, `agentPane.display.font.faces`
+    /// arrives as each good face's data URL (``ChatFontFaces``), which reads the font files: build
+    /// it off the main thread (``read(fileRoot:managedHarnessPlacement:fontFaces:)``). Without, the
+    /// key is left out and no file is read.
     ///
-    /// - Parameter fileRoot: The settings file's root object.
-    public init(fileRoot: JSONValue, managedHarnessPlacement: JSONValue? = nil) {
+    /// - Parameters:
+    ///   - fileRoot: The settings file's root object.
+    ///   - lookRoot: The effective root (theme file applied), which the transcript look keys
+    ///     (``themedPaths``) are read from, so a theme file can carry a transcript look. Nil reads them
+    ///     from `fileRoot` too.
+    ///   - managedHarnessPlacement: The managed `agentPane.display.harnessPlacement`, if any.
+    ///   - fontFaces: The loader that reads the face files; nil leaves the faces out.
+    public init(fileRoot: JSONValue, lookRoot: JSONValue? = nil, managedHarnessPlacement: JSONValue? = nil,
+                fontFaces: ChatFontFaces.Loader? = nil) {
         var values: [String: JSONValue] = [:]
         let followed = Set(Self.followedMarkdownPaths.map { $0.joined(separator: ".") })
         let rows = AgentPaneDisplaySettingsSchema.descriptors
             + MarkdownViewerSettingsSchema.descriptors.filter { followed.contains($0.id) }
             + Self.followedAppPaths.compactMap { SettingsSchema.descriptor(for: $0) }
         for descriptor in rows {
+            let root = Self.themedPaths.contains(descriptor.path) ? lookRoot ?? fileRoot : fileRoot
             // A value an earlier form of the row wrote reads as what it meant (the Chat Minimap toggle).
             // A renamed row's old key applies while the new one is absent (``RenamedSettingKeys``).
-            guard let stored = fileRoot.value(at: descriptor.path) ?? RenamedSettingKeys.legacyValue(for: descriptor.path, in: fileRoot),
+            guard let stored = root.value(at: descriptor.path) ?? RenamedSettingKeys.legacyValue(for: descriptor.path, in: root),
                   stored != .null,
                   let value = AgentPaneDisplaySettingsSchema.pageValue(descriptor.id, stored), descriptor.accepts(value)
             else { continue }
             values[descriptor.id] = value
         }
+        // The page gets the face files as data URLs (`{family[:italic]: data URL}`), never paths.
+        let facesKey = AgentPaneDisplaySettingsSchema.facesPath.joined(separator: ".")
+        if let faces = values.removeValue(forKey: facesKey)?.objectValue, let fontFaces {
+            let loaded = fontFaces.dataURLs(faces)
+            if !loaded.isEmpty { values[facesKey] = .object(loaded.mapValues(JSONValue.string)) }
+        }
         values["agentPane.display.harnessPlacement.managed"] = managedHarnessPlacement
         self.init(values: values)
+    }
+
+    /// The chat's look with its face files read, off the main thread.
+    ///
+    /// - Parameters:
+    ///   - fileRoot: The settings file's root object, with the theme file over it
+    ///     (``SettingsController/chatDisplayInputs``).
+    ///   - lookRoot: The effective root the transcript look keys are read from (``themedPaths``).
+    ///   - managedHarnessPlacement: The managed `agentPane.display.harnessPlacement`, if any.
+    ///   - fontFaces: The loader that reads and caches the face files.
+    /// - Returns: The look the page gets.
+    @concurrent public static func read(fileRoot: JSONValue, lookRoot: JSONValue? = nil, managedHarnessPlacement: JSONValue?,
+                                        fontFaces: ChatFontFaces.Loader) async -> AgentPaneDisplaySetting {
+        AgentPaneDisplaySetting(fileRoot: fileRoot, lookRoot: lookRoot, managedHarnessPlacement: managedHarnessPlacement,
+                                fontFaces: fontFaces)
     }
 
     /// The page's value: the map as a JSON object.
@@ -64,5 +104,32 @@ public nonisolated struct AgentPaneDisplaySetting: Sendable, Hashable {
     public static func writablePath(_ key: String) -> [String]? {
         guard AgentPaneDisplaySettingsSchema.keys.contains(key) else { return nil }
         return key.split(separator: ".").map(String.init)
+    }
+}
+
+/// The chat display rows' logic; the rows, paths, defaults and ranges are generated from
+/// schemas/settings/source/agent-pane-display.json (Schema/SettingsSchema+AgentPaneDisplay.generated.swift).
+nonisolated extension AgentPaneDisplaySettingsSchema {
+    /// Every row's key (agents may set them: looks only).
+    static var keys: Set<String> { Set(descriptors.map(\.id)) }
+
+    /// The key the Session Info row had before (``RenamedSettingKeys``); a file that still holds it applies.
+    static let legacySessionInfoPlacementPath = ["agentPane", "display", "inspector", "placement"]
+
+    /// `agentPane.display.minimap`, the Chat Minimap row.
+    static let minimapKey = minimapPath.joined(separator: ".")
+
+    /// A stored value as the chat page and schema readers read it. `agentPane.display.minimap` was an on/off toggle
+    /// before it was the Rail / Full Map / Off choice: on (`true`) was the full map, and off (`false`)
+    /// left the chat to the thread minimap experiment, which no value means now. Every other value
+    /// is returned as stored; the row still checks it.
+    ///
+    /// - Parameters:
+    ///   - id: The dotted key.
+    ///   - value: The value cmux-next.json holds.
+    /// - Returns: The value to check against the row, or nil for none.
+    static func pageValue(_ id: String, _ value: JSONValue) -> JSONValue? {
+        guard id == minimapKey, case .bool(let on) = value else { return value }
+        return on ? .string("full") : nil
     }
 }

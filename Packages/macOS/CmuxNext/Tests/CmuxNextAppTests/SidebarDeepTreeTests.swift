@@ -1,5 +1,6 @@
 @testable import CmuxNextSidebar
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -80,8 +81,8 @@ import Testing
         let folded = rows()
         #expect(Set(folded.keys) == [a])
         #expect(folded[a]?.treeFold == .collapsed)
-        // d is idle by its lane but unread: finished, unread. An idle descendant is not counted.
-        #expect(folded[a]?.rollUp == SidebarTreeRollUp(blocked: 1, failed: 1, running: 1, unread: 1))
+        // d is idle by its lane but unread: finished, unread. An idle descendant is in no state's count, only the total.
+        #expect(folded[a]?.rollUp == SidebarTreeRollUp(blocked: 1, failed: 1, running: 1, unread: 1, total: 4))
     }
 
     /// The folded parent uses the same shared working mark as a live agent row. When the last
@@ -166,7 +167,7 @@ import Testing
     }
 
     @Test func aFoldSurvivesTheFeedsNextPass() {
-        let defaults = UserDefaults(suiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
+        let defaults = UserDefaults(testSuiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
         let tree = SidebarSessionTree(defaults: defaults)
         let a = WorkspaceID("a")
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("b"): a])
@@ -182,7 +183,7 @@ import Testing
     /// list on the next save, so it never grows with every workspace ever folded. Before the
     /// feed's first pass (no parents yet) nothing is dropped.
     @Test func aClosedParentsFoldLeavesTheSavedList() {
-        let defaults = UserDefaults(suiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
+        let defaults = UserDefaults(testSuiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
         let tree = SidebarSessionTree(defaults: defaults)
         let a = WorkspaceID("a"), b = WorkspaceID("b"), d = WorkspaceID("d")
         tree.state = SidebarSessionTreeState(parents: [WorkspaceID("child-a"): a, WorkspaceID("child-d"): d])
@@ -200,12 +201,12 @@ import Testing
     /// Revealing a selected session opens only the folds above it. At launch the feed's first
     /// passes may not know every parent yet, so a reveal never drops another saved fold.
     @Test func aRevealOpensOnlyTheFoldsAboveItAndKeepsTheRest() {
-        let defaults = UserDefaults(suiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
+        let defaults = UserDefaults(testSuiteName: "SidebarDeepTreeTests.\(UUID().uuidString)") ?? .standard
         let a = WorkspaceID("a"), b = WorkspaceID("b"), d = WorkspaceID("d"), c = WorkspaceID("c")
         defaults.set(["a", "b", "d"], forKey: SidebarSessionTree.collapsedKey)
         let tree = SidebarSessionTree(defaults: defaults)
         tree.state = SidebarSessionTreeState(parents: [b: a, c: b]) // d's lane hasn't loaded yet
-        tree.reveal(c)
+        tree.reveal(c, lists: [{ _ in true }])
         #expect(tree.collapsed == [d])
         #expect(defaults.stringArray(forKey: SidebarSessionTree.collapsedKey) == ["d"])
     }

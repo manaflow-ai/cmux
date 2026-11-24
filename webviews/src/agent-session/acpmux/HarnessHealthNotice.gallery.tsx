@@ -4,7 +4,9 @@ import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 import { assistant, chat, user } from "../../gallery/fixtures/acpmux";
 import { Composer } from "./Composer";
-import { HarnessHealthNotice, type HarnessHealth, type UpdateOffer } from "./HarnessHealthNotice";
+import type { CloudSignIn as CloudSignInActions } from "./cloudAgentLogin";
+import { HarnessHealthNotice } from "./HarnessHealthNotice";
+import { type HarnessHealth, type UpdateOffer } from "./harnessHealthNoticeModel";
 import { NoticeSlot } from "./NoticeSlot";
 
 /// The started Codex chat the notice sits in.
@@ -23,9 +25,31 @@ type Props = {
   updater?: "ok" | "fails" | "pending";
   /// A turn is running, so `harness.restart` holds the restart until it ends.
   midTurn?: boolean;
+  /// This Mac's daemon runs the agent's own login: Log In is the in-place sign-in card (logins done
+  /// right), its code held on screen.
+  inPlace?: boolean;
 };
 
-function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false }: Props) {
+/// The agent's own login as this Mac's daemon answers it: Codex's device code, the approval held.
+const heldSignIn: CloudSignInActions = {
+  agent: "codex",
+  start: async () => ({
+    loginId: "gallery-login",
+    url: "https://auth.openai.com/codex/device",
+    userCode: "K7QX-29PF",
+    needsCode: false,
+  }),
+  open: () => undefined,
+  openOnMachine: async () => false,
+  finish: () => new Promise<boolean>(() => {}),
+  apiKey: async () => true,
+  gateway: async () => true,
+  cancel: () => undefined,
+  reserve: async () => undefined,
+  resend: async () => {},
+};
+
+function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false, inPlace = false }: Props) {
   const [opened, setOpened] = useState<string>();
   const [calls, setCalls] = useState<string[]>([]);
   const [offer, setOffer] = useState<UpdateOffer>();
@@ -35,7 +59,13 @@ function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false }:
       return Promise.resolve(midTurn ? { restarted: 0, after_turn: 1 } : { restarted: 1, after_turn: 0 });
     if (updater === "pending") return new Promise<never>(() => undefined);
     return Promise.resolve(
-      updater === "fails" ? { ok: false, error: "npm exited with status 1" } : { ok: true, version: health.latest },
+      updater === "fails"
+        ? {
+            ok: false,
+            error:
+              "npm error code EACCES\nnpm error syscall rename\nnpm error path /usr/local/lib/node_modules/@openai/codex\nnpm error errno -13",
+          }
+        : { ok: true, version: health.latest },
     );
   };
   return (
@@ -73,6 +103,7 @@ function GalleryHarnessHealthNotice({ health, updater = "ok", midTurn = false }:
               cwd="/Users/you/src/cmux"
               open={({ text }) => setOpened(text)}
               native={native}
+              {...(inPlace && { signIn: heldSignIn })}
               turnRunning={midTurn}
               onOffer={setOffer}
             />
@@ -94,6 +125,11 @@ const runLogin: Play = async (ctx) => {
       ctx.document.querySelector('[data-harness-opened="true"]')?.getAttribute("data-harness-command") ===
       "codex login",
   );
+};
+
+const signInInPlace: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Sign in to Codex" });
+  await ctx.waitFor(() => ctx.document.querySelector("[data-harness-notice]")?.textContent?.includes("K7QX-29PF"));
 };
 
 const runUpdate: Play = async (ctx) => {
@@ -168,6 +204,11 @@ export default componentEntry<Props>({
   },
   load: async () => GalleryHarnessHealthNotice,
   variants: {
+    "signed-out-in-place": {
+      note: "Logins done right: where this Mac's daemon runs Codex's login, Log In is the sign-in card, the code in place, no terminal tab.",
+      props: { health: signedOut, inPlace: true },
+      play: signInInPlace,
+    },
     "signed-out": {
       note: "A signed-out Codex CLI says so inline and offers Log In in the chat's folder.",
       props: { health: signedOut },
@@ -197,7 +238,7 @@ export default componentEntry<Props>({
       play: runRestartAfterTurn,
     },
     "update-failed": {
-      note: "A failed update shows the updater's error inline with Try Again and Not Now.",
+      note: "A failed update says so in one plain line, with Update in Terminal and Try Again; npm's own words wait under Details with Copy error.",
       props: { health: outdated, updater: "fails" },
       play: runFailed,
     },

@@ -39,8 +39,8 @@ extension WebKitTab: WKNavigationDelegate {
 
         if !Self.isWebScheme(url) {
             decisionHandler(.cancel, preferences)
-            // The shared opener admits cmux's sign-in return without a
-            // gesture, with app-opening consent. Other links need a click.
+            // The shared opener prompts for every non-gesture navigation,
+            // including sign-in returns, before handing it to another app.
             if navigationAction.targetFrame?.isMainFrame ?? true {
                 BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, ask: enqueuePrompt)
             }
@@ -86,6 +86,8 @@ extension WebKitTab: WKNavigationDelegate {
             // A video sent as a generic file plays in the tab, at its own address. A simulated
             // load, not `loadHTMLString`: the player takes the video's place in the back list.
             decisionHandler(.cancel)
+            // WebKit lets a decision outlive a suspend (`WebPageProxy::receivedNavigationResponsePolicyDecision`).
+            guard resumeIfSuspended() else { return }
             webView.loadSimulatedRequest(URLRequest(url: url), responseHTML: RemoteVideoPage.html(for: url))
         } else if navigationResponse.isForMainFrame, isAttachment || !navigationResponse.canShowMIMEType {
             // The page that started the navigation counts the download.
@@ -199,11 +201,15 @@ extension WebKitTab: WKNavigationDelegate {
         // A page the system ended for memory reloads by itself once, now when on screen, else
         // when next shown (`BrowserExitRecovery`); any other end shows the sad tab and waits.
         let pressure = memoryPressure()
-        let owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        var owed = exitRecovery.processEnded(exit, pressure: pressure, now: .now)
+        // Exit page on a hung page (`answerUnresponsivePage`) is the person's end: the sad tab waits for their Reload.
+        if endedByPerson { endedByPerson = false; exitRecovery.cancel(); owed = false }
         let tabID = id.rawValue
         processLogger.error("web content process ended tab=\(tabID, privacy: .public) reason=\(exit.reason.rawValue, privacy: .public) pressure=\(pressure.rawValue, privacy: .public) \(owed ? "reloads once by itself (memory)" : "no automatic reload", privacy: .public)")
         apply(.processExited(exit))
         if owed, webView.window?.isVisible == true, !webView.isHiddenOrHasHiddenAncestor { reloadOwedAfterExit() }
+        // Last: the host may close this tab to replace it.
+        frozenPageEnded()
     }
 
     /// Takes the one automatic reload a memory end owes (`exitRecovery`), if the sad tab still shows.
@@ -268,6 +274,18 @@ extension WebKitTab: WKUIDelegate {
         // Stored per-site decisions answer without asking (PageInfo).
         decidePermission(kind, origin: Self.displayOrigin(origin)) { decisionHandler($0 ? .grant : .deny) }
     }
+
+    /// getDisplayMedia() has only a private WKUIDelegate method; without it WebKit never answers the
+    /// page (a Meet screen share stayed pending). `screenPrompt` (1) lets WebKit show the system's
+    /// own screen picker, which is the person's consent; `deny` (0) rejects with NotAllowedError.
+    @objc(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:)
+    func requestDisplayCapture(_ webView: WKWebView, origin: WKSecurityOrigin, frame: WKFrameInfo, withSystemAudio: Bool,
+                               decisionHandler: @escaping @MainActor (Int) -> Void) {
+        decisionHandler(Self.displayCaptureDecision)
+    }
+
+    /// `_WKDisplayCapturePermissionDecisionScreenPrompt`.
+    static let displayCaptureDecision = 1
 
     // Location, notifications and the page's window.print() have only private
     // WKUIDelegate methods (WKUIDelegatePrivate); without them WebKit refuses

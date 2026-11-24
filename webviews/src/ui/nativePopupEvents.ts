@@ -1,4 +1,4 @@
-import type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./popupProtocol";
+import { nativePopupRows, type NativePopupEvent, type NativePopupModel, type NativePopupRow } from "./popupProtocol";
 
 type Identity = { fingerprint: string; since: number; row: NativePopupRow };
 
@@ -53,7 +53,7 @@ export class NativePopupEventFence {
         if (row.children) visit(row.children, [...ancestry, row.id]);
       }
     };
-    visit([...(model.rail ?? []), ...model.rows, ...(model.footer ?? [])], []);
+    visit(nativePopupRows(model), []);
     this.rows = next;
     this.railed = (model.rail?.length ?? 0) > 0;
     if (model.search && !model.search.disabled) {

@@ -38,14 +38,27 @@ package final class DesktopNotifier: NSObject {
         package var approval = false
         /// The banner's action set (`defaultCategory`, `replyCategory`, the approval one, ...).
         package var category: String?
+        /// An incognito window's banner: the lists name nothing of the window, its surface included.
+        package var incognito = false
+        /// When the app asked for the banner (wall clock), stamped where it is posted so a reader times the
+        /// app's hop from the daemon notification's `created_at_ms` without polling (`posted_at_ms`).
+        package var postedAt = Date()
     }
+
+    /// The id prefix of a daemon notification's banner, whose click shows its tab: the only banners a
+    /// script may open (`notifications.open`).
+    package nonisolated static let tabBannerPrefix = "cmux-notification-"
+    /// A script's open of a tab banner (`notifications.open`): only the tab-showing part of a click,
+    /// never a passkey ceremony, a page's click handler or another banner's own route.
+    package var onOpenTab: ((_ id: String, _ surface: UInt64?) -> Void)?
 
     /// Banner clicked: the notification id and its tab's surface handle.
     package var onOpen: ((_ id: String, _ surface: UInt64?) -> Void)?
     /// A reply banner's text sent: the notification id, its tab's surface handle and the text.
     package var onReply: ((_ id: String, _ surface: UInt64?, _ text: String) -> Void)?
     /// An approval banner's Allow once (true) or Deny (false): the notification id, its tab's surface handle.
-    package var onApprove: ((_ id: String, _ surface: UInt64?, _ allow: Bool) -> Void)?
+    /// `always`: the banner's Always allow (an allow that lasts), where its prompt offers one.
+    package var onApprove: ((_ id: String, _ surface: UInt64?, _ allow: Bool, _ always: Bool) -> Void)?
     /// Mark as Read: the notification id and its tab's surface handle; the tab is read, not opened.
     package var onMarkRead: ((_ id: String, _ surface: UInt64?) -> Void)?
     /// The category of banners with a Reply field, and its action.
@@ -108,15 +121,16 @@ package final class DesktopNotifier: NSObject {
     /// (OSC 7501 alerts), written to a file only for a banner the center
     /// will take (it moves the file); a failed one is deleted.
     package func post(id: String, title: String, subtitle: String? = nil, body: String, surface: UInt64?, workspace: String?,
-              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, category: String? = nil,
-              incognito: Bool = false) {
+              defaultSound: Bool, attachment: Data? = nil, reply: Bool = false, approval: Bool = false, alwaysAllow: Bool = false,
+              category: String? = nil, incognito: Bool = false) {
         // An incognito window's banner names nothing of it (DesktopNotifier+Incognito); `posted` records what it shows.
         let title = incognito ? Self.incognitoTitle : title, subtitle = incognito ? nil : subtitle, body = incognito ? Self.incognitoBody : body
         let attachment = incognito ? nil : attachment, approval = approval && !incognito
-        let category = category ?? (approval ? AgentApprovalBanners.category : reply ? Self.replyCategory : Self.defaultCategory)
+        let approvalCategory = alwaysAllow ? AgentApprovalBanners.alwaysCategory : AgentApprovalBanners.category
+        let category = category ?? (approval ? approvalCategory : reply ? Self.replyCategory : Self.defaultCategory)
         posted.append(Posted(id: id, title: title, subtitle: subtitle, body: body, surface: surface,
                              sound: defaultSound ? "default" : nil, attachment: attachment, reply: reply,
-                             approval: approval, category: category))
+                             approval: approval, category: category, incognito: incognito))
         if posted.count > Self.postedLimit { posted.removeFirst(posted.count - Self.postedLimit) }
         guard let center = resolvedCenter() else { return }
         let content = UNMutableNotificationContent()
@@ -194,6 +208,11 @@ package final class DesktopNotifier: NSObject {
         onOpen?(id, surface)
     }
 
+    /// A script's open of a tab banner (`notifications.open`): shows its tab, nothing else.
+    package func openTab(id: String, surface: UInt64?) {
+        onOpenTab?(id, surface)
+    }
+
     /// The Reply field's Send path, also used by `debug.notifications` (reply).
     package func reply(id: String, surface: UInt64?, text: String) {
         onReply?(id, surface, text)
@@ -204,9 +223,10 @@ package final class DesktopNotifier: NSObject {
         onMarkRead?(id, surface)
     }
 
-    /// An approval banner's Allow once or Deny, also used by `debug.notifications` (allow, deny).
-    package func approve(id: String, surface: UInt64?, allow: Bool) {
-        onApprove?(id, surface, allow)
+    /// An approval banner's Allow once, Always allow (`always`) or Deny, also used by
+    /// `debug.notifications` (allow, always_allow, deny).
+    package func approve(id: String, surface: UInt64?, allow: Bool, always: Bool = false) {
+        onApprove?(id, surface, allow, always)
     }
 
     /// CEF embeds the same executable in helper app bundles whose identifiers
@@ -250,8 +270,8 @@ package final class DesktopNotifier: NSObject {
             center.removeAllDeliveredNotifications()
             center.removeAllPendingNotificationRequests()
         }
-        center.setNotificationCategories([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(), AgentApprovalBanners.notificationCategory(),
-                                          IPhonePairNotices.notificationCategory()])
+        center.setNotificationCategories(Set([Self.defaultBannerCategory(), Self.replyBannerCategory(), Self.attentionBannerCategory(),
+                                              IPhonePairNotices.notificationCategory()] + AgentApprovalBanners.notificationCategories()))
         self.center = center
         return center
     }
@@ -281,11 +301,11 @@ package final class DesktopNotifier: NSObject {
     private static func replyBannerCategory() -> UNNotificationCategory {
         let action = UNTextInputNotificationAction(
             identifier: replyAction,
-            title: String(localized: "notifications.reply.action", defaultValue: "Reply", bundle: .module),
+            title: String(localized: "notifications.reply.action", defaultValue: "Reply", bundle: .localizedModule),
             // A reply ends in Return in a terminal: the Mac must be unlocked to send one.
             options: [.authenticationRequired],
-            textInputButtonTitle: String(localized: "notifications.reply.send", defaultValue: "Send", bundle: .module),
-            textInputPlaceholder: String(localized: "notifications.reply.placeholder", defaultValue: "Reply to the terminal…", bundle: .module)
+            textInputButtonTitle: String(localized: "notifications.reply.send", defaultValue: "Send", bundle: .localizedModule),
+            textInputPlaceholder: String(localized: "notifications.reply.placeholder", defaultValue: "Reply to the terminal…", bundle: .localizedModule)
         )
         return UNNotificationCategory(identifier: replyCategory, actions: [action, markReadBannerAction()], intentIdentifiers: [])
     }
@@ -293,21 +313,21 @@ package final class DesktopNotifier: NSObject {
     /// Other banners' category: Open (brings cmux to the tab) and Mark as Read (reads it in place).
     private static func defaultBannerCategory() -> UNNotificationCategory {
         let open = UNNotificationAction(identifier: openAction,
-                                        title: String(localized: "notifications.action.open", defaultValue: "Open", bundle: .module),
+                                        title: String(localized: "notifications.action.open", defaultValue: "Open", bundle: .localizedModule),
                                         options: [.foreground])
         return UNNotificationCategory(identifier: defaultCategory, actions: [open, markReadBannerAction()], intentIdentifiers: [])
     }
 
     /// Needs you banners' category: Show, which brings cmux to the marked tab.
     package static func attentionBannerCategory() -> UNNotificationCategory {
-        let show = UNNotificationAction(identifier: showAction, title: String(localized: "notifications.attention.show", defaultValue: "Show", bundle: .module), options: [.foreground])
+        let show = UNNotificationAction(identifier: showAction, title: String(localized: "notifications.attention.show", defaultValue: "Show", bundle: .localizedModule), options: [.foreground])
         return UNNotificationCategory(identifier: attentionCategory, actions: [show], intentIdentifiers: [])
     }
 
     /// Mark as Read: reads the banner's tab without bringing cmux forward.
     private static func markReadBannerAction() -> UNNotificationAction {
         UNNotificationAction(identifier: markReadAction,
-                             title: String(localized: "notifications.action.markRead", defaultValue: "Mark as Read", bundle: .module))
+                             title: String(localized: "notifications.action.markRead", defaultValue: "Mark as Read", bundle: .localizedModule))
     }
 }
 
@@ -327,10 +347,12 @@ extension DesktopNotifier: UNUserNotificationCenterDelegate {
         let markRead = response.actionIdentifier == Self.markReadAction
         let replied = response.actionIdentifier == Self.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
         let approved = AgentApprovalBanners.decision(response.actionIdentifier)
+        let always = AgentApprovalBanners.isAlways(response.actionIdentifier)
         Task { @MainActor [weak self] in
             if isDefault { self?.open(id: id, surface: surface) }
             if let replied { self?.reply(id: id, surface: surface, text: replied) }
             if let approved { self?.approve(id: id, surface: surface, allow: approved) }
+            if always { self?.approve(id: id, surface: surface, allow: true, always: true) }
             if markRead { self?.markRead(id: id, surface: surface) }
         }
         completionHandler()

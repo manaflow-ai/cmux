@@ -20,66 +20,32 @@ import { useContext, useEffect, useState, type CSSProperties, type ReactNode } f
 import { useT } from "../i18n";
 import { ImageIcon, Lock } from "../conversation/icons";
 import { knownImageSize, rememberImageSize } from "../conversation/imageEntries";
+import { useUnsettledHeight } from "../conversation/unsettledHeights";
+import { useViewportReach } from "../useNearViewport";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { callChipHost } from "./host";
-import { DataUrlCache, IMAGE_CACHE_MAX_CHARS, IMAGE_CACHE_MAX_ENTRIES } from "./imageCache";
+
 import { ElsewhereChip } from "./LinkChips";
 import { useMessageScope } from "./messageScope";
-import { usePathInfo, useReplyPolicy, type ReplyPolicy } from "./linkStore";
-import { isRemoteMedia, mediaKind, RemoteMedia, ReplyMedia } from "./ReplyMedia";
-import { isDeniedPath, isTemplatePath, linkPath, pathName } from "./paths";
+import { usePathInfo, useReplyPolicy } from "./linkStore";
+import { RemoteMedia, ReplyMedia } from "./ReplyMedia";
+import { mediaKind } from "./replyMediaModel";
+import { isRemoteMedia } from "./replyMediaModel";
+import { isDeniedPath, isTemplatePath, pathName } from "./paths";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
+import {
+  localImageSource,
+  remoteImageHost,
+  loadsWithoutClick,
+  started,
+  declined,
+  loaded,
+  clicked,
+  waiting,
+  loadEnded,
+} from "./replyImageModel";
 
 type State = { kind: "idle" } | { kind: "loading" } | { kind: "shown"; src: string } | { kind: "failed" };
-
-/// A local image: an absolute path, a `file://` URL or a relative path (from the session's folder).
-export function localImageSource(src: string): string | undefined {
-  if (isTemplatePath(src)) return undefined;
-  const path = linkPath(src);
-  if (path) return path;
-  if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(src) || src.startsWith("//") || src.startsWith("#") || src.startsWith("?"))
-    return undefined;
-  return src.split(/[?#]/)[0] || undefined;
-}
-
-/// The https image's site, or undefined for anything else.
-export function remoteImageHost(src: string): string | undefined {
-  try {
-    const url = new URL(src);
-    return url.protocol === "https:" && !url.username && !url.password ? url.host : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-/// Whether the web image at `src` loads without a click under `click`: it is written exactly
-/// `https://<a host the host named>/…` (lowercase, no port, user info, backslash or space before
-/// the path), the same test the host makes on the same string, so the two never disagree.
-export function loadsWithoutClick(src: string, policy: ReplyPolicy): boolean {
-  if (policy.remoteImages !== "click" || !Array.isArray(policy.clickFreeImageHosts)) return false;
-  return policy.clickFreeImageHosts.some((host) => typeof host === "string" && src.startsWith(`https://${host}/`));
-}
-
-/// Sources an automatic load started for, so a render twice in a row asks the host once.
-const started = new Set<string>();
-/// Images that loaded on their own (a file in the folders, a web image under "always"), the most
-/// recently drawn first. One it forgets loads again on its own when it draws.
-const loaded = new DataUrlCache(IMAGE_CACHE_MAX_ENTRIES, IMAGE_CACHE_MAX_CHARS, (src) => started.delete(src));
-/// Images the reader loaded with "Load image". They stay: loading one again would need another
-/// click (the host spends a gesture on each), so forgetting it would leave its placeholder.
-const clicked = new Map<string, string>();
-
-/// Instances waiting on a load another instance of the same source started (the transcript's tile and
-/// the Gallery's, say): they hear when it ends, since `started` keeps them from asking the host again.
-const waiting = new Map<string, Set<() => void>>();
-const loadEnded = (src: string) => {
-  // Waiters stay until they unmount or show the image: one that wakes to a failed load may find
-  // another instance already retrying, and must hear that retry end too.
-  waiting.get(src)?.forEach((wake) => wake());
-};
-
-/// The data URL a local or web image already loaded to, if it has (the image viewer steps to it).
-export const loadedImageSrc = (src: string): string | undefined => clicked.get(src) ?? loaded.get(src);
 
 /// `auto`: load without a click. `clickFree`: that load is one the host may refuse (the image is
 /// not one it calls click-free after all); the page tells it so (`auto: true`), so a refusal spends
@@ -95,11 +61,13 @@ function useImageLoad(src: string, auto: boolean, clickFree = false) {
     void callChipHost("image.load", asked ? { src, auto: true } : { src }).then((reply) => {
       const data = (reply as { src?: unknown } | undefined)?.src;
       if (typeof data === "string" && data.startsWith("data:image/")) {
+        declined.delete(src);
         if (byClick) clicked.set(src, data);
         else loaded.set(src, data);
         setState({ kind: "shown", src: data });
       } else if (asked) {
         // `started` keeps it, so it is not asked again by itself; a click loads it as any other.
+        declined.add(src);
         setState({ kind: "idle" });
       } else {
         started.delete(src);
@@ -152,23 +120,34 @@ export function OpenableImage({
   // is a narrow column, not a centred column in a wide box: from its first paint when its size is known
   // (its data URL's header, or the size it drew at before), else once it loads. Until then it keeps the
   // fixed frame, so a slow image holds its place.
-  const [natural, setNatural] = useState(() => (thumb ? knownImageSize(src) : undefined));
+  // A reply image (not a thumbnail) takes its box from its width and height attributes, known the
+  // same way, so it too is drawn at its own height before it decodes.
+  const [natural, setNatural] = useState(() => knownImageSize(src));
+  // A thumbnail whose size is not known yet, or a reply image (its height is the image's) not loaded
+  // yet, takes another height once it loads: an opening chat waits for it (unsettledHeights.ts).
+  // A lazy image a screen or more away (or in a hidden pane) loads only once the reader comes near it,
+  // so nothing waits on it then.
+  const [ended, setEnded] = useState(false);
+  const [element, setElement] = useState<HTMLImageElement | null>(null);
+  const reach = useViewportReach(element);
+  useUnsettledHeight(!ended && !natural && reach !== "far");
   const image = (
     <img
+      ref={setElement}
       className={thumb ? "cv-thumb__img" : "cv-img"}
       src={src}
+      width={!thumb ? natural?.width : undefined}
+      height={!thumb ? natural?.height : undefined}
       alt={alt}
       loading="lazy"
-      onLoad={
-        thumb
-          ? (event) => {
-              const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
-              if (!(width > 0 && height > 0)) return;
-              rememberImageSize({ src }, { width, height });
-              setNatural((known) => (known?.width === width && known.height === height ? known : { width, height }));
-            }
-          : undefined
-      }
+      onLoad={(event) => {
+        setEnded(true);
+        const { naturalWidth: width, naturalHeight: height } = event.currentTarget;
+        if (!(width > 0 && height > 0)) return;
+        rememberImageSize({ src }, { width, height });
+        setNatural((known) => (known?.width === width && known.height === height ? known : { width, height }));
+      }}
+      onError={() => setEnded(true)}
       // Decode the host-backed source as part of this paint so the final pixels do not arrive in a
       // second, visibly different frame.
       decoding="sync"
@@ -274,6 +253,9 @@ function LocalImage({
   const outsideLoads = policy.outsideRoots === "open";
   const loadable = answered && !denied && (place !== "outside" || outsideLoads) && place !== "missing";
   const { state } = useImageLoad(src, loadable);
+  // Waiting on the host (its answer about the file, then the file itself), the image draws in a
+  // frame of another shape than its own: an opening chat waits for it (unsettledHeights.ts).
+  useUnsettledHeight(!denied && (!answered || (loadable && (state.kind === "idle" || state.kind === "loading"))));
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} path={path} thumb={thumb} />;
   if (denied) return <span className="cv-chip-plain">{alt || pathName(path)}</span>;
   if (place === "missing" && hideMissing) return null;
@@ -326,7 +308,11 @@ function RemoteImage({
   const t = useT();
   const policy = useReplyPolicy();
   const clickFree = loadsWithoutClick(src, policy);
-  const { state, load } = useImageLoad(src, policy.remoteImages === "always" || clickFree, clickFree);
+  const auto = policy.remoteImages === "always" || clickFree;
+  const { state, load } = useImageLoad(src, auto, clickFree);
+  // A web image that loads by itself is on its way: an opening chat waits for it, as for a file.
+  // One the host declined to load without a click waits for its click: nothing waits on it.
+  useUnsettledHeight(auto && (state.kind === "loading" || (state.kind === "idle" && !declined.has(src))));
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   const placeholder = (

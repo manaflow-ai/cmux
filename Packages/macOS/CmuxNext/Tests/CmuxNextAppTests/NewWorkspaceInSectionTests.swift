@@ -29,8 +29,9 @@ import Testing
         var sections = sections(home: home)
         let rule = NewWorkspaceDefaultSlot(placement: placement, current: nil)
         guard let slot = rule.slot(for: "n", section: .machine(.local), in: sections, home: home ? "home" : nil) else { return nil }
-        // The daemon's create already put it at the section's top: the app sends no second move for it.
-        #expect(rule.move(for: "n", section: .machine(.local), in: sections, home: home ? "home" : nil) == nil)
+        // The daemon's create anchors its `top` to its active workspace (first in that one's group, cmux#50539), which
+        // this window's rule does not name: the app sends the section's top itself.
+        #expect(rule.move(for: "n", section: .machine(.local), in: sections, home: home ? "home" : nil) == slot)
         let position = try #require(slot.position(moving: ["n"], section: .machine(.local), in: sections))
         #expect(SidebarEdits.apply(.reorder([WorkspaceID("n")], to: position), to: &sections))
         var loose: [String] = [], group: [String] = []
@@ -60,9 +61,9 @@ import Testing
         #expect(try Self.placed(.bottom, home: false) == nil)
     }
 
-    /// The fallback Leo named (2026-11-06: "you should just have it right next to it"): with no setting a new
-    /// workspace goes right after the current one.
-    @Test func theDefaultIsAfterCurrent() {
-        #expect(CmuxConfigSnapshot.newWorkspacePlacementFallback == .afterCurrent)
+    /// With no setting a new workspace goes first, below Pinned and Home (Lawrence 2026-11-12: "by default
+    /// all new workspaces should go to the top").
+    @Test func theDefaultIsTop() {
+        #expect(CmuxConfigSnapshot.newWorkspacePlacementDefault == .top)
     }
 }

@@ -312,8 +312,12 @@ fn the_chief_tool_list_is_unchanged() {
         .iter()
         .map(|t| t["name"].as_str().unwrap().to_owned())
         .collect();
-    assert_eq!(names[..4], ["zoom", "date", "spawn", "tell"]);
-    assert!(!names.iter().any(|n| n.starts_with("memory_")), "{names:?}");
+    assert_eq!(names[..5], ["zoom", "date", "recall", "spawn", "tell"]);
+    // The Chief's own memory files (memory_read/write/forget) are its; the
+    // agent-memory server's tools never are.
+    for agent_tool in ["memory_search", "memory_get", "memory_remember"] {
+        assert!(!names.iter().any(|n| n == agent_tool), "{names:?}");
+    }
 }
 
 /// A memory file written while a rebuild reads the sources: its mtime is

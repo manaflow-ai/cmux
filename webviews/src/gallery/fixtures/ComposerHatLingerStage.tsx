@@ -21,15 +21,24 @@ const NO_WAITING: ReadonlySet<string> = new Set();
 const shown = { current: "gallery-linger" as string | undefined };
 const TASKS = ["Review the fleet queue", "Check the docs agree", "Watch the nightly", "Read the build log"];
 
-export type ComposerHatLingerState = "running" | "finished" | "three";
+export type ComposerHatLingerState = "running" | "finished" | "three" | "lone";
 
 export function ComposerHatLingerStage({
   start = "running",
   grace = 2_000,
+  cooldown = 0,
+  together = 0,
+  looks = false,
 }: {
   start?: ComposerHatLingerState;
   /// The linger's grace, short here so the expiry can be watched (the app's is TRAY_LINGER_MS).
   grace?: number;
+  /// After a look ends, nothing goes for this long (the app's is TRAY_LOOK_COOLDOWN_MS); 0, none.
+  cooldown?: number;
+  /// Lines due within this long of the first leave with it (TRAY_LEAVE_TOGETHER_MS); 0, one by one.
+  together?: number;
+  /// The grace counts only while the hat could be seen (SubagentTray.tsx `onSeen`), as in the app.
+  looks?: boolean;
 }) {
   const [clock] = useState(() => Date.now());
   const [command, setCommand] = useState<BackgroundCommand["state"] | undefined>(
@@ -37,12 +46,13 @@ export function ComposerHatLingerStage({
   );
   // When the command ended: stamped when it finishes or fails, so its time is what it ran.
   const [endedAt, setEndedAt] = useState(clock);
-  const [agents, setAgents] = useState(start === "three" ? 3 : 1);
+  const [agents, setAgents] = useState(start === "three" ? 3 : start === "lone" ? 0 : 1);
   const end = (state: BackgroundCommand["state"]) => {
     setEndedAt(Date.now());
     setCommand(state);
   };
   const [held, setHeld] = useState(false);
+  const [seen, setSeen] = useState(true);
   const commands: BackgroundCommand[] = command
     ? [
         {
@@ -56,19 +66,22 @@ export function ComposerHatLingerStage({
         },
       ]
     : [];
+  // When each subagent finished, by index (the stage's "Subagent finishes" ends the next one).
+  const [agentEnds, setAgentEnds] = useState<readonly number[]>([]);
   const subagents: Subagent[] = Array.from({ length: agents }, (_, index) => ({
     id: `gallery-linger-agent-${index}`,
     parent: null,
     name: TASKS[index % TASKS.length]!,
     task: TASKS[index % TASKS.length]!,
     action: "Read docs/fleet.md",
-    state: "running",
+    state: agentEnds[index] === undefined ? "running" : "done",
     startedAt: clock - 30_000 + index * 1_000,
+    ...(agentEnds[index] === undefined ? {} : { endedAt: agentEnds[index] }),
   }));
   const items = useMemo(
     () => trayItems(subagents, commands, [], true),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the stage's own state is the key
-    [agents, command],
+    [agents, command, agentEnds],
   );
   const ended = useMemo((): TrayItem[] => {
     const done = commands.filter((entry) => entry.state !== "running");
@@ -77,15 +90,18 @@ export function ComposerHatLingerStage({
       ...finishedTrayItems(subagents, []),
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the stage's own state is the key
-  }, [agents, command, endedAt]);
+  }, [agents, command, endedAt, agentEnds]);
   const live = useMemo(() => items.map(trayItemKey), [items]);
   const candidates = useMemo(
     () => ended.map((item) => ({ key: trayItemKey(item), endedAt: trayItemEnd(item) })),
     [ended],
   );
-  const lingerOptions = useMemo(() => ({ grace }), [grace]);
-  const kept = useTrayLinger("gallery-linger", live, candidates, held, lingerOptions);
-  const finished = useMemo(() => lingeringTrayItems(ended, kept), [ended, kept]);
+  const lingerOptions = useMemo(
+    () => ({ grace, cooldown, together, seen: looks ? seen : true }),
+    [grace, cooldown, together, looks, seen],
+  );
+  const lingering = useTrayLinger("gallery-linger", live, candidates, held, lingerOptions);
+  const finished = useMemo(() => lingeringTrayItems(ended, lingering.kept, lingering.ends), [ended, lingering]);
   const empty = items.length + finished.length === 0;
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--agent-page-bg)" }}>
@@ -113,6 +129,13 @@ export function ComposerHatLingerStage({
         <button type="button" data-stage="leave" onClick={() => setAgents((current) => Math.max(0, current - 1))}>
           Subagent leaves
         </button>
+        <button
+          type="button"
+          data-stage="agent-finish"
+          onClick={() => setAgentEnds((current) => (current.length < agents ? [...current, Date.now()] : current))}
+        >
+          Subagent finishes
+        </button>
         <span data-stage-held={held || undefined} data-stage-empty={empty || undefined}>
           {held ? "Held: nothing expires" : `Not held: what ended goes after ${grace / 1000}s`}
         </span>
@@ -133,6 +156,7 @@ export function ComposerHatLingerStage({
               onOpen={() => undefined}
               shown={shown}
               onHold={setHeld}
+              onSeen={looks ? setSeen : undefined}
             />
           )}
           <div className="acpmux-composer">

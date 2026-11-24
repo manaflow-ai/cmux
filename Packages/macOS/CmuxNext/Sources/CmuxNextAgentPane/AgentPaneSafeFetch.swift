@@ -49,7 +49,17 @@ nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
     /// download count and a repository's traffic page show its owner each fetch. A click-free
     /// load's redirects must stay on this list too (``fetch(_:within:)``). Leo, 2026-10-23, of a
     /// before/after pair whose second image waited on Load image: "i feel like this is a bit lame idk".
-    static let clickFreeImageHosts: Set<String> = ["raw.githubusercontent.com"]
+    ///
+    /// The account-picture hosts are there for a signed-in guest's face in a shared chat (acpmux's
+    /// `fromAvatar`, which the platform reads from the guest's own cmux account, cmux#38083 F3):
+    /// GitHub's and Google's sign-in pictures (avatars.githubusercontent.com,
+    /// lh3.googleusercontent.com) tell an uploader nothing about who fetched them, and cmux.com is
+    /// ours. Leo, ask-2a1105b933: "as if the user sent it, but, like, with their profile avatar
+    /// picture instead".
+    static let clickFreeImageHosts: Set<String> = [
+        "raw.githubusercontent.com",
+        "avatars.githubusercontent.com", "lh3.googleusercontent.com", "cmux.com",
+    ]
 
     /// Whether the reply image `src` loads without a click under `click`: it is written exactly
     /// `https://<a click-free host>/…` (lowercase, no port, user info, backslash or space before

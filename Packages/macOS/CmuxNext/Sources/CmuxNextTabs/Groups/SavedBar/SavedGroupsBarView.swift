@@ -74,9 +74,10 @@ public final class SavedGroupsBarView: NSView {
             }
         }
         tokenObservation = Task { [weak self] in
-            for await snapshot in ObservationStream({ TabStripMetrics() }) {
+            for await snapshot in ObservationStream({ (TabStripMetrics(), GroupChipGlass.current) }) {
                 guard let self else { return }
-                if snapshot != self.metrics { self.sync() }
+                for chip in self.chips.values { chip.look = snapshot.1 }
+                if snapshot.0 != self.metrics { self.sync() }
             }
         }
     }
@@ -211,6 +212,6 @@ public final class SavedGroupsBarView: NSView {
 
     public override func menu(for event: NSEvent) -> NSMenu? {
         guard let id = chip(at: convert(event.locationInWindow, from: nil)) else { return nil }
-        return contextMenuProvider?(.savedGroup(id))
+        return NSMenu.withoutSystemItems(contextMenuProvider?(.savedGroup(id)))
     }
 }

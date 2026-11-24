@@ -23,51 +23,40 @@
 // until its own transition ends, then it goes, so idle keeps no count and no room for one. The motion
 // gate (`data-cmux-motion`, WebTheme) ends the transitions at once, and then the mark goes in the
 // same frame. Arms in composerHat.experiment.ts.
-import React, { useLayoutEffect, useRef, useState } from "react";
+//
+// The count is the real one, never "99+" (Leo, 2026-11-22: "this can probably afford to show more
+// than 99 numbers. and have better animations for transitioning between numbers and digit
+// lengths."): 128, then 1.2k (trayPullTabModel.ts), its digits rolling as it changes (HatCount.tsx,
+// hatCount.experiment.ts). A digit gained or lost eases the slot's width, so the pill grows about its
+// own anchor (its centre, or its corner's side when it stands at a side) and nothing beside it moves.
+// What it counts: the hat's lines that run now (pullTabCounts). What ended is never counted; it
+// lingers in the open hat a while and then expires (trayLinger.ts).
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { setTrayTucked, type TrayHandleSide } from "../chatDisplay";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { subagentStatus } from "../summary/subagentStatusListModel";
-import type { TrayItem } from "./runningTray";
 import { composerHatLook } from "./composerHat.experiment";
-import { asksPerson } from "./trayAttention";
 import { rememberTrayOpen } from "./trayFoldMemory";
-
-/// The hat's own chevron (SubagentTray.tsx `onTuck`): one function, so the memoized tray keeps its props.
-export const tuckTray = () => setTrayTucked(true);
-
-/// The tab's count as it reads: its control is sized for two digits, so a hundred or more reads "99+".
-export const pullTabCountText = (running: number): string => (running > 99 ? "99+" : String(running));
+import { HatCount } from "./HatCount";
+import { hatCountMotion } from "./hatCount.experiment";
+import { pullTabCountText, pullTabCountWidth } from "./trayPullTabModel";
 
 /// What the hat shows past its chevron: the needs-you dot or the running count.
-type PullMark = { kind: "dot" } | { kind: "count"; text: string };
+type PullMark = { kind: "dot" } | { kind: "count"; text: string; value: number };
 
 const sameMark = (a: PullMark | undefined, b: PullMark | undefined) =>
   a?.kind === b?.kind && (a?.kind !== "count" || a.text === (b as { text: string }).text);
 
 /// The slot's width past the chevron: the dot's size, or one tabular digit (`ch` in the count's own
-/// font, subagents.css) per character, so a tick from 3 to 4 keeps the width and 9 to 10 eases it.
+/// font, subagents.css) per character (half one for a decimal point, pullTabCountWidth), so a tick
+/// from 3 to 4 keeps the width and 9 to 10 eases it.
 const markWidth = (mark: PullMark | undefined): string | undefined =>
-  mark === undefined ? undefined : mark.kind === "dot" ? "var(--acpmux-tray-pull-dot)" : `${mark.text.length}ch`;
-
-/// What the tucked tab flags: the lines that wait on the person (counted as the hat's header counts
-/// them, trayHeadKinds.ts) and the ones that run. A chat queued for a run slot waits on cmux, not on
-/// the person: it counts with what runs, never as a dot (trayAttention.ts asksPerson).
-export function pullTabCounts(
-  items: readonly TrayItem[],
-  waiting: ReadonlySet<string>,
-): { waiting: number; running: number } {
-  let waits = 0;
-  for (const item of items)
-    if (
-      item.kind === "agent"
-        ? subagentStatus(item.agent, waiting) === "waiting"
-        : item.kind === "session" && asksPerson(item.session)
-    )
-      waits += 1;
-  return { waiting: waits, running: items.length - waits };
-}
+  mark === undefined
+    ? undefined
+    : mark.kind === "dot"
+      ? "var(--acpmux-tray-pull-dot)"
+      : `${pullTabCountWidth(mark.text)}ch`;
 
 export function TrayPullTab({
   chat,
@@ -75,6 +64,8 @@ export function TrayPullTab({
   running,
   working,
   side,
+  quiet = false,
+  capped = false,
 }: {
   /// The chat whose hat comes back: the click sets how it opens (trayFoldMemory.ts).
   chat: string | undefined;
@@ -85,11 +76,21 @@ export function TrayPullTab({
   /// Something runs that the tab does not count (the turn's task list): the chevron takes the accent.
   working: boolean;
   side: TrayHandleSide;
+  /// The quiet look (hatPillPlace.experiment.ts `quiet`): no glass slab, the chevron and count in
+  /// muted ink in the gap of the composer's top line.
+  quiet?: boolean;
+  /** The gallery's before: the count capped at "99+" and swapped in one frame. */
+  capped?: boolean;
 }) {
   const t = useT();
   const [look] = useState(() => experimentArm(composerHatLook));
+  const [motion] = useState(() => experimentArm(hatCountMotion));
   const target: PullMark | undefined =
-    waiting > 0 ? { kind: "dot" } : running > 0 ? { kind: "count", text: pullTabCountText(running) } : undefined;
+    waiting > 0
+      ? { kind: "dot" }
+      : running > 0
+        ? { kind: "count", text: capped && running > 99 ? "99+" : pullTabCountText(running), value: running }
+        : undefined;
   // The mark drawn: the target, or while leaving the last one, kept until the slot's transition ends.
   const [kept, setKept] = useState(target);
   if (target !== undefined && !sameMark(kept, target)) setKept(target);
@@ -102,6 +103,14 @@ export function TrayPullTab({
     if (leaving && !slot.current?.getAnimations().some((animation) => animation.playState === "running"))
       setKept(undefined);
   }, [leaving]);
+  // The gap in the composer's line under the pill (subagents.css "The line stops at the hat") moves
+  // on the slot's clock only once the pill has been drawn: a tab that mounts already showing a count
+  // (the hat tucked while work runs) has its slot at full width at once, so its gap lands at once too.
+  const [drawn, setDrawn] = useState(false);
+  useEffect(() => {
+    let frame = requestAnimationFrame(() => (frame = requestAnimationFrame(() => setDrawn(true))));
+    return () => cancelAnimationFrame(frame);
+  }, []);
   const settle = (event: React.TransitionEvent<HTMLSpanElement>) => {
     if (leaving && event.target === event.currentTarget) setKept(undefined);
   };
@@ -117,8 +126,15 @@ export function TrayPullTab({
       className="acpmux-tray-pull"
       data-side={side}
       data-hat={look}
+      data-quiet={quiet || undefined}
       data-running={running > 0 || working || undefined}
       data-waiting={waiting > 0 || undefined}
+      // What the slot opens for (none, the dot, or the count's width in digits), so the composer's
+      // top line can leave a gap the pill's width under it (subagents.css "The line stops at the hat").
+      data-drawn={drawn || undefined}
+      data-mark={
+        target === undefined ? undefined : target.kind === "dot" ? "dot" : String(pullTabCountWidth(target.text))
+      }
     >
       <button
         type="button"
@@ -145,7 +161,11 @@ export function TrayPullTab({
             {mark?.kind === "dot" ? (
               <span className="acpmux-tray-pull__dot" />
             ) : (
-              mark?.kind === "count" && <span className="acpmux-tray-pull__count">{mark.text}</span>
+              mark?.kind === "count" && (
+                <span className="acpmux-tray-pull__count" data-count={mark.text}>
+                  <HatCount text={mark.text} value={mark.value} motion={capped ? "instant" : motion} />
+                </span>
+              )
             )}
           </span>
         </span>

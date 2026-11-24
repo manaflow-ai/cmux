@@ -70,8 +70,10 @@ async fn upload_rig(transport: Transport) -> UploadRig {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
+            ultra: cmux_mobile_link::UltraSetting::Off,
         },
         None,
     )

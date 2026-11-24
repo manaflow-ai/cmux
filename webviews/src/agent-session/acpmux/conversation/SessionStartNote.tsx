@@ -9,7 +9,7 @@ import { useId } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxSessionStart } from "../model";
 import { ChevronRight, TerminalSquare } from "./icons";
-import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useTranscriptDisclosure } from "./transcriptDisclosureModel";
 import { sessionStartLabels } from "./sessionStart";
 
 export function SessionStartNote({ start, id = "details" }: { start: AcpmuxSessionStart; id?: string }) {

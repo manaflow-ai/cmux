@@ -21,7 +21,7 @@
 //!   diffs (`_acpmux/chats_window_changed`, `chat_windows.rs`). A client that shows a list asks
 //!   for its window instead of mirroring the whole index.
 //! - `_acpmux/chat_projects`: `{ready, enabled, projects: [{harness, path, lastUsedMs}]}`, each
-//!   harness's project folders grouped by acpmux (the app relays them to the cmux daemon).
+//!   harness's project folders grouped by acpmux (the cmux daemon reads them itself).
 //! - `_acpmux/chats_search {query, ...filter, budgetMs?}`: the chats whose
 //!   prompts or answers hold every word of `query`, each with its newest such
 //!   message and a snippet, read now from the harnesses' stores within a time
@@ -30,6 +30,10 @@
 //!   value as `chat`:
 //!   `adopt` with ready `session/new` params, `terminal` with argv/env/cwd,
 //!   or `readOnly`; `needsFolder` when the person must pick the folder.
+//! - `_acpmux/chat_resolve {ref}`: the chat a pasted reference names (`/resume <ref>`,
+//!   `chats/resolve.rs`): a session id, its start, a transcript path, a key or a resume
+//!   command. `{status: found, key, chat}`, `{status: ambiguous, chats}` (newest first, at most
+//!   5), `{status: notFound}` or `{status: tooShort}`.
 //! - `_acpmux/chat_transcript {key}`: the chat's past turns, read now from its
 //!   harness's store: `{key, harness, title, cwd, turns: [{prompt, answer,
 //!   promptAt?, answerAt?}]}`, the newest 200. A harness with no reader, or a
@@ -38,15 +42,20 @@
 //! - `_acpmux/chat_fork {harness, agentSessionId, cwd?}`: a terminal chat's fork, made by its
 //!   harness's ACP agent (`chat_fork.rs`): `{harness, agentSessionId}` of the new session.
 //! - `_acpmux/chat_roots`: the roots, refused roots with reasons, watcher errors.
+//! - `_acpmux/chats_warm {chat?}`: `cmux chats warm`: every cold log segment of the chat, or of
+//!   every chat, back to a plain `.ndjson` (`hub/cold_segments.rs`). Refused while
+//!   `agents.chats.coldSegments` is on. `{chats, segments, rawBytes, compressedBytes, left,
+//!   skipped}`: `left` names each segment that stays cold and why (nothing is removed).
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
 //!   permissionMode?, permissionModeManaged?, allowFullAccess?,
-//!   allowFullAccessManaged?}`: the app's effective cmux.json
-//!   `agents.chats.*` values (`chats/settings.rs`) and its effective
-//!   `agents.defaultPermissionMode` and `sessions.allowFullAccess`, each with
-//!   whether MDM or the team policy forces it (`hub/start_mode_state.rs`; a
-//!   forced full-access off is an upper bound); answers the roots view with
+//!   allowFullAccessManaged?, promptSuggestions?, promptSuggestionsManaged?}`:
+//!   the app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`)
+//!   and its effective `agents.defaultPermissionMode`, `sessions.allowFullAccess`
+//!   and `agents.promptSuggestions`, each with whether MDM or the team policy
+//!   forces it (`hub/start_mode_state.rs`; a forced full-access off is an upper
+//!   bound, a forced prompt-suggestions value beats the file); answers the roots view with
 //!   `applied: true`. While chats are off, `_acpmux/chats` answers
 //!   `enabled: false` and no chats.
 //!
@@ -55,9 +64,13 @@
 //! found", like `_acpmux/directories`. Agents and MCP get them only through
 //! the `chats.read` scope, which is never granted by default.
 
+mod ledger;
 mod offers;
+mod scorecard;
 mod search;
 mod stats;
+mod team_audit;
+pub(crate) use team_audit::usage_upload_loop;
 mod workspace_purge;
 
 use crate::no_panic::JsonExt;
@@ -68,10 +81,11 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast::error::RecvError;
 
 use super::{Conn, Origin};
-use crate::chats::{ChatQuery, ChatService, activity_change, change_value, changes_activity};
+use crate::chats::{ChatQuery, ChatService, change_value, changes_activity, transcript_turns};
 use crate::heap_future::heap;
 use crate::hub::Hub;
 use crate::hub::HubEvent;
+use crate::hub::chat_activity::activity_change;
 use crate::rpc::{Message, RpcError};
 
 const PREFIX: &str = "_acpmux/chat";
@@ -82,14 +96,40 @@ pub(super) async fn route(
     conn: &Arc<Conn>,
     m: &str,
     params: Value,
+    sender_token: Option<crate::sender_token::Presented>,
 ) -> Result<Value, RpcError> {
     // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
     let params = super::pairing::gate(conn, m, params)?;
+    // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
+    let params = super::carrier::gate(hub, conn, m, params)?;
     hub.prepare_store_request(m, &params).await;
+    // The owner's phone a peer daemon vouches for on this request, before any rule reads it.
+    super::remote_guard::note_vouched_phone(hub, conn, &params);
+    if m == crate::rpc::method::MUX_OWNER_PHONE_CHANGED {
+        return super::remote_guard::owner_phone_changed(hub, conn, &params).await;
+    }
+    // A browser's own device on the mesh hub (`web_device.rs`): web connections only.
+    if let Some(reply) = super::web_device::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::machine_tunnel::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    // Adding a machine this computer reaches over ssh (`machine_join_ssh.rs`): the app's only.
+    if let Some(reply) = super::machine_join_ssh::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
+    #[cfg(feature = "hub-carrier")]
+    if let Some(reply) = super::machine_routes::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     if let Some(reply) = super::vault::dispatch(conn, m).await {
+        return reply;
+    }
+    if let Some(reply) = super::share_host::dispatch(conn, m) {
         return reply;
     }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
@@ -106,11 +146,18 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_COMPLETE {
         return hub.complete(conn.origin, &params).await;
     }
+    // So does a hunk's summary (`hub/hunk_summary.rs`), which runs one on a cache miss.
+    if m == crate::rpc::method::MUX_HUNK_SUMMARY {
+        return hub.hunk_summary(conn.origin, &params).await;
+    }
     if let Some(reply) = offers::dispatch(hub, conn, m, &params) {
         return reply;
     }
     // So do the sub-session methods (`subsessions.rs`): this daemon's own sessions only.
     if let Some(reply) = heap(|| super::subsessions::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::races::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     // So do the forum methods (`forum.rs`): this daemon's own log.
@@ -131,7 +178,33 @@ pub(super) async fn route(
     if let Some(reply) = heap(|| super::bg_tasks::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
+    if let Some(reply) = heap(|| super::run_elsewhere::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    // The machine's GitHub poller (`github_prs.rs`, `pr_poller.rs`).
+    if let Some(reply) = super::github_prs::dispatch(conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::surgery::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
     if let Some(reply) = super::goal::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
+    if let Some(reply) = super::task_list::dispatch(hub, conn, m, &params) {
+        return reply;
+    }
+    // The plan approval card's builds (`plan_build.rs`): sub-sessions of this daemon.
+    if let Some(reply) = heap(|| super::plan_build::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = super::agent_home::dispatch(conn, m, &params).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::memory_inbox::dispatch(hub, conn, m, &params)).await {
+        return reply;
+    }
+    if let Some(reply) = heap(|| super::prompt_coach::dispatch(hub, conn, m, &params)).await {
         return reply;
     }
     if let Some(reply) = heap(|| super::workflow_runs::dispatch(hub, conn, m, &params)).await {
@@ -156,9 +229,27 @@ pub(super) async fn route(
     if m == crate::rpc::method::MUX_STATS {
         return stats::handle(hub, conn.origin, &params).await;
     }
+    // The harness-magic scorecard over the session logs (`scorecard.rs`): local, never a peer's.
+    if m == crate::rpc::method::MUX_SCORECARD {
+        return scorecard::handle(hub, conn.origin, &params).await;
+    }
+    // The review queue, review verdicts and the approvals audit trail (`review_queue.rs`).
+    if let Some(reply) =
+        super::review_queue::route(hub, conn.origin, conn.auth, conn.is_person(), m, &params).await
+    {
+        return reply;
+    }
+    // What turns cost (`hub/ledger`): local and the app's pane, never a peer's.
+    if m == crate::rpc::method::MUX_LEDGER {
+        return ledger::handle(hub, conn.origin, &params);
+    }
+    // The team's spend, from cmux-platform with this daemon's sign-in: local and the app's pane.
+    if m == crate::rpc::method::MUX_TEAM_AUDIT {
+        return team_audit::handle(conn.origin, &params).await;
+    }
     // A chat's route (`routes.rs`) is a session method, not the chat index.
     if !m.starts_with(PREFIX) || m == crate::rpc::method::MUX_CHAT_ROUTE_SET {
-        return heap(|| super::requests::handle_request(hub, conn, m, params)).await;
+        return heap(|| super::requests::handle_request(hub, conn, m, params, sender_token)).await;
     }
     if conn.origin != Origin::Local {
         return Err(RpcError::method_not_found(&format!(
@@ -178,6 +269,10 @@ pub(super) async fn route(
         "_acpmux/chats_watch" => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             let query = ChatQuery::from_params(&params).map_err(RpcError::invalid_params)?;
+            // A chats watch hears every chat's activity (`push_activity`), attached or not.
+            if on {
+                conn.interest.hear_activity();
+            }
             if let Some(service) = &service {
                 if !on {
                     service.watch_off(&conn.id);
@@ -209,6 +304,25 @@ pub(super) async fn route(
         }
         // The chats whose prompts or answers hold the words (`chats/search.rs`).
         "_acpmux/chats_search" => search::handle(hub, service, &params).await,
+        "_acpmux/chats_warm" => {
+            // A `chat` that is there but not a string names no chat: refused, never every chat
+            // (#43562 review F2).
+            let chat = match params.get("chat") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(chat)) => Some(chat.clone()),
+                Some(other) => {
+                    return Err(RpcError::invalid_params(format!(
+                        "chat must be a chat id, not {other}"
+                    )));
+                }
+            };
+            let hub = hub.clone();
+            blocking(move || {
+                hub.warm_cold_segments(chat.as_deref())
+                    .map_err(|e| RpcError::invalid_params(format!("{e:#}")))
+            })
+            .await
+        }
         "_acpmux/chat_roots" => match service {
             Some(service) => blocking(move || Ok(service.roots_view())).await,
             None => Ok(json!({"ready": false, "roots": [], "refused": []})),
@@ -237,6 +351,42 @@ pub(super) async fn route(
                 // copy of the index to name it.
                 plan.set("chat", crate::chats::chat_value(&chat));
                 Ok(plan)
+            })
+            .await
+        }
+        // `/resume <ref>`: the one chat a pasted id, id start, path or command names.
+        "_acpmux/chat_resolve" => {
+            let service =
+                service.ok_or_else(|| RpcError::internal("the chat index is starting"))?;
+            let text = params
+                .get("ref")
+                .and_then(Value::as_str)
+                .filter(|text| text.len() <= 4096)
+                .map(str::to_owned)
+                .ok_or_else(|| RpcError::invalid_params("ref must be a string"))?;
+            blocking(move || {
+                Ok(match service.resolve_ref(&text) {
+                    crate::chats::Resolved::Found(key) => match service.get(&key) {
+                        Some(chat) => json!({
+                            "status": "found",
+                            "key": crate::chats::key_text(&key),
+                            "chat": crate::chats::chat_value(&chat),
+                        }),
+                        None => json!({"status": "notFound"}),
+                    },
+                    crate::chats::Resolved::Ambiguous(keys) => {
+                        let chats: Vec<Value> = keys
+                            .iter()
+                            .filter_map(|key| service.get(key))
+                            .map(|chat| crate::chats::chat_value(&chat))
+                            .collect();
+                        json!({"status": "ambiguous", "chats": chats})
+                    }
+                    crate::chats::Resolved::TooShort => json!({"status": "tooShort"}),
+                    crate::chats::Resolved::NotFound | crate::chats::Resolved::Unindexed(_) => {
+                        json!({"status": "notFound"})
+                    }
+                })
             })
             .await
         }
@@ -284,7 +434,7 @@ pub(super) async fn route(
                 .map(PathBuf::from)
                 .or_else(dirs::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
-            let (family, profile) = {
+            let (profile_name, profile) = {
                 let cfg = hub.config.read().await;
                 let (name, profile) =
                     crate::chat_fork::profile_for(&cfg, harness).ok_or_else(|| {
@@ -292,9 +442,9 @@ pub(super) async fn route(
                             "no ACP harness runs {harness} here, so its chat cannot fork"
                         ))
                     })?;
-                (crate::config::derive_family(name, profile), profile.clone())
+                (name.to_owned(), profile.clone())
             };
-            let forked = crate::chat_fork::fork(harness, &family, &profile, id, &cwd).await?;
+            let forked = crate::chat_fork::fork(harness, &profile_name, &profile, id, &cwd).await?;
             Ok(json!({"harness": harness, "agentSessionId": forked}))
         }
         "_acpmux/chat_roots_record" => {
@@ -361,7 +511,9 @@ pub(super) async fn route(
             let forced = full_access_managed
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
+            hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
             hub.set_session_recap(settings.session_recap);
+            hub.set_terminal_chat_writable(settings.terminal_chat_writable).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;
@@ -391,6 +543,20 @@ pub(super) async fn route(
         "_acpmux/chats_window_close" => super::chat_windows::close(conn, &params),
         other => Err(RpcError::method_not_found(other)),
     }
+}
+
+/// The `agents.promptSuggestions` MDM or the team policy forces, from a `_acpmux/chat_settings`
+/// push: `None` unless `promptSuggestionsManaged` is true (an older app sends neither key). A forced
+/// value that is not a boolean is off, so an unreadable policy never turns on extra model calls.
+fn prompt_suggestions_forced(params: &Value) -> Result<Option<bool>, RpcError> {
+    let managed = match params.get("promptSuggestionsManaged") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(managed)) => *managed,
+        Some(_) => {
+            return Err(RpcError::invalid_params("promptSuggestionsManaged must be true or false"));
+        }
+    };
+    Ok(managed.then(|| params.get("promptSuggestions") == Some(&Value::Bool(true))))
 }
 
 async fn page(
@@ -424,41 +590,6 @@ async fn settled_page(
     let mut page = page(hub, service, query).await?;
     page.set("settled", Value::Bool(true));
     Ok(page)
-}
-
-/// A chat's turns: Claude Code and Codex through adopt's reader (`adopt_replay.rs`, the turns an
-/// adopted chat replays), every other harness through `cmux_chat_index::transcript`. Both come
-/// out with the same caps, and a file that cannot be read is an error, never "no turns".
-fn transcript_turns(
-    entry: &cmux_chat_index::ChatEntry,
-) -> Result<Vec<cmux_chat_index::transcript::Turn>, cmux_chat_index::transcript::TranscriptError> {
-    use cmux_chat_index::AdapterKind;
-    use cmux_chat_index::transcript::{TranscriptError, Turn, capped};
-    let family = match entry.harness {
-        AdapterKind::ClaudeCode => "claude",
-        AdapterKind::Codex => "codex",
-        kind => {
-            return cmux_chat_index::transcript::read_turns(
-                kind,
-                &entry.source_path,
-                &entry.session_id,
-            );
-        }
-    };
-    // adopt's reader answers an unreadable file with no turns.
-    std::fs::File::open(&entry.source_path)
-        .map_err(|e| TranscriptError::Unreadable(e.to_string()))?;
-    let turns = crate::adopt_replay::read(family, &entry.source_path);
-    Ok(turns
-        .into_iter()
-        .map(|t| Turn {
-            prompt: capped(t.prompt),
-            // No answer yet has no answer time (adopt's reader starts it at the prompt's).
-            answer_at: t.answer_at.filter(|_| !t.answer.is_empty()),
-            answer: capped(t.answer),
-            prompt_at: t.prompt_at,
-        })
-        .collect())
 }
 
 /// The index lock may be held by a scan: never wait for it on the executor.
@@ -511,8 +642,20 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
     if rec.dir != "mux" || !changes_activity(&rec.kind) {
         return;
     }
-    // A window shows the chat's activity too: its rows are recomputed.
-    super::chat_windows::activity_changed(conn);
+    // A window shows the chat's activity too: its rows are recomputed when it may show this one.
+    super::chat_windows::activity_changed(
+        conn,
+        &ev.session_id,
+        &rec.kind,
+        || {
+            hub.resolve(&ev.session_id)
+                .ok()
+                .and_then(|session| crate::hub::chat_activity::session_chat_key(&session))
+                .map(|key| crate::chats::key_text(&key))
+        },
+        // Read now, after the record: the newest session of the chat decides its fold.
+        |chat| hub.chat_activity().has_parent(chat),
+    );
     if !hub.chat_index().is_some_and(|service| service.watches(&conn.id)) {
         return;
     }
@@ -530,4 +673,78 @@ pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Va
     let if_live = crate::adopt::IfLive::parse(super::str_param(params, "ifLive"))
         .map_err(RpcError::invalid_params)?;
     hub.watch_take_over(&s, if_live).await
+}
+
+/// `_acpmux/release_to_watch {sessionId, terminalPid?}`: once idle, the chat's harness stops and
+/// the chat watches its own transcript, which a terminal now runs (`hub/release_to_watch.rs`).
+/// `terminalPid` is the process that runs the conversation next (`acpmux resume-here`, which
+/// becomes the harness): the chat's prompts go into it. It binds only when it is the caller itself
+/// over this machine's unix socket, by the pid the kernel gave at accept. Any other `terminalPid`
+/// (a pid the kernel did not give: a Windows pipe, a credential read that failed, an in-process
+/// caller; another process's pid; a remote origin) is refused whole (`watch.terminal_unverified`):
+/// nothing is released and nothing bound, so a caller never hands a chat to a process it only names.
+pub(super) async fn release_to_watch(
+    hub: &Arc<Hub>,
+    params: &Value,
+    origin: super::Origin,
+    socket_peer: crate::sender_harness::SocketPeer,
+) -> Result<Value, RpcError> {
+    use crate::sender_harness::SocketPeer;
+    let s = hub.resolve(super::session_key(params)?)?;
+    // Write to a chat a terminal runs off (the default): `terminalPid` is not read at all, and the
+    // chat becomes a View Only watch as before.
+    let named = params.get("terminalPid").filter(|v| !v.is_null() && hub.terminal_chat_writable());
+    let terminal = match named {
+        None => None,
+        Some(named) => {
+            let named = named.as_u64().and_then(|p| u32::try_from(p).ok());
+            match (named, origin, socket_peer) {
+                (Some(named), super::Origin::Local, SocketPeer::Pid(pid)) if named == pid => {
+                    Some(pid)
+                }
+                _ => return Err(terminal_unverified()),
+            }
+        }
+    };
+    hub.release_to_watch(&s, terminal).await
+}
+
+/// A `terminalPid` the daemon cannot prove is its caller's own (`release_to_watch`).
+fn terminal_unverified() -> RpcError {
+    RpcError::invalid_params(
+        "a chat is handed to a terminal only by that terminal's own process over this machine's unix socket",
+    )
+    .with_data(json!({"reason": "watch.terminal_unverified"}))
+}
+
+#[cfg(test)]
+mod prompt_suggestions_push_tests {
+    use super::prompt_suggestions_forced;
+    use serde_json::json;
+
+    #[test]
+    fn only_a_managed_push_forces_and_a_non_boolean_is_off() {
+        let forced = |p| prompt_suggestions_forced(&p).unwrap();
+        assert_eq!(forced(json!({})), None, "an older app sends neither key");
+        assert_eq!(
+            forced(json!({"promptSuggestions": false})),
+            None,
+            "not managed: the file decides"
+        );
+        assert_eq!(forced(json!({"promptSuggestionsManaged": null})), None);
+        assert_eq!(
+            forced(json!({"promptSuggestions": false, "promptSuggestionsManaged": true})),
+            Some(false)
+        );
+        assert_eq!(
+            forced(json!({"promptSuggestions": true, "promptSuggestionsManaged": true})),
+            Some(true)
+        );
+        assert_eq!(
+            forced(json!({"promptSuggestions": "true", "promptSuggestionsManaged": true})),
+            Some(false)
+        );
+        assert_eq!(forced(json!({"promptSuggestionsManaged": true})), Some(false));
+        assert!(prompt_suggestions_forced(&json!({"promptSuggestionsManaged": "yes"})).is_err());
+    }
 }

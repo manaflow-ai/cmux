@@ -1,6 +1,7 @@
 //! Session-local permission batches. One lock owns membership, chat grants,
 //! callbacks and receipts, so a decision cannot approve an unseen member.
 use super::mac_approvers::MacProof;
+use super::review_queue::Settled;
 use super::*;
 use cmux_json::JsonSet as _;
 use std::collections::{HashSet, VecDeque};
@@ -110,6 +111,36 @@ pub(super) fn option(request: &Value, kind: &str) -> Option<String> {
     })
 }
 
+/// The input a request's call carries: its tool call's, else a command subject's.
+fn ask_input(request: &Value) -> Option<&Value> {
+    let subject = request.get("subject");
+    let subject_is =
+        |kind: &str| subject.and_then(|s| s.get("type")).and_then(Value::as_str) == Some(kind);
+    let tool = request.get("toolCall").or_else(|| {
+        subject_is("tool_call").then(|| subject.and_then(|s| s.get("toolCall"))).flatten()
+    });
+    match tool {
+        Some(tool) => tool.get("rawInput").filter(|v| v.is_object()),
+        None => subject.filter(|_| subject_is("command")),
+    }
+}
+
+/// What a request's call does in the agent's own words: the one-line `description` a shell
+/// call carries (Claude Code's Bash), never the command itself.
+pub(super) fn ask_summary(request: &Value) -> Option<String> {
+    let line = ask_input(request)?.get("description")?.as_str()?.lines().next()?.trim();
+    (!line.is_empty()).then(|| line.chars().take(200).collect())
+}
+
+/// A shell call's command without acpmux's subagent mark, so the person reads what the agent
+/// wrote and approves exactly that; `None` when nothing was stripped and the client can read
+/// the command itself.
+pub(super) fn ask_command(request: &Value) -> Option<String> {
+    let command = ask_input(request)?.get("command")?.as_str()?;
+    let bare = crate::bg_hook::without_subagent_mark(command);
+    (bare.len() != command.len()).then(|| bare.to_owned())
+}
+
 impl Group {
     fn terminal(&self) -> bool {
         matches!(self.state, "resolved" | "cancelled")
@@ -137,6 +168,8 @@ impl Group {
                     permission_id: i.id.clone(),
                     request: i.request.clone(),
                     state: i.state,
+                    summary: ask_summary(&i.request),
+                    command: ask_command(&i.request),
                 })
                 .collect(),
             decisions: if can_allow {
@@ -253,6 +286,16 @@ impl PermissionState {
         g.items.push(Item { id: id.into(), request: request.clone(), state: "pending" });
         g.revision += 1;
         Ok((g.id.clone(), fresh))
+    }
+
+    /// Tests: opens collecting group `id` for answers, as its timer does
+    /// (`start_permission_group_timer`); its revision then.
+    #[cfg(test)]
+    pub(super) fn open_group(&mut self, id: &str) -> Option<u64> {
+        let g = self.groups.iter_mut().find(|g| g.id == id)?;
+        g.state = "pending";
+        g.revision += 1;
+        Some(g.revision)
     }
 
     fn prune(&mut self) {
@@ -473,12 +516,13 @@ impl Hub {
         params: Value,
         control: Control,
         person: bool,
+        device: Option<&str>,
     ) -> Result<Value, RpcError> {
         // The Web's asking rule, at the answer: a deny only narrows
         // (`Hub::web_answer_check`). A group allow carries no proof of the person's; an
         // approver's signature (below) is held to the Web's control rule like none.
         let narrows = params["decision"].as_str() == Some("deny");
-        self.web_answer_check(session, control, narrows, false)?;
+        self.web_answer_check(session, control, narrows, false, device)?;
         let text = |key: &str| -> Result<String, RpcError> {
             params[key]
                 .as_str()
@@ -609,6 +653,15 @@ impl Hub {
         g.receipt = Some((body, result.clone()));
         self.append(session, "mux", "permission_group", json!({"group":result["group"]}));
         state.prune();
+        // A member a group deny dismissed (it has no single-use reject option): the caller
+        // dismissed it, as a one-ask dismissal is (`respond_permission`), so the audit trail logs
+        // a cancel instead of taking it for a withdrawal. Marked before the asking task wakes
+        // and logs the decision.
+        for (id, _, outcome) in &replies {
+            if outcome["outcome"] == "cancelled" {
+                self.review_index.mark_settled(&session.id, id, Settled::Caller);
+            }
+        }
         // All callbacks were removed and the receipt saved before any wake.
         for (_, reply, outcome) in replies {
             let _ = reply.send(outcome);
@@ -672,6 +725,31 @@ mod plain_tool_ask_tests {
         ] {
             assert!(!plain_tool_ask(&ask(not_plain.clone())), "{not_plain}");
         }
+    }
+}
+
+#[cfg(test)]
+mod ask_display_tests {
+    use super::{ask_command, ask_summary};
+    use serde_json::json;
+
+    /// A subagent's shell ask reads as what it does, and its command as the agent wrote it,
+    /// never the `export ACPMUX_CALLER_SUBAGENT=...` line acpmux put first (Leo 2026-11-23).
+    #[test]
+    fn a_subagents_shell_ask_shows_its_description_and_unmarked_command() {
+        let ask = json!({"toolCall": {"kind": "execute", "rawInput": {
+            "command": "export ACPMUX_CALLER_SUBAGENT=general-purpose:a1b2\ncmux agent last desktop-helper",
+            "description": "Read the newest desktop-helper message\nmore"}}});
+        assert_eq!(ask_summary(&ask).as_deref(), Some("Read the newest desktop-helper message"));
+        assert_eq!(ask_command(&ask).as_deref(), Some("cmux agent last desktop-helper"));
+        let plain = json!({"toolCall": {"kind": "execute", "rawInput": {"command": "ls"}}});
+        assert_eq!(ask_command(&plain), None);
+        assert_eq!(ask_summary(&plain), None);
+        let blank = json!({"toolCall": {"rawInput": {"command": "ls", "description": "  "}}});
+        assert_eq!(ask_summary(&blank), None);
+        let subject = json!({"subject": {"type": "command",
+            "command": "export ACPMUX_CALLER_SUBAGENT=Explore:x9\ngit status"}});
+        assert_eq!(ask_command(&subject).as_deref(), Some("git status"));
     }
 }
 

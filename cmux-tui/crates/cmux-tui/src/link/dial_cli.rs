@@ -1,6 +1,6 @@
-//! `cmux link dial --host ID [--service daemon|ssh|owner_session|desktop] [--socket PATH]`: a
+//! `cmux link dial --host ID [--service daemon|ssh|owner_session|desktop|acpmux] [--socket PATH]`: a
 //! stdio bridge to a
-//! service of a paired install or a Cloud host, for callers that cannot use
+//! service of a paired install, for callers that cannot use
 //! the link socket themselves (cmux-cloud's carrier, an ssh ProxyCommand).
 //!
 //! Contract (cmux-tui/spec/cli.md, "cmux link dial"):
@@ -88,6 +88,9 @@ pub(super) fn connected_line(stream: &OverlayStream) -> String {
     }))
 }
 
+/// `cmux link dial --help`.
+pub(super) const USAGE: &str = "usage: cmux link dial --host ID [--service daemon|ssh|owner_session|desktop|acpmux] [--socket ABSOLUTE_PATH]\n\nBridge stdin and stdout to a paired machine's service through this machine's link.\nOne JSON line on stderr says how it connected (path_state, relay_available) or why not\n(error_code). Exit 0 when the stream ended cleanly, 64 on bad usage.\n";
+
 /// One `cmux link dial` invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct DialArgs {
@@ -97,7 +100,7 @@ pub(super) struct DialArgs {
     pub socket: Option<PathBuf>,
 }
 
-/// `--host ID [--service daemon|ssh|owner_session|desktop] [--socket ABSOLUTE_PATH]`, each once,
+/// `--host ID [--service daemon|ssh|owner_session|desktop|acpmux] [--socket ABSOLUTE_PATH]`, each once,
 /// nothing else.
 pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
     let (mut host, mut service, mut socket) = (None, None, None);
@@ -121,6 +124,7 @@ pub(super) fn parse(args: &[String]) -> Result<DialArgs, Failure> {
         Some("ssh") => Service::Ssh,
         Some("owner_session") => Service::OwnerSession,
         Some("desktop") => Service::Desktop,
+        Some("acpmux") => Service::Acpmux,
         Some(_) => return Err(Failure::BadUsage),
     };
     let socket = socket.map(PathBuf::from);
@@ -182,6 +186,12 @@ fn link_socket() -> PathBuf {
 
 /// `cmux link dial ...`: the exit code.
 pub(super) fn run(args: &[String]) -> i32 {
+    // Asked-for help is a success on stdout, like every other scope; before, `--help` was a
+    // bad-usage refusal (exit 64) with no usage at all.
+    if matches!(args, [only] if only == "-h" || only == "--help") {
+        print!("{USAGE}");
+        return 0;
+    }
     let DialArgs { host, service, socket } = match parse(args) {
         Ok(parsed) => parsed,
         Err(failure) => return report(failure),

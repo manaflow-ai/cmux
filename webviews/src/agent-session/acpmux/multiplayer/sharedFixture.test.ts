@@ -4,7 +4,7 @@ import { afterEach, expect, test } from "bun:test";
 import { createAcpmuxDebug } from "../debug";
 import type { AcpmuxRow } from "../model";
 import { acpmuxPerf } from "../perf";
-import { shownPresence } from "./LivePresence";
+import { shownPresence } from "./livePresenceModel";
 import { PresenceClient } from "./presenceClient";
 
 afterEach(() => shownPresence.set(undefined, undefined));

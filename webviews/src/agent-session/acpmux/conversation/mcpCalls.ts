@@ -15,7 +15,9 @@ import {
   printable,
   toolResult,
 } from "./toolResult";
-import { stripAnsi } from "./toolOutput";
+import { stripAnsi } from "./toolOutputModel";
+import { experimentArm } from "../../../experiments/experiment";
+import { toolRowWords } from "./toolRowWords.experiment";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -253,9 +255,77 @@ function toolNoun(call: McpCall): string {
   return rest.join(" ") || call.tool;
 }
 
+/// Verbs of tool names that are no English verb `VERBS` knows (`repo_grep`, `rg`), for the plain arm.
+const PLAIN_VERBS: Record<string, McpAction> = { ...VERBS, grep: "search", rg: "search", ls: "list", cat: "read" };
+/// Arguments that hold what a search looked for.
+const QUERY_KEYS = ["query", "q", "pattern", "regex", "search", "text"];
+
+/// A call's tool words without the server's name it repeats (`repo` + `repo_grep` reads "grep"),
+/// and what those words do (`PLAIN_VERBS`).
+function plainWords(call: McpCall): { words: string[]; action: McpAction } {
+  const server = new Set(words(call.server));
+  const all = words(call.tool);
+  let at = 0;
+  while (at < all.length - 1 && server.has(all[at]!)) at += 1;
+  const rest = all.slice(at);
+  return { words: rest, action: PLAIN_VERBS[rest[0] ?? ""] ?? "call" };
+}
+
+/// The plain arm of tool-row-words: a verb and what it acted on, the server named once: "Searched
+/// repo for “retry”", "Used repo: blame", "Used Linear". Undefined where today's line already reads
+/// plainly (any call whose tool starts with a verb, or a message), which then keeps it.
+function plainLabel(t: Translate, calls: readonly McpCall[], names: McpNames): string | undefined {
+  const first = calls[0]!;
+  if (mcpAction(first) !== "call") return undefined;
+  const { words: rest, action } = plainWords(first);
+  // A message keeps today's line: its words name whom it went to.
+  if (action === "message") return undefined;
+  const server = serverWords(first.server);
+  const n = calls.length;
+  const times = (line: string) => (n > 1 ? `${line} ×${n}` : line);
+  if (action === "search") {
+    const queries = new Set(
+      calls.map((call) => {
+        const callArgs = isRecord(call.args) ? call.args : {};
+        const key = QUERY_KEYS.find(
+          (name) => typeof callArgs[name] === "string" && String(callArgs[name]).trim() !== "",
+        );
+        return key ? String(callArgs[key]).replace(/\s+/g, " ").trim() : undefined;
+      }),
+    );
+    const query = queries.size === 1 ? [...queries][0] : undefined;
+    if (query && query.length <= 120) return times(t("tools.mcp.searchedFor", { server, query }));
+    return times(t("tools.mcp.search", { target: server }));
+  }
+  if (action !== "call") {
+    const target = mcpTarget(first, names);
+    const noun = rest.slice(1).join(" ");
+    const object = target ?? (noun ? `${server} ${noun}` : server);
+    return times(t(`tools.mcp.${action}`, { target: object }));
+  }
+  const target = mcpTarget(first, names);
+  const tool = rest.join(" ");
+  if (!tool || tool === server)
+    return times(target ? t("tools.mcp.used", { server, tool: target }) : t("tools.mcp.usedServer", { server }));
+  return times(t("tools.mcp.used", { server, tool: target ? `${tool} ${target}` : tool }));
+}
+
+/// A finished call's line in tool-row-words' plain arm, or undefined on today's arm, for a call in
+/// flight (it keeps its words), or where today's line already reads plainly.
+export function mcpPlainLine(
+  t: Translate,
+  calls: readonly McpCall[],
+  names: McpNames,
+  running = false,
+): string | undefined {
+  return !running && experimentArm(toolRowWords) === "plain" ? plainLabel(t, calls, names) : undefined;
+}
+
 /// One line for a run of calls to one MCP tool.
 export function mcpLabel(t: Translate, calls: readonly McpCall[], names: McpNames, running = false): string {
   const first = calls[0]!;
+  const plain = mcpPlainLine(t, calls, names, running);
+  if (plain) return plain;
   const targets = new Set(calls.map((call) => mcpTarget(call, names)));
   const target = targets.size === 1 ? [...targets][0] : undefined;
   const n = calls.length;

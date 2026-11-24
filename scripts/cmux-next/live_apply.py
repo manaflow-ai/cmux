@@ -6,7 +6,11 @@
 Reads `git diff BASE HEAD` (no GitHub API) and prints the verdict of the heaviest change in it:
 
   no-app      docs, CI, tests, scripts, website and backend only: nothing in the app changes
-  web-live    plus the app's web bundles (webviews/): hot-swapped into the running app
+  web-live    plus the app's web bundles (webviews/, and the TypeScript outside it they import:
+              clients/ts, config/vite-plus): hot-swapped into the running app
+  strings     plus string catalogs (.xcstrings): a copy of the NIGHTLY shows the change's web pages
+              (gen-strings.mjs reads the catalogs) and Swift's source strings; Swift's translations
+              wait for the next build
   daemon      plus Rust (cmux-tui, acpmux): a daemon or CLI restart with the change's binary
   swift-live  plus app Swift changed only inside function bodies and computed properties, or new
               Swift files (the patch carries them: Prototypes/ViewShell/inject.sh), in a module the
@@ -27,15 +31,29 @@ import re
 import subprocess
 import sys
 
-# Folders and files that never ship in the app, checked before everything else.
-NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|cmux-tui/relays)/|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
+# Folders and files that never ship in the app, checked before everything else. images/ is the Cloud
+# machine image (its bot's image rolls); ci-target-graph.json is CI's test-target map. Root examples/ holds
+# sample extensions only a lint reads; cmux-tui/bindings/examples/ is built into the app, so the rule is anchored.
+# A *-gallery.html page is a design gallery. The root .gitattributes only sets merge drivers and Linguist
+# labels; evals/ (cueval's computer-use tasks) and Native/*/evals/ (the Chief's eval cases, which only its tests,
+# examples and backend/scripts read: no include_str! in src/, nothing in build.rs) are eval inputs; dogfood/ held
+# scenario files whose runner is gone. No Xcode phase, Package.swift resource or build script copies any of them.
+NOAPP_PATH = re.compile(r"(^|/)(docs?|plans|research|\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood)/|^Native/.+/evals/|^\.gitattributes$|(^|/)ci-target-graph\.json$|-gallery\.html$|(^|/)CHANGELOG|LICENSE|\.gitignore$|\.test\.(ts|tsx)$|\.gallery\.(ts|tsx|css)$|/gallery/")
 # Extensions that change nothing in the app, checked after the web, resource and Rust rules, so a
 # Cargo.lock, a bundled Resources/x.sh or webviews' vite.config.mjs still counts.
 NOAPP_EXT = re.compile(r"\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$")
-WEB = re.compile(r"^(webviews|cmux-tui/frontends/web)/")
+# clients/ts and config/vite-plus hold TypeScript that only the web bundles import (the Cloud page's wire types,
+# clients/ts/cloud/src/generated.ts) or lint with: nothing native reads them (cmux_next_route.py BUNDLE_INPUTS).
+WEB = re.compile(r"^(webviews|cmux-tui/frontends/web|clients/ts|config/vite-plus)/")
+# String catalogs: gen-strings.mjs builds the web pages' strings from them, and a Swift string shows its source
+# text without the compiled table, so trying the change needs no build; only the translations do.
+STRINGS = re.compile(r"\.xcstrings$")
 RUST = re.compile(r"\.rs$|(^|/)Cargo\.toml$|^cmux-tui/|^acpmux/")
 IOS = re.compile(r"^(ios|cmux-next-ios|Packages/iOS)/")
-REBUILD_FILE = re.compile(r"\.(xcstrings|strings|xcassets|plist|entitlements|pbxproj|xcconfig|storyboard|xib|metal|png|pdf|car|icns)$|(^|/)Package\.(swift|resolved)$|Contents\.json$|\.xcodeproj/|/Resources/|^ghostty|\.(c|h|m|mm|zig)$")
+# C, Objective-C and Zig sources need a new app, except under cmux-tui/: the cmux-tui tree build compiles those (a
+# companion's shim, the Zig binding), so they are daemon, as hot-apply.py applies them; its linked_rust still leaves
+# an app FFI crate's to the ffi part (hot-apply-more-kinds.md in cmuxterm-hq docs/design).
+REBUILD_FILE = re.compile(r"\.(strings|xcassets|plist|entitlements|pbxproj|xcconfig|storyboard|xib|metal|png|pdf|car|icns)$|(^|/)Package\.(swift|resolved)$|Contents\.json$|\.xcodeproj/|/Resources/|^ghostty|^(?!cmux-tui/).*\.(c|h|m|mm|zig)$")
 COMMENT = re.compile(r"^\s*(//|/\*|\*|\*/)")
 STORED = re.compile(r"^(\s*)(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|nonisolated|lazy|weak|unowned|override)(\([^)]*\))?\s+)*(let|var)\s+\w+[^{]*$")
 FUNC = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|internal|package|open|final|static|class|override|mutating|nonisolated|required|convenience)(\([^)]*\))?\s+)*(func\s+\w+|init[?!]?\s*[(<]|subscript\s*[(<])")
@@ -43,15 +61,17 @@ TYPE_DECL = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|private|fileprivate|
 ENTRY = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*@main\b")
 # The modules a patch can replace code in: the app's live code build makes every CmuxNext module's
 # symbols interposable (live_code_targets in scripts/live-code/lib/xcodebuild-args.sh: the
-# CmuxNext targets of Packages/macOS/CmuxNext/Package.swift), and the view shell's inject.sh patches
+# CmuxNext targets of Packages/macOS/CmuxNext/Package.swift, and MessagesLabHome, the Home transcript
+# CmuxNextHome links from Packages/Shared/CmuxMessagesLab), and the view shell's inject.sh patches
 # its own module. Third-party modules are linked into the app as they were built.
-LIVE_MODULE = re.compile(r"^(CmuxNext[A-Za-z0-9_]*|ViewShell)$")
-LIVE_PACKAGE = re.compile(r"(?:^|/)Packages/macOS/CmuxNext/Sources/|(?:^|/)Prototypes/ViewShell/Sources/")
+LIVE_MODULE = re.compile(r"^(CmuxNext[A-Za-z0-9_]*|MessagesLabHome|ViewShell)$")
+LIVE_PACKAGE = re.compile(r"(?:^|/)Packages/macOS/CmuxNext/Sources/|(?:^|/)Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/"
+                          r"|(?:^|/)Prototypes/ViewShell/Sources/")
 SWIFT_MODULE = re.compile(r"(?:^|/)Sources/([^/]+)/")
 CASE = re.compile(r"^ {4}(\t)?case\s+\w+|^\tcase\s+\w+")
 
 # Heaviest first: a change takes the verdict of its heaviest file.
-ORDER = ["rebuild", "swift-live", "daemon", "web-live", "ios-only", "no-app"]
+ORDER = ["rebuild", "swift-live", "daemon", "web-live", "strings", "ios-only", "no-app"]
 
 
 def swift_reasons(lines, added_file):
@@ -103,6 +123,8 @@ def classify(files, diffs):
             note("no-app", path)
         elif WEB.search(path):
             note("web-live", path)
+        elif STRINGS.search(path):
+            note("strings", path)
         elif REBUILD_FILE.search(path):
             note("rebuild", path, "resource or manifest")
         elif RUST.search(path):

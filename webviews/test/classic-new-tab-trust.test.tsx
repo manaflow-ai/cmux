@@ -10,6 +10,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, { had: boolean; value: unknown }>();
@@ -74,6 +75,7 @@ afterEach(async () => {
 afterAll(async () => {
   // The pane marked the page as the mock daemon's (App.tsx): later files see a plain page again.
   (await import("../src/agent-session/acpmux/newtab/chatStore")).markMockPage(false);
+  await settleReact();
   dom.window.close();
   for (const [key, entry] of saved) {
     if (entry.had) scope[key] = entry.value;
@@ -288,7 +290,9 @@ test("a start refused after a while keeps the New Tab page until then, and gives
   expect(started).toEqual([folder, folder]);
 }, 60_000);
 
-test("a start refused for another reason leaves the prompt in the composer, and sending it starts the chat in the folder", async () => {
+// Leo, 2026-11-17, on the chat view a refused start from New Tab left: "this is an old ass deprecated
+// view. this should not have been shown." The page comes back instead, with the reason and Retry.
+test("a start refused for another reason comes back to the page with the prompt, and Retry starts the chat in the folder", async () => {
   const folder = "/Users/sample/busy-project";
   const { prompts, started } = await mountClassic(
     folder,
@@ -297,18 +301,18 @@ test("a start refused for another reason leaves the prompt in the composer, and 
   );
   await askIn(folder, "hello");
   await until(() => started.length === 1, "the start went");
-  await until(() => composerText() === "hello", "the composer holds the prompt");
-  // No trust question for a refusal that is not about trust.
+  const failure = () => host.querySelector(".acpmux-newtab-failed");
+  await until(() => failure() !== null, "the page came back with its failure line");
+  const pageField = () => host.querySelector<FieldElement>(".acpmux-newtab-field")?.acpmuxMarkdownField?.value() ?? "";
+  await until(() => pageField() === "hello", "the page's field holds the prompt");
+  // Not the chat view's empty-chat hero, and no trust question for a refusal that is not about trust.
   await quiet("the page settles after the refusal");
+  expect(host.querySelector(".acpmux-empty:not(.acpmux-unavailable)")).toBeNull();
   expect(trustButton()).toBeUndefined();
   expect(prompts).toEqual([]);
 
-  // Send again from the composer: the chat starts in the folder picked on the page, and the prompt goes once.
-  await act(async () =>
-    host
-      .querySelector("form.acpmux-composer")!
-      .dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })),
-  );
+  // Retry: the chat starts in the folder picked on the page, and the prompt goes once.
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-newtab-failed-retry")!.click());
   await until(() => prompts.length > 0, "the prompt went");
   await quiet("the page settles after the send");
   expect(prompts).toEqual(["hello"]);

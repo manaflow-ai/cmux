@@ -23,7 +23,7 @@ fn dir() -> PathBuf {
 }
 
 /// The records that name a prompt's images.
-const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
+pub(super) const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
@@ -97,12 +97,121 @@ fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// A kept image's name: 64 lowercase hex digits, never a path.
-fn valid_id(id: &str) -> bool {
+pub(super) fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?}`, the id
-/// the SHA-256 of the bytes). `None` for any other block, or image data that is not base64.
+/// The bytes of each image block among `blocks`, by the id a record names it by (`decode`).
+pub(crate) fn image_bytes(blocks: &[Value]) -> Vec<(String, Vec<u8>)> {
+    blocks
+        .iter()
+        .filter_map(decode)
+        .filter_map(|(bytes, named)| Some((named.get("id")?.as_str()?.to_owned(), bytes)))
+        .collect()
+}
+
+/// Where image `id`'s bytes are kept on this machine; None for an id `decode` never makes.
+pub(crate) fn image_path(id: &str) -> Option<PathBuf> {
+    valid_id(id).then(|| dir().join(id))
+}
+
+/// The bundle folder a moved chat's images go in (`transfer.rs` export and import).
+pub(super) const BUNDLE_DIR: &str = "attachments";
+
+/// The ids of the images a log record names, when it is a record that names them.
+pub(super) fn ids_named_by(kind: &str, msg: &Value) -> Vec<String> {
+    if !NAMING_KINDS.contains(&kind) {
+        return Vec::new();
+    }
+    named_ids(msg).filter(|id| valid_id(id)).map(str::to_owned).collect()
+}
+
+/// The images a pre-copied prefix's prompts name (records through seq `through`), read through
+/// the log's kind index: a move with a prefix bundles only the records past it, and the images
+/// its earlier prompts sent go along all the same.
+pub(super) fn prefix_ids(
+    store: &dyn crate::store::Store,
+    chat: &str,
+    through: u64,
+    into: &mut std::collections::BTreeSet<String>,
+) -> anyhow::Result<()> {
+    store.scan_kinds(chat, &NAMING_KINDS, &mut |e| {
+        if e.seq > through {
+            return false;
+        }
+        into.extend(ids_named_by(&e.kind, &e.msg));
+        true
+    })
+}
+
+/// A moved chat takes its images along (Leo, 2026-11-22: "moving sessions back and forth, the
+/// histories the pausing the images"): each kept image `ids` names goes into the bundle's
+/// `attachments/`, so the target shows the chat's images, not a hole. An id this machine no
+/// longer holds is left out: the chat shows it as missing here too. Answers how many went.
+pub(super) fn bundle_images<'a>(
+    ids: impl IntoIterator<Item = &'a String>,
+    bundle: &std::path::Path,
+) -> std::io::Result<usize> {
+    let to = bundle.join(BUNDLE_DIR);
+    let mut copied = 0;
+    for id in ids {
+        let Some(from) = image_path(id).filter(|p| p.is_file()) else { continue };
+        if copied == 0 {
+            crate::home_fs::create_dirs(&to)?;
+        }
+        std::fs::copy(&from, to.join(id))?;
+        copied += 1;
+    }
+    Ok(copied)
+}
+
+/// A moved chat's images, kept on this machine as its own prompts' are. Each is kept under the
+/// SHA-256 of its bytes and only when the bytes have that hash, so a bundle cannot replace
+/// another chat's image. Answers how many were kept.
+pub(super) fn restore_images(bundle: &std::path::Path) -> std::io::Result<usize> {
+    use sha2::Digest;
+    let from = bundle.join(BUNDLE_DIR);
+    let Ok(entries) = std::fs::read_dir(&from) else { return Ok(0) };
+    let mut kept = 0;
+    for entry in entries {
+        let entry = entry?;
+        let Some(id) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        let Some(dest) = image_path(&id) else { continue };
+        if dest.is_file() {
+            kept += 1;
+            continue;
+        }
+        let bytes = std::fs::read(entry.path())?;
+        let hash: String =
+            sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        if hash != id {
+            tracing::warn!(id, "a moved image whose bytes are not its id: not kept");
+            continue;
+        }
+        crate::home_fs::create_dirs(dir())?;
+        // Written aside under a name of its own and renamed, as `keep_indexed` does: two moves
+        // arriving with one image never write the same partial file, and the rename goes
+        // through the folder this daemon holds (`home_fs`).
+        let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
+        let written = write_owner_only(&partial, &bytes)
+            .and_then(|()| crate::home_fs::rename(&partial, &dest));
+        if let Err(e) = written {
+            let _ = crate::home_fs::remove_file(&partial);
+            return Err(e);
+        }
+        kept += 1;
+    }
+    Ok(kept)
+}
+
+/// The ids of the images a record's `msg` names (`images: [{id, ..}]`).
+pub(crate) fn named_ids(msg: &Value) -> impl Iterator<Item = &str> {
+    let images = msg.get("images").and_then(Value::as_array).into_iter().flatten();
+    images.filter_map(|named| named.get("id").and_then(Value::as_str))
+}
+
+/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?, width?,
+/// height?}`, the id the SHA-256 of the bytes, the size read from the image's header). `None` for any other block, or image data that is not base64.
 fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     use base64::Engine;
     use sha2::Digest;
@@ -114,6 +223,13 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     let id: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
     let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
     let mut named = json!({"id": id, "mimeType": mime});
+    // Its pixel size from the header, as a browser draws it (EXIF orientation applied), so every
+    // view reserves the image's own box before it reads the bytes and a decoded image never moves
+    // a row (`image_size.rs`; agent-transcript-clean-slate.md, step 2).
+    if let Some((width, height)) = super::image_size::pixel_size(&bytes) {
+        named.set("width", json!(width));
+        named.set("height", json!(height));
+    }
     if let Some(name) = block.get("name").and_then(Value::as_str) {
         named.set("name", json!(name));
     }
@@ -198,14 +314,16 @@ fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
             if !path.is_file() {
                 let written = crate::config::refuse_lost_home(&path)
                     .map_err(std::io::Error::other)
-                    .and_then(|()| std::fs::create_dir_all(dir()))
+                    // Through the folder this daemon holds (`home_fs`): a home replaced after
+                    // the check never gets the image.
+                    .and_then(|()| crate::home_fs::create_dir_all(dir(), 0o777))
                     .and_then(|()| {
                         // Written aside and renamed, so a reader never sees half an image.
                         let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
                         let written = write_owner_only(&partial, &bytes)
-                            .and_then(|()| std::fs::rename(&partial, &path));
+                            .and_then(|()| crate::home_fs::rename(&partial, &path));
                         if written.is_err() {
-                            let _ = std::fs::remove_file(&partial);
+                            let _ = crate::home_fs::remove_file(&partial);
                         }
                         written
                     });
@@ -219,14 +337,35 @@ fn keep_indexed(blocks: &[Value]) -> Vec<(usize, Value)> {
         .collect()
 }
 
+/// Sets a prompt record's `inlineParts` to `parts`, unless they say nothing its `text` does not:
+/// none, or one plain text part (no paste, file or display fields) whose text is the record's
+/// `text`. Every reader falls back to `text` without them, as for a record from before
+/// `inlineParts` (`retry_turn.rs` `prompt_blocks`, `fork_before.rs`, the web and iOS
+/// transcripts), and that one part was the prompt's whole text a second time in the record, in
+/// the journal and in the log's kind index (cmuxterm-hq#9263).
+pub(super) fn set_inline_parts(msg: &mut Value, parts: Vec<Value>) {
+    let only_text = match parts.as_slice() {
+        [] => true,
+        [part] => {
+            part.as_object().is_some_and(|fields| {
+                fields.len() == 2 && fields.get("kind").and_then(Value::as_str) == Some("text")
+            }) && part.get("text").and_then(Value::as_str).is_some()
+                && part.get("text") == msg.get("text")
+        }
+        _ => false,
+    };
+    if !only_text {
+        msg.set("inlineParts", Value::Array(parts));
+    }
+}
+
 /// Writes a new file only its owner reads (0600 on Unix).
 fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)?.write_all(bytes)
+    let mut file =
+        crate::home_fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()
 }
 
 /// The prompt's ACP blocks in their original order, with attachment bytes replaced by durable
@@ -526,22 +665,26 @@ impl Hub {
             msg.get("images").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default(),
             display_parts,
         );
-        if !ordered.is_empty() {
-            msg.set("inlineParts", Value::Array(ordered));
-        }
+        set_inline_parts(&mut msg, ordered);
         super::session::mark_pasted(&mut msg, blocks);
         // The immutable cmux snapshot is saved in metadata and can be appended again
-        // by turns.rs. Only unrecorded client context prevents Retry/restart replay.
+        // by turns.rs. Only unrecorded client context prevents Retry/restart replay; the tools
+        // note follows from the words, and a rebuild adds it again (`tool_mentions.rs`).
         let mut saved_context = Vec::new();
         crate::context_inventory::append_snapshot(
             session.meta().cmux_context.as_deref(),
             &mut saved_context,
         );
-        if blocks
-            .iter()
-            .any(|block| crate::prompt_context::is_context(block) && !saved_context.contains(block))
-        {
+        if blocks.iter().any(|block| {
+            crate::prompt_context::is_context(block)
+                && !saved_context.contains(block)
+                && !crate::tool_mentions::is_own_note(block, blocks)
+        }) {
             msg.set("hiddenContext", Value::Bool(true));
+        }
+        // Purged once its creator is done: the log keeps no long body (`ephemeral.rs`).
+        if session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).throwaway {
+            super::ephemeral::leave_out_body(&mut msg);
         }
         // A turn Claude Code started on its own and still runs: the rest is this prompt's turn.
         self.end_background_turn(session, "prompt");

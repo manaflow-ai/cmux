@@ -1,4 +1,5 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileDiff
@@ -145,13 +146,13 @@ struct SubagentGroupCard: View {
                     .frame(minHeight: 52)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
                 .accessibilityLabel("\(agent.name), \(agent.state.label)")
                 .accessibilityHint("Opens its transcript")
             }
         }
         .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
-        .animation(.cmuxMobileSnap, value: agents.map(\.state))
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: agents.map(\.state))
     }
 }
 
@@ -196,7 +197,7 @@ struct SubagentsScreen: View {
                     .frame(minHeight: 52)
                     .contentShape(.rect)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.cmuxPressFill)
             }
         }
         .listStyle(.plain)
@@ -244,7 +245,8 @@ struct SubagentTranscriptScreen: View {
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, 12)
-                    .frame(height: 28)
+                    .padding(.vertical, 4)
+                    .frame(minHeight: 28)
                     .background(Color.cmuxMobileFill, in: .capsule)
                     if let task = agent.task {
                         Text(task)
@@ -256,6 +258,7 @@ struct SubagentTranscriptScreen: View {
                     }
                     ForEach(rows) { row in
                         SubagentRowView(row: row, turn: turn, store: store, diffs: store.diffs, isLast: row.id == rows.last?.id) { nested = $0 }
+                            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store] call in await store.loadFullOutput(of: call) })
                     }
                     HStack(spacing: 8) {
                         SubagentStateGlyph(state: agent.state)
@@ -316,6 +319,14 @@ struct SubagentRowView: View {
             PlanCard(entries: entries)
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store, open: open)
+        case .steer(let message):
+            if let incoming = message.incoming {
+                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at)
+            } else {
+                UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
+                           editAndResend: {})
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
         case .permission, .question:
             EmptyView()
         }
@@ -440,7 +451,7 @@ struct CheckpointsScreen: View {
             }
             .contentShape(.rect)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFill)
         .disabled(restoring != nil)
     }
 
@@ -450,7 +461,7 @@ struct CheckpointsScreen: View {
         } catch let error as AgentFeatureUnavailable {
             load = .unavailable(error.message)
         } catch {
-            load = .failed(error.localizedDescription)
+            load = .failed(UserFacingError.message(error))
         }
     }
 
@@ -464,7 +475,7 @@ struct CheckpointsScreen: View {
                 restoredTrigger += 1
                 await reload()
             } catch {
-                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: error.localizedDescription)
+                toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: UserFacingError.message(error, fallback: "Couldn't restore the checkpoint. Try again."))
             }
             restoring = nil
         }
@@ -521,7 +532,7 @@ struct HandoffScreen: View {
                                 .frame(minHeight: 48)
                                 .contentShape(.rect)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.cmuxPressFill)
                             .disabled(target.unavailableReason != nil)
                             .opacity(target.unavailableReason == nil ? 1 : 0.5)
                         }
@@ -553,33 +564,16 @@ struct HandoffScreen: View {
         } catch let error as AgentFeatureUnavailable {
             load = .unavailable(error.message)
         } catch {
-            load = .failed(error.localizedDescription)
+            load = .failed(UserFacingError.message(error))
         }
     }
 }
 
-/// A round agent mark: the harness glyph on a raised circle (as Feed avatars).
+/// A round agent mark, as the Feed's avatars (`AgentAvatarMark`): the agent's own mark on its tinted circle.
 struct AgentGlyph: View {
     let harness: String
 
-    var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 14, weight: .medium))
-            .frame(width: 32, height: 32)
-            .background(Color.cmuxMobileSurfaceRaised, in: .circle)
-            .accessibilityHidden(true)
-    }
-
-    private var symbol: String {
-        switch harness {
-        case "claude": "asterisk"
-        case "codex": "chevron.left.forwardslash.chevron.right"
-        case "cursor": "cursorarrow.rays"
-        case "gemini": "sparkles"
-        case "opencode": "curlybraces"
-        default: "sparkle"
-        }
-    }
+    var body: some View { AgentAvatar(harness: harness, side: 32) }
 }
 
 /// Review of one continuation: what it carries, the capsule text, the checkpoint attestation.
@@ -629,7 +623,7 @@ struct HandoffReviewScreen: View {
                 }
             }
         }
-        .animation(.cmuxMobileSmooth, value: receipt)
+        .animation(.cmuxMobileSmooth.unlessReduceMotion, value: receipt)
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Review continuation")
         .navigationBarTitleDisplayMode(.inline)
@@ -638,7 +632,7 @@ struct HandoffReviewScreen: View {
         .onChange(of: surface.demoHandoffFill) { _, value in
             guard let value else { return }
             checkpoint = value
-            withAnimation(.cmuxMobileSnap) { attested = true }
+            withAnimation(.cmuxMobileSnap.unlessReduceMotion) { attested = true }
         }
         .onChange(of: surface.demoHandoffStart) {
             if case .loaded(let draft) = load { start(draft) }
@@ -724,7 +718,7 @@ struct HandoffReviewScreen: View {
             .padding(.vertical, 10)
             .accessibilityIdentifier("handoff.start")
         }
-        .animation(.cmuxMobileSnap, value: error)
+        .animation(.cmuxMobileSnap.unlessReduceMotion, value: error)
     }
 
     private func canStart(_ draft: AgentHandoffDraft) -> Bool {
@@ -741,7 +735,7 @@ struct HandoffReviewScreen: View {
         } catch let error as AgentFeatureUnavailable {
             load = .unavailable(error.message)
         } catch {
-            load = .failed(error.localizedDescription)
+            load = .failed(UserFacingError.message(error))
         }
     }
 
@@ -756,7 +750,7 @@ struct HandoffReviewScreen: View {
             do {
                 receipt = try await store.source.startHandoff(reviewed)
             } catch {
-                self.error = error.localizedDescription
+                self.error = UserFacingError.message(error, fallback: "Couldn't start the handoff. Try again.")
             }
             starting = false
         }
@@ -771,7 +765,7 @@ struct SessionArtifactsSheet: View {
     let surface: AgentChatSurface
 
     var body: some View {
-        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+        let collected = store.artifacts
         ArtifactsBrowser(
             title: "Files and Artifacts",
             artifacts: collected.artifacts,

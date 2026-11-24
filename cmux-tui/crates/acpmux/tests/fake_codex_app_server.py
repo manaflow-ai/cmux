@@ -5,6 +5,9 @@ field. `model/list` answers in two pages; `thread/start` makes one thread and
 `turn/start` streams one message ("ok") and completes the turn.
 FAKE_CODEX=unauth refuses `model/list` as a signed-out Codex does;
 FAKE_CODEX=hang never answers; FAKE_DELAY waits before each answer.
+FAKE_CODEX_CATALOG=<path> answers `model/list` with that file's rows, one page, read at
+each request (a Codex updated behind the same launcher answers with a new catalog), and
+`thread/start` runs the model it asks for, else that catalog's default.
 `account/rateLimits/read` answers a Pro plan's 5-hour and weekly windows and credits.
 
 Background terminals (unified exec): a prompt with "bg-codex" runs `npm run
@@ -20,11 +23,27 @@ Pro plan's 5-hour and weekly windows and credits; then the weekly window moved).
 terminate answers `terminated: false`. "bg-codex-interrupt" leaves `sleep 60`
 (3001) open when the turn is interrupted. FAKE_CODEX_END_FIRST=1 completes a
 terminated item before answering the terminate.
+FAKE_CODEX_HOLD_SUGGESTIONS=1 never answers a prompt suggestion's ask
+(`thread/prediction/request`, `thread/sample`, a prediction `thread/fork`): what the bridge asks
+after a turn completes stays in flight, as on a loaded machine whose answer lands
+after the prompt's own.
+
+Approvals as Codex runs them (tests/permission_matrix.rs), with FAKE_CODEX_APPROVALS=1: each
+thread keeps the `approvalPolicy` that `thread/start`, `thread/resume`, `turn/start` or
+`thread/settings/update` last named; `thread/resume` and `thread/settings/update` are answered
+(not refused as unknown), and each `thread/start` makes a thread of its own (fake-thread-PID-N). A
+"perm-probe" turn runs `npm test`: under "never" it runs unasked, under any other policy it
+sends `item/commandExecution/requestApproval` and ends the turn with the decision it gets.
 """
 import json
 import os
 import sys
 import time
+
+# acpmux's sign-in probe at spawn (`codex_signed_out.rs`): signed in, and not a start.
+if sys.argv[1:3] == ["login", "status"]:
+    print("Logged in using ChatGPT")
+    sys.exit(0)
 
 # Global options (`-c key=value`, `--config key=value`) come before the subcommand, as codex
 # takes them. FAKE_CODEX_ARGS=<path> gets a line with the arguments of each start.
@@ -32,7 +51,8 @@ if os.environ.get("FAKE_CODEX_ARGS"):
     with open(os.environ["FAKE_CODEX_ARGS"], "a") as f:
         f.write(json.dumps(sys.argv[1:]) + "\n")
 args = sys.argv[1:]
-while len(args) >= 2 and args[0] in ("-c", "--config"):
+# Global options before the subcommand, as codex takes them (`-m <model> app-server`).
+while len(args) >= 2 and args[0] in ("-c", "--config", "-m", "--model", "-p", "--profile"):
     args = args[2:]
 if not args or args[0] != "app-server":
     sys.stderr.write("usage: codex app-server\n")
@@ -67,6 +87,18 @@ PAGES = {
 }
 
 mode = os.environ.get("FAKE_CODEX", "")
+APPROVALS = os.environ.get("FAKE_CODEX_APPROVALS") == "1"
+# FAKE_CODEX_APPROVALS: each thread's approval policy, the threads made, and the approval
+# requests sent and not yet answered (request id -> thread, turn).
+policies = {}
+threads_made = 0
+asked = {}
+
+
+def keep_policy(params):
+    thread = params.get("threadId")
+    if thread and params.get("approvalPolicy"):
+        policies[thread] = params["approvalPolicy"]
 
 
 # processId -> the open item of each background terminal still running.
@@ -137,6 +169,34 @@ for line in sys.stdin:
     if "id" not in message or mode == "hang":
         continue
     method, rid = message.get("method"), message["id"]
+    # FAKE_CODEX_APPROVALS: the answer to a "perm-probe" approval ends that turn.
+    if APPROVALS and method is None and rid in asked:
+        thread, turn = asked.pop(rid)
+        decision = (message.get("result") or {}).get("decision")
+        said = "perm-probe ran npm test" if decision in ("accept", "acceptForSession") else "perm-probe %s" % decision
+        ran = decision in ("accept", "acceptForSession")
+        item_event("completed", thread, turn, dict(exec_item("c1", "npm test", None, os.getcwd()), source="agent",
+                   status="completed" if ran else "declined", exitCode=0 if ran else None))
+        reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1", "delta": said}})
+        reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": "completed", "items": []}}})
+        continue
+    if APPROVALS and method == "thread/settings/update":
+        keep_policy(message.get("params") or {})
+        reply({"id": rid, "result": {}})
+        continue
+    if APPROVALS and method == "thread/resume":
+        params = message.get("params") or {}
+        keep_policy(params)
+        thread = {"id": params.get("threadId"), "cwd": params.get("cwd"), "turns": []}
+        reply({"id": rid, "result": {"thread": thread, "model": "gpt-6.1-sol", "reasoningEffort": None,
+                                     "approvalPolicy": params.get("approvalPolicy")}})
+        continue
+    predicting = (message.get("params") or {}).get("experimentalPredictionMode")
+    if os.environ.get("FAKE_CODEX_HOLD_SUGGESTIONS") == "1" and (
+        method in ("thread/prediction/request", "thread/sample")
+        or (method == "thread/fork" and predicting)
+    ):
+        continue
     if method == "initialize":
         reply({"method": "codex/event", "params": {"note": "a notification first"}})
         reply({"id": rid, "result": {"userAgent": "fake"}})
@@ -144,11 +204,28 @@ for line in sys.stdin:
         if mode == "unauth":
             reply({"id": rid, "error": {"code": -32000, "message": "Not logged in. Run `codex login`."}})
             continue
-        data, cursor = PAGES[message.get("params", {}).get("cursor")]
+        if os.environ.get("FAKE_CODEX_CATALOG"):
+            with open(os.environ["FAKE_CODEX_CATALOG"]) as f:
+                data, cursor = json.load(f), None
+        else:
+            data, cursor = PAGES[message.get("params", {}).get("cursor")]
         reply({"id": rid, "result": {"data": data, "nextCursor": cursor}})
     elif method == "thread/start":
         thread = {"id": "fake-thread-1", "cwd": message.get("params", {}).get("cwd"), "turns": []}
-        reply({"id": rid, "result": {"thread": thread, "model": "gpt-6.1-sol", "reasoningEffort": None}})
+        if APPROVALS:
+            # Unique across app-server processes too: a restarted one resumes the old thread and
+            # starts new ones (prompt suggestions) beside it.
+            threads_made += 1
+            thread["id"] = "fake-thread-%d-%d" % (os.getpid(), threads_made)
+            keep_policy(dict(message.get("params") or {}, threadId=thread["id"]))
+        model = "gpt-6.1-sol"
+        if os.environ.get("FAKE_CODEX_CATALOG"):
+            # The model asked for, else the catalog's default, as an installed Codex starts.
+            with open(os.environ["FAKE_CODEX_CATALOG"]) as f:
+                rows = json.load(f)
+            asked = message.get("params", {}).get("model")
+            model = asked or next((r["id"] for r in rows if r.get("isDefault")), rows[0]["id"])
+        reply({"id": rid, "result": {"thread": thread, "model": model, "reasoningEffort": None}})
     elif method == "turn/start":
         params = message.get("params", {})
         thread, turn = params.get("threadId"), "fake-turn-%s" % rid
@@ -157,6 +234,23 @@ for line in sys.stdin:
             sys.exit(1)
         reply({"id": rid, "result": {"turn": {"id": turn, "status": "inProgress", "items": []}}})
         reply({"method": "turn/started", "params": {"threadId": thread, "turn": {"id": turn, "status": "inProgress", "items": []}}})
+        if APPROVALS:
+            keep_policy(params)
+        if APPROVALS and text.strip() == "perm-probe":
+            policy = policies.get(thread, "on-request")
+            if policy == "never":
+                reply({"method": "item/agentMessage/delta", "params": {"threadId": thread, "turnId": turn, "itemId": "m1",
+                       "delta": "perm-probe ran npm test unasked (approval %s)" % policy}})
+                reply({"method": "turn/completed", "params": {"threadId": thread, "turn": {"id": turn, "status": "completed", "items": []}}})
+            else:
+                ask_id = "perm-%s" % rid
+                asked[ask_id] = (thread, turn)
+                # As Codex: the command's item starts, then its approval is asked.
+                item_event("started", thread, turn, dict(exec_item("c1", "npm test", None, os.getcwd()), source="agent"))
+                reply({"id": ask_id, "method": "item/commandExecution/requestApproval",
+                       "params": {"threadId": thread, "turnId": turn, "itemId": "c1", "command": "npm test",
+                                  "cwd": os.getcwd(), "reason": "run the tests"}})
+            continue
         if "bg-codex" in text:
             background_turn(thread, turn, os.getcwd(), text)
         if "codex-limits" in text:

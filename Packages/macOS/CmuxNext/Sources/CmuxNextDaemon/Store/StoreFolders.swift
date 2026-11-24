@@ -11,8 +11,9 @@ extension DaemonStore {
     /// Every absolute folder the tabs of every workspace report, once each, in tree order.
     public var tabFolders: [String] {
         var folders: [String] = []
-        for folder in workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
-            where folder.hasPrefix("/") && !folders.contains(folder) { folders.append(folder) }
+        var seen = Set<String>() // a set, not `folders.contains`: one pass, not one per folder per tab
+        for folder in workspaces.lazy.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
+            where folder.hasPrefix("/") && seen.insert(folder).inserted { folders.append(folder) }
         return folders
     }
 }

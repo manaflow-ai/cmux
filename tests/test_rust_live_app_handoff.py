@@ -16,6 +16,7 @@ import tempfile
 import threading
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,7 @@ class FakeApp:
         self.backoff = backoff
         self.builds_run: list[str] = []
         self.owner = self.start()
+        self.changed = threading.Condition()  # notified each time the app brings up a next owner
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self.supervise, daemon=True)
         self.thread.start()
@@ -51,11 +53,18 @@ class FakeApp:
             if self.owner.poll() is not None and self.respawn:
                 if self.stopped.wait(self.backoff):  # the app's reconnect backoff
                     break
-                self.owner = self.start()
+                with self.changed:
+                    self.owner = self.start()
+                    self.changed.notify_all()
             time.sleep(0.01)
 
     def status(self):
         return (self.owner.pid, self.file) if self.owner.poll() is None else None
+
+    def wait_for_owner_other_than(self, old: int, timeout: float = 30) -> bool:
+        """Until the app has brought up an owner that is not `old` (the timeout bounds only a failure)."""
+        with self.changed:
+            return self.changed.wait_for(lambda: (self.status() or (old, None))[0] != old, timeout)
 
     def close(self) -> None:
         self.stopped.set()
@@ -142,11 +151,13 @@ class AppHandoffTests(unittest.TestCase):
         missed = []
 
         def wait(cli, old):
-            # The first wait gives up just before the app's new owner (from the new build) answers.
+            # The first wait gives up just before the app's new owner (from the new build) answers: it returns
+            # once that owner is up, as a poll that ran out a moment too soon.
             if missed:
                 return real_wait(cli, old)
             missed.append(old)
-            time.sleep(0.3)
+            if not app.wait_for_owner_other_than(old):
+                raise AssertionError("the app brought up no new owner after the handoff")
             return None
 
         swapper.wait_for_new_owner = wait
@@ -156,14 +167,16 @@ class AppHandoffTests(unittest.TestCase):
         self.assertEqual(app.builds_run, ["base build\n", "pr build\n", "base build\n"])
 
     def test_a_pid_that_is_no_longer_the_owner_gets_no_signal(self):
-        app = FakeApp(self.tmp)
-        self.addCleanup(app.close)
-        stranger = subprocess.Popen(["sleep", "600"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.addCleanup(stranger.wait)
-        self.addCleanup(stranger.kill)
-        self.swapper(app).terminate_owner(app.file, stranger.pid)
-        time.sleep(0.1)
-        self.assertIsNone(stranger.poll())
+        # The owner and the stranger are pids only; a fake kill records every signal sent.
+        swapper = rust_live.Swapper(None, "/fake.sock", state=self.state)
+        owner, stranger = 4242, 4343  # the stranger: an owner that exited, its pid another process's by now
+        swapper.owner = lambda _cli, **_k: (owner, self.new)
+        sent = []
+        with unittest.mock.patch.object(rust_live.os, "kill", lambda pid, sig: sent.append((pid, sig))):
+            swapper.terminate_owner(self.new, stranger)
+            self.assertEqual(sent, [])
+            swapper.terminate_owner(self.new, owner)  # the owner still is: it gets the SIGTERM
+        self.assertEqual(sent, [(owner, signal.SIGTERM)])
 
     def test_a_status_that_hangs_counts_as_no_owner(self):
         swapper = rust_live.Swapper(None, "/fake.sock", state=self.state)
@@ -235,6 +248,53 @@ class AppHandoffTests(unittest.TestCase):
         self.assertEqual(app.file.read_text(), "base build\n")
         self.assertEqual(app.builds_run[-1], "base build\n")
         self.assertFalse(any(self.state.glob("app-original-*.json")))
+
+    def test_the_handoff_links_the_builds_instead_of_copying_them(self):
+        # A debug cmux-tui is 614 MB; the handoff copied it twice per swap (the file before, the new build).
+        app = FakeApp(self.tmp)
+        self.addCleanup(app.close)
+        base_inode = app.file.stat().st_ino
+        swapper = self.swapper(app)
+        swapper.swap({"cmux-tui": self.new})
+        self.assertEqual(app.file.stat().st_ino, self.new.stat().st_ino)
+        self.assertEqual(swapper.app_original[1].stat().st_ino, base_inode)
+        swapper.restore_app()
+        self.assertEqual(app.file.stat().st_ino, base_inode)
+        self.assertEqual(app.file.read_text(), "base build\n")
+
+    def test_the_waits_ask_the_daemons_socket_once_it_named_the_same_pid(self):
+        # A `server status` per 50 ms poll started a CLI each time; the socket answers in a millisecond.
+        import socket as socket_mod
+        sock_path = Path(tempfile.mkdtemp(prefix="rl-", dir="/tmp")) / "s"
+        self.addCleanup(shutil.rmtree, sock_path.parent, True)
+        answering = {"pid": 4242}
+        server = socket_mod.socket(socket_mod.AF_UNIX, socket_mod.SOCK_STREAM)
+        server.bind(str(sock_path))
+        server.listen(8)
+        self.addCleanup(server.close)
+
+        def serve():
+            while True:
+                try:
+                    conn, _ = server.accept()
+                except OSError:
+                    return
+                with conn:
+                    conn.recv(65536)
+                    conn.sendall((json.dumps({"ok": True, "data": {"pid": answering["pid"]}}) + "\n").encode())
+        threading.Thread(target=serve, daemon=True).start()
+        swapper = rust_live.Swapper(None, None, state=self.state)
+        calls = []
+        swapper.cli = lambda _bin, *words, **_k: calls.append(words) or subprocess.CompletedProcess(
+            words, 0, json.dumps({"pid": 4242, "socket": str(sock_path)}), "")
+        exe = self.tmp / "exe"
+        exe.write_text("x")
+        with unittest.mock.patch.object(rust_live.os, "readlink", lambda _p: str(exe)):
+            self.assertEqual(swapper.owner(self.new), (4242, exe))
+        self.assertEqual(swapper.owner_sock, str(sock_path))
+        answering["pid"] = 4343
+        self.assertEqual(swapper.wait_for_new_owner(self.new, 4242), 4343)
+        self.assertEqual(len(calls), 1)  # the first status only
 
     def test_a_daemon_outside_an_app_still_restarts_through_the_cli(self):
         swapper = rust_live.Swapper("s", None, state=self.state)

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { browseFailureMessage } from "./BrowseFailure";
+import { browseFailureMessage } from "./browseFailureModel";
 import { translate } from "./i18n";
 
 test("localizes unsupported and empty native browse failures", () => {

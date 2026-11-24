@@ -8,6 +8,27 @@ import { uploadToMachine } from "../src/agent-session/acpmux/cloudUploads";
 import { intakeFiles, LOCAL_PATHS_DEADLINE_MS } from "../src/agent-session/acpmux/composer/intakeFiles";
 import { fitPromptBudget } from "../src/agent-session/acpmux/promptBudget";
 
+test("two clipboard items for the same native screenshot produce one path without reading either file", async () => {
+  const files = [new File([], "image.png", { type: "image/png" }), new File([], "image.png", { type: "image/png" })];
+  for (const file of files)
+    file.arrayBuffer = () => {
+      throw new Error("read clipboard bytes");
+    };
+  const path = "/tmp/image.png";
+  const duplicates: number[] = [];
+  const result = await intakeFiles(
+    files,
+    {
+      allowImages: true,
+      deduplicateImages: true,
+      localPaths: async () => files.map(() => ({ path, folder: false })),
+    },
+    { duplicate: (at) => duplicates.push(at) },
+  );
+  expect(duplicates).toEqual([1]);
+  expect(result.attachments.map((chip) => chip.path)).toEqual([path]);
+});
+
 const g = globalThis as Record<string, unknown>;
 function imageEngine() {
   g.createImageBitmap = async () => ({ width: 40, height: 30, close() {} });
@@ -299,11 +320,10 @@ test("a file's upload never waits for a sibling image the host knows the path of
   );
   await fileChip.fired;
   expect(uploaded).toEqual([["notes.zip"]]);
-  expect(ready).toEqual(["1 link"]);
-  decoded();
   const result = await taken;
-  expect(ready).toEqual(["1 link", "0 image"]);
-  expect(result.attachments.find((chip) => chip.kind === "image")?.originalPath).toBe("/Users/me/shot.png");
+  expect(ready).toEqual(["0 link", "1 link"]);
+  expect(result.attachments[0]?.path).toBe("/Users/me/shot.png");
+  decoded();
 });
 
 // Review (Codex): an image is a chip as soon as its preview is made, while its original still
@@ -342,7 +362,7 @@ test("an image whose chip is gone stops its original's upload", async () => {
 // Review (Codex): the strip shows the chat on screen. A chip pasted in chat A is out of view, not
 // removed, while B is shown, so A's image keeps uploading its original.
 test("an image's chip counts as removed only from the strip of the chat it was pasted in", async () => {
-  const { chipRemoved } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { chipRemoved } = await import("../src/agent-session/acpmux/composer/attachmentIntakeModel");
   const base = {
     chip: "img",
     stagedHere: true,

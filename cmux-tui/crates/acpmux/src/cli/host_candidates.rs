@@ -4,6 +4,7 @@
 //! online machine of the user's own (same login, not tagged, not shared
 //! in), a few at a time and at most [`MAX_PROBES`].
 
+use crate::cli::host_enroll::SshFailure;
 use crate::cli::host_peering::{Io, Live, Ran};
 use crate::cli::hosts::checked_host;
 use crate::cli::output::print_json;
@@ -42,6 +43,8 @@ pub(crate) struct Candidate {
     pub peer_url: Option<String>,
     /// With `--probe`: key-only ssh worked. Not tried for an offline machine,
     /// one that is not [`Candidate::mine`], or one past [`MAX_PROBES`].
+    /// Also unknown when host-key verification needs explicit first contact:
+    /// Add Machine may offer it, but a background probe never accepts an unknown key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ssh_ok: Option<bool>,
 }
@@ -109,13 +112,28 @@ pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
         .collect()
 }
 
-/// `ssh -o BatchMode=yes -o ConnectTimeout=5 -- TARGET true`.
+/// Reject unknown keys even when the user's configuration accepts new keys.
+/// Keep error diagnostics available for classification under quiet configurations.
 pub(crate) fn probe_argv(target: &str) -> Result<Vec<String>> {
     let target = checked_host(target)?;
-    Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", target, "true"]
-        .iter()
-        .map(|s| s.to_string())
-        .collect())
+    Ok([
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "UpdateHostKeys=no",
+        "-o",
+        "LogLevel=ERROR",
+        "--",
+        target,
+        "true",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect())
 }
 
 /// Try ssh to the user's own online candidates (at most [`MAX_PROBES`]),
@@ -132,13 +150,21 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
         .take(MAX_PROBES)
         .collect();
     let next = AtomicUsize::new(0);
-    let results: Vec<(usize, bool)> = std::thread::scope(|scope| {
+    let results: Vec<(usize, Option<bool>)> = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..PROBES_AT_ONCE.min(targets.len()))
             .map(|_| {
                 scope.spawn(|| {
                     let mut done = Vec::new();
                     while let Some((i, argv)) = targets.get(next.fetch_add(1, Ordering::SeqCst)) {
-                        done.push((*i, ssh(argv).ok));
+                        let result = ssh(argv);
+                        let verified = if !result.ok
+                            && SshFailure::of(&result.stderr) == SshFailure::HostKeyUnknown
+                        {
+                            None
+                        } else {
+                            Some(result.ok)
+                        };
+                        done.push((*i, verified));
                     }
                     done
                 })
@@ -150,7 +176,7 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
         list[i].ssh_ok = Some(false);
     }
     for (i, ok) in results {
-        list[i].ssh_ok = Some(ok);
+        list[i].ssh_ok = ok;
     }
 }
 
@@ -198,146 +224,5 @@ pub(crate) async fn run(client: &Client, probe: bool, json_out: bool) -> Result<
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::tailnet::parse_status;
-
-    const STATUS: &str = r#"{
-      "BackendState": "Running",
-      "User": {"1": {"ID": 1, "LoginName": "leo@example.com"}, "2": {"ID": 2, "LoginName": "sam@example.com"}},
-      "Self": {"HostName": "cosmic", "DNSName": "cosmic-gray.tail9.ts.net.", "OS": "macOS",
-               "TailscaleIPs": ["100.64.0.1"], "Online": true, "UserID": 1},
-      "Peer": {
-        "nodekey:a": {"HostName": "huge-blue", "DNSName": "huge-blue.tail9.ts.net.", "OS": "macOS",
-                      "TailscaleIPs": ["100.64.0.2", "fd7a:115c:a1e0::2"], "Online": true, "UserID": 1},
-        "nodekey:b": {"HostName": "box", "DNSName": "", "OS": "linux",
-                      "TailscaleIPs": ["fd7a:115c:a1e0::3", "100.64.0.3"], "Online": true, "UserID": 1},
-        "nodekey:c": {"HostName": "phone", "DNSName": "phone.tail9.ts.net.", "OS": "iOS",
-                      "TailscaleIPs": ["100.64.0.4"], "Online": false, "UserID": 1}
-      }
-    }"#;
-
-    /// Online machines that are not the user's: a tagged server, a
-    /// teammate's, one shared in from another tailnet.
-    const OTHERS: &str = r#"{
-      "BackendState": "Running",
-      "User": {"1": {"ID": 1, "LoginName": "leo@example.com"}, "2": {"ID": 2, "LoginName": "sam@example.com"}},
-      "Self": {"HostName": "cosmic", "DNSName": "cosmic-gray.tail9.ts.net.", "OS": "macOS",
-               "TailscaleIPs": ["100.64.0.1"], "Online": true, "UserID": 1},
-      "Peer": {
-        "nodekey:t": {"HostName": "ci", "DNSName": "ci.tail9.ts.net.", "OS": "linux", "Tags": ["tag:ci"],
-                      "TailscaleIPs": ["100.64.0.5"], "Online": true, "UserID": 1},
-        "nodekey:u": {"HostName": "sams-mac", "DNSName": "sams-mac.tail9.ts.net.", "OS": "macOS",
-                      "TailscaleIPs": ["100.64.0.6"], "Online": true, "UserID": 2},
-        "nodekey:v": {"HostName": "shared", "DNSName": "shared.other.ts.net.", "OS": "linux",
-                      "TailscaleIPs": ["100.64.0.7"], "Online": true, "UserID": 1, "ShareeNode": true}
-      }
-    }"#;
-
-    fn status() -> Status {
-        parse_status(STATUS.as_bytes()).unwrap()
-    }
-
-    #[test]
-    fn tailscale_status_becomes_candidates() {
-        let list = candidates(&status(), &[]);
-        let names: Vec<&str> = list.iter().map(|c| c.name.as_str()).collect();
-        // Sorted by MagicDNS name; a node without one is named by its host name.
-        assert_eq!(names, ["box", "huge-blue", "phone"]);
-        assert_eq!(list[0].ip.as_deref(), Some("100.64.0.3"), "IPv4 first");
-        assert_eq!(list[1].dns_name, "huge-blue.tail9.ts.net");
-        assert_eq!(list[1].os, "macOS");
-        assert!(!list[2].online);
-        assert!(list.iter().all(|c| !c.already_peer && c.ssh_ok.is_none()));
-        let line = serde_json::to_value(&list[1]).unwrap();
-        assert_eq!(line["already_peer"], false);
-        assert!(line.get("ssh_ok").is_none());
-    }
-
-    #[test]
-    fn already_peer_matches_any_name_or_address_in_a_peer_url() {
-        let peers = [
-            json!({"name": "hb", "url": "ssh://leo@HUGE-BLUE.tail9.ts.net"}),
-            json!({"name": "b", "url": "ssh://100.64.0.3:47812"}),
-            json!({"name": "sandbox", "url": "ws://10.0.0.9:47811"}),
-        ];
-        let list = candidates(&status(), &peers);
-        assert_eq!(list[0].peer.as_deref(), Some("b"));
-        assert_eq!(list[1].peer.as_deref(), Some("hb"));
-        assert!(list[1].already_peer);
-        assert_eq!(list[0].peer_url.as_deref(), Some("ssh://100.64.0.3:47812"));
-        let line = serde_json::to_value(&list[0]).unwrap();
-        assert_eq!(line["peer_url"], "ssh://100.64.0.3:47812");
-        assert_eq!(list[2].peer, None);
-        assert!(serde_json::to_value(&list[2]).unwrap().get("peer_url").is_none());
-        // Only ssh peers can use the Add Machine peer path; websocket URLs stay out of the
-        // already-peer marker and never carry arbitrary query text into candidate JSON.
-        let list = candidates(
-            &status(),
-            &[
-                json!({"name": "web", "url": "ws://huge-blue.tail9.ts.net:47811?token=secret"}),
-                json!({"name": "bad", "url": "ssh://huge-blue.tail9.ts.net:47812?token=secret"}),
-            ],
-        );
-        assert!(!list[1].already_peer && list[1].peer_url.is_none());
-        // A short-name peer URL matches too.
-        let list = candidates(&status(), &[json!({"name": "p", "url": "ssh://phone"})]);
-        assert_eq!(list[2].peer.as_deref(), Some("p"));
-    }
-
-    #[test]
-    fn url_hosts() {
-        assert_eq!(url_host("ssh://u@Host.ts.net.:22").as_deref(), Some("host.ts.net"));
-        assert_eq!(url_host("wss://[fd7a::1]:47811/x").as_deref(), Some("fd7a::1"));
-        assert_eq!(url_host("ssh://"), None);
-        assert_eq!(url_host("nonsense"), None);
-    }
-
-    #[test]
-    fn probe_runs_for_online_machines_only() {
-        let mut list = candidates(&status(), &[]);
-        let seen = std::sync::Mutex::new(Vec::new());
-        probe_all(&mut list, &|argv: &[String]| {
-            seen.lock().unwrap().push(argv.to_vec());
-            Ran { ok: argv.iter().any(|a| a == "huge-blue.tail9.ts.net"), ..Ran::default() }
-        });
-        let mut seen = seen.into_inner().unwrap();
-        seen.sort();
-        assert_eq!(
-            seen,
-            [probe_argv("100.64.0.3").unwrap(), probe_argv("huge-blue.tail9.ts.net").unwrap()]
-        );
-        assert_eq!(
-            list.iter().map(|c| c.ssh_ok).collect::<Vec<_>>(),
-            [Some(false), Some(true), None]
-        );
-        assert_eq!(
-            probe_argv("huge-blue").unwrap(),
-            ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", "huge-blue", "true"]
-        );
-        assert!(probe_argv("-oProxyCommand=x").is_err());
-    }
-
-    #[test]
-    fn only_the_users_own_machines_are_probed_and_at_most_max() {
-        let others = parse_status(OTHERS.as_bytes()).unwrap();
-        let mut list = candidates(&others, &[]);
-        assert!(list.iter().all(|c| c.online && !c.mine), "{list:?}");
-        probe_all(&mut list, &|argv: &[String]| panic!("probed {argv:?}"));
-        assert!(list.iter().all(|c| c.ssh_ok.is_none()), "unprobed, still listed");
-
-        // Many own machines: the first MAX_PROBES are tried, the rest stay unprobed.
-        let one = candidates(&status(), &[]).remove(1);
-        let mut many: Vec<Candidate> = (0..MAX_PROBES + 5)
-            .map(|i| Candidate { dns_name: format!("m{i}.tail9.ts.net"), ..one.clone() })
-            .collect();
-        let tried = AtomicUsize::new(0);
-        probe_all(&mut many, &|_: &[String]| {
-            tried.fetch_add(1, Ordering::SeqCst);
-            Ran { ok: true, ..Ran::default() }
-        });
-        assert_eq!(tried.load(Ordering::SeqCst), MAX_PROBES);
-        assert!(many[..MAX_PROBES].iter().all(|c| c.ssh_ok == Some(true)));
-        assert!(many[MAX_PROBES..].iter().all(|c| c.ssh_ok.is_none()));
-    }
-}
+#[path = "host_candidates_tests.rs"]
+mod tests;

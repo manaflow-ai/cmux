@@ -5,6 +5,7 @@
 // forgets the answer where it was made.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -30,19 +31,16 @@ const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { useFolderTrustAsk } = await import("../src/agent-session/acpmux/useFolderTrustAsk");
 const { readTrust } = await import("../src/agent-session/acpmux/folderTrust");
-const { TrustAsk, trustedLabel } = await import("../src/agent-session/acpmux/TrustAsk");
+const { TrustAsk } = await import("../src/agent-session/acpmux/TrustAsk");
+const { trustedLabel } = await import("../src/agent-session/acpmux/trustAskModel");
 const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
 type TrustSource = import("../src/agent-session/acpmux/folderTrust").TrustSource;
 
 const host = dom.window.document.getElementById("root")!;
 const root = createRoot(host);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const repoRoot = "/Users/you/Projects/atlas-web";

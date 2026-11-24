@@ -73,7 +73,7 @@ impl Places {
                 .ok()
                 .and_then(|t| t.elapsed().ok())
                 .is_some_and(|age| age >= older_than);
-            if run && old && std::fs::remove_dir_all(entry.path()).is_ok() {
+            if run && old && crate::home_fs::remove_dir_all(entry.path()).is_ok() {
                 swept += 1;
             }
         }

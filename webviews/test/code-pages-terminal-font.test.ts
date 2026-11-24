@@ -20,7 +20,14 @@ afterEach(() => {
 });
 
 function hostSends(fontFamily: string | null) {
-  const terminal = { type: "dark", background: "#101018", foreground: "#e8e8f0", palette: {}, fontFamily };
+  const terminal = {
+    type: "dark",
+    background: "#101018",
+    foreground: "#e8e8f0",
+    palette: {},
+    fontFamily,
+    fallbackFamilies: ["Custom Symbols"],
+  };
   const payload = { variables: {}, colorScheme: "dark", scrollers: "overlay", terminal };
   (window as ThemeWindow).cmuxTheme = { current: payload };
   window.dispatchEvent(new window.CustomEvent("cmux-theme", { detail: payload }));
@@ -35,6 +42,9 @@ describe("code pages follow the terminal font", () => {
     hostSends("Fira Code");
     const stop = followHostTerminalTheme(() => applyDiffViewerAppearance(resolveDiffViewerAppearance(undefined)));
     expect(codeFamily().startsWith('"Fira Code",')).toBe(true);
+    expect(codeFamily()).toContain('"Symbols Nerd Font Mono"');
+    expect(codeFamily()).toContain('"Noto Sans Mono CJK JP"');
+    expect(codeFamily()).toContain('"Custom Symbols"');
     hostSends("JetBrains Mono");
     expect(codeFamily().startsWith('"JetBrains Mono",')).toBe(true);
     stop();
@@ -43,13 +53,17 @@ describe("code pages follow the terminal font", () => {
   test("the code editor's font is the terminal's", () => {
     hostSends("Fira Code");
     expect(editorFamily().startsWith('"Fira Code",')).toBe(true);
+    expect(editorFamily()).toContain('"Symbols Nerd Font Mono"');
+    expect(editorFamily()).toContain('"Noto Sans Mono CJK JP"');
+    expect(editorFamily()).toContain('"Custom Symbols"');
   });
 
   test("without a named terminal face the pages keep their own defaults", () => {
     hostSends(null);
     applyDiffViewerAppearance(resolveDiffViewerAppearance(undefined));
     expect(codeFamily().startsWith('"Menlo",')).toBe(true);
-    expect(editorFamily().startsWith("ui-monospace")).toBe(true);
+    expect(editorFamily().startsWith('"Menlo",')).toBe(true);
+    expect(editorFamily()).toContain('"Symbols Nerd Font Mono"');
   });
 
   test("a page's own appearance still wins over the terminal's", () => {

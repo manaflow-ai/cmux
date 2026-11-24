@@ -37,10 +37,11 @@ struct HomeNarrowSidebarTests {
     private func page(listWidth: CGFloat) throws -> Page {
         _ = NSApplication.shared
         let suite = "cmux.tests.narrowSidebar.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suite))
+        let defaults = try #require(UserDefaults(testSuiteName: suite))
         let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 320, height: 600))
         let content = NSView()
         let split = HomeSidebarSplitView(sidebar: home, content: content, widths: HomeSidebarWidth(defaults: defaults))
+        split.showsList = true // the person showed the list (folded by default: ChiefReplacesHomeTests)
         split.windowKey = { "w" }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -56,8 +57,8 @@ struct HomeNarrowSidebarTests {
 
     /// Leo, 2026-10-19: "the search completley disappeared when you coulve probably still fit it...
     /// and/or just turned it to an icon. the filter button also just disappeared." The avatar-only
-    /// list keeps the Unread filter and shows search as a glass circle; compose stays the chat's.
-    @Test(arguments: [76, 100, 140, 179] as [CGFloat])
+    /// list keeps the Unread filter and shows search as a circle; compose stays the chat's.
+    @Test(arguments: [100, 120, 140, 187] as [CGFloat])
     func theAvatarListShowsTheSearchIconAndFilterButNoCompose(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }
@@ -73,7 +74,7 @@ struct HomeNarrowSidebarTests {
                 "the search field shows in the \(width) pt list")
     }
 
-    @Test(arguments: [76, 140] as [CGFloat])
+    @Test(arguments: [100, 140] as [CGFloat])
     func theChatShowsComposeAtItsTopLeft(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }
@@ -81,7 +82,10 @@ struct HomeNarrowSidebarTests {
         #expect(!button.isHidden)
         let frame = button.convert(button.bounds, to: p.content)
         let fromTop = p.content.isFlipped ? frame.minY : p.content.bounds.height - frame.maxY
-        #expect(frame.minX >= 4 && frame.minX <= 24, "compose sits \(frame.minX) pt from the chat's left edge")
+        // Chats sits at the chat's top-left (the Chief replaces Home, 2026-11-20), compose right after it.
+        let chats = p.split.chatColumn.chats.convert(p.split.chatColumn.chats.bounds, to: p.content)
+        #expect(chats.minX >= 4 && chats.minX <= 24, "Chats sits \(chats.minX) pt from the chat's left edge")
+        #expect(frame.minX > chats.maxX && frame.minX <= chats.maxX + 16, "compose sits at \(frame.minX) pt, Chats ends at \(chats.maxX) pt")
         #expect(fromTop >= 4 && fromTop <= 20, "compose sits \(fromTop) pt under the chat's top")
         #expect(abs(frame.width - frame.height) < 0.5, "compose is no round button (\(frame.size))")
         // A chat the page shows later (a conversation, New Message) never covers it.
@@ -103,7 +107,7 @@ struct HomeNarrowSidebarTests {
         #expect(!button.isHidden)
     }
 
-    @Test(arguments: [180, 320] as [CGFloat])
+    @Test(arguments: [188, 320] as [CGFloat])
     func theListWithNamesKeepsItsRowAndComposeStaysInTheChat(_ width: CGFloat) throws {
         let p = try page(listWidth: width)
         defer { p.close() }

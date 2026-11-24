@@ -10,6 +10,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
+import { SENT_IMAGE_HEIGHT } from "../src/agent-session/acpmux/conversation/userBubbleModel";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
@@ -87,6 +88,9 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
             ["1", "error"].includes(document.documentElement.dataset.galleryReady ?? ""),
           );
           expect(await page.evaluate(() => document.documentElement.dataset.galleryReady)).toBe("1");
+          // A call's images show once its row opens, one small image at its edge until then (Lucas,
+          // 2026-11-11): open it to the images this case measures.
+          if (image.startsWith(".cv-tool-images")) await page.locator("button.cv-tool").first().click();
           await page.waitForFunction((selector) => {
             const all = [...document.querySelectorAll<HTMLImageElement>(selector)];
             return all.length > 0 && all.every((img) => img.complete && img.naturalWidth > 0);
@@ -126,10 +130,11 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
         }
       });
 
-  // A sent video's poster keeps its tile (SentVideoTile.tsx): 120px tall at the tile's width, cropped
-  // to fill, loaded or still loading. The images' new sizing must not reach it.
+  // A sent video's poster keeps its tile (SentVideoTile.tsx): a sent image's height
+  // (userBubbleModel.ts SENT_IMAGE_HEIGHT, 160px since #48558) at the tile's width, loaded or still
+  // loading. The images' per-image sizing must not reach it.
   for (const variant of ["video-only", "video-loading"])
-    test(`agent-pane.sent-video ${variant}: the poster keeps its 120px tile`, async () => {
+    test(`agent-pane.sent-video ${variant}: the poster keeps its ${SENT_IMAGE_HEIGHT}px tile`, async () => {
       const page = await browser!.newPage({ viewport: { width: 760, height: 720 }, deviceScaleFactor: 2 });
       try {
         const base = `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}`;
@@ -150,7 +155,7 @@ await requireBrowserLane("reply-image-shape-browser.test.ts", async () => {
         expect(tiles.length).toBeGreaterThan(0);
         for (const { tile, poster } of tiles) {
           expect(poster).toBeDefined();
-          expect(Math.abs(poster!.height - 120)).toBeLessThan(1);
+          expect(Math.abs(poster!.height - SENT_IMAGE_HEIGHT)).toBeLessThan(1);
           expect(Math.abs(poster!.width - tile.width)).toBeLessThan(1);
         }
       } finally {

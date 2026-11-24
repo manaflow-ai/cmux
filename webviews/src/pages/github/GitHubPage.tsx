@@ -10,13 +10,40 @@
 // the files changed (wide enough for an inline diff), then the conversation in time order. The
 // rail is what a person checks: checks with reds and running first and greens folded, reviewers,
 // linked issues. A narrow pane is one column in that order.
-import { lazy, Suspense, useEffect, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+  useId,
+} from "react";
 import { relativeTime } from "../../agent-session/acpmux/conversation/relativeTime";
 import { Icon } from "../../agent-session/acpmux/icons/Icon";
+// Imported, not `new URL(...)`: the page's CSP allows `img-src data:` only, and bundle.mjs inlines it.
+import mascotMoon from "../../agent-session/acpmux/mascots/ChiefMascotMoon.png";
+import { IllustratedEmpty } from "../../ui/EmptyState/IllustratedEmpty";
 import type { Strings } from "../shared/i18n";
+import { ChecksDashboard } from "./ChecksDashboard";
+import { withRollup } from "./checksModel";
+import {
+  filterConversation,
+  filterCounts,
+  type ConversationFilter,
+  type ConversationOrder,
+} from "./conversationFilter";
 import { GitHubMarkdown } from "./GitHubMarkdown";
+import { ReadinessBlock, type ReadinessLayout } from "./ReadinessBlock";
+import { ReviewBox, ThreadActions } from "./ReviewBox";
+import type { Blocker } from "./readiness";
 import type { GitHubSnapshot, GitHubStore } from "./store";
 import type { ConversationEntry, FilePatch, LinkedPullRequest, PullRequestDetails } from "./types";
+
+/** The empty page's button: the person's open pull requests on GitHub, in a cmux tab. */
+const PULLS_URL = "https://github.com/pulls";
 
 /// Pierre comes in its own chunk, loaded when a file first opens.
 const GitHubFileDiff = lazy(() => import("./GitHubFileDiff").then((module) => ({ default: module.GitHubFileDiff })));
@@ -27,6 +54,20 @@ const GitHubFileDiff = lazy(() => import("./GitHubFileDiff").then((module) => ({
  * files in the rail too. `single`: one column at every width.
  */
 export type GitHubLayout = "split" | "rail" | "single";
+
+/**
+ * Where the checks go. `top` (shipped): the CI dashboard across the page's whole width under the
+ * header, where a long matrix and a log excerpt have room (Leo, 2026-11-07: "here's your big
+ * dashboard"). `rail`: in the rail, as before.
+ */
+export type ChecksPlacement = "top" | "rail";
+
+/**
+ * How much of the pane the page takes. `fill` (shipped): the whole pane less a gutter, so the
+ * description, its tables and the checks use the room (Leo, 2026-11-07: "it's just giving up way
+ * too much space"). `wide`: 94% of the pane up to 2200px. `column`: 84% up to 1560px, as before.
+ */
+export type PageWidth = "fill" | "wide" | "column";
 
 const STATES: Record<string, string> = {
   open: "github.state.open",
@@ -88,16 +129,38 @@ export function GitHubPage({
   strings,
   now = Date.now,
   layout = "split",
+  checksPlacement = "top",
+  width = "fill",
+  readinessLayout = "list",
+  readinessShown,
+  conversationFilter = "all",
+  reviewDraft,
+  replyOpen,
+  onIssues,
 }: {
   store: GitHubStore;
   strings: Strings;
   now?: () => number;
+  /** Opens the repository's issues in this page (its Issues button); no button without it. */
+  onIssues?: (repo: string) => void;
   layout?: GitHubLayout;
+  checksPlacement?: ChecksPlacement;
+  width?: PageWidth;
+  /** How the merge readiness block lays out its blockers (the gallery's candidates). */
+  readinessLayout?: ReadinessLayout;
+  /** The blocker whose detail starts open, and the conversation's first filter (gallery states). */
+  readinessShown?: Blocker["kind"];
+  conversationFilter?: ConversationFilter;
+  /** The review box's starting words, and the thread whose reply box starts open (gallery states). */
+  reviewDraft?: string;
+  replyOpen?: string;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const { t } = strings;
   const { target, pullRequest: pr, details } = snapshot;
   const hasContent = pr !== undefined;
+  // One callback for the page's life: GitHubMarkdown parses a body again only when its text changes.
+  const open = useCallback((url: string) => store.openOnGitHub(url), [store]);
   // Once the frame that draws this pull request (or its loading state) is on screen, the host hears of it.
   useEffect(() => {
     if (!target) return;
@@ -111,23 +174,71 @@ export function GitHubPage({
   if (!target) {
     return (
       <main className="gh">
-        <p className="gh-muted">{t("github.noPullRequest")}</p>
+        <IllustratedEmpty
+          className="gh-empty"
+          art={mascotMoon}
+          line={t("github.noPullRequest")}
+          action={{ label: t("github.empty.openPullRequests"), onClick: () => store.openOnGitHub(PULLS_URL) }}
+        />
       </main>
     );
   }
   const waitingFirst = !pr && (!snapshot.answered || snapshot.reading);
-  const open = (url: string) => store.openOnGitHub(url);
   const description = pr && <Description details={details} strings={strings} open={open} />;
   const files = pr && <Files pr={pr} snapshot={snapshot} store={store} strings={strings} />;
   const conversation = pr && (
-    <Conversation details={details} strings={strings} now={now} open={open} more={() => store.openOnGitHub()} />
+    <Conversation
+      details={details}
+      snapshot={snapshot}
+      store={store}
+      reviewDraft={reviewDraft}
+      replyOpen={replyOpen}
+      strings={strings}
+      now={now}
+      open={open}
+      more={() => store.openOnGitHub()}
+      initialFilter={conversationFilter}
+    />
   );
-  const checks = pr && <Checks pr={pr} strings={strings} open={open} />;
+  // The dashboard once the host has the jobs; until then the cache's rollup, in the same place.
+  const checks =
+    pr &&
+    (snapshot.checks ? (
+      <ChecksDashboard
+        checks={withRollup(snapshot.checks, pr.checkList ?? [])}
+        rerun={snapshot.rerun}
+        store={store}
+        strings={strings}
+        now={now}
+        open={open}
+      />
+    ) : (
+      <Checks pr={pr} strings={strings} open={open} />
+    ));
   const reviewers = details && details.reviewers.length > 0 && <Reviewers details={details} strings={strings} />;
   const linked = details && details.linked.length > 0 && <Linked details={details} strings={strings} open={open} />;
   return (
-    <main className="gh" data-layout={layout} aria-busy={waitingFirst}>
-      <Header snapshot={snapshot} store={store} strings={strings} now={now} waitingFirst={waitingFirst} />
+    <main className="gh" data-layout={layout} data-width={width} aria-busy={waitingFirst}>
+      <Header
+        snapshot={snapshot}
+        store={store}
+        strings={strings}
+        now={now}
+        waitingFirst={waitingFirst}
+        onIssues={onIssues}
+      />
+      {pr && (
+        <ReadinessBlock
+          pr={pr}
+          details={details}
+          checks={snapshot.checks ? withRollup(snapshot.checks, pr.checkList ?? []) : null}
+          strings={strings}
+          open={open}
+          layout={readinessLayout}
+          shownFirst={readinessShown}
+        />
+      )}
+      {pr && checksPlacement === "top" && <div className="gh-ci-band">{checks}</div>}
       {pr && (
         <div className="gh-body">
           <div className="gh-main">
@@ -136,7 +247,7 @@ export function GitHubPage({
             {conversation}
           </div>
           <aside className="gh-rail">
-            {checks}
+            {checksPlacement === "rail" && checks}
             {layout === "rail" && files}
             {reviewers}
             {linked}
@@ -153,12 +264,14 @@ function Header({
   strings,
   now,
   waitingFirst,
+  onIssues,
 }: {
   snapshot: GitHubSnapshot;
   store: GitHubStore;
   strings: Strings;
   now: () => number;
   waitingFirst: boolean;
+  onIssues?: (repo: string) => void;
 }) {
   const { t } = strings;
   const { target, pullRequest: pr, details } = snapshot;
@@ -181,6 +294,11 @@ function Header({
           <button type="button" className="gh-button" disabled={!pr} onClick={() => void store.openDiff()}>
             {t("github.viewAllChanges")}
           </button>
+          {onIssues && (
+            <button type="button" className="gh-button" onClick={() => onIssues(target!.repo)}>
+              {t("github.issues")}
+            </button>
+          )}
           <button type="button" className="gh-button" onClick={() => store.openOnGitHub()}>
             {t("github.openOnGitHub")}
           </button>
@@ -247,6 +365,7 @@ function Header({
 /** Merge through GitHub's normal path: a first click names the method, the second merges the shown head. */
 function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; store: GitHubStore; strings: Strings }) {
   const { t } = strings;
+  const why = useId();
   const { pullRequest: pr, details, merge } = snapshot;
   if (!pr || pr.state !== "open") return null;
   if (merge.phase === "merged") {
@@ -264,7 +383,7 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
           type="button"
           className="gh-button gh-button--primary"
           disabled={merge.phase === "merging"}
-          title={strings.format("github.merge.pinned", details?.headCommit.slice(0, 7) ?? "")}
+          aria-describedby={why}
           onClick={() => void store.merge()}
         >
           {merge.phase === "merging"
@@ -279,6 +398,10 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
         >
           {t("github.merge.cancel")}
         </button>
+        {/* Which commit it merges, as text (Chief, 2026-11-21: what a tooltip said shows on the page). */}
+        <span className="gh-merge-note gh-merge-pinned" id={why}>
+          {strings.format("github.merge.pinned", details?.headCommit.slice(0, 7) ?? "")}
+        </span>
       </span>
     );
   }
@@ -288,14 +411,20 @@ function MergeButton({ snapshot, store, strings }: { snapshot: GitHubSnapshot; s
         type="button"
         className="gh-button gh-button--primary"
         disabled={!ready}
-        title={details && !ready ? t("github.merge.notReady") : undefined}
+        aria-describedby={details && !ready ? why : undefined}
         onClick={() => void store.merge()}
       >
         {t("github.merge")}
       </button>
+      {/* Why it cannot merge yet, as text: a disabled button gets no hover. A refused merge says it below. */}
+      {details && !ready && merge.phase !== "failed" && (
+        <span className="gh-merge-note gh-merge-why" id={why}>
+          {t("github.merge.notReady")}
+        </span>
+      )}
       {merge.phase === "failed" && merge.message && (
         <span className="gh-failure gh-merge-failure" role="alert">
-          {merge.message}
+          {merge.refused ? t("github.merge.notReady") : merge.message}
         </span>
       )}
     </>
@@ -315,9 +444,10 @@ function CheckTally({ pr, strings }: { pr: LinkedPullRequest; strings: Strings }
       {rows
         .filter(([, count]) => count > 0)
         .map(([state, count, label]) => (
-          <span key={state} className="gh-tally-item" data-check={state} title={strings.t(label)}>
+          <span key={state} className="gh-tally-item" data-check={state}>
             <span className="gh-dot" aria-hidden="true" />
-            <span className="gh-count">{count}</span>
+            {/* The outcome in words, not only the dot's colour (Chief, 2026-11-21). */}
+            <span className="gh-count">{count}</span> <span className="gh-tally-word">{strings.t(label)}</span>
           </span>
         ))}
     </span>
@@ -338,7 +468,7 @@ function Description({
       {!details ? (
         <p className="gh-muted">{strings.t("github.description.loading")}</p>
       ) : details.body.trim() ? (
-        <GitHubMarkdown source={details.body} open={open} />
+        <GitHubMarkdown source={details.body} html={details.html} open={open} />
       ) : (
         <p className="gh-muted">{strings.t("github.description.none")}</p>
       )}
@@ -348,49 +478,112 @@ function Description({
 
 function Conversation({
   details,
+  snapshot,
+  store,
+  reviewDraft,
+  replyOpen,
   strings,
   now,
   open,
   more,
+  initialFilter,
 }: {
   details?: PullRequestDetails;
+  snapshot: GitHubSnapshot;
+  store: GitHubStore;
+  reviewDraft?: string;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
   more: () => void;
+  initialFilter: ConversationFilter;
 }) {
+  const [filter, setFilter] = useState<ConversationFilter>(initialFilter);
+  const [order, setOrder] = useState<ConversationOrder>("newest");
   if (!details) return null;
-  const entries = details.conversation;
+  const { t } = strings;
+  const counts = filterCounts(details.conversation, details.viewer);
+  const entries = filterConversation(details.conversation, filter, order, details.viewer);
+  const filters: [ConversationFilter, string][] = [
+    ["all", "github.conversation.all"],
+    ["unresolved", "github.conversation.unresolved"],
+  ];
+  if (details.viewer) filters.push(["mine", "github.conversation.mine"]);
   return (
     <Section
-      title={strings.t("github.conversation")}
+      title={t("github.conversation")}
       detail={details.conversationTotal ? String(details.conversationTotal) : undefined}
     >
-      {details.conversationTotal > entries.length && (
+      {details.conversation.length > 0 && (
+        <div className="gh-conversation-bar">
+          <fieldset className="gh-segments" aria-label={t("github.conversation.filter")}>
+            {filters.map(([value, key]) => (
+              <button
+                key={value}
+                type="button"
+                className="gh-segment"
+                aria-pressed={filter === value}
+                onClick={() => setFilter(value)}
+              >
+                {t(key)} <span className="gh-segment-count">{counts[value]}</span>
+              </button>
+            ))}
+          </fieldset>
+          <button
+            type="button"
+            className="gh-fold gh-conversation-order"
+            onClick={() => setOrder(order === "newest" ? "oldest" : "newest")}
+          >
+            {t(order === "newest" ? "github.conversation.newest" : "github.conversation.oldest")}
+          </button>
+        </div>
+      )}
+      {/* Counted as the host counts the total (review of #38263, F1): an empty review wrapper the
+          host left out is not a comment GitHub has that the page lacks. */}
+      {details.conversationTotal > details.conversationRead && (
         <button type="button" className="gh-more" onClick={more}>
-          {strings.t("github.conversation.more")}
+          {t("github.conversation.more")}
         </button>
       )}
       {entries.length === 0 ? (
-        <p className="gh-muted">{strings.t("github.conversation.empty")}</p>
+        <p className="gh-muted">
+          {t(details.conversation.length ? "github.conversation.none" : "github.conversation.empty")}
+        </p>
       ) : (
         <ol className="gh-timeline">
           {entries.map((entry, index) => (
-            <Entry key={entry.url ?? index} entry={entry} strings={strings} now={now} open={open} />
+            <Entry
+              key={entry.url ?? index}
+              entry={entry}
+              snapshot={snapshot}
+              store={store}
+              replyOpen={replyOpen}
+              strings={strings}
+              now={now}
+              open={open}
+            />
           ))}
         </ol>
       )}
+      <ReviewBox snapshot={snapshot} store={store} strings={strings} initialBody={reviewDraft} />
     </Section>
   );
 }
 
 function Entry({
   entry,
+  snapshot,
+  store,
+  replyOpen,
   strings,
   now,
   open,
 }: {
   entry: ConversationEntry;
+  snapshot: GitHubSnapshot;
+  store: GitHubStore;
+  replyOpen?: string;
   strings: Strings;
   now: () => number;
   open: (url: string) => void;
@@ -411,7 +604,7 @@ function Entry({
             <span className="gh-entry-time">{relativeTime(at, now(), strings.language)}</span>
           ))}
       </div>
-      {entry.body.trim() && <GitHubMarkdown source={entry.body} open={open} />}
+      {entry.body.trim() && <GitHubMarkdown source={entry.body} html={entry.html} open={open} />}
       {entry.comments.length > 0 && (
         <ul className="gh-review-comments">
           {entry.comments.map((comment, index) => (
@@ -420,7 +613,17 @@ function Entry({
                 {comment.path}
                 {comment.line != null && `:${comment.line}`}
               </span>
-              <GitHubMarkdown source={comment.body} open={open} />
+              <GitHubMarkdown source={comment.body} html={comment.html} open={open} />
+              {comment.thread && snapshot.pullRequest?.state === "open" && (
+                <ThreadActions
+                  thread={comment.thread}
+                  resolved={comment.resolved === true}
+                  snapshot={snapshot}
+                  store={store}
+                  strings={strings}
+                  initialReplying={replyOpen === comment.thread}
+                />
+              )}
             </li>
           ))}
         </ul>
@@ -438,7 +641,7 @@ function Checks({ pr, strings, open }: { pr: LinkedPullRequest; strings: Strings
     <li key={check.name} className="gh-row" data-check={check.state}>
       <span className="gh-dot" aria-hidden="true" />
       {check.url ? (
-        <button type="button" className="gh-row-link" title={check.name} onClick={() => open(check.url!)}>
+        <button type="button" className="gh-row-link" onClick={() => open(check.url!)}>
           {check.name}
         </button>
       ) : (
@@ -547,7 +750,6 @@ function Files({
                 type="button"
                 className="gh-file-row"
                 aria-expanded={patch !== undefined}
-                title={file.path}
                 onClick={() => store.toggleFile(file.path)}
               >
                 <Chevron open={patch !== undefined} />
@@ -650,7 +852,7 @@ function Linked({
         {details.linked.map((item) => (
           <li key={item.url} className="gh-row" data-issue={item.state}>
             <span className="gh-dot" aria-hidden="true" />
-            <button type="button" className="gh-row-link" title={item.title} onClick={() => open(item.url)}>
+            <button type="button" className="gh-row-link" onClick={() => open(item.url)}>
               <span className="gh-count">#{item.number}</span> {item.title}
             </button>
           </li>

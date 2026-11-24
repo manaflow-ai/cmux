@@ -7,6 +7,8 @@
 //! - `conductor_import.plan` (read): `{found, plan}`, the dry run against
 //!   the stored ledger and the workspaces open now; `plan` is null when
 //!   nothing is found, and `error` says why when there is no plan to show.
+//!   Each project's `recipe` is the worktree recipe the app saves on it
+//!   (`project.update` `worktree`), unless the project already has one.
 //! - `conductor_import.record` (mutation): one workspace's stage in the
 //!   ledger, `pending` before the app makes it and `done` once made, and
 //!   `run_completed` counts a finished run. A done record names the
@@ -257,7 +259,50 @@ impl Mux {
         let open = self.open_workspace_ids();
         let facts = inspect::inspect(&catalog, home);
         let plan = plan::plan(&catalog, &facts, &ledger, &open);
-        Ok(json!({"found": found, "plan": plan}))
+        let mut value = json!({"found": found, "plan": plan});
+        if let Some(projects) = value.get_mut("plan").and_then(|plan| plan.get_mut("projects")) {
+            self.place_recipes(projects);
+        }
+        Ok(value)
+    }
+
+    /// Each project's `recipe` gains `project_path`, the cmux project it is
+    /// saved on (the folder resolved, as `project.add` keeps it). A project
+    /// that already has a saved recipe keeps it: its `recipe` is null and
+    /// `recipe_kept` true, so a rerun never writes over the user's edits.
+    fn place_recipes(&self, projects: &mut Value) {
+        let saved: BTreeSet<String> = self
+            .read_registry_state(|connection| {
+                let projects = super::projects_store::load(connection)?;
+                Ok(projects
+                    .list(true)
+                    .into_iter()
+                    .filter(|project| project.overlay.worktree.is_some())
+                    .map(|project| project.path.clone())
+                    .collect())
+            })
+            .unwrap_or_default();
+        let refusals = super::projects_store::refusals();
+        let projects = projects.as_array_mut().into_iter().flatten();
+        for project in projects.filter_map(Value::as_object_mut) {
+            if project.get("recipe").is_none_or(Value::is_null) {
+                continue;
+            }
+            let Some(path) = project.get("path").and_then(Value::as_str).map(PathBuf::from) else {
+                project.insert("recipe".into(), Value::Null);
+                continue;
+            };
+            // As `project.add` stores it, so `project.update` finds it: resolved, then normalized
+            // (the data volume firmlink removed).
+            let path = std::fs::canonicalize(&path).unwrap_or(path).to_string_lossy().into_owned();
+            let path = refusals.normalize(&path).unwrap_or(path);
+            if saved.contains(&path) {
+                project.insert("recipe".into(), Value::Null);
+                project.insert("recipe_kept".into(), Value::Bool(true));
+            } else if let Some(recipe) = project.get_mut("recipe").and_then(Value::as_object_mut) {
+                recipe.insert("project_path".into(), Value::String(path));
+            }
+        }
     }
 
     /// `conductor_import.record`: one ledger change, committed with its

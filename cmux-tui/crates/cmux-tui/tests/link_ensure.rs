@@ -66,14 +66,19 @@ impl App {
 
     /// `cmux` with `run` as its `TMPDIR` (the runtime base).
     fn cmux_in(&self, run: &Path, args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+        self.command(run, args).output().unwrap()
+    }
+
+    fn command(&self, run: &Path, args: &[&str]) -> Command {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        command
             .args(args)
             .env("HOME", self.root.join("home"))
             .env("TMPDIR", run)
             .env_remove("XDG_RUNTIME_DIR")
-            .env("CMUX_TUI_STATE_DIR", &self.state_root)
-            .output()
-            .unwrap()
+            .env_remove("ACPMUX_HOME")
+            .env("CMUX_TUI_STATE_DIR", &self.state_root);
+        command
     }
 
     fn json(&self, args: &[&str]) -> Value {
@@ -653,4 +658,69 @@ fn link_ensure_restarts_a_link_that_died() {
     assert_eq!(again["status"], "started", "{again}");
     assert_ne!(pid(&again), dead);
     dial_answers(&app, Path::new(again["socket"].as_str().unwrap()));
+}
+
+/// While another process holds this machine's WireGuard key lock (acpmux's
+/// Labs transport, in the app's acpmux home), the link does not serve and
+/// `ensure` names the holder; once the lock is free, the link starts.
+#[test]
+fn link_ensure_reports_a_held_wireguard_key_and_does_not_serve() {
+    let base = Scratch::new("held");
+    let app = base.app("a");
+    let acpmux = base.root.join("acpmux");
+    let held = cmux_link::key_holder::KeyHolder::acquire(&acpmux).unwrap();
+    let dir = app.state_dir();
+    let dir = dir.to_str().unwrap();
+    let args = ["link", "ensure", "--state-dir", dir, "--install", "inst_app_a", "--port", "0"];
+    let ensure =
+        || app.command(&base.root.join("run"), &args).env("ACPMUX_HOME", &acpmux).output().unwrap();
+    let refused = ensure();
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success(), "the link started: {stderr}");
+    assert!(
+        stderr.contains("key_held") && stderr.contains(&format!("process {}", std::process::id())),
+        "{stderr}"
+    );
+    assert_eq!(app.status()["running"], false);
+    drop(held);
+    let started = ensure();
+    let stdout = String::from_utf8_lossy(&started.stdout);
+    assert!(started.status.success(), "{stdout}{}", String::from_utf8_lossy(&started.stderr));
+    assert!(stdout.contains("\"started\""), "{stdout}");
+    assert!(matches!(
+        cmux_link::key_holder::KeyHolder::acquire(&acpmux),
+        Err(cmux_link::key_holder::KeyHolderError::KeyHeld { .. })
+    ));
+}
+
+/// A `serve` that launchd starts has no `CMUX_TUI_STATE_DIR` and no
+/// `ACPMUX_HOME`: the lock directory it was given (`--key-lock-dir`, resolved
+/// by the app) still decides, so it contends with the app's acpmux.
+#[test]
+fn link_serve_without_the_app_env_locks_the_dir_it_was_given() {
+    let base = Scratch::new("flag");
+    let app = base.app("a");
+    let dir = app.state_dir();
+    let dir = dir.to_str().unwrap();
+    let init =
+        app.cmux(&["link", "init", "--state-dir", dir, "--install", "inst_app_a", "--port", "0"]);
+    assert!(init.status.success(), "{}", String::from_utf8_lossy(&init.stderr));
+    let acpmux = base.root.join("acpmux");
+    let held = cmux_link::key_holder::KeyHolder::acquire(&acpmux).unwrap();
+    let lock = acpmux.to_str().unwrap();
+    let refused = app
+        .command(
+            &base.root.join("run"),
+            &["link", "serve", "--state-dir", dir, "--key-lock-dir", lock],
+        )
+        .env_remove("CMUX_TUI_STATE_DIR")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(!refused.status.success(), "the link served: {stderr}");
+    assert!(
+        stderr.contains("key_held") && stderr.contains(&format!("process {}", std::process::id())),
+        "{stderr}"
+    );
+    drop(held);
 }

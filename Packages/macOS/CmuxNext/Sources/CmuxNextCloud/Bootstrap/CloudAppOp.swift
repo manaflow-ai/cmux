@@ -26,6 +26,35 @@ public nonisolated struct CloudAppOpFailure: Error, Equatable, Sendable, CustomS
     public var approvalRequest: String? { details?["request"]?.stringValue }
 
     public var description: String { message.isEmpty ? code : message }
+
+    /// The failure for the log: its code, its message and its details, so a daemon refusal such as
+    /// `apps.unknown` names itself and what the daemon's catalog held (``description`` is the person's text).
+    public var logDescription: String {
+        var text = code.isEmpty ? message : "\(code): \(message)"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        if let details, let data = try? encoder.encode(details), let json = String(data: data, encoding: .utf8) {
+            text += " details=\(json)"
+        }
+        return text
+    }
+
+    /// ``logDescription`` of a ``CloudAppOpFailure``, else the error as it describes itself.
+    public static func logText(_ error: any Error) -> String {
+        (error as? CloudAppOpFailure)?.logDescription ?? String(describing: error)
+    }
+}
+
+public extension JSONValue {
+    /// The id of an app op's answer's `record` (`{"snapshot": {"id"}}`, `{"machine": {"id"}}`); nil when
+    /// `record` is nil. An answer with no such id is `cmux.cloud.bad_response`.
+    func recordID(_ record: String?, op: String) throws -> String? {
+        guard let record else { return nil }
+        guard let id = self[record]?["id"]?.stringValue, !id.isEmpty else {
+            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "\(op) answered no \(record)")
+        }
+        return id
+    }
 }
 
 /// One Cloud app op: `op`, JSON `args`, an idempotency key for a mutation

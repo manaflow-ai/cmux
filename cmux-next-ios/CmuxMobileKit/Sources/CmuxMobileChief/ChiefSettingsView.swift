@@ -36,6 +36,8 @@ public struct ChiefSettingsView: View {
     @State private var stopNote: String?
     @State private var muted: Bool
     @State private var receipts: Bool
+    /// ``ChiefAIConsent``: off, the next send asks again.
+    @State private var aiConsent = ChiefAIConsent.isGranted
     /// The window's top safe inset (the status bar): Messages' avatar top.
     @State private var windowSafeTop: CGFloat = Self.lastWindowSafeTop
     /// The header row's top at rest, in the window (the list runs under the
@@ -43,6 +45,13 @@ public struct ChiefSettingsView: View {
     @State private var restRowTop: CGFloat = Self.lastRestRowTop
     /// How far the cards are scrolled from rest.
     @State private var scrolled: CGFloat = 0
+    /// The link to Chief (the Mac's control channel, or cmux Cloud) is down:
+    /// the status under the name says so only once it has lasted the shared
+    /// quiet bound; the reconnect itself runs as before.
+    @State private var linkQuiet = QuietStatusGate()
+    /// A read the page retries on its own failed: its line and Try Again
+    /// wait out the same bound.
+    @State private var problemQuiet = QuietStatusGate()
 
     // Kept across pushes so the next push lays out at once, without a jump.
     @MainActor private static var lastWindowSafeTop: CGFloat = sceneSafeTop()
@@ -72,6 +81,7 @@ public struct ChiefSettingsView: View {
             // Messages' Find My slot: the account's Cloud machine (hidden unless it pays and one ran).
             ChiefComputerSection(computer: computer)
             notificationsSection
+            aiSection
             #if DEBUG
             diagnosticsSection
             #endif
@@ -120,9 +130,11 @@ public struct ChiefSettingsView: View {
         // The Computer card reads the Mac's Cloud directory now and each time a Mac (re)connects.
         .task(id: computer.reload(preferring: session.macID)) { await computer.load(preferring: session.macID) }
         .onChange(of: session.engineReport) { _, newer in if !saving { report = newer } }
+        .onChange(of: linkDown, initial: true) { _, down in linkQuiet.update(down: down) }
+        .onChange(of: session.engineProblem?.isTransient == true, initial: true) { _, down in problemQuiet.update(down: down) }
         // Hide Alerts changed elsewhere (Home's pin menu): the switch follows, animated.
-        .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation { muted = on } } }
-        .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation { receipts = on } } }
+        .onChange(of: session.isMuted) { _, on in if muted != on { withAnimation(.default.unlessReduceMotion) { muted = on } } }
+        .onChange(of: session.sendsReadReceipts) { _, on in if receipts != on { withAnimation(.default.unlessReduceMotion) { receipts = on } } }
         .accessibilityIdentifier("chief.settings")
     }
 
@@ -154,7 +166,10 @@ public struct ChiefSettingsView: View {
                     .lineLimit(2)
                     .accessibilityAddTraits(.isHeader)
                     .accessibilityIdentifier("chief.settings.title")
-                Text(statusLine)
+                // Under the quiet bound a down link says nothing; the blank
+                // line keeps the header's height.
+                Text(statusLine ?? " ")
+                    .accessibilityHidden(statusLine == nil)
                     .font(.subheadline)
                     .foregroundStyle(Color(uiColor: .secondaryLabel))
                     .multilineTextAlignment(.center)
@@ -204,15 +219,20 @@ public struct ChiefSettingsView: View {
         }
     }
 
+    /// Chief's link is down: cmux Cloud not connected, or no control channel to the Mac.
+    private var linkDown: Bool { session.runsInCloud ? !session.isConnected : !hasControl }
+
     /// Never claims Chief runs on a Mac it cannot reach: without the Mac's
-    /// control channel the status is the reason, matching the Model row.
-    private var statusLine: String {
-        if session.runsInCloud {
-            if !session.isConnected { return session.unavailableReason ?? String(localized: "Connecting to cmux Cloud") }
-            return session.isWorking ? String(localized: "Working in cmux Cloud") : String(localized: "Runs in cmux Cloud")
-        }
-        guard hasControl else {
+    /// control channel the status is the reason, matching the Model row, and
+    /// nothing at all until that has lasted the shared quiet bound.
+    private var statusLine: String? {
+        if linkDown {
+            guard linkQuiet.isShown else { return nil }
+            if session.runsInCloud { return session.unavailableReason ?? String(localized: "Connecting to cmux Cloud") }
             return session.unavailableReason ?? String(localized: "Not connected to your Mac")
+        }
+        if session.runsInCloud {
+            return session.isWorking ? String(localized: "Working in cmux Cloud") : String(localized: "Runs in cmux Cloud")
         }
         let mac = session.macName ?? String(localized: "your Mac")
         // A run with tools and no typing is work too (``ChiefSession/isWorking``).
@@ -264,7 +284,8 @@ public struct ChiefSettingsView: View {
             }
             // A failed read never replaces the model: it is said under it,
             // with Try Again (the page also retries on its own).
-            if hasControl, let problem = session.engineProblem {
+            // A transient one says nothing until it has lasted the shared quiet bound.
+            if hasControl, let problem = session.engineProblem, !problem.isTransient || problemQuiet.isShown {
                 Text(problem.loadText)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -332,19 +353,39 @@ public struct ChiefSettingsView: View {
                 .accessibilityIdentifier("chief.settings.hideAlerts")
                 .onChange(of: muted) { _, on in
                     guard on != session.isMuted else { return }
-                    session.setMuted(on) { withAnimation { muted = !on } }
+                    session.setMuted(on) { withAnimation(.default.unlessReduceMotion) { muted = !on } }
                 }
             Toggle("Send Read Receipts", isOn: $receipts)
                 .tint(Color(uiColor: .systemGreen))
                 .accessibilityIdentifier("chief.settings.readReceipts")
                 .onChange(of: receipts) { _, on in
                     guard on != session.sendsReadReceipts else { return }
-                    session.setSendsReadReceipts(on) { withAnimation { receipts = !on } }
+                    session.setSendsReadReceipts(on) { withAnimation(.default.unlessReduceMotion) { receipts = !on } }
                 }
         } footer: {
             Text(String(localized: "mobile.chief.notificationsFooter", defaultValue: "These settings apply to this iPhone.", bundle: .module))
         }
         .disabled(session.conversationID == nil)
+        .listRowBackground(ChiefInfoGeometry.card)
+    }
+
+    /// App Review 5.1.2(i) and 1.2: the AI sharing the person agreed to, which they can
+    /// withdraw here, and a way to report a reply.
+    private var aiSection: some View {
+        Section {
+            Toggle(String(localized: "mobile.chief.aiConsent.toggle", defaultValue: "Share Messages with AI", bundle: .module),
+                   isOn: $aiConsent)
+                .tint(Color(uiColor: .systemGreen))
+                .accessibilityIdentifier("chief.settings.aiConsent")
+                .onChange(of: aiConsent) { _, on in ChiefAIConsent.set(on) }
+            Button(ChiefReport.title) { ChiefReport.open(conversationID: session.conversationID) }
+                .accessibilityIdentifier("chief.settings.report")
+        } footer: {
+            Text(String(format: String(localized: "mobile.chief.aiConsent.footer",
+                                       defaultValue: "Chief's replies come from third-party AI models: %@. With sharing off, Chief asks before your next message. %@",
+                                       bundle: .module),
+                        ChiefAIConsent.providers, ChiefReport.footer))
+        }
         .listRowBackground(ChiefInfoGeometry.card)
     }
 
@@ -404,17 +445,24 @@ public struct ChiefSettingsView: View {
     private var diagnosticsSection: some View {
         Section {
             DisclosureGroup(String(localized: "mobile.chief.diagnostics", defaultValue: "Diagnostics", bundle: .module)) {
-                LabeledContent("Engine read", value: session.engineError.map { String(describing: $0) } ?? "OK")
-                LabeledContent("Report", value: session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
+                diagnostic(String(localized: "Engine read"), session.engineError.map { String(describing: $0) } ?? "OK")
+                diagnostic(String(localized: "Report"), session.engineReportIsCurrent ? "Current" : (report == nil ? "None" : "Kept from earlier"))
                 if let failure = session.lastTurnFailure {
-                    LabeledContent("Last failed turn", value: failure.detail)
+                    diagnostic(String(localized: "Last failed turn"), failure.detail)
                 }
             }
         }
         .font(.caption)
-        .textSelection(.enabled)
         .accessibilityIdentifier("chief.settings.diagnostics")
         .listRowBackground(ChiefInfoGeometry.card)
+    }
+
+    private func diagnostic(_ name: String, _ value: String) -> some View {
+        LabeledContent {
+            InPlaceSelectionLabel(value, textStyle: .caption1, color: .secondaryLabel, alignment: .natural)
+        } label: {
+            InPlaceSelectionLabel(name, textStyle: .caption1)
+        }
     }
     #endif
 
@@ -458,7 +506,7 @@ public struct ChiefSettingsView: View {
         if let backend = error as? ConversationBackendError, backend.code == -1 { return backend.message }
         // No answer from the Mac is not Chief refusing (the old copy blamed Chief for a dropped link).
         switch ChiefEngineProblem(error) {
-        case .macUnreachable: return String(localized: "Your Mac didn't answer. Check that it's on and connected, then try again.")
+        case .macUnreachable: return String(localized: "Can't reach your Mac. Make sure it's awake and connected, then try again.")
         case .chiefBusy: return String(localized: "mobile.chief.busy", defaultValue: "Chief is busy. Try again.", bundle: .module)
         default: break
         }
@@ -591,7 +639,7 @@ struct ChiefQuickAction: View {
             .frame(width: ChiefInfoGeometry.quickActionSize, height: ChiefInfoGeometry.quickActionSize)
             .contentShape(.circle)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.cmuxPressFillCircle)
         .disabled(!enabled)
         .accessibilityLabel(title)
         .accessibilityValue(busy ? Text("In progress") : Text(""))
@@ -748,7 +796,6 @@ struct ChiefFieldEditor: View {
                 TextField(title, text: $value)
                     .focused($focused)
                     .submitLabel(.done)
-                    .autocorrectionDisabled()
                     .onSubmit { if canSave { Task { await commit() } } }
                     .accessibilityIdentifier("chief.settings.field")
             } footer: {

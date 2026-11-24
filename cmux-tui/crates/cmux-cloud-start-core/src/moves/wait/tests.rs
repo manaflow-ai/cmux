@@ -22,6 +22,34 @@ fn a_failure_that_showed_before_the_wait_ends_it_only_after_it_cleared() {
 }
 
 #[test]
+fn a_start_connects_an_ended_link_again_on_a_running_machine() {
+    // Staging app-chat probe 2026-11-08 14:36Z: the new machine's updater restarted its services
+    // 2 s after the create, the first connect's handshake ended, and nothing dialed again.
+    let ended = RedialLook { ended: true, running: true, ..RedialLook::default() };
+    assert_eq!(start_redial(ended), Redial::Connect);
+    assert_eq!(start_redial(RedialLook { redials: START_REDIALS - 1, ..ended }), Redial::Connect);
+    assert_eq!(
+        start_redial(RedialLook { redials: START_REDIALS, ..ended }),
+        Redial::Nothing,
+        "a link refused every time stops after its redials"
+    );
+    // A link that is up or connecting, or a machine that does not run, is left alone.
+    assert_eq!(start_redial(RedialLook { ended: false, ..ended }), Redial::Nothing);
+    assert_eq!(start_redial(RedialLook { running: false, ..ended }), Redial::Nothing);
+}
+
+#[test]
+fn a_start_resumes_a_paused_machine_once() {
+    let paused = RedialLook { paused: true, ended: true, ..RedialLook::default() };
+    assert_eq!(start_redial(paused), Redial::Resume);
+    assert_eq!(start_redial(RedialLook { resumed: true, ..paused }), Redial::Nothing);
+    let read: RedialLook =
+        serde_json::from_value(json!({"ended": true, "running": true, "redials": 3})).unwrap();
+    assert_eq!(start_redial(read), Redial::Connect);
+    assert_eq!(serde_json::to_value(Redial::Connect).unwrap(), json!("connect"));
+}
+
+#[test]
 fn a_new_link_is_a_changed_handshake() {
     assert!(relinked(Some("old"), Some("new"), false));
     assert!(!relinked(Some("old"), Some("old"), false));
@@ -157,4 +185,28 @@ fn the_plan_request_carries_the_send_its_account_workspace_and_the_listed_machin
         (Some("R"), Some("https://p"), Some("team_1"), Some(false))
     );
     assert_eq!(warm["machines"], json!([{"id": "vm-a"}]));
+}
+
+#[test]
+fn an_attach_reads_again_only_a_record_no_fresh_answer_gave() {
+    // A claimed spare: the claim's answer says running a few ms ago, so no list read.
+    let claimed = RecordLook { running: true, answered_ago_ms: Some(5), ..RecordLook::default() };
+    assert!(!rereads_record(claimed));
+    assert!(!rereads_record(RecordLook { answered_ago_ms: Some(ANSWER_FRESH_MS - 1), ..claimed }));
+    // Older than that, a list's record, or a record that does not read running: read again.
+    assert!(rereads_record(RecordLook { answered_ago_ms: Some(ANSWER_FRESH_MS), ..claimed }));
+    assert!(rereads_record(RecordLook { answered_ago_ms: None, ..claimed }));
+    assert!(rereads_record(RecordLook { running: false, ..claimed }));
+    // Connected, or paused (the attach resumes it): nothing to read.
+    assert!(!rereads_record(RecordLook { connected: true, answered_ago_ms: None, ..claimed }));
+    assert!(!rereads_record(RecordLook {
+        paused: true,
+        running: false,
+        answered_ago_ms: None,
+        ..claimed
+    }));
+    let read: RecordLook =
+        serde_json::from_value(json!({"running": true, "answeredAgoMs": 40})).unwrap();
+    assert!(!rereads_record(read));
+    assert!(rereads_record(RecordLook::default()), "an empty look reads again, as before");
 }

@@ -3,7 +3,7 @@
 // request's menu also opens its diff (View diff).
 import type { Translate } from "../../i18n";
 import type { SummarySource, SummarySourceKind } from "../../summary/sessionSummary";
-import { SOURCES_SHOWN, scopedPath, sourceLabels } from "../SourcesSection";
+import { SOURCES_SHOWN, scopedPath, sourceLabels } from "../sourcesSectionModel";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 import { nativeExternalUrl, safeExternalUrl } from "./links";
 import { extraFolderName } from "../../extraFolders";

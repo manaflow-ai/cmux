@@ -71,6 +71,9 @@ enum MuxEventFilter {
     LaunchSnapshot,
     /// Local conversation changes (the host replica's Chief stream).
     Conversations,
+    /// The events a predicate takes: an internal consumer that reads only a
+    /// few kinds never gets (or clones) the others.
+    Matching(fn(&MuxEvent) -> bool),
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -111,6 +114,7 @@ enum CoalescedEventKey {
     ProgramStatus(SurfaceId),
     SurfaceOutput(SurfaceId),
     Scroll(SurfaceId),
+    Bell(SurfaceId),
 }
 
 impl MuxEventBroadcaster {
@@ -132,6 +136,11 @@ impl MuxEventBroadcaster {
 
     pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::Conversations)
+    }
+
+    /// A receiver of the events `accepts` takes.
+    pub(crate) fn subscribe_matching(&self, accepts: fn(&MuxEvent) -> bool) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::Matching(accepts))
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -234,6 +243,7 @@ impl MuxEventFilter {
                     | MuxEvent::Empty
             ),
             Self::Conversations => matches!(event, MuxEvent::Conversation(_) | MuxEvent::Empty),
+            Self::Matching(accepts) => accepts(event),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -266,8 +276,9 @@ impl SurfaceSessionScope {
             MuxEvent::TreeDelta(delta) => self.accepts_tree_delta(delta),
             // A surface-only client always renders its target across the full
             // host terminal. Screen layout churn therefore carries no useful
-            // state and would only force repeated whole-tree refreshes.
-            MuxEvent::LayoutChanged(..) => false,
+            // state and would only force repeated whole-tree refreshes. Host
+            // screen identity also belongs to the GUI's opted-in subscription.
+            MuxEvent::LayoutChanged(..) | MuxEvent::ScreenDeviceChanged(_) => false,
             MuxEvent::ClientAttached { .. }
             | MuxEvent::ClientChanged { .. }
             | MuxEvent::ClientDetached(_)
@@ -283,8 +294,12 @@ impl SurfaceSessionScope {
             | MuxEvent::PersonalChanged { .. }
             | MuxEvent::BookmarksChanged(_)
             | MuxEvent::HistoryChanged { .. }
+            | MuxEvent::FeedViewChanged { .. }
+            | MuxEvent::FeedReportsChanged { .. }
+            | MuxEvent::GitHubChanged { .. }
             | MuxEvent::SettingsChanged(_)
             | MuxEvent::KeybindingsChanged(_)
+            | MuxEvent::AgentSessionShareChanged { .. }
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }
@@ -293,7 +308,11 @@ impl SurfaceSessionScope {
             | MuxEvent::PairingResolved { .. }
             | MuxEvent::MachineUsageChanged(_)
             | MuxEvent::AppsChanged(_)
+            | MuxEvent::StashChanged { .. }
             | MuxEvent::TasksChanged(_)
+            | MuxEvent::ComputerUseActivity(_)
+            | MuxEvent::ComputerUsePreview(_)
+            | MuxEvent::ChatsChanged { .. }
             | MuxEvent::Empty => true,
         }
     }
@@ -363,6 +382,11 @@ impl MuxEventMailbox {
             event @ MuxEvent::ScrollChanged { surface, .. } => {
                 state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
             }
+            // A bell that is still pending says all a later one would: a burst of them
+            // takes one slot, so it can never overflow the subscriber.
+            event @ MuxEvent::Bell(surface) => {
+                state.push_coalesced(sequence, CoalescedEventKey::Bell(surface), event)
+            }
             MuxEvent::ConfigReloadRequested => state.push_coalesced(
                 sequence,
                 CoalescedEventKey::ConfigReload,
@@ -402,6 +426,11 @@ impl MuxEventMailbox {
                 state.events.push_back((sequence, MuxEvent::Empty));
                 true
             }
+            // A client re-reads the whole tree on `tree-changed`, when it
+            // takes the event: a second one right behind an unread one asks
+            // for the same read again. Only an adjacent one is dropped, so
+            // no other event moves across it.
+            MuxEvent::TreeChanged if state.ends_with_tree_changed() => true,
             event => {
                 if !state.reserve_pending_slot() {
                     false
@@ -449,6 +478,14 @@ impl MuxEventMailboxState {
         self.discard_coalesced(CoalescedEventKey::ProgramStatus(surface));
         self.discard_coalesced(CoalescedEventKey::SurfaceOutput(surface));
         self.discard_coalesced(CoalescedEventKey::Scroll(surface));
+        self.discard_coalesced(CoalescedEventKey::Bell(surface));
+    }
+
+    /// Whether the newest pending event is a `TreeChanged` (no coalesced
+    /// event is newer).
+    fn ends_with_tree_changed(&self) -> bool {
+        let Some((sequence, MuxEvent::TreeChanged)) = self.events.back() else { return false };
+        self.coalesced.last_key_value().is_none_or(|(newest, _)| newest < sequence)
     }
 
     fn reserve_pending_slot(&mut self) -> bool {
@@ -530,6 +567,16 @@ impl MuxEventReceiver {
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> Result<MuxEvent, RecvTimeoutError> {
+        self.recv_until_interrupted_or(interrupt, None)
+    }
+
+    /// [`Self::recv_until_interrupted`] that also returns `Timeout` at
+    /// `deadline`.
+    pub(crate) fn recv_until_interrupted_or(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+        deadline: Option<Instant>,
+    ) -> Result<MuxEvent, RecvTimeoutError> {
         let mut state = self.mailbox.state.lock().recover_poison();
         loop {
             if let Some(event) = state.pop() {
@@ -541,7 +588,15 @@ impl MuxEventReceiver {
             if interrupt.is_fired() {
                 return Err(RecvTimeoutError::Timeout);
             }
-            state = self.mailbox.changed.wait(state).recover_poison();
+            state = match deadline {
+                None => self.mailbox.changed.wait(state).recover_poison(),
+                Some(deadline) => {
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        return Err(RecvTimeoutError::Timeout);
+                    };
+                    self.mailbox.changed.wait_timeout(state, remaining).recover_poison().0
+                }
+            };
         }
     }
 
@@ -587,3 +642,7 @@ impl MuxEventReceiver {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "event_bus_tests.rs"]
+mod tests;

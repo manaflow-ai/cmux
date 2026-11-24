@@ -26,6 +26,13 @@
 //! nor shows the turn as just started. The idle reaper's task (`idle.rs`) waits for the
 //! earliest deadline; it stops with the daemon (`stop_idle_reaper`) and a deadline goes with
 //! its turn. A turn held at its deadline is looked at again `RECHECK` later, never sooner.
+//!
+//! A hold by a viewer or a busy owner has a bound too: past [`HELD_PERIODS`] of the turn's own
+//! periods with no sign of its model, it ends like a turn nobody holds (no-hangs, 2026-11-24:
+//! a chat left open on a screen kept a turn whose model had died `running` for as long as the
+//! screen stayed on, rechecked every 15 min forever). Only a question waiting for the person
+//! (a permission, a question, a secret) holds a turn for as long as it is open: the person ends
+//! it by answering or by Stop.
 
 use super::*;
 
@@ -35,6 +42,20 @@ const RECHECK: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 /// How many periods a turn quiet inside a tool call that has not ended gets: a long command
 /// that prints nothing is work, but a tool that never ends does not hold the turn for good.
 const OPEN_TOOL_PERIODS: u64 = 4;
+
+/// How many of its own periods a turn a viewer or a busy owner holds may stay quiet before it
+/// ends anyway (24 h at the default 6 h): the hold is a reason to wait, not a reason to wait
+/// forever.
+const HELD_PERIODS: u64 = 4;
+
+/// Who holds a running turn past its stalled deadline.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Hold {
+    /// A permission, question or secret waits for the person: held until they answer.
+    Person,
+    /// A client shows the chat, or its owner is busy: held up to [`HELD_PERIODS`].
+    Watched,
+}
 
 /// How long the stalled end waits for the agent to take the cancel before ending the turn anyway.
 pub(super) const CANCEL_SEND: std::time::Duration = std::time::Duration::from_secs(5);
@@ -63,10 +84,51 @@ impl Hub {
     /// A `session/update` from `session`'s agent (`tap.rs`): its open tool calls follow it. The
     /// last one ending brings the turn's deadline nearer: the reaper looks again.
     pub(super) fn note_tool_update(&self, session: &Session, update: &Value) {
+        if !matches!(
+            update.get("sessionUpdate").and_then(Value::as_str),
+            Some("tool_call" | "tool_call_update")
+        ) {
+            return;
+        }
         // Before its prompt is written the tools are not this turn's: a failover's old agent
         // still sending, the new agent's history replayed on load.
         if session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()).is_none() {
             return;
+        }
+        self.note_harness_sandbox(session, update);
+        self.note_claim_run(session, update);
+        self.surgery_note_tool(session, update);
+        self.turn_rules_tool(session, update);
+        // RFD 0144's command placer, in shadow behind `cloud.autoCloud`: records only.
+        crate::placement::command_sampler::note_update(
+            &session.id,
+            || session.read_meta(|m| m.cwd.to_string_lossy().into_owned()),
+            || session.child.try_lock().ok().and_then(|c| c.as_ref().and_then(|c| c.pid)),
+            update,
+        );
+        // Release the detector before appending: summary readers hold meta before the
+        // detector, while append takes meta to publish the record.
+        let event = session.loop_detector.lock().unwrap_or_else(|e| e.into_inner()).observe(update);
+        if let Some(event) = event {
+            match event {
+                super::loop_detector::LoopEvent::Detected(episode) => self.append(
+                    session,
+                    "mux",
+                    "loop_detected",
+                    serde_json::json!({
+                        "episodeId": episode.episode_id,
+                        "count": episode.count,
+                        "diagnosis": episode.diagnosis,
+                        "hint": episode.hint,
+                    }),
+                ),
+                super::loop_detector::LoopEvent::Cleared { episode_id } => self.append(
+                    session,
+                    "mux",
+                    "loop_cleared",
+                    serde_json::json!({"episodeId": episode_id}),
+                ),
+            };
         }
         let mut open = session.open_tools.lock().unwrap_or_else(|e| e.into_inner());
         let was_open = !open.is_empty();
@@ -89,10 +151,31 @@ impl Hub {
 
     /// A new turn, or a new agent for it, whose prompt is not written yet: no count runs and no
     /// tool call of it is open.
-    pub(super) fn hold_stalled_count(session: &Session) {
+    pub(super) fn hold_stalled_count(&self, session: &Session) {
         *session.stalled_counted.lock().unwrap_or_else(|e| e.into_inner()) = None;
         session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.reset_loop_detector(session);
+        self.reset_claim_runs(session);
         session.stalled_gen.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Clear detector state at a turn/agent boundary and publish the clear so clients drop
+    /// attention immediately instead of retaining the previous episode into the next turn.
+    fn reset_loop_detector(&self, session: &Session) {
+        let episode_id = {
+            let mut detector = session.loop_detector.lock().unwrap_or_else(|e| e.into_inner());
+            let episode_id = detector.active().map(|episode| episode.episode_id);
+            detector.reset();
+            episode_id
+        };
+        if let Some(episode_id) = episode_id {
+            self.append(
+                session,
+                "mux",
+                "loop_cleared",
+                serde_json::json!({"episodeId": episode_id}),
+            );
+        }
     }
 
     /// `session`'s running turn starts its stalled count, its prompt written: now, or at
@@ -111,6 +194,8 @@ impl Hub {
         // its log holds (`recover_work` set them).
         if heard_ms.is_none() {
             session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).clear();
+            self.reset_loop_detector(session);
+            self.reset_claim_runs(session);
         }
         session.heard_at.store(at, Ordering::Relaxed);
         session.stalled_recheck.store(0, Ordering::Relaxed);
@@ -135,7 +220,8 @@ impl Hub {
             return None;
         }
         let period = stalled.as_nanos() as u64;
-        self.sessions()
+        // The live sessions, unsorted (`Hub::next_idle_deadline`): a closed one runs no turn.
+        self.live_session_handles()
             .iter()
             .filter(|s| Self::counted_turn(s).is_some())
             .map(|s| Self::stalled_due(s, period))
@@ -148,10 +234,25 @@ impl Hub {
     /// recheck. The sign may be from before this daemon started (negative): the period is added
     /// first, so a turn quiet for longer than the daemon has run is due at once.
     fn stalled_due(session: &Session, period: u64) -> u64 {
-        let in_tool = !session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
-        let period = if in_tool { period.saturating_mul(OPEN_TOOL_PERIODS) } else { period };
-        let due = session.heard_at.load(Ordering::Relaxed).saturating_add(period as i64);
+        let due = session
+            .heard_at
+            .load(Ordering::Relaxed)
+            .saturating_add(Self::own_period(session, period) as i64);
         (due.max(0) as u64).max(session.stalled_recheck.load(Ordering::Relaxed))
+    }
+
+    /// `session`'s own period: `OPEN_TOOL_PERIODS` of `period` inside a tool call that has not
+    /// ended, else `period`.
+    fn own_period(session: &Session, period: u64) -> u64 {
+        let in_tool = !session.open_tools.lock().unwrap_or_else(|e| e.into_inner()).is_empty();
+        if in_tool { period.saturating_mul(OPEN_TOOL_PERIODS) } else { period }
+    }
+
+    /// When a viewer's or an owner's hold on `session`'s turn runs out, on the hub clock (ns):
+    /// [`HELD_PERIODS`] of its own periods after its model's last sign.
+    fn hold_ends(session: &Session, period: u64) -> u64 {
+        let held = Self::own_period(session, period).saturating_mul(HELD_PERIODS);
+        session.heard_at.load(Ordering::Relaxed).saturating_add(held as i64).max(0) as u64
     }
 
     /// Ends every turn whose model has said nothing for `stalled` and that nobody holds.
@@ -164,17 +265,29 @@ impl Hub {
         self.check_resume();
         let now = self.clock_now();
         let period = stalled.as_nanos() as u64;
-        for session in self.sessions() {
+        for session in self.live_session_handles() {
             // Read first: anything that moves the count after it bumps it (`stalled_gen`).
             let generation = session.stalled_gen.load(Ordering::SeqCst);
             let Some(turn) = Self::counted_turn(&session) else { continue };
             if Self::stalled_due(&session, period) > now {
                 continue;
             }
-            if self.turn_held(&session) {
-                let recheck = RECHECK.min(stalled).as_nanos() as u64;
-                session.stalled_recheck.store(now.saturating_add(recheck), Ordering::Relaxed);
-                continue;
+            match self.turn_held(&session) {
+                Some(Hold::Person) => {
+                    let recheck = RECHECK.min(stalled).as_nanos() as u64;
+                    session.stalled_recheck.store(now.saturating_add(recheck), Ordering::Relaxed);
+                    continue;
+                }
+                Some(Hold::Watched) if Self::hold_ends(&session, period) > now => {
+                    let recheck = RECHECK.min(stalled).as_nanos() as u64;
+                    let at = now.saturating_add(recheck).min(Self::hold_ends(&session, period));
+                    session.stalled_recheck.store(at.max(now.saturating_add(1)), Ordering::Relaxed);
+                    continue;
+                }
+                Some(Hold::Watched) => {
+                    tracing::warn!(session = %session.id, turn = %turn.turn_id, "a viewer or a busy owner held a stalled turn for HELD_PERIODS: ending it anyway");
+                }
+                None => {}
             }
             let heard = session.heard_at.load(Ordering::Relaxed);
             let silent_ms = (now as i64).saturating_sub(heard).max(0) as u64 / 1_000_000;
@@ -212,15 +325,17 @@ impl Hub {
         }
     }
 
-    /// Someone still holds `session`'s turn: a client that shows the chat, a question for the
-    /// person, or its recorded owner busy here.
-    fn turn_held(&self, session: &Session) -> bool {
-        let shown = session.attached.load(Ordering::SeqCst) > session.hidden.load(Ordering::SeqCst);
-        shown
-            || session.status() == SessionStatus::Waiting
+    /// Who still holds `session`'s turn: a question for the person ([`Hold::Person`]), or a
+    /// client that shows the chat or its recorded owner busy here ([`Hold::Watched`]).
+    fn turn_held(&self, session: &Session) -> Option<Hold> {
+        if session.status() == SessionStatus::Waiting
             || !session.pending_permissions().is_empty()
             || self.secrets.waiting_in(&session.id)
-            || self.owner_busy(session)
+        {
+            return Some(Hold::Person);
+        }
+        let shown = session.attached.load(Ordering::SeqCst) > session.hidden.load(Ordering::SeqCst);
+        (shown || self.owner_busy(session)).then_some(Hold::Watched)
     }
 
     /// The session that started `session` (a sub-session's parent, its `spawnedBy` tag) is on
@@ -235,7 +350,7 @@ impl Hub {
                 .map(str::to_owned),
         };
         let Some(owner) = owner.filter(|o| *o != m.id) else { return false };
-        let owner = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(&owner).cloned();
+        let owner = self.session_get(&owner);
         owner.is_some_and(|o| matches!(o.status(), SessionStatus::Running | SessionStatus::Waiting))
     }
 
@@ -257,5 +372,98 @@ fn quiet_for(ms: u64) -> String {
         3600.. => format!("{}h {}m", s / 3600, s % 3600 / 60),
         60.. => format!("{}m", s / 60),
         _ => format!("{s}s"),
+    }
+}
+
+#[cfg(test)]
+mod loop_episode_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn loop_episode_updates_summary_sequence_and_clears_on_progress() {
+        let cfg = crate::config::Config::default();
+        let store = Box::new(crate::store::MemoryStore::default());
+        let hub = Hub::new(cfg, store);
+        let meta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "loop-test", "name": "loop-test",
+            "harness": "fake", "cwd": "/tmp", "status": "running", "createdAt": 1, "updatedAt": 1,
+        }))
+        .unwrap();
+        let session = hub.make_session(meta);
+        *session.turn.lock().unwrap() = Some(TurnInfo {
+            trigger: false,
+            started_at: 1,
+            client: "test".into(),
+            prompt_preview: String::new(),
+            masked_preview: String::new(),
+            turn_id: "turn-test".into(),
+            prompt_id: "prompt-test".into(),
+            turn_seq: 1,
+            control: Control::Local,
+            doing: Default::default(),
+            notice: false,
+            persons: false,
+            accepted: true,
+            device: None,
+        });
+        hub.watch_stalled_turn(&session, None);
+        let before = session.state_seq.load(Ordering::SeqCst);
+        for id in ["a", "b", "c", "d"] {
+            hub.note_tool_update(&session, &json!({"sessionUpdate": "tool_call", "toolCallId": id,
+                "kind": "execute", "title": "cargo test", "rawInput": {"command": "cargo test"}, "status": "in_progress"}));
+            hub.note_tool_update(
+                &session,
+                &json!({"sessionUpdate": "tool_call_update", "toolCallId": id, "status": "failed"}),
+            );
+        }
+        let summary = hub.session_summary(&session);
+        assert_eq!(summary["state"], "running");
+        assert_eq!(summary["loopEpisode"]["count"], 3);
+        assert!(summary["stuckReason"].is_null());
+        assert_eq!(
+            session.state_seq.load(Ordering::SeqCst),
+            before + 1,
+            "one detection per episode"
+        );
+        hub.note_tool_update(&session, &json!({"sessionUpdate": "tool_call_update", "toolCallId": "success", "status": "completed"}));
+        let summary = hub.session_summary(&session);
+        assert_eq!(
+            summary.get("loopEpisode"),
+            Some(&Value::Null),
+            "clear must be explicit on the wire"
+        );
+        assert_eq!(summary["state"], "running");
+        assert_eq!(session.state_seq.load(Ordering::SeqCst), before + 2);
+
+        // A turn can finish while stuck. Publishing the next turn before its prompt is
+        // written must not revive that episode; both reset paths must notify watchers.
+        for reset_on_prompt_write in [false, true] {
+            for id in ["next-a", "next-b", "next-c"] {
+                hub.note_tool_update(
+                    &session,
+                    &json!({
+                        "sessionUpdate": "tool_call", "toolCallId": id, "kind": "execute",
+                        "rawInput": {"command": "cargo test"}, "status": "failed"
+                    }),
+                );
+            }
+            assert!(hub.session_summary(&session)["loopEpisode"].is_object());
+            let before_reset = session.state_seq.load(Ordering::SeqCst);
+            if reset_on_prompt_write {
+                hub.watch_stalled_turn(&session, None);
+            } else {
+                let mut next = session.turn.lock().unwrap().take().unwrap();
+                assert_eq!(hub.session_summary(&session)["loopEpisode"], Value::Null);
+                next.turn_id = "next-turn".into();
+                *session.turn.lock().unwrap() = Some(next);
+                assert_eq!(hub.session_summary(&session)["loopEpisode"], Value::Null);
+                hub.hold_stalled_count(&session);
+            }
+            assert_eq!(session.state_seq.load(Ordering::SeqCst), before_reset + 1);
+            assert_eq!(hub.session_summary(&session)["loopEpisode"], Value::Null);
+            hub.watch_stalled_turn(&session, None);
+            assert_eq!(session.state_seq.load(Ordering::SeqCst), before_reset + 1);
+        }
+        hub.shutdown_all().await;
     }
 }

@@ -76,6 +76,19 @@ fn stuck_says_why_in_a_few_words() {
         (json!({"state": "stuck", "stuckReason": "harness_unavailable"}), "stuck", "harness down"),
         (json!({"state": "idle", "lane": {"state": "failed"}}), "idle", "failed turn"),
         (
+            json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
+            "running",
+            "harness sandbox",
+        ),
+        // A stalled turn or a question still shows while it fails.
+        (
+            json!({"harnessSandboxFailing": true,
+                   "lane": {"state": "working", "stalledSince": NOW - 12 * 60_000}}),
+            "running",
+            "stalled 12m",
+        ),
+        (json!({"harnessSandboxFailing": true, "lane": {"state": "input"}}), "running", "question"),
+        (
             json!({"lane": {"state": "working", "stalledSince": NOW - 12 * 60_000}}),
             "running",
             "stalled 12m",
@@ -92,6 +105,53 @@ fn stuck_says_why_in_a_few_words() {
     }
 }
 
+/// A refusal its harness recovered from (`harnessSandboxFailed` without `harnessSandboxFailing`)
+/// is history: the row needs no one.
+#[test]
+fn a_recovered_harness_sandbox_says_nothing() {
+    let past = json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": false});
+    let out = compact(&[with(lane("x"), past)]);
+    assert!(!out.contains("harness sandbox"), "{out}");
+    assert!(!out.lines().next().unwrap().ends_with("STUCK"), "{out}");
+}
+
+/// An older daemon or a peer sends only `harnessSandboxFailed`, which then meant it fails: the
+/// row still warns. An explicit `harnessSandboxFailing: false` is a recovery and says nothing.
+#[test]
+fn an_older_row_with_only_the_first_refusal_still_warns() {
+    let old = json!({"harnessSandboxFailed": NOW - 60_000});
+    let out = compact(&[with(lane("x"), old)]);
+    assert!(out.lines().nth(1).unwrap().ends_with("harness sandbox"), "{out}");
+    let recovered = json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": false});
+    let out = compact(&[with(lane("x"), recovered)]);
+    assert!(!out.contains("harness sandbox"), "{out}");
+}
+
+/// The STUCK cell of a lane whose harness refuses every command, compact and wide (printed for
+/// review with `--nocapture`), beside a recovered one and a healthy one.
+#[test]
+fn a_failing_harness_sandbox_shows_in_compact_and_wide() {
+    let rows = [
+        with(
+            lane("model-picker"),
+            json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": true}),
+        ),
+        with(
+            lane("recovered"),
+            json!({"harnessSandboxFailed": NOW - 60_000, "harnessSandboxFailing": false}),
+        ),
+        lane("healthy"),
+    ];
+    for wide in [false, true] {
+        let out = render(&rows, Some(&[]), View { all: false, wide }, false, NOW);
+        println!("{out}");
+        let line = |name: &str| out.lines().find(|l| l.starts_with(name)).unwrap().to_owned();
+        assert!(out.lines().next().unwrap().contains("STUCK"), "{out}");
+        assert!(line("model-picker").contains("harness sandbox"), "{out}");
+        assert!(!line("recovered").contains("harness sandbox"), "{out}");
+    }
+}
+
 #[test]
 fn host_shows_only_when_a_row_is_on_a_peer() {
     assert!(!compact(&[lane("a")]).contains("HOST"));
@@ -100,6 +160,24 @@ fn host_shows_only_when_a_row_is_on_a_peer() {
     assert!(out.lines().next().unwrap().starts_with("NAME  HOST"), "{out}");
     assert!(out.contains("b     huge-blue"), "{out}");
     assert!(out.contains("a     -"), "{out}");
+}
+
+/// A row from the send relay's kept listing (`ls_far.rs`) has a peer, its `asOfMs` and no link
+/// state: it shows its own state, never `peer down` (cmuxterm-hq
+/// `docs/findings/2026-11-23-acpmux-ls-peer-down-rows.md`: 2,000 of 2,000 such rows read so).
+#[test]
+fn a_relay_row_from_the_kept_listing_shows_its_state_not_peer_down() {
+    let kept = |state: &str| {
+        with(
+            lane(&format!("gcp-agent-lane-2/{state}")),
+            json!({"peer": "gcp-agent-lane-2", "asOfMs": NOW - 30_000, "state": state, "status": state}),
+        )
+    };
+    let out = compact(&[kept("running"), kept("ready")]);
+    assert!(!out.contains("peer down") && !out.contains("unknown"), "{out}");
+    let line = |n: &str| out.lines().find(|l| l.starts_with(n)).unwrap().to_owned();
+    assert!(line("gcp-agent-lane-2/running").contains(" running"), "{out}");
+    assert!(line("gcp-agent-lane-2/ready").contains(" ready"), "{out}");
 }
 
 #[test]
@@ -312,4 +390,45 @@ fn a_down_peer_the_fleet_registry_pauses_reads_paused_not_unknown() {
     assert!(out.contains("UNKNOWN gcp-agent-lane-2: peer offline;"), "{out}");
     // Without the registry (render), every down peer is UNKNOWN as before.
     assert!(!render(&rows, Some(&peers), View::default(), false, NOW).contains("PAUSED"));
+}
+
+/// A registered desktop chat its daemon cannot reach says why in STUCK (`bridge.unreachable`,
+/// `hub/bridge.rs`): the short state before the command that ends it.
+#[test]
+fn an_unreachable_registered_chat_says_why_in_stuck() {
+    let why = "registration stale: Claude Code restarted (now process 42); run `acpmux register d` in that chat";
+    let row = with(lane("d"), json!({"tags": {"bridge.unreachable": why}}));
+    assert_eq!(stuck(&row, NOW, &BTreeMap::new()), "registration stale");
+    assert_eq!(stuck(&lane("d"), NOW, &BTreeMap::new()), "");
+}
+
+#[test]
+fn spoken_handles_show_alongside_the_task_host_and_harness() {
+    let row =
+        with(lane("hb/ci-fleet"), json!({"handle": "Mango", "sessionId": "one", "peer": "hb"}));
+    let output = compact(&[row]);
+    let columns: Vec<_> = output.lines().nth(1).unwrap().split_whitespace().collect();
+    assert_eq!(&columns[..5], &["Mango", "·", "ci-fleet", "hb", "claude"], "{output}");
+}
+
+/// Leo, 2026-11-21: "ruby dot startup-speedups" -- the alias is the name `cmux agent ls` shows.
+#[test]
+fn an_alias_is_the_name_ls_shows() {
+    let tagged = |alias: &str| {
+        with(
+            lane("hb/startup-speedups"),
+            json!({"handle": "Mango", "sessionId": "one", "peer": "hb", "tags": {"session.alias": alias}}),
+        )
+    };
+    let first = |row| compact(&[row]).lines().nth(1).unwrap().to_owned();
+    // an alias that says the task stands alone
+    assert!(first(tagged("Ruby dot startup-speedups")).starts_with("Ruby dot startup-speedups "));
+    // the broker's `+` spelling reads with spaces
+    assert!(first(tagged("Ruby+dot+startup-speedups")).starts_with("Ruby dot startup-speedups "));
+    // a bare call name keeps the task beside it
+    assert!(
+        first(tagged("Mochi")).starts_with("Mochi · startup-speedups "),
+        "{}",
+        first(tagged("Mochi"))
+    );
 }

@@ -129,6 +129,7 @@ fn run_explicit_command(
 
 /// The repo's Ghostty scripts and the app's layer, as the app bundles them.
 fn app_resources() -> (PathBuf, PathBuf) {
+    // affected-reads: ghostty-next Resources/cmux-cli-path
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
     (
         fs::canonicalize(root.join("ghostty-next/src/shell-integration")).unwrap(),
@@ -617,7 +618,7 @@ fn an_incognito_apple_bash_launch_reads_no_startup_files() {
 }
 
 /// Every child launch path (Unix and Windows hosts, in-process terminals,
-/// holders) removes the same keys: the terminal-child list and the
+/// holders) removes the same keys: the
 /// incognito markers a normal launch must not inherit from the daemon.
 #[test]
 fn every_terminal_child_drops_the_inherited_incognito_markers() {
@@ -628,11 +629,29 @@ fn every_terminal_child_drops_the_inherited_incognito_markers() {
     };
     let normal = vec![("HOME".to_string(), "/home/user".to_string())];
     let unset = keys_to_unset_in_child_from(&normal, &inherited);
-    for key in cmux_pty::UNSET_IN_TERMINAL_CHILDREN.iter().copied().chain([
-        INCOGNITO_ENV,
-        "HISTFILE",
-        "fish_private_mode",
-    ]) {
+    for key in [INCOGNITO_ENV, "HISTFILE", "fish_private_mode"] {
         assert!(unset.contains(&key), "{key} must be removed: {unset:?}");
     }
+}
+
+/// A daemon started by a bounded command (its environment holds
+/// `CMUX_DEADLINE`) launches terminals with no bound: the fleet's orphan reaper
+/// would end their shells and agents once it passed, even across a relaunch
+/// that kept them. A launch that names a bound itself loses it too.
+#[test]
+fn every_terminal_child_drops_a_tool_calls_deadline() {
+    let inherited = |key: &str| match key {
+        "CMUX_DEADLINE" => Some("1795500000".to_string()),
+        "CMUX_DEADLINE_OWNER" => Some("timer_run".to_string()),
+        _ => None,
+    };
+    let normal = vec![("HOME".to_string(), "/home/user".to_string())];
+    let named = vec![("CMUX_DEADLINE".to_string(), "1795500000".to_string())];
+    for env in [&normal, &named] {
+        let unset = keys_to_unset_in_child_from(env, &inherited);
+        for key in ["CMUX_DEADLINE", "CMUX_DEADLINE_OWNER"] {
+            assert!(unset.contains(&key), "{key} must be removed: {unset:?}");
+        }
+    }
+    assert!(keys_to_unset_in_child_from(&normal, &|_: &str| None).contains(&"CMUX_DEADLINE"));
 }

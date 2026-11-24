@@ -43,6 +43,18 @@ export function mergedDraft(typed: string, saved: string | undefined): string {
   return `${saved}${DRAFT_SEPARATOR}${typed}`;
 }
 
+/**
+ * The prompt once a prompt comes back into it (`ComposerHandle.restore`: a send that failed or was
+ * refused, one taken back from the queue, one a hold gives back): `back` goes first, or after what
+ * the prompt holds when `behind`. The same rule as `mergedDraft`, so a prompt that is already there
+ * is never doubled. Before, a send that failed while the chat loaded came back ahead of the same
+ * text the draft had already put in the prompt, and the draft was saved twice over (Mango,
+ * 2026-11-24: "big disaster in Mango! i had a draft too that i wanted to send :(").
+ */
+export function restoredPrompt(typed: string, back: string, behind = false): string {
+  return behind ? mergedDraft(back, typed) : mergedDraft(typed, back);
+}
+
 /** What goes between a saved draft and text typed after it (`mergedDraft`). */
 const DRAFT_SEPARATOR = "\n\n";
 
@@ -185,6 +197,12 @@ function pageDraftAction(name: "chat.readDraft" | "chat.writeDraft"): DraftActio
     }
   ).window;
   return page?.cmuxAcpmuxActions?.[name];
+}
+
+/// Whether the page can read acpmux's drafts now (its client installed the draft actions): before,
+/// an unanswered read says nothing about the draft; after, a failed one means acpmux can't say.
+export function readsDurableDrafts(): boolean {
+  return pageDraftAction("chat.readDraft") !== undefined;
 }
 
 function persistedDraftKey(sessionId: string | undefined): string | undefined {

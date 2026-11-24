@@ -1710,127 +1710,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Home to Sidebar"
+            "value": "Add Chief to Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ホームをサイドバーに追加"
+            "value": "Chiefをサイドバーに追加"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إضافة الرئيسية إلى الشريط الجانبي"
+            "value": "إضافة Chief إلى الشريط الجانبي"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj Početnu u bočnu traku"
+            "value": "Dodaj Chief u bočnu traku"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Føj Hjem til sidepanelet"
+            "value": "Føj Chief til sidepanelet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start zur Seitenleiste hinzufügen"
+            "value": "Chief zur Seitenleiste hinzufügen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Añadir Inicio a la barra lateral"
+            "value": "Añadir Chief a la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajouter Accueil à la barre latérale"
+            "value": "Ajouter Chief à la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiungi Home alla barra laterale"
+            "value": "Aggiungi Chief alla barra laterale"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ថែមទំព័រដើមទៅរបារចំហៀង"
+            "value": "បន្ថែម Chief ទៅរបារចំហៀង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "사이드바에 홈 추가"
+            "value": "사이드바에 Chief 추가"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Legg til Hjem i sidepanelet"
+            "value": "Legg til Chief i sidepanelet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj Start do paska bocznego"
+            "value": "Dodaj Chief do paska bocznego"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Adicionar Início à barra lateral"
+            "value": "Adicionar Chief à barra lateral"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Добавить «Главную» в боковую панель"
+            "value": "Добавить Chief в боковую панель"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เพิ่มหน้าแรกในแถบด้านข้าง"
+            "value": "เพิ่ม Chief ในแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa'yı kenar çubuğuna ekle"
+            "value": "Chief'i kenar çubuğuna ekle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Додати «Головну» на бічну панель"
+            "value": "Додати Chief на бічну панель"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thêm Trang chủ vào thanh bên"
+            "value": "Thêm Chief vào thanh bên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "将主页添加到边栏"
+            "value": "将 Chief 添加到边栏"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "將首頁加入側邊欄"
+            "value": "將 Chief 加入側邊欄"
           }
         }
       }
@@ -1841,127 +1841,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Remove Home from Sidebar"
+            "value": "Remove Chief from Sidebar"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ホームをサイドバーから削除"
+            "value": "Chiefをサイドバーから削除"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إزالة الرئيسية من الشريط الجانبي"
+            "value": "إزالة Chief من الشريط الجانبي"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ukloni Početnu iz bočne trake"
+            "value": "Ukloni Chief iz bočne trake"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjern Hjem fra sidepanelet"
+            "value": "Fjern Chief fra sidepanelet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start aus der Seitenleiste entfernen"
+            "value": "Chief aus der Seitenleiste entfernen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Quitar Inicio de la barra lateral"
+            "value": "Quitar Chief de la barra lateral"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Retirer Accueil de la barre latérale"
+            "value": "Retirer Chief de la barre latérale"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rimuovi Home dalla barra laterale"
+            "value": "Rimuovi Chief dalla barra laterale"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ដកទំព័រដើមចេញពីរបារចំហៀង"
+            "value": "ដក Chief ចេញពីរបារចំហៀង"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "사이드바에서 홈 제거"
+            "value": "사이드바에서 Chief 제거"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fjern Hjem fra sidepanelet"
+            "value": "Fjern Chief fra sidepanelet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Usuń Start z paska bocznego"
+            "value": "Usuń Chief z paska bocznego"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Remover Início da barra lateral"
+            "value": "Remover Chief da barra lateral"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Убрать «Главную» из боковой панели"
+            "value": "Убрать Chief из боковой панели"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "นำหน้าแรกออกจากแถบด้านข้าง"
+            "value": "นำ Chief ออกจากแถบด้านข้าง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa'yı kenar çubuğundan kaldır"
+            "value": "Chief'i kenar çubuğundan kaldır"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Прибрати «Головну» з бічної панелі"
+            "value": "Прибрати Chief з бічної панелі"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Xóa Trang chủ khỏi thanh bên"
+            "value": "Xóa Chief khỏi thanh bên"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "从边栏移除主页"
+            "value": "从边栏移除 Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "從側邊欄移除首頁"
+            "value": "從側邊欄移除 Chief"
           }
         }
       }
@@ -3807,127 +3807,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ホーム"
+            "value": "Chief"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "الرئيسية"
+            "value": "Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Početna"
+            "value": "Chief"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start"
+            "value": "Chief"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicio"
+            "value": "Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accueil"
+            "value": "Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Home"
+            "value": "Chief"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ទំព័រដើម"
+            "value": "Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "홈"
+            "value": "Chief"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hjem"
+            "value": "Chief"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Start"
+            "value": "Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Início"
+            "value": "Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Главная"
+            "value": "Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "หน้าแรก"
+            "value": "Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ana Sayfa"
+            "value": "Chief"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Головна"
+            "value": "Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trang chủ"
+            "value": "Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "主页"
+            "value": "Chief"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "首頁"
+            "value": "Chief"
           }
         }
       }
@@ -9047,127 +9047,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chief"
+            "value": "Chief Activity"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief のアクティビティ"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "نشاط Chief"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief aktivnost"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief-aktivitet"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief-Aktivität"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Actividad de Chief"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Activité de Chief"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Attività di Chief"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "សកម្មភាព Chief"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief 활동"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief-aktivitet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Aktywność Chief"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Atividade do Chief"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Активность Chief"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "กิจกรรมของ Chief"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief Etkinliği"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Активність Chief"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Hoạt động của Chief"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief 动态"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chief"
+            "value": "Chief 動態"
           }
         }
       }
@@ -10929,6 +10929,84 @@
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "恢復側邊欄漸隱"}}
       }
     },
+    "action.sidebar.floatOnHover.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار الشريط الجانبي المخفي عائمًا عند التمرير"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Plutajuća skrivena bočna traka pri prelasku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel svævende ved markør"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ausgeblendete Seitenleiste beim Überfahren schwebend zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Float Hidden Sidebar on Hover"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar la barra lateral oculta flotando al pasar el puntero"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher la barre latérale masquée en survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra la barra laterale nascosta fluttuante al passaggio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "非表示のサイドバーをポインタでフロート表示"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញរបារចំហៀងដែលលាក់ជាអណ្ដែតពេលដាក់ទស្សន៍ទ្រនិច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "호버 시 숨긴 사이드바를 떠 있게 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis skjult sidepanel flytende ved peker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj ukryty pasek boczny jako pływający po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar a barra lateral oculta flutuando ao passar o ponteiro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать скрытую боковую панель поверх при наведении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงแถบด้านข้างที่ซ่อนแบบลอยเมื่อวางเมาส์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gizli kenar çubuğunu üzerine gelince yüzer göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати приховану бічну панель поверх при наведенні"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiện thanh bên đã ẩn dạng nổi khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "悬停时浮动显示隐藏的侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "懸停時浮動顯示隱藏的側邊欄"}}
+      }
+    },
+    "action.sidebar.floatOnHover.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "عدم إظهار الشريط الجانبي المخفي عائمًا"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nikad ne prikazuj plutajuću skrivenu bočnu traku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis aldrig skjult sidepanel svævende"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Ausgeblendete Seitenleiste nie schwebend zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Never Float Hidden Sidebar"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No mostrar nunca la barra lateral oculta flotando"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ne jamais afficher la barre latérale masquée en survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Non mostrare mai la barra laterale nascosta fluttuante"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "非表示のサイドバーをフロート表示しない"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "កុំបង្ហាញរបារចំហៀងដែលលាក់ជាអណ្ដែត"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "숨긴 사이드바를 떠 있게 표시하지 않음"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis aldri skjult sidepanel flytende"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nigdy nie pokazuj ukrytego paska bocznego jako pływającego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Nunca mostrar a barra lateral oculta flutuando"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Никогда не показывать скрытую боковую панель поверх"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ไม่แสดงแถบด้านข้างที่ซ่อนแบบลอย"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Gizli kenar çubuğunu asla yüzer gösterme"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ніколи не показувати приховану бічну панель поверх"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không bao giờ hiện thanh bên đã ẩn dạng nổi"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "从不浮动显示隐藏的侧边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "永不浮動顯示隱藏的側邊欄"}}
+      }
+    },
+    "action.sidebar.custom.toggle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تبديل الشريط الجانبي المخصص"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uključi/isključi prilagođenu bočnu traku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Slå tilpasset sidepanel til/fra"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Eigene Seitenleiste ein-/ausblenden"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Toggle Custom Sidebar"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar u ocultar barra lateral personalizada"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher ou masquer la barre latérale personnalisée"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra/nascondi barra laterale personalizzata"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "カスタムサイドバーを切り替え"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បិទ/បើករបារចំហៀងផ្ទាល់ខ្លួន"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사용자 지정 사이드바 전환"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Slå egendefinert sidepanel av/på"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przełącz własny pasek boczny"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Alternar barra lateral personalizada"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показать или скрыть свою боковую панель"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "สลับแถบด้านข้างแบบกำหนดเอง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Özel kenar çubuğunu aç/kapat"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показати або сховати власну бічну панель"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Bật/tắt thanh bên tùy chỉnh"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "切换自定义边栏"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "切換自訂側邊欄"}}
+      }
+    },
     "action.sidebar.controlsOnHover.on": {
       "extractionState": "manual",
       "localizations": {
@@ -10979,6 +11057,268 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Luôn hiện điều khiển thanh bên"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "始终显示侧边栏控件"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "一律顯示側邊欄控制項"}}
+      }
+    },
+    "action.sidebar.priority.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة الدردشة المؤرشفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrati arhivirani chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gendan arkiveret chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivierten Chat wiederherstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore Archived Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar chat archivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer la discussion archivée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina chat archiviata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーカイブしたチャットを復元"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ដារការជជែកដែលបានរក្សាទុកក្នុងបណ្ណសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관된 채팅 복원"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenopprett arkivert chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywróć zarchiwizowany czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar chat arquivado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановить чат из архива"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กู้คืนแชทที่เก็บถาวร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arşivlenmiş sohbeti geri yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відновити архівований чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khôi phục cuộc trò chuyện đã lưu trữ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复已归档的聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復原已封存的聊天"
+          }
+        }
+      }
+    },
+    "menu.sidebar.priority.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "استعادة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vrati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gendan"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiederherstellen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restore"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ripristina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復元"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ដារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복원"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gjenopprett"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przywróć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restaurar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Восстановить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กู้คืน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geri yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відновити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khôi phục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "恢复"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "復原"
+          }
+        }
       }
     }
   },

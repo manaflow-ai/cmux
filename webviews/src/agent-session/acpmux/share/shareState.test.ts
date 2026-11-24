@@ -156,3 +156,13 @@ test("a viewer link the daemon made with no room is ended, not left live", async
     ["revoke", { shareId: "orphan", session: "chat" }],
   ]);
 });
+
+test("Copy link asks the daemon once, for a view link (the host's gesture gate allows one call per click)", async () => {
+  const calls: [string, Record<string, unknown> | undefined][] = [];
+  const client = shareClient("chat", async (op, params) => {
+    calls.push([op, params]);
+    return op === "link" ? { shareId: "v1", url: "https://room/g/v1#secret" } : {};
+  });
+  await client.viewerLink(shareView([]));
+  expect(calls).toEqual([["link", { role: "view", session: "chat" }]]);
+});

@@ -32,6 +32,7 @@
 mod attention;
 mod branches;
 
+pub(crate) use branches::turn_usage;
 pub use branches::{BranchStats, MAX_BRANCHES};
 
 use crate::store::{EventRecord, SessionMeta, SessionStatus, Store, TurnUsage};
@@ -114,6 +115,11 @@ pub struct StatsSummary {
     pub limit_errors: u64,
     /// Agent turn time, summed over sessions (two agents for an hour = 2h).
     pub working_ms: u64,
+    /// Wall-clock time with at least one agent working: the union of every
+    /// working interval. `working_ms / busy_ms` is how many hours of agent
+    /// work each hour of the person's clock bought (the Stats page's
+    /// "parallel payoff"); 0 when nothing worked.
+    pub busy_ms: u64,
     /// Time agents spent waiting on a permission answer.
     pub waiting_ms: u64,
     pub peak_parallel: u64,
@@ -165,13 +171,30 @@ pub fn summarize(
     options: &StatsOptions,
     live: &HashSet<String>,
 ) -> Result<StatsSummary> {
+    summarize_with(store, options, live, &SessionMeta::input_excludes_cache)
+}
+
+/// `summarize`, with `fresh_input` telling whether a session's harness counts
+/// its input apart from the prompt cache (`SessionMeta::input_excludes_cache`;
+/// the daemon asks its profile's kind first): an older record of one that
+/// does not has the cache taken out of its input (`branches::turn_usage`).
+pub fn summarize_with(
+    store: &dyn Store,
+    options: &StatsOptions,
+    live: &HashSet<String>,
+    fresh_input: &dyn Fn(&SessionMeta) -> bool,
+) -> Result<StatsSummary> {
     let mut fold = Fold::new(*options);
     for meta in store.list()? {
         // The streak looks back the longest range whatever range was asked.
         if meta.updated_at < fold.streak_since() {
             continue;
         }
-        let mut session = SessionFold::new(options);
+        // A cold-archived chat (`hub/cold_archive.rs`): a read would bring its log back.
+        if meta.cold.is_some() {
+            continue;
+        }
+        let mut session = SessionFold::new(options, fresh_input(&meta));
         let scanned = store.scan(&meta.id, 0, &mut |record| {
             session.record(&record);
             true
@@ -216,6 +239,8 @@ struct SessionFold {
     /// The open turn began before the log's `forked` record: a copy of the
     /// parent's.
     open_copied: bool,
+    /// Its harness counts input apart from the cache (`SessionMeta::input_excludes_cache`).
+    fresh_harness: bool,
 }
 
 struct Turn {
@@ -242,7 +267,7 @@ enum TurnStatus {
 }
 
 impl SessionFold {
-    fn new(options: &StatsOptions) -> Self {
+    fn new(options: &StatsOptions, fresh_harness: bool) -> Self {
         Self {
             options: *options,
             open: None,
@@ -261,6 +286,7 @@ impl SessionFold {
             waiting_ms: 0,
             last_at: None,
             open_copied: false,
+            fresh_harness,
         }
     }
 
@@ -344,7 +370,7 @@ impl SessionFold {
                     self.close(at, status);
                 }
                 if let Some(turn) = self.turns.last_mut() {
-                    turn.usage = branches::turn_usage(&record.msg);
+                    turn.usage = branches::turn_usage(&record.msg, self.fresh_harness);
                     turn.branch = branches::turn_branch(&record.msg);
                 }
             }
@@ -636,8 +662,15 @@ impl Fold {
         // are not parallel.
         self.edges.sort_by_key(|&(at, delta)| (at, delta));
         let mut live: i64 = 0;
+        let mut busy_since = 0;
         for (at, delta) in &self.edges {
+            if live == 0 && *delta > 0 {
+                busy_since = *at;
+            }
             live += i64::from(*delta);
+            if live == 0 {
+                self.summary.busy_ms += at - busy_since;
+            }
             if live > 0 && live as u64 > self.summary.peak_parallel {
                 self.summary.peak_parallel = live as u64;
                 self.summary.peak_parallel_at = Some(*at);

@@ -10,7 +10,7 @@ import Testing
 
 /// TERMINAL CREATE COST item 3 (review of #35347, STATUS 11937): a switch to a tab never shown before (Ctrl-Tab, Cmd-digit,
 /// a close that selects such a neighbor) goes through `PaneController.presentSelection`'s first-visit path, which hid
-/// the old tab the same way #35347 fixed for `showSelected`. The pane hid the old tab (`TabContentCache.withdraw` -> conceal ->
+/// the old tab the same way #35347 fixed for `showSelected` (it now hides it in `showSelected`, a frame later). The pane hid the old tab (`TabContentCache.withdraw` -> conceal ->
 /// `setContentVisible(false)`) while the page still had the keyboard, so AppKit searched the window's whole key view
 /// loop for a replacement first responder (`-[NSView nextValidKeyView]`, `_NSComputeFirstKeyViewVisuallyInDirection`,
 /// 5-5.5 ms on cmux21). As Chrome does when it activates a tab (focus moves first, then the old WebContents hides),
@@ -19,7 +19,7 @@ import Testing
 @MainActor struct FirstVisitHideAfterFocusTests {
     private static func tree() -> DaemonTree {
         let tabs = [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~"),
-                    TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .browser, url: HistoryPageAddress.string,
+                    TabSnapshot(surface: SurfaceID(rawValue: 2), kind: .browser, url: URL.historyPageString,
                                 browserRenderer: "frontend", browserEngine: "webkit"),
                     TabSnapshot(surface: SurfaceID(rawValue: 3), title: "~")]
         let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: tabs)
@@ -53,7 +53,7 @@ import Testing
         let model = try #require(store.workspaces.first?.screens.first?.panes.first)
         let historyTab = try #require(store.tab(surface: SurfaceID(rawValue: 2)))
         // The History page the person looks at (the real page tab: its conceal hides its view).
-        let page = HistoryPageTab(id: BrowserTabID(rawValue: historyTab.id), engine: .webkit, profile: .default, source: services.historyPage)
+        let page = HistoryPageTab(id: BrowserTabID(rawValue: historyTab.id), engine: .webkit, profile: .default, webPage: nil)
         _ = services.cache.install(page, for: historyTab.id)
         defer { services.cache.browsers[historyTab.id] = nil }
 
@@ -89,8 +89,12 @@ import Testing
         state.selection.select(neverShown.id, in: pane.paneKey)
         pane.syncStripFromStore()
 
-        try #require(pane.stripModel.selectedID?.rawValue == neverShown.id && pane.currentTabKey == nil,
+        // The first-visit path keeps the History page drawn until tab 3's content is in (UnloadedTabKeepsPaneTests),
+        // then hides it in the frame that shows tab 3.
+        try #require(pane.stripModel.selectedID?.rawValue == neverShown.id && pane.currentTabKey == historyTab.id,
                      "the switch did not take the first-visit path (current tab \(pane.currentTabKey ?? "-"))")
+        for _ in 0..<12 where pane.currentTabKey != neverShown.id { await Self.nextCommittedPass() }
+        try #require(pane.currentTabKey == neverShown.id, "tab 3 never showed")
         // The switch hid the History page through the cache (conceal -> setContentVisible(false)), not only its pane view.
         try #require(page.contentView.isHidden, "the History page did not hide in the switch: the test no longer reaches the case")
         let resigned = try #require(field.resignedWhilePageShowed.first,

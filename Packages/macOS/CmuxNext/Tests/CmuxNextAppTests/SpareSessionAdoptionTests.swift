@@ -21,7 +21,7 @@ struct SpareSessionAdoptionTests {
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
         tabs.localHost = thisMac
         let tree = DaemonStore()
-        tabs.lookup = { key in records[key].map { ($0, tree) } }
+        tabs.lookupScoped = { key in records[key.key].map { ($0, tree) } }
         return tabs
     }
 
@@ -114,6 +114,30 @@ struct SpareSessionAdoptionTests {
         #expect(view.pageContent.frame.minX >= 0 && view.pageContent.frame.minY >= 0, "\(view.pageContent.frame)")
         #expect(view.loadingView.superview == nil, "the cover stayed over the drawn chat")
         #expect(view.loadingView.leftFading == false, "a chat drawn from a kept tail faded in")
+    }
+
+    /// A sidebar hover read the hovered chat ahead only through the agent chat on screen: from a
+    /// terminal or a browser page nothing read it, and the click's adopted spare waited on the host
+    /// and on acpmux's attach. With no agent chat on screen the spare, which that click adopts, reads it
+    /// (SidebarBridge's `onHoverTab`, through ``AgentPaneView/hoverReader(shown:spare:)``).
+    @Test func aHoverWithNoChatOnScreenIsReadByTheSpare() async throws {
+        let tabs = Self.run(records: ["tab_shown": Self.chat("s-shown")])
+        let spare = try await Self.connectedSpare(of: tabs)
+        var spareScripts: [String] = []
+        spare.evaluateScript = { spareScripts.append($0) }
+        func prefetches(_ scripts: [String]) -> [String] { scripts.filter { $0.contains("chat.prefetch") } }
+
+        // A terminal is on screen (its tab has no agent page): the spare reads the hovered chat.
+        let reader = try #require(AgentPaneView.hoverReader(shown: tabs.existingView("tab_terminal"), spare: spare))
+        #expect(reader === spare)
+        reader.forwardHover("s-chat")
+        let read = try #require(prefetches(spareScripts).last, "the spare was not asked: \(spareScripts)")
+        #expect(read.contains("\"sessionId\":\"s-chat\"") && read.contains("\"hover\":true"), "\(read)")
+
+        // An agent chat is on screen: it reads the hover, as before, and the spare is not asked.
+        let shown = try #require(tabs.view(for: "tab_shown"))
+        #expect(AgentPaneView.hoverReader(shown: tabs.existingView("tab_shown"), spare: spare) === shown)
+        #expect(AgentPaneView.hoverReader(shown: nil, spare: nil) == nil)
     }
 
     /// Each exclusion keeps the tab's own page, and the spare stays in the pool.

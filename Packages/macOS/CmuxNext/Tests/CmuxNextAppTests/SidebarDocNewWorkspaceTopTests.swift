@@ -112,20 +112,19 @@ import Testing
     }
 
     /// Below a loose current workspace, newest right below it; first below Home when the current one does not list
-    /// (a top page such as Home); last only under `bottom`.
+    /// (a top page such as Home); last only under `bottom`. Each from a fresh sidebar: a new row keeps the place it first
+    /// took (`SidebarDocHeldSlotTests.aNewRowKeepsThePlaceItFirstTook`).
     @Test func underAfterCurrentANewRowFollowsALooseCurrentElseListsFirst() throws {
         let store = Self.store(fresh: ["ws-a", "ws-b"])
         let current = try #require(store.workspaces.first { $0.resourceID?.rawValue == "ws-1" }).id
-        let doc = SidebarDocSections(document: { nil })
-        doc.newRowsPlace = { .below(current) }
-        #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
-            == ["ws-home", "ws-1", "ws-b", "ws-a", "ws-2", "ws-3"])
-        doc.newRowsPlace = { .below("gone") }
-        #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
-            == ["ws-home", "ws-b", "ws-a", "ws-1", "ws-2", "ws-3"])
-        doc.newRowsPlace = { .last }
-        #expect(Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
-            == ["ws-home", "ws-1", "ws-2", "ws-3", "ws-a", "ws-b"])
+        func order(_ place: SidebarDocSections.NewRowsPlace) -> [String] {
+            let doc = SidebarDocSections(document: { nil })
+            doc.newRowsPlace = { place }
+            return Self.order(doc.sections(Self.projection(), session: Self.session, workspaces: store.workspaces))
+        }
+        #expect(order(.below(current)) == ["ws-home", "ws-1", "ws-b", "ws-a", "ws-2", "ws-3"])
+        #expect(order(.below("gone")) == ["ws-home", "ws-b", "ws-a", "ws-1", "ws-2", "ws-3"])
+        #expect(order(.last) == ["ws-home", "ws-1", "ws-2", "ws-3", "ws-a", "ws-b"])
     }
 
     /// Rapid Cmd-N selects each new workspace before its item comes, so the current one is itself unplaced: each went

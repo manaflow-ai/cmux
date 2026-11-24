@@ -33,6 +33,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private var placeholderWidth: CGFloat = 0
     private var style: PaletteScopeChipStyle = .token
     private var depth = 0
+    private var isLoading = false
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -91,6 +92,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         field.setAccessibilityLabel(name)
         field.cell?.setAccessibilityLabel(name)
         spinner.spin(isLoading)
+        self.isLoading = isLoading
         needsLayout = true
     }
 
@@ -107,7 +109,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             // ellipsis (#26606).
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail
-            let attributes: [NSAttributedString.Key: Any] = [.font: Typography.search, .foregroundColor: Palette.textTertiary,
+            let attributes: [NSAttributedString.Key: Any] = [.font: Typography.search, .foregroundColor: Palette.textSecondary,
                                                              .paragraphStyle: style]
             field.placeholderAttributedString = NSAttributedString(
                 string: Self.fitted(placeholder, width: placeholderWidth, attributes: attributes),
@@ -152,15 +154,20 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             tokens.frame = NSRect(x: x, y: 0, width: width, height: bounds.height)
             x = tokens.frame.maxX + Metrics.space4
         }
-        let spinnerSize = Metrics.iconSize + Metrics.space1 * 2
-        spinner.frame = NSRect(x: bounds.maxX - padding - spinnerSize, y: (bounds.height - spinnerSize) / 2,
-                               width: spinnerSize, height: spinnerSize)
-        var right = spinner.frame.minX - Metrics.space4
+        // The hint ends on the rows' right edge (``PaletteLayout/trailingInset``), where their keys
+        // and kind labels end; a spinner takes the edge only with no hint, else it sits left of the
+        // hint, so the hint never moves while results load.
+        var right = bounds.maxX - PaletteLayout.trailingInset
         if !keywordHint.isHidden {
             let width = keywordHint.fittingWidth
             keywordHint.frame = pixelAligned(NSRect(x: right - width, y: 0, width: width, height: bounds.height))
             right = keywordHint.frame.minX - Metrics.space4
         }
+        let spinnerSize = PaletteLayout.iconBox
+        let glyphInset = (spinnerSize - Metrics.iconSize) / 2
+        spinner.frame = NSRect(x: right + glyphInset - spinnerSize, y: (bounds.height - spinnerSize) / 2,
+                               width: spinnerSize, height: spinnerSize)
+        if isLoading { right = spinner.frame.minX + glyphInset - Metrics.space4 }
         field.frame = pixelAligned(NSRect(x: x, y: fieldY, width: max(0, right - x), height: fieldHeight))
         // Less the field editor's line fragment padding (2 pt a side), which the text draws inside.
         let textWidth = (field.cell?.titleRect(forBounds: field.bounds).width ?? field.bounds.width) - 4

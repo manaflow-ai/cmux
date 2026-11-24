@@ -23,6 +23,9 @@ public struct CookieImportHost {
     /// The input event being dispatched now, nil between dispatches (the app's `InputDispatchContext`, never
     /// `NSApp.currentEvent`, which keeps the last event after its dispatch ends). The default has none.
     public var dispatchingEvent: @MainActor () -> NSEvent?
+    /// A run wrote cookies into the target profile (their count) (the Import Cookies banner then never
+    /// shows again). The default does nothing.
+    public var imported: @MainActor (ImportCounts) -> Void
 
     /// Creates the host.
     ///
@@ -32,13 +35,15 @@ public struct CookieImportHost {
     ///   - window: The window to ask in.
     ///   - reveal: Reveals a tab by id.
     ///   - track: Reports the import task to a capturing caller.
+    ///   - imported: Told what a run wrote, when it wrote any cookie.
     ///   - destination: Where the cookies go.
     ///   - isPersonEvent: Whether an event is the person's own input; the default takes none, so nothing allows.
     ///   - dispatchingEvent: The input event being dispatched now; the default has none, so every run asks.
     public init(requester: @escaping @MainActor (ActionInvocation) -> CookieImportRequester,
                 target: @escaping @MainActor (ActionInvocation) -> (id: String, name: String),
                 window: @escaping @MainActor () -> NSWindow?, reveal: @escaping @MainActor (String) -> Void,
-                track: @escaping @MainActor (ActionWork) -> Void, destination: any CookieDestination,
+                track: @escaping @MainActor (ActionWork) -> Void, imported: @escaping @MainActor (ImportCounts) -> Void = { _ in },
+                destination: any CookieDestination,
                 isPersonEvent: @escaping @MainActor (NSEvent) -> Bool = { _ in false },
                 dispatchingEvent: @escaping @MainActor () -> NSEvent? = { nil }) {
         self.requester = requester
@@ -49,5 +54,6 @@ public struct CookieImportHost {
         self.destination = destination
         self.isPersonEvent = isPersonEvent
         self.dispatchingEvent = dispatchingEvent
+        self.imported = imported
     }
 }

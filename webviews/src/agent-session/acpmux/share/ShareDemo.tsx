@@ -16,6 +16,8 @@ export type ShareDemoProps = {
   open?: boolean;
   /** Show the copied-link toast. */
   toast?: "public" | "invite";
+  /** A look the gallery compares with the shipped sheet (Share.gallery.css); none is the shipped one. */
+  look?: "two-primaries" | "popover" | "outline" | "row-hover" | "row-filled" | "row-bleed";
 };
 
 function fixtureHost(shares: ChatShare[]): ShareCall {
@@ -45,16 +47,27 @@ const LINK: ChatShare = {
   invitees: [],
 };
 
-export function ShareDemo({ viewing, shares, open = false, toast }: ShareDemoProps) {
+export function ShareDemo({ viewing, shares, open = false, toast, look }: ShareDemoProps) {
   const [call] = useState(() => fixtureHost(shares));
   const [shown, setShown] = useState(open);
+  // The dialog portals out of this tree, so the look is on the root.
+  useEffect(() => {
+    if (!look) return;
+    document.documentElement.dataset.shareLook = look;
+    return () => {
+      delete document.documentElement.dataset.shareLook;
+    };
+  }, [look]);
   useEffect(() => {
     if (!toast) return;
     const id = shareToasts.show({
       id: "share.copied",
       duration: 0,
       title: toast === "public" ? "Public link copied" : "Invite link copied",
-      message: toast === "public" ? "Anyone with the link can view this chat." : "Only people with access can open it",
+      message:
+        toast === "public"
+          ? "Signed-in people can send messages; others can view."
+          : "Only people with access can open it",
       actions: [{ id: "manage", label: "Manage links" }],
     });
     return () => shareToasts.close(id);

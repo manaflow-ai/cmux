@@ -75,9 +75,11 @@ pub struct Inputs {
 pub struct StorageNames {
     /// The Stack token Keychain service (`<bundle id>.auth`, scoped by the storage project).
     pub keychain_service: String,
-    /// The file-fallback token store under the home folder:
-    /// `Library/Application Support/cmux/<bundle id>[/<project>]`. This build's own namespace,
-    /// which predates the per-build state roots; moving it would sign every build out.
+    /// The file-fallback token store under the home folder: a scoped store in NEXT's own folder,
+    /// `Library/Application Support/cmux-next/<bundle id>/<project>` (moved there once from classic
+    /// cmux's `cmux/<bundle id>/<project>` by the app at launch, so nobody is signed out); an unscoped
+    /// legacy default's in `Library/Application Support/cmux/<bundle id>`, the store classic cmux of
+    /// the same bundle id writes too (one Keychain service, one session), so it stays.
     pub credentials_subpath: Vec<String>,
     /// The suffix of every `cmux.auth.*` defaults key (`<key>.<project>`), when scoped.
     pub defaults_key_suffix: Option<String>,
@@ -109,7 +111,9 @@ pub struct Configuration {
     pub is_debug_build: bool,
     pub storage: StorageNames,
     pub namespaced_legacy_store: Option<LegacyStore>,
-    /// A signed NEXT DEV production launch adopts the running NIGHTLY's session in memory.
+    /// Always `false`: no build takes a running NIGHTLY's session (signed NEXT DEV signs in on its own).
+    /// Still serialized because the pinned app's decoder requires the key; remove it once the app no
+    /// longer reads it (docs/ci/app-ffi-release.md, step A of cmux#43648).
     pub adopts_nightly_session: bool,
 }
 
@@ -122,19 +126,12 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
         (!trimmed.is_empty()).then(|| trimmed.to_owned())
     };
     let bundle_id = inputs.bundle_id.clone().unwrap_or_else(|| selection.bundle_id.clone());
-    let tag = value("CMUX_TAG").and_then(|tag| sanitized_scheme_tag(&tag));
-    // A scheme that cannot form `<scheme>://auth-callback` is ignored (it trapped at sign-in).
-    let callback_scheme = value("CMUX_AUTH_CALLBACK_SCHEME")
-        .filter(|scheme| origin::parse(&format!("{scheme}://auth-callback")).is_some())
-        .unwrap_or_else(|| {
-            if bundle_id == NEXT_DEV_BUNDLE_ID {
-                "cmux-next-dev".to_owned()
-            } else if inputs.is_debug_build {
-                tag.map_or_else(|| "cmux-dev".to_owned(), |tag| format!("cmux-dev-{tag}"))
-            } else {
-                default_scheme(Some(&bundle_id)).to_owned()
-            }
-        });
+    let callback_scheme = callback_scheme(
+        value("CMUX_AUTH_CALLBACK_SCHEME").as_deref(),
+        &bundle_id,
+        value("CMUX_TAG").as_deref(),
+        inputs.is_debug_build,
+    );
     let production = selection.name == "prod";
     // A selected local backend (`name: local`, a loopback origin) is development, never `LocalOnly`:
     // the person chose it, so it is reachable (the app's CloudRuntimeSelectionTests before this move:
@@ -154,9 +151,7 @@ pub fn from_selection(inputs: &Inputs) -> Configuration {
         callback_scheme,
         storage: storage_names(Some(&bundle_id), Some(selection)),
         namespaced_legacy_store: namespaced_legacy_store(&bundle_id, selection),
-        adopts_nightly_session: !inputs.is_debug_build
-            && bundle_id == NEXT_DEV_BUNDLE_ID
-            && production,
+        adopts_nightly_session: false,
         bundle_id,
         is_debug_build: inputs.is_debug_build,
     }
@@ -176,13 +171,17 @@ fn storage_project(bundle_id: Option<&str>, selection: Option<&Selection>) -> Op
     }
 }
 
-fn credentials_subpath(bundle_id: Option<&str>) -> Vec<String> {
-    vec![
+/// The token store folder of `bundle_id` for `project` ([`StorageNames::credentials_subpath`]).
+fn credentials_subpath(bundle_id: Option<&str>, project: Option<&str>) -> Vec<String> {
+    let folder = if project.is_some() { "cmux-next" } else { "cmux" };
+    let mut subpath = vec![
         "Library".to_owned(),
         "Application Support".to_owned(),
-        "cmux".to_owned(),
+        folder.to_owned(),
         bundle_id.unwrap_or("cmux").to_owned(),
-    ]
+    ];
+    subpath.extend(project.map(str::to_owned));
+    subpath
 }
 
 /// The token store names of `bundle_id` running `selection` (none: the placeholder configuration).
@@ -191,8 +190,7 @@ pub fn storage_names(bundle_id: Option<&str>, selection: Option<&Selection>) -> 
     let project = storage_project(bundle_id, selection);
     let service =
         bundle_id.map_or_else(|| "com.cmuxterm.app.auth".to_owned(), |id| format!("{id}.auth"));
-    let mut subpath = credentials_subpath(bundle_id);
-    subpath.extend(project.clone());
+    let subpath = credentials_subpath(bundle_id, project.as_deref());
     StorageNames {
         keychain_service: match &project {
             Some(project) if bundle_id.is_some() => format!("{service}.{project}"),
@@ -212,8 +210,7 @@ fn namespaced_legacy_store(bundle_id: &str, selection: &Selection) -> Option<Leg
     {
         return None;
     }
-    let mut subpath = credentials_subpath(Some(bundle_id));
-    subpath.push(selection.auth_namespace.clone());
+    let subpath = credentials_subpath(Some(bundle_id), Some(&selection.auth_namespace));
     Some(LegacyStore {
         keychain_service: format!("{bundle_id}.auth.{}", selection.auth_namespace),
         credentials_subpath: subpath,
@@ -259,6 +256,31 @@ pub fn vm_api_base_url(backend: &Backend) -> &'static str {
 }
 
 /// The release channel's sign-in callback scheme.
+/// The URL scheme a build registers and signs in through (its Info.plist `CMUX_AUTH_CALLBACK_SCHEME`): the
+/// bundle's override when it can form `<scheme>://auth-callback` (a bad one trapped at sign-in), else NEXT
+/// DEV's `cmux-next-dev`, a Debug build's `cmux-dev` (`cmux-dev-<tag>` when tagged), or the channel's own.
+pub fn callback_scheme(
+    configured: Option<&str>,
+    bundle_id: &str,
+    tag: Option<&str>,
+    is_debug_build: bool,
+) -> String {
+    if let Some(scheme) = configured
+        .map(str::trim)
+        .filter(|scheme| origin::parse(&format!("{scheme}://auth-callback")).is_some())
+    {
+        return scheme.to_owned();
+    }
+    if bundle_id == NEXT_DEV_BUNDLE_ID {
+        "cmux-next-dev".to_owned()
+    } else if is_debug_build {
+        let tag = tag.and_then(sanitized_scheme_tag);
+        tag.map_or_else(|| "cmux-dev".to_owned(), |tag| format!("cmux-dev-{tag}"))
+    } else {
+        default_scheme(Some(bundle_id)).to_owned()
+    }
+}
+
 pub fn default_scheme(bundle_id: Option<&str>) -> &'static str {
     match bundle_id {
         Some(NIGHTLY_BUNDLE_ID) => "cmux-nightly",

@@ -9,10 +9,10 @@
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
 import { cmuxTitle } from "./conversation/cmuxExec";
-import { mcpCall, mcpDescription, mcpUsing } from "./conversation/mcpCalls";
+import { mcpCall, mcpDescription, mcpPlainLine, mcpUsing } from "./conversation/mcpCalls";
 import { harnessToolLabel } from "./harnessToolLabels";
 import { currentLanguage, translatorFor } from "./i18n";
-import { ROW_WIDTH, shortCommand } from "./conversation/shortCommand";
+import { commandLine, commandLook, commandSaid } from "./conversation/commandActions";
 import { CANONICAL_VERB, canonicalCall, toolForName, type CanonicalCall } from "./toolNames";
 import type { AcpmuxActivity } from "./model";
 
@@ -54,15 +54,23 @@ export function editedPaths(tool: Tool): string[] {
 /// Paths come from the same harness-aware reader as edited-file cards, so a Write whose content
 /// precedes `file_path` still reads as `Write gen.py`. A file inside `cwd` reads by its path from there.
 ///
-/// A shell call reads as its command (`commandLabel`), never as Claude Code's Bash `description`
-/// (Lucas, 2026-11-06: the command, as Codex draws it). One with no command yet reads as
-/// `unnamedCommand` ("Ran a command"), never as the bare tool name ("Bash").
+/// A shell call reads as what its command did (conversation/commandActions.ts: "Searched memory for
+/// “x”"; Leo, 2026-11-07: "you ran a specific thing"), read off the command itself; Claude Code's
+/// Bash `description` names only a command the table does not know, since the model's words could
+/// say one thing while the line does another (#36940). Anything else reads as its command without
+/// the plumbing after it (`commandLabel`). One with no command yet reads as `unnamedCommand` ("Ran a
+/// command"), never as the bare tool name ("Bash").
+/// A `$name` or `${name}` a title shows as written.
+const UNEXPANDED = /\$\{?[A-Za-z_]/;
+
 export function toolLabel(
   tool: Tool,
   fallback: string,
   commandLabel: (command: string) => string,
   cwd?: string,
   unnamedCommand?: string,
+  /// False for the live line, which names the command itself (#36940): only rows say what it did.
+  saysWhatItDid = true,
 ): string {
   const title = readableName(tool.title);
   const fallbackName = readableName(fallback, tool.kind) || "Tool";
@@ -70,7 +78,16 @@ export function toolLabel(
   const command = tool.command?.trim();
   // Without its setup, a leading `cd <folder> &&` included: the opened Shell block names the folder (#20456).
   // Never cut by length: the line it draws on ends in a CSS ellipsis at its right edge.
-  if (tool.kind === "execute" && command) return commandLabel(shortCommand(command, ROW_WIDTH));
+  // A harness's own title that kept a shell variable ("Read $f", Codex's parse of a loop) reads as
+  // its command does: a label never shows a `$f` (Leo, 2026-11-21: "this is not a good enough tool
+  // call heading that we have derived").
+  if (command && (tool.kind === "execute" || UNEXPANDED.test(title))) {
+    const look = commandLook();
+    const said = saysWhatItDid ? commandSaid(translatorFor(currentLanguage()), tool, look) : undefined;
+    // Cleaning is for a finished row's label; a running row and the live line keep the line as written.
+    const finished = saysWhatItDid && tool.status !== "pending" && tool.status !== "in_progress";
+    return said ?? commandLabel(commandLine(command, look, finished));
+  }
   if (unnamedCommand && isBareShellName(tool, title || fallbackName)) return unnamedCommand;
   // An MCP call reads as Claude Code words it, "Using repo: repo grep" (mcpUsing), never as
   // `mcp__<server>__<tool>`.
@@ -81,6 +98,7 @@ export function toolLabel(
     return (
       mcpDescription(call) ??
       cmuxTitle(t, [call], [tool]) ??
+      mcpPlainLine(t, [call], new Map(), tool.status === "pending" || tool.status === "in_progress") ??
       mcpUsing(t, call, tool.status === "pending" || tool.status === "in_progress")
     );
   }

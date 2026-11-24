@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AgentQuestion, QuestionReply } from "../src/agent-session/acpmux/question/model";
 import { QuestionCard } from "../src/agent-session/acpmux/question/QuestionCard";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -28,6 +29,7 @@ const GLOBALS = [
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -133,14 +135,14 @@ async function press(target: Element, key: string, init: KeyboardEventInit = {})
   });
 }
 
-test("the folder trust card is a consent: the question, one scope line, Not now esc and Trust folder ↩", async () => {
+test("the folder trust card is a consent: the question, one scope line, Not now esc and Trust folder return", async () => {
   const { container } = await renderCard(folderTrust);
   expect(container.querySelector(".acpmux-question[data-consent]")).not.toBeNull();
   expect(container.querySelectorAll(".acpmux-question-row").length).toBe(0);
   expect(text(container.querySelector(".acpmux-question-prompt"))).toContain("Do you trust this folder?");
   expect(text(container.querySelector(".acpmux-question-scope"))).toBe("cmux stops asking about this folder.");
   expect(labelAndKey(button(container, ".acpmux-question-skip"))).toEqual(["Not now", "esc"]);
-  expect(labelAndKey(button(container, ".acpmux-question-submit"))).toEqual(["Trust folder", "↩"]);
+  expect(labelAndKey(button(container, ".acpmux-question-submit"))).toEqual(["Trust folder", "return"]);
   expect(button(container, ".acpmux-question-submit").getAttribute("aria-keyshortcuts")).toBe("Enter");
   expect(button(container, ".acpmux-question-skip").getAttribute("aria-keyshortcuts")).toBe("Escape");
 });

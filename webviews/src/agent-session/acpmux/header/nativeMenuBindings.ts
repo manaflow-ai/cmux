@@ -30,6 +30,7 @@ export function nativeChatMenu(rows: readonly ChatMenuItem[]): NativeMenuBinding
       id,
       label: nativeMenuText(row.label),
       enabled: row.disabled !== true,
+      ...(row.destructive ? { role: "destructive" } : {}),
       ...(separatorBefore ? { separatorBefore: true } : {}),
     };
     separatorBefore = false;

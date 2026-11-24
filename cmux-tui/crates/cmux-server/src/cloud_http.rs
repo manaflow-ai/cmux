@@ -47,11 +47,6 @@ pub fn network_changes() -> u64 {
     *NETWORK.borrow()
 }
 
-/// The count of [`network_changed`] calls, to wait on.
-pub fn network_watch() -> watch::Receiver<u64> {
-    NETWORK.subscribe()
-}
-
 #[cfg(test)]
 #[path = "cloud_http_tests.rs"]
 mod tests;
@@ -80,6 +75,12 @@ impl JsonPoster {
         JsonPoster::watching(true, network.subscribe())
     }
 
+    /// A poster like this one with a pool of its own: a request on it never
+    /// queues behind one in flight on this poster.
+    pub fn twin(&self) -> Result<JsonPoster, String> {
+        JsonPoster::watching(self.allow_http, self.network.clone())
+    }
+
     fn watching(allow_http: bool, network: watch::Receiver<u64>) -> Result<JsonPoster, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let epoch = *network.borrow();
@@ -105,13 +106,25 @@ impl JsonPoster {
         body: Option<&Value>,
         bearer: Option<&str>,
     ) -> Result<(u16, Value), String> {
+        self.send_with_headers(method, url, body, bearer, &[])
+    }
+
+    /// [`JsonPoster::send`] with extra request headers (an `Idempotency-Key`).
+    pub fn send_with_headers(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+        headers: &[(&str, &str)],
+    ) -> Result<(u16, Value), String> {
         check_url(url, self.allow_http).map_err(|e| e.to_string())?;
         let verb = reqwest::Method::from_bytes(method.as_bytes())
             .map_err(|_| format!("bad method {method}"))?;
         let deadline = RequestDeadline::from_active(Instant::now() + Duration::from_secs(20))
             .ok_or("Cloud request unavailable")?;
         let Response { status, bytes, .. } =
-            self.transport_request(verb, url, body, bearer, &deadline)?;
+            self.transport_request(verb, url, body, bearer, headers, &deadline)?;
         let parsed =
             serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::Object(Default::default()));
         Ok((status, parsed))
@@ -164,7 +177,7 @@ impl JsonPoster {
             return Err("Cloud request unavailable".into());
         }
         let method = if body.is_some() { reqwest::Method::POST } else { reqwest::Method::GET };
-        self.transport_request(method, url, body, bearer, deadline)
+        self.transport_request(method, url, body, bearer, &[], deadline)
     }
 
     fn transport_request(
@@ -173,6 +186,7 @@ impl JsonPoster {
         url: &str,
         body: Option<&Value>,
         bearer: Option<&str>,
+        headers: &[(&str, &str)],
         deadline: &RequestDeadline,
     ) -> Result<Response, String> {
         // This synchronous owner is serial. Contention cannot queue a request
@@ -193,7 +207,7 @@ impl JsonPoster {
             method,
             url,
             body,
-            bearer,
+            transport::Sign { bearer, headers },
             deadline,
             &mut network,
         );

@@ -5,7 +5,8 @@ public struct AwaitedContent: Equatable, Sendable {
     /// What the focus names.
     public enum Kind: Equatable, Sendable {
         case terminal
-        /// A browser tab: Chromium makes its page after the window shows (an async start at a relaunch).
+        /// A page: a browser tab's (Chromium makes it after the window shows, an async start at a relaunch), or an
+        /// agent chat's or an internal page tab's, whose view comes on a later frame than its selection.
         case browser
     }
 
@@ -32,6 +33,11 @@ public struct AwaitedContent: Equatable, Sendable {
         /// The shown browser content's page is ready for keys (``BrowserTab/pageReady``): only then does a key reach it.
         public var shownPageReady: Bool
 
+        /// Whether a key typed now reaches the shown page (``shownPageReady``): a browser tab's page (`browser`), or the Chromium
+        /// page window of a cmux page or an agent chat (`pageWindow`: Markdown, the chat pane), each only once its focus grant
+        /// came (`BrowserTab.pageReady`). Nil and nil: the content has no Chromium page (a native page).
+        public static func pageReady(browser: Bool?, pageWindow: Bool?) -> Bool { browser ?? pageWindow ?? true }
+
         public init(selectedTab: String?, shownTab: String?, shownKind: Kind?, selectedIsLiveTerminal: Bool, shownPageReady: Bool = true) {
             (self.selectedTab, self.shownTab, self.shownKind, self.selectedIsLiveTerminal) = (selectedTab, shownTab, shownKind, selectedIsLiveTerminal)
             self.shownPageReady = shownPageReady
@@ -41,14 +47,17 @@ public struct AwaitedContent: Equatable, Sendable {
     /// The content a key typed now would miss: the focus names `tab` of `kind`, and its pane (`pane`; nil: the pane has
     /// no controller yet, `paneInTopology` says whether the focus's topology lists it) does not show it. Nil otherwise.
     public static func awaited(_ kind: Kind, tab: String, pane: Pane?, paneInTopology: Bool) -> AwaitedContent? {
-        if let pane {
-            // The common case first (every key-down asks): the content shows.
-            if pane.shownTab == tab, pane.shownKind == kind, kind != .browser || pane.shownPageReady { return nil }
-            guard pane.selectedTab == tab, kind == .browser || pane.selectedIsLiveTerminal else { return nil }
-        } else if !paneInTopology {
-            return nil
-        }
-        return AwaitedContent(tab: tab, kind: kind)
+        reading(kind, tab: tab, pane: pane, paneInTopology: paneInTopology).hasPrefix("awaited") ? AwaitedContent(tab: tab, kind: kind) : nil
+    }
+
+    /// What ``awaited(_:tab:pane:paneInTopology:)`` reads: `awaited` (or `awaited_no_pane`) when the hold waits for the
+    /// content, else the first condition that fails (hq#22681: the launch marks it of the process's first key).
+    public static func reading(_ kind: Kind, tab: String, pane: Pane?, paneInTopology: Bool) -> String {
+        guard let pane else { return paneInTopology ? "awaited_no_pane" : "pane_not_in_topology" }
+        // The common case first (every key-down asks): the content shows.
+        if pane.shownTab == tab, pane.shownKind == kind, kind != .browser || pane.shownPageReady { return "shown" }
+        guard pane.selectedTab == tab else { return pane.selectedTab == nil ? "none_selected" : "other_selected" }
+        return kind == .browser || pane.selectedIsLiveTerminal ? "awaited" : "not_live_terminal"
     }
 
     /// The app actions that need the focused page itself (its address bar): they wait for it in a page hold.
