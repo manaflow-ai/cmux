@@ -9,7 +9,7 @@ A Linux x64 picker (a size pool `fromJSON(vars.RUNNER_POOLS).linux_N`, `vars.LIN
 vendor `<N>vcpu-ubuntu-2404` label, the overflow switch, `CI_TRUSTED_RUNNER`, the gate runner variable or
 the old fleet label) becomes:
 
-    ${{ <owner guard> || <fork pull request> && 'ubuntu-24.04' || <pins> || 'cmux-linux' }}
+    ${{ <owner guard> || <fork pull request> && 'ubuntu-24.04' || <pins> || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
 
 A fork repository and a fork pull request never reach an owned host: a fork pull request takes
 GitHub-hosted Ubuntu, a literal (cmuxterm-hq docs/design/ci-v2.md step 8; no repository variable picks it). Nightly and release pins
@@ -31,6 +31,7 @@ Usage: one_linux_label.py [--check] [WORKFLOW_DIR_OR_FILE ...]   (default: .gith
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -42,7 +43,9 @@ LABEL = "cmux-linux"
 OWNER_GUARD = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'"
 FORK_PR = ("github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository"
            " && 'ubuntu-24.04'")
-CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || '{LABEL}' }}}}"
+# The cloud overflow switch: when the owned pool is saturated, this variable names a vendor label to spill onto.
+OVERFLOW = "vars.CI_OVERFLOW_LINUX"
+CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || {OVERFLOW} || '{LABEL}' }}}}"
 
 # A term naming or choosing a Linux x64 size.
 PICKER = re.compile(
@@ -212,6 +215,8 @@ def rewrite_expr(expr: str) -> str | None:
     # that came before it (a push-only nightly arm) still comes first and one after it still comes after.
     kept, picked, fork_at = [], False, None
     for term in terms:
+        if term == OVERFLOW:
+            continue  # the overflow switch: re-added before the label, so a rerun does not move or double it
         if LABEL_ARM.match(term) and not TRIGGER.search(term) and FORK_TEST not in term:
             kept.append(term)  # a conditioned arm already on the label (PR control, push roots): keeps its place
         elif PICKER.search(term):
@@ -226,7 +231,7 @@ def rewrite_expr(expr: str) -> str | None:
     if not picked:
         return None
     kept.insert(fork_at, FORK_PR)
-    return "${{ " + " || ".join([OWNER_GUARD, *kept, f"'{LABEL}'"]) + " }}"
+    return "${{ " + " || ".join([OWNER_GUARD, *kept, OVERFLOW, f"'{LABEL}'"]) + " }}"
 
 
 def rewrite_mixed(expr: str) -> str:
@@ -243,6 +248,137 @@ def rewrite_mixed(expr: str) -> str:
     return "${{ " + " || ".join(out) + " }}"
 
 
+# What each repository variable a picker reads resolves to today on an own-branch run, read from the labels real
+# jobs ran on (2026-11-24: ci-health-report's runner variable report, and cmux-tui-artifacts, cmux-next,
+# cmux-next-base-autofix, cloud-vm-image-roll, cloud-chief-machine and machine-join-e2e runs). A line this script
+# keeps (an exception) or cannot convert is frozen to that answer: a literal with the same owner guard, fork and
+# event arms, and no variable (cmuxterm-hq goals/linux-pickers-gone.md: no runs-on reads a variable). A variable
+# missing here stays, and the line is reported, so a picker is never guessed away.
+TODAY_VARS = {
+    "LINUX_RUNNER": "cmux-fleet-linux-x64",
+    "CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
+    "CI_CLOUD_OVERFLOW_SAVED": "",
+    "CI_REPAIR_SKIP_FLEET": "1",
+    "CI_DEPLOY_SKIP_FLEET": "",
+}
+TODAY_POOLS = {
+    "linux_2": "cmux-fleet-linux-x64",
+    "linux_4": "blacksmith-4vcpu-ubuntu-2404",
+    "linux_8": "cmux-fleet-linux-x64",
+    "provenance": "ubuntu-latest",
+}
+# Lines this pass freezes: the ones reading a size pool, the fleet variable or the overflow switch's saved state.
+FREEZE_SCOPE = re.compile(r"RUNNER_POOLS|vars\.LINUX_RUNNER(?![A-Z_])|CI_CLOUD_OVERFLOW_SAVED")
+_UNKNOWN = object()
+
+
+def _lit(value) -> str:
+    return ("true" if value else "false") if isinstance(value, bool) else "'" + str(value).replace("'", "''") + "'"
+
+
+def _top_find(expr: str, needle: str) -> int:
+    depth, quoted, i = 0, False, 0
+    while i < len(expr):
+        c = expr[i]
+        if quoted:
+            quoted = c != "'"
+        elif c == "'":
+            quoted = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif depth == 0 and expr.startswith(needle, i):
+            return i
+        i += 1
+    return -1
+
+
+def _factor(f: str):
+    """A value (str or bool) when F is known today, else F's simplified text in a list."""
+    f = f.strip()
+    if wrapped(f):
+        inner = _or(f[1:-1])
+        return inner if not isinstance(inner, list) else ["(" + inner[0] + ")"]
+    for op in (" != ", " == "):
+        at = _top_find(f, op)
+        if at >= 0:
+            a, b = _factor(f[:at]), _factor(f[at + len(op):])
+            if isinstance(a, list) or isinstance(b, list):
+                return [f"{a[0] if isinstance(a, list) else _lit(a)}{op}{b[0] if isinstance(b, list) else _lit(b)}"]
+            same = str(a).lower() == str(b).lower()
+            return same if op == " == " else not same
+    if f.startswith("!"):
+        v = _factor(f[1:])
+        return not v if not isinstance(v, list) else ["!" + v[0]]
+    if m := re.fullmatch(r"'((?:[^']|'')*)'", f):
+        return m[1].replace("''", "'")
+    if m := re.fullmatch(r"vars\.(\w+)", f):
+        return TODAY_VARS[m[1]] if m[1] in TODAY_VARS else [f]
+    if m := re.fullmatch(r"fromJSON\(vars\.RUNNER_POOLS\)\.(\w+)", f):
+        return TODAY_POOLS[m[1]] if m[1] in TODAY_POOLS else [f]
+    if m := re.fullmatch(r"(contains|startsWith)\((.*)\)", f):
+        at = _top_find(m[2], ", ")
+        if at >= 0:
+            a_text, b_text = m[2][:at].strip(), m[2][at + 2:]
+            listed = re.fullmatch(r"fromJSON\('(\[.*\])'\)", a_text)
+            a = json.loads(listed[1]) if listed else _factor(a_text)
+            b = _factor(b_text)
+            if not isinstance(b, list) and (listed or not isinstance(a, list)):
+                if m[1] == "contains" and listed:
+                    return b in a
+                if m[1] == "startsWith" and not listed:
+                    return str(a).lower().startswith(str(b).lower())
+            a_out = a_text if listed else (a[0] if isinstance(a, list) else _lit(a))
+            b_out = b[0] if isinstance(b, list) else _lit(b)
+            return [f"{m[1]}({a_out}, {b_out})"]
+    return [f]
+
+
+def _and(expr: str):
+    texts, value = [], True
+    factors = split_top(expr, "&&")
+    for k, f in enumerate(factors):
+        v = _factor(f)
+        if isinstance(v, list):
+            texts.append(v[0])
+            value = _UNKNOWN
+            continue
+        if not v:
+            return ""  # this term is false whatever came before it
+        if k == len(factors) - 1:
+            if not texts:
+                return v
+            texts.append(_lit(v))
+    if value is True and not texts:
+        return value
+    return [" && ".join(texts)]
+
+
+def _or(expr: str):
+    out = []
+    for term in split_top(expr):
+        v = _and(term)
+        if isinstance(v, list):
+            out.append(v[0])
+            continue
+        if not v:
+            continue
+        if not out:
+            return v
+        out.append(_lit(v))
+        break
+    if not out:
+        return ""
+    return [" || ".join(out)]
+
+
+def freeze_expr(expr: str) -> str:
+    """EXPR (`${{ ... }}`) with every variable it reads replaced by today's answer and the dead arms dropped."""
+    v = _or(expr[3:-2].strip())
+    return "${{ " + (v[0] if isinstance(v, list) else _lit(v)) + " }}"
+
+
 SIZE_LEFT = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?!-)|RUNNER_POOLS\)\.linux(?!_arm)|vars\.LINUX_RUNNER(?![A-Z_])")
 
 
@@ -256,6 +392,25 @@ def signing_jobs(text: str) -> set[str]:
     return {name for name, job in jobs.items() if isinstance(job, dict) and holds_signing_material(job)}
 
 
+def freeze_line(expr: str) -> str | None:
+    """EXPR frozen to today's answer when it is a Linux line in FREEZE_SCOPE and no variable is left after; else None."""
+    if not FREEZE_SCOPE.search(expr) or re.search(r"github\.repository_owner != 'manaflow-ai' && '(?:macos|windows)", expr):
+        return None
+    frozen = freeze_expr(expr)
+    # `owner guard && 'ubuntu-latest' || 'ubuntu-latest'` (a provenance job) says the label once.
+    frozen = re.sub(r"^\$\{\{ github\.repository_owner != 'manaflow-ai' && ('[^']*') \|\| \1 \}\}$", r"${{ \1 }}", frozen)
+    return frozen if frozen != expr and not re.search(r"vars\.|fromjson\(vars", frozen, re.I) else None
+
+
+def freeze_into(lines: list[str], n: int, m: re.Match, frozen: str | None, report: Report, where: str) -> bool:
+    """Write FROZEN over line N (keeping its key, anchor and comment) and report it; False when there is none."""
+    if frozen is None:
+        return False
+    lines[n - 1] = f"{m['lead']}{m['key']}:{m['sp']}{m['anchor'] or ''}{frozen}{m['tail']}"
+    report.changed.append((where.split(":")[0], n, f"{where} (frozen to today's label)"))
+    return True
+
+
 def rewrite_text(name: str, text: str, report: Report, signing: set[str] | None = None) -> str:
     lines = text.split("\n")
     signing = signing_jobs(text) if signing is None else signing
@@ -264,23 +419,33 @@ def rewrite_text(name: str, text: str, report: Report, signing: set[str] | None 
         if m := JOB.match(line):
             job = m["id"]
         m = LINE.match(line)
-        if not m or not TRIGGER.search(m["expr"]) or m["key"] not in VALUE_KEYS:
+        if not m or m["key"] not in VALUE_KEYS:
             continue
         where = f"{name}:{n} ({job}.{m['key']})"
+        frozen = freeze_line(m["expr"]) if (name, job) not in PROBE_JOBS else None
+        if not TRIGGER.search(m["expr"]):
+            # Not a Linux x64 size (a provenance publish job's GitHub-hosted runner): only its variable goes.
+            freeze_into(lines, n, m, frozen, report, where)
+            continue
         if EXCEPTION_COMMENT.search(m["tail"]):
             report.exceptions.append((name, n, f"{job}: {m['tail'].strip()}"))
+            freeze_into(lines, n, m, frozen, report, where)
             continue
         if "provenance" in job or ("npm" in name and "publish" in job and "npm" in job):
             report.exceptions.append((name, n, f"{job}: provenance/npm publish job"))
+            freeze_into(lines, n, m, frozen, report, where)
             continue
         if EPHEMERAL_ONLY.search(m["expr"]):
             report.exceptions.append((name, n, f"{job}: admits only an ephemeral vendor runner (credentialed job)"))
+            freeze_into(lines, n, m, frozen, report, where)
             continue
         if job in signing:
             report.exceptions.append((name, n, f"{job}: holds signing material; keeps its ephemeral runner"))
+            freeze_into(lines, n, m, frozen, report, where)
             continue
         if (name, job) in FRESH_VM_JOBS:
             report.exceptions.append((name, n, f"{job}: {FRESH_VM_JOBS[(name, job)]}"))
+            freeze_into(lines, n, m, frozen, report, where)
             continue
         if (name, job) in PROBE_JOBS:
             report.exceptions.append((name, n, f"{job}: probes the vendor runner pool; its label is what it measures"))
@@ -291,7 +456,8 @@ def rewrite_text(name: str, text: str, report: Report, signing: set[str] | None 
             if mixed != m["expr"] and not SIZE_LEFT.search(mixed):
                 new = mixed
         if new is None:
-            report.unconverted.append((name, n, where))
+            if not freeze_into(lines, n, m, frozen, report, where):
+                report.unconverted.append((name, n, where))
             continue
         if new == m["expr"]:
             continue

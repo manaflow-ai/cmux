@@ -275,7 +275,7 @@ jobs:
   supersede-feat-runs:
     name: cancel superseded queued feat-cmux-next runs
     if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 }}
-    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux_2 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 10
     continue-on-error: true
     permissions:
