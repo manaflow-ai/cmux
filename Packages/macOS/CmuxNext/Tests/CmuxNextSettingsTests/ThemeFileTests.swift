@@ -58,6 +58,20 @@ import Testing
         #expect(SettingsDiagnosticStrings.message(notice, valueLimit: 80).hasPrefix("themes/tokyo.json could not be read ("))
     }
 
+    @Test func aMissingThemeGetsOneToastAndKeepsItsSettingsDiagnostic() {
+        let file: JSONValue = .object(["appearance": .object(["themeFile": "gone"])])
+        let missing = ThemeFileOverlay(name: "gone", source: nil, base: file)
+        let other = SettingsDiagnostic(kind: .invalidValue, path: "appearance.accent", message: "unknown color")
+        let diagnostics = missing.diagnostics + [other]
+        #expect(missing.diagnostics.map(\.path) == ["appearance.themeFile"])
+        #expect(SettingsDiagnosticToasts.forToast(diagnostics, file: file, doctorTheme: missing) == [other])
+        #expect(SettingsDiagnosticToasts.forToast(diagnostics, file: file, doctorTheme: nil) == diagnostics)
+        #expect(SettingsDiagnosticToasts.forToast(diagnostics, file: .object([:]), doctorTheme: missing) == diagnostics)
+
+        let broken = ThemeFileOverlay(name: "gone", source: .success("{"), base: file)
+        #expect(SettingsDiagnosticToasts.forToast(broken.diagnostics, file: file, doctorTheme: broken) == broken.diagnostics)
+    }
+
     @Test func colorsEditTheTerminalThemeTheFileNamesAndKeepOtherEdits() {
         let base = JSONValue.object(["appearance": .object(["themeEdits": .object(["Nord/background": "#2e3440"])])])
         let overlay = Self.overlay(##"{ "appearance.theme": "Rose Pine", "colors": { "background": "#191724", "foreground": "#e0def4", "palette": ["#26233a"] } }"##, base: base)

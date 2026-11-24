@@ -39,7 +39,10 @@ final class SettingsDiagnosticToasts {
         Task { [weak self] in // task-owner: lives with the settings controller
             await settings.waitForLoad(atLeast: 1)
             for await (diagnostics, file, managed) in ObservationStream({
-                (settings.diagnostics, settings.fileRoot, Set(settings.managedKeys.keys).union(settings.managedPolicy.keys))
+                let file = settings.fileRoot
+                let doctorTheme = settings.snapshot.customizeDoctorNotice ? settings.themeFile : nil
+                let diagnostics = Self.forToast(settings.diagnostics, file: file, doctorTheme: doctorTheme)
+                return (diagnostics, file, Set(settings.managedKeys.keys).union(settings.managedPolicy.keys))
             }) {
                 self?.load(diagnostics, file: file, managed: managed)
             }
@@ -49,6 +52,14 @@ final class SettingsDiagnosticToasts {
                 self?.showPending()
             }
         }
+    }
+
+    /// The doctor already announces a missing theme selected by the person's settings file.
+    /// Only its duplicate toast is removed. The row keeps the diagnostic and Review opens the doctor.
+    static func forToast(_ diagnostics: [SettingsDiagnostic], file: JSONValue, doctorTheme: ThemeFileOverlay?) -> [SettingsDiagnostic] {
+        guard let theme = doctorTheme, !theme.isLoaded, !theme.isUnparsable,
+              ThemeFileSetting.name(in: file) == theme.name else { return diagnostics }
+        return diagnostics.filter { !theme.diagnostics.contains($0) }
     }
 
     private func load(_ diagnostics: [SettingsDiagnostic], file: JSONValue, managed: Set<String>) {
