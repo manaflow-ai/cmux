@@ -5,8 +5,13 @@ import AppKit
 /// `position` (`{x, y}` in points, or with `unit: "fraction"` 0...1 of the stack) has its center
 /// placed there instead, as SwiftUI's `.position`; an axis it leaves out stays centered. Placed
 /// children do not size the stack (a calendar's hour grid sizes it; its events and now line sit on it).
+/// A `Particles` child with no `frame` fills the whole stack and does not size it either (a backdrop
+/// when it comes first).
 final class AppSceneZStackNSView: AppSceneNodeNSView {
-    private var sizing: [AppSceneNodeNSView] { childViews.filter { Self.position(of: $0.node) == nil } }
+    private var sizing: [AppSceneNodeNSView] { childViews.filter { Self.position(of: $0.node) == nil && !Self.isBackdrop($0) } }
+
+    /// A `Particles` child with no `frame` of its own.
+    private static func isBackdrop(_ child: AppSceneNodeNSView) -> Bool { child is AppSceneParticlesNSView && child.node.props["frame"] == nil }
 
     override var contentNaturalWidth: CGFloat? {
         var widest: CGFloat = 0
@@ -23,6 +28,10 @@ final class AppSceneZStackNSView: AppSceneNodeNSView {
 
     override func layoutContent(in rect: CGRect) {
         for child in childViews {
+            if Self.isBackdrop(child) {
+                child.frame = rect.integral
+                continue
+            }
             let width = min(child.naturalWidth ?? rect.width, rect.width)
             let height = child.height(width: width)
             let center = Self.position(of: child.node)?.center(in: rect) ?? CGPoint(x: rect.midX, y: rect.midY)
