@@ -1,0 +1,20 @@
+[package]
+name = "cmux-tailnet-front"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The stable per-user tailnet node's proxy front: a placement table (workspace -> where it runs now) and a TCP front that forwards each new connection to the current placement"
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-scope.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["net", "io-util", "sync", "rt", "macros", "time"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
