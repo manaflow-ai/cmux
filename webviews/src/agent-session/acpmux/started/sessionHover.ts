@@ -138,6 +138,7 @@ export class SessionHoverStore {
     const last = this.last;
     this.last = sessions;
     if (this.patch(sessions, replacedSince(last, sessions))) return;
+    if (last && this.append(last, sessions)) return;
     const infos = new Map<string, SessionHoverInfo>();
     const keys = new Map<string, string>();
     const agents = new Map<string, string>();
@@ -220,6 +221,39 @@ export class SessionHoverStore {
       notify = true;
     }
     if (notify) for (const listener of this.listeners) listener();
+    return true;
+  }
+
+  /// `last` with chats listed after it (a new chat, a sub-agent started): only the new chats' cards are
+  /// made, and the agent-link indexes, which take the first chat that matches, keep every earlier one.
+  /// O(list) identity checks and O(new) reads, where `set` would read the whole list again. False
+  /// (nothing done) when the earlier entries are not the same objects in the same places, or a new
+  /// chat is one already listed.
+  private append(last: readonly AcpmuxSessionEntry[], sessions: readonly AcpmuxSessionEntry[]): boolean {
+    if (sessions.length <= last.length || last.length !== this.count || this.count !== this.from.size) return false;
+    for (let at = 0; at < last.length; at++) if (sessions[at] !== last[at]) return false;
+    const added = sessions.slice(last.length);
+    const seen = new Set<string>();
+    for (const entry of added) {
+      if (this.from.has(entry.sessionId) || seen.has(entry.sessionId)) return false;
+      seen.add(entry.sessionId);
+    }
+    for (const entry of added) {
+      const id = entry.sessionId;
+      const agent = entry.harness && entry.agentSessionId ? agentLinkKey(entry.harness, entry.agentSessionId) : "";
+      if (agent && !this.agents.has(agent)) this.agents.set(agent, id);
+      if (entry.agentSessionId && !this.agentSessions.has(entry.agentSessionId))
+        this.agentSessions.set(entry.agentSessionId, id);
+      const host = cloudHost(entry);
+      if (host) this.hosts.set(id, host);
+      const info = hoverInfo(entry);
+      this.from.set(id, entry);
+      this.infos.set(id, info);
+      this.keys.set(id, `${JSON.stringify(info)}\u0000${agent}\u0000${host ?? ""}`);
+      this.order.push(id);
+    }
+    this.count = sessions.length;
+    for (const listener of this.listeners) listener();
     return true;
   }
 
