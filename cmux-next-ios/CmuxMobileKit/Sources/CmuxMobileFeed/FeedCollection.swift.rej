@@ -1,0 +1,143 @@
+diff a/cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileFeed/FeedCollection.swift b/cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileFeed/FeedCollection.swift	(rejected hunks)
+@@ -104,11 +107,14 @@ final class FeedCollectionView: UITableView {
+ }
+ 
+ @MainActor
+-final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelegate {
++final class FeedListController: NSObject, UITableViewDelegate, UITableViewDataSourcePrefetching, FeedRowCellDelegate {
+     enum Section: Hashable { case header, events }
+     static let headerID = "feed.header"
+     /// How many rows before the end the next page of spilled events is read.
+     static let loadOlderLead = 30
++    /// A row's height before it is laid out (a one- or two-line event): the table sums estimates
++    /// for the rows it has not shown instead of asking every row's height up front.
++    static let estimatedRowHeight: CGFloat = 140
+ 
+     let context: FeedRowContext
+     let swipe: FeedSwipeCoordinator
+@@ -177,13 +193,15 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
+         view.allowsSelection = false
+         view.cellLayoutMarginsFollowReadableWidth = false
+         view.sectionHeaderTopPadding = 0
+-        // Exact heights from the row layouts, never estimates: the table sums them as the old layout did.
+-        view.estimatedRowHeight = 0
++        // An estimate for rows not shown yet; a shown row's height is its layout's (heightForRowAt).
++        // With no estimate (0) the table asked every row's height on each load and height change.
++        view.estimatedRowHeight = Self.estimatedRowHeight
+         view.estimatedSectionHeaderHeight = 0
+         view.estimatedSectionFooterHeight = 0
+         view.sectionHeaderHeight = 0
+         view.sectionFooterHeight = 0
+         view.delegate = self
++        view.prefetchDataSource = self
+         view.register(UITableViewCell.self, forCellReuseIdentifier: Self.headerID)
+         view.register(FeedRowCell.self, forCellReuseIdentifier: FeedRowCell.reuseID)
+         let refresh = UIRefreshControl()
+@@ -211,6 +229,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
+                 let cell = tableView.dequeueReusableCell(withIdentifier: FeedRowCell.reuseID, for: indexPath)
+                 guard let self, let row = cell as? FeedRowCell, let layout = self.layout(for: id) else { return cell }
+                 row.delegate = self
++                self.cellsConfigured += 1
+                 row.apply(layout, item: self.items[id], settled: self.rowsSettled)
+                 return row
+             }
+@@ -425,24 +463,30 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
+             previousRead[item.id] = item.isRead
+         }
+         defer { for id in redraw { if let item = items[id] { cell(id)?.redraw(item) } } }
+-        guard !plan.isEmpty || dataSource.snapshot().numberOfSections == 0 else { return }
++        guard !plan.isEmpty || mounted != nil || dataSource.snapshot().numberOfSections == 0 else { return }
+         // A jump to the top in flight keeps no anchor: restoring one would set the offset and cut the
+         // jump's animation short wherever it was (the pill then left the person mid-list).
+         let anchor = syncAtTop() || jumpingToTop ? nil : visibleAnchor()
+         let previousOrder = shownOrder
+         let previousSet = shownSet
+         shownOrder = next.map(\.id)
+         if plan.orderChanged { shownSet = Set(shownOrder) }
+-        if plan.orderChanged || reconfigureAll {
++        if plan.orderChanged || mounted != nil {
+             shownKeys = Dictionary(keys, uniquingKeysWith: { first, _ in first })
+         }
+-        // Each changed row's height, from the layout of the key it is shown with.
+-        var heightChanged = false
+-        for (id, key) in keys where !unchanged.contains(id) || shownHeights[id] == nil {
++        // Each changed row's height, from the layout of the key it is shown with. A row with no layout
++        // yet keeps no height: the table holds its estimate and asks when the row comes in. A relayout
++        // forgets every height but the rows on screen (laid out again in applyPending).
++        if mounted != nil { shownHeights.removeAll(keepingCapacity: true) }
++        var heightChanged = mounted != nil
++        for (id, key) in keys where !unchanged.contains(id) {
+             shownKeys[id] = key
+-            let height = layouts.cached(key)?.height ?? 1
+-            if let old = shownHeights[id], abs(old - height) > 0.25 { heightChanged = true }
+-            shownHeights[id] = height
++            guard mounted?.contains(id) ?? true, let layout = layouts.cached(key) else {
++                if shownHeights.removeValue(forKey: id) != nil { heightChanged = true }
++                continue
++            }
++            if let old = shownHeights[id], abs(old - layout.height) > 0.25 { heightChanged = true }
++            shownHeights[id] = layout.height
+         }
+         var snapshot = dataSource.snapshot()
+         if snapshot.numberOfSections == 0 {
+@@ -463,6 +507,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
+         // relayout's list may name rows the snapshot just removed.
+         let reconfigure = plan.orderChanged ? plan.reconfigure.filter { shownSet.contains($0) && previousSet.contains($0) } : plan.reconfigure
+         if !reconfigure.isEmpty { snapshot.reconfigureItems(reconfigure) }
++        rowsReconfigured += reconfigure.count
+         applyCount += 1
+         UIView.performWithoutAnimation {
+             dataSource.apply(snapshot, animatingDifferences: false)
+@@ -823,11 +862,50 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
+ 
+     // MARK: Cells
+ 
+-    /// Exact heights: the header's measured height, each row's from its layout.
++    /// Exact heights for the rows the table shows: the header's measured height, each row's from
++    /// its layout (laid out here if prefetch did not get to it). Other rows hold the estimate.
+     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+         guard indexPath.section != 0 else { return headerHeight }
++        heightQueries += 1
+         guard let id = dataSource?.itemIdentifier(for: indexPath) else { return 1 }
+-        return shownHeights[id] ?? 1
++        if let height = shownHeights[id] { return height }
++        guard let layout = layout(for: id) else { return Self.estimatedRowHeight }
++        shownHeights[id] = layout.height
++        return layout.height
++    }
++
++    // MARK: Prefetch
++
++    /// Rows a prefetch is laying out now.
++    private var prefetching: Set<String> = []
++
++    /// UIKit's prefetch (about a screen ahead in the scroll direction) is the list's overscan: those
++    /// rows are laid out off the main thread, so they scroll in with their layout ready.
++    func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
++        guard let dataSource else { return }
++        let keys = indexPaths.filter { $0.section != 0 }.compactMap { dataSource.itemIdentifier(for: $0) }
++            .filter { !prefetching.contains($0) && shownHeights[$0] == nil }
++            .compactMap { id in items[id].map { key(for: $0) } }
++            .filter { layouts.cached($0) == nil }
++        guard !keys.isEmpty else { return }
++        prefetching.formUnion(keys.map(\.item.id))
++        rowsLaidOut += keys.count
++        let styles = styles, scale = scale
++        queue.async { [weak self] in
++            let built = keys.map { FeedRowLayout.make($0, styles: styles, scale: scale) }
++            DispatchQueue.main.async {
++                MainActor.assumeIsolated {
++                    guard let self else { return }
++                    for layout in built {
++                        let id = layout.key.item.id
++                        self.prefetching.remove(id)
++                        // A row that changed meanwhile is laid out when it shows.
++                        guard let item = self.items[id], self.key(for: item) == layout.key else { continue }
++                        self.layouts.store(layout, for: layout.key)
++                    }
++                }
++            }
++        }
+     }
+ 
+     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
