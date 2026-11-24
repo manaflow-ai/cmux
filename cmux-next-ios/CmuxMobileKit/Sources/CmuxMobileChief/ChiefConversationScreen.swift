@@ -3,6 +3,7 @@ import CmuxConversationCore
 import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxConversationUI
+import CmuxMobileDesign
 import CmuxMobileModel
 import CmuxMobileSupport
 import SwiftUI
@@ -127,6 +128,9 @@ extension ConversationPresentationOptions {
             trailingSymbol: ChiefPageMenu.symbol,
             header: ConversationHeaderPresentation(
                 scrollEdge: .system,
+                // Text under the header stops at it (iOS release bar read-back, 2026-11-22,
+                // shot 07; tbd d-189cea06b1).
+                hardTopEdge: true,
                 actionAccessibilityLabel: ChiefPageMenu.title,
                 avatarAccessibilityLabel: String(localized: "Chief"),
                 avatarAccessibilityHint: String(localized: "Opens Chief's settings")
@@ -147,6 +151,7 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
         let conversation = ConversationViewController(store: session.store, options: options,
                                                       keyboard: context.environment.mobileKeyboardFrameTracker)
+        conversation.dismissesKeyboardAfterSend = { CmuxMobilePreferences.dismissKeyboardAfterSend() }
         // A screen rebuilt in place (a new store) takes over the old one's
         // composer now, before either appears or disappears: SwiftUI may show
         // the new one before the old one leaves.

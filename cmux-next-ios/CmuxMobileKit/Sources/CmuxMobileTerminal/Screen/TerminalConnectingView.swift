@@ -21,8 +21,8 @@ public struct TerminalConnectingView: View {
     /// Whether a page with no frame draws the skeleton (a warm surface that
     /// keeps its own live rows draws nothing over them).
     let showsPlaceholder: Bool
-    /// The Mac's screen as text, as its `tabs` service last pushed it: drawn dimmed where
-    /// there is no frame, for a tab not opened on this phone yet. Real rows, not live yet.
+    /// The Mac's screen as text, as its `tabs` service last pushed it: drawn as it is (never
+    /// dimmed) where there is no frame, for a tab not opened on this phone yet.
     let screenText: String?
 
     /// How far above this view's bottom edge the page's rows end now (the composer's top as it
@@ -100,8 +100,9 @@ public struct TerminalConnectingView: View {
                 }
             case .screenText:
                 GeometryReader { proxy in
+                    // Not dimmed: a grayed-out page reads as one that takes no input (Leo,
+                    // 2026-11-24: "the entire thing is somehow grayed out").
                     TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width)
-                        .opacity(0.55)
                 }
                 .accessibilityHidden(true)
             case .skeleton:
