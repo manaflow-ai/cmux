@@ -1,5 +1,5 @@
 {
-  "title": "Status Pills in All Chats (taste prototype, opt-in agentPane.display.chatListStatusPills): a live agent's All Chats row ends with a Running, then Needs you, then Done pill",
+  "title": "Status Pills in All Chats (taste prototype, opt-in agentPane.display.chatListStatusPills): a live agent's All Chats row (History page) ends with a Running, then Needs you, then Done pill",
   "harnessFixture": {
     "harnesses": {
       "fake": {
@@ -101,7 +101,7 @@
       "shot": false
     },
     {
-      "title": "New workspace Board, for the New Tab page",
+      "title": "New workspace Board, for the History (All Chats) page",
       "cmux": [
         "workspace",
         "new",
@@ -122,15 +122,13 @@
       "shot": false
     },
     {
-      "title": "New Tab: All Chats with the setting off (today's row: a plain state word)",
+      "title": "History (All Chats) with the setting off (today's row: a plain state word)",
       "wait": 3,
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "open_and_type",
-          "text": ""
-        }
-      }
+      "cmux": [
+        "action",
+        "run",
+        "agentHistory.show"
+      ]
     },
     {
       "title": "Turn on Status Pills in All Chats",
@@ -145,13 +143,11 @@
     {
       "title": "Running: the live chat's row ends with a Running pill",
       "wait": 3,
-      "rpc": {
-        "method": "debug.new_tab",
-        "params": {
-          "action": "open_and_type",
-          "text": ""
-        }
-      }
+      "cmux": [
+        "action",
+        "run",
+        "agentHistory.show"
+      ]
     },
     {
       "title": "The checks pass; the agent asks to deploy",
