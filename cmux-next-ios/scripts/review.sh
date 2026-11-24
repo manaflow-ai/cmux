@@ -346,13 +346,44 @@ fleet_submit_mac() {
   # Macs, and failed there when its headers changed (job cb3e5fa3159ea9806ae980fe); with FFI commits
   # every half hour the pin is behind nearly always. cmux-next needs no shared dev backend (AGENTS.md):
   # the tag's own local mode.
-  out="$(cmux_ci build cmux --ref "$SHA" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
+  local ref reuse=()
+  ref="$(mac_build_ref)"
+  # The base's build: any tag's equal build answers at once (--any-tag), and swap-first never stands in for it.
+  [[ "$ref" == "$SHA" ]] || reuse=(--any-tag --build)
+  out="$(cmux_ci build cmux --ref "$ref" "${reuse[@]}" --tag "$SLUG" --workspace "$WORKSPACE" --backend-mode local)" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux was refused"; return 1; }
   MAC_JOB="$(printf '%s' "$out" | /usr/bin/python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" ||
     { REPORT_MAC="BLOCKED: cmux-ci build cmux printed no job id"; return 1; }
   printf '%s\n' "$MAC_JOB" >"$STATE/cmux-job"
   echo "==> Mac build: fleet job $MAC_JOB"
   mac_promote
+}
+
+# The commit the Mac build is made from: this head, or its feat-cmux-next merge base when
+# scripts/cmux-next/build_select.py says the head changes nothing the Mac app builds or bundles (an
+# iPhone-only change, review.sh's own scripts): the base's Mac app is this head's, and a build of it the fleet
+# already made (build-ahead, another tag) answers with no Mac minutes. Before 2026-11-24 every hand-off built
+# the head, so an iPhone-only PR queued a full Mac build (#53007: 3+ h queued for 7 CmuxMobileKit files).
+# CNX_REVIEW_MAC_BUILD=head builds the head anyway. Saved per head in $STATE/mac-ref, so a rerun resumes it.
+mac_build_ref() {
+  if [[ -s "$STATE/mac-ref" ]]; then
+    cat "$STATE/mac-ref"
+    return 0
+  fi
+  local ref="$SHA" base="" mac=""
+  if [[ "${CNX_REVIEW_MAC_BUILD:-auto}" != head ]]; then
+    base="$(git -C "$REPO_ROOT" merge-base "$SHA" origin/feat-cmux-next 2>/dev/null || true)"
+    if [[ -n "$base" && "$base" != "$SHA" ]]; then
+      mac="$(python3 "${CNX_REVIEW_BUILD_SELECT:-$REPO_ROOT/scripts/cmux-next/build_select.py}" --repo "$REPO_ROOT" --json "$base" "$SHA" 2>/dev/null |
+        python3 -c 'import json,sys; print(json.load(sys.stdin)["mac"])' 2>/dev/null || true)"
+    fi
+  fi
+  if [[ "$mac" == none ]]; then
+    ref="$base"
+    echo "==> Mac build: this head changes nothing in the Mac app (build_select.py); the tag gets the build of its base ${base:0:12}" >&2
+  fi
+  printf '%s\n' "$ref" >"$STATE/mac-ref"
+  printf '%s\n' "$ref"
 }
 
 # --urgent: the Mac build moves up the Mac queue (cmux-ci promote; a build has no --urgent). A refusal
@@ -421,6 +452,9 @@ fleet_finish_mac() {
     return 1
   fi
   REPORT_MAC="fleet job $MAC_JOB, published to HQ"
+  local ref
+  ref="$(cat "$STATE/mac-ref" 2>/dev/null || true)"
+  [[ -z "$ref" || "$ref" == "$SHA" ]] || REPORT_MAC="$REPORT_MAC (built from the base ${ref:0:12}: this head changes nothing in the Mac app)"
 }
 
 fleet_finish_sim() {
@@ -498,6 +532,9 @@ safe_unzip() {
 # The simulator verdict and the device app from the step's artifact.
 read_ios_artifact() {
   local why
+  # The head is reusable only once this read passes (below): an unsafe zip, a manifest of another head or a failed
+  # check must never leave an older mark that a rerun would reuse.
+  rm -f "$STATE/ios-passed"
   why="$(safe_unzip "$STATE/ios.zip" "$STATE/ios" 2>&1)" ||
     { REPORT_SIM="BLOCKED: the iPhone artifact of step $SIM_STEP is not a safe zip (${why##*$'\n'})"; return 1; }
   local check
@@ -518,6 +555,18 @@ read_ios_artifact() {
     { REPORT_SIM="$REPORT_SIM; BLOCKED: the device app is not a safe zip (${why##*$'\n'})"; REVIEW_FAILED=1; return 1; }
   [[ -d "$STATE/device/CmuxMobileApp.app" ]] ||
     { REPORT_SIM="$REPORT_SIM; BLOCKED: the artifact has no device app"; REVIEW_FAILED=1; return 1; }
+  # This head's iPhone build passed: a rerun (the Mac build failed, a phone was locked) reuses it (sim_reusable).
+  [[ "$status" != pass ]] || printf '%s\n' "${SIM_STEP:-}" >"$STATE/ios-passed"
+}
+
+# A rerun at this head reuses the iPhone build whose step passed here before, instead of sending the step again: the
+# controller answers that step's key only to the run that sent it (a new run seals a new sign-in key), so the
+# rerun of 0e728c2b25 got "409: step_key already names a different step" and nothing for the phone (2026-11-24).
+# The state is per tag and head, and read_ios_artifact checks the manifest's tag and commit again.
+sim_reusable() {
+  [[ -s "$STATE/ios-passed" && -s "$STATE/ios.zip" ]] || return 1
+  SIM_STEP="$(head -n 1 "$STATE/ios-passed")"
+  echo "==> iPhone app: reusing this head's build from step ${SIM_STEP:-?} (its simulator check passed)"
 }
 
 # --- the tagged Mac -----------------------------------------------------------
@@ -1036,10 +1085,10 @@ review_run() {
   fi
 
   mkdir -p "$STATE"
-  fleet_start_sim
-  local mac_ok=1 ios_ok=1 target
+  local mac_ok=1 ios_ok=1 target sim_reused=0
+  if sim_reusable; then sim_reused=1; else fleet_start_sim; fi
   { fleet_submit_mac && fleet_finish_mac; } || mac_ok=0
-  fleet_finish_sim || ios_ok=0
+  [[ $sim_reused -eq 1 ]] || fleet_finish_sim || ios_ok=0
   [[ $ios_ok -eq 0 ]] || read_ios_artifact || ios_ok=0
   review_await_backend
   if [[ $NO_PHONE -eq 1 ]]; then
