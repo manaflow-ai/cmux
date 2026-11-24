@@ -211,5 +211,124 @@ class Shape(unittest.TestCase):
             o.shape_run("show")
 
 
+WINDOWS = [
+    {"owner": "Dock", "pid": 1, "window": 5, "title": "", "layer": 20, "w": 2000, "h": 80},
+    {"owner": "Screen Sharing", "pid": 900, "window": 41, "title": "old", "layer": 0, "w": 800, "h": 600},
+    {"owner": "Screen Sharing", "pid": 900, "window": 77, "title": "10.0.0.5", "layer": 0, "w": 1600,
+     "h": 1000},
+    {"owner": "Screen Sharing", "pid": 900, "window": 78, "title": "", "layer": 0, "w": 40, "h": 20},
+]
+
+
+class FakeViewer:
+    """The viewing Mac: answers `apple open|close` and observe."""
+
+    def __init__(self, opened):
+        self.opened, self.calls = opened, []
+
+    def run(self, cmd, timeout=120, stdin=None):
+        self.calls.append(cmd)
+        if " apple open " in cmd:
+            return json.dumps(self.opened) + "\n"
+        if " apple close " in cmd:
+            return json.dumps({"killed": 900}) + "\n"
+        if "cmux-rd observe" in cmd:
+            return json.dumps({"complete": True, "samples_us": [40000, 50000, 60000], "n": 3}) + "\n"
+        raise AssertionError(cmd)
+
+
+def apple_orchestrator(opened):
+    o = orchestrator(shape=None, vnc_user="bench", vnc_password_file="/Users/c/.vncpw",
+                     timeout=30, samples=3, apple_presented_pid=None, apple_presented_window=None)
+    o.a.apple_viewer = True  # past setup's check for --tools (no Mac here)
+    o.viewer = FakeViewer(opened)
+    o.rig = lambda msg: {}
+    o.logged = []
+    o.log = o.logged.append
+    return o
+
+
+class AppleViewer(unittest.TestCase):
+    def test_the_url_quotes_the_password_and_redact_hides_it(self):
+        url = vs.vnc_url("bench", "p@ss:w/rd", "10.0.0.5")
+        self.assertEqual(url, "vnc://bench:p%40ss%3Aw%2Frd@10.0.0.5")
+        self.assertEqual(vs.redact_vnc(f"open {url}: exit 1"), "open vnc://bench:***@10.0.0.5: exit 1")
+
+    def test_the_window_is_the_new_screen_sharing_window_naming_the_host(self):
+        self.assertEqual(vs.screen_sharing_window(WINDOWS, "10.0.0.5"),
+                         {"pid": 900, "window": 77, "title": "10.0.0.5"})
+        # One there before the run is never picked; a tiny one is no viewer window.
+        only_old = [w for w in WINDOWS if w["window"] != 77]
+        self.assertIsNone(vs.screen_sharing_window(only_old, "10.0.0.5", exclude={41}))
+        self.assertIsNone(vs.screen_sharing_window([], "10.0.0.5"))
+
+    def test_a_found_window_is_observed_and_apple_total_ends_presented(self):
+        o = apple_orchestrator({"pid": 900, "window": 77, "title": "10.0.0.5", "launched": True,
+                                "origin": "100,200", "cell": 32, "at": "90,190"})
+        self.assertEqual(o.run_apple_presented(), [40.0, 50.0, 60.0])
+        self.assertEqual(o.apple_presented_source["kind"], "apple-viewer")
+        self.assertEqual(o.apple_presented_source["window"], 77)
+        opened = next(c for c in o.viewer.calls if " apple open " in c)
+        self.assertIn("--password-file /Users/c/.vncpw", opened)
+        self.assertIn("--host 10.0.0.5", opened)
+        observe = next(c for c in o.viewer.calls if "cmux-rd observe" in c)
+        self.assertIn("--pid 900 --window 77", observe)
+        self.assertIn("--marker-origin 100,200 --at 90,190", observe)
+        self.assertTrue(o.viewer.calls[-1].endswith("--launched --state /Users/c/rd/state"), o.viewer.calls[-1])
+        b = vs.build_budget(None, {"g2g": [20.0], "presented": [40.0, 50.0, 60.0],
+                                   "presented_source": o.apple_presented_source})
+        total = rows_named(b)["Total"]["apple"]
+        self.assertEqual((total["to"], total["via"]), ("presented", "apple-viewer"))
+
+    def test_a_failed_open_is_a_null_reason_on_apple_total_only(self):
+        o = apple_orchestrator({"error": "no Screen Sharing window to 10.0.0.5 in 30 s"})
+        self.assertIsNone(o.run_apple_presented())
+        self.assertIn("no Screen Sharing window", o.apple_presented_source["null"])
+        self.assertFalse(any("cmux-rd observe" in c for c in o.viewer.calls))
+        self.assertFalse(any(" apple close " in c for c in o.viewer.calls))
+        b = vs.build_budget(None, {"g2g": [20.0, 30.0], "presented": None,
+                                   "presented_source": o.apple_presented_source})
+        total = rows_named(b)["Total"]["apple"]
+        self.assertEqual(total["to"], "RFB update")
+        self.assertIn("no Screen Sharing window", total["presented_null"])
+
+    def test_apple_open_never_prints_the_password(self):
+        with tempfile.TemporaryDirectory() as d:
+            pw = os.path.join(d, "pw")
+            with open(pw, "w") as f:
+                f.write("hunter2secret\n")
+            calls = []
+
+            def fake_run(argv, **kw):
+                calls.append(argv)
+                return types.SimpleNamespace(returncode=1, stdout="", stderr=f"cannot open {argv[-1]}")
+            old_run, old_list = vs.subprocess.run, vs.list_windows
+            vs.subprocess.run, vs.list_windows = fake_run, lambda state: []
+            out = io.StringIO()
+            try:
+                with contextlib.redirect_stdout(out):
+                    vs.cmd_apple(argparse.Namespace(action="open", host="10.0.0.5", user="bench",
+                                                    password_file=pw, state=d, locate="x", wait=1,
+                                                    locate_wait=1, pid=None, launched=False))
+            finally:
+                vs.subprocess.run, vs.list_windows = old_run, old_list
+            self.assertEqual(calls[0], ["open", "vnc://bench:hunter2secret@10.0.0.5"])
+            text = out.getvalue()
+            self.assertNotIn("hunter2secret", text)
+            self.assertIn("***@10.0.0.5", json.loads(text)["error"])
+
+    def test_setup_refuses_apple_viewer_without_the_locate_tool(self):
+        with self.assertRaises(SystemExit) as e:
+            orchestrator(shape=None, apple_viewer=True, vnc_user="bench", vnc_password_file="p",
+                         apple_presented_pid=None, apple_presented_window=None)
+        self.assertIn("screen-eval-marker-locate", str(e.exception))
+
+    def test_close_kills_only_a_process_this_run_started(self):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(out):
+            vs.cmd_apple(argparse.Namespace(action="close", pid=900, launched=False, state=d))
+        self.assertIn("left", json.loads(out.getvalue()))
+
+
 if __name__ == "__main__":
     unittest.main()
