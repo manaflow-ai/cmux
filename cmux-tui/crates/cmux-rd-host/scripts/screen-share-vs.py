@@ -2194,6 +2194,8 @@ class Orchestrator:
         self.ff_rows = []
         self.motion_rows = []  # cmux fps trials: received Mbps and loss under motion
         def make(name):
+            # --local-mac: the orchestrator runs on that Mac (a fleet job, scripts/measure/screen-share-vs-pair.sh
+            # or screen-stream-eval.sh stage-table=), and only the other one is reached over --via.
             if name == getattr(args, "local_mac", None):
                 return Remote(name, "local")
             if args.via == "peer":
