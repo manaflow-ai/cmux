@@ -63,6 +63,8 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      # The no-change verdict below posts `backend migrations applied` as a commit status.
+      statuses: write
     outputs:
       migrations: ${{ steps.same-tree.outputs.same == 'true' && 'false' || steps.files.outputs.migrations }}
     steps:
@@ -267,6 +269,28 @@ jobs:
           name: head-migrations
           path: head-migrations
           retention-days: 7
+      # The gate job's name is an expression (#51717), and a job skipped by its `if:` publishes the expression's text,
+      # never `backend migrations applied`, so with no migration change the context the rulesets require never
+      # reported and no PR into main could merge (cmux#53890 at 532abe6e, cmux#53547 merged without it). This
+      # step posts that verdict as a commit status from GitHub Actions, the app the rulesets name, with no gate VM.
+      # An ignored edit or label into feat-cmux-next skips plan too, so it posts nothing, as before.
+      - name: No migration change, so post backend migrations applied
+        if: steps.files.outputs.migrations != 'true' && (github.event_name == 'pull_request_target' || github.event_name == 'merge_group')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if gh api -X POST "repos/$REPO/statuses/$SHA" -f state=success -f context="backend migrations applied" \
+              -f description="no backend/db/migrations change" -f target_url="$RUN_URL" >/dev/null; then
+              exit 0
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "::error::could not post the backend migrations applied status"; exit 1
 
   apply-staging:
     needs: plan
