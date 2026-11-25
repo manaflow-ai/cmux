@@ -22,7 +22,7 @@ import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
@@ -1950,6 +1950,7 @@ function shapeTurn(
           trayAgents,
           turnStartedAtMs,
           turnFoldStyle(agentFamily).conclusion && isAgentPrompt(user),
+          expanded.has(`${WORKED}-${user.id}`),
         )
       : last
         ? planLast(turn.flatMap(withoutDrafts).map(endedPlan))
@@ -3097,10 +3098,11 @@ function liveTurn(
   trayAgents = 0,
   turnStartedAtMs?: number,
   foldsPrompt = false,
+  workOpen = false,
 ): AcpmuxRow[] {
   return withRetry(
     turn,
-    shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs, foldsPrompt),
+    shapeLiveTurn(user, turn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs, foldsPrompt, workOpen),
   );
 }
 
@@ -3133,6 +3135,7 @@ function shapeLiveTurn(
   trayAgents = 0,
   turnStartedAtMs?: number,
   foldsPrompt = false,
+  workOpen = false,
 ): AcpmuxRow[] {
   const kept = turn.filter((row) => row.kind !== "typing" && !isVisiblyEmptyMessage(row) && !hidesEveryCall(row));
   // The agent's wrap-up call draws as its card the moment the call returns, not once the turn ends:
@@ -3141,7 +3144,16 @@ function shapeLiveTurn(
   // ended turn's card (`card` in shapedTurn), so the row stays when the turn ends.
   const wrapUp = liveWrapUp(kept);
   const drawn = wrapUp ? withoutLiveWrapUp(kept, wrapUp) : kept;
-  const shaped = shapeLiveRows(user, drawn, clockOffset, sessionStatus, trayAgents, turnStartedAtMs, foldsPrompt);
+  const shaped = shapeLiveRows(
+    user,
+    drawn,
+    clockOffset,
+    sessionStatus,
+    trayAgents,
+    turnStartedAtMs,
+    foldsPrompt,
+    workOpen,
+  );
   if (!wrapUp) return shaped;
   const card: AcpmuxRow = {
     id: `${NEXT_STEP}-${user.id}`,
@@ -3224,6 +3236,7 @@ function shapeLiveRows(
   trayAgents: number,
   turnStartedAtMs: number | undefined,
   foldsPrompt: boolean,
+  workOpen = false,
 ): AcpmuxRow[] {
   // A started chat's card that no row follows yet is not the turn's latest step. The latest step is
   // read before the Codex-style runs fold it: the call it runs is what the live line names.
@@ -3234,13 +3247,15 @@ function shapeLiveRows(
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = last ? lineCall(drawn, last) : undefined;
   // Consecutive calls form a run; every commentary paragraph ends it, regardless of length.
-  // The default `open` keeps each finished call on its own line until the turn ends, `runs` folds
-  // each finished run into its closed line, and `line` hides finished runs (liveTurnWork.experiment.ts).
-  const arm = experimentArm(liveTurnWork);
-  const lineOnly = arm === "line";
-  // A call still running before the latest run keeps its own row.
-  const carried = lineOnly ? undefined : runningBeforeLastRun(drawn);
-  const rows = codexRuns(drawn, named?.tool.id, lineOnly, carried, arm === "open");
+  // The default `folded` draws the work as `line` does, the one live line, under a closed "Working
+  // for" that opens it (#50987); `open` keeps each finished call on its own line until the turn ends,
+  // `runs` folds each finished run into its closed line, and `line` hides finished runs
+  // (liveTurnWork.experiment.ts). The reader who opened the turn's "Working for" (`workOpen`, the
+  // fold key its "Worked for" will have) sees every call as it runs.
+  // Only `folded` has the toggle; another arm draws as it always has, whatever the key holds.
+  const picked = experimentArm(liveTurnWork);
+  const folds = picked === "folded";
+  const chosen = folds ? (workOpen ? "open" : "line") : picked;
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   // A notice that set the agent going again after it had replied (a background task's end, another
@@ -3253,22 +3268,21 @@ function shapeLiveRows(
   const clock = turnClock(user, drawn, turnStartedAtMs);
   const start = clock.start;
   const at = start + clockOffset;
-  const shaped = codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus, trayAgents, start);
+  const shapeAs = (arm: string): AcpmuxRow[] => {
+    const lineOnly = arm === "line";
+    // A call still running before the latest run keeps its own row.
+    const carried = lineOnly ? undefined : runningBeforeLastRun(drawn);
+    const rows = codexRuns(drawn, named?.tool.id, lineOnly, carried, arm === "open");
+    return codexLiveTurn(user, drawn, rows, last, named, at, clockOffset, sessionStatus, trayAgents, start);
+  };
+  let shaped = shapeAs(chosen);
+  // `folded` hides the work only under a "Working for" that opens it: a turn drawn with no such line
+  // (`livesUnderHeader`) keeps every call in sight, as `open` draws it.
+  const headed = livesUnderHeader(drawn, shaped, foldsPrompt);
+  if (!headed && folds && chosen === "line") shaped = shapeAs("open");
   // The line is the turn's last row, made fresh here.
   if (named?.earlier) shaped.at(-1)!.linedCall = named.tool.id;
-  // Only once the person's turn has work, which its end folds under "Worked for" in this place: a
-  // turn of only a reply ends with no fold line, and a line drawn over it would leave and move the
-  // reply up. Work the agent started on its own after an ended stretch (its summary in the turn) or
-  // in the background has no prompt of its own to stand under.
-  if (experimentArm(liveTurnClock) !== "top") return shaped;
-  // The activity line (Debug Settings `agent.sessionStatus`) is the turn's clock in this place.
-  if (shaped.at(-1)?.kind === ACTIVITY_LINE) return shaped;
-  if (drawn.some((row) => row.kind === "turnSummary" || row.kind === BACKGROUND_TURN)) return shaped;
-  // Another agent's message that started the turn folds under its "Worked for" when it ends
-  // (`foldsPrompt`, shapedTurn), so its "Working for" stands from the start, in that place: the line
-  // never comes in over the message at the first call, and the turn's end only swaps its words (Leo,
-  // 2026-11-17: "the jostles and shifts and spacing are still bad here").
-  if (!foldsPrompt && !drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)) return shaped;
+  if (!headed) return shaped;
   // As the Codex app and T3 Code draw a running turn: "Working for 32s" over its work, under the
   // prompt, where "Worked for" lands when the turn ends (liveTurnClock.experiment.ts); the line at
   // the bottom says only what the agent does now, "Thinking", with no clock.
@@ -3277,17 +3291,35 @@ function shapeLiveRows(
   // The turn's header, in its running phase: the row its end draws "Worked for" in (one id, kind and
   // element from the turn's start to its end; only its phase and words change). Once the answer
   // came, its clock holds where the ended line reads, so it never runs backwards at the end.
-  return [
-    {
-      id: turnHeaderId(user.id),
-      version: 1,
-      at,
-      kind: WORKED,
-      turnPhase: "running",
-      ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
-    },
-    ...shaped,
-  ];
+  // Under `folded` it toggles the work under its own id, the key its "Worked for" opens with, so the
+  // reader's open or closed state carries through the end and the line only changes its words (#50987).
+  const header: AcpmuxRow = {
+    id: turnHeaderId(user.id),
+    version: 1,
+    at,
+    kind: WORKED,
+    turnPhase: "running",
+    ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
+  };
+  if (folds) header.foldOpen = workOpen;
+  return [header, ...shaped];
+}
+
+/// Whether the running turn draws its "Working for" over its work (`shapeLiveRows`). Only once the
+/// person's turn has work, which its end folds under "Worked for" in this place: a turn of only a
+/// reply ends with no fold line, and a line drawn over it would leave and move the reply up. Work the
+/// agent started on its own after an ended stretch (its summary in the turn) or in the background
+/// has no prompt of its own to stand under.
+function livesUnderHeader(drawn: readonly AcpmuxRow[], shaped: readonly AcpmuxRow[], foldsPrompt: boolean): boolean {
+  if (experimentArm(liveTurnClock) !== "top") return false;
+  // The activity line (Debug Settings `agent.sessionStatus`) is the turn's clock in this place.
+  if (shaped.at(-1)?.kind === ACTIVITY_LINE) return false;
+  if (drawn.some((row) => row.kind === "turnSummary" || row.kind === BACKGROUND_TURN)) return false;
+  // Another agent's message that started the turn folds under its "Worked for" when it ends
+  // (`foldsPrompt`, shapedTurn), so its "Working for" stands from the start, in that place: the line
+  // never comes in over the message at the first call, and the turn's end only swaps its words (Leo,
+  // 2026-11-17: "the jostles and shifts and spacing are still bad here").
+  return foldsPrompt || drawn.some((row) => row.kind === "activity" && row.inBackground === undefined);
 }
 
 /// A turn's header (`shapeLiveTurn`, `shapeTurn`), keyed by the turn's prompt: its "Working for"
@@ -3340,6 +3372,18 @@ export function continuationStart(rows: readonly AcpmuxRow[], start: number): nu
     }
   }
   return from;
+}
+
+/// When the running turn's current stretch began, for a clock outside the transcript (the composer
+/// hat's plan header, cmux#51039): the harness's turn start, else the person's last prompt, moved on
+/// to the latest notice that set the agent going again (`continuationStart`), so it reads as the
+/// transcript's live line does. Undefined without a known start.
+export function liveTurnClockStart(rows: readonly AcpmuxRow[], turnStartedAtMs?: number): number | undefined {
+  let index = rows.length - 1;
+  while (index >= 0 && !sentByPerson(rows[index]!)) index -= 1;
+  const opened = turnStartedAtMs ?? rows[index]?.at;
+  if (opened === undefined || !hasTimestamp(opened)) return undefined;
+  return continuationStart(index < 0 ? rows : rows.slice(index + 1), opened);
 }
 
 /// A turn's footer that holds only its buttons (copy, fork, pin, read aloud, its time): no failure,
