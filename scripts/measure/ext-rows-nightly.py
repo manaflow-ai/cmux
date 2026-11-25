@@ -423,14 +423,41 @@ def side_relaunch(ctx: Ctx, between=None) -> dict:
             "launch_err": launch.stderr[-400:]}
 
 
-def daemon_session_dirs(ctx: Ctx) -> list[Path]:
+def daemon_session_dirs(ctx: Ctx, since: float = 0.0) -> list[Path]:
     """The copy's daemon session folders: `builds/<key>/tui/<session>` of its own build key (the side marker's
     `key=`, cmux-agent-pane-policy build_identity.rs `daemon_state_dir`), where the apps supervisor keeps its
     state (cmux-tui-core apps.rs `session_state_directory`)."""
     marker = (ctx.pid_file.parent / ".side-instance").read_text()
     key = re.search(r"^key=(.+)$", marker, re.M).group(1).strip()
     root = Path.home() / "Library/Application Support/cmux-next/builds" / key / "tui"
-    return sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    dirs = sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    return dirs or apps_state_dirs(since)
+
+
+def apps_state_dirs(since: float) -> list[Path]:
+    """Session folders whose `apps.json` (the apps store, next to `apps-widgets-layout.json`; safe_mode.rs
+    `LAUNCHES_FILE`) names the customize app and was written since `since`: where this run's install landed,
+    wherever the copy's build identity put its daemon state (`builds/<key>/tui`, `tags/<tag>/tui`, or the
+    shared root of a NIGHTLY-keyed copy; build_identity.rs `daemon_state_dir`)."""
+    support = Path.home() / "Library/Application Support"
+    found: list[Path] = []
+    for top in ("cmux-next", "cmux", "cmux-tui"):
+        base = support / top
+        if not base.is_dir():
+            continue
+        for here, subdirs, files in os.walk(base):
+            if len(Path(here).relative_to(base).parts) >= 5:
+                subdirs[:] = []
+            subdirs[:] = [d for d in subdirs if d not in ("host-exe", "apps", "node_modules", "WebKit")]
+            if "apps.json" not in files:
+                continue
+            state = Path(here) / "apps.json"
+            try:
+                if state.stat().st_mtime >= since and CUSTOMIZE_APP in state.read_text(errors="replace"):
+                    found.append(Path(here))
+            except OSError:
+                continue
+    return sorted(set(found))
 
 
 def row_widget(ctx: Ctx) -> dict:
@@ -441,6 +468,7 @@ def row_widget(ctx: Ctx) -> dict:
     sidebar and a New Tab page draw the widget: its render export ran for each place (`apps-logs`, the mount
     context's `place`) or the window's `apps.views` holds its words. Relaunches the copy: run it last."""
     word = f"{ctx.token} widget"
+    started = time.time() - 5
     install = install_customize(ctx, {
         "name": "Rows widget", "description": "A widget.", "runtime": {"main": "main.js"},
         "implements": {"cmux.widget/1": {"export": "renderWidget", "title": "Rows widget", "symbol": "square",
@@ -464,14 +492,16 @@ def row_widget(ctx: Ctx) -> dict:
     tiles = {"sidebar": "w901", "newtab": "w902"}
     layout = {"revision": 1, "next": 903,
               **{place: [{"instance": tile, "app": CUSTOMIZE_APP, "size": "small"}] for place, tile in tiles.items()}}
-    dirs = daemon_session_dirs(ctx)
+    dirs = daemon_session_dirs(ctx, started)
 
     def seed() -> list[str]:
         for d in dirs:
             (d / "apps-widgets-layout.json").write_text(json.dumps(layout, indent=2))
         return [str(d) for d in dirs]
 
-    relaunch = side_relaunch(ctx, seed) if dirs else {"skipped": "no daemon session folder of the copy's key"}
+    relaunch = side_relaunch(ctx, seed) if dirs else {
+        "skipped": "no daemon session folder: none under builds/<key>/tui, and no apps.json naming the customize app "
+                   "written this row under ~/Library/Application Support/{cmux-next,cmux,cmux-tui}"}
     placed = {place: listed(place) for place in tiles}
     # A New Tab page shows the New Tab widget grid.
     opened = ctx.rpc("action.run", {"action": "workspace.newAtBottom", "focus": True}, timeout=30)
