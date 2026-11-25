@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
-//!                           [--name NAME] [--ready-file FILE] [--sparse FILE]
+//!                           [--name NAME] [--ready-file FILE] [--sparse FILE] [--idle-exit SECS]
 //! cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH --index FILE [--sparse FILE]
 //!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
@@ -33,6 +33,9 @@
 //! patterns keep (one a line, as `git sparse-checkout set --no-cone --stdin` reads them): the rest
 //! is not projected, its index entries are skip-worktree, and the worktree records the patterns
 //! as git does, so `git status` stays clean and `git sparse-checkout list` prints them.
+//! `--idle-exit SECS` (or `CMUX_PROJECTION_IDLE_EXIT_S`) unmounts
+//! and exits on Linux once no request came for SECS and no process has a file open or its working directory
+//! in the mount; mounting the same PATH again gives the same checkout, writes and all.
 //!
 //! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
 //! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
@@ -82,7 +85,7 @@ mod cli {
     use cmux_projection::sparse::Sparse;
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
-                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] [--sparse FILE]\n       \
+                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] [--sparse FILE] [--idle-exit SECS]\n       \
                          cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH \
                          --index FILE [--sparse FILE] [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]\n       \
                          cmux-projection git-unmount --at PATH\n       \
@@ -105,6 +108,8 @@ mod cli {
         listen: Option<String>,
         rate: Option<u64>,
         conns: Option<usize>,
+        #[cfg(target_os = "linux")]
+        idle_exit: Option<u64>,
         to: Option<String>,
         yield_locks: Vec<PathBuf>,
         heartbeat: Option<String>,
@@ -144,6 +149,10 @@ mod cli {
                 "--listen" => parsed.listen = Some(value.clone()),
                 "--rate" => parsed.rate = Some(value.parse()?),
                 "--conns" => parsed.conns = Some(value.parse()?),
+                #[cfg(target_os = "linux")]
+                "--idle-exit" => parsed.idle_exit = Some(value.parse()?),
+                #[cfg(target_os = "macos")]
+                "--idle-exit" => anyhow::bail!("--idle-exit is supported on Linux FUSE mounts"),
                 "--to" => parsed.to = Some(value.clone()),
                 "--yield-lock" => parsed.yield_locks.push(value.into()),
                 "--heartbeat" => parsed.heartbeat = Some(value.clone()),
@@ -623,7 +632,7 @@ mod cli {
         let overlay = Arc::new(Overlay::open(Arc::new(projection.manifest), &state, blobs, owner)?);
         mount::unmount_stale(&at);
         let ready = args.ready_file.clone();
-        mount::serve(overlay, &at, move || {
+        let on_ready = move || {
             let line = format!(
                 "{{\"commit\":\"{commit}\",\"entries\":{entries},\"files\":{files},\
                  \"missing_fetched\":{missing},\"fetch_ms\":{fetch_ms},\
@@ -636,6 +645,18 @@ mod cli {
             if let Some(ready) = ready {
                 let _ = std::fs::write(ready, format!("{line}\n"));
             }
-        })
+        };
+        #[cfg(target_os = "linux")]
+        {
+            let idle_exit = args
+                .idle_exit
+                .or_else(|| std::env::var("CMUX_PROJECTION_IDLE_EXIT_S").ok()?.parse().ok())
+                .filter(|secs| *secs > 0)
+                .map(std::time::Duration::from_secs);
+            let options = mount::Options { idle_exit, ..mount::Options::default() };
+            mount::serve_with(overlay, &at, options, on_ready)
+        }
+        #[cfg(target_os = "macos")]
+        mount::serve(overlay, &at, on_ready)
     }
 }
