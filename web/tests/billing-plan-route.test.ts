@@ -120,6 +120,36 @@ describe("billing plan route", () => {
     expect(response.billingManagement).toBe("stripe");
   });
 
+  test("reports paymentPastDue when the Stripe subscription failed its renewal", async () => {
+    stripeSubscriptionResults = [
+      [{ id: "sub_due", status: "past_due", cancelAtPeriodEnd: false, plan: "pro" }],
+      [{ plan: "pro" }],
+    ];
+
+    const response = await planResponse();
+
+    expect(response.isPro).toBe(true);
+    expect(response.billingManagement).toBe("stripe");
+    expect(response.paymentPastDue).toBe(true);
+  });
+
+  test("reports paymentPastDue false for an active subscription and for Free", async () => {
+    stripeSubscriptionRows = [{ id: "sub_123", plan: "pro", status: "active" }];
+    expect((await planResponse()).paymentPastDue).toBe(false);
+
+    stripeSubscriptionRows = [];
+    expect((await planResponse()).paymentPastDue).toBe(false);
+  });
+
+  test("reports paymentPastDue false when signed out", async () => {
+    currentUser = null;
+
+    const response = await planResponse();
+
+    expect(response.authenticated).toBe(false);
+    expect(response.paymentPastDue).toBe(false);
+  });
+
   test("reports Stripe management for an active Team subscription row", async () => {
     currentUser = planUser({
       selectedTeam: { id: "team-plan", clientReadOnlyMetadata: {} },

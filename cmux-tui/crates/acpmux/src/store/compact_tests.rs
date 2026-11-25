@@ -372,3 +372,73 @@ fn a_link_above_the_archive_is_followed_only_when_no_one_else_could_have_made_it
     assert!(store.commit_compaction("c1", staged).unwrap());
     assert_eq!(passes(&elsewhere.join("archive"), "c1").len(), 1);
 }
+
+/// An older log's records the tap no longer logs, as no reader takes them back
+/// (`unread_records.rs`), go at retention: a load's replay but its mode report, Claude Code's
+/// thinking ticks, its hook callbacks with their answers (not a denial), and the thread a Codex
+/// `thread/resume` answer carried.
+#[test]
+fn compaction_drops_the_records_no_reader_takes_back() {
+    let (_home, store) = Home::new();
+    let text = "an old answer ".repeat(400);
+    let replay = |kind: &str, update: Value| {
+        json!({"jsonrpc": "2.0", "method": "session/update",
+            "params": {"sessionId": "a", "update": {"sessionUpdate": kind, "content": update}}})
+    };
+    let hook = |rid: &str| {
+        json!({"type": "control_request", "request_id": rid, "request": {"subtype": "hook_callback",
+            "callback_id": "cmux-repo-sync", "input": {"tool_input": {"command": "x".repeat(3000)}}}})
+    };
+    let answer = |rid: &str, output: Value| json!({"type": "control_response", "response": {"subtype": "success", "request_id": rid, "response": output}});
+    let deny = json!({"hookSpecificOutput": {"permissionDecision": "deny"}});
+    let turns: Vec<Value> =
+        (0..40).map(|n| json!({"id": format!("t{n}"), "items": [{"text": text}]})).collect();
+    let records = vec![
+        record(1, "mux", "created", json!({"name": "old chat"})),
+        record(
+            2,
+            "in",
+            "codex.response",
+            json!({"params": {"id": 2, "result": {"thread": {"id": "th", "preview": text, "turns": turns}}}}),
+        ),
+        record(
+            3,
+            "in",
+            "agent_message_chunk.replay",
+            replay("agent_message_chunk", json!({"text": text})),
+        ),
+        record(
+            4,
+            "in",
+            "current_mode_update.replay",
+            json!({"params": {"update": {"sessionUpdate": "current_mode_update", "currentModeId": "auto"}}}),
+        ),
+        record(
+            5,
+            "in",
+            "claude.system.thinking_tokens",
+            json!({"type": "system", "subtype": "thinking_tokens"}),
+        ),
+        record(6, "in", "claude.control_request", hook("r1")),
+        record(7, "out", "claude.stdin", answer("r1", json!({}))),
+        record(8, "in", "claude.control_request", hook("r2")),
+        record(9, "out", "claude.stdin", answer("r2", deny)),
+        record(10, "mux", "status", json!({"status": "closed"})),
+    ];
+    closed(&store, "u1");
+    for r in &records {
+        store.append("u1", r).unwrap();
+    }
+    store.close_log("u1");
+    let staged =
+        store.stage_compaction("u1", CompactMode::Write { archive: None }).unwrap().unwrap();
+    let stats = staged.stats;
+    assert!(store.commit_compaction("u1", staged).unwrap());
+    let after = log(&store, "u1");
+    let seqs: Vec<u64> = after.iter().map(|r| r.seq).collect();
+    assert_eq!(seqs, [1, 2, 4, 9, 10], "{stats:?}");
+    let answer = &after[1].msg["params"]["result"]["thread"];
+    // The shape the tap logs since #47457 (`codex_app_server::logged`).
+    assert_eq!(answer, &json!({"id": "th", "preview": text, "turnsOmitted": 40}));
+    assert!(stats.bytes_after * 10 < stats.bytes_before, "{stats:?}");
+}

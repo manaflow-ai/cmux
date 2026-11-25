@@ -21,13 +21,15 @@ export type KeptHeight = {
   height: number;
   edge?: string;
   scale?: number;
+  open?: string;
 };
 
 /// A row as the store reads it: its id, version and text say whether it is the same row.
 export type KeptRow = { id: string; version: number; text?: string };
 
 /// A row's estimated height as the transcript holds it (model.ts `RowHeights` values).
-export type RowHeight = { width: number; height: number; edge?: string; scale?: number };
+/// `open`: the row's state signature it was estimated in (rowOpenState.ts), kept with it.
+export type RowHeight = { width: number; height: number; edge?: string; scale?: number; open?: string };
 
 /// What a chat's layout keeps: references only, recorded after every commit, so recording is O(1). `rows`
 /// and `heights` are the transcript's last estimate's rows and its estimates by row object; `drawn` its
@@ -108,6 +110,7 @@ export class KeptLayouts<D, R extends KeptRow = KeptRow> {
           height: kept.height,
           ...(kept.edge !== undefined ? { edge: kept.edge } : {}),
           ...(kept.scale !== undefined ? { scale: kept.scale } : {}),
+          ...(kept.open !== undefined ? { open: kept.open } : {}),
         });
     }
     seeding.passes += 1;

@@ -80,6 +80,7 @@ final class SidebarBridge {
         container.sidebarView.driveMenuItem = Self.driveMenuItem(services)
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
+        wireSubagentOpen()
         // The Chief dropped beside the sidebar comes off it, as Remove from Sidebar does (Leo 2026-10-21), in a band,
         // a group or a machine list.
         container.sidebarView.removesOnDragOut = { [weak model] id in
@@ -108,6 +109,7 @@ final class SidebarBridge {
             guard let found = services?.machines.workspace(id: id.rawValue) else { return [] }
             return timelines.entries(found.0, agents: found.1.store.agents, limit: limit)
         }
+        container.sidebarView.tabPictures = { [weak services] in await services?.previews.previewImage(for: .init($0.rawValue), maxPixelSize: $1) }; container.sidebarView.tabPicturesRefreshInterval = PanePictures.isEnabled ? .seconds(1) : .seconds(3)  // #51768
         // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
         container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()
