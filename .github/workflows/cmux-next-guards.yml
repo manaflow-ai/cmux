@@ -124,6 +124,7 @@ jobs:
     steps:
       # The guard ownership reads ci-guards.yml and the tests' imports.
       - name: Checkout the merge commit's router (trees only)
+        if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -134,6 +135,34 @@ jobs:
             /scripts/
             /.github/
             /tests/
+      - name: "Pool mirror: checkout the merge commit's router"
+        if: ${{ startsWith(runner.name, 'cmux-runner-pool-') }}
+        env:
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ github.token }}
+          SPARSE: |
+            /scripts/
+            /.github/
+            /tests/
+        # Same as cmux-next-fast-gates.yml's resolve job: a pool VM fetches unfiltered from its local git mirror
+        # (actions/checkout's blob:none made git copy ~3 GB of promisor objects, 60-75 s a checkout on 2026-11-25).
+        run: |
+          set -euo pipefail
+          mirror=/var/lib/cmux-git/cmux.git/objects
+          [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
+          cd "$GITHUB_WORKSPACE"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          git init -q .
+          echo "$mirror" > .git/objects/info/alternates
+          git config gc.auto 0
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
+          GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+            git fetch --no-tags --no-recurse-submodules --depth=2 origin "+$SHA:refs/remotes/origin/checkout"
+          git config core.sparseCheckout true
+          printf '%s\n' "$SPARSE" > .git/info/sparse-checkout
+          git checkout -q --detach "$SHA"
+          echo "checked out $(git rev-parse HEAD) from the pool mirror"
       # A router failure leaves the output empty, and the checks run.
       - name: Route the pull request (scripts/ci/fast_check_route.py)
         id: route
@@ -1462,6 +1491,7 @@ jobs:
         continue-on-error: true
         timeout-minutes: 3
         env:
+          CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           GH_TOKEN: ${{ github.token }}
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           HEAD_REF: ${{ github.head_ref }}
@@ -1472,8 +1502,14 @@ jobs:
           git diff --no-renames --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
           added=(--added-deleted "$RUNNER_TEMP/added-deleted.txt")
           git diff --no-renames --name-only --diff-filter=AD HEAD^1 HEAD > "$RUNNER_TEMP/added-deleted.txt" || added=()
+          # Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period." --pr-scope leaves a step
+          # selected only by a wide reach (a listed glob, a directory read, a whole-tree list) to the post-merge
+          # batch's full run (cmux-next-tooling-tests-batch.yml, 47,832 runner-min a day on pull requests before).
+          # CI_TOOLING_TESTS_PR_SCOPE=0 runs the whole selection on the pull request again.
+          scope=(--pr-scope)
+          [ "${CI_TOOLING_TESTS_PR_SCOPE:-1}" = 0 ] && scope=()
           if ! python3 scripts/ci/tooling_steps.py route --workflow .github/workflows/cmux-next-guards.yml \
-              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" "${added[@]}" --event pull_request \
+              --job tooling-tests --changed-files "$RUNNER_TEMP/changed.txt" "${added[@]}" --event pull_request "${scope[@]}" \
               --github-output "$RUNNER_TEMP/tooling.out" --summary "$GITHUB_STEP_SUMMARY"; then
             echo "::warning title=tooling-tests selection::tooling_steps.py failed; tooling-tests runs every step."
             printf 'tooling_all=true\ntooling_steps=\n' > "$RUNNER_TEMP/tooling.out"
@@ -1507,6 +1543,11 @@ jobs:
         id: tt-cmux-now-epoch
         if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-cmux-now-epoch ')) }}
         run: python3 -I tests/test_cmux_now_epoch.py
+
+      - name: The tooling-tests batch workflow has the job's steps, and --pr-scope defers only wide reasons
+        id: tt-tooling-tests-batch
+        if: ${{ success() && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tooling-tests-batch ')) }}
+        run: python3 tests/test_ci_tooling_tests_batch.py
 
       # ios-placeholder-bounds (Leo, 2026-11-24): every placeholder the iOS app draws sits under
       # `.placeholderBound` and is listed with its bound in cmux-next-ios/design/placeholders.json.
