@@ -32,6 +32,9 @@
 #           argument pattern has no spaces, so lists are comma-separated):
 #             only=TARGET/SUITE[,TARGET/SUITE...]   run only those kit tests
 #               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
+#               (only=CmuxMobileLiveTests/ResumeMatrixBenchTests turns that suite on)
+#             cells=AWAY/REENTRY[,...]   only those ResumeMatrixBenchTests cells,
+#               e.g. cells=30s/notification_tap,1s/app_switcher
 #               (a suite, or TARGET/SUITE/test for an XCTest method).
 #               A filter naming TickHarnessCellsTests also sets
 #               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
@@ -385,8 +388,14 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+){0,2}$ ]] ||
             { echo "cmux-next-ios-sim.sh: only= wants TARGET/SUITE names, got '$item'" >&2; exit 2; }
           kit_only+=("-only-testing:$item")
-          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
+          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env+=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
+          [[ "$item" == */ResumeMatrixBenchTests* ]] && kit_env+=(TEST_RUNNER_CMUX_RESUME_LIVE_BENCH=1)
         done ;;
+      cells=?*)
+        # ResumeMatrixBenchTests' cells, AWAY/REENTRY[,...] (e.g. cells=30s/notification_tap,1s/app_switcher).
+        [[ "${sel#cells=}" =~ ^[a-z0-9_]+/[a-z_]+(,[a-z0-9_]+/[a-z_]+)*$ ]] ||
+          { echo "cmux-next-ios-sim.sh: cells= wants AWAY/REENTRY[,...], got '$sel'" >&2; exit 2; }
+        kit_env+=("TEST_RUNNER_CMUX_RESUME_MATRIX_CELLS=${sel#cells=}") ;;
       ui=?*)
         IFS=',' read -r -a items <<< "${sel#ui=}"
         for item in "${items[@]}"; do
@@ -409,7 +418,7 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
       config=demo) ui_config=Demo ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, net=PROFILE, config=debug|demo, video and profile, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, cells=LIST, ui=LIST, duress=SPEC, net=PROFILE, config=debug|demo, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
   if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
