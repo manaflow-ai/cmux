@@ -562,6 +562,12 @@ fn resolve(args: &Args, records: &Records, mut record: Record) -> Result<Option<
         return Err(unresolved(&record, error));
     }
     if !same_chat(args, &record) {
+        // The source's commit closes the chat, so a tab that no longer shows it is what a run
+        // killed after that commit finds: the move is over when the target says the chat
+        // landed. Only the tail of the commit is left (the seed record), never a second commit.
+        if record.landed == Some(true) && ask_landed(&record) == Some(true) {
+            return Ok(Some(commit_landed(args, records, &record, 0, true)));
+        }
         let error = "cannot confirm the tab still shows the chat this move took; nothing was ended";
         return Err(unresolved(&record, error));
     }
@@ -1277,6 +1283,17 @@ fn commit(
         let error = format!("the chat landed there but did not close here: {}", error.message());
         return Err(unresolved(record, error));
     }
+    Ok(commit_landed(args, records, record, bytes, resolved))
+}
+
+/// What follows the source's commit: the seed record follows the chat, the pump's record clears.
+fn commit_landed(
+    args: &Args,
+    records: &Records,
+    record: &Record,
+    bytes: u64,
+    resolved: bool,
+) -> Moved {
     // Bring Back Local from the new machine merges against the seed this Mac sent the first one.
     // Before the record clears: a run that dies here moves it on its next run.
     for sync in &args.syncs {
@@ -1303,12 +1320,12 @@ fn commit(
         }
     }
     records.clear();
-    Ok(Moved {
+    Moved {
         session_id: record.session_id.clone().unwrap_or_default(),
         transfer_id: record.transfer_id.clone(),
         bytes,
         resolved,
-    })
+    }
 }
 
 /// The record a begin with a token leaves before it is sent: no transfer id yet, the token

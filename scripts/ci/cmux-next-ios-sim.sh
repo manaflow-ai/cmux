@@ -155,6 +155,11 @@
 #           Then the upload leg: the phone streams a sparse ~150 MB file (past
 #           the old 100 MiB cap) to the Mac with its own LinkUpload, and the
 #           stored file's size and SHA-256 must match (UploadProbe.swift).
+#           Optional upload words (each one `--arg`): upload-mb=N (N MiB, 1-4096,
+#           instead of ~150 MB), upload-random (random bytes, as a video's, not a
+#           sparse file), upload-relay (the phone's link relay only),
+#           upload-block-udp (the phone's link with UDP blocked), upload-wait=S
+#           (seconds to wait for the probe's result, 60-3600, default 300).
 #   listperf
 #           build, plus the list frame-rate rig (ListStressRig,
 #           verify/listperf/): each case launches the Demo app with
@@ -364,6 +369,27 @@ if [[ "$mode" == handoff ]]; then
 fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
+fi
+
+# pair-e2e's optional upload words (see MODE above), checked before anything is built.
+pair_upload=()
+if [[ "$mode" == pair-e2e && $# -gt 1 ]]; then
+  for word in "${@:2}"; do
+    case "$word" in
+      upload-mb=*)
+        n="${word#upload-mb=}"
+        [[ "$n" =~ ^[1-9][0-9]{0,3}$ && "$n" -le 4096 ]] || { echo "cmux-next-ios-sim.sh: upload-mb= wants 1-4096, got '$n'" >&2; exit 2; }
+        pair_upload+=(--upload-bytes "$((n << 20))") ;;
+      upload-wait=*)
+        n="${word#upload-wait=}"
+        [[ "$n" =~ ^[1-9][0-9]{1,3}$ && "$n" -ge 60 && "$n" -le 3600 ]] || { echo "cmux-next-ios-sim.sh: upload-wait= wants 60-3600, got '$n'" >&2; exit 2; }
+        pair_upload+=(--upload-wait "$n") ;;
+      upload-random) pair_upload+=(--upload-random) ;;
+      upload-relay) pair_upload+=(--upload-relay-only) ;;
+      upload-block-udp) pair_upload+=(--upload-block-udp) ;;
+      *) echo "cmux-next-ios-sim.sh: pair-e2e takes upload-mb=N, upload-wait=S, upload-random, upload-relay and upload-block-udp, got '$word'" >&2; exit 2 ;;
+    esac
+  done
 fi
 
 # test's optional selection (see MODE above), checked before anything is built.
@@ -2291,7 +2317,8 @@ if [[ "$mode" == pair-e2e ]]; then
   note "- Mac app: $((SECONDS - t0)) s (reload.sh --tag $mac_tag, Debug)"
   set +e
   python3 -I scripts/ci/cmux_next_pair_e2e.py --mac-app "$mac_app" --ios-app "$app" --sims "$sims" \
-    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary"
+    --udid "$udid" --bundle-id "$bundle_id" --work "$work" --out "$out" --summary "$summary" \
+    ${pair_upload[@]+"${pair_upload[@]}"}
   pair_status=$?
   set -e
 fi
