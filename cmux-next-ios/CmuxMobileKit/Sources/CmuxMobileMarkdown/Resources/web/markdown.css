@@ -54,7 +54,8 @@ hr { border: 0; border-top: 0.5px solid var(--separator); margin: 14px 0; }
 .hljs-comment { color: var(--comment); }
 .d-add { color: var(--add); } .d-del { color: var(--del); } .d-hunk { color: var(--hunk); } .d-meta { color: var(--label3); }
 .table-wrap { overflow-x: auto; margin: 0 0 12px; }
-table { border-collapse: collapse; font: -apple-system-subheadline; }
+/* A table narrower than the column is centered; a wider one scrolls in .table-wrap (Leo 2026-11-22). */
+table { border-collapse: collapse; font: -apple-system-subheadline; margin-inline: auto; }
 th { font-weight: 600; text-align: left; }
 th, td { padding: 8px 12px 8px 0; border-bottom: 0.5px solid var(--separator); vertical-align: top; min-width: 64px; }
 .math-block { overflow: hidden; margin: 4px 0 12px; text-align: center; }
