@@ -141,6 +141,8 @@ mod sidebar_projection;
 mod sidebar_status;
 #[cfg(unix)]
 mod staged_update;
+/// The interactive client's UI-loop hang watchdog (sample, report, cancel, restart).
+mod ui_watchdog;
 // The staged swap probes builds through cmux-remote, a unix-only dependency:
 // elsewhere nothing is ever staged and no notice waits.
 #[cfg(not(unix))]

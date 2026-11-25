@@ -712,6 +712,9 @@ pub mod method {
     pub const MUX_HISTORY: &str = "_acpmux/history";
     /// One session's messages holding every word of a query, newest first (`session_search.rs`).
     pub const MUX_SESSION_SEARCH: &str = "_acpmux/session_search";
+    /// Read-only pages and find for a terminal pane's exact provider session.
+    pub const MUX_CHAT_TRANSCRIPT_PAGE: &str = "_acpmux/chat_transcript_page";
+    pub const MUX_CHAT_TRANSCRIPT_FIND: &str = "_acpmux/chat_transcript_find";
     /// Personal stats over every session log (`stats.rs`); the local unix
     /// socket only (the app reaches it there), never a WebSocket origin.
     pub const MUX_STATS: &str = "_acpmux/stats";
@@ -1082,6 +1085,17 @@ pub mod method {
     pub const MUX_MACHINE_TUNNEL_ATTACH: &str = "_acpmux/machine.tunnel.attach";
     pub const MUX_MACHINE_TUNNEL_DETACH: &str = "_acpmux/machine.tunnel.detach";
     pub const MUX_MACHINE_TUNNEL_REKEY: &str = "_acpmux/machine.tunnel.rekey";
+    /// Agent byte channels (`server/channels.rs`, capability `agent-channels-v1`).
+    pub const MUX_CHANNEL_LISTEN: &str = "_acpmux/channel/listen";
+    pub const MUX_CHANNEL_UNLISTEN: &str = "_acpmux/channel/unlisten";
+    pub const MUX_CHANNEL_OPEN: &str = "_acpmux/channel/open";
+    pub const MUX_CHANNEL_SEND: &str = "_acpmux/channel/send";
+    pub const MUX_CHANNEL_CLOSE: &str = "_acpmux/channel/close";
+    /// The peer leg of `open`: the opening daemon to the listening one.
+    pub const MUX_CHANNEL_CONNECT: &str = "_acpmux/channel/connect";
+    pub const MUX_CHANNEL_OPENED: &str = "_acpmux/channel/opened";
+    pub const MUX_CHANNEL_DATA: &str = "_acpmux/channel/data";
+    pub const MUX_CHANNEL_CLOSED: &str = "_acpmux/channel/closed";
     pub const MUX_PAIR_SET: &str = "_acpmux/pair_set";
     // From the owner's peer daemon only: a phone it vouched for (`_meta.acpmux.ownerPhone`) had
     // its Full-access setting turned off or was removed (`server/remote_guard.rs`).
