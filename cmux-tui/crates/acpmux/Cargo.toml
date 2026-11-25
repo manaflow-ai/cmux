@@ -314,3 +314,8 @@ required-features = ["hub-carrier"]
 name = "hub_carrier_rehome"
 path = "tests/hub_carrier_rehome.rs"
 required-features = ["hub-carrier"]
+
+[[test]]
+name = "pair_matrix_desktop"
+path = "tests/pair_matrix_desktop.rs"
+required-features = ["hub-carrier"]
