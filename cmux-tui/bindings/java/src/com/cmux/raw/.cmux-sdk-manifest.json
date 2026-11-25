@@ -12,8 +12,8 @@
     },
     {
       "path": "ActivitySnapshot.java",
-      "sha256": "04419a7b4fd3d610114d725f947e061e6084ac3929651f830f28a421e726a0f2",
-      "size": 4759
+      "sha256": "d4282dee3fdbf4251e69d5481781fbd03af8b7ec29e9f49f33024739d32f5c16",
+      "size": 7130
     },
     {
       "path": "ActivitySubscribeResult.java",
@@ -2287,7 +2287,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9db4f02e6ff1819a0805c1489b1be02cb69d1899481b942f6d45a73f68131a6a",
+      "sha256": "18621c9739f7ae2b3e1c5e035f80fe98dd3a9d6e4de2fbdda4a144bf27782117",
       "size": 8511
     },
     {
@@ -3847,7 +3847,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "d8e50091a9a0b3197cba2f662aeedca9b682de614ac87d9066b21841442ce1af",
+  "ir_sha256": "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

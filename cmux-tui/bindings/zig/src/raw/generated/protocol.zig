@@ -7,11 +7,14 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "d8e50091a9a0b3197cba2f662aeedca9b682de614ac87d9066b21841442ce1af";
+pub const ir_sha256 = "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
+    echo_at_ms: wire.Field(u64) = .absent,
+    echo_input_at_ms: wire.Field(u64) = .absent,
     last_agent_action_at_ms: wire.Nullable(u64),
+    last_person_attach_at_ms: wire.Field(u64) = .absent,
     last_user_input_at_ms: wire.Nullable(u64),
     live_agents: u32,
 };
