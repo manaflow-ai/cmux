@@ -3027,7 +3027,9 @@ button.cv-subagent > :last-child {
 /* The `fade` arm (earlierPlanHat.experiment.ts): an earlier turn's collapsed chip fades out a few
    seconds after the new turn starts, and takes no clicks once gone. Reduced motion: it leaves at once. */
 .acpmux-running-tray[data-earlier-chip="fade"] {
-  animation: acpmux-earlier-chip-fade 600ms ease-out 4s forwards;
+  --acpmux-earlier-chip-linger: 4s; /* motion-allow: how long the chip stays readable, not a motion step */
+  animation: acpmux-earlier-chip-fade var(--cmux-motion-large) var(--cmux-ease-out)
+    var(--acpmux-earlier-chip-linger) forwards;
 }
 @keyframes acpmux-earlier-chip-fade {
   to {
