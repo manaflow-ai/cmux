@@ -37,10 +37,10 @@ pack() { tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . 2>/dev/null
 # Earlier runs' scratch apps (any /tmp/persona-walk.* copy, only this script makes them) go too: one leaked copy holds 1.5 GB.
 reap() { local pids; pids=$(pgrep -f "/persona-walk\.[A-Za-z0-9]{6}/" | grep -v "^$$\$" || true); [ -n "$pids" ] && { note "reap $(echo $pids)"; kill $pids 2>/dev/null; }; }
 trap 'reap; pack' EXIT
-inventory start; reap
 inventory() { # inventory LABEL: every cmux process on the host (path, RSS), and memory pressure
   { echo "--- inventory $1"; ps -axo pid=,rss=,comm= | grep -i "cmux" | grep -v "scripts/measure/persona-walk"
     memory_pressure 2>/dev/null | tail -1; } >>"$log" 2>&1; }
+inventory start; reap
 
 probe() {
   note "mode=probe host=$(hostname -s) user=$(id -un) uid=$(id -u)"
@@ -127,6 +127,14 @@ p0() {
   step first_command "$t"
   shot 03-first-command
   [ -n "$cli" ] && to 30 "$cli" computer-use status >"$out/cu-status.txt" 2>&1
+  # The Chief's answer to the first message: a failed turn is a stuck point (the person reached no value).
+  # The failure lands a few seconds after the send: look for up to 20 s.
+  local failed="" _i
+  for _i in $(seq 1 40); do
+    failed=$(grep -rhao '"text":"the turn failed ([^"]\{0,160\}' "$work/home/.cmux/chief" 2>/dev/null | head -1 | cut -c9-)
+    [ -n "$failed" ] && break; python3 -c 'import time;time.sleep(0.5)'
+  done
+  [ -n "$failed" ] && note "STUCK first message: $failed"
   memory after-walk "$pid"
   inventory after-walk
   # What the app wrote for this fresh person (the Chief's error, daemon logs): text logs only, size-capped. The home is
