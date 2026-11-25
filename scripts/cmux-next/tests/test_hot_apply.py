@@ -1345,7 +1345,10 @@ class PinCompatibility(unittest.TestCase):
 class StringCatalogs(unittest.TestCase):
     """A string catalog gen-strings.mjs reads is web: the bundle built for a commit carries its words."""
 
-    WEB_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings"
+    # gen-strings.mjs names a one-file-per-key table by its directory (scripts/cmux-next/string_catalogs.py); an
+    # edit is to one key's file in it.
+    WEB_TABLE = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d"
+    WEB_CATALOG = f"{WEB_TABLE}/settings.demo.title.xcstrings"
     SWIFT_CATALOG = "Packages/macOS/CmuxNext/Sources/CmuxNextOnlySwift/Localizable.xcstrings"
 
     def setUp(self):
@@ -1358,7 +1361,7 @@ class StringCatalogs(unittest.TestCase):
         self.git("config", "user.name", "t")
         gen = self.repo / "webviews/scripts/pages/gen-strings.mjs"
         gen.parent.mkdir(parents=True)
-        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_CATALOG}" }}] }} }};\n')
+        gen.write_text(f'export const PAGES = {{ settings: {{ catalogs: [{{ file: "{self.WEB_TABLE}" }}] }} }};\n')
         (self.repo / "webviews/src").mkdir(parents=True)
         (self.repo / "webviews/src/web-abi.json").write_text('{"abi": 3}\n')
         for catalog in (self.WEB_CATALOG, self.SWIFT_CATALOG):
