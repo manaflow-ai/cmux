@@ -14,7 +14,6 @@
       "name": "signing-release",
       "paths": [
         "*.entitlements",
-        "glaeda.apple.json",
         "homebrew-cmux/**",
         "scripts/release/**",
         "scripts/*sign*",

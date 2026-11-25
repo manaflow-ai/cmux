@@ -108,4 +108,34 @@ describe("holdEntranceForFirstFrame", () => {
     clock.paint();
     expect(fade.playState).toBe("finished");
   });
+
+  test("a sent prompt's pop on its presentation wrapper is held through the frame with subtree", () => {
+    const pop = fake("cv-send-pop", 450, 120);
+    const clock = frames();
+    let asked: GetAnimationsOptions | undefined;
+    const sent = {
+      getAnimations: (options?: GetAnimationsOptions) => {
+        asked = options;
+        return options?.subtree ? [pop] : [];
+      },
+    } as unknown as Element;
+    holdEntranceForFirstFrame(sent, clock, true);
+    expect(asked).toEqual({ subtree: true });
+    expect(pop.playState).toBe("paused");
+    expect(pop.currentTime).toBe(0);
+    clock.flush();
+    clock.paint();
+    expect(pop.playState).toBe("running");
+  });
+
+  test("without subtree a row's descendants' animations are left alone", () => {
+    const pop = fake("cv-send-pop", 450, 120);
+    const clock = frames();
+    const sent = {
+      getAnimations: (options?: GetAnimationsOptions) => (options?.subtree ? [pop] : []),
+    } as unknown as Element;
+    holdEntranceForFirstFrame(sent, clock);
+    expect(pop.playState).toBe("running");
+    expect(clock.queued.size).toBe(0);
+  });
 });

@@ -5,11 +5,22 @@ public import Foundation
 /// agent didn't (cmux-tui connection closed: EOF)"). The app's automatic machine update answers busy for such a
 /// machine, so it runs after its backoff, once the agent runs; a start's own update (its daemon refused the start)
 /// is not held. An update that already ran when the start came is waited out by the start.
+///
+/// A start that leaves holds the machine ``firstTurnHold`` longer, for the chat's first turn: a fresh machine boots its
+/// image's cmux-tui, older than the app's, and an update turned away during the start ran 120 s later, in the first turn,
+/// so the first reply waited on the daemon restart and the reconnect (prod probe 2026-11-23T19:54Z: 194.5 s to the
+/// first text, 146.8 s of it after the start; cmuxterm-hq goals/cloud-first-reply-p95.md). The update now runs after it.
 @MainActor
 public final class CloudStartGate {
-    private var starts: [String: Int] = [:]
+    /// How long a machine stays held after its start's agent runs: its first turn, about the time the update's
+    /// busy backoff (2, then 4 minutes) moves past it.
+    public static let firstTurnHold: Duration = .seconds(180)
 
-    public init() {}
+    private var starts: [String: Int] = [:]
+    private var heldUntil: [String: ContinuousClock.Instant] = [:]
+    private let now: () -> ContinuousClock.Instant
+
+    public init(now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }) { self.now = now }
 
     public func enter(_ machineID: String) { starts[machineID, default: 0] += 1 }
 
@@ -18,8 +29,51 @@ public final class CloudStartGate {
         starts[machineID] = left > 0 ? left : nil
     }
 
-    /// Whether a start is bringing machine `machineID` up now.
-    public func contains(_ machineID: String) -> Bool { starts[machineID] != nil }
+    /// The start on machine `machineID` got its agent running: the machine stays held through the first turn,
+    /// ``firstTurnHold`` from now, after the start leaves.
+    public func started(_ machineID: String) {
+        let until = now() + Self.firstTurnHold
+        if let held = heldUntil[machineID], held >= until { return }
+        heldUntil[machineID] = until
+    }
+
+    /// Runs a start's steps on machine `machineID` inside the gate (``enter(_:)``, ``leave(_:)``), and once they succeed
+    /// holds the machine through the chat's first turn (``started(_:)``): the composer's start (`cloud start-chat`), which
+    /// until 2026-11-23 held nothing. A start that fails holds nothing after it.
+    public func holding<T>(_ machineID: String, _ body: () async throws -> T) async throws -> T {
+        enter(machineID)
+        defer { leave(machineID) }
+        let value = try await body()
+        started(machineID)
+        return value
+    }
+
+    /// Enters machine `machineID` from before its link connects (`body`: the connect and the route check), and on success
+    /// keeps it entered for the start's ``holding(_:entered:_:)``, which takes it over. RED before (cmux#55519, a warm spare in
+    /// a dev build, 2026-11-24): the composer's start entered only after its connect; the connect's handshake offered the
+    /// automatic update, which restarted the daemon under the start, about 21 s of a 34 s start.
+    public func entering<T>(_ machineID: String, _ body: () async throws -> T) async throws -> T {
+        enter(machineID)
+        do { return try await body() } catch { leave(machineID); throw error }
+    }
+
+    /// ``holding(_:_:)`` for a machine ``entering(_:_:)`` already entered: no gap between the two.
+    public func holding<T>(_ machineID: String, entered: Bool, _ body: () async throws -> T) async throws -> T {
+        guard entered else { return try await holding(machineID, body) }
+        defer { leave(machineID) }
+        let value = try await body()
+        started(machineID)
+        return value
+    }
+
+    /// Whether a start is bringing machine `machineID` up now, or its first turn runs (``firstTurnHold``).
+    public func contains(_ machineID: String) -> Bool {
+        if starts[machineID] != nil { return true }
+        guard let until = heldUntil[machineID] else { return false }
+        if now() < until { return true }
+        heldUntil[machineID] = nil
+        return false
+    }
 }
 
 /// A Cloud move or bring-back failure, with the action its retry can safely take.
