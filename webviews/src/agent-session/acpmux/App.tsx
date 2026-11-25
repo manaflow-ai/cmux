@@ -722,7 +722,7 @@ import {
 import { postOpenInWindow, quickChatName, postStartInBackground } from "./pane/quickHost";
 import { knownHarnessHealth, knownGithubRepositories, trustSource } from "./pane/trustHost";
 import { readFolderStatus, checkpointDiff } from "./pane/hostBindings";
-import { turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
+import { closeHeldWorked, turnActionsFrom, turnRowsShownFrom, type HeldWorked } from "./pane/useTurnActions";
 import { replyElsewhere } from "./homeInboxModel";
 import { quoteInReply } from "./conversation/selectionReplyModel";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
@@ -1585,7 +1585,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string>; asked?: true }>({ keys: new Set() });
   /// The ended turn's "Worked for" over rows a reader scrolled up had in view: open until the view
   /// follows again, then closed (conversation/turnEndHold.ts `foldsToHold`; cmux#24569's turn_end rows).
-  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
+  const heldWorked = useRef<HeldWorked>({ keys: new Set() });
   /// Set when the rows next shaped close that Worked for, the view back at the latest row: the
   /// transcript folds it in the turn's end motion (VirtualTranscript `heldWorkedClosing`).
   const heldWorkedClosing = useRef(false);
@@ -6508,6 +6508,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       (heldCalls.current.keys.size > 0 || heldRuns.current.keys.size > 0 || heldWorked.current.keys.size > 0)
     )
       releaseCalls();
+    // The held Worked for folds the reader closed up there are forgotten (`closeHeldWorked`): they
+    // draw closed already, so no render is needed for it.
+    else if (following && heldWorked.current.closed)
+      heldWorked.current = { session: heldWorked.current.session, keys: heldWorked.current.keys };
   }, []);
   /// The oldest row the followed transcript draws: the client sheds no held record above it (direct.ts `setKeepFrom`).
   const onTranscriptKeepFrom = useCallback(
@@ -9010,11 +9014,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const toggleActivity = useCallback((id: string, covers?: readonly string[]) => {
     const view = chatViewRef.current;
     // A Worked for the turn's end left open over what the reader reads (`heldWorked`) is closed by
-    // their click: it was never their open fold.
-    if (heldWorked.current.keys.has(id)) {
-      const keys = new Set(heldWorked.current.keys);
-      keys.delete(id);
-      heldWorked.current = { ...heldWorked.current, keys };
+    // their click: it was never their open fold. It stays closed: the hold must not open it again
+    // over the rows the click folds away (`closeHeldWorked`).
+    const closedHeld = closeHeldWorked(heldWorked.current, id);
+    if (closedHeld) {
+      heldWorked.current = closedHeld;
       releaseCalls();
       return;
     }
