@@ -33,6 +33,7 @@ import {
 } from "./cloudMachines";
 import {
   environmentReady,
+  environmentPickable,
   environmentSections,
   knownMachines,
   orderEnvironments,
@@ -445,14 +446,18 @@ export function ComposerContext({
     () =>
       computers.map((computer) => {
         const warning = environmentReady(computer) ? warningText(computer.resources) : undefined;
-        return warning ? { ...computer, loadWarning: warning } : computer;
+        const autoCloud = computer.kind === "ssh" ? computer.resources?.autoCloud : undefined;
+        return warning || autoCloud
+          ? { ...computer, ...(warning ? { loadWarning: warning } : {}), ...(autoCloud ? { autoCloud } : {}) }
+          : computer;
       }),
     [computers, warningText],
   );
   const menuComputers = useMemo(() => {
     const sections = environmentSections(computers);
     return orderEnvironments(computers).map(({ detail: _kind, ...computer }) => {
-      const ready = environmentReady(computer);
+      // A machine still dialing is a pick with no state word (environmentPickable, Leo 2026-11-24).
+      const ready = environmentPickable(computer);
       const warning = warningText(computer.resources);
       return {
         ...computer,
@@ -1033,7 +1038,7 @@ export function ComposerContext({
     cloudPicked || sandboxPicked || savedPick || waiting || (layout === "where-machine" && localMachine)
       ? undefined
       : currentComputer
-        ? environmentReady(currentComputer) || (computerDipping && !computerDipSaid)
+        ? environmentPickable(currentComputer) || (computerDipping && !computerDipSaid)
         : undefined;
   // A Cloud machine that sleeps (withCloudSleep): paused is the quiet ring, resuming a spinner.
   const machineSleep =
