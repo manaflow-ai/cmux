@@ -711,3 +711,38 @@ fn a_full_ring_of_a_peers_row_changes_holds_no_copy_of_the_rows() {
         "each held event costs {per_event} bytes, a row's text is {row_text}: the ring holds copies"
     );
 }
+
+/// A lane VM had itself as a saved peer (`ssh://OWN`), so every send to
+/// `OWN/NAME` from it went over ssh back to itself and failed (365 dead letters,
+/// 2026-11-25). A peer named after this machine is never added, and a saved one never runs:
+/// `OWN/NAME` resolves here.
+#[tokio::test]
+async fn a_peer_named_after_this_machine_is_never_added_or_started() {
+    let own = crate::pairing::machine_name();
+    if own == "host" {
+        return;
+    }
+    let mut cfg = crate::config::Config::default();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let url = format!("ssh://{own}");
+    let e = hub.add_peer(&own, &url, None, None, false).await.unwrap_err();
+    assert!(e.message.contains("is this machine"), "{}", e.message);
+    let upper = own.to_ascii_uppercase();
+    assert!(hub.add_peer(&upper, &url, None, None, false).await.is_err(), "any case");
+    assert!(!hub.config.read().await.peers.contains_key(&own), "not saved");
+
+    // One saved before (by hand or an older acpmux) is not started.
+    let pc = crate::config::PeerConfig {
+        link_host: None,
+        wireguard: None,
+        url,
+        token: None,
+        peer_token: None,
+        vm_boundary: true,
+        github_broker: false,
+    };
+    hub.start_peer(&own, &pc);
+    assert!(hub.peer(&own).is_none(), "a saved self peer never runs");
+}

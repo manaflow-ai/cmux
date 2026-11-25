@@ -162,6 +162,20 @@ impl Hub {
             }
             return tokio::sync::watch::channel(1).1;
         }
+        // A saved peer named after this machine is this machine: `NAME/SESSION` routes here
+        // (`own_host.rs`), never over a link to itself. A lane VM had itself as a peer
+        // (`ssh://OWN`, saved by an enroll the host ran on itself) and every
+        // `acpmux send OWN/NAME` from it went over ssh back to itself and failed:
+        // 365 dead letters on 2026-11-25, to live sessions too.
+        if crate::pairing::is_this_machine(name) {
+            tracing::warn!(peer = %name, "peer not started: it names this machine, whose sessions are local; remove it with `acpmux machine rm {name}`");
+            let old = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
+            if let Some(old) = old {
+                old.stop();
+                self.note_peer_removed(&old);
+            }
+            return tokio::sync::watch::channel(1).1;
+        }
         self.spawn_peer(name, pc, true, false).1
     }
 
@@ -275,6 +289,11 @@ impl Hub {
         wait: bool,
     ) -> Result<Value, RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
+        if crate::pairing::is_this_machine(name) {
+            return Err(RpcError::invalid_params(format!(
+                "{name:?} is this machine; its sessions are local (`{name}/SESSION` already reaches them), so it is never its own peer"
+            )));
+        }
         if !(url.starts_with("ws://") || url.starts_with("wss://") || url.starts_with("ssh://")) {
             return Err(RpcError::invalid_params(
                 "peer url must start with ws://, wss://, or ssh://host",
