@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.introWalk.help" : {
+      "comment" : "Settings > Advanced > Experiments: the help line under the Intro Walk switch",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تصبح «اجعل cmux لك» أربع شاشات قصيرة: مظهر كامل، وطريقة عملك، والثقة والإشعارات، ثم الكثافة والخلفية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prilagodite cmux postaje četiri kratka ekrana: cijeli izgled, način rada, povjerenje i obavijesti, zatim gustoća i pozadina."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gør cmux til dit bliver fire korte skærme: et helt look, hvordan du arbejder, tillid og notifikationer, og så tæthed og baggrund."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mach cmux zu deinem wird zu vier kurzen Bildschirmen: ein ganzer Look, wie du arbeitest, Vertrauen und Mitteilungen, dann Dichte und Hintergrund."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Haz cmux tuyo pasa a ser cuatro pantallas cortas: un aspecto completo, cómo trabajas, confianza y notificaciones, y luego densidad y fondo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Personnaliser cmux devient quatre écrans courts : un style complet, votre façon de travailler, confiance et notifications, puis densité et arrière-plan."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendi cmux tuo diventa quattro brevi schermate: un intero aspetto, come lavori, fiducia e notifiche, poi densità e sfondo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「cmuxを自分仕様に」が4つの短い画面になります：全体の見た目、作業スタイル、信頼と通知、そして密度と背景。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ធ្វើឱ្យ cmux ជារបស់អ្នក ក្លាយជាអេក្រង់ខ្លីៗបួន៖ រូបរាងទាំងមូល របៀបធ្វើការ ការទុកចិត្ត និងការជូនដំណឹង បន្ទាប់មកដង់ស៊ីតេ និងផ្ទៃខាងក្រោយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 내 것으로 만들기가 짧은 네 화면이 됩니다: 전체 모습, 작업 방식, 신뢰와 알림, 그다음 밀도와 배경."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gjør cmux til ditt blir fire korte skjermer: et helt utseende, hvordan du jobber, tillit og varsler, så tetthet og bakgrunn."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dostosuj cmux staje się czterema krótkimi ekranami: cały wygląd, sposób pracy, zaufanie i powiadomienia, potem gęstość i tło."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deixe o cmux do seu jeito vira quatro telas curtas: um visual completo, como você trabalha, confiança e notificações, depois densidade e fundo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Настройте cmux под себя» становится четырьмя короткими экранами: оформление целиком, как вы работаете, доверие и уведомления, затем плотность и фон."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ทำให้ cmux เป็นของคุณ จะกลายเป็นสี่หน้าจอสั้นๆ: รูปลักษณ์ทั้งหมด วิธีทำงาน ความไว้วางใจและการแจ้งเตือน แล้วจึงความหนาแน่นและพื้นหลัง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux'u Kendinize Göre Ayarlayın dört kısa ekran olur: bütün bir görünüm, nasıl çalıştığınız, güven ve bildirimler, sonra yoğunluk ve arka plan."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "«Зробіть cmux своїм» стає чотирма короткими екранами: вигляд цілком, як ви працюєте, довіра й сповіщення, потім щільність і тло."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Biến cmux thành của bạn trở thành bốn màn hình ngắn: cả diện mạo, cách bạn làm việc, tin cậy và thông báo, rồi mật độ và hình nền."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“打造你的 cmux”变成四个简短的页面：整体外观、工作方式、信任与通知，然后是密度和背景。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「打造你的 cmux」變成四個簡短的頁面：整體外觀、工作方式、信任與通知，然後是密度和背景。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

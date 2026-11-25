@@ -184,6 +184,34 @@ export class SimBuilder {
     return this.started(300);
   }
 
+  /** Another agent's message steered into the running turn (acpmux `steer`): no turn of its own. */
+  steerIncoming(value: string, options: IncomingOptions = {}, after = 600): this {
+    const fromName = options.fromName ?? "other-lane";
+    const provenance = {
+      kind: options.kind ?? "agent_message",
+      from: `sim-host/${fromName}`,
+      fromName,
+      fromSessionId: "sim-0000-0000-0000-0000000000aa",
+      to: this.sessionId,
+    };
+    this.incomingSteers += 1;
+    return this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId: `steer-${this.turns}-${this.incomingSteers}`,
+        turnId: this.turnId,
+        steer: true,
+        client: "acpmux-cli#1",
+        _meta: { provenance },
+      },
+      after,
+      `steer ${provenance.kind}: ${value.slice(0, 40)}`,
+    );
+  }
+  private incomingSteers = 0;
+
   /** A background task's end that acpmux sends the agent as a prompt (hub/bg_notify.rs: prompt id
    *  `bg-done-<task>`, a notice naming the task), and the turn it starts. */
   bgDone(task: string, description: string, { title, after = 1_000 }: { title?: string; after?: number } = {}): this {
@@ -600,17 +628,6 @@ export class SimBuilder {
       "turn_result",
     );
     return this.record("mux", "status", { status: "ready" }, 10, "status ready");
-  }
-
-  /** The agent's checklist (ACP `plan`): each entry `[content, status]`; none clears it. */
-  plan(entries: [string, "pending" | "in_progress" | "completed"][], after = 300): this {
-    return this.record(
-      "in",
-      "plan",
-      update("plan", { entries: entries.map(([content, status]) => ({ content, status, priority: "medium" })) }),
-      after,
-      `plan: ${entries.filter(([, status]) => status === "completed").length}/${entries.length}`,
-    );
   }
 
   /** acpmux asks the person to allow call `id`, and `ms` later records the answer (`allow`, or `null`: still waiting). */

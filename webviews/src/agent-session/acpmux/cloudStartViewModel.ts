@@ -5,6 +5,7 @@ import {
   type CloudStartupSetup,
 } from "./cloudStartProgress";
 import { fileSizeLabel } from "./fileAttachmentModel";
+import { githubFolderRepo } from "./githubRepos";
 import { paneLanguage, type StringKey, type Translate } from "./i18n";
 
 type ChecklistStatus = "done" | "running" | "pending" | "skipped" | "error";
@@ -138,6 +139,7 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
 
 const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.machine": "Set up a Cloud machine",
+  "cloudStartup.waking": "Waking machine",
   "cloudStartup.clone": "Clone repository",
   "cloudStartup.setup": "Run setup script",
   "cloudStartup.setupHint": "Add a setup script to install dependencies and configure your environment.",
@@ -212,6 +214,8 @@ export function startupChecklist(
             : "pending",
     duration: elapsed(start.machineStartedAt, start.machineFinishedAt, now),
   };
+  if (start.waking && (machine.status === "running" || machine.status === "pending"))
+    machine.detail = t("cloudStartup.waking");
   const hasRepository =
     start.hasRepository ?? (Boolean(start.repository || start.folder || start.clone) && !start.home);
   const cloneStatus = operationStatus(start.clone);
@@ -321,9 +325,12 @@ export function quietStage(
           : start.harnessStartedAt;
   const label =
     current.id === "machine"
-      ? t("cloudStart.stage.machine")
+      ? (current.detail ?? t("cloudStart.stage.machine"))
       : current.id === "clone"
-        ? t("cloudStart.stage.clone")
+        ? // A GitHub repository is cloned on the machine, nothing of this Mac copied: the line says so (cmux#53226).
+          githubFolderRepo(start.cwd)
+          ? t("cloudStartup.phase.clone")
+          : t("cloudStart.stage.clone")
         : current.id === "setup"
           ? t("cloudStart.stage.setup")
           : current.label;
