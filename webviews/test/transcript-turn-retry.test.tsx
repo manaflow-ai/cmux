@@ -38,8 +38,9 @@ test("a turn whose model the harness cannot reach says so, with its count and er
   expect(line.retry).toEqual({ attempt: 7, maxRetries: 10, errorStatus: 503, error: "server_error" });
   const html = drawn(line, line.at + 469_000);
   expect(words(html)).toBe("Can't reach the model · retrying (7 of 10) · 503 server error");
-  // Calm: no sweep and no ticking time on the line.
-  expect(html).not.toContain("is-shimmer");
+  // No ticking time on the line; its words shimmer as every status in the live spot does (Leo,
+  // 2026-11-22: "all in the "thinking" spot should glimmer like that").
+  expect(html).toContain('class="cv-thinking is-shimmer cv-retrying"');
   expect(html).not.toContain("cv-worked__time");
   // The same box as the Thinking line it replaces, so nothing moves.
   expect(html).toContain('class="cv-worked cv-worked--live is-below"');
@@ -57,8 +58,8 @@ test("the line reads Thinking again once the model answers, timed without the re
   expect(words(drawn(line, user.at + 469_000))).toBe("Thinking 29s");
 });
 
-test("a busy model says it is busy, not unreachable", () => {
-  expect(words(drawn(liveLine(snapshotRows("retrying-busy")), Date.now()))).toBe(
-    "The model is busy · retrying (2 of 10) · 529 overloaded error",
-  );
+test("a busy model waits for capacity, its 529 only in the tooltip", () => {
+  const html = drawn(liveLine(snapshotRows("retrying-busy")), Date.now());
+  expect(words(html)).toBe("Waiting for capacity · retrying (2 of 10)");
+  expect(html).toContain('title="529 overloaded error"');
 });

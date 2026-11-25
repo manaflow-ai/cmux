@@ -36,7 +36,8 @@ const row = (id: string, kind: AcpmuxRow["kind"] = "assistant"): AcpmuxRow => ({
 const TIMES = Array.from({ length: 151 }, (_, index) => index * 4);
 
 function page() {
-  const dom = new JSDOM("<!doctype html><main></main>", { pretendToBeVisual: true });
+  // These pin the fold's slide mechanics, the `fade` look's (the shipped look, `wipe`, slides nothing).
+  const dom = new JSDOM('<!doctype html><main data-turn-end-fold="fade"></main>', { pretendToBeVisual: true });
   const thread = dom.window.document.querySelector<HTMLElement>("main")!;
   const proto = dom.window.HTMLElement.prototype;
   const animations = new Map<

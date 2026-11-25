@@ -1,6 +1,9 @@
 //! Capture selection and a one-way fallback for unavailable/lost duplication.
 use super::dxgi::DxgiCapture;
 use super::*;
+use cmux_rd_core::flow::Rect;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::Hasher;
 
 enum Backend {
     Gdi(GdiCapture),

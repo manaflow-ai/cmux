@@ -485,5 +485,85 @@ class InsertionsOnTheHandWrittenRegistriesTests(unittest.TestCase):
         self.assertEqual(json.loads(path.read_text())["requests"], ["a", "lane", "base", "z"])
 
 
+class AMergeThatDoesNotParseIsMarkedTests(unittest.TestCase):
+    """cmux#50003, 2026-11-25: feat-cmux-next held `cmux-deadline` twice in cmux-tui/crates/acpmux/Cargo.toml
+    (cmux#55199 and cmux#54487 each added it, at two places, and the line merge of the two was clean). A lane
+    that only added its own dependency merged that base and got the file as a conflict with no markers and no
+    reason, and cargo could not load the workspace. The three files are that merge's blobs, trimmed."""
+
+    BASE = (
+        "[dependencies]\n"
+        "cmux-agent-wire.workspace = true\n"
+        "cmux-netwatch.workspace = true\n"
+        "cmux-build-space.workspace = true\n"
+        "cmux-stats-live.workspace = true\n"
+        "serde.workspace = true\n"
+    )
+    LANE = BASE.replace(
+        "cmux-build-space.workspace = true\n",
+        "cmux-build-space.workspace = true\n"
+        "# The team's hosted forum (`hub/forum_hosted.rs`): cmux-forum's post, reply and search.\n"
+        'cmux-forum-hosted = { path = "../cmux-forum-hosted", features = ["http"] }\n',
+    )
+    TWICE = BASE.replace(
+        "cmux-netwatch.workspace = true\n",
+        "# Deadlines on silence since the last progress, not a wall clock (peer frame writes, mesh reads).\n"
+        'cmux-deadline = { workspace = true, features = ["tokio"] }\n'
+        "cmux-netwatch.workspace = true\n",
+    ).replace(
+        "serde.workspace = true\n",
+        "# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+        "cmux-deadline.workspace = true\n"
+        "serde.workspace = true\n",
+    )
+    ONCE = TWICE.replace(
+        "# One deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).\n"
+        "cmux-deadline.workspace = true\n", "")
+    PATH = "cmux-tui/crates/acpmux/Cargo.toml"
+
+    def drive(self, base, ours, theirs, path=PATH):
+        tmp = Path(tempfile.mkdtemp(prefix="generated-merge-unparsed-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name, text in (("base", base), ("ours", ours), ("theirs", theirs)):
+            (tmp / name).write_text(text)
+        run = subprocess.run(
+            [sys.executable, "-I", str(ROOT / "scripts/merge-insertions.py"),
+             str(tmp / "base"), str(tmp / "ours"), str(tmp / "theirs"), path, "7"],
+            capture_output=True, text=True, cwd=tmp)
+        return run, (tmp / "ours").read_text()
+
+    @unittest.skipIf(sys.version_info < (3, 11), "the driver checks TOML with tomllib")
+    def test_a_base_that_names_a_key_twice_is_a_marked_conflict_that_says_why(self):
+        run, merged = self.drive(self.BASE, self.LANE, self.TWICE)
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertIn(
+            "<<<<<<< ours\n=======\ncmux-deadline.workspace = true\n>>>>>>> theirs\n", merged)
+        self.assertEqual(merged.count("<<<<<<<"), 1)
+        self.assertIn("cmux-forum-hosted", merged)  # the rest is still the merge of both sides
+        self.assertIn(self.PATH, run.stderr)
+        self.assertIn("the copy being merged in already did not parse", run.stderr)
+        self.assertNotIn("this branch's copy", run.stderr)
+
+    @unittest.skipIf(sys.version_info < (3, 11), "the driver checks TOML with tomllib")
+    def test_a_line_one_side_deleted_stays_deleted(self):
+        # The lane branched while the base held the key twice; the base then dropped the second.
+        lane = self.TWICE.replace("cmux-build-space.workspace = true\n",
+                                  'cmux-build-space.workspace = true\ncmux-forum-hosted = { path = "x" }\n')
+        run, merged = self.drive(self.TWICE, lane, self.ONCE)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(merged.count("cmux-deadline"), 1)
+        self.assertIn("cmux-forum-hosted", merged)
+        self.assertNotIn("<<<<<<<", merged)
+
+    def test_a_key_each_side_added_at_its_own_place_is_marked_with_both_copies(self):
+        base = '{\n  "a": 1,\n  "b": 2,\n  "c": 3,\n  "d": 4,\n  "e": 5,\n  "f": 6,\n  "g": 7\n}\n'
+        ours = base.replace('  "a": 1,\n', '  "a": 1,\n  "new": 1,\n')
+        theirs = base.replace('  "f": 6,\n', '  "f": 6,\n  "new": 2,\n')
+        run, merged = self.drive(base, ours, theirs, "config/thing.json")
+        self.assertEqual(run.returncode, 1, run.stderr)
+        self.assertEqual(merged, f"<<<<<<< ours\n{ours}=======\n{theirs}>>>>>>> theirs\n")
+        self.assertIn("config/thing.json: the merged file does not parse (duplicate key)", run.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

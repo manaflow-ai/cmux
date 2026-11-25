@@ -99,11 +99,13 @@ struct ThinScrollerRowsAndColumnsTests {
             scroller.pointerMoved(to: CGPoint(x: 120, y: 100)) // the middle of the view
             #expect(!scroller.isKnobShown)
             scroller.pointerMoved(to: CGPoint(x: 120, y: bottom + inward * (ThinScroller.width - 4)))
+            #expect(!scroller.isKnobShown) // the pointer alone shows nothing
+            scroller.flash() // a scroll shows it, and the pointer there widens it
             #expect(scroller.isKnobExpanded)
             #expect(scroller.restingKnobFrame?.height == ThinScroller.expandedKnobThickness)
             // Near the trailing edge but far from the bottom: not this bar's edge.
             scroller.pointerMoved(to: CGPoint(x: host.bounds.maxX - 3, y: 100))
-            #expect(!scroller.isKnobShown)
+            #expect(!scroller.isKnobExpanded)
         }
     }
 

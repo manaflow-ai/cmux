@@ -68,9 +68,30 @@ struct HostsSidebarTests {
                         Self.machine("resuming", "Waking", connected: false, connecting: true, state: .resuming, kind: .cloud),
                         Self.machine("failed", "Broken", connected: false, state: .failed, kind: .server)]
         let rows = HostsSidebar.rows(machines: machines, expanded: true)
-        #expect(rows.dropFirst().map(\.info.caption) == ["Add Host…", "Connecting…", "Offline", "Resuming…", "Failed"])
-        #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.activity == .working)
-        #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == true)
+        #expect(rows.dropFirst().map(\.info.caption) == ["Add Host…", nil, "Offline", "Resuming…", "Failed"])
+        #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.activity == .idle)
+        #expect(rows.first { $0.item.id.rawValue.hasSuffix("connecting") }?.info.isMissing == false)
+        #expect(rows.first { $0.item.id.rawValue.hasSuffix("offline") }?.info.isMissing == false)
+    }
+
+    /// Leo, 2026-11-24: "all the connecting... indicators and the graying out of workspaces, nah let's not do that.
+    /// let's just keep optimistically connecting and reinforcing the connection and sync-ups can be satisfying
+    /// instead of making the user think they're constsntly suspended in a state of connection limbo". A machine's row
+    /// said "Connecting…" with a spinner once a launch connect or redial lasted 10 s. It now never does: no words, no
+    /// spinner, not greyed, however long the connect lasts. A resume the person started still says "Resuming…".
+    @Test func aConnectNeverSaysConnecting() async throws {
+        let machines = [Self.machine("connecting", "Joining", connected: false, connecting: true),
+                        Self.machine("resuming", "Waking", connected: false, connecting: true, state: .resuming, kind: .cloud)]
+        let hosts = HostsSidebar(host: .init(rows: { machines }, add: {}, openConnected: { _ in }, openJoined: { _ in }))
+        defer { hosts.stop() }
+        for _ in 0..<3 {
+            let rows = hosts.rows()
+            let joining = try #require(rows.first { $0.item.id.rawValue.hasSuffix("connecting") })
+            #expect(joining.info.caption == nil && joining.info.activity == .idle && !joining.info.isMissing)
+            #expect(rows.first { $0.item.id.rawValue.hasSuffix("resuming") }?.info.caption == "Resuming…")
+            #expect(rows.first?.info.activity == .working, "the header spins only for the resume the person started")
+            try await Task.sleep(for: .milliseconds(20)) // wakeup-allow: proves no timer turns the row into "Connecting…"
+        }
     }
 
     @Test func addAndHostClicksUseTheSharedMachineRows() throws {
@@ -125,16 +146,17 @@ struct HostsSidebarTests {
         #expect(dialed == "m1" && connected == nil)
     }
 
-    @Test func meshOnlyJoinedNonMacsStayClosed() {
+    @Test func meshOnlyJoinedLinuxDialsAndOfflineJoinedStaysClosed() {
         let joined = JoinedMachine(id: "linux-1", name: "Builder", state: .online, platform: "linux")
-        let row = MachineSectionRow.joined(joined, health: nil)
+        let offline = JoinedMachine(id: "linux-2", name: "Asleep", state: .offline, platform: "linux")
         var connected: String?
-        var dialed: String?
-        let host = HostsSidebar.Host(rows: { [row] }, add: {}, openConnected: { connected = $0 }, openJoined: { dialed = $0.id })
+        var dialed: [String] = []
+        let host = HostsSidebar.Host(rows: { [] }, add: {}, openConnected: { connected = $0 }, openJoined: { dialed.append($0.id) })
 
-        host.open(row)
+        host.open(MachineSectionRow.joined(joined, health: nil))
+        host.open(MachineSectionRow.joined(offline, health: nil))
         #expect(connected == nil)
-        #expect(dialed == nil)
+        #expect(dialed == ["linux-1"])
     }
 
     @Test func boundHostRefreshesAndOwnsJoinedMachineAging() async {

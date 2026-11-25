@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextCloud
@@ -121,6 +122,33 @@ struct CloudPaneTests {
 
         subscription.cancel()
         #expect(provider.watcherCount == 0)
+    }
+
+    /// New-user journeys, 2026-11-23: a failed renewal was invisible on the Mac. The page's
+    /// `cmux.cloud.billing.status` is the app's own read of cmux.com (never the Cloud app server);
+    /// signed out (no client) it answers false, and it serves no other op.
+    @Test func billingStatusSignedOutIsNotPastDue() async throws {
+        let provider = BillingStatusPageProvider { nil }
+        let answer = try await provider.call(BillingStatusPageProvider.op, params: [:], context: Self.page)
+        #expect(answer["payment_past_due"]?.boolValue == false)
+        await #expect(throws: PageError.self) {
+            _ = try await provider.call("cmux.cloud.plan.get", params: [:], context: Self.page)
+        }
+    }
+
+    @Test func onlyAJSONTrueOfPaymentPastDueIsAFailedPayment() {
+        let read = { (text: String) in BillingStatusPageProvider.paymentPastDue(planReply: Data(text.utf8)) }
+        #expect(read(#"{"isPro":true,"paymentPastDue":true}"#))
+        #expect(!read(#"{"isPro":true,"paymentPastDue":false}"#))
+        #expect(!read(#"{"isPro":true}"#))
+        #expect(!read(#"{"paymentPastDue":"true"}"#))
+        #expect(!read(#"{"paymentPastDue":null}"#))
+        #expect(!read("not json"))
+        #expect(!read(""))
+    }
+
+    @Test func theCloudPageMayRunManageBilling() {
+        #expect(PageDescriptor.cloud.actions.contains("billing.openPortal"))
     }
 
     @Test func aServerRefusalIsThePagesErrorWithTheSameCode() async throws {

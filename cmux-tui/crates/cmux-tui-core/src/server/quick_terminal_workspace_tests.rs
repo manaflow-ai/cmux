@@ -12,7 +12,7 @@ pub(super) fn workspaces(wire: &Wire) -> Vec<Value> {
     handle_command(
         &wire.mux,
         wire.mux.local_test_client(0),
-        Command::ListWorkspaces { known: None, limit: None },
+        Command::ListWorkspaces { known: None, limit: None, after: None, since: None },
         &wire.writer,
     )
     .unwrap()["workspaces"]

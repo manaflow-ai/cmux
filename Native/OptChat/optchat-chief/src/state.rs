@@ -200,6 +200,11 @@ pub struct HostState {
     pub cloud_paused: std::collections::BTreeSet<String>,
 }
 
+/// How many completed subagent spawn records stay in the live host state.
+/// Their reports remain in the conversation log; this is only the routing and
+/// workspace metadata needed for recent replies and `agents`.
+pub const SPAWNS_KEPT: usize = 256;
+
 /// One watch the Chief started with `watch`: the host runs `command` off
 /// the turn until a line of its output matches `until` (or, without
 /// `until`, it exits), or `deadline_ms` passes, then a note wakes the Chief.
@@ -904,6 +909,34 @@ impl HostState {
                 }
             }
         }
+        self.prune_spawns();
+    }
+
+    /// Drops the oldest finished spawn metadata while retaining active work
+    /// and a bounded recent window for report-thread routing.
+    pub fn prune_spawns(&mut self) -> usize {
+        let excess = self.spawns.len().saturating_sub(SPAWNS_KEPT);
+        if excess == 0 {
+            return 0;
+        }
+        let mut finished: Vec<(String, u64)> = self
+            .spawns
+            .iter()
+            .filter(|(_, record)| {
+                record.subs.iter().all(|sub| {
+                    sub.cancelled
+                        || sub.status == SubStatus::Reported
+                        || (sub.status == SubStatus::Done && sub.stopped)
+                })
+            })
+            .map(|(id, record)| (id.clone(), record.started_ms))
+            .collect();
+        finished.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
+        let remove = excess.min(finished.len());
+        for (id, _) in finished.into_iter().take(remove) {
+            self.spawns.remove(&id);
+        }
+        remove
     }
 
     /// Subagents whose automatic continue (auto_resume.rs) was planned but
@@ -1342,6 +1375,61 @@ mod auto_resume_tests {
             restarted.pending_auto_resumes(),
             vec![("a1".to_owned(), 2), ("a2".to_owned(), 1)]
         );
+    }
+}
+
+#[cfg(test)]
+mod spawn_retention_tests {
+    use super::{HostState, SpawnRecord, SpawnRef, SubRecord, SubStatus};
+    const EXPECTED_SPAWNS: usize = 256;
+
+    fn finished(id: &str, started_ms: u64) -> (String, SpawnRecord) {
+        (
+            id.to_owned(),
+            SpawnRecord {
+                started_ms,
+                delivered: true,
+                subs: vec![SubRecord {
+                    id: id.to_owned(),
+                    status: SubStatus::Reported,
+                    ..SubRecord::default()
+                }],
+                ..SpawnRecord::default()
+            },
+        )
+    }
+
+    #[test]
+    fn logging_a_report_bounds_finished_spawn_metadata_but_keeps_active_work() {
+        let mut state = HostState::default();
+        for n in 0..(EXPECTED_SPAWNS as u64 + 2) {
+            let (id, record) = finished(&format!("s{n}"), n);
+            state.spawns.insert(id, record);
+        }
+        state.spawns.insert(
+            "active".to_owned(),
+            SpawnRecord {
+                subs: vec![SubRecord {
+                    id: "a-active".to_owned(),
+                    status: SubStatus::Running,
+                    ..SubRecord::default()
+                }],
+                ..SpawnRecord::default()
+            },
+        );
+        let newest = format!("s{}", EXPECTED_SPAWNS as u64 + 1);
+
+        state.spawn_logged(&SpawnRef {
+            spawn: newest.clone(),
+            subs: vec![("s256".to_owned(), 1)],
+            requires_approval: false,
+            quiet: false,
+        });
+
+        assert_eq!(state.spawns.len(), EXPECTED_SPAWNS);
+        assert!(!state.spawns.contains_key("s0"));
+        assert!(state.spawns.contains_key(&newest));
+        assert!(state.spawns.contains_key("active"));
     }
 }
 

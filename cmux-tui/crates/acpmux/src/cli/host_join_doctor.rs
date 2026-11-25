@@ -5,7 +5,7 @@
 //! The steps are the Add Machine checklist's lines (`{"step","state",
 //! "detail","fix"}`, then `{"report":…}`; `host_steps.rs`), so the app shows
 //! them unchanged. What the join holds comes from `acpmux host join --status
-//! --json` of the installed `~/.local/bin/acpmux`:
+//! --json` of the join install or the app's bundled acpmux:
 //! `{credentialPresent, machineId, teamId, hubOrigin, hubReachable,
 //! lastHeartbeat, revoked, consent: {screen, control, grantedAt?}}`; a field
 //! it does not report skips its step instead of failing it.
@@ -90,6 +90,8 @@ pub enum Binary {
 /// The service that keeps the daemon running.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Service {
+    /// The running daemon belongs to the installed app bundle on this Mac.
+    AppManaged,
     /// Running under systemd or launchd; `linger` is Linux's (None: unknown, or macOS).
     Active { linger: Option<bool> },
     /// Not running; `installed` when its unit or plist is on disk.
@@ -113,6 +115,31 @@ pub enum Status {
     NotRun,
 }
 
+/// The running process identifies its image independently of any CLI on disk.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DaemonBinary {
+    path: Option<PathBuf>,
+    build: Option<String>,
+    version: Option<String>,
+}
+
+impl DaemonBinary {
+    fn from_status(status: &Value, pid_exe: impl FnOnce(u32) -> Option<PathBuf>) -> Self {
+        let field = |key: &str| status[key].as_str().filter(|v| !v.is_empty() && plain(v));
+        let path = field("exe").map(PathBuf::from).filter(|p| p.is_absolute()).or_else(|| {
+            let pid = u32::try_from(status["pid"].as_u64()?).ok().filter(|pid| *pid > 0)?;
+            pid_exe(pid).filter(|path| path.is_absolute() && plain(&path.to_string_lossy()))
+        });
+        #[cfg(target_os = "linux")]
+        let path = path.map(crate::self_command::undeleted);
+        Self {
+            path,
+            build: field("build").map(str::to_owned),
+            version: field("version").map(str::to_owned),
+        }
+    }
+}
+
 /// Everything the steps read, gathered by [`probe`] (tests build it by hand).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Facts {
@@ -120,6 +147,9 @@ pub struct Facts {
     pub binary: Binary,
     pub service: Service,
     pub daemon_running: bool,
+    pub daemon_binary: DaemonBinary,
+    /// Versioned executable found first on PATH, when it resolves to another file.
+    pub path_binary: Option<(PathBuf, String)>,
     /// The running daemon's capability ids (`acpmux daemon status --json`); `None` when it
     /// could not be read (no daemon, or it did not answer).
     pub capabilities: Option<Vec<String>>,
@@ -175,7 +205,9 @@ fn rejoin(facts: &Facts) -> String {
 
 /// The checklist for `facts` at `now_ms`.
 pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
-    let mut steps = vec![binary_step(facts), service_step(facts)];
+    let mut steps = vec![binary_step(facts)];
+    steps.extend(path_warning(&facts.daemon_binary, facts.path_binary.as_ref()));
+    steps.push(service_step(facts));
     steps.push(if facts.daemon_running {
         JoinStep::new("daemon", StepState::Ok, "the acpmux daemon answers")
     } else {
@@ -227,6 +259,23 @@ pub fn steps(facts: &Facts, now_ms: u64) -> Vec<JoinStep> {
 }
 
 fn binary_step(facts: &Facts) -> JoinStep {
+    if facts.daemon_running {
+        let daemon = &facts.daemon_binary;
+        let build =
+            daemon.build.as_deref().or(daemon.version.as_deref()).unwrap_or("build unknown");
+        return match &daemon.path {
+            Some(path) => JoinStep::new(
+                "binary",
+                StepState::Ok,
+                format!("running daemon at {} ({build})", path.display()),
+            ),
+            None => JoinStep::new(
+                "binary",
+                StepState::Warn,
+                format!("running daemon executable unknown ({build})"),
+            ),
+        };
+    }
     match &facts.binary {
         Binary::Ok(path) => {
             JoinStep::new("binary", StepState::Ok, format!("acpmux at {}", path.display()))
@@ -238,6 +287,27 @@ fn binary_step(facts: &Facts) -> JoinStep {
             JoinStep::fail("binary", format!("{} is not executable", path.display()), rejoin(facts))
         }
     }
+}
+
+fn path_warning(daemon: &DaemonBinary, candidate: Option<&(PathBuf, String)>) -> Option<JoinStep> {
+    let (path, build) = candidate?;
+    let exe = daemon.path.as_ref()?;
+    let running_build = daemon.build.as_deref()?;
+    if path == exe || build == running_build {
+        return None;
+    }
+    Some(
+        JoinStep::new(
+            "path",
+            StepState::Warn,
+            format!(
+                "PATH selects {} ({build}). The daemon runs {} ({running_build})",
+                path.display(),
+                exe.display()
+            ),
+        )
+        .with_fix(format!("Remove or update the stale acpmux at {}", path.display())),
+    )
 }
 
 fn service_step(facts: &Facts) -> JoinStep {
@@ -252,6 +322,9 @@ fn service_step(facts: &Facts) -> JoinStep {
         )
     };
     match facts.service {
+        Service::AppManaged => {
+            JoinStep::new("service", StepState::Ok, "the cmux app runs the daemon")
+        }
         Service::Active { linger: Some(false) } => JoinStep::new(
             "service",
             StepState::Warn,
@@ -585,7 +658,24 @@ fn installed(home: &Path) -> PathBuf {
 pub fn probe() -> Facts {
     use std::os::unix::fs::PermissionsExt as _;
     let home = dirs::home_dir().unwrap_or_default();
-    let path = installed(&home);
+    let answer = daemon_status().filter(Value::is_object);
+    let daemon_running = answer.is_some()
+        || std::os::unix::net::UnixStream::connect(crate::config::socket_path()).is_ok();
+    let daemon_binary = answer
+        .as_ref()
+        .map(|status| DaemonBinary::from_status(status, crate::agent_host::tree::exe))
+        .unwrap_or_default();
+    let capabilities = answer.as_ref().map(capability_ids);
+    let path_binary = daemon_binary
+        .path
+        .as_deref()
+        .filter(|_| daemon_binary.build.is_some())
+        .and_then(other_path_build);
+    let bundled = daemon_binary
+        .path
+        .as_deref()
+        .filter(|exe| cfg!(target_os = "macos") && crate::daemon::is_app_acpmux(exe));
+    let path = bundled.map(Path::to_owned).unwrap_or_else(|| installed(&home));
     let binary = match std::fs::metadata(&path) {
         Ok(meta) if meta.is_file() && meta.permissions().mode() & 0o111 != 0 => {
             Binary::Ok(path.clone())
@@ -594,16 +684,27 @@ pub fn probe() -> Facts {
         Err(_) => Binary::Missing(path.clone()),
     };
     let linux = cfg!(target_os = "linux");
-    let service = if linux { systemd_service(&home) } else { launchd_service(&home) };
-    let daemon_running =
-        std::os::unix::net::UnixStream::connect(crate::config::socket_path()).is_ok();
-    let (status, capabilities) = match &binary {
-        Binary::Ok(path) => {
-            (join_status(path), daemon_running.then(|| daemon_capabilities(path)).flatten())
-        }
-        _ => (Status::NotRun, None),
+    let service = if bundled.is_some() {
+        Service::AppManaged
+    } else if linux {
+        systemd_service(&home)
+    } else {
+        launchd_service(&home)
     };
-    Facts { linux, binary, service, daemon_running, capabilities, status }
+    let status = match &binary {
+        Binary::Ok(path) => join_status(path),
+        _ => Status::NotRun,
+    };
+    Facts {
+        linux,
+        binary,
+        service,
+        daemon_running,
+        daemon_binary,
+        path_binary,
+        capabilities,
+        status,
+    }
 }
 
 /// `command args…` run with no stdin and a deadline: its exit code and stdout.
@@ -639,13 +740,41 @@ fn output(program: &Path, args: &[&str]) -> Option<(i32, String)> {
     Some((status.code().unwrap_or(-1), text))
 }
 
-/// The capability ids the running daemon reports in its status; an answer without the
-/// list is a daemon that predates capabilities (none).
+/// Ask the local socket itself, even on a machine with no standalone CLI. The
+/// synchronous doctor also runs inside the CLI's async runtime.
 #[cfg(unix)]
-fn daemon_capabilities(binary: &Path) -> Option<Vec<String>> {
-    let (code, text) = output(binary, &["daemon", "status", "--json"])?;
-    let v: Value = serde_json::from_str(text.trim()).ok().filter(|_| code == 0)?;
-    v.is_object().then(|| capability_ids(&v))
+fn daemon_status() -> Option<Value> {
+    let request = || {
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().ok()?;
+        runtime.block_on(async {
+            tokio::time::timeout(STATUS_TIMEOUT, async {
+                let client =
+                    crate::client::Client::connect_without_caller(&crate::config::socket_path())
+                        .await?;
+                client.request(crate::rpc::method::MUX_STATUS, json!({})).await
+            })
+            .await
+            .ok()?
+            .ok()
+        })
+    };
+    std::thread::scope(|scope| scope.spawn(request).join().ok().flatten())
+}
+
+#[cfg(unix)]
+fn other_path_build(exe: &Path) -> Option<(PathBuf, String)> {
+    use std::os::unix::fs::MetadataExt as _;
+    let path = std::path::absolute(crate::harness_install::which_on_path("acpmux")?).ok()?;
+    if path == exe || !plain(&path.to_string_lossy()) {
+        return None;
+    }
+    let candidate = path.metadata().ok()?;
+    if exe.metadata().is_ok_and(|m| (m.dev(), m.ino()) == (candidate.dev(), candidate.ino())) {
+        return None;
+    }
+    let (code, version) = output(&path, &["--version"])?;
+    let build = super::host_enroll::build_of(&version).filter(|v| code == 0 && plain(v))?;
+    Some((path, build.to_owned()))
 }
 
 /// `status.capabilities` as ids; absent or malformed is none.
@@ -728,6 +857,9 @@ pub fn launchd_state(installed: bool, gui_login: bool) -> Service {
 /// start the installed service, turn linger on, then start the daemon. True when one ran.
 #[cfg(unix)]
 fn repair(facts: &Facts) -> bool {
+    if facts.service == Service::AppManaged {
+        return false;
+    }
     let mut ran = false;
     // A missing binary or service: the one install path, the join script with no token,
     // which installs and repairs only (checked download, service, daemon) and never redeems.

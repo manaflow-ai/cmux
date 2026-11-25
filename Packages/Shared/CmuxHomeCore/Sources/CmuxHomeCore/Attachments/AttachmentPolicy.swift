@@ -1,6 +1,10 @@
 public import Foundation
+#if canImport(ImageIO)
 import ImageIO
+#endif
+#if canImport(UniformTypeIdentifiers)
 import UniformTypeIdentifiers
+#endif
 
 /// The owner's attachment rules (home-messaging.md 10.1), checked on the
 /// client before any upload so a refused file never leaves the device.
@@ -215,6 +219,9 @@ public struct HomeAttachmentPolicy {
     /// Image types ImageIO reads that the owner refuses (TIFF, HEIF, BMP,
     /// camera RAW): prepare converts them.
     static let convertibleImageTypes: [UTType] = {
+        #if !canImport(ImageIO)
+        return [] // no ImageIO (the Linux package lane): nothing converts
+        #else
         let readable = (CGImageSourceCopyTypeIdentifiers() as? [String]) ?? []
         return readable.compactMap(UTType.init).filter { type in
             guard type.conforms(to: .image) else { return false }
@@ -222,6 +229,7 @@ public struct HomeAttachmentPolicy {
             let ext = type.preferredFilenameExtension ?? ""
             return allowedTypes[mime] == nil && (ext.isEmpty || !revealsInsteadOfOpening(name: "attachment.\(ext)"))
         }
+        #endif
     }()
 
     /// UTType identifiers `prepareAttachment` sends as their own type or

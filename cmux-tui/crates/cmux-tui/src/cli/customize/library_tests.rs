@@ -66,6 +66,7 @@ fn recovery_words_parse() {
     assert_eq!(parse(&words("reset")).unwrap(), Request::OffAll);
     assert_eq!(parse(&words("status")).unwrap(), Request::Status);
     assert_eq!(parse(&words("expire")).unwrap(), Request::Expire);
+    assert_eq!(parse(&words("standup")).unwrap(), Request::Standup);
     for bad in [
         "off",
         "off --all --code",
@@ -78,6 +79,16 @@ fn recovery_words_parse() {
     ] {
         assert!(parse(&words(bad)).is_err(), "{bad}");
     }
+}
+
+/// `standup` on an empty library answers no lines and says how to start.
+#[test]
+fn standup_of_an_empty_library_says_how_to_start() {
+    let dir = tempfile::tempdir().unwrap();
+    let customize = Customize::open(cmux_customize::Roots::under(dir.path()));
+    let standup = execute(&customize, Request::Standup, "cli", 4).unwrap();
+    assert_eq!(standup.json()["standup"]["lines"], serde_json::json!([]));
+    assert!(standup.human(4).contains("cmux customize use pr:N"), "{}", standup.human(4));
 }
 
 /// `off --code` and `reset` work with no app and a library that does not
