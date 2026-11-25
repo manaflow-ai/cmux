@@ -238,7 +238,11 @@ fleet_verdict() { # <sha>
   fi
   body="$(mktemp "${TMPDIR:-/tmp}/nightly-next-precheck.XXXXXX")"
   # The default read only: a phase= read submits a build (cmuxterm-hq handbook, scheme-debug).
-  code="$(curl -sS -o "$body" -w '%{http_code}' --connect-timeout 10 --max-time 20 \
+  # The compile-results CDN rejects curl's default user agent (handbook
+  # cdn-refuses-the-default-client). Keep this read aligned with
+  # scripts/ci/fleet_compile_result.py so a valid verdict is not mistaken for
+  # an outage and an unchecked nightly is not promoted.
+  code="$(curl -sS -A 'cmux-ci-fleet-compile-result/1' -o "$body" -w '%{http_code}' --connect-timeout 10 --max-time 20 \
     "$precheck_results/$1?repo=${repo/\//%2F}" 2>/dev/null)" || code="${code:-000}"
   case "$code" in
     200) word="$(python3 -I -c '
@@ -258,6 +262,10 @@ else:
     print("none")
 ' "$body" "$1" "$repo" 2>/dev/null)" || word=none ;;
     404) word=none ;;
+    # Busy answers mean the service is reachable but has no stable verdict for
+    # this tick. Wait for the next tick instead of treating them as a cache
+    # outage and promoting an unchecked commit.
+    429|503) word=pending ;;
     *) word=down ;;
   esac
   rm -f "$body"
