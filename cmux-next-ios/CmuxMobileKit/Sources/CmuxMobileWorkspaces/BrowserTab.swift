@@ -1,6 +1,7 @@
 #if os(iOS)
 import enum CmuxMobileModel.UserFacingError
 import Observation
+import CmuxMobileDesign
 import SwiftUI
 import UIKit
 import WebKit
@@ -390,6 +391,7 @@ struct BrowserCard: View {
                     .foregroundStyle(.tertiary)
                     .accessibilityHidden(true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .placeholderBound("tabgrid.browser.globe", .milliseconds(1000))
             }
         }
         .modifier(TabCardFaceRecord(tabID: tabID,

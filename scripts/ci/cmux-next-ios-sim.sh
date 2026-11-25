@@ -352,10 +352,12 @@ handoff_tag=""
 if [[ "$mode" == handoff ]]; then
   [[ $# -eq 2 && "${2:-}" == tag=* ]] || { echo "cmux-next-ios-sim.sh: handoff takes one argument, tag=TAG" >&2; exit 2; }
   handoff_tag="${2#tag=}"
-  [[ "$handoff_tag" =~ ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$ && "$handoff_tag" != default ]] ||
-    { echo "cmux-next-ios-sim.sh: handoff tag= wants lowercase letters, digits and dashes (at most 64), got '$handoff_tag'" >&2; exit 2; }
-  # dev.cmux.mobile.dev is the cmux Dev app (try mode), which shows the person's real data.
-  [[ "$handoff_tag" != dev ]] || { echo "cmux-next-ios-sim.sh: tag dev is the cmux Dev app's (try mode); pick another tag" >&2; exit 2; }
+  # The one tag rule of every build entry point (reload.sh, review.sh): a canonical tag (its own slug, so
+  # no two spellings share the space dev:<tag>), and none of the reserved ones: default, dev (the cmux Dev
+  # app, try mode, which shows the person's real data), demo and prod (demo-build.sh's installs).
+  # shellcheck source=scripts/lib/mobile-attach.sh
+  source "$(dirname "${BASH_SOURCE[0]}")/../lib/mobile-attach.sh"
+  cmux_attach_validate_dev_tag "$handoff_tag" || { echo "cmux-next-ios-sim.sh: handoff tag=$handoff_tag refused" >&2; exit 2; }
 fi
 if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
@@ -1424,6 +1426,11 @@ ui_cold_tests() {
 # cmux-duress link knob is the existing seeded cmux-fault shaper used by the
 # duress replay generator. `idle,link=PROFILE` gives a shaped, otherwise idle,
 # run when the caller asks for net= with duress=off.
+# Rust builds here run from inside cmux-tui: rustup picks the toolchain from the current
+# directory's rust-toolchain.toml (cmux-tui/rust-toolchain.toml), and --manifest-path does not
+# count. From the repo root a worker with no rustup default fails ("rustup could not choose a
+# version of cargo to run"; two Mac workers, 2026-11-24, steps 93ff6323 and
+# 83a54e14 lost every duress= UI pass).
 ui_cold_matrix() {
   local spec net effective slug dir t1
   local specs=() nets=()
@@ -1431,7 +1438,7 @@ ui_cold_matrix() {
   if [[ ${#net_profiles[@]} -gt 0 ]]; then nets=("${net_profiles[@]}"); else nets=(off); fi
   if [[ " ${specs[*]} " != " off " || " ${nets[*]} " != " off " ]]; then
     t1=$SECONDS
-    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress --no-default-features >"$work/duress-build.log" 2>&1; then
+    if ! (cd cmux-tui && cargo build --release --quiet -p cmux-duress --no-default-features) >"$work/duress-build.log" 2>&1; then
       tail -40 "$work/duress-build.log"; cp "$work/duress-build.log" "$out/duress-build.log" 2>/dev/null || true
       note "- duress: cmux-duress did not build (duress-build.log)"; ui_status=1; return
     fi
@@ -1482,7 +1489,7 @@ ui_duress_runs() {
   ui_action=test-without-building
   if [[ " ${duress_specs[*]} " != " off " ]]; then
     t1=$SECONDS
-    if ! cargo build --release --quiet --manifest-path cmux-tui/Cargo.toml -p cmux-duress --no-default-features >"$work/duress-build.log" 2>&1; then
+    if ! (cd cmux-tui && cargo build --release --quiet -p cmux-duress --no-default-features) >"$work/duress-build.log" 2>&1; then
       tail -40 "$work/duress-build.log"; cp "$work/duress-build.log" "$out/duress-build.log" 2>/dev/null || true
       note "- duress: cmux-duress did not build (duress-build.log)"; ui_status=1; return
     fi
@@ -1999,7 +2006,7 @@ if [[ "$mode" == listperf ]]; then
           # One heavy coordinator's records from coord-sim (cmux-tui/crates/coord-sim, serde only: a few seconds to
           # build), written once, copied into this install's data container for CoordSimReplaySource.
           if [[ ! -s "$lp/coord-sim/coord-sim-chat.ndjson" ]]; then
-            cargo build --quiet --release --manifest-path cmux-tui/crates/coord-sim/Cargo.toml &&
+            (cd cmux-tui/crates/coord-sim && cargo build --quiet --release) &&
               cmux-tui/crates/coord-sim/target/release/coord-sim surface --target ios --out "$lp/coord-sim" \
                 --history "${COORD_SIM_HISTORY:-3000}" --rate "${COORD_SIM_RATE:-10}" --seconds 90 \
                 --max-event-bytes 65536 >"$lp/coord-sim.txt" 2>&1 ||

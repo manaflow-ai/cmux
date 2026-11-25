@@ -3,7 +3,7 @@ import type { ApprovedPlan } from "./approvedPlan";
 import type { ChatTaskList } from "./chatTaskList";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
-import { permissionCardHeight } from "./permissions/cardHeight";
+import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
@@ -35,6 +35,7 @@ import {
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
 import type { AutoResumeStatus } from "./autoResumeStatus";
+import type { CapacityWaitState } from "./capacityWait";
 import type { VideoInfo } from "./composer/videoAttachments";
 import type { AttachmentSource } from "./attachments";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
@@ -107,7 +108,7 @@ import {
   sentImageWidth,
 } from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
-import { fileSizeLabel } from "./fileAttachmentModel";
+import { fileSizeLabel, shownFileSize } from "./fileAttachmentModel";
 import { mcpCall } from "./conversation/mcpCalls";
 import { hidesEveryCall, visibleToolItems } from "./conversation/mcpPresentation";
 import { subsessionCall } from "./conversation/subsessionCalls";
@@ -1293,6 +1294,8 @@ export type AcpmuxSnapshot = {
   type: "snapshot";
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
+  /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */
+  capacityWait?: CapacityWaitState;
   protocolVersion: number;
   rows: AcpmuxRow[];
   /// Reply row ids removed by explicit message_superseded events; refresh retention must not restore them.
@@ -1476,9 +1479,6 @@ export type AcpmuxSnapshot = {
     /// The chat's tools (acpmux `tools`, cx-thur3) and whether `_acpmux/set_tools` can change them.
     tools?: ChatTool[];
     toolsMutable?: boolean;
-    /// Where the chat stands and its next action (acpmux `rollingSummary`, kept after each turn a
-    /// person started). The chat header does not draw it; the sidebar's hover card and Expanded rows do.
-    rollingSummary?: { text: string; next?: string };
   };
   connection: string;
   /** The first request that crossed its progress threshold while the socket stayed open. */
@@ -2853,18 +2853,11 @@ function fallbackRowHeight(
   if (row.kind === ACTIVITY_LINE) return finish(row.below ? footerRow() : metaRow());
   // The 20px date line with 8px above it.
   if (row.kind === DATE) return finish(20);
-  // A tagged ask's card (conversation/NextStepCard.tsx): waiting, 12px padding over the question
-  // and its muted line, then a 36px row of answers; answered or superseded, the question over the
-  // answer in 8px.
+  // A tagged ask's card (conversation/NextStepCard.tsx), the same in every pane, waiting or answered
+  // (permissions/cardHeight.ts `nextStepCardHeight`).
   if (row.kind === NEXT_STEP && row.nextStep) {
     const { ask, answer, superseded } = row.nextStep;
-    const perLine = Math.max(120, width - 32) / 7.5;
-    const lines = (text: string | undefined) => (text ? Math.max(1, Math.ceil(text.length / perLine)) : 0);
-    return finish(
-      answer === undefined && !superseded
-        ? 24 + 2 + (lines(ask.question) + lines(ask.detail)) * 20 + 8 + 36
-        : 16 + 2 + (lines(ask.question) + lines(answer)) * 20 + 4,
-    );
+    return finish(nextStepCardHeight(ask, width, { answer, superseded }));
   }
   // A walkthrough strip (conversation/Walkthrough.tsx): its 28px head and, open, the 96px row of
   // shots over two 16px caption lines, with 8px above and below.
@@ -3702,7 +3695,7 @@ function attachmentBox(
   // `SentLinkedImage`) until it is read.
   if (linkedImagePath(part)) return thumbnail(sentImageSize({}));
   const chip = INLINE_FILE_CHIP;
-  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(part.size, "en");
+  const size = part.name.endsWith("/") ? undefined : fileSizeLabel(shownFileSize(part), "en");
   const content =
     2 * chip.side +
     chip.glyph +
