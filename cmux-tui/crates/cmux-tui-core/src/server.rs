@@ -127,6 +127,9 @@ mod admission;
 #[path = "server/list_workspaces_page.rs"]
 mod list_workspaces_page;
 use list_workspaces_page::*;
+#[path = "server/list_workspaces_delta.rs"]
+pub(crate) mod list_workspaces_delta;
+use list_workspaces_delta::WORKSPACE_LIST_DELTA_CAPABILITY;
 #[cfg(unix)]
 mod agent_cli_intents;
 #[cfg(unix)]
@@ -260,6 +263,7 @@ use cmd_sizing::{optional_surface_size, paired_surface_size};
 pub use size_lease::{SIZE_LEASE_CAPABILITY, SIZE_LEASE_V2_CAPABILITY};
 mod cmd_subscribe;
 mod cmd_tabs;
+mod cmd_terminal_find;
 mod cmd_terminal_io;
 mod cmd_terminals;
 mod creating_input;
@@ -325,7 +329,8 @@ mod terminal_history;
 mod terminal_ports;
 mod terminal_resources;
 pub use agent_cli_hybrid::{
-    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
+    AGENT_CLI_HYBRID_CAPABILITY, AGENT_CLI_HYBRID_LEAN_CAPABILITY,
+    TERMINAL_FULL_SCREEN_FRAMES_CAPABILITY, TERMINAL_SHELL_LINES_CAPABILITY,
 };
 pub use attach_output_coalesce::ATTACH_OUTPUT_COALESCE_CAPABILITY;
 mod terminal_snapshot;
@@ -450,6 +455,11 @@ pub const TERMINAL_PENDING_SEQUENCE_CAPABILITY: &str = "terminal-pending-sequenc
 /// events, and may reattach with `resume_offset` and `resume_generation` for
 /// only the missing bytes (server/terminal_resume.rs).
 pub const TERMINAL_RESUME_CAPABILITY: &str = "terminal-resume-v1";
+/// `resume_max_bytes` on a resuming `attach-surface`: an exact resume only when
+/// the missed bytes fit; past it the normal replay (`resume: "gap"`), so a
+/// viewer back from a long time away reads one screen, not megabytes of
+/// output it never sees (cmux-next-ios/design/background-delta-sync.md).
+pub const TERMINAL_RESUME_BOUNDED_CAPABILITY: &str = "terminal-resume-bounded-v1";
 /// `replay_history_rows` on a bytes `attach-surface`: the `vt-state` replay
 /// keeps only that many of the newest history rows above the active area
 /// and says how many older ones it left out (`history_rows_omitted`).
@@ -801,7 +811,6 @@ struct CreateSurfaceWithReceiptRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BrowserProviderTargetRequest {
     tab_id: String,
     target_id: String,
@@ -809,7 +818,6 @@ struct BrowserProviderTargetRequest {
 
 /// `set-host-size-policy`'s `policy`: a mode and optionally the order.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct HostSizePolicyRequest {
     mode: String,
     #[serde(default)]
@@ -1058,6 +1066,11 @@ enum Command {
         /// (server/api_revision_wire.rs). Absent: revision 12.
         #[serde(default)]
         api_revision: Option<u32>,
+        /// The dated API version the client pins (`YYYY-MM-DD`): the
+        /// newest revision dated on or before it serves it
+        /// (server/api_revision_wire.rs, spec/api-versioning.md).
+        #[serde(default)]
+        api_version: Option<String>,
         /// The client's release (`cmux --version`), for refusals and logs.
         #[serde(default)]
         version: Option<String>,
@@ -1177,11 +1190,13 @@ enum Command {
         title: String,
     },
     ClearWindowTitle,
-    /// `known`, `limit` and `after`: server/list_workspaces_page.rs.
+    /// `known`, `limit` and `after`: server/list_workspaces_page.rs; `since`:
+    /// server/list_workspaces_delta.rs.
     ListWorkspaces {
         known: Option<cmd_workspaces::KnownTree>,
         limit: Option<usize>,
         after: Option<usize>,
+        since: Option<list_workspaces_delta::DeltaCursor>,
     },
     GetFrontendProjection {
         frontend: String,
@@ -1238,6 +1253,26 @@ enum Command {
         surface: SurfaceId,
         start: u32,
         count: u32,
+    },
+    /// One page of Cmd-F matches in the whole retained history, newest first
+    /// (`cmd_terminal_find.rs`).
+    TerminalFind {
+        surface: SurfaceId,
+        query: String,
+        #[serde(default)]
+        case_sensitive: bool,
+        #[serde(default)]
+        whole_word: bool,
+        #[serde(default)]
+        regex: bool,
+        #[serde(default)]
+        before: Option<u64>,
+        #[serde(default)]
+        epoch: Option<u64>,
+        #[serde(default)]
+        page_rows: Option<u64>,
+        #[serde(default)]
+        max_matches: Option<usize>,
     },
     SidebarPlugin {
         cols: u16,
@@ -1951,6 +1986,10 @@ enum Command {
     ListNotifications {
         #[serde(default)]
         limit: Option<usize>,
+        /// true: the reply also carries `agent_notice_stats`, how often agent
+        /// notices were read and how fast (`mux/agent_notice_stats.rs`).
+        #[serde(default)]
+        stats: bool,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {
@@ -2424,6 +2463,8 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
+    /// Release every user-owned workspace name to the automatic namer.
+    ReleaseWorkspaceNames {},
     RenameProviderManagedWorkspace {
         workspace: WorkspaceId,
         key: String,
@@ -2565,6 +2606,11 @@ enum Command {
         resume_offset: Option<u64>,
         #[serde(default)]
         resume_generation: Option<String>,
+        /// `terminal-resume-bounded-v1`: the most missed bytes this viewer
+        /// takes as an exact resume; more, and the reply is the replay with
+        /// `resume: "gap"`. Absent: no bound (`terminal-resume-v1`).
+        #[serde(default)]
+        resume_max_bytes: Option<u64>,
         #[serde(flatten)]
         snapshot: terminal_snapshot::SnapshotAttachParams,
     },
@@ -2591,6 +2637,7 @@ impl Command {
             | Self::ReadScreen { surface }
             | Self::ClearHistory { surface, .. }
             | Self::ReadScrollback { surface, .. }
+            | Self::TerminalFind { surface, .. }
             | Self::WaitFor { surface, .. }
             | Self::SendKey { surface, .. }
             | Self::Copy { surface, .. }

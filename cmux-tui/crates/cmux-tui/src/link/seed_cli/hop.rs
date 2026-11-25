@@ -377,6 +377,7 @@ fn planned(
         bundle_bytes: exported.bundle_bytes,
         unchanged: false,
         lfs_attributes: Vec::new(),
+        lfs_files: Vec::new(),
     }
 }
 

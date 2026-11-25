@@ -841,11 +841,11 @@ fn blockers_and_the_chats_parent_or_delegator_steer_at_once() {
     assert!(steers_at_once(&meta, &from(PromptClass::Result, Some("coord"))), "its delegator");
 }
 
-/// FYIs alone that the person's own turn held back start no turn of their own when it ends:
-/// they wait for the flush, as they would have in any turn. Anything else it held back is due at
-/// once, as before.
+/// FYIs alone that the person's own turn held back start no turn of their own when it ends, not
+/// even past the flush: in an idle chat they wait for its next real turn. Anything else it held
+/// back is due at once, as before.
 #[tokio::test]
-async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
+async fn fyis_alone_the_persons_turn_held_back_wait_for_the_next_turn() {
     let (hub, session) = hub_with_chat("fyi-held");
     {
         let mut inbox = session.inbox();
@@ -856,13 +856,13 @@ async fn fyis_alone_the_persons_turn_held_back_wait_for_their_flush() {
     assert_eq!(carried(&session), None, "no turn of its own before the flush");
     {
         let inbox = session.inbox();
-        assert!(inbox.timer.is_some(), "the flush is timed");
+        assert!(inbox.timer.is_none(), "no flush is timed for what wakes nobody");
         assert!(!inbox.held_by_person, "the hold lets go of FYIs alone");
     }
     assert!(!turn_coming(&session), "no turn comes for FYIs alone");
     session.inbox().items[0].at = now_ms().saturating_sub(FLUSH_MS + 1);
     hub.inbox_review(&session);
-    assert_eq!(carried(&session), Some(vec!["f1".to_owned()]), "a turn at its flush");
+    assert_eq!(carried(&session), None, "no cold turn past the flush either");
 
     // A result the person's turn held back (it wakes no one here) is due at once, as before.
     let (hub, session) = hub_with_chat("result-held");
@@ -1362,7 +1362,7 @@ async fn the_held_count_is_the_journals_undecided_messages_not_a_drifted_counter
 }
 
 /// With the surge preview on, a FYI tool notice of severity `fire` wakes an idle chat outside any surge once the wake
-/// debounce has passed, while an ordinary FYI of the same age waits for its flush.
+/// debounce has passed, while an ordinary FYI of the same age waits for the chat's next turn.
 #[tokio::test]
 async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_does_not() {
     for (severity, wakes_now) in [("fire", true), ("warn", false)] {
@@ -1387,9 +1387,107 @@ async fn a_fire_notice_wakes_an_idle_chat_outside_a_surge_and_an_ordinary_fyi_do
             || inbox.items.iter().any(|i| i.noticed || i.answered.is_some());
         assert_eq!(tried, wakes_now, "{severity}");
         if !wakes_now {
-            assert!(inbox.timer.is_some(), "an ordinary FYI waits for its flush");
+            assert!(inbox.timer.is_none(), "an ordinary FYI times no flush of its own");
         }
     }
+}
+
+/// The one-pass [`trim`] lets go of what the loop of `position` and `Vec::remove` it replaced
+/// let go of, in the same order, over inboxes of every mix of kept and trimmable messages.
+#[test]
+fn the_one_pass_trim_lets_go_of_what_the_removing_loop_did() {
+    fn reference(inbox: &mut Inbox) {
+        let carried: std::collections::HashSet<String> = inbox
+            .in_flight
+            .iter()
+            .map(|(_, ids)| ids)
+            .chain(inbox.carrying.iter().map(|c| &c.ids))
+            .flat_map(|ids| ids.iter().cloned())
+            .collect();
+        while inbox.items.len() > KEEP {
+            let gone = |i: &Item| {
+                i.surge_held
+                    || (i.read
+                        && i.noticed
+                        && i.answered.is_some()
+                        && !carried.contains(&i.prompt_id))
+            };
+            match inbox.items.iter().position(gone) {
+                Some(i) => {
+                    let item = inbox.items.remove(i);
+                    if item.surge_held {
+                        inbox.held_evicted.insert(item.thread);
+                    } else {
+                        inbox.trimmed.insert(item.prompt_id);
+                    }
+                }
+                None => break,
+            }
+        }
+    }
+    for (len, stride) in [(KEEP, 1), (KEEP + 1, 1), (KEEP + 40, 3), (3 * KEEP, 2), (3 * KEEP, 7)] {
+        let make = || {
+            let mut inbox = Inbox {
+                in_flight: Some(("notice".into(), vec!["m-5".into(), "m-6".into()])),
+                ..Inbox::default()
+            };
+            for n in 0..len {
+                let thread = format!("t-{}", n % 5);
+                let mut i = item(&format!("m-{n}"), &thread, "a", PromptClass::Fyi, n as u64, "x");
+                match n % stride {
+                    0 => {
+                        (i.noticed, i.read) = (true, true);
+                        i.answered = Some(Ok(Value::Null));
+                    }
+                    1 => i.surge_held = n % 2 == 0,
+                    _ => i.read = true,
+                }
+                inbox.items.push(i);
+            }
+            inbox
+        };
+        let (mut want, mut got) = (make(), make());
+        reference(&mut want);
+        trim(&mut got);
+        let ids =
+            |inbox: &Inbox| inbox.items.iter().map(|i| i.prompt_id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&got), ids(&want), "{len} messages, stride {stride}");
+        assert_eq!(got.trimmed, want.trimmed, "{len} messages, stride {stride}");
+        assert_eq!(got.held_evicted, want.held_evicted, "{len} messages, stride {stride}");
+    }
+}
+
+/// A restore that drops each withdrawn message as it reads the withdrawal restores what one
+/// that held every message to the end did: the messages never withdrawn, in log order, and
+/// every withdrawn id marked removed (one sent again after its withdrawal too).
+#[tokio::test]
+async fn a_restore_drops_withdrawn_messages_as_it_reads_and_restores_the_rest_in_order() {
+    let (hub, session) = hub_with_chat("long-inbox");
+    let message = |n: usize| {
+        json!({"promptId": format!("m-{n}"), "threadId": format!("th-{}", n % 3),
+               "from": "other agent", "text": format!("message {n}")})
+    };
+    let mut want = Vec::new();
+    for n in 0..2 * KEEP {
+        hub.append(&session, "mux", "inbox", message(n));
+        // Most are withdrawn soon after they come; every seventh stays.
+        if n % 7 != 0 {
+            hub.append(&session, "mux", "inbox_removed", json!({"promptId": format!("m-{n}")}));
+        } else {
+            want.push(format!("m-{n}"));
+        }
+    }
+    // One withdrawn and sent again stays out.
+    hub.append(&session, "mux", "inbox", message(1));
+    *session.inbox() = Default::default();
+    hub.restore_inbox(&session);
+    let inbox = session.inbox();
+    let got: Vec<String> = inbox.items.iter().map(|i| i.prompt_id.clone()).collect();
+    assert_eq!(got, want);
+    for n in (0..2 * KEEP).filter(|n| n % 7 != 0) {
+        assert!(inbox.removed.contains(&format!("m-{n}")), "m-{n} is marked removed");
+    }
+    assert!(!inbox.removed.contains("m-0"));
 }
 
 /// Leo, 2026-11-24: "not just batching, but intervals to assist in batching". 50 messages to an
@@ -1645,4 +1743,23 @@ async fn an_unreadable_message_fails_open() {
     session.inbox().items.push(block);
     hub.inbox_review(&session);
     assert!(tried(&session), "delivered as today");
+}
+
+/// An idle chat off the coordinator list is never woken by its flush: an old FYI and an old
+/// result from a session that neither started it nor gave it work wait for its next real turn,
+/// with no turn and no timer of their own (each flush was a cold prompt-cache write; Leo,
+/// 2026-11-25: "let's continue while not doing bad cache writes!"). A question still wakes it.
+#[tokio::test]
+async fn an_idle_chat_takes_no_flush_turn_for_what_wakes_nobody() {
+    let (hub, session) = hub_with_chat("lane-no-flush");
+    let old = now_ms().saturating_sub(FLUSH_MS * 4);
+    session.inbox().items.push(item("f1", "t", "tool", PromptClass::Fyi, old, "fyi"));
+    session.inbox().items.push(item("r1", "t", "other", PromptClass::Result, old, "done"));
+    hub.inbox_review(&session);
+    assert!(!tried(&session), "no flush turn");
+    assert!(session.inbox().timer.is_none(), "no flush timer");
+    let at = now_ms().saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    session.inbox().items.push(item("q1", "t", "other", PromptClass::Question, at, "which?"));
+    hub.inbox_review(&session);
+    assert!(tried(&session), "a question still wakes it, and brings the rest");
 }

@@ -1659,6 +1659,7 @@ extension ChatRow {
             case .math: return 60
             case .rule: return 9
             }
+        case .tool(let call) where call.hasImages: return 32 + 6 + CGFloat(min(call.images.count, ToolOutputImages.maxShown)) * (ToolOutputImages.maxHeight + 6)
         case .thought, .tool, .toolGroup, .working, .worked: return 32
         case .edit(_, let files): return files == nil ? 44 : 44 + 12 * 19 + 20
         case .plan(let entries): return 56 + CGFloat(entries.count) * 30

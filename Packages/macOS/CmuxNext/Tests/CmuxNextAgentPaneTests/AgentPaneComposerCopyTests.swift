@@ -56,7 +56,7 @@ struct AgentPaneComposerCopyTests {
 
     // MARK: The contract
 
-    @Test func theRequestTakesTextAndOneToSixtyFourItemsOfOnePayloadEach() throws {
+    @Test func theRequestTakesTextAndAnyNumberOfItemsOfOnePayloadEach() throws {
         let png = ["name": "chart.png", "mimeType": "image/png", "data": Self.png.base64EncodedString()]
         let request = try #require(AgentPaneReplyRequest(method: "composer.copy", params: [
             "text": "see these",
@@ -71,13 +71,13 @@ struct AgentPaneComposerCopyTests {
         #expect(!request.isPassive)
         // The text may be empty: a selection of attachments only.
         #expect(AgentPaneReplyRequest(method: "composer.copy", params: ["text": "", "items": [png]]) != nil)
+        #expect(AgentPaneReplyRequest(method: "composer.copy", params: ["text": "", "items": Array(repeating: png, count: 128)]) != nil)
 
         let refused: [[String: Any]] = [
             [:],
             ["text": "x"],
             ["items": [png]],
             ["text": "x", "items": []],
-            ["text": "x", "items": Array(repeating: png, count: 65)],
             ["text": "x", "items": [png], "extra": 1],
             ["text": 1, "items": [png]],
             ["text": "a\u{0}b", "items": [png]],

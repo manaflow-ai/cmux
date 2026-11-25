@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6ec7f7cebc370abc68d280422ff3451e8146dfb33a1b83b3c8d54a7960383b8b";
+pub const ir_sha256 = "4e34384345c5952de0733e534f694b5beca2a99236d90b5735bb411ba22aa32c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1207,6 +1207,7 @@ pub const IdMapping = struct {
 
 pub const IdentifyResult = struct {
     api_revision: wire.Field(u32) = .absent,
+    api_version: wire.Field([]const u8) = .absent,
     app: []const u8,
     build_commit: wire.Field([]const u8) = .absent,
     build_id: wire.Field([]const u8) = .absent,
@@ -1227,6 +1228,7 @@ pub const IdentifyResult = struct {
     machine_platform: ?MachinePlatform = null,
     machine_symbol: ?[]const u8 = null,
     min_api_revision: wire.Field(u32) = .absent,
+    min_api_version: wire.Field([]const u8) = .absent,
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
@@ -1417,6 +1419,11 @@ pub const ListWorkspacesKnown = struct {
     terminal_revision: wire.Field(u64) = .absent,
     tree_revision: wire.Field([]const u8) = .absent,
     workspace_revision: wire.Field(u64) = .absent,
+};
+
+pub const ListWorkspacesSince = struct {
+    epoch: []const u8,
+    seq: u64,
 };
 
 pub const LivePane = struct {
@@ -2350,6 +2357,16 @@ pub const ServerStatsWriterPhase = enum {
 pub const SetCellPixelsResult = struct {
     failures: []const CellPixelFailure,
     resizes: []const CellPixelResize,
+};
+
+pub const SetClientInfoResult = struct {
+    api_revision: ?u32 = null,
+    api_version: ?[]const u8 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "api_revision",
+        "api_version",
+    };
 };
 
 pub const SetHostSizePolicyResult = struct {
@@ -3548,10 +3565,16 @@ pub const TerminalResumeCommandResult = struct {
 };
 
 pub const Tree = struct {
+    changed: ?[]const Workspace = null,
+    delta: ?bool = null,
+    epoch: ?[]const u8 = null,
     generation: ?[]const u8 = null,
     next: ?u64 = null,
+    order: ?[]const Id = null,
     pane_revision: ?u64 = null,
     registry_id: ?[]const u8 = null,
+    removed: ?[]const Id = null,
+    seq: ?u64 = null,
     terminal_revision: ?u64 = null,
     total: ?u64 = null,
     tree_revision: ?[]const u8 = null,
@@ -3560,10 +3583,16 @@ pub const Tree = struct {
     workspaces: []const Workspace,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "changed",
+        "delta",
+        "epoch",
         "generation",
         "next",
+        "order",
         "pane_revision",
         "registry_id",
+        "removed",
+        "seq",
         "terminal_revision",
         "total",
         "tree_revision",
@@ -3809,6 +3838,7 @@ pub const AttachSurfaceRequest = struct {
     replay_history_rows: wire.Field(u32) = .absent,
     replay_history_start: wire.Field(u64) = .absent,
     resume_generation: wire.Field([]const u8) = .absent,
+    resume_max_bytes: wire.Field(u64) = .absent,
     resume_offset: wire.Field(u64) = .absent,
     rows: wire.Field(u16) = .absent,
     snapshot: wire.Field([]const u8) = .absent,
@@ -3844,6 +3874,7 @@ pub fn attachSurface(client: anytype, request: AttachSurfaceRequest) !client_run
                 .{ .name = "replay_history_rows", .since = null, .capability = "attach-replay-history-rows-v1" },
                 .{ .name = "replay_history_start", .since = null, .capability = "attach-replay-history-window-v1" },
                 .{ .name = "resume_generation", .since = null, .capability = "terminal-resume-v1" },
+                .{ .name = "resume_max_bytes", .since = null, .capability = "terminal-resume-bounded-v1" },
                 .{ .name = "resume_offset", .since = null, .capability = "terminal-resume-v1" },
                 .{ .name = "rows", .since = null, .capability = "attach-initial-size" },
                 .{ .name = "snapshot", .since = null, .capability = "terminal-snapshot-v1" },
@@ -7338,6 +7369,7 @@ pub const ListWorkspacesRequest = struct {
     after: wire.Field(u64) = .absent,
     known: wire.Field(ListWorkspacesKnown) = .absent,
     limit: wire.Field(u64) = .absent,
+    since: wire.Field(ListWorkspacesSince) = .absent,
 };
 
 pub const ListWorkspacesResult = Tree;
@@ -7354,6 +7386,7 @@ pub fn listWorkspaces(client: anytype, request: ListWorkspacesRequest) !wire.Dec
                 .{ .name = "after", .since = 12, .capability = "list-workspaces-page-v1" },
                 .{ .name = "known", .since = 12, .capability = "list-workspaces-known-v1" },
                 .{ .name = "limit", .since = 12, .capability = "list-workspaces-limit-v1" },
+                .{ .name = "since", .since = null, .capability = "workspace-list-delta-v1" },
             },
         },
         request,
@@ -9493,6 +9526,7 @@ pub fn setCellPixels(client: anytype, request: SetCellPixelsRequest) !wire.Decod
 
 pub const SetClientInfoRequest = struct {
     api_revision: wire.Field(u32) = .absent,
+    api_version: wire.Field([]const u8) = .absent,
     capabilities: wire.Field([]const []const u8) = .absent,
     device_id: wire.Field([]const u8) = .absent,
     device_kind: wire.Field([]const u8) = .absent,
@@ -9506,8 +9540,6 @@ pub const SetClientInfoRequest = struct {
     version: wire.Field([]const u8) = .absent,
 };
 
-pub const SetClientInfoResult = EmptyResult;
-
 pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decoded(SetClientInfoResult) {
     return client.callTyped(
         SetClientInfoResult,
@@ -9518,6 +9550,7 @@ pub fn setClientInfo(client: anytype, request: SetClientInfoRequest) !wire.Decod
             .capability = null,
             .fields = &.{
                 .{ .name = "api_revision", .since = 12, .capability = null },
+                .{ .name = "api_version", .since = 12, .capability = null },
                 .{ .name = "device_id", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_kind", .since = 12, .capability = "shared-sizing-v1" },
                 .{ .name = "device_name", .since = 12, .capability = "shared-sizing-v1" },
@@ -10474,6 +10507,43 @@ pub fn terminalEvents(client: anytype, request: TerminalEventsRequest) !wire.Dec
             .name = "terminal-events",
             .authority = "control",
             .since = 9,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const TerminalFindRequest = struct {
+    /// Marker the page ends above (exclusive): the previous page's next_before.
+    before: wire.Field(u64) = .absent,
+    case_sensitive: ?bool = null,
+    /// The previous page's epoch; a different one restarts at the bottom.
+    epoch: wire.Field(u64) = .absent,
+    max_matches: wire.Field(u64) = .absent,
+    page_rows: wire.Field(u64) = .absent,
+    /// Empty matches nothing.
+    query: []const u8,
+    /// query is a Rust regex pattern, not a literal.
+    regex: ?bool = null,
+    surface: Id,
+    whole_word: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "case_sensitive",
+        "regex",
+        "whole_word",
+    };
+};
+
+pub const TerminalFindResult = JsonValue;
+
+pub fn terminalFind(client: anytype, request: TerminalFindRequest) !wire.Decoded(TerminalFindResult) {
+    return client.callTyped(
+        TerminalFindResult,
+        .{
+            .name = "terminal-find",
+            .authority = "control",
+            .since = 7,
             .capability = null,
         },
         request,
@@ -12902,7 +12972,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 311;
+pub const command_count: usize = 312;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13185,6 +13255,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "terminal-clipboard-subscribe", .authority = "frontend", .since = 12, .capability = "terminal-clipboard-read-v1", .stream = "subscribe" },
     .{ .name = "terminal-command-context", .authority = "control", .since = 12, .capability = "terminal-command-context-v1", .stream = null },
     .{ .name = "terminal-events", .authority = "control", .since = 9, .capability = null, .stream = null },
+    .{ .name = "terminal-find", .authority = "control", .since = 7, .capability = null, .stream = null },
     .{ .name = "terminal-history", .authority = "control", .since = 12, .capability = "terminal-snapshot-v1", .stream = null },
     .{ .name = "terminal-last-command", .authority = "control", .since = 12, .capability = "terminal-last-command-v1", .stream = null },
     .{ .name = "terminal-ports", .authority = "control", .since = 12, .capability = "terminal-ports-v1", .stream = null },
