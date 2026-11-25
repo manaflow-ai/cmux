@@ -293,6 +293,7 @@ fn properties(get: &dyn Fn(&str) -> Option<String>, memory: u64) -> Vec<String> 
     properties_with_swap(get, memory, 0)
 }
 
+#[cfg(test)]
 fn properties_with_swap(
     get: &dyn Fn(&str) -> Option<String>,
     memory: u64,
