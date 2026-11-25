@@ -179,10 +179,10 @@ fn outcome_token(outcome: &PromptOutcome) -> usize {
 fn begin_outcome(
     session: &Session,
     prompt_id: &str,
-) -> Result<PromptOutcome, tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>> {
+) -> Result<PromptOutcome, (tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>, usize)> {
     let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
     match ledger.iter().find(|(id, _)| id == prompt_id) {
-        Some((_, outcome)) => Err(outcome.subscribe()),
+        Some((_, outcome)) => Err((outcome.subscribe(), outcome_token(outcome))),
         None => {
             // Keep the lock order identical to keep_acceptance (prompts, then accepted).
             // A pending outcome cannot be pruned, so this only retires a receipt whose
@@ -213,16 +213,16 @@ fn keep_acceptance(session: &Session, prompt_id: &str, v: &Value) {
         .filter(|(_, outcome)| outcome.borrow().is_none())
         .map(|(id, _)| id.clone())
         .collect();
+    let token = session
+        .prompts
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(id, _)| id == prompt_id)
+        .map(|(_, outcome)| outcome_token(outcome));
+    let Some(token) = token else { return };
     {
         let mut kept = session.accepted_prompts.lock().unwrap_or_else(|e| e.into_inner());
-        let token = session
-            .prompts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .find(|(id, _)| id == prompt_id)
-            .map(|(_, outcome)| outcome_token(outcome));
-        let Some(token) = token else { return };
         kept.retain(|(id, _, _)| id != prompt_id);
         kept.push_back((prompt_id.to_owned(), token, v.clone()));
         while kept.len() > KEPT_ACCEPTS {
@@ -248,14 +248,17 @@ async fn first_acceptance(
     let mut seq = session.accepted_seq.subscribe();
     loop {
         seq.borrow_and_update();
-        let kept = session
-            .accepted_prompts
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .iter()
-            .rev()
-            .find(|(id, kept_token, _)| id == prompt_id && *kept_token == token)
-            .map(|(_, _, v)| v.clone());
+        let kept = {
+            let _ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+            session
+                .accepted_prompts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .iter()
+                .rev()
+                .find(|(id, kept_token, _)| id == prompt_id && *kept_token == token)
+                .map(|(_, _, v)| v.clone())
+        };
         if kept.is_some() {
             return kept;
         }
@@ -421,7 +424,7 @@ impl Hub {
         };
         let seen = begin_outcome(session, &prompt_id);
         let outcome = match seen {
-            Err(mut first) => {
+            Err((mut first, token)) => {
                 // A copy never reaches the queue: it lets the chat's prompt admission go
                 // (#52381) before it waits for the first run. Held, it kept every later prompt
                 // of the chat from its queue for the whole first run, and that run's own queue
@@ -435,13 +438,8 @@ impl Hub {
                     // first run's end), so it never answers "taken, no turn" for a run that may
                     // yet be refused, nor waits out a whole inbox message's answer (an outbox
                     // retry did, every 120 s, forever: 2026-11-25).
-                    if let Some(kept) = Box::pin(first_acceptance(
-                        session,
-                        &prompt_id,
-                        outcome_token(&outcome),
-                        &mut first,
-                    ))
-                    .await
+                    if let Some(kept) =
+                        Box::pin(first_acceptance(session, &prompt_id, token, &mut first)).await
                     {
                         let mut notice = duplicate(json!({"_meta": {"acpmux": {
                             "turnId": kept.get("turnId"),
