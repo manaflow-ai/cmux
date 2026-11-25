@@ -8181,6 +8181,113 @@ public func FfiConverterTypeTabsEvent_lower(_ value: TabsEvent) -> RustBuffer {
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Why a Tailscale-only dial failed, from its error text (the app's message
+ * and its fallback to the built-in transport).
+ */
+
+public enum TailnetFailure: Equatable, Hashable {
+    
+    /**
+     * Tailscale is off or not connected on this iPhone.
+     */
+    case phoneOff
+    /**
+     * Tailscale is off on the Mac.
+     */
+    case macOff
+    /**
+     * The Mac's tailnet address did not answer.
+     */
+    case unreachable
+    /**
+     * The Mac never answered (its cmux predates Tailscale-only links, or it slept).
+     */
+    case noAnswer
+    /**
+     * The cmux service does not relay Tailscale-only dials yet.
+     */
+    case serviceTooOld
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TailnetFailure: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTailnetFailure: FfiConverterRustBuffer {
+    typealias SwiftType = TailnetFailure
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TailnetFailure {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .phoneOff
+        
+        case 2: return .macOff
+        
+        case 3: return .unreachable
+        
+        case 4: return .noAnswer
+        
+        case 5: return .serviceTooOld
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TailnetFailure, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .phoneOff:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .macOff:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .unreachable:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .noAnswer:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .serviceTooOld:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTailnetFailure_lift(_ buf: RustBuffer) throws -> TailnetFailure {
+    return try FfiConverterTypeTailnetFailure.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTailnetFailure_lower(_ value: TailnetFailure) -> RustBuffer {
+    return FfiConverterTypeTailnetFailure.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * What a tap on face `to` does.
  */
 
@@ -8282,6 +8389,11 @@ public enum Transport: Equatable, Hashable {
     
     case webRtc
     case wireGuard
+    /**
+     * Tailscale only: plain TCP over the person's tailnet, through the
+     * Tailscale app's VPN; the built-in WireGuard never runs.
+     */
+    case tailnet
 
 
 
@@ -8307,6 +8419,8 @@ public struct FfiConverterTypeTransport: FfiConverterRustBuffer {
         
         case 2: return .wireGuard
         
+        case 3: return .tailnet
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -8321,6 +8435,10 @@ public struct FfiConverterTypeTransport: FfiConverterRustBuffer {
         
         case .wireGuard:
             writeInt(&buf, Int32(2))
+        
+        
+        case .tailnet:
+            writeInt(&buf, Int32(3))
         
         }
     }
@@ -8577,6 +8695,30 @@ fileprivate struct FfiConverterOptionTypePredictionLayout: FfiConverterRustBuffe
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypePredictionLayout.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeTailnetFailure: FfiConverterRustBuffer {
+    typealias SwiftType = TailnetFailure?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeTailnetFailure.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeTailnetFailure.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -9260,6 +9402,27 @@ public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
 }
 }
 /**
+ * The Tailscale-only failure `message` (a dial error's text) names, if any.
+ */
+public func tailnetFailure(message: String) -> TailnetFailure?  {
+    return try!  FfiConverterOptionTypeTailnetFailure.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_tailnet_failure(
+        FfiConverterString.lower(message),$0
+    )
+})
+}
+/**
+ * Whether this device has a tailnet address now (the Tailscale app's VPN is
+ * connected): Settings > Connection shows it, and a Tailscale-only dial
+ * fails at once without it.
+ */
+public func tailscaleConnected() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_tailscale_connected($0
+    )
+})
+}
+/**
  * What the phone's terminal declares in `set-client-info` for the lean stream
  * (`cmux_mobile_link::names::TERMINAL_LEAN_STREAM`).
  */
@@ -9650,6 +9813,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_tailnet_failure() != 62433) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_tailscale_connected() != 55466) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
