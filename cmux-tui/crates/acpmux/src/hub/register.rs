@@ -798,14 +798,15 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_live_registered_holder_still_refuses_with_name_taken() {
         let (home, claude_home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-        let (hub, held) = holder(home.path(), "mango-live", 2_000).await;
         // Its process (this test's own) runs, with the start its token names.
         let me = std::process::id();
+        let started = crate::adopt_live::pid_start_ms(me).expect("this process's start");
+        let (hub, held) = holder(home.path(), "mango-live", started).await;
         let registry = crate::claude_peers::registry(claude_home.path());
         std::fs::create_dir_all(&registry).unwrap();
-        let entry = json!({"pid": me, "sessionId": "sid-live", "startedAt": 2_000});
+        let entry = json!({"pid": me, "sessionId": "sid-live", "startedAt": started});
         std::fs::write(registry.join(format!("{me}.json")), entry.to_string()).unwrap();
-        assert_eq!(crate::claude_peers::started_at(claude_home.path(), me), Some(2_000));
+        assert_eq!(crate::claude_peers::started_at(claude_home.path(), me), Some(started));
         let e = hub
             .yield_name_of_gone(&held, "mango-live", home.path(), claude_home.path())
             .await

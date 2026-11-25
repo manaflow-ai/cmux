@@ -61,3 +61,28 @@ impl Drop for Admission {
         self.1.abort();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A prompt that never lets go of its admission keeps the next prompt out for at most
+    /// [`LEASE`], and a released one lets it in at once.
+    #[tokio::test(start_paused = true)]
+    async fn an_admission_lapses_after_its_lease_and_a_release_lets_the_next_in() {
+        let lock = Arc::new(tokio::sync::Mutex::new(()));
+        let first = Admission::take(&lock).await;
+        assert!(first.held());
+        let start = tokio::time::Instant::now();
+        let second = Admission::take(&lock).await;
+        assert!(!first.held(), "the first prompt's admission lapsed");
+        assert!(start.elapsed() >= LEASE && start.elapsed() < LEASE + Duration::from_millis(50));
+        second.release();
+        assert!(!second.held());
+        let start = tokio::time::Instant::now();
+        let third = Admission::take(&lock).await;
+        assert_eq!(start.elapsed(), Duration::ZERO);
+        drop(third);
+        assert!(lock.try_lock().is_ok(), "a dropped admission lets go");
+    }
+}
