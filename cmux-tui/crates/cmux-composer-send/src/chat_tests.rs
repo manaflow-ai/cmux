@@ -15,8 +15,17 @@ fn done(id: &str, outcome: PromptOutcome, text: &str) -> PromptDone {
     }
 }
 
-fn outbox() -> PromptOutbox {
+/// The old fixed hold, which the older tests' times are written for.
+const TEN: Duration = Duration::from_secs(10);
+
+fn outbox_30s() -> PromptOutbox {
     let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 7);
+    outbox.set_link(true, Instant::now());
+    outbox
+}
+
+fn outbox() -> PromptOutbox {
+    let mut outbox = PromptOutbox::new(TEN, 7);
     outbox.set_link(true, Instant::now());
     outbox
 }
@@ -137,7 +146,7 @@ fn a_lost_earlier_prompt_goes_again_before_any_later_unwritten_one() {
 #[test]
 fn offline_prompts_queue_and_go_in_order_once_the_link_is_back() {
     let t0 = Instant::now();
-    let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 1);
+    let mut outbox = PromptOutbox::new(TEN, 1);
     outbox.push("a", "a", vec![], false, t0, t0);
     outbox.push("b", "b", vec![], false, t0 + ms(5), t0 + ms(5));
     assert_eq!(outbox.next_request(t0 + ms(10)), None, "link down: queued");
@@ -200,10 +209,9 @@ fn the_outbox_waits_out_its_jittered_backoff() {
 
 #[test]
 fn the_jitter_spreads_two_outboxes_apart() {
-    let a: Vec<_> =
-        (0..8).map(|_| retry_delay(3, PromptOutbox::new(DEFAULT_HOLD, 1).next_unit())).collect();
-    let mut x = PromptOutbox::new(DEFAULT_HOLD, 1);
-    let mut y = PromptOutbox::new(DEFAULT_HOLD, 2);
+    let a: Vec<_> = (0..8).map(|_| retry_delay(3, PromptOutbox::new(TEN, 1).next_unit())).collect();
+    let mut x = PromptOutbox::new(TEN, 1);
+    let mut y = PromptOutbox::new(TEN, 2);
     let xs: Vec<f64> = (0..8).map(|_| x.next_unit()).collect();
     let ys: Vec<f64> = (0..8).map(|_| y.next_unit()).collect();
     assert_ne!(xs, ys);
@@ -284,7 +292,7 @@ fn a_prompt_sent_while_the_link_is_up_waits_from_its_tap_until_a_write_fails_and
     assert!(outbox.expire(t0 + ms(12_999)).is_empty());
     assert_eq!(outbox.expire(t0 + ms(13_000)).len(), 1);
 
-    let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 1);
+    let mut outbox = PromptOutbox::new(TEN, 1);
     // Link down at the push: from the push.
     outbox.push("b", "b", vec![], false, t0, t0 + ms(3_000));
     assert!(outbox.expire(t0 + ms(12_999)).is_empty());
@@ -326,7 +334,7 @@ fn writes_that_time_out_again_and_again_come_back_once_a_whole_hold_passes_witho
         now += ms(2_000);
     }
     // A whole hold with no write under way: it comes back.
-    let given = outbox.expire(now + DEFAULT_HOLD);
+    let given = outbox.expire(now + TEN);
     assert_eq!(given.len(), 1);
     assert_eq!(given[0].id, "a");
 }
@@ -371,7 +379,7 @@ fn a_later_failed_write_moves_the_wait_on_by_what_it_took() {
     // (t0+12s): the time between the writes still counts against the hold.
     outbox.write_failed("a", again + ms(4_000));
     assert!(outbox.expire(again + ms(4_000) + ms(1_999)).is_empty());
-    assert_eq!(outbox.expire(t0 + ms(4_000) + DEFAULT_HOLD).len(), 1);
+    assert_eq!(outbox.expire(t0 + ms(4_000) + TEN).len(), 1);
 }
 
 #[test]
@@ -389,34 +397,34 @@ fn a_refusal_gives_the_text_back_and_lets_the_next_go() {
 #[test]
 fn looks_sent_from_the_tap_retrying_after_a_quiet_threshold_failed_when_given_up() {
     let t0 = Instant::now();
-    let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 1);
+    let mut outbox = PromptOutbox::new(TEN, 1);
     outbox.push("a", "a", vec![], false, t0, t0);
     assert_eq!(outbox.look("a", t0), PromptLook::Sent, "sent from the tap on");
     assert_eq!(outbox.look("a", t0 + RETRYING_AFTER - ms(1)), PromptLook::Sent);
     assert_eq!(outbox.next_look_change(t0), Some(RETRYING_AFTER));
     assert_eq!(outbox.look("a", t0 + RETRYING_AFTER), PromptLook::Retrying);
-    outbox.expire(t0 + DEFAULT_HOLD);
-    assert_eq!(outbox.look("a", t0 + DEFAULT_HOLD), PromptLook::Failed);
+    outbox.expire(t0 + TEN);
+    assert_eq!(outbox.look("a", t0 + TEN), PromptLook::Failed);
     outbox.forget("a");
-    assert_eq!(outbox.look("a", t0 + DEFAULT_HOLD), PromptLook::Sent);
+    assert_eq!(outbox.look("a", t0 + TEN), PromptLook::Sent);
     assert_eq!(outbox.look("never-here", t0), PromptLook::Sent);
 
     // Pushed again by the person: no longer failed.
     outbox.push("b", "b", vec![], false, t0, t0);
-    outbox.expire(t0 + DEFAULT_HOLD);
-    assert_eq!(outbox.look("b", t0 + DEFAULT_HOLD), PromptLook::Failed);
-    outbox.push("b", "b", vec![], true, t0 + DEFAULT_HOLD, t0 + DEFAULT_HOLD);
-    assert_eq!(outbox.look("b", t0 + DEFAULT_HOLD), PromptLook::Sent);
+    outbox.expire(t0 + TEN);
+    assert_eq!(outbox.look("b", t0 + TEN), PromptLook::Failed);
+    outbox.push("b", "b", vec![], true, t0 + TEN, t0 + TEN);
+    assert_eq!(outbox.look("b", t0 + TEN), PromptLook::Sent);
 }
 
 #[test]
 fn the_failed_memory_is_bounded() {
     let t0 = Instant::now();
-    let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 1);
+    let mut outbox = PromptOutbox::new(TEN, 1);
     for i in 0..(FAILED_MEMORY + 10) {
         outbox.push(format!("p{i}"), "x", vec![], false, t0, t0);
     }
-    outbox.expire(t0 + DEFAULT_HOLD);
+    outbox.expire(t0 + TEN);
     assert_eq!(outbox.failed.len(), FAILED_MEMORY);
     assert_eq!(outbox.look("p0", t0), PromptLook::Sent, "the oldest is forgotten");
     assert_eq!(outbox.look(&format!("p{}", FAILED_MEMORY + 9), t0), PromptLook::Failed);
@@ -425,7 +433,7 @@ fn the_failed_memory_is_bounded() {
 #[test]
 fn giving_up_from_one_prompt_takes_every_unwritten_one_after_it() {
     let t0 = Instant::now();
-    let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 1);
+    let mut outbox = PromptOutbox::new(TEN, 1);
     for id in ["a", "b", "c"] {
         outbox.push(id, id, vec![], false, t0, t0);
     }
@@ -438,21 +446,21 @@ fn giving_up_from_one_prompt_takes_every_unwritten_one_after_it() {
 #[test]
 fn draining_hands_the_unwritten_prompts_over_with_their_taps() {
     let t0 = Instant::now();
-    let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 1);
+    let mut outbox = PromptOutbox::new(TEN, 1);
     outbox.push("a", "a", vec![], false, t0, t0);
     outbox.push("b", "b", vec![], false, t0 + ms(5), t0 + ms(5));
     assert_eq!(outbox.drain_unwritten(), vec![("a".into(), t0), ("b".into(), t0 + ms(5))]);
     assert!(outbox.is_empty());
     // A next outbox (link down) that takes them over ages them from their taps.
-    let mut next = PromptOutbox::new(DEFAULT_HOLD, 1);
+    let mut next = PromptOutbox::new(TEN, 1);
     next.push("a", "a", vec![], false, t0, t0);
-    assert_eq!(next.expire(t0 + DEFAULT_HOLD).len(), 1);
+    assert_eq!(next.expire(t0 + TEN).len(), 1);
 }
 
 #[test]
 fn prompts_are_placed_by_their_tap() {
     let t0 = Instant::now();
-    let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 1);
+    let mut outbox = PromptOutbox::new(TEN, 1);
     outbox.push("late", "late", vec![], false, t0 + ms(10), t0 + ms(10));
     outbox.push("early", "early", vec![], false, t0, t0 + ms(10));
     assert_eq!(outbox.unwritten(), vec!["early", "late"]);
@@ -776,7 +784,7 @@ fn a_hundred_sends_through_a_lossy_link_none_doubled_none_lost() {
 fn a_hundred_sends_through_a_lossy_link_with_todays_hold_none_doubled_none_lost() {
     // Today's 10 s hold with ~6 s outages and backoff: some come back, honestly marked.
     for seed in 0..64u64 {
-        check(&lossy_run(seed, 100, DEFAULT_HOLD), 100);
+        check(&lossy_run(seed, 100, TEN), 100);
     }
 }
 
@@ -1049,9 +1057,9 @@ fn retry_now_skips_the_backoff_and_restarts_the_hold() {
 #[test]
 fn delete_cancels_and_leaves_no_failed_mark() {
     let t0 = Instant::now();
-    let mut outbox = PromptOutbox::new(DEFAULT_HOLD, 1);
+    let mut outbox = PromptOutbox::new(TEN, 1);
     outbox.push("a", "a", vec![], false, t0, t0);
-    outbox.expire(t0 + DEFAULT_HOLD);
+    outbox.expire(t0 + TEN);
     assert_eq!(outbox.look("a", t0), PromptLook::Failed);
     assert_eq!(outbox.delete("a"), None, "already given up: only its mark goes");
     assert_eq!(outbox.look("a", t0), PromptLook::Sent);
@@ -1081,6 +1089,216 @@ fn a_hundred_sends_with_uploads_and_cancels_through_a_lossy_link_none_doubled_no
 #[test]
 fn uploads_and_cancels_with_todays_hold_none_doubled_none_lost() {
     for seed in 0..64u64 {
-        check(&lossy_run_with(seed, 100, DEFAULT_HOLD, Mix { attach: 30, cancel: 4 }), 100);
+        check(&lossy_run_with(seed, 100, TEN, Mix { attach: 30, cancel: 4 }), 100);
     }
+}
+
+// Leo, 2026-11-24: "10s timeout for messages being sendable is a shame. if it's making good
+// progress, it should be allowed to keep going?" The hold is a stall bound, not a deadline.
+
+#[test]
+fn a_prompt_queued_behind_a_slow_write_keeps_going_while_the_link_makes_progress() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0);
+    outbox.push("b", "b", vec![], false, t0 + ms(1), t0 + ms(1));
+    assert_eq!(outbox.next_request(t0).unwrap().id, "a", "a's write is under way, slowly");
+    for second in 1..=60 {
+        outbox.progressed(t0 + Duration::from_secs(second));
+        assert!(
+            outbox.expire(t0 + Duration::from_secs(second) + ms(500)).is_empty(),
+            "b is given up at {second}s though the link is moving"
+        );
+    }
+    outbox.wrote("a");
+    outbox.progressed(t0 + Duration::from_secs(61));
+    assert_eq!(outbox.next_request(t0 + Duration::from_secs(61)).unwrap().id, "b");
+}
+
+#[test]
+fn a_stall_with_no_progress_still_gives_up_after_the_hold() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0);
+    outbox.push("b", "b", vec![], false, t0 + ms(1), t0 + ms(1));
+    outbox.next_request(t0).unwrap();
+    outbox.progressed(t0 + ms(9_000));
+    assert!(outbox.expire(t0 + ms(18_999)).is_empty(), "the stall began at the last progress");
+    assert_eq!(outbox.next_wake(t0 + ms(9_000)), Some(TEN));
+    assert_eq!(outbox.expire(t0 + ms(19_001)), vec![done("b", PromptOutcome::NotSent, "b")]);
+}
+
+#[test]
+fn other_traffic_does_not_keep_a_prompt_whose_own_write_fails() {
+    let t0 = Instant::now();
+    let mut outbox = outbox();
+    outbox.push("a", "a", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    outbox.write_failed("a", t0 + ms(100));
+    outbox.progressed(t0 + ms(9_000));
+    assert_eq!(outbox.expire(t0 + TEN + ms(100)).len(), 1, "its own writes are not moving");
+}
+
+#[test]
+fn an_upload_taking_chunks_keeps_its_prompt_and_a_stalled_one_gives_up() {
+    let t0 = Instant::now();
+    let mut outbox = PromptOutbox::new(TEN, 7);
+    outbox.push("v", "video", vec!["u1".into()], false, t0, t0);
+    for second in 1..=30 {
+        outbox.upload_progressed("u1", t0 + Duration::from_secs(second));
+        assert!(outbox.expire(t0 + Duration::from_secs(second) + ms(500)).is_empty());
+    }
+    assert!(outbox.expire(t0 + ms(39_999)).is_empty());
+    assert_eq!(outbox.expire(t0 + ms(40_000)).len(), 1, "no chunk for the hold: a stall");
+}
+
+// A send's quiet window and the Mac's "not now" (Leo, 2026-11-24: "10s timeout for messages being
+// sendsble is a shame. if it's making good progress, it shiukd be allowed to keep going?").
+
+#[test]
+fn a_send_that_keeps_making_progress_is_never_failed_by_a_fixed_ten_seconds() {
+    let t0 = Instant::now();
+    let mut outbox = outbox_30s();
+    assert_eq!(DEFAULT_HOLD, Duration::from_secs(30), "a quiet window, not the old fixed 10 s");
+    outbox.push("a", "first", vec![], false, t0, t0);
+    outbox.push("b", "second", vec![], false, t0, t0);
+    assert_eq!(outbox.next_request(t0).unwrap().id, "a", "a is under way; b waits its turn");
+    // Something is heard from the Mac every 20 s (more than the old 10 s apart): b is moving.
+    for step in 1..=6u64 {
+        let at = t0 + Duration::from_secs(20 * step);
+        outbox.progressed(at);
+        assert!(
+            outbox.expire(at + Duration::from_secs(19)).is_empty(),
+            "step {step}: still moving"
+        );
+    }
+    // Quiet for the whole 30 s window: only now is it given back.
+    let quiet = t0 + Duration::from_secs(20 * 6 + 30);
+    assert!(outbox.expire(quiet - ms(1)).is_empty());
+    let back: Vec<_> = outbox.expire(quiet).into_iter().map(|d| d.id).collect();
+    assert_eq!(back, vec!["b"]);
+}
+
+#[test]
+fn a_not_now_refusal_is_retried_with_backoff_and_never_given_back() {
+    let t0 = Instant::now();
+    let mut outbox = outbox_30s();
+    outbox.push("p", "hi", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    outbox.wrote("p");
+    let mut now = t0;
+    let mut waits = Vec::new();
+    // A just-restarted acpmux answers "not now" nine times over a minute and a half.
+    for _ in 0..9 {
+        let step = outbox.refusal("p", true, now).expect("held");
+        let Refusal::Retry { retry_in, .. } = step else {
+            panic!("a not-now is not final: {step:?}")
+        };
+        waits.push(retry_in.as_secs());
+        assert_eq!(outbox.look("p", now), PromptLook::Retrying);
+        assert_eq!(outbox.retry_in("p", now), Some(retry_in));
+        assert_eq!(outbox.next_request(now + retry_in - ms(1)), None, "waits its backoff");
+        assert!(outbox.expire(now + retry_in).is_empty(), "not given back");
+        now += retry_in;
+        let again = outbox.next_request(now).expect("goes again");
+        assert_eq!(again.id, "p");
+        assert!(again.resend, "an attempt was written before");
+        outbox.wrote("p");
+    }
+    assert_eq!(waits, vec![1, 2, 4, 8, 16, 30, 30, 30, 30], "1 s doubling, capped at 30 s");
+    assert!(now - t0 > Duration::from_secs(10), "well past the old fixed 10 s");
+    assert_eq!(
+        outbox.answered("p"),
+        Some(done("p", PromptOutcome::Sent, "hi")),
+        "and it was taken"
+    );
+}
+
+#[test]
+fn only_a_real_refusal_fails_and_a_not_now_that_never_ends_is_final_after_the_patience() {
+    let t0 = Instant::now();
+    let mut outbox = outbox_30s();
+    outbox.push("real", "a", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    assert_eq!(
+        outbox.refusal("real", false, t0),
+        Some(Refusal::Final(done("real", PromptOutcome::Refused, "a")))
+    );
+    assert_eq!(outbox.look("real", t0), PromptLook::Failed);
+
+    outbox.push("busy", "b", vec![], false, t0, t0);
+    let mut now = t0;
+    loop {
+        if outbox.next_request(now).is_some() {
+            outbox.wrote("busy");
+        }
+        match outbox.refusal("busy", true, now).unwrap() {
+            Refusal::Retry { retry_in, .. } => now += retry_in,
+            Refusal::Final(done) => {
+                assert_eq!(done.outcome, PromptOutcome::Refused);
+                assert!(now - t0 >= REFUSAL_PATIENCE, "only after {REFUSAL_PATIENCE:?}");
+                break;
+            }
+        }
+        assert!(now - t0 < REFUSAL_PATIENCE + Duration::from_secs(60), "ends");
+    }
+}
+
+#[test]
+fn a_transient_refusal_is_told_by_origin_code_or_reason() {
+    for (origin, code, reason) in [
+        (Some("native"), None, None),
+        (None, Some("timed_out"), None),
+        (None, None, Some("session.starting")),
+        (None, None, Some("hub.busy")),
+        (None, Some("not_ready"), None),
+        (None, None, Some("Restarting")),
+        (None, None, Some("host.unavailable")),
+        (None, None, Some("draining")),
+    ] {
+        assert!(is_transient_refusal(origin, code, reason), "{origin:?} {code:?} {reason:?}");
+    }
+    for (origin, code, reason) in [
+        (None, None, None),
+        (Some("acpmux"), Some("-32602"), Some("prompt.invalid")),
+        (None, None, Some("remote.full_access_required")),
+        (None, Some("permission_denied"), Some("permission.person_required")),
+    ] {
+        assert!(!is_transient_refusal(origin, code, reason), "{origin:?} {code:?} {reason:?}");
+    }
+}
+
+#[test]
+fn the_macs_resend_notices_drive_the_look_and_the_end() {
+    let t0 = Instant::now();
+    let mut outbox = outbox_30s();
+    outbox.push("p", "hi", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    outbox.wrote("p");
+    let retrying = ResendState::parse("retrying", Some(4_000)).unwrap();
+    assert_eq!(retrying, ResendState::Retrying { retry_in: Some(ms(4_000)) });
+    assert_eq!(outbox.resend_notice("p", retrying, t0 + ms(10)), None);
+    assert_eq!(outbox.look("p", t0 + ms(10)), PromptLook::Retrying);
+    assert_eq!(outbox.retry_in("p", t0 + ms(10)), Some(ms(4_000)));
+    assert_eq!(
+        outbox.next_request(t0 + Duration::from_secs(60)),
+        None,
+        "the Mac's outbox resends it"
+    );
+    assert_eq!(
+        outbox.resend_notice("p", ResendState::parse("sent", None).unwrap(), t0 + ms(5_000)),
+        None
+    );
+    assert_eq!(outbox.look("p", t0 + ms(5_000)), PromptLook::Sent);
+    assert_eq!(outbox.resend_notice("p", ResendState::Accepted, t0 + ms(5_001)), None);
+    assert_eq!(outbox.retry_in("p", t0 + ms(5_001)), None);
+    assert_eq!(ResendState::parse("bogus", None), None);
+
+    outbox.push("q", "no", vec![], false, t0, t0);
+    outbox.next_request(t0).unwrap();
+    assert_eq!(
+        outbox.resend_notice("q", ResendState::Refused, t0),
+        Some(done("q", PromptOutcome::Refused, "no")),
+        "a refusal for good fails it"
+    );
 }
