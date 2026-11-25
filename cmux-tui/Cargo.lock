@@ -111,6 +111,7 @@ dependencies = [
  "schemars 1.2.2",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.10.9",
  "signal-hook-registry",
  "syn 2.0.119",
@@ -231,6 +232,14 @@ dependencies = [
  "tokio",
  "unicode-width",
  "uuid",
+]
+
+[[package]]
+name = "acpmux-team-space"
+version = "1.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3174,6 +3183,7 @@ dependencies = [
  "cmux-signed-bundle",
  "cmux-signed-envelope",
  "cmux-supervise-core",
+ "cmux-tag-cache",
  "cmux-tasks",
  "cmux-tasks-core",
  "cmux-terminal-find",
