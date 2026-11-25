@@ -282,7 +282,7 @@ jobs:
     needs: runner
     if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
     # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY || 'ubuntu-24.04' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY }}
     timeout-minutes: 40  # the client waits up to 600 s queued plus 1500 s running
     permissions:
       contents: read
@@ -865,12 +865,23 @@ jobs:
           ATTEMPT: ${{ github.run_attempt }}
           REPO: ${{ github.repository }}
         run: |
-          set -uo pipefail
+          set +e -uo pipefail
           # One jobs read a minute: the upload step's outcome, or the kit job's end without one.
+          # curl and python3, not gh: this job has no checkout, and the first base run (45594390658)
+          # died on its first gh read with no output. A failed read is logged and retried, never fatal.
           for _ in $(seq 1 50); do
-            state="$(gh api "repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=50" --jq '
-              .jobs[] | select(.name | startswith("CmuxMobileKit tests")) |
-              ((.steps[]? | select(.name == "Upload the iOS simulator test build") | "\(.status)/\(.conclusion)") // "none/none") + " " + .status' 2>/dev/null | head -1)"
+            state="$(curl -fsS --max-time 30 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=50" |
+              python3 -c '
+          import json, sys
+          for job in json.load(sys.stdin).get("jobs", []):
+              if job["name"].startswith("CmuxMobileKit tests"):
+                  step = next((s for s in job.get("steps") or [] if s["name"] == "Upload the iOS simulator test build"), None)
+                  print("%s/%s" % (step["status"], step["conclusion"]) if step else "none/none", job["status"])
+                  break
+          else:
+              print("absent")')"
+            [ -n "$state" ] || state="read-failed"
             echo "$(date -u +%H:%M:%S) $state"
             case "$state" in
               completed/success*) echo "uploaded=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
