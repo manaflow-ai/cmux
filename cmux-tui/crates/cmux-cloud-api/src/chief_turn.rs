@@ -106,17 +106,30 @@ fn token_shaped(value: &str) -> bool {
         && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-._~+/=:".contains(&b))
 }
 
+/// A drop-in that makes a unit without the line read [`TURN_ENV_FILE`]: an image baked before the
+/// unit got its second `EnvironmentFile=-` line, or a fallback unit an earlier start installed.
+pub const TURN_UNIT_DROP_IN: &str = "/etc/systemd/system/cmux-chief.service.d/turn-credential.conf";
+
 /// The root script that puts the staged file in place: [`TURN_ENV_DIR`] made root's and 0700,
-/// the file root's and 0600, the stage removed whatever happens. It prints `changed` when the
-/// file is new or differs, `same` when it was already there as is (then nothing is replaced). No
-/// secret is in it, and `cmp -s` prints nothing, so its output and errors carry none either.
+/// the file root's and 0600, the stage removed whatever happens. Where `cmux-chief.service` does
+/// not read the file yet (no unit, or one from before the line), it first writes
+/// [`TURN_UNIT_DROP_IN`] and reloads systemd. It prints `changed` when the file is new or differs
+/// or the drop-in was just written (a running host must restart to read either), `same` when
+/// nothing was replaced. No secret is in it, and `cmp -s` prints nothing, so its output and errors
+/// carry none either.
 pub fn install_script() -> String {
     let next = format!("{TURN_ENV_FILE}.next");
+    let line = format!("EnvironmentFile=-{TURN_ENV_FILE}");
     format!(
-        "trap 'rm -f {TURN_ENV_STAGE} {next}' EXIT; set -e; umask 077; \
+        "trap 'rm -f {TURN_ENV_STAGE} {next}' EXIT; set -e; umask 077; unit=read; \
+         if ! systemctl cat cmux-chief.service 2>/dev/null | grep -qxF '{line}'; then \
+         install -d -m 0755 -o root -g root \"$(dirname {TURN_UNIT_DROP_IN})\"; \
+         printf '[Service]\\n%s\\n' '{line}' > {TURN_UNIT_DROP_IN}; chmod 0644 {TURN_UNIT_DROP_IN}; \
+         systemctl daemon-reload; unit=added; fi; \
          mkdir -p {TURN_ENV_DIR}; chown root:root {TURN_ENV_DIR}; chmod 0700 {TURN_ENV_DIR}; \
          install -m 0600 -o root -g root {TURN_ENV_STAGE} {next}; \
-         if cmp -s {next} {TURN_ENV_FILE}; then echo same; \
+         if cmp -s {next} {TURN_ENV_FILE}; then \
+         if [ \"$unit\" = added ]; then echo changed; else echo same; fi; \
          else mv -f {next} {TURN_ENV_FILE}; echo changed; fi"
     )
 }

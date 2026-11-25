@@ -584,6 +584,14 @@ fn the_install_makes_a_root_only_folder_and_file_and_says_whether_it_changed() {
     assert!(script.contains("echo same") && script.contains("echo changed"));
     // The stage is removed whatever happens.
     assert!(script.starts_with(&format!("trap 'rm -f {}", chief_turn::TURN_ENV_STAGE)));
+    // A unit without the line (an image from before it) gets a drop-in, and that counts as changed.
+    assert!(script.contains("grep -qxF 'EnvironmentFile=-/run/cmux-chief/turn.env'"));
+    assert!(script.contains(&format!(
+        "printf '[Service]\\n%s\\n' 'EnvironmentFile=-/run/cmux-chief/turn.env' > {}",
+        chief_turn::TURN_UNIT_DROP_IN
+    )));
+    assert!(script.contains("systemctl daemon-reload; unit=added"));
+    assert!(script.contains("if [ \"$unit\" = added ]; then echo changed; else echo same; fi"));
     // On tmpfs.
     assert!(chief_turn::TURN_ENV_FILE.starts_with("/run/"));
     assert!(chief_turn::TURN_ENV_STAGE.starts_with("/dev/shm/"));
