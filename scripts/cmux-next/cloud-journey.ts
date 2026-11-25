@@ -5385,6 +5385,21 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     J.firstText.mark("login_ready");
+    if (provider === "codex") {
+      // Codex spawns codex-code-mode-host from beside its real executable for each tool call; an image whose codex came
+      // from a release tarball (codex alone) started every chat and failed every tool call (2026-11-25). The stub's
+      // plain exec_command turn never spawns the host, so the journey checks the file itself.
+      await J.step("Codex has its code-mode host", async () => {
+        const r = await exec(
+          `p=$(bash -lc 'command -v codex' 2>/dev/null </dev/null); [ -n "$p" ] || p=/opt/cmux/current/bin/codex; ` +
+            `r=$(readlink -f "$p"); h="$(dirname "$r")/codex-code-mode-host"; ` +
+            `if [ -x "$h" ]; then echo "@@host $h"; else echo "@@missing $r"; fi`,
+        );
+        const host = /@@host (\S+)/.exec(r.stdout)?.[1];
+        if (!host) throw new Error(`failed to spawn code-mode host: no codex-code-mode-host beside ${/@@missing (\S*)/.exec(r.stdout)?.[1] || "codex"} (exit ${r.code} ${r.stderr.slice(-200)})`);
+        return { value: null, detail: host };
+      });
+    }
     if (gatewayStub && provider === "codex" && !only.has("chat")) {
       // The stub lists no models, and with the image's default model slug Codex sends it no tools (codex-cli 0.164
       // against the stub: tools=0 with the default, 9 with "stub-model"), so the turn gets the stub's side reply
