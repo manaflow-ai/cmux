@@ -84,7 +84,7 @@ impl Hub {
         }
         let importing =
             self.importing.lock().unwrap_or_else(|e| e.into_inner()).contains(&session.id);
-        if self.archive_held(session)
+        if self.archive_held_with(session, cold)
             || session.status_writes.load(Ordering::SeqCst) > 0
             || session.purging.load(Ordering::SeqCst)
             || meta.watching.is_some()

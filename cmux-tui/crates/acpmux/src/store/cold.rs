@@ -728,11 +728,6 @@ impl LocalStore {
             return Ok(false);
         }
         #[cfg(test)]
-        super::REHYDRATE_TRACES
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .push(format!("{id} {}", std::backtrace::Backtrace::force_capture()));
-        #[cfg(test)]
         super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "rehydrate");
         let cold = self.cold.lock(id);
         // From here on, read in the held home (`home_fs`), where the rehydrate writes and
