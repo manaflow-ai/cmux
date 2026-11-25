@@ -139,13 +139,15 @@ export default componentEntry<Props>({
         <div
           style={{
             // The popover arm opens above its chip, as over the composer at a chat's end.
-            padding: askArm === "popover" ? "140px 16px 0" : "16px 16px 0",
+            padding: askArm === "popover" ? "32px 16px 0" : "16px 16px 0",
             ...(scheme ? { ...SCHEMES[scheme], minHeight: "100%" } : {}),
           }}
         >
-          <TurnActionsContext.Provider value={actions}>
-            <TurnFooter row={row as never} />
-          </TurnActionsContext.Provider>
+          <div style={askArm === "popover" ? { marginTop: 56, paddingTop: 32 } : undefined}>
+            <TurnActionsContext.Provider value={actions}>
+              <TurnFooter row={row as never} />
+            </TurnActionsContext.Provider>
+          </div>
         </div>
       );
     };

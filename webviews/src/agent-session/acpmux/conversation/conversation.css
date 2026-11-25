@@ -6833,7 +6833,7 @@ a.cv-sha:focus-visible {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--ds-space-2);
   min-width: 0;
   max-width: 100%;
   height: 24px;
@@ -6859,8 +6859,8 @@ a.cv-sha:focus-visible {
 }
 .cv-settings-ask-chip__dot {
   flex: none;
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  aspect-ratio: 1;
   border-radius: 50%;
   background: var(--acpmux-needs-you-mark);
 }
