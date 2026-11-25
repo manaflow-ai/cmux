@@ -141,11 +141,17 @@ extension AgentTabStore {
             // The control's blocked and slots-full facts (Rust decides, ``CloudPlaceFlows/ControlFacts``): a plan only once a
             // read kept one, so a plan not read never claims No Plan or a full slot list. The chats are read only when Rust
             // will count slots (signed in, plan kept): a header with no plan never walks every tab.
-            let signedIn = services.cloud.isSignedIn
-            let plan = signedIn ? tabs.cloudMachines.planReads.kept(account: services.cloud.account) : nil
-            let control = CloudPlaceFlows.ControlFacts(signedIn: signedIn, restoring: services.cloud.auth.isRestoring,
-                                                       planKnown: plan != nil, planId: plan?.id,
-                                                       chats: plan == nil ? [] : services.cloud.place.controlChats(services.placeChats()))
+            // Off unless the person turns it on (`defaults write … cmux.hybrid.blockedStates -bool YES`): the chip then shows
+            // Signed Out, No Plan and the slot holders. Unset, `place` is what it was.
+            var control: CloudPlaceFlows.ControlFacts?
+            if UserDefaults.standard.bool(forKey: "cmux.hybrid.blockedStates") {
+                let signedIn = services.cloud.isSignedIn
+                // A kept plan with no id is not known: Rust would read it as no plan at all.
+                let planId = signedIn ? tabs.cloudMachines.planReads.kept(account: services.cloud.account)?.id : nil
+                control = CloudPlaceFlows.ControlFacts(signedIn: signedIn, restoring: services.cloud.auth.isRestoring,
+                                                       planKnown: planId != nil, planId: planId,
+                                                       chats: planId == nil ? [] : services.cloud.place.controlChats(services.placeChats()))
+            }
             return services.cloud.place.placeJSON(session: session, onCloud: record.host.hasPrefix(MachineRegistry.registryHostPrefix), cloudName: record.hostName,
                                                   control: control)
         }
