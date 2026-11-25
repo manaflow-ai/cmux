@@ -1579,7 +1579,6 @@ try {
       wireT0 = Date.now();
       endOpenTurn = OPEN_ENDS_MS > 0;
       // PROFILE=1: the relaunched page's main thread from navigation to its newest answer drawn.
-      page.on("console", (m) => { if (m.text().startsWith("LCDBG")) console.log(m.text()); });
       const relaunchCdp = PROFILE ? await page.context().newCDPSession(page) : null;
       if (relaunchCdp) {
         await relaunchCdp.send("Profiler.enable");
@@ -1611,7 +1610,7 @@ try {
           "RES " +
             (await page.evaluate(() =>
               [
-                ...performance.getEntriesByType("resource").map(
+                ...(performance.getEntriesByType("resource") as PerformanceResourceTiming[]).map(
                   (e) => `${e.name.split("/").pop()} ${e.startTime.toFixed(0)}-${e.responseEnd.toFixed(0)}`,
                 ),
                 ...performance.getEntriesByType("mark").map((e) => `mark:${e.name} ${e.startTime.toFixed(0)}`),
