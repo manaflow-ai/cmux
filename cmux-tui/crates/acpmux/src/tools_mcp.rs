@@ -37,7 +37,7 @@ pub const ARG: &str = "tools-mcp";
 pub const SERVER_META: &str = "cmux/server";
 
 /// The servers it serves, each with its own command word.
-pub const SERVERS: [(&str, &str); 6] = [
+pub const SERVERS: [(&str, &str); 8] = [
     (crate::secret_mcp::SERVER_NAME, "secret-mcp"),
     (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
     (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
@@ -45,6 +45,11 @@ pub const SERVERS: [(&str, &str); 6] = [
     (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
     // cmux Computer Use (`computer_use/served.rs`): in the gateway, no stdio bridge per chat.
     (crate::computer_use::mcp::SERVER_NAME, crate::computer_use::mcp::COMMAND),
+    // cmux's hosted MCP (`hosted_mcp.rs`), on by default on a Mac: a bridge of its own per chat
+    // there, not a process.
+    (crate::hosted_mcp::SERVER_NAME, crate::hosted_mcp::COMMAND),
+    // Cloud repository tools on a Cloud machine (`cloud_repo_mcp.rs`).
+    (crate::cloud_repo_mcp::SERVER_NAME, crate::cloud_repo_mcp::COMMAND),
 ];
 
 static MCP_CLIENT: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
@@ -94,6 +99,10 @@ pub(crate) type Call = Arc<dyn Fn(String, Value) -> CallFuture + Send + Sync>;
 pub(crate) type OnInitialize = Arc<dyn Fn(&Value) -> Option<String> + Send + Sync>;
 /// A server's `tools/list` when it depends on what `initialize` said.
 pub(crate) type List = Arc<dyn Fn() -> Value + Send + Sync>;
+pub(crate) type HandleFuture = Pin<Box<dyn Future<Output = Option<Value>> + Send>>;
+/// A server that answers every request itself (a bridge to a remote MCP server: its tools are
+/// the remote's): the JSON-RPC reply to the message, without [`SERVER_META`] in its params.
+pub(crate) type Handle = Arc<dyn Fn(Value) -> HandleFuture + Send + Sync>;
 
 /// One server a process answers for.
 pub(crate) struct Served {
@@ -109,6 +118,8 @@ pub(crate) struct Served {
     pub on_initialize: Option<OnInitialize>,
     /// Its `tools/list` instead of `tools`.
     pub list: Option<List>,
+    /// Answers `initialize`, `tools/list` and `tools/call` itself, instead of the fields above.
+    pub handle: Option<Handle>,
 }
 
 /// `call` as a [`Call`]. It is only ever called to make its future, under a lock, so it need
@@ -171,13 +182,15 @@ impl Daemon {
 }
 
 /// The makers of [`SERVERS`], in its order.
-pub(crate) const MAKERS: [fn(&Arc<Daemon>) -> Result<Served>; 6] = [
+pub(crate) const MAKERS: [fn(&Arc<Daemon>) -> Result<Served>; 8] = [
     crate::secret_mcp::served,
     crate::offer_mcp::served,
     crate::subsession_mcp::served,
     crate::forum_mcp::served,
     crate::acpmux_mcp::served,
     crate::computer_use::served::served,
+    crate::hosted_mcp::served,
+    crate::cloud_repo_mcp::served,
 ];
 
 /// Every server of [`SERVERS`] whose session the env ([`crate::tool_env`]) names, on `daemon`.
@@ -221,7 +234,16 @@ where
             }
         }
     });
-    Ok(Served { name, session, tools, instructions, call, on_initialize: None, list: None })
+    Ok(Served {
+        name,
+        session,
+        tools,
+        instructions,
+        call,
+        on_initialize: None,
+        list: None,
+        handle: None,
+    })
 }
 
 /// The one server `served` makes, on stdin and stdout with a daemon connection of its own.
@@ -337,6 +359,17 @@ pub(crate) fn answer(servers: &[Served], message: &Value) -> Answer {
         Ok(served) => served,
         Err(text) => return error(-32602, text),
     };
+    if let Some(handle) = &served.handle {
+        let mut message = message.clone();
+        message.set("params", params);
+        let reply = handle(message);
+        return Answer::Call(Box::pin(async move {
+            reply.await.unwrap_or_else(|| {
+                let text = "the server sent no answer";
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": text}})
+            })
+        }));
+    }
     match verb {
         "initialize" => {
             let mut reply = json!({
@@ -388,6 +421,7 @@ mod tests {
             call: boxed(|_, _| async { json!({}) }),
             on_initialize: None,
             list: None,
+            handle: None,
         }
     }
 
@@ -459,6 +493,8 @@ mod tests {
         assert!(owns("acpmux", &args(&["acp", "acpmux-mcp"])));
         assert!(!owns("cmux-forum", &args(&["acpmux-mcp"])));
         assert!(!owns("cmux-repo", &args(&["repo-mcp"])));
+        assert!(owns("cmux-cloud-repos", &args(&["repo-mcp"])));
+        assert!(owns("cmux-hosted", &args(&["acp", "hosted-mcp"])));
         assert!(!owns("cmux-cua", &args(&["cua-mcp"])));
         assert!(owns("cmux-computer-use", &args(&["computer-use-mcp"])));
     }

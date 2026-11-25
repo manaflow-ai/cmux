@@ -124,6 +124,7 @@ pub(crate) fn served(_daemon: &Arc<crate::tools_mcp::Daemon>) -> Result<crate::t
         list: Some(Arc::new(move || {
             super::mcp::tools_list(on_list.defer.load(Ordering::Relaxed))["tools"].clone()
         })),
+        handle: None,
     })
 }
 

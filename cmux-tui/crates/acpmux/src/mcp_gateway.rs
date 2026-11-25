@@ -644,6 +644,7 @@ impl Gateway {
             crate::secret_mcp::SESSION_ENV,
             crate::offer_mcp::SESSION_ENV,
             crate::computer_use::mcp::SESSION_ENV,
+            crate::cloud_repo_mcp::SESSION_ENV,
         ] {
             if let Some(value) = env.get_mut(key) {
                 *value = session.to_owned();

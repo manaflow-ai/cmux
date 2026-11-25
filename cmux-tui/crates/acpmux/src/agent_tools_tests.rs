@@ -545,7 +545,7 @@ fn a_chat_runs_acpmux_s_own_tool_servers_in_one_process() {
         &folded.servers[0].env.iter().find(|(k, _)| k == super::UPSTREAMS_ENV).unwrap().1;
     let upstreams: serde_json::Value = serde_json::from_str(upstreams).unwrap();
     let upstreams = upstreams.as_array().unwrap();
-    let own = ["cmux-secrets", "cmux-sessions", "cmux-subsessions", "cmux-forum", "acpmux"];
+    let own: Vec<&str> = crate::tools_mcp::SERVERS.iter().map(|(name, _)| *name).collect();
     let names: Vec<&str> = upstreams.iter().filter_map(|s| s["name"].as_str()).collect();
     assert_eq!(
         names,
@@ -586,8 +586,9 @@ fn a_chat_runs_acpmux_s_own_tool_servers_in_one_process() {
     assert_eq!(shared["env"]["ACPMUX_SECRET_SESSION"], "s-one", "{shared}");
     assert_eq!(shared["env"]["ACPMUX_OFFER_SESSION"], "s-one", "{shared}");
     assert_eq!(shared["env"]["ACPMUX_SESSION_ID"], "s-one", "{shared}");
-    // Computer use is not acpmux's own: it keeps its process.
-    assert!(upstreams[0].get("shared").is_none(), "{}", upstreams[0]);
+    // Computer Use is one of acpmux's own (`computer_use/served.rs`): it shares that process.
+    assert_eq!(upstreams[0]["name"], crate::computer_use::mcp::SERVER_NAME, "{}", upstreams[0]);
+    assert_eq!(&upstreams[0]["shared"], shared, "{}", upstreams[0]);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -691,7 +692,8 @@ async fn with_a_gateway_acpmux_s_own_upstreams_name_its_tool_endpoint() {
         }
     }
     let owned = specs.iter().filter(|s| own.contains(&s["name"].as_str().unwrap())).count();
-    assert!(owned >= own.len() - 1, "acpmux's servers, Computer Use where it runs: {specs:?}");
+    let cu = crate::computer_use::mcp::SERVER_NAME;
+    assert!(specs.iter().any(|s| s["name"] == cu && s.get("http").is_some()), "{specs:?}");
     assert_eq!(specs.iter().filter(|s| s.get("http").is_some()).count(), owned);
     // The harness gets the gateway, and the gateway keeps the launch with the same upstreams.
     assert!(tools.http.contains_key("cmux"));
@@ -748,6 +750,7 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
         secrets: true,
         offers: true,
         subsessions: true,
+        hosted: true,
         ..memory_inputs(&root, Some(r#"{"agents": {"cmuxMcp": "off"}}"#))
     };
     let gateway = crate::mcp_gateway::bind(
@@ -764,7 +767,7 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
     let before = standalone().folded().mcp_config().unwrap();
     assert!(before["mcpServers"].get("cmux").is_none(), "{before}");
     let started = acpmux_processes(&before, &exe);
-    assert!(started.len() >= own.len() - 1, "the tool servers (and Computer Use): {started:?}");
+    assert!(started.len() >= 7, "the tool servers, Computer Use and the hosted one: {started:?}");
     // N chats register no stdio server between them: the count stays flat as chats grow.
     for n in 0..8 {
         let session = format!("s-budget-{n}");
@@ -817,6 +820,47 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
     let started = acpmux_processes(&config, &exe);
     assert!(started.len() <= ACPMUX_PROCESSES_PER_CHAT, "{started:?} in {config}");
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The servers acpmux may start as itself under a harness that are not among its own
+/// ([`crate::tools_mcp::SERVERS`]), which the daemon's gateway serves: GitHub's (`github_mcp.rs`,
+/// a Cloud machine or a machine a Mac lends GitHub) reads the chat's working folder for its
+/// repository, a folder the daemon does not run in.
+const STDIO_ONLY: [&str; 1] = [crate::github_mcp::SERVER_NAME];
+
+/// Why a tool process per chat could come back unseen: the gateway serves only the servers in
+/// [`crate::tools_mcp::SERVERS`], so any other server acpmux starts as itself stays a stdio
+/// process under every harness (Computer Use and the hosted server were, 2026-11-25). Every one
+/// acpmux can add, with each input on, is one of its own, or named in [`STDIO_ONLY`] with why.
+#[test]
+fn every_server_acpmux_starts_as_itself_is_one_the_gateway_serves() {
+    let root = tempfile::tempdir().unwrap();
+    let cmux = root.path().join("cmux");
+    crate::test_exec::write_executable(&cmux, "#!/bin/sh\n");
+    let exe = std::path::PathBuf::from("/usr/local/lib/cmux/acpmux");
+    let inputs = super::Inputs {
+        acpmux: Some(crate::self_command::SelfCommand::new(exe.clone(), Vec::new())),
+        secrets: true,
+        offers: true,
+        subsessions: true,
+        hosted: true,
+        github: true,
+        ..memory_inputs(root.path(), Some(r#"{"agents": {"cmuxMcp": "off"}}"#))
+    };
+    let tools = resolve(&inputs).scoped(&Default::default()).for_session("s-every");
+    let own: Vec<String> = tools
+        .servers
+        .iter()
+        .filter(|s| s.command == exe)
+        .filter(|s| !crate::tools_mcp::owns(&s.name, &s.args))
+        .map(|s| s.name.clone())
+        .filter(|name| !STDIO_ONLY.contains(&name.as_str()))
+        .collect();
+    assert!(own.is_empty(), "{own:?}: add each to tools_mcp::SERVERS (or STDIO_ONLY, with why)");
+    let names: Vec<&str> = tools.servers.iter().map(|s| s.name.as_str()).collect();
+    for name in [crate::computer_use::mcp::SERVER_NAME, crate::hosted_mcp::SERVER_NAME] {
+        assert!(names.contains(&name), "{name} is in a chat's list: {names:?}");
+    }
 }
 
 /// Every agent cmux starts gets the one `cmux` server ([`super::cmux_server`]): this CLI's `mcp
