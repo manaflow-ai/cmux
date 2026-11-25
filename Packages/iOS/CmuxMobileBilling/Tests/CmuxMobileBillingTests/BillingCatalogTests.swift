@@ -14,7 +14,8 @@ struct BillingCatalogTests {
         )
 
         #expect(account.catalogPlanIDs == [.nextPlus, .nextPro, .nextMax])
-        #expect(account.catalogPlanIDs.allSatisfy(\.isNext))
+        let allNext = account.catalogPlanIDs.allSatisfy { plan in plan.isNext }
+        #expect(allNext)
     }
 
     @Test func classicPlansRemainVisibleOnlyWhenCurrentOrOnSale() {
@@ -26,8 +27,21 @@ struct BillingCatalogTests {
             products: []
         )
 
-        #expect(account.catalogPlanIDs == [.go, .nextPlus, .nextPro, .nextMax])
+        #expect(account.catalogPlanIDs == [.go, .pro, .max])
         #expect(!BillingPlanID.pro.isNext)
         #expect(BillingPlanID.nextPlus < .nextPro && BillingPlanID.nextPro < .nextMax)
+    }
+
+    @Test func explicitNextFamilyHandlesEmptyIneligibleResponse() {
+        let account = BillingAccount(
+            appAccountToken: UUID(),
+            eligible: false,
+            reason: .purchasesUnavailable,
+            currentPlan: BillingCurrentPlan(planID: .free, source: .none),
+            products: [],
+            catalogFamily: .next
+        )
+
+        #expect(account.catalogPlanIDs == [.nextPlus, .nextPro, .nextMax])
     }
 }
