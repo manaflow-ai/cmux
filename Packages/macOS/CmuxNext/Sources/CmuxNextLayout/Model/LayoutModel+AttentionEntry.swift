@@ -17,6 +17,10 @@ extension LayoutModel {
         let read = attentionReadByEntry.union(readByEntry).subtracting(shown.keys)
         if attentionReadByEntry != read { attentionReadByEntry = read }
         if attention != shown { attention = shown }
+        if holdsAttentionUntilShown { // a held ring read by going in stays until the hold ends, so it blinks out where it shows (cmux#56125)
+            let held = shown.merging(attentionWhileHeld.filter { read.contains($0.key) }) { mark, _ in mark }
+            if attentionWhileHeld != held { attentionWhileHeld = held }
+        }
     }
 
     /// The person went into `pane` (the focus moved into it, or `click`): a ring the App reads so goes
