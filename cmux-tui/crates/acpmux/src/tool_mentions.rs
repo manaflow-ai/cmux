@@ -672,3 +672,4 @@ mod own_note_tests {
         assert_eq!(without_own_note(&typed), typed, "nothing generated to strip");
     }
 }
+// clippy-195 probe
