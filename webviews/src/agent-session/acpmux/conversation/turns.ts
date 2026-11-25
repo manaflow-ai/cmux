@@ -37,7 +37,8 @@ import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { ROW_WIDTH, shortCommand } from "./shortCommand";
 import { scriptNoun } from "./commandActions";
-import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
+import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
+import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
@@ -184,6 +185,24 @@ export function workedCallsText(t: Translate, row: AcpmuxRow): string {
   return row.workedCalls ? t("turn.workedCalls", { calls: toolCalls(t, row.workedCalls) }) : "";
 }
 
+/// The Settings > Advanced > Experiments switch (`experiments.foldSummaryCounts`, off by default)
+/// that has a closed "Worked for" say what it hides: "Worked for 36s · ran 4 commands, edited 2 files".
+/// Off, the line is the time alone, as before.
+export const FOLD_COUNTS_SWITCH = "foldSummaryCounts";
+
+/// What a "Worked for" hides (`foldCalls`), as the tool runs name it (toolRunSummary.ts
+/// `toolRunPhrases`: "ran 4 commands", "edited 2 files", lower case, in the order the turn first did
+/// each) joined by the runs' separator, and how many of those calls failed (the runs' "1 failed",
+/// FailedCount.tsx). Undefined when it hides no call.
+export function workedCountsText(t: Translate, row: AcpmuxRow): { text: string; failed: number } | undefined {
+  const calls = row.foldCalls;
+  if (!calls?.length) return undefined;
+  const phrases = toolRunPhrases(t, calls);
+  if (!phrases.length) return undefined;
+  const failed = calls.filter((item) => countsFailed(item.tool!)).length;
+  return { text: phrases.join(t("toolRun.separator")), failed };
+}
+
 /// ", sent a message, received 2 messages" after a "Worked for" that names the messages between
 /// agents it folds (`workedMessages`, the `messages` arm of workedForMessages.experiment.ts), else "".
 export function workedMessagesText(t: Translate, row: AcpmuxRow): string {
@@ -219,7 +238,6 @@ export function footerLabel(t: Translate, row: AcpmuxRow): string | undefined {
 const footerSays = (row: AcpmuxRow) =>
   !row.folded &&
   (row.previous !== undefined || row.durationMs === undefined || row.durationMs >= 1000 || row.status === "cancelled");
-
 
 /// A footer with nothing to show at rest and only hover controls (Pin, Fork, its time): no answer to
 /// copy or read aloud and the turn did not fail. A stopped turn resumes from the composer.
@@ -2217,14 +2235,22 @@ function shapeTurn(
                   : [],
               )
           : [];
+      // The calls the fold hides, for the line's counts once Settings > Advanced > Experiments >
+      // Fold Summary Counts is on (`workedCountsText`): the switch is read where the line draws, so
+      // flipping it redraws the line without shaping the turn again.
+      const foldCalls = hidden
+        .flatMap(withoutDrafts)
+        .flatMap((row) => (row.kind === "activity" ? (row.items ?? []).filter((item) => item.tool) : []));
       const labelVersion = mixVersion(
         (version * 2 + (open ? 1 : 0)) * PREVIOUS_SPAN + Math.min(PREVIOUS_SPAN - 1, previous ?? 0),
         named ? messages.sent * 1_000 + messages.received + 1 : 0,
       );
+      const runsVersion = workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion;
       const worked: AcpmuxRow = {
         id,
-        // What its label names (`named`, and the `header` arm's work, `workKey`) is part of the version too.
-        version: workedRuns.length ? mixVersion(labelVersion, workKey(workedRuns)) : labelVersion,
+        // What its label names (`named`, the `header` arm's work and the calls its counts name, each
+        // by `workKey`) is part of the version too.
+        version: foldCalls.length ? mixVersion(runsVersion, workKey(foldCalls)) : runsVersion,
         at: from,
         kind: WORKED,
         foldOpen: open,
@@ -2246,6 +2272,7 @@ function shapeTurn(
         // "Worked for".
         ...(previous !== undefined && { previous }),
         ...(workedRuns.length && { workedRuns }),
+        ...(foldCalls.length && { foldCalls }),
       };
       if (style.conclusion) shaped.push(worked);
       if (taskLine && taskLook === "after-fold") shaped.push(taskLine);
@@ -3534,6 +3561,7 @@ function codexLiveTurn(
       call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
     line.doing = shell ? (call.command ? liveCommand(call.command) : "") : runningLabel(call, "");
     line.doingShell = shell;
+    if (call.kind) line.doingKind = call.kind;
     if (shell && !call.command && call.status === "pending") line.doingDraft = true;
     // A started command shows "⌃B to run in background" on the line, never on a transcript row
     // (Thinking.tsx; Leo, 2026-10-22: "this cmd b to run in background ... it should prob go down").

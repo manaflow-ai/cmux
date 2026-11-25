@@ -290,6 +290,41 @@ export class SessionPager<S extends Summary> {
     return this.more === undefined;
   }
 
+  /** The watch is paused (`pause`) until the next `first` turns it on again. */
+  private pausedWatch = false;
+  /** The request that turned the watch off, while it is out: every `first` waits for it, so on one
+   *  connection acpmux turns the watch on after, never before, the pause. */
+  private pauseOut?: Promise<unknown>;
+
+  /** Whether the watch is paused: acpmux sends this page no other chat's change until the next `first`. */
+  get paused(): boolean {
+    return this.pausedWatch;
+  }
+
+  /**
+   * A hidden page stops hearing the list: `_acpmux/watch {enabled: false}` is acpmux's per-connection
+   * pause (server/interest.rs `set_watching`), so no other chat's change is sent, decoded, logged or
+   * dropped here while nobody sees the page. The chats this connection attached (its own) are still
+   * told. The rows held stay, and so does their cursor: the notices that still come (the attached
+   * chats', or every chat's from an acpmux that ignores the pause) neither move it nor invalidate it,
+   * so the next `first` (the page shown) follows from it, one read of the rows changed while hidden.
+   * Every pane hidden in the app's one renderer took each change of 3,761 listed chats before
+   * (sim-ladder `--churn-hidden`). Not while a list is being read (its notices lay over its pages).
+   * `limit: 1`: an acpmux that answers the pause with the list sends one row, not every page.
+   * True when this paused it.
+   */
+  pause(): boolean {
+    if (this.pausedWatch || this.loading || this.wholeReads > 0) return false;
+    this.pausedWatch = true;
+    const out: Promise<unknown> = this.request("_acpmux/watch", { enabled: false, limit: 1 })
+      .catch(() => undefined)
+      .then(() => {
+        if (this.pauseOut === out) this.pauseOut = undefined;
+      });
+    this.pauseOut = out;
+    return true;
+  }
+
   /** A hidden page discarded a notice; its next read must reset, even if later notices arrive. */
   invalidate(): void {
     this.missedChanges = true;
@@ -304,6 +339,14 @@ export class SessionPager<S extends Summary> {
    *  one whole page; a cursor acpmux cannot follow is answered with the first page (`reset`). */
   async first(): Promise<SessionPage<S> | undefined> {
     const run = ++this.run;
+    // A pause still out goes first: this watch turns the list on again after it. The cursor stays
+    // where the pause left it until this read takes the notices over (`loading`).
+    const pauseOut = this.pauseOut;
+    if (pauseOut) {
+      await pauseOut;
+      if (run !== this.run) return undefined;
+    }
+    this.pausedWatch = false;
     this.purged.clear();
     this.changed.clear();
     this.changedAt.clear();
@@ -407,6 +450,9 @@ export class SessionPager<S extends Summary> {
   fresh(listSeq: unknown): boolean {
     if (typeof listSeq !== "number" || !Number.isSafeInteger(listSeq)) return true;
     if (listSeq < this.listedAt) return false;
+    // Paused, the cursor stays where the page stopped hearing the list: a notice that still comes
+    // (an attached chat's) is newer than rows this page did not hear.
+    if (this.pausedWatch) return true;
     if (this.cursor && !this.loading && listSeq > this.cursor.seq) this.cursor = { ...this.cursor, seq: listSeq };
     if (this.reading && listSeq > this.reading.seq) this.reading = { ...this.reading, seq: listSeq };
     this.keepBelowOwed();

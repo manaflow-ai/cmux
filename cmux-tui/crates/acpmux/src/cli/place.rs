@@ -72,7 +72,8 @@ pub fn here_is_interactive() -> bool {
 /// guessed at: `--host` chooses. `off_interactive` (this machine is one a person works at)
 /// leaves every interactive machine out of the pick. `here_if_none` (a `new` that named no
 /// host): when that leaves none, the session starts here with a warning, as load and lane caps
-/// only warn, unless the registry holds this machine; an explicit `--host auto` still stops.
+/// only warn, unless the registry holds this machine. An explicit Auto choice also falls back
+/// here so admission can wait for a provider-created machine.
 pub async fn resolve(
     client: &Client,
     work: &str,
@@ -80,6 +81,7 @@ pub async fn resolve(
     reuse: bool,
     off_interactive: bool,
     here_if_none: bool,
+    auto_requested: bool,
 ) -> Result<Option<String>> {
     if let Some(name) = name {
         let list = client.whole_list(method::MUX_SESSIONS, json!({})).await?;
@@ -110,17 +112,22 @@ pub async fn resolve(
                 crate::placement::held(registry.as_ref(), crate::hub::host_label())
             })
             .flatten();
-        return without_pick(&v, here_if_none, held);
+        return without_pick(&v, here_if_none, auto_requested, held);
     };
     eprintln!("{placed}");
     Ok((v.get("local").and_then(Value::as_bool) != Some(true)).then(|| pick.to_owned()))
 }
 
-/// A verdict with no pick: an explicit `--host auto` stops with why; a `new` that named no host
-/// (`here_if_none`) starts here with a warning, unless the registry holds this machine (`held`).
-fn without_pick(v: &Value, here_if_none: bool, held: Option<String>) -> Result<Option<String>> {
+/// A verdict with no pick: Auto and a `new` that named no host start here with a warning,
+/// unless the registry holds this machine (`held`). Other explicit hosts stop with why.
+fn without_pick(
+    v: &Value,
+    here_if_none: bool,
+    auto_requested: bool,
+    held: Option<String>,
+) -> Result<Option<String>> {
     let why = v.get("why").and_then(Value::as_str).unwrap_or_default();
-    match (here_if_none, held) {
+    match (here_if_none || auto_requested, held) {
         (false, _) => bail!("{why}"),
         (true, Some(held)) => bail!("{why}; this machine is {held}"),
         (true, None) => {

@@ -73,3 +73,22 @@ fn asked_refuses_what_no_target_could_admit() {
     let ok = ShareApproval::asked(mac, phone, " user ", 7, "n").unwrap();
     assert_eq!((ok.confirmed_by.as_str(), ok.signature.as_str()), ("user", ""));
 }
+
+#[test]
+fn a_control_approval_signs_its_own_first_line() {
+    let ask = |version| {
+        ShareApproval::asked_for(
+            version,
+            Device { id: "mac", name: "Studio" },
+            Device { id: "phone", name: "iPhone" },
+            "user_1",
+            1_794_700_000,
+            "n1",
+        )
+    };
+    let (share, control) = (ask(VERSION).unwrap(), ask(CONTROL_VERSION).unwrap());
+    assert_eq!(control.v, CONTROL_VERSION);
+    assert!(control.canonical().starts_with("cmux.control-approval.v1\ntarget=mac\n"));
+    assert_ne!(share.canonical(), control.canonical(), "one tap signs one grant");
+    assert_eq!(ask("cmux.other.v1").unwrap_err().code, "share.bad_version");
+}
