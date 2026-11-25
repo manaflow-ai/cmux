@@ -427,6 +427,90 @@ class DeclaredInputs(unittest.TestCase):
         self.assertEqual(tooling_steps.verify(self.root, WORKFLOW, "tooling-tests", ["tt-f"]), [])
 
 
+class GreenReuse(FixtureRepo):
+    """scripts/ci/tooling_reuse.py: a later head reuses an earlier run's pass for a step only when route, asked about the
+    diff between the two merge trees, would not select that step."""
+
+    def setUp(self):
+        super().setUp()
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import tooling_reuse
+        self.reuse = tooling_reuse
+        self.commit("fixture")
+        self.before = tooling_reuse.tree_of(self.root)
+
+    def commit(self, message):
+        env = git_fixture_env.fixture_env()
+        subprocess.run(["git", "-C", str(self.root), "add", "-A"], check=True, env=env)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=t", "-c", "user.email=t@example.com",
+                        "commit", "-q", "--allow-empty", "-m", message], check=True, env=env)
+
+    def edit(self, rel, text):
+        path = self.root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+        self.commit(f"edit {rel}")
+
+    def found(self, selected, passed=("tt-a", "tt-b", "tt-g")):
+        record = self.reuse.Record("run 1", self.before, set(passed))
+        return self.reuse.reusable(self.root, WORKFLOW, "tooling-tests", list(selected),
+                                   self.reuse.tree_of(self.root), [record])
+
+    def test_the_same_tree_reuses_every_step_that_passed(self):
+        found = self.found(["tt-a", "tt-b", "tt-c"])
+        self.assertEqual(set(found), {"tt-a", "tt-b"})  # tt-c never passed in run 1
+
+    def test_a_change_one_step_reads_reruns_that_step_only(self):
+        self.edit("liba/lib_a.py", "VALUE = 2\n")
+        found = self.found(["tt-a", "tt-b"])
+        self.assertEqual(set(found), {"tt-b"})
+        self.assertIn("run 1", found["tt-b"][0])
+
+    def test_a_change_to_the_workflow_or_reuse_logic_reuses_nothing(self):
+        for rel in (WORKFLOW, "scripts/ci/tooling_reuse.py"):
+            with self.subTest(rel=rel):
+                path = self.root / rel
+                old = path.read_text(encoding="utf-8") if path.exists() else ""
+                self.edit(rel, old + "\n# changed\n")
+                self.assertEqual(self.found(["tt-a", "tt-b"]), {})
+
+    def test_a_deleted_file_a_listed_data_file_names_reruns_its_step(self):
+        (self.root / "tools/listed_tool.py").unlink()
+        self.commit("delete")
+        self.assertNotIn("tt-g", self.found(["tt-a", "tt-g"]))
+
+    def test_apply_rewrites_the_route_output_and_fails_open(self):
+        self.edit("webviews/src/pane.tsx", "export const x = 1\n")
+        out = self.root / "tooling.out"
+        out.write_text("tooling_steps= tt-a tt-b tt-c \ntooling_all=false\n", encoding="utf-8")
+        record = self.reuse.Record("run 1", self.before, {"tt-a", "tt-c"})
+        found = self.reuse.apply(out, self.root, WORKFLOW, "tooling-tests", lambda: [record])
+        self.assertEqual(set(found), {"tt-a"})  # tt-c reads an unknown module, so route still selects it
+        self.assertEqual(out.read_text(encoding="utf-8"), "tooling_steps= tt-b tt-c \ntooling_all=false\n")
+
+        def broken():
+            raise TimeoutError("api down")
+        out.write_text("tooling_steps= tt-a \ntooling_all=false\n", encoding="utf-8")
+        self.assertEqual(self.reuse.apply(out, self.root, WORKFLOW, "tooling-tests", broken), {})
+        self.assertEqual(out.read_text(encoding="utf-8"), "tooling_steps= tt-a \ntooling_all=false\n")
+
+    def test_record_keeps_only_steps_that_ran_and_passed(self):
+        import json
+        steps = {"setup-python": {"outcome": "success"}, "tt-a": {"outcome": "success"},
+                 "tt-b": {"outcome": "skipped"}, "tt-c": {"outcome": "failure"}}
+        out = self.root / "out" / "tooling-passed.json"
+        passed = self.reuse.record(WORKFLOW, "tooling-tests", self.root, json.dumps(steps), out, "1")
+        self.assertEqual(passed, ["tt-a"])
+        data = json.loads(out.read_text(encoding="utf-8"))
+        self.assertEqual(data["tree"], self.before)
+
+    def test_audit_is_stable_per_run_and_near_its_percent(self):
+        self.assertEqual(self.reuse.audited("123", 10), self.reuse.audited("123", 10))
+        hits = sum(self.reuse.audited(str(n), 10) for n in range(2000))
+        self.assertTrue(120 < hits < 280, hits)
+        self.assertFalse(any(self.reuse.audited(str(n), 0) for n in range(200)))
+
+
 class RealDeclarations(unittest.TestCase):
     """Every step scripts/ci/tooling-step-inputs.json names is a tooling-tests run step, and the file loads (a
     malformed file would silently declare nothing)."""
