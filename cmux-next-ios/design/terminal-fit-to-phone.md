@@ -12,6 +12,41 @@ Leo, 2026-11-25, on Claude Code on his phone:
 > "No, you obviously fit to phone by default? But im just saying like... why would the Mac on an iPhone connection
 > ALWAYS be resized down anyways!?"
 
+> "Aziz warned me about this approach I pushed for iOS which evidently does indeed break things for now comparatively
+> but I feel like it's the only way to have snappy terminals aka not having to wait on sluggish ass screen data sync
+> stuff but I think we should be able to get best of both worlds correctness and speed"
+
+## Correctness and speed: local-first render, host authority
+
+- **Local-first.** The phone draws at once from its own model: the agent renderer, local reflow, and predictive echo
+  for typing. A keystroke or a resize never waits on a round trip.
+- **Host authority.** The host's state is the truth. It sends versioned diffs of only what changed (the hybrid
+  stream's shape: `stream`, frame numbers, `base`). The phone checks each frame it drew against them, as Mosh's state
+  sync does. A mismatch is corrected within one round trip and counted.
+  - For an agent CLI drawn at the phone's width, there is no phone-width screen on the host to diff against, because
+    the CLI draws only at its PTY's size. The host's authority is therefore its **state**, not its cells: the records,
+    plus the facts the records lack (spinner verb, timer, tokens, permission dialog and its options, menus,
+    notices). The host reads those facts from its own screen and sends them as versioned records. The phone renders
+    records and facts at its own width.
+  - Records alone reach 77% (live) and 84% (seeded) of cells (cmux#43265). The gap is that missing state, not layout,
+    and the facts close it.
+- **Correctness gates.** These parity harnesses run in CI and block a merge:
+  - agent render at phone widths;
+  - projection, cell by cell, covering wide characters, emoji, colours, full-screen programs and scrollback.
+- **A live counter of mismatches** goes in the app's terminal diagnostics. It counts host corrections of a drawn
+  frame, and moments drawn through a fallback. Drift then shows in Leo's own use, not only in tests.
+
+## Aziz's warnings (cmux#42219, 2026-11-13), each with its test
+
+| # | Aziz | Test |
+| --- | --- | --- |
+| 1 | Claude Code and Codex hard-wrap at the PTY's width, so reflow turns 120-column lines into 54+54+12 fragments | To add: the agent parity harness at phone widths (`cmux-agent-cli-render` `tests/parity.rs`, per width). The agent path never reflows the Mac's cells |
+| 2 | Rules, boxes, right prompts, `ls` columns, tables and diffs are laid out for the Mac's width | `cmux-terminal-projection` `golden.rs` `headers_claude_code`, `headers_codex`, `left_and_right_aligned`, `compaction_keeps_every_glyph`; `projection.rs` `claude_codes_bare_rules_are_one_phone_row_each_at_the_macs_width` (cmux#56689). To add: `ls` columns, a table, a diff |
+| 3 | Full-screen apps show a Mac-grid frame before the resize lands | `TerminalProjectionResizeHarnessTests.theAlternateScreenIsShownAtTheMacsGridAndTypingFitsOnce` ("before any frame of it at the Mac's grid"). To add: the alt-screen rule's tests (part 3) |
+| 4 | A second VT emulator must match Ghostty's | `cmux-terminal-projection` `tests/parity.rs`: Ghostty's VT core is the oracle, per corpus, phone width and chunking |
+| 5 | Mouse positions on the primary screen are not mapped back to host cells | Wheel: `held_rows.rs` `a_mouse_mode_app_with_nothing_held_gets_every_wheel_event`. To add: a click on the primary screen lands on the host cell (`Projection::locate`) |
+| 6 | Memory: one host-grid model per warm terminal (~100 MB at 100k rows) | To add: a bound on `footprint()` per warm terminal at the history limit |
+
 ## Rule
 
 Every terminal on the phone fits the phone's width by default. A phone attaching never resizes the Mac pane by
