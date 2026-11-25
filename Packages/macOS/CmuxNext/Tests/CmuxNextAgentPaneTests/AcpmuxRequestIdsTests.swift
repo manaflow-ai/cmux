@@ -166,4 +166,33 @@ struct AcpmuxRequestIdsTests {
         let batch = socket.take(maximumFrames: 10, maximumBytes: 1 << 20)
         #expect(batch.frames.count == 1)
     }
+
+    /// `_acpmux/request_state` (webviews direct.ts `checkRequests`): the daemon's relay ids come
+    /// back as the page's, and `relayed` names only requests written before the question, so one
+    /// the host still holds (a confirmation sheet) is never judged lost.
+    @Test func requestStateAnswersInPageIdsAndNamesOnlyWrittenRequests() throws {
+        let ids = AcpmuxRequestIds()
+        let created = try #require(ids.begin(pageID: "7", method: "session/new"))
+        ids.written(created)
+        let held = try #require(ids.begin(pageID: "8", method: "session/prompt"))
+        let question = try #require(ids.begin(pageID: "9", method: AcpmuxRequestIds.requestStateMethod))
+        ids.snapshotWritten(for: question)
+        ids.written(question)
+        // Written after the question: the daemon had not read it, so the answer says nothing of it.
+        let late = try #require(ids.begin(pageID: "10", method: "session/set_model"))
+        ids.written(late)
+        let text = #"{"jsonrpc":"2.0","id":\#(question),"result":{"running":[\#(created),\#(held),99],"answered":[]}}"#
+        guard case .page(let forwarded, _, let method) = ids.toPage(text) else {
+            Issue.record("the answer did not reach the page")
+            return
+        }
+        #expect(method == AcpmuxRequestIds.requestStateMethod)
+        let object = try #require(try JSONSerialization.jsonObject(with: Data(forwarded.utf8)) as? [String: Any])
+        #expect(object["id"] as? Int == 9)
+        let result = try #require(object["result"] as? [String: Any])
+        // 99 is another relay's request on the daemon's connection: never the page's.
+        #expect(result["running"] as? [Int] == [7, 8])
+        #expect(result["answered"] as? [Int] == [])
+        #expect(result["relayed"] as? [Int] == [7])
+    }
 }

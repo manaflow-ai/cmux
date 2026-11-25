@@ -112,7 +112,13 @@ impl Hub {
             return Ok(false);
         }
         drop(spawning);
-        self.kill_held(session, true, using.downgrade()).await?;
+        self.kill_held(
+            session,
+            true,
+            using.downgrade(),
+            crate::close_why::CloseWhy::by("app", "history deleted"),
+        )
+        .await?;
         Ok(true)
     }
 

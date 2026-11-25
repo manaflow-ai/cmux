@@ -582,7 +582,11 @@ public final class MacScreenDevicesSettings {
                 try await hub.setPermission(host: hub.identity.id, viewer: id, scope: scope.scope)
             case "setSharing":
                 if run.on == true { shareThisMac() }
-                else { try await hubHost.setSharing(false) }
+                else {
+                    // The person's switch in Settings: their off outranks the join default (Z4).
+                    CmuxRemoteShareConsent.recordDecline()
+                    try await hubHost.setSharing(false)
+                }
             case "setAgentsMayShare":
                 // The person's click on this switch is the consent; the hub audits it, the notice says it.
                 _ = try await CmuxRemoteActionEnvironment.setAgentsMayShare(run.on ?? false, hub: hub, window: nil)
@@ -745,7 +749,7 @@ extension MacScreenDevicesSettings {
                 accessOptions: MacScreenAccess.all.map { Option(value: $0.value, title: $0.title) },
                 sharingSection: L.t("devices.section.sharing", "Mac Screen on This Mac"),
                 sharingToggle: L.t("macScreen.home.allowToggle", "Allow Mac Screen on this Mac"),
-                sharingDetail: L.t("macScreen.home.allowDetail", "Your other devices signed in to this cmux account can ask to see or control this Mac. You approve each device, or choose its access in Settings › Devices."),
+                sharingDetail: L.t("macScreen.home.shareThisMacOn", "Your devices on this account can connect."),
                 openSettings: L.t("macScreen.home.openSettings", "Open System Settings"),
                 allowed: L.t("macScreen.home.granted", "Allowed"),
                 agentsToggle: CmuxRemoteAgentStrings.settingsToggle,

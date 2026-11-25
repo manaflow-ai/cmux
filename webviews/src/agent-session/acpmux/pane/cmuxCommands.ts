@@ -53,6 +53,8 @@ export type CmuxCommandDeps = {
   healthLocal: boolean;
   ignoreFailure: (result: Promise<unknown>) => void;
   openCloudChatWith: (start: { prompt?: string; cwd?: string }) => Promise<unknown>;
+  /// The chat tab's name editor (the header's Rename); absent where there is no tab (Quick Chat).
+  openRename: (() => void) | undefined;
   openSummarySection: (section: SessionInfoSectionId) => void;
   sessionAuth: SessionAuth;
   sessionInfo: ReturnType<typeof useSessionInfo>;
@@ -88,6 +90,7 @@ export function handleCmuxCommand(
     healthLocal,
     ignoreFailure,
     openCloudChatWith,
+    openRename,
     openSummarySection,
     sessionAuth,
     sessionInfo,
@@ -116,6 +119,12 @@ export function handleCmuxCommand(
   }
   if (command.action === "status") {
     setStatusCardOpen(true);
+    return true;
+  }
+  // /rename opens the tab's name editor, as ⌘R and the header's Rename do. New Tab has no chat tab.
+  if (command.action === "rename") {
+    if (fresh || !openRename || !snapshot.sessionId) return t("composer.cmuxUnavailable");
+    openRename();
     return true;
   }
   // A bare /mcp opens Session Info on Connectors, the chat's MCP servers, now, mid-turn too: it

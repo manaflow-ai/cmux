@@ -269,6 +269,10 @@ export type DialLike = {
   start(): void;
   request(frame: Record<string, unknown>, timeoutMs?: number): Promise<any>;
   stop(): void;
+  /** Ends the dial without dialing again until `resume` (a machine about to pause: no redial reaches it while paused). */
+  suspend?(): void;
+  /** Dials again after `suspend`, as the app reconnects after a wake. */
+  resume?(): void;
 };
 
 /**
@@ -276,7 +280,7 @@ export type DialLike = {
  * `onLine`. A dial that ends rejects what it still owed and is dialed again, and `onDial` runs once each new dial
  * says it connected, so the client can attach again as the app does after its redial.
  */
-class ClientDial implements DialLike {
+export class ClientDial implements DialLike {
   dials = 0;
   /**
    * The dial's own story, oldest first: each `cloud.connect` route line (a resume, a fresh session) and each exit, with
@@ -289,7 +293,7 @@ class ClientDial implements DialLike {
   private n = 0;
   private stopped = false;
 
-  constructor(private ctx: ChaosContext, private onLine: (msg: any) => void, private onDial: () => void) {}
+  constructor(private ctx: Pick<ChaosContext, "cmux" | "machine" | "team" | "env">, private onLine: (msg: any) => void, private onDial: () => void) {}
 
   start(): void {
     this.dial();
@@ -374,6 +378,17 @@ class ClientDial implements DialLike {
     this.stopped = true;
     this.child?.stdin?.end();
     this.child?.kill("SIGTERM");
+  }
+
+  suspend(): void {
+    this.stop();
+    this.note("suspended");
+  }
+
+  resume(): void {
+    if (!this.stopped) return;
+    this.stopped = false;
+    this.dial();
   }
 }
 
@@ -461,6 +476,21 @@ export class ChatClient {
     this.session = String(started.session ?? "");
     if (!this.session) throw new Error(`agent-session-start gave no session: ${JSON.stringify(started).slice(0, 200)}`);
     await this.attach(undefined);
+  }
+
+  /**
+   * `start`, then, when it started a session, the attach the app makes before its first send: the daemon refuses
+   * `agent-session-prompt` on a tab with no attachment on this connection (`agent_session.not_attached`,
+   * agent_session_attach.rs), so a prompt right after a bare start never reaches the chat. The start's answer is
+   * returned as it came, a refusal unattached.
+   */
+  async startAttached(harness: string): Promise<any> {
+    const reply = await this.start(harness);
+    const session = reply?.ok === true ? String(reply?.data?.session ?? "") : "";
+    if (!session) return reply;
+    this.session = session;
+    await this.attach(undefined);
+    return reply;
   }
 
   /** Dial and make the chat tab for `harness`, as the app does for a new Cloud chat, before any start. */
@@ -658,6 +688,36 @@ export class ChatClient {
     this.stopped = true;
     this.dial.stop();
   }
+
+  /** Whether the chat is attached on the current dial. */
+  get isAttached(): boolean {
+    return this.attached;
+  }
+
+  /**
+   * Before a pause: the dial ends and stays down, so the client neither holds a connection the pause freezes nor
+   * redials (which may wake the machine) while it is paused. `wake` dials again.
+   */
+  suspend(): void {
+    if (!this.dial.suspend) return;
+    this.suspended = true;
+    this.attached = false;
+    this.dial.suspend();
+  }
+
+  /** After a wake: a new dial, and the chat attached again on it from the newest seq held, as the app reconnects. */
+  wake(): void {
+    if (!this.suspended) return;
+    this.suspended = false;
+    this.dial.resume?.();
+  }
+  private suspended = false;
+
+  /** Until the chat is attached on the current dial (true) or `until` (epoch ms) passes (false). */
+  async waitAttached(until: number): Promise<boolean> {
+    while (!this.attached && !this.stopped && Date.now() < until) await sleep(100);
+    return this.attached;
+  }
 }
 
 /** `terminal.output_read` params for one terminal of the machine's own session. */
@@ -774,8 +834,9 @@ export function refusalTrail(refusals: { at: number; text: string }[]): string {
  * the send is this send's reply: a late or replayed record of an earlier turn never stops the clock. A try never
  * waits past the deadline, and a reply received after it does not count.
  */
-export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number, afterSeq = 0): Promise<Felt> {
-  const sentAt = Date.now();
+export async function feltAfterSend(chat: ChatClient, text: string, deadlineMs: number, afterSeq = 0, startedAt = Date.now()): Promise<Felt> {
+  // `startedAt`: the person's send, when the client first waited for something else (a reattach after a wake).
+  const sentAt = startedAt;
   const from = chat.received.length;
   const held = Math.max(chat.held, afterSeq);
   const promptId = `chaos-felt-${sentAt.toString(36)}`;
@@ -823,7 +884,7 @@ async function turnState(ctx: ChaosContext, marker: string, session = ctx.sessio
   };
 }
 
-async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
+export async function turnOutcome(ctx: ChaosContext, marker: string, session = ctx.session): Promise<{ ok: boolean; text: string; interrupted?: boolean }> {
   const until = Date.now() + TURN_DEADLINE_MS;
   let last = { started: 0, running: false, status: "", detail: "" };
   while (Date.now() < until) {
@@ -913,7 +974,7 @@ export function journalNotesText(notes: JournalNotes): string {
  * (`ended`), so no record of that turn can stop the next clock. Null when that end is not verified (the turn did not
  * end, or the journal could not be read): the next felt send is then not measured.
  */
-async function feltBoundary(ctx: ChaosContext, session: string, after: number, ended: boolean): Promise<number | null> {
+export async function feltBoundary(ctx: ChaosContext, session: string, after: number, ended: boolean): Promise<number | null> {
   if (!ended) return null;
   const journal = await readJournal(ctx, "", session, after);
   return typeof journal === "string" ? null : Math.max(after, ...journal.map((e) => e.seq));

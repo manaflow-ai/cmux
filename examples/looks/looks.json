@@ -32,10 +32,46 @@
       "pending": "An outside-only look: there is no built-in twin."
     },
     {
+      "id": "overdrive",
+      "addon": "overdrive",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "astrolabe",
+      "addon": "astrolabe",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
       "id": "gel",
       "addon": "gel",
       "builtIn": null,
       "pending": "An outside-only look on the flush corner with goo fillets: there is no built-in twin."
+    },
+    {
+      "id": "workbench",
+      "addon": "workbench",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "hearth",
+      "addon": "hearth",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "halo",
+      "addon": "halo",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "grid",
+      "addon": "grid",
+      "builtIn": null,
+      "pending": "An outside-only look on a strict grid (zero corners, 1 px rules, one accent): there is no built-in twin."
     },
     {
       "id": "claude",
@@ -50,6 +86,14 @@
       "addon": null,
       "builtIn": { "setting": "composerLook", "value": "codex" },
       "pending": "As claude: the default composer look, page storage only until #43272 or #45843 lands."
+    },
+    {
+      "id": "codex-composer",
+      "surface": "composer",
+      "setup": "codex/composer",
+      "addon": "codex/composer",
+      "builtIn": null,
+      "pending": "The ChatGPT replica's round composer, opt-in only: the in-box composer (agentPane.composerLook studio) and a circular + highlight (--cv-composer-icon-radius). cmux's own composers keep the app's corner; there is no built-in twin."
     },
     {
       "id": "send-pop",

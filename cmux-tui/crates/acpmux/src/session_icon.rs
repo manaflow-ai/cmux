@@ -16,8 +16,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::harness_icon::{self, IconValue};
 
-/// Largest image accepted, in bytes before base64. It travels on each of the chat's summaries.
-pub const MAX_IMAGE_BYTES: usize = 8 * 1024;
+/// Largest image accepted, in bytes before base64 (about 8 KiB once encoded). It travels on each
+/// of the chat's summaries.
+pub const MAX_IMAGE_BYTES: usize = 6 * 1024;
 
 /// The icon clients draw for one chat.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

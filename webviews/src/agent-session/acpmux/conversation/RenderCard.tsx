@@ -9,7 +9,8 @@
 import { type ReactNode, useContext, useState } from "react";
 import { useT } from "../i18n";
 import { ArtifactContext } from "./artifactPreview";
-import { Expand } from "./icons";
+import { ChevronDown, Expand, PlayTriangle } from "./icons";
+import "./cardFit.css";
 import type { AcpmuxActivity } from "../model";
 import { ranRenders, useRenderFrame } from "./renderFrame";
 import { RenderPages, renderCall, type RenderCall } from "./renderCall";
@@ -31,36 +32,55 @@ export function RenderCard({ call, card, actions }: { call: RenderCall; card?: s
   const title = call.title ?? t("render.untitled");
   const tall = height > COLLAPSED_MAX_HEIGHT;
   return (
-    <div className="acpmux-render-card">
-      <div className="acpmux-render-card-head">
-        <span className="acpmux-render-card-title">{title}</span>
-        {!running && (
-          <button type="button" className="acpmux-review-changes" onClick={run}>
-            {t("render.run")}
-          </button>
-        )}
-        {running && tall && (
-          <button
-            type="button"
-            className="acpmux-review-changes"
-            aria-expanded={expanded}
-            onClick={() => setExpanded((value) => !value)}
-          >
-            {expanded ? t("render.collapse") : t("render.expand")}
-          </button>
-        )}
-        {open && (
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={t("artifact.open")}
-            title={t("artifact.open")}
-            onClick={() => open({ kind: "html", lang: "html", code: call.html, ...(card && { render: card }) })}
-          >
-            <Expand />
-          </button>
-        )}
-        {actions}
+    <div className="acpmux-render-card cv-fit">
+      <div className="acpmux-render-card-head cv-fit-row">
+        <span
+          className="acpmux-render-card-title cv-fit-text"
+          // tooltip-allow: a long title is cut to the line beside its buttons; its whole text is the tooltip
+          title={title}
+        >
+          {title}
+        </span>
+        {/* The buttons wrap under the title in a narrow card and shrink to icons (cardFit.css). */}
+        <span className="cv-fit-actions">
+          {!running && (
+            <button
+              type="button"
+              className="acpmux-review-changes"
+              title={t("render.run")}
+              aria-label={t("render.run")}
+              onClick={run}
+            >
+              <PlayTriangle size={12} />
+              <span className="cv-fit-label">{t("render.run")}</span>
+            </button>
+          )}
+          {running && tall && (
+            <button
+              type="button"
+              className="acpmux-review-changes"
+              aria-expanded={expanded}
+              title={expanded ? t("render.collapse") : t("render.expand")}
+              aria-label={expanded ? t("render.collapse") : t("render.expand")}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? <ChevronDown size={12} /> : <Expand size={12} />}
+              <span className="cv-fit-label">{expanded ? t("render.collapse") : t("render.expand")}</span>
+            </button>
+          )}
+          {open && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("artifact.open")}
+              title={t("artifact.open")}
+              onClick={() => open({ kind: "html", lang: "html", code: call.html, ...(card && { render: card }) })}
+            >
+              <Expand />
+            </button>
+          )}
+          {actions}
+        </span>
       </div>
       {running && (
         <iframe

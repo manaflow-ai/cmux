@@ -6,7 +6,7 @@
 /// ``SidebarCustomizationService`` resolves it), a Session Info section of a visible app, a chat
 /// widget (`cmux.chat.widget/1`) of a visible app, which the daemon chose for a tool call or a widget
 /// part (`apps.chat_widgets.route`), and a
-/// visible app's whole New Tab page (`cmux.newtab/1`; the page asks only for the app the person
+/// visible app's New Tab view (`cmux.newtab/1`, over the composer; the page asks only for the app the person
 /// named in `tabs.newTabApp`). The raw
 /// value is the mount's `surface` in its context.
 ///
@@ -22,7 +22,7 @@ public nonisolated enum AppMountSurface: String, Sendable, Hashable, CaseIterabl
     /// opened by the person's own gesture only (``AppOverlayPresenter``).
     case overlay
     case chatWidget
-    /// The whole New Tab page body, when the person named the app in `tabs.newTabApp`.
+    /// The view over the New Tab composer, when the person named the app in `tabs.newTabApp`.
     case newTab
     /// One widget tile (`cmux.widget/1`) on the New Tab grid or in its Add Widget gallery.
     case widget

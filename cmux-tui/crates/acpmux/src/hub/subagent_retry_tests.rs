@@ -737,13 +737,22 @@ async fn a_restart_settles_an_attempt_left_in_flight() {
     settle().await;
     hub.claim_subagent(&session, "s/t1", 1).unwrap();
     assert!(last_entry(&hub, &session, "s/t1").unwrap()["retryInFlight"].is_object());
-    assert!(last_entry(&hub, &session, "s/t2").unwrap()["retry"].is_object());
+    let live = last_entry(&hub, &session, "s/t2").unwrap();
+    assert!(live["retry"].is_object());
+    // A live retry entry names its subagent and its failure too (cmux#52916).
+    assert_eq!((&live["task"], live.get("recovered")), (&json!("Push relay"), None), "{live}");
+    assert!(live["error"].as_str().is_some_and(|e| e.contains("503")), "{live}");
     // A fired retry prompt the queue kept, as one queued behind a turn is logged.
     let queued = json!({"text": "Resume it", "client": "acpmux", "position": 1,
         "promptId": "subagent-retry-t2-1-1", "turnId": "t-retry", "control": "local",
         "prompt": [{"type": "text", "text": "Resume it"}],
         "_meta": {"provenance": {"kind": PROVENANCE_KIND, "subagentId": "s/t2", "attempt": 1}}});
     hub.append(&session, "mux", "queued", queued);
+    // A spawn logged after the open entry (a resume) names it; its `running` is no state to settle.
+    let respawn = json!({"method": "session/update", "params": {"update":
+        {"sessionUpdate": "subagent_spawned"}, "_meta": {"acpmux": {"subagents":
+        [{"id": "s/t2", "parent": null, "name": "Push relay", "state": "running"}]}}}});
+    hub.append(&session, "in", "subagent_spawned", respawn);
     hub.shutdown_all().await;
     drop((hub, session, conn));
 
@@ -755,6 +764,11 @@ async fn a_restart_settles_an_attempt_left_in_flight() {
         assert!(none_in_flight(&entry) && entry["retry"].is_null(), "{sub}: {entry}");
         assert_eq!((&entry["state"], &entry["retryable"]), (&json!("failed"), &json!(false)));
         assert_eq!(entry["agentId"], format!("agent-{sub}"), "{entry}");
+        // An end written after the fact, naming what it was and why it failed: a pane that never
+        // read its spawn draws no nameless "Subagent Failed 0s" line for it (cmux#52916).
+        assert_eq!(entry["recovered"], true, "{entry}");
+        assert_eq!(entry["task"], "Push relay", "{entry}");
+        assert!(entry["error"].as_str().is_some_and(|e| e.contains("503")), "{entry}");
     }
     assert!(!retry_open(&session));
     // Its queue came back without the retry prompt (`drop_unsent_subagent_retries`), never run.
