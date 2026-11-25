@@ -262,6 +262,11 @@ jobs:
         with:
           ref: ${{ inputs.sha || '' }}
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -374,6 +379,11 @@ jobs:
           fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -387,6 +397,11 @@ jobs:
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -457,6 +472,11 @@ jobs:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -513,6 +533,11 @@ jobs:
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -583,6 +608,11 @@ jobs:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -616,7 +646,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
           add-rust-environment-hash-key: false
           cache-bin: false
-          shared-key: agent-pane-real-acpmux
+          shared-key: agent-pane-real-acpmux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
           # A feat-cmux-next push saves; a pull request restores only. `|| github.base_ref == 'feat-cmux-next'` saved a
           # copy per pull request that only that pull request reads: 114 entries, 53 GB written in 6 h (2026-11-24, RFD 0148 row 19).
           save-if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
@@ -686,6 +716,11 @@ jobs:
         with:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -878,6 +913,12 @@ jobs:
           RECEIPT_KEY: ${{ steps.receipt-key.outputs.key }}
         run: python3 scripts/ci/react_shard_receipt.py check --key "$RECEIPT_KEY" --receipt "$GITHUB_WORKSPACE/.same-tree/react-shard-receipt" --results "$RUNNER_TEMP/webviews-head-results" >> "$GITHUB_OUTPUT"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ steps.receipt.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -917,6 +958,12 @@ jobs:
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.receipt.outputs.hit != 'true' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
+
       - name: Setup Node
         if: ${{ steps.receipt.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -1466,6 +1513,12 @@ jobs:
           echo "base red files for this shard: $count"; sed 's/^/  /' "$RUNNER_TEMP/base-early/files"
           echo "files=$count" >> "${GITHUB_OUTPUT:-/dev/null}"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.pick.outputs.files != '0' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ steps.pick.outputs.files != '0' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
@@ -1504,6 +1557,12 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.pick.outputs.files != '0' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         if: ${{ steps.pick.outputs.files != '0' }}
@@ -1704,6 +1763,12 @@ jobs:
           echo "the base's push history and early run answer for $(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$RUNNER_TEMP/base-known.json") red tests at inputs $key; $count files still replay"
           echo "replay=$count" >> "${GITHUB_OUTPUT:-/dev/null}"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.head.outputs.reds != '0' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: ${{ steps.head.outputs.reds != '0' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
@@ -1745,6 +1810,12 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+
+      - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.head.outputs.reds != '0' }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
 
       - name: Setup Node
         if: ${{ steps.head.outputs.reds != '0' }}
@@ -2050,6 +2121,11 @@ jobs:
           ref: ${{ inputs.sha || '' }}
           persist-credentials: false
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -2320,6 +2396,11 @@ jobs:
       - name: Install Rust
         run: ./scripts/install-rust-ci.sh
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
@@ -2408,6 +2489,11 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.sha || '' }}
+
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
