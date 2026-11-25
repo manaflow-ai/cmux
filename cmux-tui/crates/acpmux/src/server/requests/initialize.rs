@@ -136,6 +136,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TASK_NEW,
     method::MUX_TEAM_ACK,
     method::MUX_TEAM_INBOX,
+    method::MUX_TEAM_LISTEN,
     method::MUX_TEAM_READ,
     method::MUX_TEAM_SEND,
     method::MUX_TURN_FRAMES,
@@ -224,11 +225,7 @@ const FEATURES: &[&str] = &[
 ];
 
 /// The `initialize` reply for this connection.
-pub(super) fn initialize(
-    hub: &Arc<Hub>,
-    conn: &Arc<Conn>,
-    params: &Value,
-) -> Result<Value, RpcError> {
+pub(super) fn initialize(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
     // Also set in order before the next request runs (`note_initialize`).
     note_initialize(conn, params);
     // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
@@ -236,7 +233,7 @@ pub(super) fn initialize(
     if params.pointer("/_meta/acpmux/observer").and_then(Value::as_bool) == Some(true) {
         conn.presence.observes();
     }
-    let capabilities = crate::capabilities::ids_for_connection(matches!(
+        let capabilities = crate::capabilities::ids_for_connection(matches!(
         conn.transport,
         Transport::LocalStream { .. }
     ));
@@ -310,7 +307,10 @@ pub(super) fn initialize(
     }
     // Large messages go compressed from here on (`frame_compress.rs`).
     if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
-        reply.set_path(&["_meta", "acpmux", "compression"], json!(crate::frame_compress::ZLIB));
+        reply.set_path(
+            &["_meta", "acpmux", "compression"],
+            json!(crate::frame_compress::ZLIB),
+        );
     }
     // Only a local client can use the app launcher's bundled CLI.
     if conn.origin == Origin::Local

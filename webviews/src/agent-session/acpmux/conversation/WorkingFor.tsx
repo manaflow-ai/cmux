@@ -29,6 +29,7 @@ import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { StatusVerb } from "./StatusVerb";
 import { LiveShimmer } from "./LiveShimmer";
 import { workingParts, WorkingCountsContext } from "./workingForModel";
+import { clockSizerAcrossUnits } from "../../../ui/Typography";
 /// Over the work (`row.below` false), `onToggle` opens and closes the running turn's work under the
 /// key its "Worked for" takes when it ends (turns.ts `shapeLiveRows`, #50987): the label is the toggle,
 /// with the chevron "Worked for" draws, and the counts stay buttons of their own beside it.
@@ -68,6 +69,13 @@ export function WorkingFor({
   // A new call changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
   const words = useTextSwap<HTMLSpanElement>(waiting ? undefined : (doing ?? ""));
   const toggles = onToggle !== undefined && !row.below;
+  // The ticking "Working for 42s" the toggle holds room for: the same words at the widest time of
+  // its shape across units, so a tick, "59s" into "1m 0s" too, moves nothing after the toggle.
+  const ms = Math.max(0, until - row.at);
+  const sizer =
+    toggles && !held && !waiting && !doing && !row.thinkingNow && ms >= 1000
+      ? t("turn.working", { time: clockSizerAcrossUnits(formatDuration(ms)) })
+      : undefined;
   const label = (
     <>
       {!waiting && doing && row.doingCommand && !sending && (
@@ -99,7 +107,9 @@ export function WorkingFor({
             <TimedLabel
               text={(time) => t("turn.working", { time })}
               time={Math.max(0, until - row.at)}
-              ticking={!held}
+              // As the toggle, its chevron follows the time with no room between (#55615): the
+              // widest time's room goes after the chevron instead (`cv-worked__toggle-sizer`).
+              ticking={!held && !toggles}
             />
           )}
         </span>
@@ -113,9 +123,19 @@ export function WorkingFor({
     // room (`is-toggle`, conversation.css), so the turn's end swaps the words and nothing moves.
     <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider is-toggle"} data-find-skip>
       {toggles ? (
+        // The label and its chevron hug (`cv-worked__hug`); an unseen copy at the widest time
+        // (`cv-worked__toggle-sizer`) shares their grid cell, so the toggle keeps its width while
+        // the seconds tick and the slack sits after the chevron, never between it and the words.
+        // Its chevron is the ended line's slot held unseen (turnFold.ts `isLiveClockNode`).
         <button type="button" className="cv-worked__toggle" aria-expanded={expanded} onClick={onToggle}>
-          {label}
-          <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+          <span className="cv-worked__hug">
+            {label}
+            <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+          </span>
+          <span className="cv-worked__toggle-sizer" aria-hidden="true">
+            {sizer && <span className="cv-worked__label">{sizer}</span>}
+            <ChevronRight size={14} className="cv-worked__chevron cv-rotor is-reserved" />
+          </span>
         </button>
       ) : (
         label
@@ -136,7 +156,9 @@ export function WorkingFor({
       {/* Over the work it is the turn's header in its running phase (turns.ts `turnHeaderId`): the
           ended "Worked for"'s chevron has its slot already, right after the words as it draws
           there, unseen until the turn ends and the line opens what it folded. */}
-      {!row.below && <ChevronRight size={14} className="cv-worked__chevron cv-rotor is-reserved" aria-hidden="true" />}
+      {!row.below && !toggles && (
+        <ChevronRight size={14} className="cv-worked__chevron cv-rotor is-reserved" aria-hidden="true" />
+      )}
     </div>
   );
 }
