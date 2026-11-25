@@ -990,6 +990,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         keyboardTracker.subscribeToDrops(self) { [weak self] in self?.keyboardDropped() }
         #if DEBUG
         center.addObserver(self, selector: #selector(appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        scrollView.drawnRowsBottom = { [weak self] window in self?.drawnRowsBottom(in: window) }
         if TerminalFlickerTrace.isRequested {
             flickerTrace = TerminalFlickerTrace(host: view) { [weak self] in self?.flickerSample() }
         }
@@ -1105,6 +1106,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         model.settleMs = right ? Int((max(0, elapsed) * 1000).rounded()) : -2
         sizingLog.notice("settle probe: full-screen app right after \(self.model.settleMs, privacy: .public) ms")
         settleProbe = (link, nil)
+    }
+
+    /// The last row as drawn this frame, in `window`: a full-screen app's
+    /// grid bottom, else the shell document's end or the surface's bottom,
+    /// whichever is higher (the rows the page draws, not the scroll view's
+    /// offset: Ghostty's surface moves inside it). For the keyboard probes
+    /// (`KeyboardRidingContent`); `TerminalFlickerTrace` reads the same edges.
+    private func drawnRowsBottom(in window: UIWindow) -> CGFloat? {
+        guard cell.height > 0, view.window === window else { return nil }
+        let probe = MobileKeyboardProbe()
+        let drawnSurface = probe.onScreen(surface, in: window)
+        if model.isTUI {
+            let rows = appliedHostRows ?? model.session.remoteRows ?? tuiRows
+            return drawnSurface.minY + surface.gridPadding.y + CGFloat(rows) * cell.height
+        }
+        let frame = probe.onScreen(scrollView, in: window)
+        let bounds = (scrollView.layer.presentation() ?? scrollView.layer).bounds
+        return min(frame.minY + scrollView.contentSize.height - bounds.minY, drawnSurface.maxY)
     }
 
     /// The page as drawn this frame, for `TerminalFlickerTrace`.
@@ -1597,27 +1616,40 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // The frame kept for a cold launch has no cursor: it is not where
         // typing goes until the live screen is back (R3-4). The glyph under
         // it stays (V8 claim 8).
-        let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view) } : nil
         let host: UIView = model.isTUI ? tuiClip : scrollView
-        let rows = TerminalStillPlan.rowsClip(bounds: view.bounds, topInset: model.isTUI ? tuiClip.frame.minY : scrollView.contentInset.top,
-                                              composerTop: bottomStack.frame.minY)
-            .intersection(host.convert(host.bounds, to: view))
+        // Composed as at rest (keyboard down, composer at one line): rows that
+        // ride the keyboard up are drawn back down to the resting stack top,
+        // so a kept frame never carries the keyboard's gap (`TerminalStillPlan.placement`).
+        let place = TerminalStillPlan.placement(bounds: view.bounds, topInset: model.isTUI ? tuiClip.frame.minY : scrollView.contentInset.top,
+                                                composerTop: bottomStack.frame.minY, restingComposerTop: restingStackTop)
+        // The rows above the host's top that the shift brings into the still
+        // are read from the surface too (a TUI's top rows clipped while the
+        // keyboard is up); the host still bounds the sides and the bottom.
+        let hostFrame = host.convert(host.bounds, to: view)
+        let readable = CGRect(x: hostFrame.minX, y: view.bounds.minY - place.shift, width: hostFrame.width,
+                              height: max(0, hostFrame.maxY - view.bounds.minY + place.shift))
+        let source = place.source.intersection(readable)
+        let rows = source.isNull ? source : source.offsetBy(dx: 0, dy: place.shift)
+        // The frame kept for a cold launch has no cursor: it is not where
+        // typing goes until the live screen is back (R3-4). The glyph under
+        // it stays (V8 claim 8).
+        let cursor = hidingCursor ? surface.visibleCursorCell.map { surface.convert($0, to: view).offsetBy(dx: 0, dy: place.shift) } : nil
         var capture = TerminalPageCapture(bounds: view.bounds, scale: Self.snapshotScale, surface: nil, fallback: nil,
                                           surfaceClip: rows.isNull ? .zero : rows, surfaceFrame: .null, cursor: cursor,
                                           background: terminalBackground)
         guard !rows.isNull, !rows.isEmpty, surface.isDescendant(of: host) else { return capture }
-        let clip = view.convert(rows, to: surface)
+        let clip = view.convert(source, to: surface)
         if let copy = surface.presentedCopy(clip: clip) {
             // The surface drawn from the frame Ghostty presented: the render
             // server's copy of a live Metal surface came out black on the rig (V5-6).
             capture.surface = copy
-            capture.surfaceFrame = surface.convert(copy.frame, to: view)
+            capture.surfaceFrame = surface.convert(copy.frame, to: view).offsetBy(dx: 0, dy: place.shift)
         } else if let presented = surface.presentedImage(clip: clip) {
             // The copy failed (an unexpected surface format): the frame
             // rendered here, on the main thread, as before the copy.
             sizingLog.notice("still: presented copy failed, rendered on the main thread")
             capture.fallback = presented.image
-            capture.surfaceFrame = surface.convert(presented.frame, to: view)
+            capture.surfaceFrame = surface.convert(presented.frame, to: view).offsetBy(dx: 0, dy: place.shift)
         } else {
             sizingLog.notice("still: no presented frame; background only")
         }
@@ -5309,8 +5341,13 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     }
 }
 
-final class TerminalScrollView: UIScrollView {
+final class TerminalScrollView: UIScrollView, KeyboardRidingContent {
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
+
+    /// The page's last row as drawn (`TerminalViewController.drawnRowsBottom`).
+    var drawnRowsBottom: ((UIWindow) -> CGFloat?)?
+
+    func drawnContentBottom(in window: UIWindow) -> CGFloat? { drawnRowsBottom?(window) }
 }
 
 /// Jump to bottom's scroll (CMUX-10): from the page's offset to the live
