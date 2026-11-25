@@ -15,6 +15,19 @@ fn a_codex_read_parsed_from_a_loop_never_titles_its_shell_variable() {
     assert_eq!(codex_command("c2", &plain, None).unwrap().call["title"], "Read a.md");
 }
 
+#[test]
+fn pleasant_tool_labels_replay_codex_exec_and_mcp() {
+    let item = json!({"command": ["sh", "-c", "ls -l"], "description": " List build artifacts "});
+    let exec = codex_command("c1", &item, None).unwrap();
+    assert_eq!(exec.call["title"], "List build artifacts");
+    assert_eq!(exec.call["rawInput"]["command"], "ls -l");
+    assert_eq!(exec.call["rawInput"]["description"], "List build artifacts");
+
+    let item = json!({"server": "repo", "tool": "search", "arguments": {"query": "TODO", "description": "Find follow-ups"}});
+    let mcp = codex_mcp("c2", &item, None);
+    assert_eq!(mcp.call["rawInput"], item);
+}
+
 fn edit(id: &str) -> Value {
     json!([{"type": "tool_use", "id": id, "name": "Edit",
             "input": {"file_path": "/p/src/lib.rs", "old_string": "a", "new_string": "b"}}])
