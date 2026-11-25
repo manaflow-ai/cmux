@@ -16,8 +16,10 @@
 # a cold launch is recorded, the app is quit, it is launched again (relaunch) and recorded, and it is quit. The
 # artifact holds <name>-<appearance>-<cold|relaunch>.mov, its LRC-WIN window log (epoch ms, window id, bounds, alpha)
 # and frames/ when ffmpeg is installed; stills and strips are cut from the .mov off the Mac.
+# The recorder is CuaDriver (launch_reveal_record.py), the one app the fleet grants Screen Recording to; screencapture
+# only where CuaDriver is not installed. A launch that comes back without a video fails the step (exit 1).
 # Only the app this script launched is quit (by PID), only its temp dir and the state dirs it made are removed, and the
-# appearance is put back as found. Screen Recording must be granted to the step's process: LRC prints what it finds.
+# appearance is put back as found. LRC prints which recorder runs and what grant it holds.
 set -uo pipefail
 
 now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time*1000'; }
@@ -95,19 +97,31 @@ state_paths() {   # BUNDLE_ID APP_NAME
 
 launch_and_record() {   # APP_PATH NAME APPEARANCE MODE
   local app="$1" name="$2" appearance="$3" mode="$4" base="$OUT/$2-$3-$4"
-  local t_rec t_open t_end shots_pid=""
+  local t_rec t_open t_end shots_pid="" i
   APP_PID=""
   log "RUN $name $appearance $mode $(date +%H:%M:%S)"
-  screencapture -x "$base-before.png" 2>/dev/null
-  # -V N records N seconds then exits (SIGINT does not reach a background job in a script).
-  screencapture -x -v -V $((SECONDS_REC + 3)) "$base.mov" 2>"$base.rec.log" &
-  REC_PID=$!
-  sleep 1.0
-  t_rec="$(now_ms)"
+  [[ "$RECORDER" == screencapture ]] && screencapture -x "$base-before.png" 2>/dev/null
+  if [[ "$RECORDER" == cua ]]; then
+    python3 scripts/measure/launch_reveal_record.py record "$base-rec" $((SECONDS_REC + 2)) >"$base.rec.log" 2>&1 &
+    REC_PID=$!
+    # Until the stream runs (CuaDriver answers each call within 30 s), so the launch is in the video from its start.
+    for i in $(seq 1 700); do
+      grep -q '^READY' "$base.rec.log" 2>/dev/null && break
+      kill -0 "$REC_PID" 2>/dev/null || break
+      sleep 0.1
+    done
+    grep -q '^READY' "$base.rec.log" || { log "FAIL recorder did not start: $(head -c 300 "$base.rec.log")"; return 1; }
+    t_rec="$(sed -n 's/^READY epoch_ms=//p' "$base.rec.log" | head -1)"
+  else
+    # -V N records N seconds then exits (SIGINT does not reach a background job in a script).
+    screencapture -x -v -V $((SECONDS_REC + 3)) "$base.mov" 2>"$base.rec.log" &
+    REC_PID=$!
+    sleep 1.0
+    t_rec="$(now_ms)"
+  fi
   t_open="$(now_ms)"
   open "$app" || { log "FAIL open $name"; return 1; }
   log "OPEN $name $mode epoch_ms=$t_open rec_started_ms=$t_rec"
-  local i
   for i in $(seq 1 100); do
     APP_PID="$("$PROBE" pid "$app" | head -1)"
     [[ -n "$APP_PID" ]] && break
@@ -117,7 +131,7 @@ launch_and_record() {   # APP_PATH NAME APPEARANCE MODE
   log "PID $name $APP_PID"
   "$PROBE" windows "$APP_PID" "$SECONDS_REC" >"$base.windows.log" 2>&1 &
   WATCH_PID=$!
-  if [[ "$WINSHOTS" == 1 ]]; then
+  if [[ "$WINSHOTS" == 1 && "$GRANTED" == yes ]]; then
     (
       mkdir -p "$base-winshots"
       local end=$(( $(now_ms) + SECONDS_REC * 1000 )) wid
@@ -133,9 +147,14 @@ launch_and_record() {   # APP_PATH NAME APPEARANCE MODE
   [[ -n "$shots_pid" ]] && wait "$shots_pid" 2>/dev/null
   t_end="$(now_ms)"
   wait "$REC_PID" 2>/dev/null; REC_PID=""
-  log "DONE $name $appearance $mode ended_ms=$t_end mov=$(stat -f %z "$base.mov" 2>/dev/null || echo missing) bytes"
-  [[ -s "$base.mov" ]] || { log "WARN no recording: $(head -c 300 "$base.rec.log")"; }
+  if [[ "$RECORDER" == cua ]]; then
+    local video; video="$(sed -n 's/^VIDEO //p' "$base.rec.log" | head -1)"
+    [[ -n "$video" && -s "$video" ]] && mv "$video" "$base.mp4" && rm -rf "$base-rec"
+  fi
+  local got="$base.mp4"; [[ "$RECORDER" == cua ]] || got="$base.mov"
+  log "DONE $name $appearance $mode ended_ms=$t_end video=$(basename "$got") $(stat -f %z "$got" 2>/dev/null || echo missing) bytes"
   quit_app "$app"
+  [[ -s "$got" ]] || { log "FAIL no recording: $(head -c 300 "$base.rec.log")"; return 1; }
   return 0
 }
 
@@ -178,8 +197,22 @@ main() {
   xcrun swiftc -O -o "$TMP/probe" scripts/measure/launch-reveal-probe.swift >"$TMP/swiftc.log" 2>&1 \
     || { log "FAIL probe build"; cat "$TMP/swiftc.log"; exit 3; }
   PROBE="$TMP/probe"
-  local granted; granted="$("$PROBE" screen-access)"
-  log "screen recording access for this process: $granted"
+  GRANTED="$("$PROBE" screen-access)"
+  log "screen recording access for this process: $GRANTED"
+  # The recorder: CuaDriver where it is installed (granted by the fleet), else screencapture with this process's grant.
+  # A Mac that cannot record exits 3 now, before any download.
+  if [[ -x /Applications/CuaDriver.app/Contents/MacOS/cua-driver ]]; then
+    RECORDER=cua
+    local ready; ready="$(python3 scripts/measure/launch_reveal_record.py preflight 2>&1)" \
+      || { log "FAIL cannot record: $ready"; exit 3; }
+    log "recorder cua-driver: $ready"
+  elif [[ "$GRANTED" == yes ]]; then
+    RECORDER=screencapture
+    log "recorder screencapture (no CuaDriver on this Mac)"
+  else
+    log "FAIL cannot record: no CuaDriver and no Screen Recording grant for this process"; exit 3
+  fi
+  [[ "$WINSHOTS" == 1 && "$GRANTED" != yes ]] && log "WARN winshots=1 needs this process's grant: none taken"
   local rc=0 app appearance mode bundle name path url paths p existed
   for i in "${!names[@]}"; do
     app="${names[$i]}"; url="${urls[$i]}"
@@ -207,10 +240,10 @@ main() {
   done
   if command -v ffmpeg >/dev/null 2>&1; then
     local mov
-    for mov in "$OUT"/*.mov; do
+    for mov in "$OUT"/*.mov "$OUT"/*.mp4; do
       [[ -s "$mov" ]] || continue
-      mkdir -p "${mov%.mov}-frames"
-      ffmpeg -v error -i "$mov" -vf fps=10 "${mov%.mov}-frames/f_%04d.png" 2>/dev/null
+      mkdir -p "${mov%.*}-frames"
+      ffmpeg -v error -i "$mov" -vf fps=10 "${mov%.*}-frames/f_%04d.png" 2>/dev/null
     done
   fi
   tar -czf "$OUT/report.tgz" -C "$OUT" . 2>/dev/null
