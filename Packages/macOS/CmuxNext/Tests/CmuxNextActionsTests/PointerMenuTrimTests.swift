@@ -37,7 +37,7 @@ struct PointerMenuTrimTests {
             "home.messageAbout",
             // macScreen.open, macScreen.stopViewing: the Screen Sharing rows that #42789 put into the tab menu.
             "macScreen.open", "macScreen.stopViewing",
-            "moveSurfaceLeft", "moveSurfaceRight",
+            // moveSurfaceLeft, moveSurfaceRight: the strip reorders by drag (dragGesture, Leo 2026-11-22).
             "moveSurfaceToNextPane", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft",
             "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPreviousPane",
             "newSurface", "newTab.atEnd", "newTab.atStart",
