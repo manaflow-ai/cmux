@@ -218,6 +218,20 @@ jobs:
   # it reads branch heads over git and holds no secret. Trunk and integration pushes, which
   # the check never supersedes, skip this job and go straight to tree-preflight. A failed
   # or slow gate answers "not superseded": tree-preflight then runs and checks again.
+  # A run that claimed its window (or re-runs a failed one) and failed marks it, so the window's next push builds again
+  # instead of the whole window building nothing (base-coalesce.yml's header; 2026-11-25: one failed 01:31Z build
+  # left no Linux acpmux tree for an hour). A whole run cancelled by hand marks nothing (!cancelled()); a job that
+  # timed out or was cancelled alone does.
+  coalesce-failed:
+    needs: [coalesce, tree-preflight, build-linux, build, build-windows, cmux-next-daemon-tests, publish-tree]
+    if: ${{ !cancelled() && needs.coalesce.outputs.claimed == 'true' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    uses: ./.github/workflows/base-coalesce.yml
+    with:
+      key: cmux-tui-artifacts
+      mark_failed: true
+      window: ${{ needs.coalesce.outputs.window }}
+      round: ${{ needs.coalesce.outputs.round }}
+
   push-gate:
     name: cmux-tui superseded push gate
     if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
