@@ -220,6 +220,7 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/plan/build","params":{"sessionId":"s1","permissionId":"p1","target":"compare"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_respond","params":{"sessionId":"s1","permissionId":"p1","optionId":"yes"}}"#,
         r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/permission_group_respond","params":{"sessionId":"s1","groupId":"g1","revision":1,"decisionKey":"k","decision":"allow_once"}}"#,
+        r#"{"jsonrpc":"2.0","id":5,"method":"_acpmux/customize_run","params":{"run":{"customize":"keep"}}}"#,
     ];
     for frame in frames {
         let old = check(&pane, frame, false, false, None, None);
@@ -241,6 +242,7 @@ fn c_abi_a_click_only_answer_passes_on_a_click_only() {
     assert_eq!(
         p["click_only"],
         json!([
+            "_acpmux/customize_run",
             "_acpmux/permission_group_respond",
             "_acpmux/permission_respond",
             "_acpmux/plan/build",
