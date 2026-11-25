@@ -400,6 +400,7 @@ jobs:
         run: bash cmux-next-ios/rust/scripts/build-xcframework.sh
 
       - name: Checked-in bindings match the generated ones
+        id: bindings
         run: |
           set -euo pipefail
           # The xcframework and target/ are gitignored; the script rewrites the bindings
@@ -426,7 +427,11 @@ jobs:
       # ios-kit); the simulator run below skips Realtime and Transport too, and keeps Model for the one test Linux disables.
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --skip CmuxMobileInstantPerfTests --skip TerminalSelfRecoveryTests --skip MockTerminalStreamMemoryTests --skip CmuxMobileModelTests --skip CmuxMobileRealtimeTests --skip CmuxMobileTransportTests
 
+      # The test steps after this one run when an earlier test step is red (the package built, the
+      # bindings matched): on feat-cmux-next a macOS red kept the simulator half from running for days
+      # (2026-11-21 to 25), so its reds surfaced one fix at a time. One run now names every red.
       - name: swift test (macOS, measured suites alone)
+        if: ${{ !cancelled() && steps.bindings.outcome == 'success' }}
         run: swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter TerminalSelfRecoveryTests --filter MockTerminalStreamMemoryTests
 
 
@@ -438,7 +443,7 @@ jobs:
         # A pull request that fell back to a Blacksmith Mac runs the macOS swift test only (about 1 min); the
         # simulator half ran 6 to 17 min there and was red on 8 tests of the base on 1,100+ runs (2026-11-24).
         # It still runs on an owned Mac, and on every feat-cmux-next push and dispatch, so the check moves, not goes.
-        if: ${{ !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
+        if: ${{ !cancelled() && steps.bindings.outcome == 'success' && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
         # About 3x its usual 10 min: a hung simulator ends the step, not the job's
         # 60 min with a macOS runner held (run 43604565423, 2026-11-14).
         timeout-minutes: 30
