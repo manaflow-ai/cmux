@@ -15,7 +15,7 @@ import UniformTypeIdentifiers
 /// FrameClient of the window's FrameScheduler, 120 Hz on ProMotion), as JPEG frames
 /// `DIR/frame-NNNNN.jpg` plus `DIR/frames.json` (index, host time in
 /// seconds since `t0_s`: its first tick on the display link's clock, or the first captured frame of a
-/// recording from the launch, which waits for the window to show). Returns at once; the recording stops by
+/// recording from the launch, which waits for the window to show; 0 when that one captured no frame). Returns at once; the recording stops by
 /// itself. For before/after motion proof of the Home tab against MessagesLab's own recordings (its
 /// `--live-send`); no Screen Recording permission is needed for an app's own window.
 ///

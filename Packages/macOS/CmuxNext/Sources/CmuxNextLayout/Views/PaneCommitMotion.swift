@@ -294,7 +294,7 @@ final class PaneCommitMotion {
             closeOver(changes[0], last: last, others: others, act.spring)
         }
         cut(act != .split && changes.count == 1 ? others : [], by: changes[0], act.spring)
-        cover(changes.count == 1 ? [] : others, under: changes, act.spring) // one pane that moves: the cut above
+        cover(others, under: changes, act.spring) // one pane that moves: the cut above, on panes at rest (no own move of an act before stays)
         for view in screen.dividerViews.values where !view.isHidden {
             guard let layer = view.layer else { continue }
             let new = layer.frame

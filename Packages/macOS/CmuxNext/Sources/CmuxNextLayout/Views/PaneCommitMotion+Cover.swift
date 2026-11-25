@@ -28,7 +28,9 @@ import CmuxNextDesign
 ///
 /// The window stays at its end until the motion's end takes it away (``finish()``): a pane that a close took out does
 /// not come back in a frame between the spring's end and the frame that hides it. A later act in the move that moves
-/// one pane gives no window; a window of the act before stays while its pane is kept under.
+/// one pane gives no window; a window of the act before stays while its pane is kept under. When that one pane has
+/// no ground, the act ends the move that a pane under it still has of an act before: that pane is at its place in
+/// one frame, and the mask on its clip is for a pane at its place.
 extension PaneCommitMotion {
     /// One edge of a pane that moves. A pane under it shows only past that edge: `minX` at a smaller x, and so on.
     enum CoverSide: CaseIterable {
@@ -125,17 +127,22 @@ extension PaneCommitMotion {
         }
     }
 
-    /// Each pane of `hosts` (the panes that a close's move keeps under the others; none for an act that moves one
-    /// pane, whose way is ``cut(_:by:_:)``) shows only past one edge of each pane of `changes` that has no ground and
-    /// goes over it, from this pass to the motion's end. A pane over which no such pane goes gets nothing. A pane with
+    /// Each pane of `hosts` (the panes under the panes of `changes`) shows only past one edge of each pane of `changes`
+    /// that has no ground and goes over it, from this pass to the motion's end, when the act moves more than one
+    /// pane. A pane over which no such pane goes gets nothing. A pane with
     /// a window from an act before goes on from that window's end: the 2 moves add up, as the moves of the panes over
     /// it do (a close, and a second close in its move). When this act's window starts at another place, the pane gets
     /// this act's window alone.
+    ///
+    /// An act that moves ONE pane makes no window here: its way is the mask of ``cut(_:by:_:)``. In a move, when that
+    /// pane has no ground, this pass ends the move that a pane of `hosts` still has of an act before
+    /// (``endOwnMove(of:)``): the mask is made for a pane at rest. In a first act it reads no pane.
     ///
     /// A window of an act before goes when this act moves its pane, or when a change took its pane back into the
     /// layout (a close, taken back), unless this act's window goes on from it. Else it stays: the move still keeps
     /// the pane under.
     func cover(_ hosts: [PaneHostView], under changes: [Change], _ token: MotionSpring) {
+        let several = changes.count > 1
         let bare = changes.filter { change in !sheets.contains { $0.host === change.host } }
         var stale = covers.filter { entry in
             let had = entry.value
@@ -147,9 +154,10 @@ extension PaneCommitMotion {
                 covers[id] = nil
             }
         }
-        for host in bare.isEmpty ? [] : hosts where !host.isHidden && !changes.contains(where: { $0.host === host }) {
+        for host in bare.isEmpty || !(several || inFlight) ? [] : hosts where !host.isHidden && !changes.contains(where: { $0.host === host }) {
             guard let layer = host.layer else { continue }
             if inFlight { endOwnMove(of: host) }
+            guard several else { continue } // one pane that moves: no window
             let frame = layer.frame
             var across = Span(), down = Span()
             for change in bare where Self.area(frame.intersection(change.old.union(change.new))) >= 1 {
@@ -188,8 +196,8 @@ extension PaneCommitMotion {
 
     /// Ends the own move of an act before on `host`, a pane that this act keeps under a pane with no ground: its
     /// layer, its inner clip, its ring and its copy of the window's picture are at their places from this pass. A
-    /// window is made for a pane at rest; a pane that still moved would show past its window, inside the pane over
-    /// it. The pane's window of an act before stays, and each animation of this act.
+    /// window, and the mask of ``cut(_:by:_:)``, is made for a pane at rest; a pane that still moved would show past
+    /// it, inside the pane over it. The pane's window of an act before stays, and each animation of this act.
     private func endOwnMove(of host: PaneHostView) {
         let kept = ((covers[ObjectIdentifier(host)]?.acts ?? []) + [serial]).map { "pane.commit.\($0)." }
         let ring: CALayer? = host.chrome.layer
