@@ -3937,6 +3937,12 @@
       "title" : "Attachment Type Icons",
       "type" : "boolean"
     },
+    "experiments.chatInstantUnderLoad" : {
+      "default" : false,
+      "description" : "While you type or a reply streams, wait for a pause before saving the chat list new tabs show.",
+      "title" : "Prioritize Chat Input",
+      "type" : "boolean"
+    },
     "experiments.chatWidgets" : {
       "default" : false,
       "description" : "Installed extensions can show a card under a finished tool call in agent chat.",

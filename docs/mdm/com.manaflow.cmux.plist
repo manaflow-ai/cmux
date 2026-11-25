@@ -11198,6 +11198,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>While you type or a reply streams, wait for a pause before saving the chat list new tabs show.</string>
+			<key>pfm_name</key>
+			<string>experiments.chatInstantUnderLoad</string>
+			<key>pfm_title</key>
+			<string>Prioritize Chat Input</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>While an attachment loads, its chip shows a file or image icon instead of the loading mark.</string>
 			<key>pfm_name</key>
 			<string>experiments.attachmentTypeIcons</string>
