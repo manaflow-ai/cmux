@@ -132,6 +132,7 @@ public final class Commands {
     public static final CommandMetadata FEED_LOCAL_LIST = new CommandMetadata("feed-local-list", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FEED_LOCAL_READ = new CommandMetadata("feed-local-read", Authority.CONTROL, 12, "feed-local-owner-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FLOAT_PANE = new CommandMetadata("float-pane", Authority.CONTROL, 12, "floating-panes-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata FLUSH_LAUNCH_SNAPSHOT = new CommandMetadata("flush-launch-snapshot", Authority.CONTROL, 12, "launch-snapshot-flush-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -449,6 +450,7 @@ public final class Commands {
         values.put("feed-local-list", FEED_LOCAL_LIST);
         values.put("feed-local-read", FEED_LOCAL_READ);
         values.put("float-pane", FLOAT_PANE);
+        values.put("flush-launch-snapshot", FLUSH_LAUNCH_SNAPSHOT);
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);
