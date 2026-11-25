@@ -1714,6 +1714,11 @@ def check_chaos_resize(tab, pane):
     pid = int(RAW.get("pid") or 0)
     layers = main_layers()
     fx, fy, W, H = layers.get("frame") or [0, 0, 0, 0]
+    # The panes the drags lay out: runs compare only at the same count (a leftover session of the tag restored 3 more
+    # panes into one run, 2026-11-25).
+    focus = rpc("debug.focus") or {}
+    panes = [p for w in (focus.get("windows") or [])[:1] for p in w.get("topology") or []] or list(focus.get("topology") or [])
+    RAW["chaos_panes"] = len(panes)
     if not W:
         row("INFO", "chaos_resize", {"note": "no window frame (debug.layers)"})
         return
@@ -1818,7 +1823,7 @@ def check_chaos_resize(tab, pane):
             p95 = max(((r["app_frames"] or {}).get("p95_ms") or 0) for r in per)
             set_frame = [((r["resize_steps"] or {}).get("set_frame") or {}) for r in per]
             fit = [((r["resize_steps"] or {}).get("root_fit_screens") or {}) for r in per]
-            summary = {"bug": 19, "route": route, "in_tree": opts.in_tree,
+            summary = {"bug": 19, "route": route, "in_tree": opts.in_tree, "panes": len(panes),
                        "pane_chrome": [r.get("pane_chrome") for r in per], "drag_s": [r.get("drag_s") for r in per],
                        "set_frame_p50_ms": [s.get("p50_ms") for s in set_frame],
                        "set_frame_p95_ms": [s.get("p95_ms") for s in set_frame],
