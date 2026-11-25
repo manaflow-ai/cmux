@@ -73,7 +73,7 @@ printf '%s\\n' "side=${side} prompt=$p" >> ${RAN_FILE}
 echo "AUTO_JOURNEY_REPLY side=${side} prompt=$p"
 `;
 const harnessProfile = (cmuxTui: string, script: string) =>
-  `protocol = "acp"\ncommand = ${JSON.stringify(cmuxTui)}\nargs = ["acp", "cli-agent", "--", ${JSON.stringify(script)}]\n`;
+  `schema = 1\nid = "${HARNESS}"\nprotocol = "acp"\ncommand = ${JSON.stringify(cmuxTui)}\nargs = ["acp", "cli-agent", "--", ${JSON.stringify(script)}]\n`;
 
 // ---------------------------------------------------------------- the install's token, for the Mac daemon
 
@@ -336,7 +336,7 @@ async function main(): Promise<number> {
     await J.step("stand-in harness on the machine", async () => {
       const script = "$HOME/.cmux/auto-journey-agent.sh";
       const cmd = `${GUEST}set -e; mkdir -p "$HOME/.config/cmux/harnesses"; cat > "${script}" <<'AJ_AGENT'\n${agentScript("vm")}AJ_AGENT\nchmod 755 "${script}"; ` +
-        `printf '%s\\n' 'protocol = "acp"' "command = \\"$c\\"" "args = [\\"acp\\", \\"cli-agent\\", \\"--\\", \\"${script.replace("$HOME", "'\"$HOME\"'")}\\"]" > "$HOME/.config/cmux/harnesses/${HARNESS}.toml"; ` +
+        `printf '%s\\n' 'schema = 1' 'id = "${HARNESS}"' 'protocol = "acp"' "command = \\"$c\\"" "args = [\\"acp\\", \\"cli-agent\\", \\"--\\", \\"${script.replace("$HOME", "'\"$HOME\"'")}\\"]" > "$HOME/.config/cmux/harnesses/${HARNESS}.toml"; ` +
         `"$c" acp daemon reload >/dev/null 2>&1 || true; "$c" --version 2>/dev/null | head -1; echo "@@ok"`;
       const r = await exec(cmd, 120_000);
       if (!/@@ok/.test(r.stdout)) throw new Error(`exit ${r.code}: ${(r.stdout + r.stderr).slice(-400)}`);
