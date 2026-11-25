@@ -61,7 +61,6 @@ impl ReadMode {
                     _ => Failure::Unavailable,
                 }
             }
-            LinkError::Busy if matches!(self, Self::Refresh) => Failure::Busy,
             _ => Failure::Unavailable,
         }
     }

@@ -1,3 +1,4 @@
+import CmuxEgress
 public import Foundation
 import Network
 
@@ -54,6 +55,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// `{prompt, harness?, model?, maxTokens?, timeoutMs?}` answers `{text, harness, model}`. The
     /// unix socket only; the harness CLI runs headless with no tools, MCP, hooks or session.
     case complete = "_acpmux/complete"
+    case terminalTranscriptPage = "_acpmux/chat_transcript_page"
+    case terminalTranscriptFind = "_acpmux/chat_transcript_find"
     /// One plain sentence for one diff hunk, kept by its content hash (acpmux `hunk_summary.rs`):
     /// `{path, patch, sessionId?}` answers `{text, key, cached}`; `{check: true, sessionId?}`
     /// answers `{ready, harness}` and runs nothing. The unix socket only.
@@ -130,7 +133,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .registry, .health, .models: .seconds(40)
         // An endpoint add may read its models (10 s), wait on the add lock and the Keychain store (60 s).
         case .add: .seconds(90)
-        case .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
+        case .terminalTranscriptPage, .terminalTranscriptFind, .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
              .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel: .seconds(10)
         case .routeAdd, .connectionsKeyAdd, .claudeTokenAdd: .seconds(20)
         // Starts the callback listener; a ChatGPT plan's removal calls the revocation endpoint.
@@ -210,7 +213,7 @@ extension AcpmuxEnvironment {
         let socketPath = socketPath
         return Task.detached {
             guard let endpoint = try? AcpmuxStatusClient.unixEndpoint(socketPath) else { return }
-            let connection = NWConnection(to: endpoint, using: .tcp)
+            let connection = CmuxEgress.connection(to: endpoint, using: .tcp, site: "CmuxNextAgentPane.AcpmuxEnvironment+Harnesses")
             defer { connection.cancel() }
             await withTaskCancellationHandler {
                 try? await Self.readHarnessChanges(on: connection, method: method, onChange: onChange)

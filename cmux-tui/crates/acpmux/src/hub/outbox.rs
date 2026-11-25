@@ -395,16 +395,25 @@ pub struct OutboxState {
     /// Fired when a peer's link is ready again (`hub/peers.rs`): a message waiting out a retry
     /// delay tries again at once instead of minutes later.
     pub peer_ready: Notify,
+    /// How many times each peer's link was ready or listed ([`Self::note_peer_ready`]): a
+    /// delivery waiting on `peer_ready` ends its wait only when its own peer's count moved, so
+    /// another peer's link coming back does not wake it ([`Self::peer_ready_count`]).
+    ready_counts: StdMutex<HashMap<String, u64>>,
     /// For each peer, the open delivery its last link's redelivery reached last
     /// (`server/outbox.rs` `redeliver_open`): the next link goes on after it, so none waits
     /// behind the others for good.
     pub(crate) redelivered_to: StdMutex<HashMap<String, (u64, String)>>,
     /// [`Self::unsettled`]'s last count: what `status` shows while a writer holds the book.
     unsettled_seen: std::sync::atomic::AtomicUsize,
+    /// Where a delivery that ends failed goes (`hub/dead_letters.rs`): set once.
+    failed: std::sync::OnceLock<tokio::sync::mpsc::UnboundedSender<Delivery>>,
     /// Tests only: the next write says it started, then stalls until told to go on, as a full
     /// or hung disk does.
     #[cfg(test)]
     stall: StdMutex<Option<(std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>)>>,
+    /// Injected once, at the journal write, before the usual rollback.
+    #[cfg(test)]
+    pub(crate) next_write_error: StdMutex<Option<std::io::Error>>,
 }
 
 /// The deliveries and the number of changes made to them.
@@ -442,6 +451,23 @@ struct Disk {
 }
 
 impl OutboxState {
+    /// Peer `peer`'s link is ready again or listed its sessions: its count moves, then every
+    /// waiting delivery looks (`server/outbox.rs` `deliver`), and only those to `peer` go.
+    pub fn note_peer_ready(&self, peer: &str) {
+        *self
+            .ready_counts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(peer.to_owned())
+            .or_default() += 1;
+        self.peer_ready.notify_waiters();
+    }
+
+    /// How many times `peer`'s link was ready or listed in this launch (0 for one never seen).
+    pub fn peer_ready_count(&self, peer: &str) -> u64 {
+        self.ready_counts.lock().unwrap_or_else(|e| e.into_inner()).get(peer).copied().unwrap_or(0)
+    }
+
     /// Reads the saved deliveries at `path` and saves there from now on. Returns the ones not
     /// settled, to deliver again. A file that cannot be read starts empty (and is replaced).
     pub fn open(&self, path: &Path) -> Vec<Delivery> {
@@ -513,6 +539,17 @@ impl OutboxState {
 
     fn book(&self) -> std::sync::MutexGuard<'_, Book> {
         self.deliveries.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Sends every delivery that ends failed to `to` from now on: false when one already does.
+    pub(crate) fn on_failed(&self, to: tokio::sync::mpsc::UnboundedSender<Delivery>) -> bool {
+        self.failed.set(to).is_ok()
+    }
+
+    /// The dead-letter list beside `outbox.json`, when the outbox is on disk.
+    pub(crate) fn dead_letters_path(&self) -> Option<PathBuf> {
+        let path = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
+        Some(path.with_file_name(crate::hub::dead_letters::FILE))
     }
 
     /// Where delivery `d`'s attachments are kept, when it has any and the outbox is on disk.
@@ -738,11 +775,20 @@ impl OutboxState {
     ) -> Option<(u64, std::thread::Result<()>)> {
         let mut book = self.book();
         let d = book.deliveries.get_mut(id)?;
+        let was = d.state;
         // A closure that panics part way has still changed the delivery: that change is marked
         // and saved like any other before the panic goes on, so memory never holds what no
         // write will take (a restart went back to before it and sent it again).
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(d)));
         d.updated_at = crate::store::now_ms();
+        // Failed now: it bounces to its sender and is a dead letter (`hub/dead_letters.rs`).
+        if was != State::Failed
+            && d.state == State::Failed
+            && !d.projection_only()
+            && let Some(failed) = self.failed.get()
+        {
+            let _ = failed.send(d.clone());
+        }
         book.dirty.insert(id.to_owned());
         Some((book.changed(), ran))
     }
@@ -846,6 +892,12 @@ impl OutboxState {
             {
                 let _ = started.send(());
                 let _ = go_on.recv();
+            }
+            #[cfg(test)]
+            if let Some(error) =
+                self.next_write_error.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                return Err(error.into());
             }
             let journal = journal_path(&path);
             if lines.iter().any(|b| *b != b'\n') {

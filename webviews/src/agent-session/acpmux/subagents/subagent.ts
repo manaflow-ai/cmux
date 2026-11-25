@@ -69,6 +69,9 @@ export type Subagent = {
   /// Environment for the subagent reads them (session-info/subagentScope.ts).
   isolated?: boolean;
   cwd?: string;
+  /// The model its spawning call asked for (Claude's Agent `model`, never `inherit`): what it runs
+  /// on, fixed at its start. None: it runs on its definition's model or the chat's.
+  spawnModel?: string;
   worktree?: { path: string; branch?: string };
   /// An acpmux child session explicitly recorded for a shell call: the protocol supplies its
   /// harness, model and effort. Command text and stdout never establish session identity.

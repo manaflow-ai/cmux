@@ -292,6 +292,12 @@ extension UpdaterService {
                           metered: UpdateMeteredMode = .deferLowData, ring: String? = nil,
                           idleInstall: (maxWait: TimeInterval, quiet: TimeInterval)? = nil,
                           installWhenIdleMinutes: TimeInterval? = nil) {
+        // Paused (``AutomaticUpdatePause``): the settings keep their values, nothing automatic runs.
+        let paused = pausesAutomaticUpdates
+        let checkAutomatically = checkAutomatically && !paused
+        let downloadAutomatically = downloadAutomatically && !paused
+        let installWhenIdleMinutes = paused ? nil : installWhenIdleMinutes
+        if paused, !settingsApplied { log.append("automatic updates paused: checks, downloads and idle installs only on the person's click") }
         if let ring { follow(ring: ring) }
         installWhenIdle = installWhenIdleMinutes.map { .seconds($0 * 60) }
         if let idleInstall {

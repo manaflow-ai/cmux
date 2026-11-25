@@ -198,6 +198,7 @@ extension AgentPaneView {
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
         model.transport.gestures.record(click: event.type != .keyDown, press: event.type != .keyDown || Self.isPressKey(event))
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
+        rememberLastFrameSoon() // what the person did shows in the frame a reload keeps (``AgentPaneDocumentCover``)
     }
 
     /// The same for an event in the Chromium page's own window (a child of the pane's window): a key
@@ -223,6 +224,7 @@ extension AgentPaneView {
         guard AgentPanePersonInput.isPerson(event, sources: eventSources) else { return recordPosted(event) }
         model.transport.gestures.record(click: event.type != .keyDown, press: event.type != .keyDown || Self.isPressKey(event))
         if event.type == .keyDown { model.transport.gestures.recordQuestionReturn(Self.isReturnKey(event)) }
+        rememberLastFrameSoon() // what the person did shows in the frame a reload keeps (``AgentPaneDocumentCover``)
     }
 
     /// Whether this pane shows, so input can be its own: not hidden (a parked tab's view stays in its pane, pane-sized)
