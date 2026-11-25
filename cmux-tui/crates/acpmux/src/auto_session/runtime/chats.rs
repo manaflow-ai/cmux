@@ -76,6 +76,8 @@ pub(super) struct Tracked {
     pub absent: bool,
     /// A task waits for the chat's work to settle (`settle.rs`).
     pub settling: bool,
+    /// What a give keeps of the turn it stopped (`give.rs`).
+    pub give: super::give::Stopped,
 }
 
 impl Tracked {
@@ -97,6 +99,7 @@ impl Tracked {
             anchor: None,
             absent: false,
             settling: false,
+            give: super::give::Stopped::default(),
         }
     }
 
@@ -154,6 +157,10 @@ pub(super) fn record_of(tracked: &Tracked, old: Option<AutoRecord>) -> Option<Au
     if let Some(view) = view {
         record.keep_in_cloud = view.keep_in_cloud;
     }
+    // Moving: this holder is giving the chat, or the store still tells the wish.
+    let wished = view.and_then(|view| view.moving.as_ref()).map(|wish| wish.to);
+    record.moving = chat.moving().or(wished).filter(|_| record.auto);
+    record.local_wanted &= record.auto;
     record.anchor = tracked.anchor.clone();
     (!record.spent()).then_some(record)
 }
@@ -192,6 +199,23 @@ mod tests {
 
     fn chat(state: State) -> Tracked {
         Tracked::new(Chat { state, ..Chat::new(Side::Laptop, 0) })
+    }
+
+    #[test]
+    fn a_chat_being_given_reads_where_it_still_is_and_is_frozen() {
+        use cmux_auto_session::holder::GiveStep;
+        use cmux_auto_session::wire::MoveTo;
+        let step = GiveStep::Copying;
+        let giving = chat(State::Giving { epoch: 3, step, to: MoveTo::Cloud });
+        assert!(frozen(&giving.chat));
+        let record = record_of(&giving, None).unwrap();
+        assert!(record.here);
+        assert_eq!(record.state, wire::State::Local);
+        let returning = chat(State::Returning { epoch: 4, step, to: MoveTo::Local });
+        assert!(frozen(&returning.chat));
+        let record = record_of(&returning, None).unwrap();
+        assert!(record.here);
+        assert_eq!(record.state, wire::State::Cloud);
     }
 
     #[test]

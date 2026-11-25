@@ -307,6 +307,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         // This hub runs no holder loop, so the switch answers `auto.unavailable` (the arm's own
         // answer); `$S` has no kept changes, so `show` lists none.
         (method::MUX_AUTO_SESSION_SET, Run(json!({"sessionId": "$S", "auto": false}))),
+        // No holder loop here either: the move answers `auto.unavailable`.
+        (method::MUX_AUTO_SESSION_MOVE, Run(json!({"sessionId": "$S", "to": "cloud"}))),
         (method::MUX_AUTO_SESSION_LEFTOVER, Run(json!({"sessionId": "$S", "action": "show"}))),
         (method::MUX_AUTO_SESSION_WAKE, Run(json!({}))),
         (method::MUX_SIDE, Run(json!({"sessionId": "$S", "chat": "lso-no-such-chat"}))),
