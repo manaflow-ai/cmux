@@ -102,9 +102,9 @@ import PackageDescription
 //     updates as owner-bound terminal jobs: intents, receipts, outcomes; the App supplies the route glue)
 //   CmuxNextFileGrid -> system frameworks only (the thumbnail grid: tiles, thumbnail cache, drag
 //     out, drop reading, Quick Look and the command menu; it reads and changes no files)
-//   CmuxNextScreenshots -> Compat, FileGrid, Files (the Screenshots pane: source detection for macOS and the
-//     screenshot tools, reading, watching and file operations through CmuxNextFiles, the live model
-//     and the pane view; no daemon; the App supplies the workspace)
+//   CmuxNextScreenshots -> Compat, Design, FileGrid, Files, Settings, Wakeups (the Screenshots pane, screenshot
+//     sources and file operations, and window capture with page and overlay compositing; the App supplies the
+//     workspace and Chromium page images)
 //   CmuxNextAgentLanes -> AgentActivity, Apps, Bridge, Sidebar, Wakeups (the acpmux `_acpmux/watch` feed for turn
 //     states and lanes, cx-v9k2f, the sidebar's Priority view and its Chief item with its App Store card)
 //   CmuxNextApps -> Actions, Design, Icons, Wakeups, HomeCore, HomeRender (app platform: manifest model, scene store + native renderer, JavaScriptCore
@@ -464,6 +464,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTabs",
                 "CmuxNextTaskManagerPage",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalComments",
                 "CmuxNextTerminalFind",
                 "CmuxNextTerminalGeometry",
                 "CmuxNextUpdater",
@@ -1387,6 +1388,21 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Comment… on a terminal selection (comment-threads-v1): the card over a terminal that shows
+        // its comment threads and the agent's replies, and the per-host thread models (CmuxNextDiff).
+        .target(
+            name: "CmuxNextTerminalComments",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDaemonService",
+                "CmuxNextDesign",
+                "CmuxNextDiff",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // Keep awake (sessions.keepAwake): one idle-sleep hold for the Keep Mac Awake
         // action, working local agents and (sessions.keepAwakeForCommands) long terminal
         // commands, released on battery unless the user chose Always. IOKit's power-source
@@ -1636,8 +1652,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Wakeups: ScreenshotMask waits out a window's frames on a DemandTimer.
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
+                "CmuxNextDesign",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],
             resources: [
@@ -2311,6 +2329,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -2355,6 +2374,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextIcons",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
