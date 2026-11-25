@@ -22,6 +22,7 @@
     "agent-session-settings-v1",
     "agent-session-share-events-v1",
     "agent-session-side-v1",
+    "agent-session-start-claude-machine-login-v1",
     "agent-session-start-keyed-reason-v1",
     "agent-session-start-mode-v1",
     "agent-session-start-model-v1",
