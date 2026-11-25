@@ -97,7 +97,8 @@ final class SidebarFooterBand {
         // Swift live mode's mark follows the avatar; the dots and the update button start after it.
         // The Live toggle comes first, right after the avatar; the badge follows it.
         let liveMaxX = placeLiveToggle(before: searchMinX)
-        let leadMaxX = placeLiveBadge(before: searchMinX, after: liveMaxX) ?? liveMaxX
+        let spacesMaxX = placeSpacesToggle(before: searchMinX, after: liveMaxX)
+        let leadMaxX = placeLiveBadge(before: searchMinX, after: spacesMaxX ?? liveMaxX) ?? spacesMaxX ?? liveMaxX
         let trailing = placeUpdateAvailable(before: searchMinX, after: leadMaxX ?? bandFirstRow?.itemsMaxX ?? 0) ?? searchMinX
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
@@ -244,6 +245,37 @@ final class SidebarFooterBand {
         } else {
             let footer = host.footer.frame
             (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
+        }
+        let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1
+        guard x + side <= end else {
+            button.frame = .zero
+            return nil
+        }
+        let scale = host.window?.backingScaleFactor ?? 2
+        button.frame = NSRect(x: (x * scale).rounded() / scale, y: ((midY - side / 2) * scale).rounded() / scale,
+                              width: side, height: side)
+        return button.frame.maxX
+    }
+
+    /// Places the Spaces visibility button beside Live, or directly after the profile control when Live is hidden.
+    /// It remains discoverable while `sidebar.showSpaces` is false; `noFade` still hides the whole footer.
+    @discardableResult
+    func placeSpacesToggle(before searchMinX: CGFloat?, after liveMaxX: CGFloat?) -> CGFloat? {
+        guard let host else { return nil }
+        let button = host.spacesButton
+        guard !host.design.sidebarSections.noFade else {
+            button.isHidden = true
+            return nil
+        }
+        button.isHidden = false
+        let side = searchSide
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            (x, midY) = ((liveMaxX ?? row.itemsMaxX) + Metrics.space2, row.frame.midY)
+        } else {
+            let footer = host.footer.frame
+            (x, midY) = ((liveMaxX ?? Metrics.space4), footer.height > 0 ? footer.midY
                 : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
         }
         let end = (searchMinX ?? host.bounds.width - Metrics.space4) - Metrics.space1

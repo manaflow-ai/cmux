@@ -93,6 +93,32 @@ import Testing
         #expect(anchors.first === h.sidebar.searchButton)
     }
 
+    @Test func spacesToggleStaysReachableAndNamesItsCurrentAction() async {
+        let h = await make()
+        defer { h.window.close() }
+        let button = h.sidebar.spacesButton
+        #expect(!button.isHidden, "Spaces visibility stays discoverable when the strip is hidden")
+        #expect(button.accessibilityIdentifier() == "cmux.sidebar.spacesToggle")
+        #expect(button.accessibilityLabel() == Strings.spacesToggle)
+        #expect(!h.frame(of: button).isEmpty, "the Spaces toggle has a footer hit target")
+
+        h.sidebar.spacesShown = false
+        #expect(button.accessibilityHelp() == Strings.showSpaces)
+        #expect(button.accessibilityValue() as? String == "0")
+        h.sidebar.spacesShown = true
+        #expect(button.accessibilityHelp() == Strings.hideSpaces)
+        #expect(button.accessibilityValue() as? String == "1")
+    }
+
+    @Test func pressingSpacesToggleInvokesItsCallback() async {
+        let h = await make()
+        defer { h.window.close() }
+        var presses = 0
+        h.sidebar.onSpacesToggle = { presses += 1 }
+        h.sidebar.spacesButton.performClick(nil)
+        #expect(presses == 1)
+    }
+
     @Test func theSettingHidesTheButton() async {
         let h = await make()
         defer { h.window.close() }
