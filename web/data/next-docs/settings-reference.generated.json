@@ -11,7 +11,7 @@
           "title": "Attachment View",
           "help": "How pictures and files show in the composer and in sent messages.",
           "kind": "choice",
-          "default": "strip",
+          "default": "inline",
           "group": "Agent Chat",
           "values": [
             "inline",
