@@ -10,10 +10,15 @@ export type ConnectorSummary =
   | { kind: "connecting"; count: number }
   | { kind: "loaded"; count: number };
 
-export function summarizeConnectors(servers: readonly { status?: ConnectorStatus }[]): ConnectorSummary {
+/// `pendingShown`: a server still connecting has lasted the shared bound (lasting.ts `useConnectionQuiet`);
+/// until then it counts as loaded, so a server that connects within it never says "connecting".
+export function summarizeConnectors(
+  servers: readonly { status?: ConnectorStatus }[],
+  pendingShown = true,
+): ConnectorSummary {
   const failed = servers.filter((server) => server.status === "failed").length;
   if (failed > 0) return { kind: "reconnect", count: failed };
   const pending = servers.filter((server) => server.status === "pending").length;
-  if (pending > 0) return { kind: "connecting", count: pending };
+  if (pending > 0 && pendingShown) return { kind: "connecting", count: pending };
   return { kind: "loaded", count: servers.length };
 }

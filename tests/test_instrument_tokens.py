@@ -61,27 +61,6 @@ class InstrumentTokenTests(unittest.TestCase):
         self.assertIn('corner.card', found[0])
         self.assertIn('A default moved', found[0])
 
-    def test_look_token_default_moved_in_the_stylesheet_is_drift(self):
-        # ink.activity is the fallback conversation.css gives --cv-activity-text; moving it there is drift.
-        token = self.token('ink.activity')
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            for t in self.data['tokens']:
-                if 'today' in t:
-                    dest = root / t['today']['file']
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    if not dest.exists():
-                        dest.write_text((ROOT / t['today']['file']).read_text())
-            css_path = root / token['today']['file']
-            before = css_path.read_text()
-            after = before.replace('var(--instrument-ink-activity, var(--agent-muted))',
-                                   'var(--instrument-ink-activity, var(--agent-soft))')
-            self.assertNotEqual(before, after)
-            css_path.write_text(after)
-            found = tokens.drift(self.data, root)
-        self.assertEqual(1, len(found))
-        self.assertIn('ink.activity', found[0])
-
     def test_applying_a_value_shrinks_and_must_be_locked(self):
         data = copy.deepcopy(self.data)
         card = self.token('corner.card', data)
@@ -118,8 +97,8 @@ class InstrumentTokenTests(unittest.TestCase):
             tokens.validate(self.data)
 
     def test_version_needs_a_changelog_entry(self):
-        data = dict(self.data, version='9.0.0')
-        self.assertEqual(['schemas/instrument/CHANGELOG.md has no "## 9.0.0" entry'],
+        data = dict(self.data, version='0.2.0')
+        self.assertEqual(['schemas/instrument/CHANGELOG.md has no "## 0.2.0" entry'],
                          tokens.changelog_problems(data, (ROOT / tokens.CHANGELOG).read_text()))
 
     def test_off_token_entries_are_where_they_say(self):

@@ -61,7 +61,7 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
   mobile: () =>
     import("./MobileCard").then(({ MobileCard }) => () => <MobileCard />),
   devices: () =>
-    import("./DevicesCard").then(({ DevicesCard }) => () => <DevicesCard />),
+    import("./DevicesCard").then(({ DevicesCard }) => (focus) => <DevicesCard focus={focus} />),
   chiefPet: () =>
     import("./ChiefPetCard").then(({ ChiefPetCard }) => (focus) => <ChiefPetCard focus={focus} />),
   density: () =>
@@ -105,6 +105,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
           </>
         ),
     ),
+  customizeProgress: () =>
+    import("./CustomizeProgressCard").then(({ CustomizeProgressCard }) => () => <CustomizeProgressCard />),
   customizeChecklist: () =>
     import("./CustomizeChecklist").then(({ CustomizeChecklistCard }) => () => <CustomizeChecklistCard />),
   keys: () =>
@@ -113,6 +115,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./McpServersCard").then(({ McpServersCard }) => () => <McpServersCard />),
   integrationsHub: () =>
     import("./IntegrationsHubCard").then(({ IntegrationsHubCard }) => () => <IntegrationsHubCard />),
+  automationsCloud: () =>
+    import("./AutomationsCard").then(({ AutomationsCard }) => () => <AutomationsCard />),
   tailnet: () =>
     import("./TailnetCard").then(({ TailnetCard }) => () => <TailnetCard />),
   models: () =>
