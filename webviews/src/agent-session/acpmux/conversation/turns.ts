@@ -35,7 +35,7 @@ import { lastWrapUp, withoutWrapUp, execWrapUp, isWrapUp, wrapUpAsk } from "./wr
 import { lastWalkthrough } from "./walkthroughModel";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
-import { commandLine, commandSaid, scriptNoun } from "./commandActions";
+import { scriptNoun, commandLine, commandSaid } from "./commandActions";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups, countsFailed } from "./toolGroups";
 import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
@@ -1977,18 +1977,30 @@ function foldedAgentMessages(rows: readonly AcpmuxRow[]): { sent: number; receiv
   for (const row of rows) {
     if (isReceivedLine(row) && row.kind === "user")
       received += row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    else if (row.kind === "activity" && row.items?.length)
-      for (const group of toolGroups(row.items))
-        sent +=
-          group.type === "sendGroup"
-            ? group.entries.length
-            : group.type === "message" ||
-                group.type === "send" ||
-                (group.type === "subsession" && group.call.tool === "send")
-              ? 1
-              : 0;
+    else if (row.kind === "activity" && row.items?.length) sent += sentMessages(row.items);
   }
   return { sent, received };
+}
+
+/// The messages one step's calls sent, by its immutable items array: a running turn's "Worked for"
+/// is shaped again on every record the pane draws, and grouping each earlier step's calls again
+/// (toolGroups.ts) was most of that (bench/replay-under-load.bench.ts --profile).
+const sentCounts = new WeakMap<readonly AcpmuxActivity[], number>();
+function sentMessages(items: readonly AcpmuxActivity[]): number {
+  const kept = sentCounts.get(items);
+  if (kept !== undefined) return kept;
+  let sent = 0;
+  for (const group of toolGroups(items))
+    sent +=
+      group.type === "sendGroup"
+        ? group.entries.length
+        : group.type === "message" ||
+            group.type === "send" ||
+            (group.type === "subsession" && group.call.tool === "send")
+          ? 1
+          : 0;
+  sentCounts.set(items, sent);
+  return sent;
 }
 
 /// The calls of a step that edited, other than its edits, which the turn's edits card draws: they stay
