@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { chatDisplay, type ChatDisplay } from "./chatDisplay";
+import { chatDisplay, proseMeasureOf, type ChatDisplay } from "./chatDisplay";
 
 /// The chat's one column: Settings > Agents > Chat Layout > Chat Text Width (`agentPane.display.width`,
 /// 800 by default) or Chat Full Width (`agentPane.display.fullWidth`), read by chatDisplay.ts. Every
@@ -92,3 +92,11 @@ export const useChatSizing = (): ChatSizing => useSyncExternalStore(subscribe, s
 /// The effective page zoom currently used by chat sizing, for callers that need the same snapshot
 /// while deriving a secondary layout measurement.
 export const uiScale = (): number => currentScale;
+
+/// The widest a reply's prose block draws, in px at the page zoom `scale` (conversation.css
+/// `--cv-prose-measure`, chatDisplay.ts proseMeasureOf): code, tables and diffs keep the column.
+/// Infinity when prose runs across the column.
+export const proseWidthOf = (display: ChatDisplay = chatDisplay(), scale: number = currentScale): number => {
+  const measure = proseMeasureOf(display);
+  return measure === null ? Infinity : measure / scale;
+};

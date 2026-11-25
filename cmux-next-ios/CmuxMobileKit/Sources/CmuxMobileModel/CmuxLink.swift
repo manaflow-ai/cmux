@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(OSLog)
 import OSLog
+#endif
 
 private let log = Logger(subsystem: "dev.cmux.mobile", category: "links")
 
@@ -35,6 +37,28 @@ public struct CmuxLink: Hashable, Sendable {
         case group(String, workspace: String?)
         /// A Home conversation, optionally at one message (`conversation/<id>[/message/<id>]`).
         case conversation(String, message: String?)
+        /// A Mac's screen through the device hub (`mac-screen?device=&display=&control=1&name=`,
+        /// web `cmux.com/deeplink/screen?…`): view only unless the link asks for control.
+        case macScreen(MacScreenLink)
+    }
+
+    /// A Mac screen link: the hub device to view, the display on it, and whether it asks for control.
+    public struct MacScreenLink: Hashable, Sendable {
+        /// The hub device id (lowercase uuid).
+        public var device: String
+        /// The CGDirectDisplayID in decimal; nil is whatever the host streams by default.
+        public var display: String?
+        /// `control=1`: ask for Full Control; otherwise the session is View Only.
+        public var control: Bool
+        /// The run's label (display only, never used to route).
+        public var name: String?
+
+        public init(device: String, display: String? = nil, control: Bool = false, name: String? = nil) {
+            self.device = device
+            self.display = display
+            self.control = control
+            self.name = name
+        }
     }
 
     public var target: Target
@@ -50,6 +74,7 @@ public struct CmuxLink: Hashable, Sendable {
         case .agent: "agent"
         case .group: "group"
         case .conversation: "conversation"
+        case .macScreen: "mac-screen"
         }
     }
     /// An agent link's `?message=`: the message to scroll to (display only).
@@ -61,7 +86,7 @@ public struct CmuxLink: Hashable, Sendable {
     }
 
     /// The link `url` names, or nil when it is not a cmux link (another
-    /// scheme or host, the sign-in callback, the pairing code, a malformed id).
+    /// scheme or host, the sign-in callback, a malformed id).
     public init?(url: URL) {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.user == nil, components.password == nil,
@@ -80,8 +105,7 @@ public struct CmuxLink: Hashable, Sendable {
         self = link
     }
 
-    /// Whether `scheme` is a cmux build's link scheme. `cmux-next` is the
-    /// pairing code's (PairInvite), never a link.
+    /// Whether `scheme` is a cmux build's link scheme. `cmux-next` is never a link.
     public static func isLinkScheme(_ scheme: String) -> Bool {
         let scheme = scheme.lowercased()
         return ["cmux", "cmux-nightly", "cmux-rc", "cmux-dev"].contains(scheme) || scheme.hasPrefix("cmux-dev-")
@@ -99,6 +123,10 @@ public struct CmuxLink: Hashable, Sendable {
     }
 
     private static func native(host: String, path: [String], query: [URLQueryItem], fragment: String?) -> CmuxLink? {
+        if host == "mac-screen" {
+            guard path.isEmpty, fragment == nil else { return nil }
+            return macScreen(query: query)
+        }
         guard let first = path.first else { return nil }
         switch host {
         case "workspace":
@@ -150,6 +178,7 @@ public struct CmuxLink: Hashable, Sendable {
            ["deeplink", "link"].contains(path[1]) {
             path.removeFirst()
         }
+        if path == ["deeplink", "screen"] { return macScreen(query: query) }
         if path == ["deeplink", "agent"] {
             func value(_ name: String) -> String? {
                 let items = query.filter { $0.name == name }
@@ -161,6 +190,21 @@ public struct CmuxLink: Hashable, Sendable {
         // `cmux.com/link/<kind>/…` is the native link's path on the web.
         guard path.first == "link", path.count >= 3 else { return nil }
         return native(host: path[1], path: Array(path.dropFirst(2)), query: query, fragment: nil)
+    }
+
+    /// `device=` (required, a uuid), `display=` (decimal), `control=1`, `name=`; each at most once.
+    private static func macScreen(query: [URLQueryItem]) -> CmuxLink? {
+        func value(_ name: String) -> String?? {
+            let items = query.filter { $0.name == name }
+            if items.isEmpty { return .some(nil) }
+            return items.count == 1 ? .some(items[0].value) : nil
+        }
+        guard let device = value("device") ?? nil, isDeviceID(device),
+              let display = value("display"), let control = value("control"), let name = value("name") else { return nil }
+        if let display, !isDisplayID(display) { return nil }
+        let label = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return CmuxLink(.macScreen(MacScreenLink(device: device.lowercased(), display: display, control: control == "1",
+                                                 name: label.flatMap { $0.isEmpty ? nil : String($0.prefix(200)) })))
     }
 
     private static func agent(harness: String, session: String, query: [URLQueryItem]) -> CmuxLink? {
@@ -176,6 +220,16 @@ public struct CmuxLink: Hashable, Sendable {
         guard text.hasPrefix(prefix) else { return false }
         let hex = text.utf8.dropFirst(prefix.utf8.count)
         return hex.count == 32 && hex.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+    }
+
+    /// A hub device id: a uuid (any case).
+    static func isDeviceID(_ text: String) -> Bool {
+        UUID(uuidString: text) != nil
+    }
+
+    /// A CGDirectDisplayID in decimal (a UInt32).
+    static func isDisplayID(_ text: String) -> Bool {
+        (1...10).contains(text.utf8.count) && text.utf8.allSatisfy { (48...57).contains($0) } && UInt32(text) != nil
     }
 
     static func isGroupID(_ text: String) -> Bool {

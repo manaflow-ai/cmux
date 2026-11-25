@@ -65,6 +65,8 @@ import PackageDescription
 //   CmuxNextHistoryDaemon -> Daemon, History, Wakeups (the daemon history module's client, `history-v1`)
 //   CmuxNextStash -> Compat, Daemon, DaemonService (Stash on this Mac's daemon: Save and Close, the
 //     Stashed Tabs page's restore and delete; the App answers StashHost)
+//   CmuxNextAppInstallLink -> Compat, Daemon, Design (cmux.com's Open in cmux link: forwards it to the bundled
+//     `cmux apps install-link`, shows its consent card and runs Install only on the person's yes)
 //   CmuxNextHistoryPages -> BrowserAutomation, DaemonService, Design, Pages, Settings, Stash, Wakeups (the React
 //     History and Stashed Tabs pages' native ops: Cookie Backups, stash restore and delete with Undo)
 //   CmuxNextAppHealth -> Compat, Control, Daemon, DaemonService, Design, Pages, Server, Settings, Wakeups (app health's
@@ -119,9 +121,9 @@ import PackageDescription
 //     plans/cmux-next/server.md)
 //   CmuxNextRemoteView -> Design, Icons (remote desktop pane: decode, presenters, chrome, input capture;
 //     no daemon; the App supplies the stream source and input sink; plans/cmux-next/remote-desktop.md)
-//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, CmuxScreenKit (Mac Screen tabs: another
-//     Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
-//     host approval prompt, Settings > Devices state; CmuxScreenKit links WebRTC.framework)
+//   CmuxNextMacScreen -> Compat, Settings, Wakeups, Actions, Control, Design, RemoteView, Devices, Phone, CmuxScreenKit (Mac Screen tabs:
+//     another Mac's screen as a WebRTC stream, the user's devices from the device hub, pairing home page (DEV), Share This Mac host,
+//     host approval prompt, Settings > Devices state, this Mac's displays as the iPhone's surfaces; CmuxScreenKit links WebRTC.framework)
 //   CmuxNextDevices -> Compat, Wakeups, CCmuxAppFFI (the device hub: Secure Enclave device identity, the signed
 //     HTTP client, the User DO socket, relay sealing and the @Observable DeviceHub; no UI; the App
 //     supplies the account token and the hub URL; docs/device-hub/PROTOCOL.md)
@@ -191,7 +193,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 3142513ee35346ec0b6c4d120a02cd6158019ed79caf27df0f2989e4e20799e7
+// app-ffi-pin-checksum: 6518d5e546f66e0b7aae72f02dab0cd6a0c671416bc7be404d436a693c20af7f
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -353,6 +355,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentUpdates",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
+                "CmuxNextAppInstallLink",
+                "CmuxNextAppTry",
                 "CmuxNextApps",
                 "CmuxNextBookmarks",
                 "CmuxNextBridge",
@@ -411,6 +415,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextImportSuggestions",
                 "CmuxNextKeepAwake",
                 "CmuxNextKeys",
+                "CmuxNextLaunchImages",
                 "CmuxNextLayout",
                 "CmuxNextLiveCode",
                 "CmuxNextMacScreen",
@@ -461,10 +466,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 // The free tier's App Attest provider is composed here (cx-ds09i).
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 // The signed approve answer format shared with the iPhone (cx-aocz).
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [
                 .process("Resources"),
@@ -538,6 +545,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // Run a PR as This App… and Undo Last PR Run (app.try.run / app.try.undo): the palette face of the
+        // bundled `cmux app try`, out of CmuxNextApp; the App only binds it with its CLI, bundle and window.
+        .target(
+            name: "CmuxNextAppTry",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextDesign",
+            ],
+            resources: [.process("Resources")],
+            swiftSettings: uiSwiftSettings
+        ),
         // Archive and Unarchive of sidebar items (plans/cmux-next/archiving-DESIGN.md): the actions
         // on the sidebar document; the App only answers `SidebarArchiveHost`.
         .target(
@@ -547,6 +567,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
+                "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextSettingsWindow",
                 "CmuxNextSidebar",
@@ -607,6 +628,20 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        // cmux.com's Open in cmux link (cmux://apps/install?repo=…&commit=…): the CLI checks and installs;
+        // this shows the consent card and runs Install only on the person's yes.
+        .target(
+            name: "CmuxNextAppInstallLink",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextDaemon",
+                "CmuxNextDesign",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         // The app's native ops for the React History and Stashed Tabs pages
         // (webviews/src/pages/history, webviews/src/pages/stash): Cookie Backups (Keychain-encrypted
         // app data) and stash restore and delete with the Undo toast.
@@ -655,6 +690,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 "CmuxNextWindowRules",
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -682,6 +718,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextTestSupport",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
+                "CmuxNextWindowRules",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -693,6 +730,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -716,6 +754,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCloud",
                 "CmuxNextCompat",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -737,6 +776,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextHomeEngine",
                 "CmuxNextIcons",
                 "CmuxNextOnboarding",
                 "CmuxNextPages",
@@ -927,6 +967,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHome",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextDesignTokens",
@@ -988,6 +1029,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
@@ -1000,11 +1042,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHostedChief",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
+                "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextHomeEngine",
                 "CmuxNextRemote",
                 .product(name: "CmuxChiefList", package: "CmuxChiefList"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [
                 .process("Resources"),
@@ -1028,6 +1073,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextFiles",
                 "CmuxNextLayout",
+                "CmuxNextTerminalFind",
                 "CmuxNextWakeups",
                 "CmuxNextWindowRules",
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
@@ -1116,7 +1162,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // favicons, markdown remote images, and Agent reply media without coupling their domains.
         .target(
             name: "CmuxNextRemoteFetch",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         // React pages (plans/cmux-next/react-pages.md): one WKWebView host, one cmux-page://<id>/
@@ -1134,6 +1183,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextFiles",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [.copy("Resources/pages"), .process("Localizable.xcstrings")],
             swiftSettings: uiSwiftSettings
@@ -1296,6 +1346,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextFiles",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the files lister client (cmux-app-ffi src/files_lister.rs).
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
             ],
             swiftSettings: daemonSwiftSettings
@@ -1327,6 +1379,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // action, working local agents and (sessions.keepAwakeForCommands) long terminal
         // commands, released on battery unless the user chose Always. IOKit's power-source
         // notification and one deadline from the Rust command rule, no polling.
+        // Each window's last frame for the next launch's stage 0: the capture, published into the
+        // launch image store (cmux-launch-image) on the Rust schedule; the app hands it its windows.
+        .target(
+            name: "CmuxNextLaunchImages",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
+                "CmuxNextCompat",
+                "CmuxNextControl",
+                "CmuxNextDesign",
+                "CmuxNextWakeups",
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextKeepAwake",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -1413,6 +1478,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // feeds its state to CmuxNextBrowser's CEFRuntimeSource.
         .target(
             name: "CmuxNextChromiumRuntime",
+            dependencies: [.product(name: "CmuxEgress", package: "CmuxEgress")],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1640,6 +1706,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHomeModel",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [
                 .process("Resources"),
@@ -1671,13 +1738,16 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
+                "CmuxNextDesignTokens",
                 "CmuxNextHistory",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
                 "CmuxNextHomeModel",
                 "CmuxNextIcons",
                 "CmuxNextPalette",
+                "CmuxNextServer",
                 "CmuxNextSidebar",
+                "CmuxNextTabs",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             ],
@@ -1695,6 +1765,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextApps",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                // CCmuxAppFFI: the system calendar ops' rules (cmux-app-ffi src/system_calendar.rs).
+                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextBrowserCore",
                 "CmuxNextCompat",
@@ -1703,6 +1775,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextIcons",
                 "CmuxNextPages",
                 "CmuxNextSettings",
+                "CmuxNextSidebar",
                 "CmuxNextWakeups",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
@@ -1724,7 +1797,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextPagesTestSupport",
                 "CmuxNextSettings",
+                "CmuxNextSidebar",
                 "CmuxNextWakeups",
+                "CmuxNextWakeupsTestSupport",
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
             ],
             swiftSettings: uiSwiftSettings
@@ -1750,6 +1825,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             exclude: ["README.md"],
             resources: [
@@ -1786,6 +1862,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
                 "CmuxNextActions",
+                "CmuxNextAgentActivity",
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
@@ -1796,9 +1873,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextDevices",
                 "CmuxNextPalette",
+                "CmuxNextPhone",
                 "CmuxNextRemoteView",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxScreenKit", package: "CmuxScreenKit"),
             ],
             resources: [
@@ -1815,6 +1894,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -1836,6 +1916,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextMacScreenTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",
                 "CmuxNextControl",
@@ -1885,6 +1966,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [
                 .process("Resources"),
@@ -1935,12 +2017,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextUpdater",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextActions",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "Sparkle", package: "Sparkle"),
             ],
@@ -1951,6 +2035,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .copy("Resources/WhatsNew"),
                 // The keys a web update pointer may be signed with (plans/cmux-next/web-ota.md).
                 .copy("Resources/web-update-keys.json"),
+                // The relaunch's afterimage, run by /usr/bin/osascript (RelaunchAfterimage).
+                .copy("Resources/relaunch-afterimage.js"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2014,6 +2100,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
                 .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxInstallAuthCore", package: "CmuxInstallAuthCore"),
             ],
             swiftSettings: daemonSwiftSettings
@@ -2022,6 +2109,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCloudTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCloud",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
                 "CmuxNextWakeupsTestSupport",
@@ -2042,6 +2130,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextPalette",
                 "CmuxNextSettings",
+                "CmuxNextWakeups",
             ],
             resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
@@ -2056,6 +2145,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPages",
                 "CmuxNextSettings",
                 "CmuxNextTestSupport",
+                "CmuxNextWakeupsTestSupport",
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2067,6 +2157,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCloud",
                 "CmuxNextCompat",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2170,7 +2261,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // MetricKit and watchdog inputs, redaction by allow-list, leak scan, upload.
         .target(
             name: "CmuxNextHangReports",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -2216,6 +2310,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
             swiftSettings: uiSwiftSettings
@@ -2232,6 +2327,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWakeups",
                 // The native popup rail's harness marks (NativePopupRailTab).
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
             resources: [.process("Resources")],
@@ -2356,6 +2452,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesign",
                 "CmuxNextDictation",
                 "CmuxNextTerminal",
+                "CmuxNextTerminalFind",
                 "CmuxNextTestSupport",
             ],
             swiftSettings: uiSwiftSettings,
@@ -2411,8 +2508,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextPalette",
                 "CmuxNextResources",
                 "CmuxNextSettings",
+                "CmuxNextSignposts",
                 "CmuxNextWakeups",
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
             ],
             resources: [
                 .process("Resources"),
@@ -2494,6 +2593,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: uiSwiftSettings
         ),
@@ -2508,6 +2608,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteFetch",
                 "CmuxNextRemoteLayer",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             // The CEF shim's C header: its SHA-256 is the shim ABI identity
             // (CEFShimABI, scripts/cmux-next/build-cef-shim.sh).
@@ -2581,6 +2682,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             resources: [.process("Resources")],
             swiftSettings: daemonSwiftSettings
@@ -2614,8 +2716,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Localizable.xcstrings"),
             ],
-            swiftSettings: daemonSwiftSettings
+            swiftSettings: daemonSwiftSettings,
+            // The generated Schema Swift files (Schema/<name>.generated.swift), from schemas/settings (RFD 0048).
+            plugins: [.plugin(name: "SettingsSchemaPlugin")]
         ),
+        // Runs scripts/cmux-next/gen-settings-sources.py --swift-out into its work directory.
+        .plugin(name: "SettingsSchemaPlugin", capability: .buildTool()),
         .testTarget(
             name: "CmuxNextSettingsTests",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2721,7 +2827,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextApp",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
+                "CmuxNextAppTry",
                 "CmuxNextApps",
+                "CmuxNextBridge",
                 "CmuxNextBrowserCore",
                 "CmuxNextBrowserHistory",
                 "CmuxNextBrowserHost",
@@ -2812,6 +2920,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // UpdateLoadingIndicatorTests feeds Sparkle's update states.
                 .product(name: "CmuxUpdater", package: "CmuxUpdater"),
                 .product(name: "CmuxVNC", package: "CmuxVNC"),
+                .product(name: "CmuxVisibleRows", package: "CmuxVisibleRows"),
+                .product(name: "CmuxVisibleRowsTesting", package: "CmuxVisibleRows"),
                 // ReduceMotionLoopTests builds the vendored Home typing indicators.
                 .product(name: "MessagesLabHome", package: "CmuxMessagesLab"),
                 .product(name: "MessagesLabSidebar", package: "CmuxMessagesLab"),
@@ -2829,6 +2939,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemon",
                 "CmuxNextWakeups",
                 .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "CmuxEgress", package: "CmuxEgress"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2848,6 +2959,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextKeepAwake",
                 "CmuxNextMobile",
                 "CmuxNextPages",
+                "CmuxNextPhoneAccess",
                 "CmuxNextRemoteBrowser",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
@@ -2899,6 +3011,7 @@ let package = Package(
     ],
     products: packageProducts,
     dependencies: [
+        .package(path: "../../Shared/CmuxEgress"),
         .package(path: "../../Shared/CmuxGhosttyKit"),
         .package(path: "../../Shared/CMUXAuthCore"),
         .package(path: "../../Shared/CmuxInstallAuthCore"),
@@ -2921,6 +3034,8 @@ let package = Package(
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
         .package(path: "../../Shared/CmuxVNC"),
         .package(path: "../../Shared/CmuxScreenKit"),
+        // The visible-rows contract: each list's work meter, and the test helper (Leo 2026-11-18, ask-1105ee4cc6).
+        .package(path: "../../Shared/CmuxVisibleRows"),
         // Crash reports: the shared scrubber and the Sentry SDK at the same cap as the shared package.
         // The dynamic SDK (Sentry-Dynamic): see CmuxSentryTelemetry's Package.swift (personality routines).
         .package(path: "../../Shared/CmuxSentryTelemetry"),

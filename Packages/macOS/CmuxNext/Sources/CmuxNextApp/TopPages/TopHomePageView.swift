@@ -47,6 +47,7 @@ final class TopHomePageView: NSView {
     /// What the person picked is never this, so it is never taken off them: ``show(_:)`` clears it
     /// and only the two observations that open one themselves set it again.
     private(set) var followedChief: String?
+    private let launchHost = FirstFrameHold() // the first conversation's host (~90 ms on main): after the launch's first frame
     private var accountObservation: Task<Void, Never>?
     private var requestsObservation: Task<Void, Never>?
     private var unreadColorObservation: Task<Void, Never>?
@@ -112,8 +113,8 @@ final class TopHomePageView: NSView {
             sidebar.place(id, at: index)
             self?.list.update(sidebar.model())
         }
-        let home = services.home
-        let registry = services.registry
+        let home = services.home, registry = services.registry
+        list.setDragOut(LinkDragSession.chiefDragOut(services) { [weak home] in home.flatMap(Self.chief) })
         // Mark as Read: the user's unread mark goes, and the read cursor moves to the newest message.
         list.onMarkRead = { id in
             sidebar.setMarkedUnread(false, id)
@@ -151,7 +152,6 @@ final class TopHomePageView: NSView {
             }
         }
         list.onNewMessage = { [weak self] in self?.presentNewMessage() }
-        list.onNewChief = { [weak self] in self?.startChiefConversation() }
         list.onCloseDraft = { [weak self] in self?.performCloseNewMessage() }
         list.onOpenRequests = { [weak self] in self?.presentRequests() }
         list.composeMenu = { [weak services] in services.map { HomePageMenus.backgroundMenu(registry: $0.registry) } }
@@ -251,7 +251,7 @@ final class TopHomePageView: NSView {
                 show(id)
                 if opening == id {
                     opening = nil
-                    host?.takeKeyboardOnOpen()
+                    launchHost.runNow(); host?.takeKeyboardOnOpen()
                 }
             }
         }
@@ -271,26 +271,8 @@ final class TopHomePageView: NSView {
         home.homeStore.rows.contains { $0.id == id } && !rows.contains { $0.id == id }
     }
 
-    /// What the Chief observation watches: the preferred Chief and whether this Mac's Chief is the
-    /// choice. The Engine row changes the choice while the preferred Chief stays nil (the cloud
-    /// read has not landed and this Mac's Chief is not listed yet), and the page must reconcile
-    /// what it opened by itself then too, so the choice is part of what it watches.
-    struct ChiefKey: Equatable {
-        var chief: String?
-        var prefersLocal: Bool
-    }
-
-    static func chiefKey(_ home: HomeService) -> ChiefKey {
-        ChiefKey(chief: chief(home), prefersLocal: home.prefersLocalChief)
-    }
-
-    /// What the page does when the preferred Chief changes, and which Chief it follows afterwards.
-    struct ChiefFollowUp: Equatable {
-        /// The conversation to open; nil: what is shown stays.
-        var open: ConversationID?
-        /// The Chief conversation the page opened by itself, which a later Chief replaces. What the
-        /// person picked themselves is never replaced, so it is not this.
-        var followed: String?
+    static func chiefKey(_ home: HomeService) -> HomePageChiefKey {
+        HomePageChiefKey(chief: chief(home), prefersLocal: home.prefersLocalChief)
     }
 
     /// The preferred Chief is now `chief` (``HomeService/defaultChiefConversation``), the page
@@ -298,7 +280,7 @@ final class TopHomePageView: NSView {
     /// transition is under test: the Engine row's switch to This Mac goes through a stretch with no
     /// Chief at all, and the Chief that arrives after it must still open.
     static func followUp(chief: String?, shown: ConversationID?, followed: String?, composing: Bool,
-                         rows: [InboxRow], home: HomeService) -> ChiefFollowUp {
+                         rows: [InboxRow], home: HomeService) -> HomePageChiefFollowUp {
         // Only what the page opened itself is ever replaced: the conversation the person picked
         // stays, and so does the New Message page, which `show(_:)` would leave.
         let mine = !composing && (shown == nil || shown?.rawValue == followed)
@@ -311,16 +293,16 @@ final class TopHomePageView: NSView {
                 // Nothing the row allows is listed, the person is on a conversation of their own,
                 // or the New Message page is up: what is shown stays, rather than leave an empty
                 // window or take the person off what they opened.
-                return ChiefFollowUp(open: nil, followed: followed)
+                return HomePageChiefFollowUp(open: nil, followed: followed)
             }
-            return ChiefFollowUp(open: next, followed: next.rawValue)
+            return HomePageChiefFollowUp(open: next, followed: next.rawValue)
         }
         // Following only what it actually opened: a Chief it left the person alone for is not
         // theirs to be taken off later. Auto makes that sequence ordinary — the person opens the
         // Hosted Chief while this Mac's brain runs, that brain dies so Hosted becomes preferred
         // (nothing opens, they are already there), and its restart must not move them.
-        guard mine else { return ChiefFollowUp(open: nil, followed: followed) }
-        return ChiefFollowUp(open: ConversationID(chief), followed: chief)
+        guard mine else { return HomePageChiefFollowUp(open: nil, followed: followed) }
+        return HomePageChiefFollowUp(open: ConversationID(chief), followed: chief)
     }
 
     /// What the page shows once there is no Chief conversation at all: the first conversation the
@@ -384,15 +366,17 @@ final class TopHomePageView: NSView {
             return
         }
         shown = id
-        host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
-        let view = HomeHostView(services: services, conversation: id.rawValue)
-        view.isHidden = isComposingNewMessage
-        view.frame = transcriptColumn.bounds
-        view.autoresizingMask = [.width, .height]
-        transcriptColumn.addSubview(view)
-        host = view
-        services.home.homeDidOpen(asked: true)
-        if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
+        launchHost.run(after: host == nil ? services.launchReveal.firstFrame : nil) { [weak self] in guard let self, let id = shown, let services = self.services else { return }
+            host?.removeFromSuperview(); DebugTimings.markLaunch("home.page_host_made")
+            let view = HomeHostView(services: services, conversation: id.rawValue)
+            view.isHidden = isComposingNewMessage
+            view.frame = transcriptColumn.bounds
+            view.autoresizingMask = [.width, .height]
+            transcriptColumn.addSubview(view)
+            host = view
+            services.home.homeDidOpen(asked: true)
+            if window.map({ ($0.firstResponder === $0 || $0.firstResponder == nil) && !$0.pendingCreationOwnsKeyboard }) ?? true { focusPrimaryInput() } // unasked
+        }
     }
 
     /// The person opened `id` (a click on its row or pinned tile, the shown one too; Return in the
@@ -402,7 +386,7 @@ final class TopHomePageView: NSView {
     func open(_ id: ConversationID) {
         show(id)
         guard shown == id else { return }
-        host?.takeKeyboardOnOpen()
+        launchHost.runNow(); host?.takeKeyboardOnOpen()
     }
 
     /// A conversation the person just started or made (a teammate from search, a sheet): opened
@@ -418,7 +402,7 @@ final class TopHomePageView: NSView {
     }
 
     /// A permalink: its conversation, and its message's thread at its branch (any depth).
-    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); if let m = link.message, let host { HomeNativeTranscriptView.first(in: host)?.reveal(message: m) } }
+    func show(_ link: HomeDockSelection) { show(ConversationID(link.conversation)); launchHost.runNow(); if let m = link.message, let host { HomeNativeTranscriptView.first(in: host)?.reveal(message: m) } }
 
     /// Home's primary input (the message box; To: on the New Message page) takes the keyboard:
     /// the message box at once or, while the shown conversation's first page loads, once it exists.

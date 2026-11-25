@@ -105,7 +105,7 @@ test("the app's look is the dialog card: icon, the line, Don't Show Again quiet,
 
 test("the toast card consumes the shared transient material and radius", () => {
   expect(cookieImportCss).toContain("--glass-tint: var(--transient-surface-veil);");
-  expect(cookieImportCss).toContain("border-radius: var(--transient-surface-radius);");
+  expect(cookieImportCss).toContain("border-radius: var(--role-toast-radius);");
 });
 
 test("every answer reaches the host as its type only", () => {

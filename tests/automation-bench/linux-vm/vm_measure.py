@@ -144,10 +144,15 @@ def cua(bin_dir: str, work: str) -> list[dict]:
     target = {"element_index": view["element_index"]} if view else {"x": 300, "y": 300}
     ok_click, click_text, _ = mcp.call("click", {"pid": pid, "window_id": wid, **target})
     ok_type, type_text, _ = mcp.call("type_text", {"pid": pid, "window_id": wid, "text": "hello cmux 42"})
-    time.sleep(1)
-    _, text, sc = mcp.call("get_window_state", {"pid": pid, "window_id": wid, "screenshot_out_file": f"{work}/gedit-typed.png"})
-    # gedit marks a changed document with "*" in its title.
-    typed = "*Untitled" in text or "hello cmux 42" in json.dumps(sc)
+    # Until gedit shows the typed text (it marks a changed document with "*" in its title), 10 s at most;
+    # the row records a miss.
+    deadline = time.monotonic() + 10
+    while True:
+        _, text, sc = mcp.call("get_window_state", {"pid": pid, "window_id": wid, "screenshot_out_file": f"{work}/gedit-typed.png"})
+        typed = "*Untitled" in text or "hello cmux 42" in json.dumps(sc)
+        if typed or time.monotonic() >= deadline:
+            break
+        time.sleep(0.25)
     row("click-type", ok_click and ok_type and typed, f"{click_text} | {type_text}")
     mcp.close()
     for r in rows:

@@ -21,7 +21,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// the built-in uBlock Origin loads or the person has their own unpacked
     /// copy of it (`CEFBuiltInExtensions.Plan`).
     var keepsUnpackedEnabled = false
-    /// Extra Chromium switches for diagnosis (development bundles only), for
+    /// Extra Chromium switches for development and measurement bundles, for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
     /// Chromium's AsyncLiveResize (below fork API 27): off only for the Debug Settings "Synced live"
@@ -259,6 +259,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         rendererPaths: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
+        processArguments: [String] = CommandLine.arguments,
         builtInExtensions: [String] = [],
         keepsUnpackedEnabled: Bool = false,
         asyncLiveResize: Bool = true,
@@ -277,11 +278,21 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
-        #if DEBUG
-        let extra = dev ? Self.extraSwitches(environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"]) : []
+        // Bench builds too (Release optimization, CMUX_BENCH_HOOKS): a typing or idle bench turns Chromium's component
+        // updater off with it (a fresh home's updater is half the idle CPU of its first minutes, scripts/cmux-next/
+        // idle_cpu.py BENCH_CEF_SWITCHES). A shipped build has neither flag and reads none.
+        #if DEBUG || CMUX_BENCH_HOOKS
+        var extra = dev ? Self.extraSwitches(environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"]) : []
         #else
-        let extra: [String] = []
+        var extra: [String] = []
         #endif
+        // meet-browser.sh runs the published app in a disposable side bundle. CEF initializes
+        // with empty argv, so translate the harness request into its two browser-process switches.
+        if bundle.split(separator: ".").last?.hasPrefix("side-meetbrowser-") == true,
+           environment["CMUX_MOCK_KEYCHAIN"] == "1",
+           processArguments.contains("--cmux-measure-fake-media") {
+            extra += ["use-fake-device-for-media-stream", "use-fake-ui-for-media-stream"]
+        }
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,

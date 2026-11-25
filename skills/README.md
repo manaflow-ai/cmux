@@ -53,9 +53,11 @@ parsing, test compilation, executed tests and runtime evidence.
 | Find cmux operations a few at a time instead of loading every tool | [cmux-code-mode](cmux-code-mode/SKILL.md) |
 | Shortcuts, key bindings and templates | [cmux-keyboard-shortcuts](cmux-keyboard-shortcuts/SKILL.md) |
 | Actions, commands and layouts | [cmux-customization](cmux-customization/SKILL.md) |
+| Write an extension of its own (section, pane, widget, New Tab page, command, composer `/` or `@`) with `cmux ext dev` | [cmux-extension-author](cmux-extension-author/SKILL.md) |
 | Diagnose installed hooks, settings, restore or socket access | [cmux-diagnostics](cmux-diagnostics/SKILL.md) |
 | Display a Markdown file in a viewer | [cmux-markdown](cmux-markdown/SKILL.md) |
 | Edit cmux's own web UI while it runs: saved edits show at once, no build | [cmux-live](cmux-live/SKILL.md) |
+| Doing UI work: frames show in the chat on their own, `look` to check, Try it on at turn end | [cmux-ui-preview](cmux-ui-preview/SKILL.md) |
 
 Start with diagnostics for a user's broken installation; use debugging when
 investigating or changing the source implementation. Similarly, Cloud VM operations

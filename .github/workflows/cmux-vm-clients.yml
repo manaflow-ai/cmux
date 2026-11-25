@@ -81,6 +81,9 @@ jobs:
       - name: Cache cargo build
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: workers/cmux-vm/cli -> target
 
@@ -135,7 +138,7 @@ jobs:
   sdk:
     # A feat-cmux-next pull request runs this job's commands as the ci/steps.toml step `cmux-vm-sdk`
     # (pr-pipeline.yml); a push and a pull request into any other base still run them here.
-    if: ${{ github.event_name != 'pull_request' || !startsWith(github.base_ref, 'feat-cmux-next') }}
+    if: ${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     defaults:

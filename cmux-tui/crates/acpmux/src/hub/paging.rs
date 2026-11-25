@@ -682,7 +682,7 @@ impl Hub {
         let bounded = max_bytes.is_some();
         let over = filter.stub_over(bounded);
         // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
+        let session = self.session_get(id);
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.
@@ -811,27 +811,47 @@ pub fn prompt_index_msg(msg: &Value) -> Value {
 }
 
 impl Hub {
-    /// Every prompt (`user_message`) of a session's log before `before`, oldest first, each cut to
-    /// [`prompt_index_msg`]: the thread rail lays out a long chat's every turn from its first frame
-    /// instead of growing as history pages in (Leo, 2026-10-31). It reads the log's copies of its
-    /// prompts (`store/kind_index.rs`, which the log load already made), and the log only past
-    /// them: a scan of the whole log for its prompts took 10 s on a 566 MB chat and held the
-    /// rail's pending ticks blank (Leo, 2026-11-03: "the hover previews ... aren't loading past
-    /// the first bits").
-    pub fn prompt_index(&self, id: &str, before: Option<u64>) -> Result<Vec<EventRecord>> {
+    /// The newest prompts (`user_message`) of a session's log before `before`, oldest first, each
+    /// cut to [`prompt_index_msg`], at most `limit` of them and about `max_bytes` of JSON (always
+    /// one): the thread rail lays out a long chat's every turn from its first frame instead of
+    /// growing as history pages in (Leo, 2026-10-31), and reads the older pages by `hasMore`, each
+    /// from the first prompt it holds (direct.ts `readPromptIndex`). It reads the log's copies of
+    /// its prompts (`store/kind_index.rs`) back from the end, and stops at the page: a scan of the
+    /// whole log for its prompts took 10 s on a 566 MB chat and held the rail's pending ticks
+    /// blank (Leo, 2026-11-03: "the hover previews ... aren't loading past the first bits"), and
+    /// one reply of every prompt cost 113 ms on a 1 GB chat against 0.2 ms on a 1 MB one, a page
+    /// of each from the whole log (goal infinite-chats, `chat_size_sweep`: Leo, 2026-11-19, "we
+    /// need to be able to have infinite chats, infinitely long chats").
+    pub fn prompt_index(
+        &self,
+        id: &str,
+        before: Option<u64>,
+        limit: usize,
+        max_bytes: Option<usize>,
+    ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
-        let mut out = Vec::new();
-        self.store.scan_kinds(id, &["user_message"], &mut |mut rec| {
-            if rec.seq >= before {
+        let limit = limit.max(1);
+        let mut page = EventPage::default();
+        let mut bytes = 0usize;
+        let skip = |dir: &[u8], kind: &[u8]| dir != b"mux" || kind != b"user_message";
+        self.store.scan_back_indexed(id, 0, before, &skip, &mut |mut rec| {
+            if rec.seq >= before || rec.dir != "mux" || rec.kind != "user_message" {
+                return true;
+            }
+            rec.msg = prompt_index_msg(&rec.msg);
+            let rec_bytes = record_bytes(&rec);
+            let found = page.events.len();
+            if found == limit || (found > 0 && max_bytes.is_some_and(|max| bytes + rec_bytes > max))
+            {
+                page.has_more = true;
                 return false;
             }
-            if rec.dir == "mux" {
-                rec.msg = prompt_index_msg(&rec.msg);
-                out.push(rec);
-            }
+            bytes += rec_bytes;
+            page.events.push(rec);
             true
         })?;
-        Ok(out)
+        page.events.reverse();
+        Ok(page)
     }
 }
 

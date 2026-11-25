@@ -190,6 +190,13 @@ impl Receiver {
         self.decode_us.push_back(decode_us);
     }
 
+    /// Retries NACKs a measured repair round trip apart instead of every
+    /// [`FEEDBACK_INTERVAL_US`] (design D6; `Reassembler::set_rtt_nack_retry`).
+    /// Off by default.
+    pub fn set_rtt_nack_retry(&mut self, on: bool) {
+        self.reassembler.set_rtt_nack_retry(on);
+    }
+
     /// Asks the host for a keyframe (a decode error or a frame gap). The
     /// request rides every feedback until a keyframe is released.
     pub fn request_keyframe(&mut self) {

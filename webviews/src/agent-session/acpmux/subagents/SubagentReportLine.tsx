@@ -14,10 +14,11 @@ import { ChevronRight } from "../conversation/icons";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 
-import { SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
+import { SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import { AgentIdentity } from "./AgentIdentity";
-import { SUBAGENT_FALLBACK } from "./agentIdentityModel";
+import { foreignHarness, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { agentTone } from "./agentTones";
+import { useSenderIconLook } from "./senderIconLook";
 import { type ReportRowLook } from "./reportRow.experiment";
 
 import "./SubagentReportLine.css";
@@ -40,6 +41,9 @@ export function SubagentReportLine({
   const name = reportSender(t, row);
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
+  // The report's subagent runs on its chat's harness: its family's mark, as the subagent's own rows.
+  const chatHarness = useContext(SubagentHarnessContext);
+  const senderBadge = useSenderIconLook().badge;
   const agent = row.subagentReport;
   // Read only while open: a closed line never walks the subagent's transcript.
   const report = useWholeReport(agent, expanded, expanded ? reportFallback(row) : undefined);
@@ -70,6 +74,7 @@ export function SubagentReportLine({
         {!under && (
           <span className="cv-subagent-report__icon" aria-hidden="true">
             <AgentIdentity
+              harness={foreignHarness(undefined, chatHarness, senderBadge)}
               tone={row.subagentReport ? agentTone(row.subagentReport.id) : undefined}
               size={16}
               fallback={SUBAGENT_FALLBACK}

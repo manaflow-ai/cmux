@@ -15,7 +15,9 @@ As the host's agent test account (CMUX_UITEST_STACK_* in ~/.secrets/cmuxterm-dev
    (never a silent dead Chief); then turns it on again.
 Cleanup: archives the placed chief and revokes the test server. Socket only: no system input.
 """
-import argparse, json, os, re, shutil, socket, subprocess, sys, tempfile, time, urllib.error, urllib.request
+import argparse, hashlib, json, os, re, shutil, socket, subprocess, sys, tempfile, time, urllib.error, urllib.request
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from state_wait import StateWaitTimeout, wait_stable
 p = argparse.ArgumentParser()
 p.add_argument("--tag", required=True); p.add_argument("--app", required=True); p.add_argument("--out", required=True)
 p.add_argument("--api", default="https://cloud-api-staging.cmux.dev")
@@ -155,8 +157,14 @@ def home():
     return view
 
 def snapshot(name):
-    time.sleep(2)  # test harness: let the page paint before the snapshot
-    rpc("debug.window_snapshot", {"path": os.path.join(o.out, name)})
+    # Snapshot until two in a row have the same pixels: the page finished painting (best effort, keeps the last).
+    path = os.path.join(o.out, name)
+    def shot():
+        if os.path.exists(path): os.remove(path)
+        rpc("debug.window_snapshot", {"path": path})
+        with open(path, "rb") as f: return hashlib.sha256(f.read()).hexdigest()
+    try: wait_stable(shot, f"the window snapshot {name}", timeout=20, interval=0.2, reads=2)
+    except StateWaitTimeout as e: print(f"snapshot {name}: {e}; kept the last", flush=True)
 
 rc = 1
 try:

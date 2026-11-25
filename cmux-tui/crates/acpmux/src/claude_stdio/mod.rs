@@ -199,6 +199,14 @@ fn cli_effort(effort: &str) -> Option<&str> {
     }
 }
 
+/// Whether a new chat's `effort` can go on its command line (`--effort`) instead of the live
+/// `apply_flag_settings` channel after `initialize` (`hub/lifecycle.rs` `effort_request`): a
+/// plain Reasoning level. "default" stays live (it clears an effort the person's settings set,
+/// which no flag does), as do Ultracode and the retired Ultrathink.
+pub fn takes_effort_at_spawn(effort: &str) -> bool {
+    effort != "default" && EFFORTS.iter().any(|(v, _)| *v == effort)
+}
+
 /// The `apply_flag_settings` settings for a session effort. Every level
 /// clears `ultracode`.
 fn effort_settings(effort: &str) -> Value {
@@ -300,6 +308,10 @@ mod elicitation_tests;
 #[cfg(test)]
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
+mod dedupe;
+mod dedupe_shell;
+#[cfg(test)]
+mod dedupe_tests;
 mod foreground_work;
 #[cfg(test)]
 mod foreground_work_tests;
@@ -307,6 +319,8 @@ mod hook_callback;
 #[cfg(test)]
 mod hook_callback_tests;
 mod inbound;
+#[cfg(test)]
+mod initialize_tests;
 // What the log keeps of Claude's raw assistant and user lines (`logged_bodies.rs`).
 mod logged_bodies;
 pub use logged_bodies::{PROMPT_BODY_KEPT_UNDER, leave_out_bodies, leave_out_prompt_bodies};
@@ -336,8 +350,15 @@ mod result_images_tests;
 // A prompt Claude Code queued behind a turn of its own (`queued_prompt_tests.rs`).
 #[cfg(test)]
 mod queued_prompt_tests;
+pub mod resume_cut;
+#[cfg(test)]
+mod resume_cut_tests;
 #[cfg(test)]
 mod steer_now_tests;
+// A "success" result after Claude Code's own API error line is the turn's failure.
+mod api_error;
+#[cfg(test)]
+mod api_error_tests;
 // Claude's background shells, a workflow agent's under its agent (`background_shells.rs`).
 mod background_shells;
 // Other sessions' messages steered into one step go in as one line (`steer_batch.rs`).
@@ -444,11 +465,13 @@ pub const STEER_NO_TURN: &str = "steer: no turn is running";
 /// (`MUX_STEER_WITHDRAW`, `steer_withdraw.rs`).
 pub const STEER_WITHDRAWN: &str = "steer: withdrawn before the agent read it";
 
-/// What the hub's request becomes: lines for claude's stdin, or an
-/// immediate ACP reply when claude need not be asked.
+/// What the hub's request becomes: lines for claude's stdin, an immediate ACP
+/// reply when claude need not be asked, or both: lines written, then answered
+/// at once without waiting on Claude Code's answer (`initialize`).
 pub enum Outbound {
     Lines(Vec<Value>),
     Reply(Message),
+    LinesThenReply(Vec<Value>, Message),
 }
 
 #[derive(Debug, Clone)]
@@ -603,9 +626,14 @@ pub struct Translator {
     elicitations: Mutex<HashMap<String, elicitation::Form>>,
     /// The PreToolUse gate that holds the chat's permission policy (`policy_gate.rs`).
     gate: policy_gate::PolicyGate,
+    /// Harness magic `dedupe` (dedupe.rs).
+    dedupe: Arc<dedupe::Dedupe>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
+    pub(crate) stop_condition: AtomicBool,
+    /// Present only when this launch included cmux's local session plugin.
+    pub(crate) plugin_hook_home: std::sync::OnceLock<std::path::PathBuf>,
     mode: Mutex<String>,
     model: Mutex<String>,
     effort: Mutex<String>,
@@ -624,6 +652,12 @@ pub struct Translator {
     /// Claude Code wrote something for the prompt (an assistant line, a
     /// conversation reset): its result ends the turn, never startup noise.
     turn_output: AtomicBool,
+    /// The text of the turn's last assistant line when that line is Claude Code's own API
+    /// error (`is_api_error_message`, or a `<synthetic>` line saying "API Error: ..."), else
+    /// None. A result that follows it is the turn's failure even when Claude Code calls it a
+    /// success (`api_error.rs`): "API Error: Repeated 529 Overloaded errors" left chats idle
+    /// with no retry (Leo, 2026-11-24: "do they get stranded!?").
+    api_error: Mutex<Option<String>>,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
@@ -760,7 +794,6 @@ pub struct Translator {
 
 #[derive(Debug, Clone)]
 enum Pending {
-    Initialize,
     NewOrLoad,
     Prompt,
     /// A setting change, applied to the cached value once claude accepts it.
@@ -810,9 +843,12 @@ impl Translator {
             inputs: Mutex::new(HashMap::new()),
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
+            dedupe: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
+            plugin_hook_home: Default::default(),
+            stop_condition: AtomicBool::new(false),
             mode: Mutex::new(mode.to_owned()),
             model: Mutex::new(model_id(model)),
             effort: Mutex::new(effort_value(effort).to_owned()),
@@ -823,6 +859,7 @@ impl Translator {
             recap: Mutex::new("default"),
             in_turn: AtomicBool::new(false),
             turn_output: AtomicBool::new(false),
+            api_error: Mutex::new(None),
             prompt_echo: Mutex::new(None),
             prompt_queued: AtomicBool::new(false),
             renaming: Mutex::new(std::collections::VecDeque::new()),

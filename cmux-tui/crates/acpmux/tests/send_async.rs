@@ -855,6 +855,60 @@ async fn a_session_whose_folder_is_gone_keeps_the_message_and_names_the_folder()
     let _ = std::fs::remove_dir_all(&folder);
 }
 
+/// A session made in another session's temporary folder (an agent's `mktemp -d` probe chat) whose
+/// folder is gone: acpmux never makes such a folder again, so a message to it is refused once,
+/// naming the folder and what to do, instead of being tried again every minute forever (Leo's
+/// cosmic-gray, 2026-11-23: five relayed messages to `first-turn-probe-claude-…`, whose folder in
+/// `/tmp/acpmux-501/t/…` was gone, came back every minute; Leo: "you guys need migration steps and
+/// whatnot for cutting over things").
+#[tokio::test]
+async fn a_session_whose_temporary_folder_is_gone_refuses_once_and_says_why() {
+    let h = hub();
+    // The sessions' temporary folders as this build's daemon reads them (`session_tmp::per_user_base`).
+    let base = std::env::var_os("ACPMUX_TEST_SESSION_TMP_BASE")
+        .filter(|v| !v.is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            // SAFETY: getuid has no preconditions.
+            std::path::PathBuf::from(format!("/tmp/acpmux-{}", unsafe { libc::getuid() }))
+        });
+    let parent = base.join("t").join(format!("send-async-{}", std::process::id()));
+    let folder = parent.join(format!("first-turn-probe-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut c = C::new(h.clone()).await;
+    let s = c
+        .call(
+            method::SESSION_NEW,
+            json!({"cwd": folder, "mcpServers": [], "_meta": {"acpmux": {"name": "probe-gone"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.call(method::SESSION_PROMPT, prompt(&id, "first", "p-probe-0")).await.unwrap();
+    let session = h.resolve("probe-gone").unwrap();
+    h.detach_child(&session).await;
+    std::fs::remove_dir_all(&folder).unwrap();
+
+    let queued =
+        c.call(SEND_QUEUE, json!({"request": prompt(&id, "hi", "p-probe")})).await.unwrap();
+    let delivery = queued["deliveryId"].as_str().unwrap().to_owned();
+    let mut status = Value::Null;
+    for _ in 0..20 {
+        status = c.call(SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 500})).await.unwrap();
+        if status["status"] == "failed" {
+            break;
+        }
+    }
+    assert_eq!(status["status"], "failed", "refused once, not kept: {status}");
+    assert_eq!(status["attempts"], 1, "not tried again: {status}");
+    let error = status["error"].as_str().unwrap_or_default();
+    assert!(
+        error.contains(&*folder.to_string_lossy()) && error.contains("acpmux archive probe-gone"),
+        "the error names the folder and the way out: {status}"
+    );
+    let _ = std::fs::remove_dir_all(&parent);
+}
+
 /// Coordinators name every lane `HOST/NAME`, the form other machines list it under. On the
 /// lane's own machine that name was `no_session` (on cosmic-gray, `acpmux info
 /// cosmic-gray/deputy-2` while `deputy-2` ran there), so a send from a coordinator on the same
