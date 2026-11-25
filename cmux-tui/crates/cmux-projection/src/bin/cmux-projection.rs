@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH [--keep DIR] [--fresh]
-//!                           [--name NAME] [--ready-file FILE] [--sparse FILE]
+//!                           [--name NAME] [--ready-file FILE] [--sparse FILE] [--idle-exit SECS]
 //! cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH --index FILE [--sparse FILE]
 //!                           [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]
 //! cmux-projection git-unmount --at PATH
@@ -33,6 +33,9 @@
 //! patterns keep (one a line, as `git sparse-checkout set --no-cone --stdin` reads them): the rest
 //! is not projected, its index entries are skip-worktree, and the worktree records the patterns
 //! as git does, so `git status` stays clean and `git sparse-checkout list` prints them.
+//! `--idle-exit SECS` (or `CMUX_PROJECTION_IDLE_EXIT_S`) unmounts
+//! and exits once no request came for SECS and no process has a file open or its working directory
+//! in the mount; mounting the same PATH again gives the same checkout, writes and all (Linux).
 //!
 //! The blobs MIRROR lacks are first asked of the fleet's seeds, the controller SSD and R2 that the
 //! environment names, each answer checked against its id (`cmux_projection::peers`, hq RFD 0008),
@@ -69,7 +72,7 @@ fn main() -> std::process::ExitCode {
 mod cli {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
-    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use cmux_projection::git::{self, Book, GitBlobs, Layout, Projection, Worktree};
     #[cfg(target_os = "linux")]
@@ -82,7 +85,8 @@ mod cli {
     use cmux_projection::sparse::Sparse;
 
     const USAGE: &str = "usage: cmux-projection git-mount --git-dir MIRROR --commit REV --at PATH \
-                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] [--sparse FILE]\n       \
+                         [--keep DIR] [--fresh] [--name NAME] [--ready-file FILE] [--sparse FILE] \
+                         [--idle-exit SECS]\n       \
                          cmux-projection git-lower --git-dir MIRROR --commit REV --at PATH \
                          --index FILE [--sparse FILE] [--keep DIR] [--trees DIR] [--ready-file FILE] [--allow-other]\n       \
                          cmux-projection git-unmount --at PATH\n       \
@@ -105,6 +109,7 @@ mod cli {
         listen: Option<String>,
         rate: Option<u64>,
         conns: Option<usize>,
+        idle_exit: Option<u64>,
         to: Option<String>,
         yield_locks: Vec<PathBuf>,
         heartbeat: Option<String>,
@@ -144,6 +149,7 @@ mod cli {
                 "--listen" => parsed.listen = Some(value.clone()),
                 "--rate" => parsed.rate = Some(value.parse()?),
                 "--conns" => parsed.conns = Some(value.parse()?),
+                "--idle-exit" => parsed.idle_exit = Some(value.parse()?),
                 "--to" => parsed.to = Some(value.clone()),
                 "--yield-lock" => parsed.yield_locks.push(value.into()),
                 "--heartbeat" => parsed.heartbeat = Some(value.clone()),
@@ -446,6 +452,7 @@ mod cli {
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
+        let format = git::object_format(&git_dir)?;
         let listing = args.trees.clone().unwrap_or_else(|| keep.join("trees")).join(&commit);
         // A listing kept from an earlier mount of this commit means its blobs were all fetched
         // then: skip the walk of its trees.
@@ -476,7 +483,7 @@ mod cli {
         let phase = Instant::now();
         // SAFETY: getuid and getgid cannot fail.
         let owner = unsafe { (libc::getuid(), libc::getgid()) };
-        let index = git::index_bytes_sparse(&projection.index, &skipped, owner.0, owner.1)?;
+        let index = git::index_bytes_sparse(&projection.index, &skipped, format, owner.0, owner.1)?;
         if let Some(parent) = index_file.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -562,6 +569,7 @@ mod cli {
 
         let phase = Instant::now();
         let (commit, commit_s) = git::resolve(&git_dir, &rev)?;
+        let format = git::object_format(&git_dir)?;
         let listing = args.trees.clone().unwrap_or_else(|| keep.join("trees")).join(&commit);
         // A listing kept from an earlier mount of this commit means its blobs were all fetched
         // then: skip the walk of its trees.
@@ -609,7 +617,8 @@ mod cli {
             || !admin.join("index").exists()
             || !Worktree::sparse_matches(&admin, sparse.as_ref())
         {
-            let index = git::index_bytes_sparse(&projection.index, &skipped, owner.0, owner.1)?;
+            let index =
+                git::index_bytes_sparse(&projection.index, &skipped, format, owner.0, owner.1)?;
             Worktree::write(&git_dir, &name, &at, &commit, &index, &projection.real_dirs)?
                 .set_sparse(&git_dir, sparse.as_ref())?;
         }
@@ -623,7 +632,12 @@ mod cli {
         let overlay = Arc::new(Overlay::open(Arc::new(projection.manifest), &state, blobs, owner)?);
         mount::unmount_stale(&at);
         let ready = args.ready_file.clone();
-        mount::serve(overlay, &at, move || {
+        let idle_exit = args
+            .idle_exit
+            .or_else(|| std::env::var("CMUX_PROJECTION_IDLE_EXIT_S").ok()?.parse().ok())
+            .filter(|secs| *secs > 0)
+            .map(Duration::from_secs);
+        let on_ready = move || {
             let line = format!(
                 "{{\"commit\":\"{commit}\",\"entries\":{entries},\"files\":{files},\
                  \"missing_fetched\":{missing},\"fetch_ms\":{fetch_ms},\
@@ -636,6 +650,37 @@ mod cli {
             if let Some(ready) = ready {
                 let _ = std::fs::write(ready, format!("{line}\n"));
             }
-        })
+        };
+        serve_idle(overlay, &at, idle_exit, on_ready)
+    }
+
+    /// Serves a git-mount, unmounting once idle for `idle_exit` (FUSE only).
+    #[cfg(target_os = "linux")]
+    fn serve_idle(
+        overlay: Arc<Overlay>,
+        at: &Path,
+        idle_exit: Option<Duration>,
+        on_ready: impl FnOnce(),
+    ) -> anyhow::Result<()> {
+        mount::serve_with(
+            overlay,
+            at,
+            mount::Options { idle_exit, ..mount::Options::default() },
+            on_ready,
+        )
+    }
+
+    /// Serves a git-mount; the NFS backend has no `--idle-exit` yet, so it says so.
+    #[cfg(target_os = "macos")]
+    fn serve_idle(
+        overlay: Arc<Overlay>,
+        at: &Path,
+        idle_exit: Option<Duration>,
+        on_ready: impl FnOnce(),
+    ) -> anyhow::Result<()> {
+        if idle_exit.is_some() {
+            eprintln!("cmux-projection: --idle-exit is Linux-only, ignored");
+        }
+        mount::serve(overlay, at, on_ready)
     }
 }
