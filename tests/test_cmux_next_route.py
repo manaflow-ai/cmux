@@ -29,6 +29,8 @@ from cmux_next_route import matches as route_matches  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from cmux_next_step_text import step_run  # noqa: E402
 _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
     "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
@@ -390,7 +392,8 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["swift_targets"], "CmuxNextAppTests CmuxNextDesignTests")
         self.assertEqual(result["daemon"], "false")
         self.assertEqual(result["scheme"], "false")
-        self.assertEqual(result["generated"], "true")
+        # No action or settings export input changed: the generated files job would repeat the base's verdict.
+        self.assertEqual(result["generated"], "false")
         self.assertEqual(result["native"], "true")
         self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests|CmuxNextDesignTests)\.")
 
@@ -761,6 +764,29 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["generated"], "true")
         self.assertIn("CmuxNextActionsTests", result["swift_targets"].split())
 
+    def test_generator_inputs_alone_run_the_generated_files_job(self):
+        """The job's verdict reads the action exports' closure (action_export_inputs.py) and the settings source
+        stamp's files; any other CmuxNext path gets the base's verdict there (2026-11-21: 104 of 290 runs)."""
+        for path in (f"{PACKAGE}/Sources/CmuxNextActions/ActionCatalog.swift",
+                     f"{PACKAGE}/Tests/CmuxNextActionsTests/ActionCatalogTests.swift",
+                     f"{PACKAGE}/Sources/CmuxNextSettings/SettingsSchema.swift",
+                     f"{PACKAGE}/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
+                     f"{PACKAGE}/Package.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(tiers([path])["generated"], "true")
+        for path in (f"{PACKAGE}/Sources/CmuxNextApp/Windows/WindowManager.swift",
+                     f"{PACKAGE}/Tests/CmuxNextAppTests/CloudBringBackTests.swift",
+                     f"{PACKAGE}/Tests/CmuxNextSettingsTests/OtherSettingsTests.swift"):
+            with self.subTest(path=path):
+                result = route(ROOT, "pull_request", [path], set())
+                self.assertFalse(result.generated)
+                self.assertTrue(result.swift)
+                self.assertTrue(any("(no generator input)" in reason for reason in result.reasons))
+
+    def test_an_unreadable_action_closure_keeps_every_package_path_an_input(self):
+        with mock.patch.object(cmux_next_route, "action_export_closure", return_value=None):
+            self.assertEqual(tiers([f"{PACKAGE}/Sources/CmuxNextApp/Windows/WindowManager.swift"])["generated"], "true")
+
 
 class EveryTier(unittest.TestCase):
     def assert_everything(self, result: dict[str, str]) -> None:
@@ -798,13 +824,13 @@ class EveryTier(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
         self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
         swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
-        # Swift runs on a PR labeled full-ci (same-repository or fork; since 2026-11-05, when every
-        # unlabeled PR run was cancelled or skipped and none passed) and on dispatches; a
-        # feat-cmux-next push skips it (push CI is the app build).
+        # Swift runs on a PR into feat-cmux-next labeled full-ci (same-repository or fork; since 2026-11-05,
+        # when every unlabeled PR run was cancelled or skipped and none passed), on a PR into another base
+        # (#49046) and on dispatches; a feat-cmux-next push skips it (push CI is the app build).
         condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
         self.assertNotIn("github.event.pull_request.head.repo.full_name == github.repository", condition)
-        self.assertIn("github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci')",
-                      condition)
+        self.assertIn("github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next')"
+                      " || contains(github.event.pull_request.labels.*.name, 'full-ci')", condition)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
         self.assertIn("    continue-on-error: false\n", swift_test)
         self.assertIn("    name: cmux-next swift test\n", swift_test)
@@ -912,6 +938,12 @@ class UnreadDocs(unittest.TestCase):
         self.assertEqual(mac_tiers(result), [])
         self.assertEqual(result["macos"], "false")
         self.assertEqual(result["swift_targets"], "")
+
+    def test_a_sidebar_owner_entry_file_alone_runs_no_mac_tier(self):
+        """New entries are one file each under plans/cmux-next/sidebar-owner/ (scripts/ci/entry_logs.py)."""
+        result = tiers(["plans/cmux-next/sidebar-owner/2026-11-25-title-inset.md"])
+        self.assertEqual(mac_tiers(result), [])
+        self.assertEqual(result["macos"], "false")
 
     def test_a_note_beside_swift_keeps_the_swift_route(self):
         result = tiers(["plans/cmux-next/sidebar-owner.md", *PR_17470])
@@ -1213,14 +1245,12 @@ class WorkflowRoute(unittest.TestCase):
         # resolves the declared pool, so a workflow edit conservatively keeps the Mac tier.
         self.assertEqual(self.route_with_base(base)["macos"], "true")
 
-    def test_a_portable_placement_runner_reads_as_linux_and_no_other_output_does(self):
-        """checks takes a free mini through portable placement; it runs no Mac tier there, so an edit to it
-        runs none. Any other job output may still name a Mac."""
+    def test_cmux_linux_reads_as_linux_and_no_job_output_does(self):
+        """checks takes cmux-linux; it runs no Mac tier there, so an edit to it runs none. A job output may name a Mac."""
         import cmux_next_route as route_module
-        portable = ("vars.CI_X && needs.portable-placement.outputs.mini_runner || "
-                    "needs.portable-placement.outputs.linux_runner || 'blacksmith-16vcpu-ubuntu-2404'")
-        self.assertTrue(route_module.linux_values(portable))
-        self.assertFalse(route_module.linux_values(portable.replace("portable-placement", "macos-placement")))
+        own = "github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux'"
+        self.assertTrue(route_module.linux_values(own))
+        self.assertFalse(route_module.linux_values(own.replace("'cmux-linux'", "needs.macos-placement.outputs.runner")))
 
     def test_a_swift_change_beside_it_routes_as_without_it(self):
         swift = f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"
@@ -1237,10 +1267,13 @@ class WorkflowRoute(unittest.TestCase):
         """Path routing, placement, the web bundles and the fast tier feed or are Mac jobs WORKFLOW_JOB_TIERS
         does not place: a change to one runs every tier."""
         for old, new in (("    name: cmux-next path routing", "    name: cmux-next path routing (old)"),
-                         ("    name: cmux-next web bundles (source-keyed cache)", "    name: old bundles"),
-                         ("    name: cmux-next fast tier\n", "    name: old fast tier\n")):
+                         ("    name: cmux-next web bundles (source-keyed cache)", "    name: old bundles")):
             with self.subTest(job=new):
                 self.assertEqual(self.route_with_base(self.base_without(old, new))["full"], "true")
+        # A pull request's fast tier is pr-pipeline.yml's `mac` job (ci/steps.toml, note-556): this file's fast-tier
+        # job runs off the pull request only, so an edit to it routes no tier here.
+        self.assertEqual(self.route_with_base(self.base_without("    name: cmux-next fast tier\n",
+                                                                "    name: old fast tier\n"))["full"], "false")
         for job in ("macos-placement", "swift-canary-fleet", "push-head-preflight"):
             with self.subTest(job=job):
                 self.assertEqual(self.route_with_base(self.base_with_job_edited(job))["full"], "true")
@@ -1251,8 +1284,9 @@ class WorkflowRoute(unittest.TestCase):
         self.assertIsNotNone(start, job)
         end = re.compile(r"^  [\w-]+:\n", re.M).search(self.HEAD, start.end())
         block = self.HEAD[start.start():end.start() if end else len(self.HEAD)]
-        edited, count = re.subn(r"^    timeout-minutes: (\d+)$", lambda m: f"    timeout-minutes: {int(m.group(1)) + 1}",
-                                block, count=1, flags=re.M)
+        # A job's bound may say why after it ("timeout-minutes: 45  # up to 16 min reading the tip check", #48979).
+        edited, count = re.subn(r"^    timeout-minutes: (\d+)(?=\s*(?:#.*)?$)",
+                                lambda m: f"    timeout-minutes: {int(m.group(1)) + 1}", block, count=1, flags=re.M)
         self.assertEqual(count, 1, f"{job} has no job-level timeout-minutes")
         return self.HEAD.replace(block, edited)
 
@@ -1352,10 +1386,12 @@ class WorkflowRoute(unittest.TestCase):
         from cmux_next_route import never_on_pull_request
         jobs = yaml_jobs(self.HEAD)
         for job in ("dev-landing-place", "dev-landing-compile", "release-compile-fast", "request-nightly-next",
-                    "request-cmux-next-dev-publish", "dev-daily-tree-wait", "dev-daily-place"):
+                    "request-cmux-next-dev-publish", "dev-daily-tree-wait", "dev-daily-place",
+                    # pr-pipeline.yml's `mac` job runs a pull request's fast tier (note-556).
+                    "fast-tier"):
             self.assertTrue(never_on_pull_request(job, jobs), job)
         for job in ("swift-test", "daemon-test", "generated-files", "release-compile", "app-compile-fleet",
-                    "cmux-scheme-compile", "fast-tier", "macos-placement", "path_route", "web-bundles"):
+                    "cmux-scheme-compile", "macos-placement", "path_route", "web-bundles"):
             self.assertFalse(never_on_pull_request(job, jobs), job)
         synthetic = {
             "push": {"if": "${{ !cancelled() && github.event_name == 'push' }}"},
@@ -1803,7 +1839,7 @@ class RouteLabels(unittest.TestCase):
                    "EVENT_LABELS": "full-ci,risk:low", "RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(out),
                    "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), "DEV_DAILY": "false",
                    "DEV_DAILY_SHA": "", "SAME_TREE_SHA": "", "GH_TOKEN": "t"}
-            result = subprocess.run(["bash", "-e", "-c", step["run"]], cwd=repo, env=env,
+            result = subprocess.run(["bash", "-e", "-c", step_run(step)], cwd=repo, env=env,
                                     capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             labels = (repo / "scripts/ci/labels.txt").read_text()
@@ -2064,9 +2100,9 @@ def workflow_step(workflow: str, job: str, step: str) -> dict:
 class HotAwareWorkflows(unittest.TestCase):
     """Leo, 2026-11-15: "if it's only needing to swap out the app, isn't there like a more minimal set of CI that we
     can get it to do". The two feat-cmux-next pull request workflows outside cmux-next.yml that spent Mac time on
-    hot-only pull requests (2026-11-08..14: tooling-tests 0.9 min, fleet-test-compile 0.4 min a PR) read the
-    router's `--hot-only` verdict on the same merge-commit diff: tooling-tests stays on Linux, the test compile plan
-    is empty. Anything else keeps its route, and a router failure reads as not hot."""
+    hot-only pull requests (2026-11-08..14: tooling-tests 0.9 min, fleet-test-compile 0.4 min a PR) no longer do:
+    tooling-tests is always on Linux, and fleet-test-compile reads the router's `--hot-only` verdict on the same
+    merge-commit diff, so its test compile plan is empty. Anything else keeps its route, and a router failure reads as not hot."""
 
     HOT = ["webviews/src/agent-session/pane.tsx", "cmux-tui/crates/acpmux/src/lib.rs"]
     APP = ["webviews/src/agent-session/pane.tsx", f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"]
@@ -2098,52 +2134,24 @@ class HotAwareWorkflows(unittest.TestCase):
                           if "=" in line) if output.exists() else {}
             return done, values, summary.read_text(encoding="utf-8") if summary.exists() else ""
 
-    # cmux-next-guards.yml: portable-placement's hot-only route step, then tooling-tests' runs-on.
+    # cmux-next-guards.yml: tooling-tests never takes a Mac. Linux CI is one persistent pool (hq
+    # decisions/junctions.md 2026-11-20), so every pull request, hot-only or not, runs it on cmux-linux and the
+    # hot-route picker that kept a hot-only one off the minis is gone.
 
-    def guards_route(self, changed: list[str], labels: str = "") -> dict:
-        step = workflow_step("cmux-next-guards.yml", "portable-placement", "Route the pull request (cmux_next_route.py --hot-only)")
-        done, values, _ = self.run_step(step["run"], ROOT, changed, labels)
-        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
-        return values
-
-    def test_guards_hot_route_reads_the_router(self):
-        self.assertEqual(self.guards_route(self.HOT)["hot_only"], "true")
-        self.assertEqual(self.guards_route(self.APP)["hot_only"], "false")
-        self.assertEqual(self.guards_route(self.HOT, labels="full-ci")["hot_only"], "false")
-        self.assertEqual(self.guards_route(self.HOT, labels="dev-build")["hot_only"], "false")
-
-    def test_tooling_tests_skips_the_mini_only_when_hot(self):
+    def test_tooling_tests_runs_on_linux_for_every_pull_request(self):
         import yaml
         guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text(encoding="utf-8"))
-        job = guards["jobs"]["tooling-tests"]
-        # The 30-minute window gate (#48652) holds a push's guards; a pull request skips it (its output is
-        # empty, never 'false'), and a skipped or failed placement still runs the tests.
-        self.assertEqual(job["needs"], ["coalesce", "portable-placement"])
-        self.assertEqual(job["if"], "${{ !cancelled() && needs.coalesce.outputs.run != 'false' }}")
-        legs = job["runs-on"].split(" || ")
-        mini = [leg for leg in legs if "outputs.mini_runner" in leg]
-        linux = [leg for leg in legs if "outputs.linux_runner" in leg]
-        self.assertEqual(len(mini), 1, legs)
-        self.assertTrue(mini[0].startswith("needs.portable-placement.outputs.hot_only != 'true' && "), mini[0])
-        # Fleet Linux and the Blacksmith fallbacks stay for a hot-only pull request.
-        self.assertEqual(len(linux), 1, legs)
-        self.assertNotIn("hot_only", linux[0])
-        self.assertTrue(legs[-1].strip().startswith("fromJSON(vars.RUNNER_POOLS)"), legs[-1])
-        # The route is a step of portable-placement since 2026-11-21 (cmuxterm-hq#16094), not a job of its own.
         self.assertNotIn("hot-route", guards["jobs"])
-        place = guards["jobs"]["portable-placement"]
-        self.assertNotIn("macos", place["runs-on"])
-        self.assertEqual(place["outputs"]["hot_only"], "${{ steps.hot-route.outputs.hot_only }}")
-        steps = {step.get("name"): step for step in place["steps"]}
-        route = steps["Route the pull request (cmux_next_route.py --hot-only)"]
-        checkout = steps["Check out the merge commit and its base (hot-only route)"]
-        for step in (route, checkout):
-            self.assertIn("github.event_name == 'pull_request'", step["if"])
-            self.assertIs(step.get("continue-on-error"), True)  # a failed route never fails the placement
-        self.assertEqual(route["working-directory"], checkout["with"]["path"])
-        self.assertEqual(checkout["with"]["fetch-depth"], 2)
-        # The placement stays the last step.
-        self.assertEqual(place["steps"][-1]["id"], "place")
+        job = guards["jobs"]["tooling-tests"]
+        # The window gate (base-coalesce.yml); no placement job. A pull request into feat-cmux-next runs them
+        # only with full-ci; its push runs them (#49046, affected-jobs.json).
+        self.assertEqual(job["needs"], "coalesce")
+        self.assertEqual(job["if"], "${{ (!cancelled() && needs.coalesce.outputs.run != 'false') && "
+                                    "(github.event_name != 'pull_request' || github.event.pull_request.base.ref != "
+                                    "'feat-cmux-next' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}")
+        self.assertTrue(job["runs-on"].endswith("|| 'cmux-linux' }}"), job["runs-on"])
+        self.assertNotIn("mini_runner", job["runs-on"])
+        self.assertNotIn("macos", job["runs-on"])
 
     # fleet-test-compile.yml: the plan step.
 
@@ -2165,7 +2173,7 @@ class HotAwareWorkflows(unittest.TestCase):
                 (ci / "cmux_next_route.py").symlink_to(ROOT / "scripts" / "ci" / "cmux_next_route.py")
             else:
                 (ci / "cmux_next_route.py").write_text(router, encoding="utf-8")
-            done, values, summary = self.run_step(step["run"], Path(work), changed, labels)
+            done, values, summary = self.run_step(step_run(step), Path(work), changed, labels)
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         return done, values, summary
 

@@ -43,8 +43,8 @@ import Testing
             CATransaction.flush()
             shots.append((appearance == .aqua ? "Light" : "Dark", try TabConcentricCornerTests.upright(host)))
         }
-        let sheet = PaneMoreShotsTests.contactSheet(shots)
-        let out = PaneMoreShotsTests.packageRoot.appending(path: ".build/concentric-corner-playground.png")
+        let sheet = ShotSheet.contactSheet(shots)
+        let out = ShotSheet.packageRoot.appending(path: ".build/concentric-corner-playground.png")
         try FileManager.default.createDirectory(at: out.deletingLastPathComponent(), withIntermediateDirectories: true)
         try #require(NSBitmapImageRep(cgImage: sheet).representation(using: .png, properties: [:])).write(to: out)
         print("concentric-corner-playground: wrote \(out.path)")

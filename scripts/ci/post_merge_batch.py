@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""The post-merge batch tier: the base's deferred checks run on the clock, not once per merge.
+"""The post-merge batch tier: the base's deferred checks run once per pile of merges, not once per merge.
 
 RFD 0023 (cmuxterm-hq docs/rfd/0023-ci-10x.md), Leo's third direction: "everything else runs
-once post-merge, batched". About every two hours (the window is one variable,
-vars.NEXT_POST_MERGE_WINDOW_MINUTES, default 120) the newest feat-cmux-next tip gets one run of
+once post-merge, batched". About every 10 merges (NEXT_POST_MERGE_EVERY_MERGES, default 10; 0 turns
+the count off), or once the window has passed when fewer have landed (vars.NEXT_POST_MERGE_WINDOW_MINUTES,
+default 120), the newest feat-cmux-next tip gets one run of
 every suite in .github/post-merge-batch.json, covering every squash commit since the last tested
 tip. A job that was green on the last tip where it ran and is red now is bisected over the
 covered commits, running only that job, and the culprit gets a revert pull request through
@@ -11,10 +12,13 @@ normal landing (never merged here).
 
 Subcommands (each run by .github/workflows/cmux-next-post-merge.yml, except tick):
 
-  tick    main's schedule shim (cmux-next-post-merge-dispatch.yml) runs this every 30 min:
-          "is there an untested tip?" in two API calls. It dispatches a batch run when the tip
-          is not the newest batch run's commit, no batch run is in flight, and the newest one
-          started at least a window ago. Nothing waits or loops; a skipped tick costs seconds.
+  tick    main's schedule shim (cmux-next-post-merge-dispatch.yml) runs this every 30 min, and a
+          batch run's judge job runs it as its last step (--self-run-id), so a finished batch starts
+          the next one at once when the merges have piled up: "is there an untested tip?" in two or
+          three API calls. It dispatches a batch run when the tip is not the newest batch run's
+          commit, no other batch run is in flight, and the tip is at least NEXT_POST_MERGE_EVERY_MERGES
+          commits ahead of the newest batch run's commit (one compare call) or that run started at
+          least a window ago. Nothing waits or loops; a skipped tick costs seconds.
   plan    which suites this run calls: on a batch run, every suite whose paths the commits since
           the last batch run touched (all of them when there is none); on a probe, the one suite.
   judge   after the suites: on a batch run, each red job that was green on the newest earlier
@@ -45,18 +49,27 @@ ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / ".github" / "post-merge-batch.json"
 WORKFLOW = "cmux-next-post-merge.yml"
 DEFAULT_WINDOW_MINUTES = 120
+# A batch run starts once the tip is this many commits (squash merges) ahead of the newest batch run's commit
+# (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period."; at about 40 merges an hour
+# that is a batch every 15 min, one run covering ten merges). The window above stays the fallback for a quiet base.
+DEFAULT_EVERY_MERGES = 10
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
 PROBE = "probe"
-# Runs read back to find the last batch run where a job ran (one page; about 2.5 days at 12 a day,
-# plus probes).
-RUNS_PAGE = 60
+# Runs read back to find the last batch run where a job ran (one page, GitHub's largest: at a batch every
+# ~10 merges, about 100 a day, it reaches back about a day, plus probes).
+RUNS_PAGE = 100
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
-# A probe run with no verdict (cancelled, runner lost) is tried again this many times.
-MAX_PROBE_RETRIES = 1
+# A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
+# runners within the hour (runs 44966393364 and 44980687386).
+MAX_PROBE_RETRIES = 2
+# A batch run on the tip whose judge never succeeded (its plan or judge lost a runner) is run again by the tick
+# until this many batch runs sit on that tip.
+MAX_TIP_BATCHES = 2
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 PR_RE = re.compile(r"\(#(\d+)\)\s*$")
+PIECES_DRILL = "lane/post-merge-drill-pieces-"
 # Core teammates (cmuxterm-hq culprit_revert's TEAMMATE_CORE_TEAM, minus Leo, whose login his agents also merge
 # under). A revert of their merge opens held: no agent lands, labels or closes a teammate's PR, so the revert is
 # theirs to land or close (hq#16262).
@@ -136,16 +149,67 @@ def git(*argv: str, cwd: Path | None = None) -> str:
     return out.stdout
 
 
-def start_branch(repo: str, branch: str, sha: str, api=gh_api) -> None:
-    """Creates branch at sha, a commit GitHub already has, through the REST API. The revert then reaches it as an
-    update, which GitHub checks for workflow changes over that one commit; a git push that creates the branch is
-    checked against the whole branch and timed out every time on this repository (drill-5 run 44897813534,
-    drill-6 run 44906887225, four tries each). A branch left by an earlier try is reused."""
-    try:
-        api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha})
-    except RuntimeError as error:
-        if "already exists" not in str(error):
-            raise
+WORKFLOWS_TOKEN_ISSUE = "https://github.com/manaflow-ai/cmuxterm-hq/issues/18499"
+
+
+class WorkflowsTokenMissing(SystemExit):
+    """The swap-out or revert changes a workflow file and the job has no workflows-write token: it stops with the
+    command that does it by hand and the issue that grants the permission, never a silent skip."""
+
+
+def touches_workflows(files) -> list[str]:
+    return [f for f in files if f.startswith(".github/workflows/")]
+
+
+def push_token(files=(), command: str = "") -> str:
+    """The token that creates and pushes the swap-out, probe or revert branch. WORKFLOWS_TOKEN (workflows write,
+    minted apart) whenever the job has one: every such branch starts at a feat-cmux-next or drill commit, whose
+    workflow files differ from main's, and GitHub refuses a contents-only token that creates a ref there whatever
+    the diff touches ("Resource not accessible by integration (HTTP 403)" on POST git/refs: drill 9's piece probe,
+    run 45096141472, job 137440066365). PUSH_TOKEN (contents write only) is the fallback when that mint failed
+    (the routing App had no Workflows permission and the combined mint failed every revert job, run 45021631601,
+    hq#18499); then a diff that touches .github/workflows/** stops here with `command`."""
+    token = os.environ.get("WORKFLOWS_TOKEN", "")
+    if token:
+        return token
+    workflow_files = touches_workflows(files)
+    if not workflow_files:
+        return os.environ.get("PUSH_TOKEN") or os.environ.get("GH_TOKEN", "")
+    raise WorkflowsTokenMissing(
+        f"This change touches workflow files ({', '.join(workflow_files)}) and the job has no workflows-write token "
+        f"(the \"Mint the workflows push token\" step failed or did not run). Grant the routing App Workflows: Read and "
+        f"write ({WORKFLOWS_TOKEN_ISSUE}, hq#18499) and rerun this job, or do it by hand:\n\n    {command}"
+    )
+
+
+def push_url(template: str, token: str) -> str:
+    """--push-url with its {token} filled; a plain remote name or URL is used as it is."""
+    return template.replace("{token}", token)
+
+
+def publish(args: argparse.Namespace, branch: str, start: str, refspec: str, files, command: str) -> None:
+    """Creates branch at start and pushes refspec to it with the token the files need (push_token)."""
+    token = push_token(files, command)
+    start_branch(args.repo, branch, start, token=token)
+    push_branch(push_url(args.push_url, token), refspec)
+
+
+def start_branch(repo: str, branch: str, sha: str, api=gh_api, sleep=time.sleep, waits: tuple[int, ...] = (15, 45), token: str = "") -> None:
+    """Creates branch at sha, a commit GitHub already has, through the REST API, with the push token. The revert
+    then reaches it as an update. With the job token, a git push that creates the branch timed out every time
+    (drill-5 run 44897813534, drill-6 run 44906887225, four tries each) and this call got HTTP 502 (drill-7 run
+    44932473656). A branch left by an earlier try is reused; a GitHub 5xx is retried."""
+    for wait in (*waits, None):
+        try:
+            api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha}, tokens=[token or push_token()])
+            return
+        except RuntimeError as error:
+            text = str(error)
+            if "already exists" in text:
+                return
+            if wait is None or not re.search(r"HTTP 5\d\d", text):
+                raise
+            sleep(wait)
 
 
 def push_branch(url: str, refspec: str, run=git, sleep=time.sleep, waits: tuple[int, ...] = (15, 45, 90)) -> None:
@@ -161,6 +225,14 @@ def push_branch(url: str, refspec: str, run=git, sleep=time.sleep, waits: tuple[
             if wait is None or "due to timeout" not in str(error):
                 raise
             sleep(wait)
+
+
+def piece_swap():
+    """scripts/ci/piece_swap.py: hot swap out, a first red's pieces instead of its whole commit."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import piece_swap as module
+
+    return module
 
 
 def first_parent_range(good: str, bad: str, *, cwd: Path | None = None) -> list[str]:
@@ -255,20 +327,40 @@ def parse_time(value: str) -> datetime:
 # ---------------------------------------------------------------------------- tick
 
 
-def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int) -> tuple[str, str]:
-    """(action, reason): action is 'dispatch' or 'skip'."""
+def tick_decision(tip: str, runs: list[dict], now: datetime, window_minutes: int, judged=lambda run_id: True,
+                  every_merges: int = 0, ahead=lambda base: None, self_run_id: int = 0) -> tuple[str, str]:
+    """(action, reason): action is 'dispatch' or 'skip'. judged(run id): that run's judge succeeded; a batch on
+    the tip that tested nothing (drill-8 run 44966393364: its plan lost its runner) does not count as testing it.
+    ahead(sha): how many commits the tip is ahead of sha (None when unknown); called only inside the window, where
+    every_merges or more (when above 0) dispatch. self_run_id: the batch run whose judge step asks (it has judged,
+    so it is neither in flight nor unjudged)."""
     batches = [r for r in runs if is_batch(r)]
-    live = [r for r in batches if r.get("status") != "completed"]
+    live = [r for r in batches if r.get("status") != "completed" and r.get("id") != self_run_id]
+    if self_run_id:
+        asked = judged
+        judged = lambda run_id: run_id == self_run_id or asked(run_id)  # noqa: E731
     if live:
         return "skip", f"batch run {live[0].get('id')} is {live[0].get('status')} on {str(live[0].get('head_sha'))[:11]}"
     if not batches:
         return "dispatch", "no batch run yet"
     newest = batches[0]
     if newest.get("head_sha") == tip:
+        on_tip = [r for r in batches if r.get("head_sha") == tip]
+        if len(on_tip) < MAX_TIP_BATCHES and not judged(newest["id"]):
+            return "dispatch", f"batch run {newest.get('id')} on tip {tip[:11]} gave no verdict (its plan or judge lost a runner)"
         return "skip", f"tip {tip[:11]} is tested (run {newest.get('id')})"
+    # A batch that gave no verdict tested nothing, so it opens no window, whether or not the tip moved since:
+    # run 45105503067's plan failed its fetch at 03:21Z on 2026-11-23, the tip moved on within a minute, and
+    # no suite ran on the base until the window closed two hours later, while a stale Cargo.lock sat there.
+    if not judged(newest["id"]):
+        return "dispatch", f"batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]} gave no verdict (its plan or judge failed); tip {tip[:11]} is untested"
     age = (now - parse_time(newest["created_at"])).total_seconds() / 60
     if age < window_minutes:
-        return "skip", f"last batch run {newest.get('id')} started {age:.0f} min ago, window {window_minutes} min"
+        count = ahead(newest.get("head_sha")) if every_merges > 0 else None
+        if count is not None and count >= every_merges:
+            return "dispatch", f"tip {tip[:11]} is {count} commits ahead of batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]} (every {every_merges})"
+        piled = f", {count} of {every_merges} merges" if count is not None else ""
+        return "skip", f"last batch run {newest.get('id')} started {age:.0f} min ago, window {window_minutes} min{piled}"
     return "dispatch", f"tip {tip[:11]} is untested; last batch run {newest.get('id')} on {str(newest.get('head_sha'))[:11]}, {age:.0f} min ago"
 
 
@@ -278,6 +370,28 @@ def window_minutes(value: str | None) -> int:
     except ValueError:
         return DEFAULT_WINDOW_MINUTES
     return minutes if minutes > 0 else DEFAULT_WINDOW_MINUTES
+
+
+def every_merges(value: str | None) -> int:
+    """NEXT_POST_MERGE_EVERY_MERGES: unset or unreadable is the default; 0 turns the count off (the window alone)."""
+    try:
+        count = int(str(value or "").strip())
+    except ValueError:
+        return DEFAULT_EVERY_MERGES
+    return max(count, 0)
+
+
+def ahead_by(repo: str, base: str, tip: str, api=gh_api) -> int | None:
+    """Commits tip has that base has not (one compare call, one commit listed); None when GitHub cannot say."""
+    if not base or not SHA_RE.match(str(base)):
+        return None
+    try:
+        data = api(f"repos/{repo}/compare/{base}...{tip}?per_page=1") or {}
+    except RuntimeError as err:
+        print(f"::warning::compare {str(base)[:11]}...{tip[:11]}: {err}; the window decides")
+        return None
+    count = data.get("ahead_by")
+    return count if isinstance(count, int) else None
 
 
 def cmd_tick(args: argparse.Namespace) -> int:
@@ -291,15 +405,24 @@ def cmd_tick(args: argparse.Namespace) -> int:
 
 
 def tick(args: argparse.Namespace) -> int:
+    # No web tick: the batch's `web` suite gives the base its web verdict, so cmux-next-web.yml's coalescing
+    # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
     runs = list_runs(args.repo, args.branch)
-    action, reason = tick_decision(tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes))
+    def judged(run_id: int) -> bool:
+        return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
+
+    self_run_id = int(getattr(args, "self_run_id", 0) or 0)
+    action, reason = tick_decision(
+        tip, runs, datetime.now(timezone.utc), window_minutes(args.window_minutes), judged,
+        every_merges(getattr(args, "every_merges", None)), lambda base: ahead_by(args.repo, base, tip), self_run_id,
+    )
     print(f"{action}: {reason}")
     if action == "dispatch" and not args.dry_run:
         gh_api(
             f"repos/{args.repo}/actions/workflows/{WORKFLOW}/dispatches",
             method="POST",
-            fields={"ref": args.branch, "inputs": {"mode": "batch", "reason": "tick"}},
+            fields={"ref": args.branch, "inputs": {"mode": "batch", "reason": "next" if self_run_id else "tick"}},
         )
     return 0
 
@@ -307,15 +430,20 @@ def tick(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------- plan
 
 
-def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since, judged=lambda run_id: True) -> dict:
+def plan_batch(sha: str, runs: list[dict], suites: dict[str, Suite], files_since, judged=lambda run_id: True, branch: str = "") -> dict:
     """The suites a batch run calls: every one the commits since the newest earlier batch run reach.
     Only a run whose judge succeeded counts: one whose plan died (drill run 44881749105, rate limit)
-    tested nothing, and planning past it skipped the suites its commits reached."""
+    tested nothing, and planning past it skipped the suites its commits reached. A hot swap out drill
+    branch (lane/post-merge-drill-pieces-*) calls only the drill suite on every batch: its first batch is
+    the green the drill's red is new against, and every other suite there is cost (the judge waits for
+    the whole batch: run 45037084940 held the drill's red 85 minutes behind web shards)."""
     earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
     tested = next((r for r in earlier if judged(r["id"])), None)
     base = tested["head_sha"] if tested else ""
     files = files_since(base) if base else None
     picked = [key for key, suite in suites.items() if files is None or suite.reached(files)]
+    if branch.startswith(PIECES_DRILL) and "drill" in suites:
+        picked = ["drill"]
     return {"base": base, "suites": picked, "files": None if files is None else len(files)}
 
 
@@ -346,13 +474,13 @@ def cmd_plan(args: argparse.Namespace) -> int:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
 
     try:
-        plan = plan_batch(args.sha, list_runs(args.repo, args.branch), suites, lambda base: changed_files(base, args.sha), judged)
+        plan = plan_batch(args.sha, list_runs(args.repo, args.branch), suites, lambda base: changed_files(base, args.sha), judged, args.branch)
     except RuntimeError as err:
         # Past the wait budget the runs are unreadable: run every suite rather than none, so the
         # tip is still tested; the next batch's judge compares against this run as usual.
         print(f"plan: earlier batch runs unreadable, running every suite: {err}", file=sys.stderr)
         summary(args.summary, "- Earlier batch runs could not be read (rate limit): every suite runs.")
-        plan = plan_batch(args.sha, [], suites, lambda base: [])
+        plan = plan_batch(args.sha, [], suites, lambda base: [], branch=args.branch)
     write_outputs(
         args.github_output,
         {"suites": " " + " ".join(plan["suites"]) + " ", "sha": args.sha, "only": "", "base": plan["base"]},
@@ -375,9 +503,11 @@ class Probe:
     bad: str  # empty: the first probe, which confirms the red on the batch's own commit
     origin: str  # the batch run that found the red
     tries: int = 0
+    pieces: str = ""  # hot swap out: piece_swap.State; sha is then the culprit with state.out swapped out
 
     def inputs(self) -> dict[str, str]:
-        return {
+        extra = {"pieces": self.pieces} if self.pieces else {}
+        return extra | {
             "mode": PROBE,
             "suite": self.suite,
             "job": self.job,
@@ -490,14 +620,77 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
 
 
 def dispatch_probe(repo: str, branch: str, probe: Probe, api=gh_api) -> None:
-    api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()})
+    # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
+    token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
+    api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
+
+
+def piece_probe_refusal(probe: Probe, state, branch: str, origin: dict | None, found, covered, tree=None) -> str:
+    """A piece probe tests the bisect's culprit with some of its pieces swapped out. Its culprit must pass
+    probe_refusal as the bisect's own last probe would (a new red on the origin batch run, in the commits it
+    covered), and its commit must be exactly the culprit with state.out swapped out: the same tree, rebuilt here.
+    tree(sha) gives a commit's tree (None: not readable)."""
+    refusal = probe_refusal(Probe(probe.suite, probe.job, probe.only, state.culprit, probe.good, state.culprit, probe.origin), branch, origin, found, covered)
+    if refusal:
+        return refusal
+    if probe.bad != state.culprit:
+        return f"bad `{probe.bad[:11]}` is not the piece state's culprit `{state.culprit[:11]}`"
+    ps = piece_swap()
+    tree = tree or _tree
+    pieces = {p.id: p for p in ps.split(ps.changed(state.culprit), ps.load_classifier())}
+    if not set(state.candidates) <= set(pieces):
+        return f"the piece state names pieces `{state.culprit[:11]}` does not have"
+    files = [f for i in state.out for f in pieces[i].files]
+    want = ps.swap_out_commit(state.culprit, state.culprit, files, "expected probe")
+    if not want or tree(want) != tree(probe.sha):
+        return f"probe commit `{probe.sha[:11]}` is not `{state.culprit[:11]}` with {', '.join(state.out)} swapped out"
+    return ""
+
+
+def _tree(sha: str) -> str | None:
+    for attempt in range(2):
+        try:
+            return git("rev-parse", f"{sha}^{{tree}}").strip()
+        except RuntimeError:
+            if attempt:
+                return None
+            subprocess.run(["git", "fetch", "--quiet", "origin", sha], cwd=ROOT)
+    return None
+
+
+def judge_pieces(args: argparse.Namespace, probe: Probe, state, conclusion: str) -> dict[str, str]:
+    """After a piece probe: the next piece state for the revert job to build and dispatch, the one piece
+    named, or piece "-" (no piece: the whole revert pull request, as before)."""
+    ps = piece_swap()
+    found = {"culprit": state.culprit, "job": probe.job, "good": probe.good, "origin": probe.origin}
+    narrowed = ps.narrow(state.candidates, state.out, conclusion)
+    if narrowed is None:
+        if probe.tries < MAX_PROBE_RETRIES:
+            again = Probe(**{**probe.__dict__, "tries": probe.tries + 1})
+            summary(args.summary, f"Piece probe gave no verdict with {', '.join(state.out)} out; running it again.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, again)
+            return {}
+        summary(args.summary, "Piece probe gave no verdict twice: no piece named; the whole revert pull request opens.")
+        return found | {"piece": "-"}
+    summary(args.summary, f"`{probe.job}` was {conclusion} at `{state.culprit[:11]}` with {', '.join(state.out)} swapped out: "
+                          f"the red is in {', '.join(narrowed) or 'none of the pieces'}.")
+    if len(narrowed) == 1:
+        summary(args.summary, f"The piece: `{narrowed[0]}` ({state.probes + 1} probe(s)).")
+        return found | {"piece": narrowed[0]}
+    limit = ps.load_config().get("max_probes", 4)
+    if not narrowed or state.probes + 1 >= limit:
+        summary(args.summary, f"No single piece after {state.probes + 1} probe(s) (limit {limit}): the whole revert pull request opens.")
+        return found | {"piece": "-"}
+    nxt = ps.State(state.culprit, narrowed, ps.halve(narrowed), state.probes + 1)
+    return found | {"pieces": nxt.dump()}
 
 
 def cmd_judge(args: argparse.Namespace) -> int:
     suites = load_manifest(Path(args.manifest))
     jobs = run_jobs(args.repo, args.run_id)
     verdicts = suite_verdicts(jobs, suites)
-    out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": ""}
+    out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": "", "pieces": "", "piece": ""}
     def jobs_of(rid: int) -> tuple[dict[str, tuple[str, str]], bool]:
         earlier = run_jobs(args.repo, rid)
         judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
@@ -521,7 +714,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         write_outputs(args.github_output, out)
         return 0
 
-    probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0))
+    probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0), args.pieces or "")
     try:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
     except RuntimeError:
@@ -530,7 +723,17 @@ def cmd_judge(args: argparse.Namespace) -> int:
     if origin and is_batch(origin):
         before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
         found, _ = new_reds(origin.get("head_sha") or "", jobs_of(origin["id"])[0], before, jobs_of)
-    refusal = probe_refusal(probe, args.branch, origin, found, first_parent_range)
+    state = None
+    if probe.pieces:
+        try:
+            state = piece_swap().State.parse(probe.pieces)
+        except ValueError as err:
+            state = None
+            refusal = str(err)
+        else:
+            refusal = piece_probe_refusal(probe, state, args.branch, origin, found, first_parent_range)
+    else:
+        refusal = probe_refusal(probe, args.branch, origin, found, first_parent_range)
     if refusal:
         summary(args.summary, f"Probe refused: {refusal}. No next probe and no culprit.")
         write_outputs(args.github_output, out)
@@ -539,6 +742,10 @@ def cmd_judge(args: argparse.Namespace) -> int:
     # its verdict is the job with the red job's name, else the worst of the suite's jobs.
     mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
     conclusion = mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
+    if state is not None:
+        out.update(judge_pieces(args, probe, state, conclusion))
+        write_outputs(args.github_output, out)
+        return 0
     head = probe.bad or probe.sha
     commits = first_parent_range(probe.good, head)
     step, value = next_step(probe, conclusion, commits)
@@ -579,6 +786,126 @@ def merged_by_teammate(repo: str, pr: str, api=gh_api) -> str:
     return login if login in TEAMMATES else ""
 
 
+SWAPOUT_MARK = "<!-- post-merge piece swap-out {culprit} {job} -->"
+
+
+def swapouts_opened(repo: str, api=gh_api) -> list[datetime]:
+    """When each recent swap-out pull request opened (the breaker's count)."""
+    pulls = api(f"repos/{repo}/pulls?state=all&sort=created&direction=desc&per_page=50") or []
+    return [parse_time(p["created_at"]) for p in pulls if str((p.get("head") or {}).get("ref") or "").startswith("swapout/")]
+
+
+def swap_out(args: argparse.Namespace, culprit: str, subject: str, pr: str) -> bool:
+    """Hot swap out (scripts/ci/piece_swap.py) before the whole revert: True when it acted (a piece probe
+    dispatched, a swap-out pull request opened or already there); False hands the culprit to the whole
+    revert pull request below, as before (the class is not listed, NEXT_PIECE_SWAP=0, a take-back, the
+    breaker, a conflict)."""
+    ps = piece_swap()
+    pieces = ps.split(ps.changed(culprit), ps.load_classifier())
+    by_id = {p.id: p for p in pieces}
+    config = ps.load_config()
+    suite_key = args.job.partition(" / ")[0]
+    suites = load_manifest(Path(args.manifest))
+    if args.piece:
+        if args.piece not in by_id:
+            summary(args.summary, f"Hot swap out: `{culprit[:11]}` has no piece `{args.piece}`; whole revert.")
+            return False
+        return open_swapout(args, culprit, subject, pr, by_id[args.piece], pieces, config)
+    if args.pieces:
+        state = ps.State.parse(args.pieces)
+        if state is None or state.culprit != culprit or not set(state.candidates) <= set(by_id):
+            raise SystemExit(f"bad piece state {args.pieces!r} for {culprit}")
+        return dispatch_piece_probe(args, culprit, state, by_id, suites[suite_key])
+    ok, why = ps.decide(pieces, config, os.environ)
+    if ok and ps.is_take_back(subject):
+        ok, why = False, "the culprit is itself a take-back (no ping-pong)"
+    if not ok:
+        summary(args.summary, f"Hot swap out: no ({why}); the whole revert pull request opens as before.")
+        return False
+    suspects = ps.suspects(pieces, suites[suite_key].paths if suite_key in suites else []) or pieces
+    ids = [p.id for p in suspects]
+    summary(args.summary, f"Hot swap out: `{culprit[:11]}` has {len(pieces)} piece(s); the red suite `{suite_key}` reads "
+                          f"{len(ids)}: {', '.join(ids)}.")
+    if len(ids) == 1:
+        return open_swapout(args, culprit, subject, pr, by_id[ids[0]], pieces, config)
+    return dispatch_piece_probe(args, culprit, ps.State(culprit, ids, ps.halve(ids), 0), by_id, suites[suite_key])
+
+
+def dispatch_piece_probe(args: argparse.Namespace, culprit: str, state, by_id: dict, suite: Suite) -> bool:
+    """Builds the culprit with state.out swapped out, pushes it to a probe branch and dispatches the red job on it."""
+    ps = piece_swap()
+    files = [f for i in state.out for f in by_id[i].files]
+    sha = ps.swap_out_commit(culprit, culprit, files, f"Swap out {', '.join(state.out)} of {culprit[:12]} (piece probe)")
+    if not sha:
+        summary(args.summary, f"Hot swap out: {', '.join(state.out)} do not swap out of `{culprit[:11]}`; whole revert.")
+        return False
+    probe = Probe(suite.key, args.job, suite.job_id(args.job.partition(" / ")[2]), sha, args.good, culprit, args.origin, 0, state.dump())
+    ref = ps.probe_branch(culprit, state.out)
+    summary(args.summary, f"Piece probe {state.probes + 1}: `{args.job}` at `{culprit[:11]}` with {', '.join(state.out)} swapped out "
+                          f"(`{sha[:11]}` on {ref}); of {len(state.candidates)} suspect piece(s).")
+    if not args.dry_run:
+        publish(args, ref, culprit, f"+{sha}:refs/heads/{ref}", files,
+                f"python3 scripts/ci/piece_swap.py out {culprit} " + " ".join(f"--piece {i}" for i in state.out))
+        dispatch_probe(args.repo, args.branch, probe)
+    return True
+
+
+def open_swapout(args: argparse.Namespace, culprit: str, subject: str, pr: str, piece, pieces: list, config: dict) -> bool:
+    """The swap-out pull request: the branch tip with only this piece of the culprit reversed. Never merged here."""
+    ps = piece_swap()
+    branch = ps.branch_name(culprit, args.job, pr)
+    owner = args.repo.split("/")[0]
+    seen = gh_api(f"repos/{args.repo}/pulls?state=all&head={owner}:{branch}") or []
+    if seen:  # one per (job, first red): an owner who closed it is not asked again
+        summary(args.summary, f"Hot swap out: already {seen[0].get('state')} for this job and first red: {seen[0]['html_url']}")
+        return True
+    if ps.breaker_open(swapouts_opened(args.repo), datetime.now(timezone.utc), config.get("max_per_hour", 3)):
+        summary(args.summary, f"Hot swap out: the breaker is open ({config.get('max_per_hour', 3)} swap-out pull requests in the last hour); whole revert.")
+        return False
+    title = f'Swap out {piece.id} of "{subject}" (post-merge batch: {args.job} red on {args.branch})'
+    sha = ps.swap_out_commit(git("rev-parse", "HEAD").strip(), culprit, piece.files, title)
+    if not sha:
+        summary(args.summary, f"Hot swap out: `{piece.id}` does not swap out of {args.branch}'s tip cleanly; whole revert.")
+        return False
+    who = f"#{pr}" if pr else f"`{culprit[:12]}`"
+    kept = [p.id for p in pieces if p.id != piece.id]
+    author = merged_by_teammate(args.repo, pr)
+    origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
+    this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
+    body = "\n\n".join(
+        ([TEAMMATE_HOLD.format(login=author)] if author else [])
+        + [
+            f"Swaps out one piece of {who} (`{culprit}`), not the whole commit: `{piece.id}` ({piece.cls}, swaps {piece.swap}; "
+            f"{', '.join(f'`{f}`' for f in piece.files)}). The post-merge batch run {origin} found `{args.job}` red on {args.branch}, "
+            f"the bisect named {who} as its first red commit, and the piece drill-down ({this}) named this piece.",
+            "Stays in: " + (", ".join(f"`{k}`" for k in kept) or "(no other piece)") + ".",
+            f"Swap it back in: revert this pull request's commit. The whole revert, the owner's fallback (proposed, never run here):\n\n"
+            f"```\n{ps.whole_revert_command(culprit, args.branch, ps.parents(culprit))}\n```",
+            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert, scripts/ci/piece_swap.py); it never merges. "
+            "Off: repository variable NEXT_PIECE_SWAP=0.",
+        ]
+    )
+    if args.dry_run:
+        summary(args.summary, f"Would open {branch}: {title}")
+        return True
+    publish(args, branch, git("rev-parse", "HEAD").strip(), f"+{sha}:refs/heads/{branch}", piece.files,
+            f"python3 scripts/ci/piece_swap.py out {culprit} --piece {piece.id} --onto origin/{args.branch}")
+    created = gh_api(f"repos/{args.repo}/pulls", method="POST", fields={"head": branch, "base": args.branch, "title": title, "body": body})
+    summary(args.summary, f"Swap-out pull request: {created['html_url']}")
+    write_outputs(args.github_output, {"url": created["html_url"]})
+    if pr:
+        mark = SWAPOUT_MARK.format(culprit=culprit, job=args.job)
+        try:
+            comments = gh_api(f"repos/{args.repo}/issues/{pr}/comments?per_page=100") or []
+            if not any(mark in (c.get("body") or "") for c in comments):
+                gh_api(f"repos/{args.repo}/issues/{pr}/comments", method="POST", fields={
+                    "body": f"{mark}\nPost-merge `{args.job}` went red at this PR's merge; the piece is `{piece.id}`. "
+                            f"{created['html_url']} swaps only that piece out; {', '.join(kept) or 'nothing else'} stays in."})
+        except RuntimeError as err:  # the pull request is the record; the heads-up is a courtesy
+            print(f"swap-out comment on #{pr}: {err}", file=sys.stderr)
+    return True
+
+
 def cmd_revert(args: argparse.Namespace) -> int:
     """Commits the revert of the culprit on the branch tip and opens its pull request. Never
     merges it. Exits 0 with a note when a revert is already open or the revert conflicts."""
@@ -588,6 +915,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
     subject = git("log", "-1", "--format=%s", culprit).strip()
     match = PR_RE.search(subject)
     pr = match.group(1) if match else ""
+    if args.piece != "-" and swap_out(args, culprit, subject, pr):
+        return 0
     branch = f"revert/pr-{pr}" if pr else f"revert/post-merge-{culprit[:12]}"
     existing = gh_api(f"repos/{args.repo}/pulls?state=open&head={args.repo.split('/')[0]}:{branch}") or []
     if existing:
@@ -604,8 +933,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
         summary(args.summary, f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}; left to its owner.")
         return 0
     if not args.dry_run:
-        start_branch(args.repo, branch, git("rev-parse", "HEAD^").strip())
-        push_branch(args.push_url, f"+HEAD:refs/heads/{branch}")
+        publish(args, branch, git("rev-parse", "HEAD^").strip(), f"+HEAD:refs/heads/{branch}", changed_files(f"{culprit}^", culprit),
+                piece_swap().whole_revert_command(culprit, args.branch, len(parents)))
     origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
     this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
     who = f"#{pr}" if pr else f"`{culprit[:12]}`"
@@ -665,10 +994,14 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("--bad", default="")
         p.add_argument("--origin", default="")
         p.add_argument("--tries", default="0")
+        p.add_argument("--pieces", default="")
 
     p = sub.add_parser("tick")
     common(p)
     p.add_argument("--window-minutes", default=os.environ.get("NEXT_POST_MERGE_WINDOW_MINUTES"))
+    p.add_argument("--every-merges", default=os.environ.get("NEXT_POST_MERGE_EVERY_MERGES"),
+                   help=f"dispatch once the tip is this many commits past the last batch (default {DEFAULT_EVERY_MERGES}; 0: the window alone)")
+    p.add_argument("--self-run-id", type=int, default=0, help="the batch run whose judge job ticks (its own run)")
     p.set_defaults(func=cmd_tick)
 
     p = sub.add_parser("plan")
@@ -691,6 +1024,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--run-id", default=os.environ.get("GITHUB_RUN_ID", ""))
     p.add_argument("--server-url", default=os.environ.get("GITHUB_SERVER_URL", "https://github.com"))
     p.add_argument("--push-url", default="origin")
+    p.add_argument("--pieces", default="", help="hot swap out: the next piece probe's state (piece_swap.State)")
+    p.add_argument("--piece", default="", help="hot swap out: the named piece; '-' skips hot swap out")
     p.set_defaults(func=cmd_revert)
 
     args = parser.parse_args(argv)

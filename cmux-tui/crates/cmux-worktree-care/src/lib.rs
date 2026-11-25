@@ -26,6 +26,7 @@
 
 pub mod archive;
 pub mod bounded;
+pub mod caches;
 pub mod disk;
 mod finished_memo;
 mod git;

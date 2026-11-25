@@ -450,46 +450,5 @@ impl Drop for Remove {
 }
 
 #[cfg(test)]
-mod care_tests {
-    use super::*;
-
-    #[test]
-    fn a_folder_back_at_its_path_that_git_could_not_follow_says_so() {
-        let dir = std::env::temp_dir()
-            .join(format!("care-aside-back-{}", new_id(now_ms(), Path::new("x"))));
-        let path = dir.join("wt");
-        std::fs::create_dir_all(&path).unwrap();
-        std::fs::write(path.join("notes.txt"), "work\n").unwrap();
-        let still: Box<procs::Still> = Box::new(|_, _| Ok(()));
-        // git follows it aside, cannot remove it there, and cannot follow it back.
-        let repairs = std::cell::Cell::new(0);
-        let repair = |_: &Path| {
-            repairs.set(repairs.get() + 1);
-            if repairs.get() == 1 { Ok(()) } else { Err("gitdir is not writable".to_owned()) }
-        };
-        let Err(Aside::Removing(error)) =
-            remove_aside(&path, "1-wt", &*still, repair, |_| Err("it is locked".to_owned()))
-        else {
-            panic!("a failed removal is one that began");
-        };
-        assert!(error.contains(&format!("back at {}", path.display())), "{error}");
-        assert!(error.contains("gitdir is not writable"), "{error}");
-        assert!(!error.contains("cmux-discard"), "names no folder that is gone: {error}");
-        assert_eq!(std::fs::read_to_string(path.join("notes.txt")).unwrap(), "work\n");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn long_path_lists_split_inside_the_argument_limit() {
-        let paths: Vec<String> = (0..10_000).map(|i| format!("some/longer/path/{i:05}")).collect();
-        let groups = chunks(&paths);
-        assert!(groups.len() > 1);
-        assert_eq!(groups.iter().map(|g| g.len()).sum::<usize>(), paths.len());
-        assert!(
-            groups
-                .iter()
-                .all(|g| g.iter().map(|p| p.len() + 1).sum::<usize>() <= MAX_ARGUMENT_BYTES)
-        );
-        assert!(chunks(&[]).is_empty());
-    }
-}
+#[path = "archive_care_tests.rs"]
+mod care_tests;

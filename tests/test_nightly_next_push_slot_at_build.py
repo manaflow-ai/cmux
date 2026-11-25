@@ -20,7 +20,7 @@ dispatch-published-in), 5-10 min after the feed write, and the next landing wait
 - nightly-next-one's end asks main's tick at once (wake-nightly-next-tick), since the tick's workflow_run trigger
   fires only when the whole run ends.
 
-Manual lane (Lawrence 2026-10-23: no new CI tests): python3 tests/test_nightly_next_push_slot_at_build.py.
+Manual lane (Lawrence 2026-10-23: no new CI tests, lifted 2026-11-18): python3 tests/test_nightly_next_push_slot_at_build.py.
 """
 from __future__ import annotations
 
@@ -73,9 +73,6 @@ for name, ctx in (("a push run", context(one_job="")), ("the loop's retry", cont
     group = substitute(top, ctx)
     if group != "nightly-build-nightly-next-push":
         failures.append(f"with the one job off, {name} must keep the workflow-level push group, got {group!r}")
-if substitute(top, context("workflow_dispatch", inputs__x="") | {"inputs.nightly_next_sign_stage": "true"}) \
-        != "nightly-build-nightly-next-sign":
-    failures.append("a sign stage keeps the sign group")
 if DOC.get("concurrency", {}).get("cancel-in-progress") is not False:
     failures.append("the workflow-level group never cancels in progress")
 
@@ -142,7 +139,7 @@ for values in itertools.product(*choices.values()):
     vars_ctx = {f"vars.{var}": value for var, value in zip(choices, values)}
     decide_env = {one_job_vars[var]: value for var, value in zip(choices, values)}
     for name, event, extra in (("a push run", "push", {}), ("the loop's retry", "workflow_dispatch", RETRY)):
-        env = {**decide_env, "LOOP_RETRY": extra.get("inputs.nightly_next_loop_retry", ""), "SIGN_STAGE": ""}
+        env = {**decide_env, "LOOP_RETRY": extra.get("inputs.nightly_next_loop_retry", "")}
         try:
             one_job = bool(decide_eval("oneJob", env, event))
         except LookupError as missing:

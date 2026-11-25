@@ -13,6 +13,7 @@ import type { NativePopupTransport } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { onVisualViewport, visualViewportScale } from "./visualViewportBox";
 import { listPlacement } from "./listPlacement";
+import { ROW_ATTRIBUTE } from "./menuWindow";
 
 export interface PopupItem {
   id: string;
@@ -192,7 +193,8 @@ export function popupItems(
  * The surface's height with every list in it at its designed size: a list that scrolls (the
  * surface itself or one inside it) counts its hidden rows too, up to its `--popup-scroll-cap` when
  * it sets one (a list that scrolls by design at that size, as the folder menu's and the slash
- * menu's). A small window that squeezes a list below its cap does not make the surface fit.
+ * menu's). The cap is a registered length (popupSurface.css), so a cap written in rows computes to
+ * px here. A small window that squeezes a list below its cap does not make the surface fit.
  */
 export function naturalHeight(popup: HTMLElement): number {
   let hidden = 0;
@@ -366,16 +368,23 @@ export function useEscapingPopup(
       // Another surface shows the panel: this one stays in the page.
       if (host.owner() && host.owner() !== me) return;
       const at = anchorRef.current();
-      const flat = kind !== "menu" || !element.querySelector("[aria-haspopup], input, textarea, [contenteditable]");
+      // A windowed menu (menuWindow.tsx) has only the rows near its viewport mounted: the host would
+      // get those rows alone and no way to scroll to the rest, so it stays in the page's popup,
+      // which scrolls in whatever room the pane has.
+      const flat =
+        kind !== "menu" ||
+        !element.querySelector(`[aria-haspopup], input, textarea, [contenteditable], [${ROW_ATTRIBUTE}]`);
       const { items } = popupItems(element, kind, active);
       const room = at?.getBoundingClientRect();
+      if (!flat || !items.length || !room) return;
+      const height = naturalHeight(element);
       const fits =
-        !room ||
+        (element.hasAttribute("data-pointer-menu") && height <= window.innerHeight) ||
         (shrinks
-          ? !listPlacement(room, window.innerHeight, naturalHeight(element), { gap }).escapes
-          : fitsInPage(room, naturalHeight(element), gap, window.innerHeight, flip ? undefined : side) &&
+          ? !listPlacement(room, window.innerHeight, height, { gap }).escapes
+          : fitsInPage(room, height, gap, window.innerHeight, flip ? undefined : side) &&
             (kind !== "tooltip" || wraps || textWidth(element) <= window.innerWidth - 2 * EDGE));
-      if (!flat || items.length === 0 || fits) return;
+      if (fits) return;
       const first = model();
       if (!first) return;
       escaped = true;

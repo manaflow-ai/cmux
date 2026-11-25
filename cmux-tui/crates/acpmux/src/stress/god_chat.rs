@@ -35,6 +35,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const SMALL_BYTES: u64 = 1 << 20;
+/// What a first start of the 1 GB god chat may read: the copies, the open segment, the state files. Copies made when a
+/// segment fills cut it from 1.18 GB to 113 MB; each log-load step still reads the copies from the start (about 11%
+/// of the history), so this bound holds that cut until a written restore point makes it flat.
+const FIRST_START_BYTES: f64 = 128.0 * 1024.0 * 1024.0;
 const GOD: &str = "god";
 /// Attached connections while the chat streams; the first never reads its output.
 const WATCHERS: usize = 32;
@@ -464,7 +468,7 @@ fn print(size: &str, c: &Costs) {
 }
 
 /// In a process of its own: bytes read and memory are counted for the whole process. Manual,
-/// as `update_cost_bench` is: CI runs no new perf test (root CLAUDE.md).
+/// as `update_cost_bench` is (kept out of CI under the 2026-10-23 no-new-CI rule, since lifted).
 #[test]
 #[ignore = "manual god-chat stress: cargo test -p acpmux --lib stress::god_chat -- --ignored --nocapture"]
 fn a_god_chat_restarts_opens_and_streams_as_a_small_one_does() {
@@ -491,6 +495,14 @@ fn god_chat_alone() {
         small.restart_after_read,
         god.restart_after_read,
         1024.0 * 1024.0,
+    );
+    // A first start (no restore point yet, no scan ever made a copy) reads each filled segment's
+    // kind copy and the open segment, not the history: a seeded 1 GB chat read 1.18 GB in 3.7 s.
+    let first_start = god.restart_read + god.restart_after_read;
+    assert!(
+        first_start < FIRST_START_BYTES,
+        "god chat first start read {first_start:.0} B of a {:.1} MB log, past {FIRST_START_BYTES:.0} B",
+        god.log_mb
     );
     flat("open bytes read", small.open_read, god.open_read, 256.0 * 1024.0);
     flat("open reply bytes", small.open_reply, god.open_reply, 64.0 * 1024.0);
