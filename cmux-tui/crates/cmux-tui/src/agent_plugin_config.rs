@@ -110,6 +110,10 @@ pub(crate) fn agent_plugin(raw: RawAgents, host: &DaemonHost) -> Option<JournalP
         command: vec![path.to_str()?.to_string()],
         cwd: None,
         revision: bundled_revision(&path),
+        // It reads only the screens of running programs: the daemon starts
+        // it at the first one (`mux/journal_plugin_demand.rs`), so an idle
+        // daemon runs no detector process.
+        on_demand: true,
     };
     match options.validate() {
         Ok(()) => Some(options),
@@ -256,6 +260,7 @@ fn explicit_plugin(plugin: RawAgentPlugin) -> Option<JournalPluginOptions> {
         command,
         cwd: plugin.cwd.filter(|cwd| !cwd.trim().is_empty()),
         revision: plugin.revision.filter(|revision| !revision.trim().is_empty()),
+        on_demand: false,
     };
     if let Err(error) = options.validate() {
         crate::client_log::stderr_log!("config", "{BIN}: ignoring invalid agents.plugin: {error}");

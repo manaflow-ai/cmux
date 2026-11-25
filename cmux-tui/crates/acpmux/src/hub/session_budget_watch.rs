@@ -24,9 +24,6 @@ impl Hub {
     /// Starts the watcher; off (`session_disk::enabled`, a disk budget of 0) it starts nothing.
     pub fn start_session_budget_watch(self: &Arc<Self>) {
         self.start_session_store_watch();
-        if !session_disk::enabled() {
-            return;
-        }
         #[cfg(target_os = "linux")]
         {
             let Some(manager) = std::fs::read_to_string("/proc/self/cgroup")
@@ -36,10 +33,25 @@ impl Hub {
             else {
                 return;
             };
+            // A group the last daemon stopped resumes now, watcher on or off: no chat stays frozen
+            // because the daemon that stopped it went away.
+            let home = crate::config::home();
+            for g in session_disk::resume_left_stopped(&home, &manager, |pgid| {
+                session_disk::signal_group(pgid, libc::SIGCONT)
+            }) {
+                tracing::info!(scope = %g.scope, pgid = g.pgid, "resumed a group the last daemon stopped");
+            }
+            if !session_disk::enabled() {
+                return;
+            }
             // Weak: the watcher never keeps a stopped hub alive; the hub's scope ends it.
             let weak = Arc::downgrade(self);
             self.scope.spawn_until_cancelled("session-budget-watch", async move {
                 let floor = tokio::task::spawn_blocking(|| {
+                    // The hosts slice's total (`session_total.rs`), once per daemon.
+                    crate::session_total::limit_hosts_slice(
+                        &crate::session_budget::daemon_totals().1,
+                    );
                     crate::placement::disk_floor(
                         crate::placement::load_registry().as_ref(),
                         &crate::host_pressure::host_name(),
@@ -54,7 +66,7 @@ impl Hub {
                     if hub.stopping.load(Ordering::SeqCst) {
                         return;
                     }
-                    let manager = manager.clone();
+                    let (manager, home) = (manager.clone(), home.clone());
                     let (actions, tick) = tokio::task::spawn_blocking(move || {
                         let (budget, _) = crate::session_budget::daemon_budget();
                         let free = crate::session_budget::home_disk().map_or(u64::MAX, |(_, f)| f);
@@ -65,12 +77,21 @@ impl Hub {
                                 .sessions,
                         );
                         let (samples, truncated) = session_disk::scan(&manager, &mut known);
+                        crate::session_total::sweep_blocking(&manager);
                         let mut watch =
                             session_disk::shared().lock().unwrap_or_else(|e| e.into_inner());
                         watch.sessions = known;
                         (watch.budget, watch.free, watch.floor, watch.truncated) =
                             (budget.disk, free, floor, truncated);
+                        let held = watch.stopped();
                         let actions = watch.apply(samples);
+                        // Written before any SIGSTOP goes out, so a restart can resume it.
+                        let stopped = watch.stopped();
+                        if stopped != held
+                            && let Err(e) = session_disk::write_ledger(&home, &stopped)
+                        {
+                            tracing::warn!("could not write {}: {e}", session_disk::LEDGER);
+                        }
                         (actions, session_disk::next_tick(free, floor))
                     })
                     .await
@@ -317,9 +338,19 @@ pub(crate) fn status() -> Value {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .json(session_disk::enabled() && budget.disk > 0);
+    let tasks = crate::session_scope::sessions_tasks_default(crate::session_scope::threads_max());
+    let session_total = crate::session_budget::session_total_from(&get, &host, &budget);
+    let hosts_total = crate::session_budget::hosts_total_from(&get, &host, tasks);
     let store = session_store::shared()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .json(cfg!(target_os = "linux"));
-    crate::session_budget::status(&budget, &task, &host, watch, store)
+    crate::session_budget::status(
+        &budget,
+        &task,
+        (&session_total, &hosts_total),
+        &host,
+        watch,
+        store,
+    )
 }
