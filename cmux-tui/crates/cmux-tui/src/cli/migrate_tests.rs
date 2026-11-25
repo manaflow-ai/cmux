@@ -134,7 +134,21 @@ fn the_app_route_runs_the_cloud_verbs() {
     cloud.write_file("m9", "/home/cmux/f", &big).unwrap();
     let writes: Vec<_> = cloud.runner.calls.iter().filter(|c| c[1] == "file-write").collect();
     assert_eq!(writes.len(), 3);
-    assert!(writes.iter().all(|c| c.iter().all(|w| w.len() <= WRITE_CHUNK)));
+    // The text never rides in argv (`ps` shows it): it goes through a file `--contents-file` reads.
+    assert!(writes.iter().all(|c| c.iter().all(|w| w.len() < 4096 && w != "--contents")));
+    assert!(writes.iter().all(|c| c.iter().any(|w| w == "--contents-file")));
     let joined = cloud.runner.calls.last().unwrap();
     assert!(joined.iter().any(|w| w.starts_with("cat ") && w.contains("> '/home/cmux/f'")));
+}
+
+#[test]
+fn the_headless_journey_keeps_only_when_asked() {
+    let (out, config) = (Path::new("/tmp/o"), Path::new("/tmp/o/machine.toml"));
+    let ci = headless_journey_args("staging", "https://github.com/a/b", out, config, false, None);
+    assert!(!ci.iter().any(|w| w == "--keep"), "{ci:?}");
+    let person =
+        headless_journey_args("prod", "https://github.com/a/b", out, config, true, Some("s"));
+    assert_eq!(person.iter().filter(|w| *w == "--keep").count(), 1, "{person:?}");
+    assert!(person.windows(2).any(|w| w[0] == "--model-stub" && w[1] == "s"));
+    assert!(person.windows(2).any(|w| w[0] == "--machine-config" && w[1] == "/tmp/o/machine.toml"));
 }
