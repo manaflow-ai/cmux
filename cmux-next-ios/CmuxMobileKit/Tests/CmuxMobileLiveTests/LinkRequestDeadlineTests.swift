@@ -127,7 +127,7 @@ import Testing
         }
         channel.push(replies)
         let results = await prepared.replies.value
-        #expect(results.count == 5)
+        #expect(results.count == 7, "six setup requests and the sidebar layout (#51114)")
         for result in results { _ = try result.get() }
         await prepared.client.close()
         #expect(await writes.next() == nil)
@@ -138,7 +138,7 @@ import Testing
         let prepared = await WorkspaceSync.prepare(channel, deviceID: "phone", deviceName: "iPhone",
                                                    authorizationTimeout: .milliseconds(10), replyTimeout: .milliseconds(10))
         let results = await prepared.replies.value
-        #expect(results.count == 5)
+        #expect(results.count == 7, "six setup requests and the sidebar layout (#51114)")
         for result in results {
             guard case .failure(let error) = result else { Issue.record("Unanswered setup succeeded"); continue }
             #expect((error as? LinkError)?.code == "reply_timeout")

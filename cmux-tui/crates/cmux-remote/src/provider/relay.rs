@@ -498,6 +498,11 @@ pub struct RelayProvider {
     /// `control_timeout`, for the daemon to join its circuit once the relay
     /// allocated it ([`RelayProvider::with_peer_join_wait`]).
     peer_join_wait: Option<Duration>,
+    /// When set, a lane allocated before any other lane of its group waits
+    /// no later than this: the first lane is the one a relay parks for a
+    /// daemon that has not registered, and a caller may give up on that park
+    /// sooner than on its whole deadline.
+    first_allocation_deadline: Option<Instant>,
 }
 
 impl RelayProvider {
@@ -522,6 +527,7 @@ impl RelayProvider {
             tls: RelayTls::default(),
             allocation_deadline: None,
             peer_join_wait: None,
+            first_allocation_deadline: None,
         })
     }
 
@@ -545,6 +551,17 @@ impl RelayProvider {
     /// circuit's socket keeps its own bound.
     pub fn with_peer_join_wait(mut self, wait: Duration) -> Self {
         self.peer_join_wait = Some(wait);
+        self
+    }
+
+    /// Wait for a group's first allocation no later than `deadline` (nor
+    /// later than the allocation deadline). Only the lanes opened before one
+    /// of the group's lanes is allocated wait for it: a relay parks a Connect
+    /// only while the machine's daemon has not registered, so once one lane
+    /// is allocated the later ones wait the allocation deadline in full,
+    /// however long the first one took.
+    pub fn with_first_allocation_deadline(mut self, deadline: Instant) -> Self {
+        self.first_allocation_deadline = Some(deadline);
         self
     }
 
@@ -602,6 +619,8 @@ impl TransportProvider for RelayProvider {
             tls: self.tls.clone(),
             allocation_deadline: self.allocation_deadline,
             peer_join_wait: self.peer_join_wait,
+            first_allocation_deadline: self.first_allocation_deadline,
+            allocated: AtomicBool::new(false),
             control: Mutex::new(Some(control)),
             closed: AtomicBool::new(false),
         }))
@@ -619,6 +638,10 @@ struct RelayLinkGroup {
     tls: RelayTls,
     allocation_deadline: Option<Instant>,
     peer_join_wait: Option<Duration>,
+    first_allocation_deadline: Option<Instant>,
+    /// Whether one of this group's lanes has been allocated: from then on no
+    /// lane waits the first allocation's deadline.
+    allocated: AtomicBool,
     // An allocation temporarily takes ownership of the control socket. If the
     // allocation future is cancelled, the socket is dropped while this slot
     // remains empty, so a later attempt cannot consume a stale response.
@@ -1090,9 +1113,6 @@ impl LinkGroup for RelayLinkGroup {
             return Err(ProviderError::Transport("relay connection group is closed".into()));
         }
         let lane = LaneToken(random_capability()?);
-        // The allocation deadline is the first connect's; a resume (a later
-        // generation) waits `control_timeout` as any reconnect does.
-        let wait_until = self.allocation_deadline.filter(|_| request.generation == 0);
         let join_wait = self
             .peer_join_wait
             .filter(|_| request.generation == 0)
@@ -1103,6 +1123,9 @@ impl LinkGroup for RelayLinkGroup {
             if self.closed.load(Ordering::Acquire) {
                 return Err(ProviderError::Transport("relay connection group is closed".into()));
             }
+            // Read under the control lock, which serializes allocations: a
+            // lane queued behind the first one sees whether it was allocated.
+            let wait_until = self.wait_until(request.generation);
             let mut control = match stored_control.take() {
                 Some(control) => control,
                 None => {
@@ -1121,10 +1144,12 @@ impl LinkGroup for RelayLinkGroup {
             .await
             {
                 Ok(Allocation::Inline(_circuit)) => {
+                    self.allocated.store(true, Ordering::Release);
                     return Ok(self.inline_link(control));
                 }
                 Ok(Allocation::Circuit(circuit, ticket)) => {
                     *stored_control = Some(control);
+                    self.allocated.store(true, Ordering::Release);
                     (circuit, ticket)
                 }
                 Err(AllocationError::Terminal(error)) => {
@@ -1160,10 +1185,12 @@ impl LinkGroup for RelayLinkGroup {
                     .await
                     {
                         Ok(Allocation::Inline(_circuit)) => {
+                            self.allocated.store(true, Ordering::Release);
                             return Ok(self.inline_link(replacement));
                         }
                         Ok(Allocation::Circuit(circuit, ticket)) => {
                             *stored_control = Some(replacement);
+                            self.allocated.store(true, Ordering::Release);
                             (circuit, ticket)
                         }
                         Err(AllocationError::Terminal(error)) => {
@@ -1201,6 +1228,24 @@ impl LinkGroup for RelayLinkGroup {
                 .map_err(|_| ProviderError::Transport("relay WebSocket close failed".into()))?;
         }
         Ok(())
+    }
+}
+
+impl RelayLinkGroup {
+    /// When a lane's allocation stops waiting. The allocation deadline is the
+    /// first connect's; a resume (a later generation) waits `control_timeout`
+    /// as any reconnect does. Until one lane is allocated, a lane also waits no
+    /// later than the first allocation's deadline.
+    fn wait_until(&self, generation: u64) -> Option<Instant> {
+        if generation != 0 {
+            return None;
+        }
+        let first =
+            self.first_allocation_deadline.filter(|_| !self.allocated.load(Ordering::Acquire));
+        match (self.allocation_deadline, first) {
+            (Some(deadline), Some(first)) => Some(deadline.min(first)),
+            (deadline, first) => deadline.or(first),
+        }
     }
 }
 
@@ -2113,6 +2158,59 @@ where
     Err(last_error.unwrap_or_else(|| relay_carrier_error("relay circuit join timed out")))
 }
 
+/// How long a daemon's registration WebSocket has alone before a second one opens beside it. A
+/// fresh Cloud machine's first outbound open sometimes dies silently while its network settles
+/// just after the create: production `cloud-chat-replies-production`, fresh machines, 2026-11-20
+/// to 11-24, 2 of 27 daemons logged `attempt 1 failed ... no answer within 10000 ms` and
+/// registered 10.8 and 11.1 s after they started (the retry, 86 ms later, registered in under a
+/// second), while the other 25 registered 0.15 to 0.5 s after the daemon started. Every dial
+/// parks behind that registration (`connect.link` 21 to 27 s). A healthy open is done in well
+/// under a second, so a second open at 1 s lands inside the client's wait.
+const DAEMON_REGISTER_STAGGER: Duration = Duration::from_secs(1);
+/// Registration opens of one attempt in all: one every [`DAEMON_REGISTER_STAGGER`] while none
+/// has opened.
+const DAEMON_REGISTER_ATTEMPTS: usize = 3;
+
+/// The first of `attempt`'s results that is Ok, starting one attempt at once and another every
+/// `stagger` while none has finished (at most `most` in all). An error `fatal` names, or the
+/// last error once no attempt is left running, ends it at once: a fast refusal is the caller's
+/// retry to schedule, not an open to hedge. Each attempt keeps its own bound, and the ones that
+/// lose are dropped, which closes their sockets before any Register is sent on them.
+async fn hedged_open<T, E, F, Fut>(
+    mut attempt: F,
+    stagger: Duration,
+    most: usize,
+    fatal: impl Fn(&E) -> bool,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    use futures_util::stream::FuturesUnordered;
+    let mut running = FuturesUnordered::new();
+    running.push(attempt());
+    let mut launched = 1_usize;
+    let mut next_launch = Instant::now() + stagger;
+    loop {
+        let more = launched < most.max(1);
+        tokio::select! {
+            Some(result) = running.next() => match result {
+                Ok(opened) => return Ok(opened),
+                Err(error) => {
+                    if fatal(&error) || running.is_empty() {
+                        return Err(error);
+                    }
+                }
+            },
+            _ = tokio::time::sleep_until(next_launch), if more => {
+                running.push(attempt());
+                launched += 1;
+                next_launch = Instant::now() + stagger;
+            }
+        }
+    }
+}
+
 /// Joins the circuit an `Incoming` names and hands it to `daemon`, unless the
 /// circuit is already joined or the registration holds its most circuits. The
 /// Join is hedged ([`DAEMON_JOIN_STAGGER`]); one that never became Ready is
@@ -2274,11 +2372,18 @@ async fn authenticate_daemon_control(
         let fetched_at = Instant::now();
         let credential = credentials.fetch().await?;
         let renew_at = renewal_time(credentials, &credential, fetched_at);
-        let mut socket = match connect_relay_socket_once(
-            &config.endpoint,
-            Some(&credential),
-            MAX_RELAY_CONTROL_MESSAGE_BYTES,
-            tls,
+        let mut socket = match hedged_open(
+            || {
+                connect_relay_socket_once(
+                    &config.endpoint,
+                    Some(&credential),
+                    MAX_RELAY_CONTROL_MESSAGE_BYTES,
+                    tls,
+                )
+            },
+            DAEMON_REGISTER_STAGGER,
+            DAEMON_REGISTER_ATTEMPTS,
+            |error| matches!(error, RelaySocketConnectError::Authentication),
         )
         .await
         {
@@ -2429,9 +2534,8 @@ async fn connect_relay_tcp(endpoint: &Url) -> Result<TcpStream, WebSocketError> 
     let addresses = super::dial::resolve_dial_target(host, port)
         .await
         .map_err(|error| WebSocketError::Io(std::io::Error::other(error.to_string())))?;
-    let addresses = super::hedge::v6_first(&addresses);
     let socket =
-        super::hedge::connect(&addresses, super::hedge::HedgePolicy::INTERNET, TcpStream::connect)
+        super::hedge::connect_tcp(host, port, &addresses, super::hedge::HedgePolicy::INTERNET)
             .await
             .map_err(WebSocketError::Io)?;
     let _ = socket.set_nodelay(true);

@@ -886,6 +886,9 @@ git review comment [TARGET] --file <path> --line <n> [--start-line <n>] [--side 
 git comments list [--root <path>]
 git comments save [--root <path>] --comment <json-object>
 git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
+git comments send [--root <path>] <comment-id>... --threads --acp-session <id> [--text <note>]
+git comments reply [--root <path>] <comment-id> --text <answer> [--author agent|reviewer]
+git comments resolve [--root <path>] <comment-id> [--reopen]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -1373,6 +1376,15 @@ object, kept as given; its `id` names a saved comment to replace) and the
 session host sets `createdAt` and `updatedAt`. `delete` names the ids to
 remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
 a comment edited since is kept. Unknown ids are ignored.
+
+`git comments send --threads` (`diff.comments.send` with `threads`, capability
+`diff-comments-threads-v1`) hands the named comments to the acpmux session
+`--acp-session` as review threads: one prompt the session host writes from
+what each thread holds that the agent has not read (a new comment, reviewer
+replies, a resolve), `--text` an optional note at its top. Nothing is
+removed. The agent answers each thread with `git comments reply <id> --text`
+(author `agent` by default) and closes one with `git comments resolve <id>`
+(`--reopen` undoes it); both are `diff.comments.thread`.
 
 ## Waiting for one event
 

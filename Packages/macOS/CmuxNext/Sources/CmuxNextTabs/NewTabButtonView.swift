@@ -116,9 +116,9 @@ final class NewTabButtonView: NSView {
     /// The split control's corner: a tab pill's (``PlusButtonLook/splitCornerRadius``), as the ⋮ beside it rounds.
     static var splitCornerRadius: CGFloat { PlusButtonLook.splitCornerRadius }
 
-    /// The + button's height in the tab strip, in every look: the pane ⋮'s side (``Metrics/tabBarControlSide``), centered
-    /// on the tabs, so the +, its ⌄ and the ⋮ are one size (Lawrence 2026-11-20: "size of plus button must be same as
-    /// size of these buttons"). Before, the split look's `+ ⌄` was a tab's height, taller than the ⋮.
+    /// The + button's height in the tab strip, in every look: a tab's height (``Metrics/tabBarControlSide``), on the
+    /// tabs' line, so the +, its ⌄ and the pane's ⋮ are one tab-tall size at every density (Lawrence 2026-11-20: "size of
+    /// plus button must be same as size of these buttons"; 2026-11-23: "as tall as the tabs themselves").
     static var frameHeight: CGFloat { Metrics.tabBarControlSide }
 }
 

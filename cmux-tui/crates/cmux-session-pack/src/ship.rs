@@ -15,7 +15,7 @@
 use crate::Result;
 use crate::manifest::Manifest;
 use crate::read::Pack;
-use crate::store::{Id, Store, chunk_id, decode_chunk, hex};
+use crate::store::{Id, Store, hex};
 use std::collections::HashSet;
 use std::io::{Read, Write};
 
@@ -153,11 +153,7 @@ pub fn unbundle(store: &Store, input: &mut dyn Read, lacking: Lacking) -> Result
         input.read_exact(&mut len)?;
         let mut file = vec![0u8; u32::from_le_bytes(len) as usize];
         input.read_exact(&mut file)?;
-        let (kind, payload) = decode_chunk(&file)?;
-        if chunk_id(kind, &payload) != id {
-            return Err(format!("chunk {} does not hash to its id", hex(&id)).into());
-        }
-        store.put_stored(&id, &file)?;
+        store.receive(&id, &file)?;
     }
     let Some(manifest) = manifest else { return Ok(None) };
     if lacking == Lacking::Refuse
