@@ -61,7 +61,7 @@ import Testing
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user, browserAttemptTimeout: 60, clock: clock)
 
-        let manualURL = harness.flow.manualSignInURL
+        let manualURL = try #require(await harness.flow.manualSignInURL)
         let state = try #require(Self.state(in: manualURL))
         let attempt = Task { await harness.flow.signIn(timeout: 600) }
         await harness.waitForSession()
@@ -97,7 +97,7 @@ import Testing
     @Test func mismatchedStateWithoutActiveAttemptIsRejected() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let harness = HostBrowserSignInFlowHarness(user: user)
-        _ = harness.flow.manualSignInURL
+        _ = await harness.flow.manualSignInURL
 
         let result = await harness.flow.handleCallbackURL(harness.callbackURL(state: "attacker-state"))
 

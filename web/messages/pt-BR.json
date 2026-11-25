@@ -3478,6 +3478,7 @@
     "brandPage": "Assets da marca"
   },
   "afterSignIn": {
+    "confirmBody": "Continue somente se você acabou de iniciar o login neste app.",
     "title": "Conectado ao cmux",
     "body": "Se o cmux não abriu automaticamente, use o botão abaixo.",
     "button": "Voltar ao cmux",
