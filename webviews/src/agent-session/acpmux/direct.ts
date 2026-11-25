@@ -242,6 +242,16 @@ import {
 } from "./conversation/memoryInbox";
 import { withAttachmentRetries } from "../../pages/shared/attachmentRetry";
 import { readTurnShots, type TurnShotPair } from "./turnChanges/turnShots";
+import type { CustomizeRun } from "./conversation/customizeRun";
+import {
+  latestFrameParams,
+  readFrames,
+  readLatest,
+  TURN_FRAMES_CAPABILITY,
+  TURN_FRAMES_METHOD,
+  turnFramesParams,
+  type TurnFrame,
+} from "./liveFrames/turnFrames";
 import {
   coachIdOf,
   coachOfferFromRecord,
@@ -905,10 +915,29 @@ const PROMPT_COACH_CAPABILITY = "prompt-coach-v1";
 /// The feature a chat on another machine names (Cloud, SSH: the app's RemoteAcpmuxWire) where that
 /// machine opens the chat's side chats there, with `_acpmux/side_chat`.
 const SIDE_CHAT_FEATURE = "side_chat";
+/// acpmux takes a `requestId` on every fork and answers a retry with the fork the first request
+/// made (cmux-tui acpmux hub/fork_request.rs, #50084); an older one refuses it without a boundary.
+const FORK_REQUEST_FEATURE = "forkRequestId";
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
+/// The capability id an acpmux that forks a subagent's own context into a chat of its own names
+/// (`acp.session.fork` with `subagentId`, hub/fork.rs): without it a subagent's chips offer no fork.
+export const SUBAGENT_FORK_CAPABILITY = "acp.session.fork.subagent.v1";
 /// The capability id an acpmux that keeps a turn's before and after picture of the chat's page names
 /// (`_acpmux/turn_shots`, hub/turn_shots.rs): without it no turn reads its pictures.
 const TURN_SHOTS_CAPABILITY = "turn-shots-v1";
+/// The capability ids of a daemon that keeps a turn's frames (`_acpmux/turn_frames`) and one that
+/// runs a wrap-up card's Try it on, Keep and Revert (`_acpmux/customize_run`).
+const CUSTOMIZE_RUN_CAPABILITY = "customize-run-v1";
+
+/// The subagent a `forked` record says the fork was made of (`subagentName`, or acpmux's `forkOf.name`).
+export function forkedSubagentName(msg: Record<string, unknown> | undefined): string | undefined {
+  if (!msg) return undefined;
+  const named = typeof msg.subagentName === "string" ? msg.subagentName.trim() : "";
+  if (named) return named;
+  const forkOf = msg.forkOf && typeof msg.forkOf === "object" ? (msg.forkOf as Record<string, unknown>) : undefined;
+  const name = typeof forkOf?.name === "string" && forkOf.subagentId ? forkOf.name.trim() : "";
+  return name || undefined;
+}
 
 /// Whether listed chat `session` is the one `name` names: its name, its short name, or, for a chat
 /// on another machine (listed as `<peer>/<name>`), its bare name, which its messages sign with.
@@ -1173,6 +1202,9 @@ export class AcpmuxDirectClient {
   private frameSnapshot?: string;
   /// Another chat changed while the page was hidden: the list draws again when it shows.
   private listChangedWhileHidden = false;
+  /// This hidden page turned its list watch off (`pauseListWhileHidden`): acpmux sends it no other
+  /// chat's change until it shows, and showing it catches up from the cursor the pause froze.
+  private listPausedWhileHidden = false;
   /// The newest snapshot reason that arrived while this page was hidden. Hidden pages keep
   /// reducing only the state they need for an eventual wake, and publish one snapshot on return.
   private hiddenEmit?: string;
@@ -4406,6 +4438,8 @@ export class AcpmuxDirectClient {
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
     if (missing && generation === this.selectionGeneration) this.selectFallbackSession("session changed");
     else if (!this.reopenMissing()) this.emit("session changed");
+    // A list read while hidden (a lag's resync, a reconnect) turned the watch on again.
+    if (!pageShown()) this.pauseListWhileHidden();
     return true;
   }
 
@@ -4743,6 +4777,23 @@ export class AcpmuxDirectClient {
     }, SESSION_REREAD_MS);
   }
 
+  /// A hidden page turns its list watch off (`_acpmux/watch {enabled:false}`, SessionPager.pause):
+  /// every page of the app hears every chat's change, so with many chats open each busy chat cost
+  /// every hidden page a frame decoded, logged and dropped, many times a second, for a list it does
+  /// not draw. acpmux still sends the attached chat's own changes and records. Only once the list
+  /// is read and the selected chat attached; a page waiting to reopen a chat, or drawing the chats
+  /// its offers started, keeps listening, since a list read on show cannot replay their lifecycle.
+  /// `refreshSessions` on show turns the watch back on and follows from the frozen cursor.
+  private pauseListWhileHidden(): void {
+    if (pageShown() || this.closed || this.opening) return;
+    if (this.socket?.readyState !== WebSocket.OPEN || !this.listedSessions) return;
+    if (this.selectedSessionId === undefined || this.attachedGeneration !== this.selectionGeneration) return;
+    if (this.missingSession !== undefined || this.offerChildIds().length > 0) return;
+    if (!this.sessionPages.pause()) return;
+    this.listPausedWhileHidden = true;
+    this.listChangedWhileHidden = true;
+  }
+
   private addSessions = (more: Session[]): void => {
     this.sessions = [...this.sessions, ...more];
     this.recheckSenders(more);
@@ -4760,6 +4811,14 @@ export class AcpmuxDirectClient {
         clearTimeout(this.hiddenDraw);
         this.hiddenDraw = undefined;
       }
+      this.pauseListWhileHidden();
+    }
+    if (this.listPausedWhileHidden && pageShown() && !this.closed) {
+      this.listPausedWhileHidden = false;
+      // What the paused watch also carried: peers' states, harness and start-mode changes.
+      if (this.peerEvents.supported) void this.refreshPeerStatesAndEmit();
+      this.onHarnessesChanged?.();
+      startModeChanged();
     }
     if (this.listChangedWhileHidden && pageShown() && !this.closed) {
       this.listChangedWhileHidden = false;
@@ -6975,7 +7034,10 @@ export class AcpmuxDirectClient {
       !this.offerChildIds().includes(session.sessionId)
     ) {
       this.listChangedWhileHidden = true;
-      this.sessionPages.invalidate();
+      // Paused, the cursor stays where the pause froze it (no notice moves it), so the show follows
+      // from there, this notice and any still in flight included; unpaused, the cursor moves past it.
+      this.pauseListWhileHidden();
+      if (!this.sessionPages.paused) this.sessionPages.invalidate();
       return;
     }
     // A change older than the list the row came with is in that row already (acpmux hub/row_log.rs).
@@ -9745,14 +9807,20 @@ export class AcpmuxDirectClient {
         // turn it was forked at.
         const parent =
           typeof msg.parentId === "string" ? this.sessions.find((s) => s.sessionId === msg.parentId) : undefined;
+        // A fork of a subagent (Fork with <model>… on its chips) names the subagent and its chat.
+        const subagent = forkedSubagentName(msg);
         this.rows.set(`forked-from-${event.seq}`, {
           id: `forked-from-${event.seq}`,
           version: 1,
           at: event.at,
           kind: "notice",
-          text: parent
-            ? translate("notice.forkedFrom", { chat: sessionTitle(parent) })
-            : translate("notice.forkedFromGone"),
+          text: subagent
+            ? parent
+              ? translate("notice.forkedFromSubagent", { subagent, chat: sessionTitle(parent) })
+              : translate("notice.forkedFromSubagentGone", { subagent })
+            : parent
+              ? translate("notice.forkedFrom", { chat: sessionTitle(parent) })
+              : translate("notice.forkedFromGone"),
         });
         // An agent that could not fork the working chat: the fork's agent reads the chat's
         // transcript instead, and the fork says so in one line (acpmux `hub/fork.rs`).
@@ -11530,6 +11598,7 @@ export class AcpmuxDirectClient {
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
+      ...(this.canFork && this.capabilities?.has(SUBAGENT_FORK_CAPABILITY) ? { canForkSubagent: true as const } : {}),
       ...(this.features.has(SIDE_CHAT_FEATURE) ? { sideChatOnMachine: true as const } : {}),
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
@@ -11571,6 +11640,10 @@ export class AcpmuxDirectClient {
 
   snapshot(): void {
     this.emit();
+  }
+  /** How far the shown chat's log runs (the seq of its newest record), for the perf capture's size read. */
+  get eventSeq(): number {
+    return this.lastSeq;
   }
   /** The session this pane shows, if any. */
   get selectedSession(): string | undefined {
@@ -11658,6 +11731,13 @@ export class AcpmuxDirectClient {
   private heldStartMode?: { modeId: string; ticket?: Promise<string | undefined>; generation: number };
   holdStartMode(modeId: string, ticket?: Promise<string | undefined>): void {
     this.heldStartMode = { modeId, ticket, generation: this.selectionGeneration };
+  }
+  /// The next start on this selection is Auto's (App.tsx `autoSendGate`): its `session/new` says
+  /// `autoPlace`, so acpmux may wait for a machine being added (hub/admission.rs). Any other send
+  /// clears it; another chat selected drops it.
+  private autoPlaceStart?: number;
+  holdAutoPlace(on: boolean): void {
+    this.autoPlaceStart = on ? this.selectionGeneration : undefined;
   }
 
   /// The agent a sessionless chat's first send starts (the pane's host config), when it names one.
@@ -12999,6 +13079,42 @@ export class AcpmuxDirectClient {
     }
     // l10n-allow: an internal retry signal for TurnShotCache; never shown.
     throw new Error("turn pictures still being taken");
+  }
+  /// Whether this acpmux keeps frames of a turn (`turn-frames-v1`).
+  get servesTurnFrames(): boolean {
+    return this.capabilities?.has(TURN_FRAMES_CAPABILITY) === true;
+  }
+  /// Turn `turnId`'s frames (`_acpmux/turn_frames`, liveFrames/turnFrames.ts), oldest first; empty
+  /// when it has none. A failed request throws, so the cache asks again.
+  async turnFrames(turnId: string): Promise<TurnFrame[]> {
+    const sessionId = this.selectedSession;
+    if (!sessionId || !this.servesTurnFrames) return [];
+    return readFrames(await this.request(TURN_FRAMES_METHOD, turnFramesParams(sessionId, turnId)));
+  }
+  /// The newest frame of the chat since `sinceSeq`, and the seq to ask from next.
+  async latestFrame(sinceSeq: number): Promise<{ frame?: TurnFrame; seq: number }> {
+    const sessionId = this.selectedSession;
+    if (!sessionId || !this.servesTurnFrames) return { seq: sinceSeq };
+    return readLatest(await this.request(TURN_FRAMES_METHOD, latestFrameParams(sessionId, sinceSeq)), sinceSeq);
+  }
+  /// A wrap-up card's Try it on, Keep or Revert (`_acpmux/customize_run`): `cmux customize` run
+  /// from a typed request on the machine of the chat. Settles `{ok, output}`; a daemon without it
+  /// settles `{ok: false}` so the card can say so.
+  get servesCustomizeRun(): boolean {
+    return this.capabilities?.has(CUSTOMIZE_RUN_CAPABILITY) === true;
+  }
+  async customizeRun(run: CustomizeRun): Promise<{ ok: boolean; output: string }> {
+    if (this.capabilities?.has(CUSTOMIZE_RUN_CAPABILITY) !== true) return { ok: false, output: "" };
+    // The click's gesture ticket for this exact run: the host admits the call only with it
+    // (policy.json `gesture_rules`), so an agent's page script never starts one on its own.
+    const ticket = await postNative<{ ticket?: string }>("transport.gesture", {
+      intent: { method: "_acpmux/customize_run", params: { run } },
+    }).then(
+      (reply) => reply?.ticket,
+      () => undefined,
+    );
+    const reply = objectValue(await this.request("_acpmux/customize_run", { run, ...gestureMeta(ticket) }));
+    return { ok: reply?.ok === true, output: typeof reply?.output === "string" ? reply.output : "" };
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summaryRuns(this.summary) || this.queue.length > 0) return;
@@ -14364,12 +14480,22 @@ export class AcpmuxDirectClient {
     const folders = this.newChatFolders;
     const onMachine = folders && folders.machine === (startHost.peer || "local") ? folders.folders : undefined;
     const pending = { peer: startHost.peer, generation: this.selectionGeneration };
+    // Auto's start here (holdAutoPlace): never one on a named machine or an adopt.
+    const autoPlace = this.autoPlaceStart === pending.generation && !startHost.peer && !startHost.adopt;
     this.pendingPeerTrust = pending;
     this.refusedPeerTrust = undefined;
     this.waitingTrust = undefined;
     this.emit();
     const result = await this.newSession(
-      newSessionParams(startHost, harness, noProject, model, extraFoldersParam(onMachine, startHost.cwd), restricted),
+      newSessionParams(
+        startHost,
+        harness,
+        noProject,
+        model,
+        extraFoldersParam(onMachine, startHost.cwd),
+        restricted,
+        autoPlace,
+      ),
       again,
       () => this.pendingPeerTrust === pending && (!pending.peer || !this.selectedSessionId),
       (error) => {
@@ -15396,7 +15522,8 @@ export class AcpmuxDirectClient {
     }
     try {
       const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
-      const result = await this.request(FORK_OP, cancelToken ? { ...boundary, cancelToken } : boundary);
+      const params = { ...boundary, ...this.forkRequestId(), ...(cancelToken ? { cancelToken } : {}) };
+      const result = await this.request(FORK_OP, params);
       if (this.forkCancelled) {
         if (result?.sessionId) this.takeBackFork(String(result.sessionId));
         return undefined;
@@ -15446,6 +15573,11 @@ export class AcpmuxDirectClient {
     }
     this.emit();
   }
+  /// One id for one person's fork (a click), where acpmux takes it: the same request sent again
+  /// (a reconnect's resend) gets the fork the first one made, never a second chat (#50084).
+  private forkRequestId(): { requestId?: string } {
+    return this.features.has(FORK_REQUEST_FEATURE) ? { requestId: crypto.randomUUID() } : {};
+  }
   /// Removes a fork nobody used: its chat, and the conversation copy its agent made (acpmux
   /// `hub/fork_cancel.rs`). Not waited on: the pane already went back to the chat.
   private takeBackFork(sessionId: string): void {
@@ -15464,7 +15596,7 @@ export class AcpmuxDirectClient {
     const generation = this.selectionGeneration;
     try {
       const boundary = throughSeq === "live" ? { sessionId, live: true } : { sessionId, throughSeq };
-      const result = await this.request(FORK_OP, boundary);
+      const result = await this.request(FORK_OP, { ...boundary, ...this.forkRequestId() });
       if (!result?.sessionId) return undefined;
       if (generation !== this.selectionGeneration) {
         this.takeBackFork(String(result.sessionId));
@@ -15498,6 +15630,7 @@ export class AcpmuxDirectClient {
         live: true,
         harness: target.harness,
         ...(target.model ? { model: target.model } : {}),
+        ...this.forkRequestId(),
       });
       const forked = typeof result?.sessionId === "string" ? result.sessionId : "";
       // l10n-allow: as above.
@@ -15511,6 +15644,37 @@ export class AcpmuxDirectClient {
       await this.select(forked);
       // l10n-allow: as above.
       if (this.selectedSessionId !== forked) throw new Error("the fork did not open");
+      return forked;
+    } finally {
+      this.forking = false;
+    }
+  }
+  /// Fork with <model>… or <mode>… on a subagent's composer chips (subagents/SubagentForkChips.tsx;
+  /// Leo 2026-11-22: "does it make sense to be able to reveal the fork or whatever switching model
+  /// behaviour for it?"): acpmux forks the subagent's own context, as it is now, into a chat of its
+  /// own on `model` or in `mode` (`acp.session.fork {sessionId, subagentId, live}`), linked back to
+  /// the subagent and its chat (`forkOf`). The chat and the subagent go on as they were. Answers the
+  /// fork's id, for the caller to open in a tab of its own; rejects with acpmux's reason.
+  async forkSubagent(target: { subagentId: string; model?: string; harness?: string; mode?: string }): Promise<string> {
+    const sessionId = this.actingSessionId;
+    // l10n-allow: a developer error; the caller shows notice.forkFailed.
+    if (!this.canFork || !sessionId || this.capabilities?.has(SUBAGENT_FORK_CAPABILITY) !== true)
+      throw new Error("acpmux cannot fork a subagent");
+    // l10n-allow: as above.
+    if (this.forking) throw new Error("a fork is already running");
+    this.forking = true;
+    try {
+      const result = await this.request(FORK_OP, {
+        sessionId,
+        subagentId: target.subagentId,
+        live: true,
+        ...(target.model ? { model: target.model } : {}),
+        ...(target.harness ? { harness: target.harness } : {}),
+        ...(target.mode ? { mode: target.mode } : {}),
+      });
+      const forked = typeof result?.sessionId === "string" ? result.sessionId : "";
+      // l10n-allow: as above.
+      if (!forked) throw new Error("the fork made no chat");
       return forked;
     } finally {
       this.forking = false;

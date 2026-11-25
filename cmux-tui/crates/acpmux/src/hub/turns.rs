@@ -1335,7 +1335,7 @@ impl Hub {
             || super::inbox::is_notice(provenance.as_ref());
         if resumed {
             // Its own transcript is what it goes on from.
-        } else if session.rehydrate.swap(false, Ordering::SeqCst)
+        } else if session.take_rehydrate()
             && let Some(transcript) = self.transcript(session, REPLAY_CHARS, &prompt_id)
         {
             // The whole transcript covers what an older agent session lacked too.
@@ -1639,7 +1639,7 @@ impl Hub {
                         // The rules this message carries: owed here, or kept from the first
                         // attempt's blocks, whose write may have failed before it was confirmed.
                         let rules_in_message = rules_owed || rules_owed_here;
-                        if session.rehydrate.swap(false, Ordering::SeqCst)
+                        if session.take_rehydrate()
                             && let Some(transcript) =
                                 self.transcript(session, REPLAY_CHARS, &prompt_id)
                         {
@@ -2621,11 +2621,23 @@ impl Hub {
         mode_id: &str,
         granted: bool,
     ) -> Result<Value, RpcError> {
+        // The mode the chat already records (a start's, a wake's or a policy's set of the same
+        // mode), read before the harness's answer writes it: the harness is still told, but the
+        // log gets no `mode` record (idle-gpu-disk). Only a declared mode: a harness's undeclared
+        // one is kept in memory alone, its record the one trace of it. The save stays: it
+        // journals nothing when the image is unchanged (`store/journal_store/meta.rs`), and it
+        // keeps a harness's move that lands between this read and the writes below.
+        let unchanged = session.read_meta(|m| {
+            m.modes.as_ref().and_then(|modes| modes.get("currentModeId")).and_then(Value::as_str)
+                == Some(mode_id)
+        });
         let r = self
             .forward_as(session, method::SESSION_SET_MODE, json!({"modeId": mode_id}), granted)
             .await?;
         self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
-        self.append(session, "mux", "mode", json!({"modeId": mode_id}));
+        if !unchanged {
+            self.append(session, "mux", "mode", json!({"modeId": mode_id}));
+        }
         self.save_meta_answered(session)?;
         Ok(r)
     }
@@ -3243,3 +3255,7 @@ fn restored_transcript(session: &Session, transcript: &str) -> Value {
 #[cfg(test)]
 #[path = "close_why_tests.rs"]
 mod close_why_tests;
+
+#[cfg(test)]
+#[path = "set_mode_unchanged_tests.rs"]
+mod set_mode_unchanged_tests;
