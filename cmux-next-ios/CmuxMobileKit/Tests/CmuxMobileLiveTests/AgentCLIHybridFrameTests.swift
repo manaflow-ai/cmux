@@ -177,10 +177,13 @@ import Testing
     }
 
     @Test func theCapabilityFollowsTheSetting() throws {
-        #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v1"))
-        #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v1"))
-        #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains("agent-cli-hybrid-v2"))
-        #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains("agent-cli-hybrid-v2"))
+        // Agent CLIs drawn at the phone's own grid by default (agent-cli-phone-grid-v1); after
+        // two fallbacks the attach goes back to bytes.
+        for capability in ["agent-cli-hybrid-v1", "agent-cli-hybrid-v2", "agent-cli-phone-grid-v1"] {
+            #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains(capability))
+            #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains(capability))
+            #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false, agentCLIs: false).contains(capability))
+        }
         for capability in ["terminal-shell-lines-v1", "attach-output-coalesce-v1"] {
             #expect(DaemonTerminalSession.capabilities(agentCLIHybrid: true).contains(capability))
             #expect(!DaemonTerminalSession.capabilities(agentCLIHybrid: false).contains(capability))

@@ -1330,25 +1330,25 @@ fn check_facts(
     truth: &Chrome,
     failures: &mut Vec<String>,
 ) {
-    let mut check = |what: &str, got: Option<&str>, want: Option<&str>| {
+    let check = |failures: &mut Vec<String>, what: &str, got: Option<&str>, want: Option<&str>| {
         if got != want {
             failures.push(format!("{name} {moment}: screen fact {what} {got:?}, want {want:?}"));
         }
     };
     if moment == "start" {
-        check("version", facts.version.as_deref(), truth.version.as_deref());
-        check("model line", facts.model_line.as_deref(), truth.model_line.as_deref());
-        check("effort", facts.effort.as_deref(), truth.effort.as_deref());
-        check("placeholder", facts.placeholder.as_deref(), truth.placeholder.as_deref());
+        check(failures, "version", facts.version.as_deref(), truth.version.as_deref());
+        check(failures, "model line", facts.model_line.as_deref(), truth.model_line.as_deref());
+        check(failures, "effort", facts.effort.as_deref(), truth.effort.as_deref());
+        check(failures, "placeholder", facts.placeholder.as_deref(), truth.placeholder.as_deref());
     }
     if facts.prompt_seen {
-        check("mode", facts.mode.as_deref(), Some(truth.mode.as_str()));
+        check(failures, "mode", facts.mode.as_deref(), Some(truth.mode.as_str()));
     }
     if moment == "typed" && !truth.draft.starts_with(&facts.draft) {
         failures.push(format!("{name} typed: draft {:?} is not the typed prompt", facts.draft));
     }
     if moment == "done" {
-        check("done verb", facts.done_verb.as_deref(), truth.done_verb.as_deref());
+        check(failures, "done verb", facts.done_verb.as_deref(), truth.done_verb.as_deref());
         if facts.running {
             failures.push(format!("{name} done: the screen still reads as running"));
         }

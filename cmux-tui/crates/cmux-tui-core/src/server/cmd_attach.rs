@@ -307,7 +307,23 @@ pub(super) fn attach_surface(
     // A viewer that asked for full-screen frames gets any terminal as an agent CLI's: frames
     // throughout, the alternate screen and input modes as bytes, never the PTY bytes.
     let shell_viewer = shell_lines && adapter == Adapter::Lines && !full_screen_frames;
-    let hybrid = adapter == Adapter::Agent
+    // `agent-cli-phone-grid-v1`: Claude Code drawn at the viewer's own grid, from its
+    // transcript and the Mac screen's facts (server/agent_cli_phone.rs).
+    let phone_grid_declared =
+        mux.control_clients.supports_capability(client, AGENT_CLI_PHONE_GRID_CAPABILITY);
+    let phone = view.filter(|_| adapter == Adapter::Agent && phone_grid_declared).and_then(
+        |(cols, rows)| {
+            let terminal = surface.terminal_public_id()?;
+            let (agent, session) = mux.running_agent_session(terminal)?;
+            matches!(agent.as_str(), "claude" | "claude-code").then_some(())?;
+            let transcript = agent_cli_phone::transcript_of(&session)?;
+            agent_cli_phone::PhoneGrid::new(cols, rows, transcript)
+        },
+    );
+    // A viewer that declared the phone grid without the whole lean stream (the phone's
+    // default) gets frames only for an agent CLI drawn at its grid; any other keeps its bytes.
+    let agent_frames = phone.is_some() || shell_lines || !phone_grid_declared;
+    let hybrid = (adapter == Adapter::Agent && agent_frames)
         || shell_viewer
         || (full_screen_frames && adapter == Adapter::Lines);
     // Only the plain byte attach coalesces; render mode keeps its own frames.
@@ -625,22 +641,6 @@ pub(super) fn attach_surface(
     let attach_stamp = attach.stamp;
     let mut hybrid_viewer = None;
     let sent = if hybrid {
-        // `agent-cli-phone-grid-v1`: Claude Code drawn at the viewer's own grid, from its
-        // transcript and the Mac screen's facts (server/agent_cli_phone.rs).
-        let phone = view
-            .filter(|_| {
-                adapter == Adapter::Agent
-                    && mux
-                        .control_clients
-                        .supports_capability(client, AGENT_CLI_PHONE_GRID_CAPABILITY)
-            })
-            .and_then(|(cols, rows)| {
-                let terminal = surface.terminal_public_id()?;
-                let (agent, session) = mux.running_agent_session(&terminal)?;
-                matches!(agent.as_str(), "claude" | "claude-code").then_some(())?;
-                let transcript = agent_cli_phone::transcript_of(&session)?;
-                agent_cli_phone::PhoneGrid::new(cols, rows, transcript)
-            });
         let started = HybridViewer::start_with(
             surface_id,
             attach.cols,
