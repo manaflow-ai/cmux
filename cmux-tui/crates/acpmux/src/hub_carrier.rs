@@ -1525,6 +1525,13 @@ impl HubCarrier {
                 }
                 RegistrationState::CredentialUnavailable { .. } => down_since = None,
                 RegistrationState::Registering | RegistrationState::RelayUnavailable { .. } => {
+                    // The relay dropped this machine's own registration: the peer links on it
+                    // dropped too and sleep in their backoff, most without a failed connect to
+                    // start a watch. Watch it from here, so they redial once it answers
+                    // (`hub_carrier_relay_up.rs`; one watcher per relay, so a repeat is free).
+                    if matches!(now, RegistrationState::RelayUnavailable { .. }) {
+                        self.relay_up.failed(relay, Arc::downgrade(&self.alive));
+                    }
                     *self.serving_on.write().unwrap_or_else(|e| e.into_inner()) = None;
                     down_since.get_or_insert_with(tokio::time::Instant::now);
                 }
