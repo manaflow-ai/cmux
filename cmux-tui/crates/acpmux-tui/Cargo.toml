@@ -31,6 +31,10 @@ syntect = { version = "5.3", default-features = false, features = ["default-fanc
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "io-util", "net", "sync", "time"] }
 unicode-width.workspace = true
 
+[[bench]]
+name = "transcript_fling"
+harness = false
+
 [dev-dependencies]
 # A paused clock for the bounded-wait tests (`reconnect_wait.rs`).
 tokio = { version = "1.52", features = ["test-util"] }

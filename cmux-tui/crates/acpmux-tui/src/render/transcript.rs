@@ -300,6 +300,11 @@ pub(super) fn draw_transcript(f: &mut ratatui::Frame, area: Rect, app: &mut App)
         );
         return;
     }
+    if crate::native_transcript::enabled() {
+        let snapshot = t.clone();
+        crate::native_transcript::draw(f, inner, app, &snapshot, &id);
+        return;
+    }
     let empty = std::collections::HashSet::new();
     let toggled = app.toggled.get(&id).unwrap_or(&empty);
     let changed_rows = app.transcript_cache.update(
