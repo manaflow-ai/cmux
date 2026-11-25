@@ -21,6 +21,9 @@ mod copy;
 mod folder;
 #[cfg(test)]
 mod folder_tests;
+mod mirror;
+#[cfg(test)]
+mod mirror_tests;
 mod reconcile;
 
 use std::collections::HashMap;
