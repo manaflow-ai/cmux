@@ -40,8 +40,11 @@ export const PAGE_HEARTBEAT_OP = "cmux.page.heartbeat";
 export const PAGE_SAVE_STATE_OP = "cmux.page.save_state";
 /** The beat period while visible (the health contract's page policy). */
 export const HEARTBEAT_MS = 2000;
-/** Quiet beats before the page rests (10 s: cmux-health-core `PAGE_REST_AFTER_MS`). */
-export const REST_AFTER_BEATS = 5;
+/** Quiet beats before the page rests (2 s: cmux-health-core `PAGE_REST_AFTER_MS`). One: the first
+ * beat with nothing new since the last says so and is the last, so a page left alone wakes the app
+ * once after its last activity, not five times (idle wakeups after a chat switch). The host still
+ * times every input it sends a resting page. */
+export const REST_AFTER_BEATS = 1;
 /** The fault-injection push, and the flag the host sets at document start to allow it. */
 export const HEALTH_INJECT_NAME = "__cmuxHealthInject";
 export const HEALTH_INJECT_ALLOWED_NAME = "__cmuxHealthInjectAllowed";
