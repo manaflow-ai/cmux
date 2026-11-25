@@ -90,7 +90,7 @@ struct ComposerTextView: UIViewRepresentable {
             view.invalidateIntrinsicContentSize()
             view.setNeedsLayout()
         }
-        if view.text != text { view.text = text }
+        if view.differs(from: text) { view.takeDraft(text) }
         view.placeholder = placeholder
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
@@ -148,7 +148,8 @@ struct ComposerTextView: UIViewRepresentable {
         }
 
         func textViewDidChange(_ textView: UITextView) {
-            parent.text = textView.text
+            // A native copy, so a long draft compares as a buffer downstream (`draftText()`).
+            parent.text = (textView as? ComposerReturnTextView)?.draftText() ?? textView.text
             (textView as? ComposerUITextView)?.updatePlaceholder()
             // The height is settled once per edit, and SwiftUI asked again only when it changed.
             (textView as? ComposerReturnTextView)?.settleAfterEdit()

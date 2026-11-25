@@ -50,6 +50,9 @@ public struct ComposerCard<Top: View, Leading: View, Field: View, Trailing: View
         // offer, and the grown draft ran outside the rounded card (user report 2026-11-12).
         .fixedSize(horizontal: false, vertical: true)
         .modifier(ComposerCardChrome(look: look, shape: shape))
+        // One container element that holds its own identifier (#55113): on the bare content a
+        // caller's identifier went to every element inside, and the field read the card's id.
+        .accessibilityElement(children: .contain)
     }
 }
 
