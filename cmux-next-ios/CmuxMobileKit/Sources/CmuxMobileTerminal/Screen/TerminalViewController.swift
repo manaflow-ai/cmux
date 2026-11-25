@@ -990,6 +990,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         keyboardTracker.subscribeToDrops(self) { [weak self] in self?.keyboardDropped() }
         #if DEBUG
         center.addObserver(self, selector: #selector(appBecameActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        scrollView.drawnRowsBottom = { [weak self] window in self?.drawnRowsBottom(in: window) }
         if TerminalFlickerTrace.isRequested {
             flickerTrace = TerminalFlickerTrace(host: view) { [weak self] in self?.flickerSample() }
         }
@@ -1105,6 +1106,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         model.settleMs = right ? Int((max(0, elapsed) * 1000).rounded()) : -2
         sizingLog.notice("settle probe: full-screen app right after \(self.model.settleMs, privacy: .public) ms")
         settleProbe = (link, nil)
+    }
+
+    /// The last row as drawn this frame, in `window`: a full-screen app's
+    /// grid bottom, else the shell document's end or the surface's bottom,
+    /// whichever is higher (the rows the page draws, not the scroll view's
+    /// offset: Ghostty's surface moves inside it). For the keyboard probes
+    /// (`KeyboardRidingContent`); `TerminalFlickerTrace` reads the same edges.
+    private func drawnRowsBottom(in window: UIWindow) -> CGFloat? {
+        guard cell.height > 0, view.window === window else { return nil }
+        let probe = MobileKeyboardProbe()
+        let drawnSurface = probe.onScreen(surface, in: window)
+        if model.isTUI {
+            let rows = appliedHostRows ?? model.session.remoteRows ?? tuiRows
+            return drawnSurface.minY + surface.gridPadding.y + CGFloat(rows) * cell.height
+        }
+        let frame = probe.onScreen(scrollView, in: window)
+        let bounds = (scrollView.layer.presentation() ?? scrollView.layer).bounds
+        return min(frame.minY + scrollView.contentSize.height - bounds.minY, drawnSurface.maxY)
     }
 
     /// The page as drawn this frame, for `TerminalFlickerTrace`.
@@ -5110,8 +5129,14 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
             // clipped; the app's first rows stay pinned at the top (the top
             // exception) and the body moves down only as far as the cursor's row
             // needs. Set in the layout pass, so inside the keyboard's own animation.
+            // The rows the app draws (the Mac's grid as fed, else the claimed
+            // area's), as `drawnRowsBottom` counts them. Not `surface.grid.rows`:
+            // the surface is the mirror's (screen plus margins, 153 rows on a
+            // 6.3" phone), so the lift pushed the grid ~1700 pt off screen
+            // with the keyboard down (#53958).
+            let drawnRows = appliedHostRows ?? model.session.remoteRows ?? tuiGridHold.rows(page: tuiRows)
             let placement = TerminalGridSizing(cellHeight: cell.height)
-                .keyboardPlacement(gridRows: surface.grid.rows, visibleHeight: tuiClip.bounds.height,
+                .keyboardPlacement(gridRows: drawnRows, visibleHeight: tuiClip.bounds.height,
                                    cursorRow: surface.cursorViewportRow.map { $0 - tuiRowShift })
             if placement.lift != tuiKeyboardLift {
                 tuiKeyboardLift = placement.lift
@@ -5322,8 +5347,13 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     }
 }
 
-final class TerminalScrollView: UIScrollView {
+final class TerminalScrollView: UIScrollView, KeyboardRidingContent {
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
+
+    /// The page's last row as drawn (`TerminalViewController.drawnRowsBottom`).
+    var drawnRowsBottom: ((UIWindow) -> CGFloat?)?
+
+    func drawnContentBottom(in window: UIWindow) -> CGFloat? { drawnRowsBottom?(window) }
 }
 
 /// Jump to bottom's scroll (CMUX-10): from the page's offset to the live
