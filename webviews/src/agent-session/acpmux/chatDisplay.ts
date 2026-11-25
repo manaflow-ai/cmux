@@ -48,6 +48,7 @@ import {
   resolveChatFontFaces,
 } from "./chatFontFaces";
 import { configureStatusVerbs } from "./statusVerbs";
+import { configureKeyStyle } from "../../ui/keyStyle";
 import { configureChatLayout } from "./chatLayout";
 import { configureThinkingLook } from "./conversation/thinkingLook";
 import { isUnreadBannerMode, type UnreadBannerMode } from "./conversation/unreadState";
@@ -617,6 +618,8 @@ export function setChatDisplay(value: unknown): void {
   configureChatLayout(raw);
   configureThinkingLook(raw);
   configureSenderIconLook(raw);
+  // `app.keyStyle` and `app.shortcutLayout` (Swift AgentPaneDisplaySetting.followedAppPaths): every list here.
+  configureKeyStyle(raw);
   const readingValues = readingLookValues(raw, experimentArm(readingLook));
   const nextHighContrastArm = experimentArm(highContrastLook);
   const next = resolveChatDisplay(highContrastLookValues(readingValues, nextHighContrastArm));
