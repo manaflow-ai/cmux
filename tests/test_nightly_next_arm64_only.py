@@ -37,14 +37,14 @@ failures = []
 # decide: one variant and one feed on nightly-next, three and four elsewhere.
 decide = TEXT[TEXT.index("  decide:\n"):TEXT.index("\n  promote-nightly-next:\n")]
 variants = re.search(r"const variants = (.+);", decide)
-if not variants or "nightly-next" not in variants.group(1) or "['arm64', 'x86_64', 'universal']" not in variants.group(1):
+if not variants or "track !== 'rc'" not in variants.group(1) or "['arm64', 'x86_64', 'universal']" not in variants.group(1):
     failures.append("decide must build only ['arm64'] on the nightly-next track and keep three variants elsewhere")
 if "core.setOutput('feeds'" not in decide or "feeds: ${{ steps.decide.outputs.feeds }}" not in TEXT:
     failures.append("decide must output the feeds this track publishes")
 if decide.index("const track =") > decide.index("const variants ="):
     failures.append("decide must choose the variants after it knows the track")
 
-# publish: every feed list comes from decide, so nightly-next never touches the
+# publish: every feed list comes from decide, so NIGHTLY and nightly-next never touch the
 # x86_64, universal or legacy feeds and main's list is unchanged.
 for name in ("Guard nightly-next publication", "Upload nightly-next appcasts to R2", "Upload nightly appcasts to R2"):
     body = step(name)
