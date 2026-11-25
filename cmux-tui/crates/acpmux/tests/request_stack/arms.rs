@@ -486,6 +486,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
         ),
         (
+            method::MUX_TEAM_LISTEN,
+            Any(json!({"op": "ls"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
             method::MUX_REGISTER,
             Any(
                 json!({"name": "lso-register"}),

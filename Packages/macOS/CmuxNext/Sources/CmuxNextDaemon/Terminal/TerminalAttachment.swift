@@ -211,8 +211,11 @@ public actor TerminalAttachment: TerminalByteChannel {
             // Only the identity pair can name a terminal with no tab.
             throw DaemonError.missingCapabilities(["attach-identity-v1"])
         }
+        // A placed target names its tab's surface beside the identity pair (the daemon checks they agree): the stream
+        // then names that surface, the one events are read for. Identity alone resolved a terminal reopened into a new
+        // tab to its runtime's first surface id, and every event was dropped (cmux#53022: "Restoring" forever).
         let request = AttachSurfaceRequest(
-            surface: useIdentity ? nil : target.surface,
+            surface: useIdentity && target.surface == Self.unresolvedSurface ? nil : target.surface,
             expectedGeneration: useIdentity ? target.generation : nil,
             expectedTerminalID: useIdentity ? target.terminalResourceID : nil,
             size: size,

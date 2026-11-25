@@ -301,6 +301,32 @@
           ]
         },
         {
+          "key": "labs.previousBuild",
+          "name": "previousBuild",
+          "note": "Opt-in \"Go back to previous build\" row on Settings > Updates (UpdaterService+PreviousBuild, `cmux app use previous`): shows the build this Mac kept before the last update and offers to reinstall it. Off by default; off hides the row. Leo 2026-11-21: \"agents being able to just say \\\"actually let's go back to this other version :)\\\" and/or the user should be able to easily access it too\".",
+          "title": {
+            "key": "settings.labs.previousBuild",
+            "text": "Go Back to Previous Build"
+          },
+          "help": {
+            "key": "settings.labs.previousBuild.help",
+            "text": "Show the build cmux kept before the last update on the Updates card, with a button to go back to it."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "update",
+            "updates",
+            "rollback",
+            "previous",
+            "build",
+            "version",
+            "go back",
+            "downgrade"
+          ]
+        },
+        {
           "key": "labs.hostsSidebar",
           "note": "Rex-style Hosts section in the sidebar. It projects the Machines page catalog, including Add Host and per-machine terminal actions. Off by default until the sidebar surface is ready.",
           "title": {
@@ -321,6 +347,29 @@
             "remote",
             "add",
             "terminal"
+          ]
+        },
+        {
+          "key": "labs.connectionsUpcoming",
+          "note": "Settings > Integrations > Connections also lists Slack and the Google servers (Gmail, Calendar, Drive, Docs, Sheets), which say Not set up until cmux's client for each is registered on the platform (cmux-tui cli/mcp_servers.rs `upcoming`). Off by default: the catalog shows only the servers a person can connect today. A connected one always shows.",
+          "title": {
+            "key": "settings.labs.connectionsUpcoming",
+            "text": "Upcoming Connections"
+          },
+          "help": {
+            "key": "settings.labs.connectionsUpcoming.help",
+            "text": "Lists Slack and Google in Connections before they can be connected."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "connections",
+            "integrations",
+            "slack",
+            "google",
+            "gmail",
+            "mcp"
           ]
         }
       ]
