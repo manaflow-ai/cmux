@@ -56,7 +56,7 @@ def hold_queues(helper: str, sock: str, root: str, work: str) -> list:
     """The `held` state: one event queued with no daemon, then every queue file of the session locked."""
     import fcntl
     env = {"PATH": "/usr/bin:/bin", "HOME": root, "TMPDIR": root, "CMUX_TUI_SOCKET": sock,
-           "CMUX_TUI_TERMINAL_ID": "term_9"}
+           "CMUX_TUI_TERMINAL_ID": "term_00000000000000000000000000000009"}
     subprocess.run([helper, "claude", "Stop"], input=payload("claude", "Stop", work), env=env, capture_output=True,
                    timeout=30)
     spool = os.path.join(root, "hook-spool")
@@ -195,7 +195,7 @@ def main(argv: list[str]) -> int:
                 try:
                     for agent, event, timeout, contract in events:
                         env = {"PATH": "/usr/bin:/bin", "HOME": root, "TMPDIR": root,
-                               "CMUX_TUI_SOCKET": sock, "CMUX_TUI_TERMINAL_ID": "term_9"}
+                               "CMUX_TUI_SOCKET": sock, "CMUX_TUI_TERMINAL_ID": "term_00000000000000000000000000000009"}
                         if agent == "codex":
                             env["CMUX_TUI_HOOK_ROUTE"] = "launch"
                         body = payload(agent, event, work)
