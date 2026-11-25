@@ -400,8 +400,15 @@ jobs:
                     const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
                       owner, repo, run_id: run.id, per_page: 100,
                     });
-                    const building = jobs.find((job) => /^build-nightly-app/.test(job.name) &&
-                      (job.status !== 'completed' || job.conclusion === 'success'));
+                    // build-nightly-app does not exist until pick-nightly-app-runner finishes, and that
+                    // waits on a Mac runner. Before then the run's pick job is its build: both run only
+                    // when decide chose to build. Without it, runs of the same commit queued behind the
+                    // runner pool were invisible here, and every tick started another (11-25, five at once).
+                    const isLive = (job) => job.status !== 'completed' || job.conclusion === 'success';
+                    const appJobs = jobs.filter((job) => /^build-nightly-app/.test(job.name));
+                    const building = appJobs.length > 0
+                      ? appJobs.find(isLive)
+                      : jobs.find((job) => /^pick-nightly-app-runner/.test(job.name) && isLive(job));
                     if (!building) continue;
                     inFlight.push(run);
                     if (run.head_sha === headSha && !duplicateOfRun) duplicateOfRun = run;

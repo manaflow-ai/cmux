@@ -668,6 +668,34 @@ def test_an_unavailable_in_flight_read_does_not_change_non_tick_liveness() -> No
     assert should_build(run_decide(event="push", interval="0"))
 
 
+def waiting_for_runner(run_id: int, sha: str) -> tuple[dict, list]:
+    """A run decide chose to build whose app job does not exist yet: its runner pick waits on a Mac."""
+    run = {"id": run_id, "head_branch": "main", "event": "schedule", "head_sha": sha, "status": "queued"}
+    return run, [
+        {"name": "decide", "status": "completed", "conclusion": "success"},
+        {"name": "pick-nightly-app-runner", "status": "queued", "conclusion": None},
+        {"name": "build-nightly-ghostty-cli-helper", "status": "queued", "conclusion": None},
+    ]
+
+
+def test_a_run_still_waiting_for_its_runner_counts_as_building() -> None:
+    """11-25 17:49Z: ticks at 17:35 and 17:49 both started builds of a06e5975, because the first
+    had no build-nightly-app job yet (pick-nightly-app-runner was waiting on the Mac pool)."""
+    run, jobs = waiting_for_runner(7, HEAD_SHA)
+    dup = run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": jobs})
+    assert not should_build(dup)
+    assert summary_values(dup)["duplicate of run"] == "7"
+    runs = in_flight((1, "c" * 40), (2, "d" * 40))
+    run, jobs = waiting_for_runner(3, "e" * 40)
+    runs["runs"].append(run)
+    runs["jobs"]["3"] = jobs
+    assert not should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, **runs))
+    # A run that chose not to build has its pick job skipped: it is not in flight.
+    run, jobs = waiting_for_runner(7, HEAD_SHA)
+    jobs[1] = {"name": "pick-nightly-app-runner", "status": "completed", "conclusion": "skipped"}
+    assert should_build(run_decide(event="schedule", schedule=TICK, now_ms=AT_0917, runs=[run], jobs={"7": jobs}))
+
+
 def test_each_main_tick_has_its_own_concurrency_group() -> None:
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "github.event_name == 'schedule' && format('main-tick-{0}', github.run_id)" in text
