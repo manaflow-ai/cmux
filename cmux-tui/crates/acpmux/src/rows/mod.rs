@@ -32,4 +32,4 @@ pub use fold::{PatchError, RowMirror};
 pub use page::{DEFAULT_ROW_PAGE_BYTES, MAX_ROW_PAGE_BYTES, RowPage, RowsCursor};
 #[cfg(test)]
 pub use serve::held_rows;
-pub use serve::{Following, RowsCache, live, read};
+pub use serve::{Following, RowsCache, RowsSource, live, read};

@@ -25,6 +25,7 @@ import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
 import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
+import { usePointerMenuPosition } from "./pointerMenuPosition";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
 import { usePopupPadding } from "./popupInset";
@@ -328,6 +329,8 @@ export function MenuButton({
 }
 
 export interface MenuPopupProps {
+  /** The trigger marks a right-click point. Its menu can cross the point to show every row. */
+  atPointer?: boolean;
   id?: string;
   label?: string;
   className?: string;
@@ -386,6 +389,7 @@ type MenuArmsValue = { look: MenuStyleArm; states: MenuRowStatesArm };
 const MenuArms = createContext<MenuArmsValue | null>(null);
 
 export function MenuPopup({
+  atPointer = false,
   id,
   label,
   className,
@@ -433,10 +437,11 @@ export function MenuPopup({
   const attachPopup = useCallback(
     (node: HTMLElement | null) => {
       if (node) popupNode.current = node;
-      if (host) setPopup(node);
+      if (host || atPointer) setPopup(node);
     },
-    [host],
+    [host, atPointer],
   );
+  const pointPlace = usePointerMenuPosition(popup, atPointer ? (triggerRef ?? null) : null);
   // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
   useEscapingPopup(
     escapes && (side === "top" || side === "bottom") ? host : null,
@@ -454,28 +459,30 @@ export function MenuPopup({
       <BaseMenu.Positioner
         className="ui-positioner"
         positionMethod={positionMethod}
-        anchor={anchor}
-        side={side}
+        anchor={pointPlace?.anchor ?? anchor}
+        side={pointPlace?.side ?? side}
         collisionAvoidance={popupCollision(flip)}
-        collisionPadding={padding}
+        collisionPadding={atPointer ? 0 : padding}
         {...(collisionBoundary ? { collisionBoundary } : {})}
         align={align}
         // Base UI types both offsets as `number | OffsetFunction` (internals/useAnchorPositioning.d.ts) and calls a
         // function on each placement, so a look's tokens are read when the submenu opens, not when it mounts.
         // Unset, a submenu keeps today's offsets: flush with its row under menu-style-v2, else the anchor gap.
-        sideOffset={nested ? (flush ? flushSubmenuOffset : submenuOffset) : UI_ANCHOR_GAP}
+        sideOffset={atPointer ? 0 : nested ? (flush ? flushSubmenuOffset : submenuOffset) : UI_ANCHOR_GAP}
         {...(nested ? { alignOffset: flush ? flushSubmenuAlignOffset : submenuAlignOffset } : {})}
       >
         <BaseMenu.Popup
+          data-pointer-menu={atPointer ? "" : undefined}
           // A shifted popup may use the window's height, not only the room on its side (popupSurface.css).
           data-popup-shift={flip === "shift" ? "" : undefined}
-          // Only a page with a host measures its menus; the others render as they did.
+          // A point menu measures its rows, as does a menu that can escape to the host.
           ref={attachPopup}
           id={id}
           aria-label={label}
           // The App's menu glass under the page (glass/hostGlass.ts).
           data-host-glass="menu"
           data-host-glass-cover=""
+          data-surface-role="menu"
           // The experiments' arms (menuStyleV2, menuRowStates), styled in popupSurface.css; off draws none.
           data-menu-style={arms.look === "off" ? undefined : arms.look}
           data-menu-states={arms.states === "off" ? undefined : arms.states}
@@ -612,6 +619,9 @@ export interface MenuItemProps {
   onFocus?(event: FocusEvent<HTMLElement>): void;
   /** An `async` row returns its work's promise (the type stays `void`, so any handler fits). */
   onSelect?(event: MouseEvent<HTMLElement> | PointerEvent<HTMLElement>): void;
+  /** The row's place among all of a windowed menu's rows (only some are mounted). */
+  "aria-posinset"?: number;
+  "aria-setsize"?: number;
   children: ReactNode;
 }
 
@@ -644,6 +654,8 @@ export function MenuItem({
   closeOnClick,
   expanded,
   controls,
+  "aria-posinset": posinset,
+  "aria-setsize": setsize,
   destructive,
   async: isAsync,
   children,
@@ -704,6 +716,7 @@ export function MenuItem({
       {...(keepsOpen === undefined ? {} : { closeOnClick: keepsOpen })}
       {...(expanded === undefined ? {} : { "aria-expanded": expanded })}
       {...(controls ? { "aria-controls": controls } : {})}
+      {...(posinset === undefined ? {} : { "aria-posinset": posinset, "aria-setsize": setsize })}
       {...(keepsOpen === false ? { "data-keeps-open": "" } : {})}
       {...(pending ? { "aria-busy": true, "data-pending": "" } : {})}
       onPointerMove={(event) => {
@@ -824,6 +837,8 @@ export function MenuRadioItem({
   closeOnClick,
   label,
   title,
+  "aria-posinset": posinset,
+  "aria-setsize": setsize,
   children,
 }: {
   value: string;
@@ -841,6 +856,7 @@ export function MenuRadioItem({
       value={value}
       aria-label={label}
       title={title}
+      {...(posinset === undefined ? {} : { "aria-posinset": posinset, "aria-setsize": setsize })}
       disabled={disabled}
       closeOnClick={closeOnClick}
       onPointerMove={(event) => context?.movePointer(event)}

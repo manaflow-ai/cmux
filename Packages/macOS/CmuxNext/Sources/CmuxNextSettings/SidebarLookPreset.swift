@@ -50,9 +50,16 @@ public nonisolated struct SidebarLookPreset {
 
     /// `root` with every value of the look it picks whose key `root` leaves unset (unchanged for `cmux`).
     public static func filling(_ root: JSONValue, folder: URL? = bundledFolder) -> JSONValue {
-        guard let name = look(in: root) else { return root }
-        return entries(of: name, folder: folder).reduce(root) { root, entry in
+        applying(to: root, folder: folder).root
+    }
+
+    /// Keep the inherited group style from the same load, even when the person's file overrides it.
+    static func applying(to root: JSONValue, folder: URL?) -> (root: JSONValue, groupBackground: JSONValue?) {
+        guard let name = look(in: root) else { return (root, nil) }
+        let values = entries(of: name, folder: folder)
+        let filled = values.reduce(root) { root, entry in
             root.value(at: entry.path) == nil ? root.setting(entry.value, at: entry.path) : root
         }
+        return (filled, values.first { $0.path == SidebarSectionsSetting.groupHeaderBackgroundPath }?.value)
     }
 }

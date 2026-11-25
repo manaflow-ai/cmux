@@ -44,6 +44,9 @@ use std::collections::{HashMap, HashSet};
 #[path = "subagents_recent.rs"]
 mod recent;
 pub use recent::{RECENT_SUBAGENTS, RecentSubagent};
+#[path = "subagents_listed.rs"]
+pub(crate) mod listed;
+pub use listed::{ListedSubagent, SubagentListing};
 
 /// Whether a `session/update` params object is a subagent's (the hub tags it
 /// `_meta.acpmux.subagent`, ``SubagentTree::annotate``). A subagent's text and
@@ -101,6 +104,14 @@ pub struct SubagentTree {
     /// even when the running count did not (`hub/tap.rs`).
     #[serde(default)]
     recent_revision: u64,
+    /// Every subagent the chat started with its last state, for the Background tasks panel's
+    /// whole list (`_acpmux/subagents`, `subagents_listed.rs`): one small entry per id `parents`
+    /// already holds, so it grows no faster than the tree.
+    #[serde(default)]
+    listed: HashMap<String, listed::Listed>,
+    /// Moves on each state change `listed` takes: the order the ended ones list in, latest first.
+    #[serde(default)]
+    listed_seq: u64,
 }
 
 #[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
@@ -184,6 +195,11 @@ impl SubagentTree {
         self.names.values().any(|name| name == to)
             || self.parents.contains_key(to)
             || self.previews.values().any(|p| p.agent_id.as_deref() == Some(to))
+    }
+
+    /// Whether `session_id` is one this session knows: one of its subagents, or a root thread.
+    pub fn knows(&self, session_id: &str) -> bool {
+        self.parents.contains_key(session_id) || self.is_root(session_id)
     }
 
     /// Whether `session_id` is one of this session's subagents.
@@ -315,6 +331,7 @@ impl SubagentTree {
             self.note_running(&events);
         }
         self.note_recent(&events, live);
+        self.note_listed(&events, live);
         if !events.is_empty() {
             fields.insert("subagents".into(), Value::Array(events));
         }
@@ -364,6 +381,7 @@ impl SubagentTree {
         self.root_threads.extend(log.root_threads);
         self.adopt_expiry(log.expiry, &known);
         self.adopt_recent(log.recent);
+        self.adopt_listed(log.listed, &known);
     }
 
     /// Learns `id`'s name from `event` when it names it, or gives `event` the name learned before
@@ -587,6 +605,16 @@ impl SubagentTree {
                 }
                 if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
                     event.insert("tokens".into(), json!(tokens));
+                }
+                // An end acpmux wrote after the fact (`expiry.rs`): when it really ended and
+                // started, and that it was recovered, so a client draws it where it ended.
+                for key in ["endedAt", "startedAt"] {
+                    if let Some(at) = update.get(key).and_then(Value::as_u64) {
+                        event.insert(key.into(), json!(at));
+                    }
+                }
+                if update.get("recovered") == Some(&Value::Bool(true)) {
+                    event.insert("recovered".into(), json!(true));
                 }
                 self.remember_label(&id, &event);
                 self.label(&id, &mut event);

@@ -47,6 +47,10 @@ pub struct RetentionRequest {
     pub older_than_days: Option<u32>,
     /// One chat only.
     pub only: Option<String>,
+    /// Drop only the records no reader takes back (`CompactMode::Unread`), from any chat nothing
+    /// uses now, open or closed, however recent: the one pass a log written before the tap left
+    /// them out needs (hq#19257). Each compacted log must read back the same chat first.
+    pub unread_only: bool,
 }
 
 #[derive(Default)]
@@ -55,6 +59,8 @@ struct Report {
     chats: u64,
     skipped: std::collections::BTreeMap<&'static str, u64>,
     largest: Vec<(u64, Value)>,
+    /// An unread-only pass's chats: the rows both logs fold into.
+    read_back: Vec<Value>,
 }
 
 impl Report {
@@ -116,9 +122,31 @@ impl Hub {
                         }
                     }
                 }
-                wake.notified().await;
+                // Size pressure (`store_pressure.rs`): measured at every wake and at least every
+                // CHECK_EVERY, whatever SPACING says.
+                {
+                    let Some(hub) = hub.upgrade() else { return };
+                    if hub.shutting_down() {
+                        return;
+                    }
+                    let store = hub.config.read().await.store.clone();
+                    let relieve = hub.clone();
+                    if let Err(e) =
+                        tokio::task::spawn_blocking(move || relieve.relieve_store_pressure(&store))
+                            .await
+                    {
+                        tracing::warn!("store pressure pass: {e}");
+                    }
+                }
+                let _ = tokio::time::timeout(store_pressure::CHECK_EVERY, wake.notified()).await;
             }
         })
+    }
+
+    /// Compacts every closed chat's log, whatever its age (`store_pressure.rs`). The caller holds
+    /// `retention_running`. Blocking.
+    pub(super) fn retain_logs_any_age(self: &Arc<Self>) -> Result<Value, RpcError> {
+        self.retain_logs(std::time::Duration::ZERO, &RetentionRequest::default(), None)
     }
 
     /// Runs one pass (`_acpmux/retention`).
@@ -128,6 +156,8 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let keep = match req.older_than_days {
             Some(days) => std::time::Duration::from_secs(u64::from(days) * 86_400),
+            // Its chats are any age.
+            None if req.unread_only => std::time::Duration::ZERO,
             None => self.config.read().await.store.closed_log_retention().ok_or_else(|| {
                 RpcError::invalid_params(
                     "log retention is off (store.closedLogDays is 0); pass olderThanDays",
@@ -161,8 +191,12 @@ impl Hub {
         crate::agent_host::load_records(&crate::agent_host::hosts_dir())
             .map_err(|e| RpcError::internal(format!("agent host records: {e:#}")))?;
         let hosted = Self::live_host_sessions();
-        let mode = if req.dry_run {
+        let mode = if req.dry_run && req.unread_only {
+            CompactMode::UnreadDryRun
+        } else if req.dry_run {
             CompactMode::DryRun
+        } else if req.unread_only {
+            CompactMode::Unread { archive: req.archive.as_deref() }
         } else {
             CompactMode::Write { archive: req.archive.as_deref() }
         };
@@ -175,7 +209,7 @@ impl Hub {
                 *report.skipped.entry("shutdown").or_default() += 1;
                 break;
             }
-            let seen = match self.retainable(&session, cutoff, &hosted) {
+            let seen = match self.retainable(&session, cutoff, &hosted, req.unread_only) {
                 Ok(seen) => seen,
                 Err(why) => {
                     *report.skipped.entry(why).or_default() += 1;
@@ -195,6 +229,7 @@ impl Hub {
                 }
             };
             let stats = staged.stats;
+            let read_back = staged.read_back;
             if req.dry_run {
                 report.add(&session, stats);
                 continue;
@@ -203,14 +238,21 @@ impl Hub {
             // log longer, and the store refuses it (`commit_compaction`).
             let committed = {
                 let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-                if self.untouched(&session, seen, cutoff) {
+                if self.untouched(&session, seen, cutoff, req.unread_only) {
                     self.store.commit_compaction(&session.id, staged)
                 } else {
                     Ok(false)
                 }
             };
             match committed {
-                Ok(true) => report.add(&session, stats),
+                Ok(true) => {
+                    report.add(&session, stats);
+                    if let Some(chat) = read_back {
+                        report.read_back.push(json!({"sessionId": session.id,
+                            "rows": chat.rows, "digest": format!("{:016x}", chat.digest),
+                            "bytesBefore": stats.bytes_before, "bytesAfter": stats.bytes_after}));
+                    }
+                }
                 Ok(false) => *report.skipped.entry("changed").or_default() += 1,
                 Err(e) => {
                     tracing::warn!(session = %session.id, "log retention: {e:#}");
@@ -240,6 +282,8 @@ impl Hub {
             "trimmedRecords": report.total.trimmed,
             "skipped": report.skipped,
             "largest": report.largest.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
+            "unreadOnly": req.unread_only,
+            "readBack": report.read_back,
         }))
     }
 
@@ -250,15 +294,19 @@ impl Hub {
         session: &Session,
         cutoff: u64,
         hosted: &std::collections::HashSet<String>,
+        unread_only: bool,
     ) -> Result<u64, &'static str> {
         let meta = session.meta();
-        if meta.status != SessionStatus::Closed {
+        // An unread-only pass changes no record a reader takes: an open chat nothing uses now
+        // is let in too.
+        if meta.status != SessionStatus::Closed && !unread_only {
             return Err("open");
         }
         // Its log is in its cold archive (`cold_archive.rs`): a rewrite would rehydrate it.
         if meta.cold.is_some() || self.store.is_cold(&session.id) {
             return Err("archived");
         }
+        // An unread-only pass takes chats of any age unless it is given one (`cutoff` is now then).
         if self.age(session, &meta) > cutoff {
             return Err("recent");
         }
@@ -314,12 +362,14 @@ impl Hub {
     /// since, whose records still wait for this lock, leave it changed: the chat is left whole.
     /// A status write that set its status but has not logged it yet is still under way
     /// (`status_writes`), and one logged since the pass looked makes the log new again (`age`).
-    fn untouched(&self, session: &Session, seen: u64, cutoff: u64) -> bool {
+    fn untouched(&self, session: &Session, seen: u64, cutoff: u64, unread_only: bool) -> bool {
         let meta = session.meta();
-        meta.status == SessionStatus::Closed
+        (meta.status == SessionStatus::Closed || unread_only)
             && meta.updated_at == seen
             && session.status_writes.load(Ordering::SeqCst) == 0
             && self.age(session, &meta) <= cutoff
+            && session.turn().is_none()
+            && session.queued() == 0
             && session.child.try_lock().is_ok_and(|child| child.is_none())
             && session.attached.load(Ordering::SeqCst) == 0
             && !session.purged.load(Ordering::SeqCst)
