@@ -83,7 +83,7 @@ class Check(unittest.TestCase):
         self.assertIn("ci_steps.py run --job advisory", step["run"])
         table = tomllib.loads((ROOT / "ci" / "steps.toml").read_text())["step"]["cloud-backend"]
         self.assertIs(table["blocks"], False)
-        self.assertIn("ref: ${{ github.event.pull_request.base.ref }}", wf)
+        self.assertIn("ref: refs/heads/${{ github.event.pull_request.base.ref }}", wf)
         self.assertIn("|| echo \"::warning title=Cloud backend belongs in cmux-platform::the check could not run", table["run"])
         self.assertIn("permissions: {}", wf)
         self.assertNotIn("pull_request_target", wf)
