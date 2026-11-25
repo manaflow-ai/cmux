@@ -103,6 +103,9 @@ import { shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapsho
 import { TaskGoalStrip } from "./TaskGoalStrip";
 import { ApprovedPlanBand } from "./ApprovedPlanBand";
 import { approvedPlanPlace } from "./approvedPlan.experiment";
+import { CustomizeBar, customizeBarShows } from "./customizeBar/CustomizeBar";
+import { customizeBarPlace } from "./customizeBar/customizeBar.experiment";
+import { useCustomizeBar } from "./customizeBar/useCustomizeBar";
 import { hatPlanOf } from "./chatTaskList";
 import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
@@ -238,6 +241,7 @@ import {
 } from "./cloudMachines";
 import {
   AUTO_LOOK,
+  autoAddingMachineLine,
   autoTargets,
   decideAuto,
   landingMove,
@@ -324,6 +328,7 @@ import { chatHasSummaryContent } from "./summary/summaryContent";
 import { createWorkflowAdapter, workflowDetailRequest, type WorkflowDetailRequest } from "./summary/foldWorkflows";
 import { workflowPaneId, workflowPaneRequest } from "./summary/workflowTranscript";
 import { useWorkflowTranscript } from "./summary/useWorkflowTranscript";
+import { SubagentViewCorner } from "./subagents/SubagentViewCorner";
 import { releaseReaderScroll, useHeldWhileScrolling } from "./summary/heldWhileScrolling";
 import type { WorkflowAgent, WorkflowSummary } from "./summary/workflow";
 import {
@@ -331,6 +336,7 @@ import {
   showSubagent as showSubagentIn,
   revealedSubagent,
   subagentTabTitle,
+  paneHeading,
   useAutoOpenSubagents,
   useOpenNewSubagents,
   subagentRowMark,
@@ -468,6 +474,8 @@ import {
   workflowAgentTarget,
 } from "./subagents/subagentMessage";
 import { runsUnderTabRow, type UnderHeaderLines } from "./header/underHeader";
+import { AutoSessionBanner } from "./autoSession/AutoSessionBanner";
+import { autoUnderHeader } from "./autoSession/autoSession";
 import type { LocalCommand } from "./localCommands";
 import {
   composerAgentLocal,
@@ -547,6 +555,7 @@ import {
   RunElsewhereStore,
 } from "./conversation/runElsewhereModel";
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
+import { CapacityWaitContext } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { useTranscriptView, type TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
@@ -730,7 +739,7 @@ import {
 import { postOpenInWindow, quickChatName, postStartInBackground } from "./pane/quickHost";
 import { knownHarnessHealth, knownGithubRepositories, trustSource } from "./pane/trustHost";
 import { readFolderStatus, checkpointDiff } from "./pane/hostBindings";
-import { turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
+import { letGoHeldWorked, turnActionsFrom, turnRowsShownFrom } from "./pane/useTurnActions";
 import { replyElsewhere } from "./homeInboxModel";
 import { quoteInReply } from "./conversation/selectionReplyModel";
 import { answerPrompt, askQuote } from "./conversation/nextStepAsk";
@@ -1597,7 +1606,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const heldRuns = useRef<{ session?: string; keys: ReadonlySet<string>; asked?: true }>({ keys: new Set() });
   /// The ended turn's "Worked for" over rows a reader scrolled up had in view: open until the view
   /// follows again, then closed (conversation/turnEndHold.ts `foldsToHold`; cmux#24569's turn_end rows).
-  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string> }>({ keys: new Set() });
+  const heldWorked = useRef<{ session?: string; keys: ReadonlySet<string>; letGo?: ReadonlySet<string> }>({
+    keys: new Set(),
+  });
   /// Set when the rows next shaped close that Worked for, the view back at the latest row: the
   /// transcript folds it in the turn's end motion (VirtualTranscript `heldWorkedClosing`).
   const heldWorkedClosing = useRef(false);
@@ -2267,14 +2278,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// a side question asked in it (its aside is a transcript row).
   const freshView = freshChat && chatShellRuns.length === 0 && !hasBtwNotes;
   // Turn shape: work folds under "Worked for" until opened; shell mode's blocks sit where they ran.
-  // A subagent's "Subagent of" pill names the chat as the chat list does: never acpmux's generated
-  // name (`claude-2`), and "New chat" before it has a title, never nothing.
+  // The chat's name as the chat list says it: never acpmux's generated name (`claude-2`), and
+  // "New chat" before it has a title, never nothing.
   const chatName = snapshot.summary ? sessionTitle(snapshot.summary, t) : t("sidebar.newChat");
   // Running subagents sit in the tray above the composer, and one that ended leaves a line where it
   // ended (subagents/runningTray.ts).
   const trayPlacement = useSubagentTrayPlacement();
   const [goalHatPlaceArm] = useState(() => experimentArm(goalHatPlace));
   const [approvedPlanArm] = useState(() => experimentArm(approvedPlanPlace));
+  // A live customization's Apply / Discard / Undo / Save as profile (customizeBar/), off by default.
+  const [customizeBarArm] = useState(() => experimentArm(customizeBarPlace));
+  const customizeBar = useCustomizeBar(customizeBarArm !== "off", snapshot.isWorking);
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
@@ -2335,11 +2349,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
   );
-  /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else "Subagent of" the chat.
+  /// The name a subagent's pane tab shows (subagentPanes.ts subagentTabTitle): its own, else its task, else "Subagent".
   const subagentTitle = (id: string) =>
     subagentTabTitle(
       freshAgents.find((agent) => agent.id === id),
-      `${t("subagents.of")} ${chatName}`,
+      t("tray.kind.subagent"),
     );
   // The mark its row draws, which its pane's tab draws too (subagentPanes.ts `subagentRowMark`).
   const senderBadge = useSenderIconLook().badge;
@@ -2378,7 +2392,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     shownSessionId,
     workflowLabsEnabled,
     selectedWorkflowAgent,
-    chatName,
     readWorkflowAgent,
     snapshot.connection,
   );
@@ -2433,7 +2446,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (!subagentView) return undefined;
     const chat = { rows: snapshot.rows, views: snapshot.subagentViews };
     const own = { log: ownLogged, loading: ownLoading };
-    const view = subagentPaneView(subagentView, chat, own, NO_EXPANDED, chatName);
+    const view = subagentPaneView(subagentView, chat, own, NO_EXPANDED);
     return withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[];
   }, [
     subagentView,
@@ -2441,7 +2454,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.subagentViews,
     ownLogged,
     ownLoading,
-    chatName,
     workflowLabsEnabled,
     workflowTranscript.rows,
   ]);
@@ -4971,11 +4983,30 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The tab's chat is not listed yet and its last-read rows are drawn (direct.ts `drawMissingTail`):
   /// why it is not here is a line under the header, over the transcript, not the centered state.
   const missingRows = !!snapshot.unavailable && snapshot.missingSession !== undefined && snapshot.rows.length > 0;
+  // An Auto chat's line and its kept-changes notice (autoSession/AutoSessionBanner.tsx): where the
+  // chat runs when that is not this Mac. A chat nobody runs says Resuming only once the person sent.
+  const autoSession = snapshot.summary?.autoSession;
+  const autoSending = snapshot.isWorking === true || snapshot.queue.length > 0;
+  const autoChat = snapshot.sessionId;
+  const autoBanner =
+    autoSession && autoChat && autoUnderHeader(autoSession, autoSending) ? (
+      <AutoSessionBanner
+        key={autoChat}
+        auto={autoSession}
+        sending={autoSending}
+        onSetUpCloud={() => connectMachine("cloud")}
+        onLeftover={(action) =>
+          directClient.current?.autoLeftover(autoChat, action) ?? Promise.reject(new Error(t("error.notOpen")))
+        }
+        onFailed={notices.failed}
+      />
+    ) : null;
   const underHeader: UnderHeaderLines = {
     checkpointReview: checkpoints.review != null,
     unavailable: missingRows && snapshot.unavailable?.reason !== "connecting",
     liveChat: !!snapshot.liveChat,
     peerCopy: !!snapshot.peerCopy?.offline,
+    autoSession: autoBanner !== null,
     watching: !!snapshot.summary?.watching,
     handoffError: !reviewing && !!snapshot.handoff?.error,
   };
@@ -5043,21 +5074,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!back) setSubagentView(undefined);
     });
   }, []);
-  // Escape closes a subagent's view to the chat's, as its pill's × does (subagents/subagentEscape.ts).
+  // Escape closes a subagent's view to the chat's, as its corner's × does (subagents/subagentEscape.ts).
   useEscapeClosesSubagent(!quick && !!subagentView, () => navigateSubagent(undefined));
-  // A pane opened on a subagent shows the chat's other subagents in place, and its "Subagent of" pill goes
-  // back to the chat: its tab's name follows what it shows (review of #28497 at 995299ff). Not before
-  // the subagent it was opened on has shown, or the name the app gave the tab would flash away; and not
-  // while this page has no rows for the subagent yet (they load after the pane opens), which would name
-  // it "Subagent of" over the name the chat's page gave it.
+  // A pane opened on a subagent shows the chat's other subagents in place: its tab's name follows what
+  // it shows (review of #28497 at 995299ff). Not before the subagent it was opened on has shown, or the
+  // name the app gave the tab would flash away; and not while this page has no rows for the subagent
+  // yet (they load after the pane opens), which would name it "Subagent" over the name the chat's page
+  // gave it.
   // A subagent the chat's rows no longer hold is known from its own records (subagentOwnLog.ts).
   const shownAgent = subagentView
     ? (freshAgents.find((agent) => agent.id === subagentView) ?? ownLogged?.agent)
     : undefined;
   const shownSubagentTitle =
-    ownSubagentPane && subagentView && shownAgent
-      ? subagentTabTitle(shownAgent, `${t("subagents.of")} ${chatName}`)
-      : undefined;
+    ownSubagentPane && subagentView && shownAgent ? subagentTabTitle(shownAgent, t("tray.kind.subagent")) : undefined;
+  // A subagent's own pane heads with the subagent, not its chat's title and summary (paneHeading).
+  const heading = paneHeading(
+    ownSubagentPane && subagentView ? (shownSubagentTitle ?? t("tray.kind.subagent")) : undefined,
+    { title: chatName, summary: snapshot.summary?.rollingSummary },
+  );
   const shownFacts = useMemo(
     () => (shownAgent ? shownSubagentFacts(shownAgent, snapshot.clockOffsetMs ?? 0) : undefined),
     [shownAgent, snapshot.clockOffsetMs],
@@ -5240,7 +5274,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       rows: cardScopedRows ?? [],
       parent: parent === null ? chatName : (chatAgents.find((agent) => agent.id === parent)?.name ?? chatName),
       agents: descendants(chatAgents, scopedAgent.id),
-      // As its "Subagent of" pill: back to its parent subagent's view, else the chat's.
+      // Back to its parent subagent's view, else the chat's.
       onBack: () => navigateSubagent(parent ?? undefined),
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scope only when what it shows changes
@@ -7078,6 +7112,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       enabledCmuxActions.add("status");
       enabledCmuxActions.add("mcp");
     }
+    // /rename is the header's Rename on a chat's own tab; Quick Chat's panel is no tab to rename.
+    if (snapshot.sessionId && !quick) enabledCmuxActions.add("rename");
     if (!quick) enabledCmuxActions.add("cd");
     if (forkable && forkSeq !== undefined) enabledCmuxActions.add("fork");
     // A working chat offers /side too: its fork is of the chat as it is now (#38042).
@@ -7794,6 +7830,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         healthLocal,
         ignoreFailure,
         openCloudChatWith,
+        // /rename opens the tab's name editor, as ⌘R and the header's Rename do; Quick Chat has no tab.
+        openRename: quick ? undefined : () => runHeaderAction(HEADER_ACTIONS.rename),
         openSummarySection,
         sessionAuth,
         sessionInfo,
@@ -7904,6 +7942,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     autoArrivalShown !== undefined &&
     autoArrivalShown !== "deciding" &&
     offloads.includes(landingMove(autoArrivalShown));
+  const autoAddingMachine =
+    snapshot.startupAdmission &&
+    (snapshot.startupAdmission.sessionId === snapshot.sessionId || (newSession && !snapshot.sessionId))
+      ? autoAddingMachineLine(snapshot.startupAdmission)
+      : undefined;
   useEffect(() => {
     if (cloudRouteHostKind !== "cloud" || !snapshot.sessionId) return;
     const landing = takeCloudLanding(autoCloudStartKey);
@@ -9079,13 +9122,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const toggleActivity = useCallback((id: string, covers?: readonly string[]) => {
     const view = chatViewRef.current;
     // A Worked for the turn's end left open over what the reader reads (`heldWorked`) is closed by
-    // their click: it was never their open fold.
-    if (heldWorked.current.keys.has(id)) {
-      const keys = new Set(heldWorked.current.keys);
-      keys.delete(id);
-      heldWorked.current = { ...heldWorked.current, keys };
+    // their click: it was never their open fold (pane/useTurnActions.ts `letGoHeldWorked`). In
+    // Thinking and Verbose the view opens it too, so the click also closes it there, below: else it
+    // stayed open and took a second click.
+    const letGo = letGoHeldWorked(heldWorked.current, id);
+    if (letGo) {
+      heldWorked.current = letGo;
       releaseCalls();
-      return;
+      if (view === "normal") return;
     }
     // A turn's fold opens with every line in it closed, whatever the reader opened there before
     // (Lucas, 2026-11-11): its toggle forgets them. Closed, nothing in it draws, so open or close alike.
@@ -9423,6 +9467,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   // The Quick Composer has no room for the changes view; its file rows stay plain.
                                                                   onOpenDiff={quick ? undefined : openDiff}
                                                                   onToggleActivity={toggleActivity}
+                                                                  // A subagent's view: no line naming where it came from, its
+                                                                  // close (in place only) and Resume in the corner instead.
+                                                                  corner={
+                                                                    childRows ? (
+                                                                      <SubagentViewCorner
+                                                                        view={subagentView}
+                                                                        agent={shownAgent}
+                                                                        close={!ownSubagentPane}
+                                                                      />
+                                                                    ) : undefined
+                                                                  }
                                                                 />
                                                               )}
                                                             </ChatFindScope>
@@ -9459,7 +9514,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const transcript = (
     <PresentationContext.Provider value={chatPresentation}>
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
-        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>{transcriptContent}</SteerChatContext.Provider>
+        <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
+          <CapacityWaitContext.Provider value={snapshot.capacityWait}>{transcriptContent}</CapacityWaitContext.Provider>
+        </SteerChatContext.Provider>
       </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>
   );
@@ -9851,6 +9908,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         initiallyOpen={approvedPlanArm === "open"}
       />
     ) : null;
+  // Leo, 2026-11-25: "the customization live... in the gui chat". The bar's buttons run the CLI's
+  // customize verbs on this Mac (cmux.customize.run), not an agent turn.
+  const customizeBarNode =
+    !showNewTab && customizeBarArm !== "off" && customizeBarShows(customizeBar.state, customizeBar.outcome) ? (
+      <CustomizeBar
+        look={customizeBarArm}
+        state={customizeBar.state}
+        outcome={customizeBar.outcome}
+        run={(verb, arg) => void customizeBar.run(verb, arg)}
+      />
+    ) : null;
   // The dock draws the composer (a draft a refusal put back stays in reach even once the tab's run
   // shows), and with it the composer card's quiet row: the dock's `data-foot` (bottomStack.css).
   const dockFoot = (!sandboxHoldsChat || sandboxDraftMoved) && !viewedSandbox && (readOnlySubagent || !reviewing);
@@ -9875,6 +9943,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     showNewTab,
     composerModeRows,
     autoArrival: autoArrivalShown,
+    autoAddingMachine,
     autoArrivalMove,
     onAutoArrivalDismiss: () => setAutoArrival(undefined),
     autoSendGate,
@@ -9940,6 +10009,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     goalNode,
     approvedPlanNode,
     approvedPlanAtFoot: approvedPlanArm === "foot",
+    customizeBarNode,
     hatQuestionList,
     NO_HAT_QUESTIONS,
     hatQuestionActions,
@@ -10517,6 +10587,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     parkedVisible,
     chatName,
     renameFromTitle,
+    heading,
     tabRowTools,
     liveTreeEnabled,
     readLiveTree,
@@ -10547,6 +10618,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     turnWorking,
     summaryPanel,
     underHeader,
+    autoBanner,
     checkpoints,
     cloudUnavailable,
     cloudRecovery,

@@ -191,6 +191,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/join",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tailnet/login",
       "params": true,
       "result": true
@@ -519,10 +525,28 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/forum/post",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/reply",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/forum/rules",
       "params": {
         "$ref": "#/types/ForumRulesParams"
       },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/forum/search",
+      "params": true,
       "result": true
     },
     {
@@ -1024,6 +1048,30 @@
     {
       "kind": "request",
       "name": "_acpmux/cold_archive",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/leftover",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/wake",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/auto_session/transcript",
       "params": true,
       "result": true
     },
@@ -3387,6 +3435,13 @@
             "null"
           ]
         },
+        "quietHidden": {
+          "description": "True: the client draws nothing of the chat while it is hidden (`visible: false`), so the\nagent's `session/update` stream is left out until `_acpmux/view` shows it, which then sends\none `_acpmux/lagged` naming the chat (`server/view.rs`); default false.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "omitTimeBreakdown": {
           "description": "True from a client that never draws the breakdown (the phone): the reply's `session`\nleaves `timeBreakdown` out whatever its version (`server/requests/time_breakdown_gate.rs`).",
           "type": [
@@ -3649,6 +3704,51 @@
       },
       "type": "object"
     },
+    "CapacityWait": {
+      "description": "A chat waiting for capacity (`hub/capacity_wait.rs`): a turn cut by an overloaded model, an\nexhausted account pool or the account's rate limit, which acpmux continues by itself. A\nclient draws it as one calm state (\"Waiting for capacity, about 40 s\"; in a list \"paused for\ncapacity, resumes ~22:41\"), never as a failed turn, and keeps `error` for a details\ndisclosure.",
+      "properties": {
+        "error": {
+          "description": "The harness's raw error, cut to 600 characters, for a details disclosure only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/types/RetryReason",
+          "description": "`capacity` or `rate_limit`."
+        },
+        "resumesAt": {
+          "description": "When it goes on (epoch ms); absent while the continuation is still being decided.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "since": {
+          "description": "Since when it waits (epoch ms): the cut turn's end.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "turnId": {
+          "description": "The cut turn the wait continues, when there is one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
     "Carrier": {
       "description": "The carrier a live link runs over (`carrier`); null while no link is open.",
       "oneOf": [
@@ -3824,6 +3924,36 @@
         "acknowledged"
       ],
       "type": "string"
+    },
+    "DialFail": {
+      "description": "Why a peer's route last went down (`downReason`): what the failed dial or the dropped path\nran into, typed from the error that raised it (an `io::ErrorKind`, an HTTP status, ssh's\nfailure class), never guessed from its text. When every path of a cold connect failed with\ndifferent kinds, the one a person can act on first is kept ([`DialFail::rank`]). Null\nbefore any route went down, or when no failure so far had a type.",
+      "oneOf": [
+        {
+          "const": "timeout",
+          "description": "The dial or its upgrade ran past its deadline.",
+          "type": "string"
+        },
+        {
+          "const": "refused",
+          "description": "The machine answered and refused the connection (nothing listens there).",
+          "type": "string"
+        },
+        {
+          "const": "auth",
+          "description": "The peer refused this daemon's token or this computer's ssh login.",
+          "type": "string"
+        },
+        {
+          "const": "pathChanged",
+          "description": "The path carrying the link died while another answered: the link moved there.",
+          "type": "string"
+        },
+        {
+          "const": "unreachable",
+          "description": "No route to the machine: the network or host is unreachable, or its name did not\nresolve.",
+          "type": "string"
+        }
+      ]
     },
     "Done": {
       "description": "An acknowledgement with nothing in it.",
@@ -5349,7 +5479,7 @@
       "type": "object"
     },
     "PeerStateChanged": {
-      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
+      "description": "`_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's\nlink changes (`link`, `carrier`, `cause`, `reason`, `downReason` or `nextRetryAt`), never twice for the same one: a\npeer that is added sends its first state, and one that is removed a last `offline` with\n`error: \"removed\"`. Listed as the `peerStateEvents` feature.",
       "properties": {
         "action": {
           "anyOf": [
@@ -5390,6 +5520,18 @@
             }
           ],
           "description": "Why the link is down; null while it is up or on its way the first time."
+        },
+        "downReason": {
+          "anyOf": [
+            {
+              "$ref": "#/types/DialFail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why the route last went down (a failed dial, or a path that died while another\nanswered); null before any did, or when no failure so far had a type. Kept while the\nlink is up again, so a surface can say why it moved."
         },
         "error": {
           "description": "Why the link is down, when it is.",
@@ -5452,6 +5594,7 @@
         "at",
         "carrier",
         "cause",
+        "downReason",
         "error",
         "lastSeen",
         "link",
@@ -6908,6 +7051,17 @@
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
         },
+        "capacityWait": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CapacityWait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
+        },
         "children": {
           "description": "Its sub-sessions that are not closed.",
           "format": "uint32",
@@ -7875,6 +8029,17 @@
         "backgroundsWork": {
           "description": "`_acpmux/process/background` (Ctrl-B) moves its foreground work: its\nharness is Claude Code (claude-stdio), whatever the harness's name.\nClients offer Ctrl-B from this, not from `harness`.",
           "type": "boolean"
+        },
+        "capacityWait": {
+          "anyOf": [
+            {
+              "$ref": "#/types/CapacityWait"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "It waits for capacity and goes on by itself (`hub/capacity_wait.rs`). Absent otherwise,\nand from a peer on an older acpmux."
         },
         "children": {
           "description": "Its sub-sessions that are not closed.",
