@@ -171,3 +171,30 @@ fn slack_and_google_come_through_the_hub_not_the_catalog() {
         view["entries"].as_array().unwrap().iter().map(|e| e["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["google-calendar", "linear"], "a connected one stays, to be disconnected");
 }
+
+/// tests/egress_seeded.json's test for the `cmux_tui::cli::mcp_servers` gate site: the cmux
+/// token rides only in `Authorization` and a key-auth server's key only in the body
+/// (cmux_egress::capture answers 200 `{}`).
+#[tokio::test]
+async fn the_seeded_token_and_key_ride_only_in_their_header_and_body() {
+    use cmux_egress::capture;
+    capture::install().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("token");
+    std::fs::write(&file, "SEEDmcpToken-4b7e").unwrap();
+    let platform = cmux_cloud_environment::PRODUCTION_PLATFORM.trim_end_matches('/').to_owned();
+    let common = Common {
+        platform: Some(platform),
+        team: Some("SEEDmcpTeam".into()),
+        token: TokenSource::File(file),
+    };
+    let verb = Verb::Connect { name: "linear".into(), owner: None, return_to: None, key: true };
+    let _ = run(&common, &verb, Some(Zeroizing::new("SEEDmcpKey-c3d9".to_owned()))).await;
+
+    let places = capture::leaks("SEEDmcpToken-4b7e");
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(places[0].ends_with(": header authorization"), "{places:?}");
+    let places = capture::leaks("SEEDmcpKey-c3d9");
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(places[0].ends_with(": body"), "{places:?}");
+}

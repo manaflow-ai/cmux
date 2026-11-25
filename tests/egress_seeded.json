@@ -47,6 +47,9 @@
   "cmux_mobile_link::api": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::the_api_token_rides_only_in_authorization"
   },
+  "cmux_mobile_link::dial::relay": {
+   "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::the_relay_token_rides_only_in_authorization"
+  },
   "cmux_mobile_link::hub": {
    "test": "cmux-next-ios/rust/crates/cmux-mobile-link/tests/seeded_secret.rs::the_hub_token_rides_only_in_authorization"
   },
@@ -89,6 +92,9 @@
   "cmux_tui::cli::app::web_pieces": {
    "todo": true
   },
+  "cmux_tui::cli::automation_webhook_fire": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/automation_webhook_fire.rs::the_seeded_secret_only_signs_and_never_rides"
+  },
   "cmux_tui::cli::cloud_client_session": {
    "todo": true
   },
@@ -121,6 +127,9 @@
   },
   "cmux_tui::cli::machine_join": {
    "todo": true
+  },
+  "cmux_tui::cli::mcp_servers": {
+   "test": "cmux-tui/crates/cmux-tui/src/cli/mcp_servers_tests.rs::the_seeded_token_and_key_ride_only_in_their_header_and_body"
   },
   "cmux_tui::cli::video": {
    "none": "a GET of the URL the person typed (cmux video open URL): it sends nothing but that URL"

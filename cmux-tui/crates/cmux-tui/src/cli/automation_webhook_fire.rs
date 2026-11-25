@@ -138,7 +138,7 @@ fn post(url: &str, headers: &[(&str, String)], body: Vec<u8>) -> Result<(u16, Va
         .build()
         .map_err(|e| e.to_string())?;
     let space = cmux_build_space::headers().map_err(|e| e.to_string())?;
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::cli::automation_webhook_fire")
         .default_headers(space)
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
@@ -210,5 +210,31 @@ mod tests {
         assert!(queued.contains("dlv_1") && queued.contains("queued"), "{queued}");
         let skipped = answer_line(&json!({"accepted": false, "reason": "condition_unmet"}));
         assert!(skipped.contains("condition_unmet"), "{skipped}");
+    }
+
+    /// tests/egress_seeded.json's test for the `cmux_tui::cli::automation_webhook_fire` gate
+    /// site: the webhook secret only signs, never rides on the wire; the body rides only in the
+    /// body and the trigger only in the target (cmux_egress::capture answers 200 `{}`).
+    #[test]
+    fn the_seeded_secret_only_signs_and_never_rides() {
+        use cmux_egress::capture;
+        capture::install().unwrap();
+        let secret = "SEEDwebhookSecret-8f2a";
+        let body = br#"{"note":"SEEDwebhookBody-61c0"}"#.to_vec();
+        let headers = signed_headers(secret, 1_700_000_000, "cli-SEEDdelivery", &body);
+        let platform = cmux_cloud_environment::PRODUCTION_PLATFORM.trim_end_matches('/');
+        let url = format!("{platform}{TRIGGERS_PATH}/{ID}/webhook");
+        let (status, _) = post(&url, &headers, body).expect("the capture server answers");
+        assert_eq!(status, 200);
+
+        assert!(capture::leaks(secret).is_empty(), "{:?}", capture::leaks(secret));
+        let places = capture::leaks("SEEDwebhookBody-61c0");
+        assert_eq!(places.len(), 1, "{places:?}");
+        assert!(places[0].ends_with(": body"), "{places:?}");
+        let places = capture::leaks(ID);
+        assert!(!places.is_empty() && places.iter().all(|p| p.ends_with(": target")), "{places:?}");
+        let places = capture::leaks("cli-SEEDdelivery");
+        assert_eq!(places.len(), 1, "{places:?}");
+        assert!(places[0].ends_with(": header x-cmux-webhook-delivery"), "{places:?}");
     }
 }

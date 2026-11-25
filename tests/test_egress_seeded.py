@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SEEDED = ROOT / "tests" / "egress_seeded.json"
 GATE = "cmux-tui/crates/cmux-egress/"
 CALL = re.compile(r"\bcmux_egress::(?:client_builder_with|client_builder|blocking_client_builder|client|get|"
-                  r"ws::(?:connect_async_tls_with_config|connect_async_with_config|connect_async|checked))\s*\(")
+                  r"ws::(?:connect_async_tls_with_config|connect_async_with_config|connect_async|connect_dialed|checked))\s*\(")
 LITERAL = re.compile(r'"((?:[^"\\]|\\.)*)"')
 SITE = re.compile(r"^[A-Za-z_][\w-]*(?:::[\w-]+)*$")
 

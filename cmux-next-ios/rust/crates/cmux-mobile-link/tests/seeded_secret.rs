@@ -1,10 +1,10 @@
 //! Seeded secrets through every gated client this crate builds, on the wire
 //! (cmux_egress::capture): the Stack token rides only in `Authorization`, on the
-//! pairing API's requests, the signaling upgrade and the hub join; the team,
+//! pairing API's requests, the signaling upgrade, the hub join and the relay join; the team,
 //! device and session ride only in the path or query they name. The capture
 //! server answers 200 `{}`, so each call fails after it was sent; only what was
 //! sent is checked. tests/egress_seeded.json names these tests for the
-//! `cmux_mobile_link::api`, `::signaling` and `::hub` gate sites.
+//! `cmux_mobile_link::api`, `::signaling`, `::hub` and `::dial::relay` gate sites.
 
 use cmux_egress::capture;
 use cmux_mobile_link::SignalingClient;
@@ -90,4 +90,31 @@ async fn the_hub_token_rides_only_in_authorization() {
     let hex: String = params.secret.iter().map(|b| format!("{b:02x}")).collect();
     assert!(capture::leaks(&hex).is_empty());
     assert!(sent.iter().all(|r| !r.body.windows(32).any(|w| w == params.secret)), "{sent:?}");
+}
+
+#[tokio::test]
+async fn the_relay_token_rides_only_in_authorization() {
+    use cmux_mobile_link::dial::relay::{RelayCarrier, RelayEndpoint, TICKET_HEADER};
+
+    let base = start();
+    let token = "SEEDrelayToken-5d1e";
+    let ticket = "SEEDrelayTicket-90ab";
+    let session = "5eedc0de-0000-4000-8000-00000000ab12";
+    let device = "5eedc0de-0000-4000-8000-00000000cd34";
+    let peer = "5eedc0de-0000-4000-8000-00000000ef56";
+    let endpoint = RelayEndpoint::with_token(base, None, device, token);
+    assert!(RelayCarrier::join(&endpoint, session, peer, Some(ticket)).await.is_err());
+
+    let sent = capture::requests_to(HOST);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert!(sent[0].headers.iter().any(|(n, v)| n == "upgrade" && v == "websocket"), "{sent:?}");
+    only_in_authorization(token, 1);
+    let places = capture::leaks(ticket);
+    assert_eq!(places.len(), 1, "{places:?}");
+    assert!(places[0].ends_with(&format!(": header {TICKET_HEADER}")), "{places:?}");
+    for id in [session, device] {
+        let places = capture::leaks(id);
+        assert!(places.iter().all(|p| p.ends_with(": target")), "{id}: {places:?}");
+    }
+    assert!(capture::leaks(peer).is_empty(), "{:?}", capture::leaks(peer));
 }

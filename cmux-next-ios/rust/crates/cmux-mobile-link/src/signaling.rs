@@ -497,12 +497,7 @@ impl SignalingClient {
         // there too. Within `CONNECT_WAIT`: an upgrade a loaded host or a lost answer stalls
         // would otherwise hold the reconnect, and the Mac stays offline, with no end.
         let connecting = crate::liveness::spawn(async move {
-            match tokio::time::timeout(
-                CONNECT_WAIT,
-                crate::signal_dial::connect_gated(request, "cmux_mobile_link::signaling"),
-            )
-            .await
-            {
+            match tokio::time::timeout(CONNECT_WAIT, crate::signal_dial::connect_gated(request)).await {
                 Ok(connected) => connected.map(|(socket, _)| socket).map_err(connect_error),
                 Err(_) => Err(SignalingError::Connect(format!(
                     "no answer to the upgrade within {}s",

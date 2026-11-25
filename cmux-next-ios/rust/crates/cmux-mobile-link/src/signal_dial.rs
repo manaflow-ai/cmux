@@ -62,16 +62,18 @@ pub async fn connect_tcp(request: &Request) -> Result<TcpStream, tungstenite::Er
     Ok(connect_remembered(&LAST_GOOD, &host, port, &addresses, TcpStream::connect).await?)
 }
 
-/// A gated `tokio_tungstenite::connect_async(request)` (egress site `site`), its TCP connect
-/// raced and remembered.
+/// `tokio_tungstenite::connect_async(request)` through the egress gate (site
+/// `cmux_mobile_link::signaling`), its TCP connect raced and remembered.
 pub(crate) async fn connect_gated(
     request: Request,
-    site: &'static str,
 ) -> Result<
     (WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::handshake::client::Response),
     tungstenite::Error,
 > {
-    cmux_egress::ws::connect_dialed(request, site, |request| async move { connect_tcp(&request).await }).await
+    cmux_egress::ws::connect_dialed(request, "cmux_mobile_link::signaling", |request| async move {
+        connect_tcp(&request).await
+    })
+    .await
 }
 
 #[cfg(test)]
