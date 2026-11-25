@@ -124,3 +124,14 @@ test("the checklist rows' durations use the same clock: seconds, then m:ss", () 
     ["harness", undefined],
   ]);
 });
+
+test("a machine waking from a pause or a resume says Waking machine, on its row and as the stage", () => {
+  const waking = { ...base, step: "machine", waking: true } as const;
+  const rows = startupChecklist(waking, undefined, 20_000, "en");
+  expect(rows[0]).toMatchObject({ id: "machine", status: "running", detail: "Waking machine" });
+  expect(stage(waking)).toMatchObject({ id: "machine", label: "Waking machine" });
+  // Once the machine is up the row is done and says nothing of waking.
+  const up = startupChecklist({ ...waking, step: "folder" }, undefined, 20_000, "en");
+  expect(up[0].detail).toBeUndefined();
+  expect(stage({ ...base, step: "machine" })).toMatchObject({ label: "Starting your Cloud machine" });
+});

@@ -18,7 +18,7 @@ extension SidebarViewComponents {
             region.realizesItems(in: scroll)
             scroll.drawsBackground = false
             scroll.hasVerticalScroller = true
-            SystemScrollers.followThin(scroll)
+            SystemScrollers.followThin(scroll, scrollOnly: true)
             scroll.automaticallyAdjustsContentInsets = false
             scroll.contentView.drawsBackground = false
             scroll.verticalScrollElasticity = .none

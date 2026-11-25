@@ -208,19 +208,30 @@ test("an `acpmux send` the reader opened is estimated with its message's card (S
   near(row, 139.5 + AIR);
 });
 
-test("the edited-files card is estimated shut or open as agentPane.editedFiles.show and the reader leave it", () => {
+test("the edited-files card is estimated as one row until the reader opens it, then as its stacked diffs", () => {
   const two = card("edits-2", [
     edit("e1", "/home/dev/cmux/src/retry.ts", "export const a = 2;\nexport const b = 3;\n"),
     edit("e2", "/home/dev/cmux/src/policy.ts", "export const a = 2;\nexport const b = 3;\n"),
   ]);
   const one = card("edits-1", [edit("e3", "/home/dev/cmux/src/one.ts", "export const a = 2;\n")]);
-  // Shown always (the default): drawn 142 (its head over two file rows) and 70 (a lone file's head).
-  near(two, 142);
+  // One row at rest, whatever agentPane.editedFiles.show says (Leo, 2026-11-25: "just having one
+  // row that expands out"): the 64px row and the 6px under it.
+  near(two, 70);
   near(one, 70);
-  // Collapsed to its head until the reader opens it (EditedFilesCard.tsx, turnChanges/openStore.ts).
   setEditedFilesSettings({ show: "collapsed" });
   near(two, 70);
+  // Opened (EditedFilesCard.tsx, turnChanges/openStore.ts): each file's 32px name over about six
+  // diff lines, the stack at most 60% of the view tall (EditedFilesCard.css `.acpmux-edited-stack`).
   setCardOpen("edits-2", true);
-  near(two, 142);
+  near(two, 70 + 2 * (32 + 6 * 18));
   near(one, 70);
+  const many = card(
+    "edits-9",
+    Array.from({ length: 9 }, (_, n) => edit(`m${n}`, `/home/dev/cmux/src/f${n}.ts`, "export const a = 2;\n")),
+  );
+  setCardOpen("edits-9", true);
+  near(many, 70 + Math.round((typeof window === "undefined" ? 800 : window.innerHeight || 800) * 0.6));
+  setEditedFilesSettings({ show: "always" });
+  setCardOpen("edits-2", false);
+  setCardOpen("edits-9", false);
 });
