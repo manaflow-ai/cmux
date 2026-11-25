@@ -107,7 +107,7 @@ import Testing
         try await Task.sleep(for: .milliseconds(150)) // test: past the shortened window
         await settle { store.returnedDraft != nil }
         #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError?.hasPrefix("Not sent: mini was unreachable for more than") == true)
+        #expect(store.clientError == "Not sent: mini is offline.")
         #expect(source.heldPrompts.isEmpty)
 
         // The Mac comes back later: the stale message is not sent behind the person's back.
