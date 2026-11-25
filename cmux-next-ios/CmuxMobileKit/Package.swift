@@ -145,7 +145,7 @@ let package = Package(
             .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
             // Toggle Terminal and Chat: which faces a tab offers and what a tap does are Rust's.
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
-        ]),
+        ], resources: [.process("Resources")]),
         // Home: the Messages-style conversation list and the Chief chat over CmuxConversation.
         // CmuxMobileBrowserStream: the info page's Computer card streams a Cloud machine's screen.
         .target(name: "CmuxMobileChief", dependencies: [
