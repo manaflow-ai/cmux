@@ -511,11 +511,11 @@ mod subsession_send;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub use subsession_send::Delivery;
-pub(crate) mod draft_attachments;
 mod background_cause;
 pub mod background_turn;
 #[cfg(test)]
 mod background_turn_end_tests;
+pub(crate) mod draft_attachments;
 mod drafts;
 mod goal_tools;
 pub(crate) mod history_search;
