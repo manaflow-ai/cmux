@@ -116,3 +116,15 @@ extension AgentPaneView {
         if let page { page.reloadAfterCrashes() } else { source.load(into: webView) }
     }
 }
+
+extension AgentPaneView {
+    /// The person's reload (Cmd-R, "Agent Chat: Reload", the tab's Reload): a crash notice's Reload when one
+    /// shows, else the page saves its draft and reloads under a picture of itself (``PageWebView/reloadForPerson(saveWait:)``),
+    /// so the chat never blanks. The old host (no page host) loads its document again.
+    public func reloadForPerson() {
+        if crashNotice != nil { return reloadAfterCrash() }
+        guard let page else { return source.load(into: webView) }
+        // task-owner: one save-then-reload; ends when the page reloaded under its picture
+        Task { await page.reloadForPerson() }
+    }
+}
