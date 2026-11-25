@@ -122,3 +122,21 @@ fn a_pruned_list_with_a_path_out_of_the_folder_is_refused() {
     let pruned = vec![Pruned { path: "../etc".into(), files: 1, bytes: 1 }];
     assert!(Layer::decode_pruned(&Layer::encode_pruned(&pruned).unwrap()).is_err());
 }
+
+#[test]
+fn a_cachedir_tag_that_is_a_pipe_or_a_link_is_not_read() {
+    let state = tempfile::tempdir().unwrap();
+    let upper = state.path().join("upper");
+    fs::create_dir_all(upper.join("piped")).unwrap();
+    let fifo = std::ffi::CString::new(upper.join("piped/CACHEDIR.TAG").to_str().unwrap()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
+    fs::create_dir_all(upper.join("linked")).unwrap();
+    fs::write(state.path().join("tag"), b"Signature: 8a477f597d28d172789f06886806bc55").unwrap();
+    std::os::unix::fs::symlink(state.path().join("tag"), upper.join("linked/CACHEDIR.TAG"))
+        .unwrap();
+    let (layer, pruned) = Layer::collect_pruned(state.path()).unwrap();
+    assert!(pruned.is_empty(), "{pruned:?}");
+    // Both folders and the link are listed; a pipe is never a listing entry.
+    let listed: Vec<&str> = layer.upper.iter().map(|entry| entry.path.as_str()).collect();
+    assert_eq!(listed, ["linked", "linked/CACHEDIR.TAG", "piped"]);
+}

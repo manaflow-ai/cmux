@@ -497,12 +497,14 @@ fn unsynced_counts_the_changes_and_what_stays_on_the_machine() {
     std::fs::create_dir_all(state.join("upper/node_modules/x")).unwrap();
     std::fs::write(state.join("upper/node_modules/x/i.js"), b"1;").unwrap();
     std::fs::write(state.join("upper/node_modules/x/package.json"), b"{}").unwrap();
-    let answer = unsynced(&state).unwrap();
     assert_eq!(
-        answer,
+        unsynced(&state, true).unwrap(),
         json!({"files": 1, "bytes": 23, "deleted": 1,
-               "kept_on_machine": {"folders": 1, "files": 2, "bytes": 4}})
+               "kept_on_machine": {"folders": 1, "files": 2, "bytes": 4,
+                                   "paths": ["node_modules"]}})
     );
+    // Unpruned (the caller's manifest holds `node_modules`): its edits count.
+    assert_eq!(unsynced(&state, false).unwrap(), json!({"files": 3, "bytes": 27, "deleted": 1}));
 }
 
 /// RFD 0007: Bring Back's upper layer is "brought back at the mark it read

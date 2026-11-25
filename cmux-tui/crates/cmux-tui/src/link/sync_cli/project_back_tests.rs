@@ -51,7 +51,8 @@ fn ignored_new_paths_stay_on_the_machine_and_edits_of_listed_files_never_do() {
         ..Plan::default()
     };
     let ignored = keep_ignored_home(root.path(), &manifest, &mut plan).unwrap();
-    assert_eq!(ignored, ["app/new.log", "app/target", "app/target/debug/x.o"]);
+    // The outermost ignored paths: a file under an ignored folder goes with it.
+    assert_eq!(ignored, ["app/new.log", "app/target"]);
     let kept: Vec<&str> = plan.writes.iter().map(|write| write.path.as_str()).collect();
     assert_eq!(kept, ["app/src/new.rs", "app/debug.log"]);
 }
