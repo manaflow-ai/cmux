@@ -2434,9 +2434,38 @@ export const transcriptRowWidth = (paneWidth: number, column?: ChatColumn, endRe
 };
 
 /// A message's markdown blocks. Blank lines between blocks are only spacing, never blocks of their own.
+/// A setext underline (`===` or `---` alone on its line, up to 3 spaces in) on one of `src`'s lines after
+/// its first and before its first blank line: the only text marked's `lheading` rule can match (its
+/// body never crosses a blank line). False means the rule cannot match `src`; true, that it may.
+const SETEXT_UNDERLINE = /^ {0,3}(?:=+|-+) *$/;
+export function maySetextHeading(src: string): boolean {
+  let start = src.indexOf("\n") + 1;
+  while (start > 0) {
+    const end = src.indexOf("\n", start);
+    const line = end < 0 ? src.slice(start) : src.slice(start, end);
+    if (SETEXT_UNDERLINE.test(line)) return true;
+    if (line.trim() === "") return false;
+    start = end + 1;
+  }
+  return false;
+}
+
+/// marked's tokenizer, its `lheading` rule asked only of text that may hold a setext heading. Under
+/// JavaScriptCore (WKWebView) that rule's regex costs time quadratic in a paragraph's length when it
+/// fails, which is nearly always: the streaming reply's open paragraph, lexed again on every token
+/// (`lexIncrementally`), spent most of its estimate there (bench/markdown-estimate-lex.bench.ts).
+/// The tokens are the same: the rule is skipped only where it cannot match.
+class EstimateTokenizer extends Tokenizer {
+  override lheading(src: string) {
+    return maySetextHeading(src) ? super.lheading(src) : undefined;
+  }
+}
+
 export function markdownBlocks(source: string): Token[] {
   try {
-    return lexer(source, { gfm: true, breaks: true }).filter((token) => token.type !== "space");
+    return lexer(source, { gfm: true, breaks: true, tokenizer: new EstimateTokenizer() }).filter(
+      (token) => token.type !== "space",
+    );
   } catch {
     return [{ type: "text", raw: source, text: source } as Token];
   }
@@ -4590,7 +4619,7 @@ import {
   type PreparedText,
   type PreparedTextWithSegments,
 } from "@chenglou/pretext";
-import { lexer, type Token, type Tokens } from "marked";
+import { lexer, Tokenizer, type Token, type Tokens } from "marked";
 import { runStretches, staysInSight, stretchStart, toolGroups, type ToolGroup } from "./conversation/toolGroups";
 import {
   callDisclosureKey,
