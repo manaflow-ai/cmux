@@ -3,17 +3,18 @@
 # harness for making peers cheap). A release acpmux, then scripts/measure/peer-cost.py against a fake fleet on this
 # machine (real sshd on loopback, a far daemon, 130 ssh aliases; the near daemon runs the real dial path). Run at a
 # pushed head:
-#   cmux-ci test --setup rust -- 'scripts/measure/peer-cost-linux.sh [peers=130] [secs=60] [reps=20] [mode=both]'
+#   cmux-ci test --setup rust -- 'scripts/measure/peer-cost-linux.sh [peers=130] [secs=60] [reps=20] [mode=both] [style=plain|fleet|all]'
 #   mode: cold-start | handshake | both. peer-cost-linux.sh build-only: only the release build.
 # Prints PEERCOST lines, then {"rows": [...]} as one JSON line. Never run it on a Mac of Leo's.
 set -euo pipefail
-peers=130 secs=60 reps=20 mode=both build_only=0
+peers=130 secs=60 reps=20 mode=both style=all build_only=0
 for arg in "$@"; do
   case "$arg" in
     peers=*) peers="${arg#peers=}" ;;
     secs=*) secs="${arg#secs=}" ;;
     reps=*) reps="${arg#reps=}" ;;
     mode=*) mode="${arg#mode=}" ;;
+    style=*) style="${arg#style=}" ;;
     build-only) build_only=1 ;;
     *) echo "peer-cost-linux.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
@@ -32,13 +33,13 @@ cd "$root"
 # $FAST_CHECKS_OUT (cmux-ci test --artifact DIR) brings the report back when the run's log cannot be read.
 out="${FAST_CHECKS_OUT:-}"; [[ -n "$out" ]] && mkdir -p "$out"
 set +e
-python3 scripts/measure/peer-cost.py "$mode" --acpmux "$target/release/acpmux" --peers "$peers" --secs "$secs" --reps "$reps" \
+python3 scripts/measure/peer-cost.py "$mode" --acpmux "$target/release/acpmux" --peers "$peers" --secs "$secs" --reps "$reps" --style "$style" \
   --keep ${out:+--out "$out/peer-cost.json"} 2>&1 | tee "${out:-/dev/null}${out:+/peer-cost.txt}"
 rc=${PIPESTATUS[0]}
 # --keep left the scratch directory: its logs say why a run failed (the far side's stderr, ssh's spawn log).
 for d in /tmp/peercost-*; do
   [[ -d "$d" ]] || continue
-  [[ -n "$out" ]] && mkdir -p "$out/scratch" && cp "$d"/*.err "$d"/ssh.log "$out/scratch/" 2>/dev/null
+  [[ -n "$out" ]] && mkdir -p "$out/scratch/${d##*/}" && cp "$d"/*.err "$d"/ssh.log "$out/scratch/${d##*/}/" 2>/dev/null
   rm -rf "$d"
 done
 exit "$rc"

@@ -6,23 +6,26 @@ first dial) within seconds and the host's load hit 214. The goal is a peer that 
 is needed (Leo: "why not optimize it on our protools instead?"). This is the before/after harness.
 
 It builds a fake fleet on one machine: a real OpenSSH `sshd` (unprivileged, loopback, its own host key), a far acpmux
-daemon, and 130 ssh aliases (peer001..) that all reach that sshd. The near daemon gets 130 `ssh://peerNNN:PORT`
-peers and runs the real dial path: real `ssh` binaries (through a logging wrapper first on PATH, which then
-`exec`s the real ssh with the fake fleet's ssh config), real key exchange and login, real token read, real
-WebSocket handshake. Nothing is faked but the 130 hosts being one machine.
+daemon, and N ssh aliases (peer001..) that all reach that sshd. The near daemon gets N `ssh://peerNNN:PORT` peers and
+runs the real dial path: real `ssh` binaries (through a logging wrapper first on PATH, which `exec`s the real ssh
+with the fake fleet's ssh config), real key exchange and login, real token read, real WebSocket handshake. Nothing
+is faked but the hosts being one machine. `--style` picks the ssh config the aliases have:
+  plain   a bare Host block (HostName, key, no multiplexing)
+  fleet   the shape of Leo's fleet config: a ProxyCommand relay (a Python start per ssh) handing ssh a socket
+          (ProxyUseFdpass), ControlMaster auto + ControlPersist 90 (a shared master per host), 10 s keepalive.
 
   cold-start   start the near daemon with N peers; for SECS seconds report: ssh processes spawned (exact, from the
-               wrapper's log; split into `-W` tunnels and token reads), peak concurrent ssh, total CPU seconds
-               (daemon + every ssh it ran, reaped or live, from /proc), daemon RSS (peak, final), RSS per ssh -W
-               tunnel, the far side's CPU (sshd + far daemon) separately, load average, time to all links up.
-  handshake    one login at a time, REPS times: CPU (user+sys, rusage) and wall of `ssh -W` (the tunnel) and of the
-               token read, the far sshd's CPU per login, the phases of `ssh -vvv` (connect, key exchange, auth,
-               channel), RSS of one idle tunnel. `--real-host H` repeats the CPU part against a real host from
-               the machine's own ssh config (a tailnet peer).
-  both         the two, one JSON object.
+               wrapper's log; split into `-W` tunnels and token reads), peak concurrent ssh (masters included) and
+               peak processes of the run, total CPU seconds (daemon + everything it ran, reaped or live, from /proc),
+               daemon RSS, RSS per `-W` client and per master, the far side's CPU (sshd + far daemon) separately,
+               the CPU rate of the last third (what idle peers cost), load average, time until all links are up.
+  handshake    one login at a time to a fresh alias, REPS times: CPU (rusage) and wall of `ssh -W` (the tunnel) and of
+               the token read, a master's CPU, the far sshd's CPU per login, the phases of `ssh -vvv`, RSS of an
+               idle tunnel. `--real-host H` repeats the CPU part against a host of the machine's own ssh config.
+  both         baseline (0 peers), cold-start in each style, handshake in each style: one JSON object.
 
 Run (a fleet Linux machine; never a Mac of Leo's; the release build needs the Rust setup):
-  cmux-ci test --setup rust -- 'scripts/measure/peer-cost-linux.sh [peers=130] [secs=60] [reps=20]'
+  cmux-ci test --setup rust --artifact DIR -- 'scripts/measure/peer-cost-linux.sh [peers=130] [secs=60] [reps=20]'
 or on a machine with a built binary: python3 scripts/measure/peer-cost.py both --acpmux PATH [--peers 130]
 Prints PEERCOST lines, then {"rows": [...]} (the perf rows) as one JSON line.
 """
@@ -42,6 +45,8 @@ import time
 TICK = os.sysconf("SC_CLK_TCK")
 SSHD = next((p for p in ("/usr/sbin/sshd", "/usr/local/sbin/sshd", shutil.which("sshd") or "") if p and os.path.exists(p)), None)
 SSH = shutil.which("ssh") or "/usr/bin/ssh"
+SSH_PEER_PORT_DEFAULT = 47811
+NOSTAT = (0, 0, 0, "")
 
 
 def free_port():
@@ -51,7 +56,7 @@ def free_port():
 
 
 def stat_of(pid):
-    """(ppid, cpu_self_s, cpu_children_s, comm) from /proc/PID/stat, or None."""
+    """(ppid, cpu_self_s, cpu_reaped_children_s, comm) from /proc/PID/stat, or None."""
     try:
         raw = open(f"/proc/{pid}/stat").read()
     except OSError:
@@ -99,27 +104,25 @@ def cmdline(pid):
         return ""
 
 
-def tree_cpu(pid):
-    """CPU seconds of `pid`, the children it reaped, and every live descendant not yet reaped by it."""
-    s = stat_of(pid)
-    if not s:
-        return 0.0
-    kids = children_map()
-    live = sum((stat_of(d) or (0, 0, 0, ""))[1] for d in descendants(pid, kids))
-    return s[1] + s[2] + live
+def cpu_of(pids):
+    """CPU seconds of each pid (own plus the children it reaped), summed. A live process counts once, as itself."""
+    total = 0.0
+    for p in pids:
+        s = stat_of(p) or NOSTAT
+        total += s[1] + s[2]
+    return total
 
 
 class Fleet:
     """The fake fleet: sshd, the far daemon, the ssh config and the logging wrapper."""
 
-    def __init__(self, acpmux, tmp, peers):
+    def __init__(self, acpmux, tmp, peers, style="plain"):
         if not SSHD:
             sys.exit("peer-cost: no sshd on this machine (apt-get install openssh-server; it is not started)")
-        self.acpmux, self.tmp, self.n = acpmux, tmp, peers
+        self.acpmux, self.tmp, self.n, self.style = acpmux, tmp, peers, style
         self.user = os.environ.get("USER") or subprocess.check_output(["id", "-un"], text=True).strip()
         self.sshd_port, self.ws_port = free_port(), free_port()
         self.token = os.urandom(32).hex()
-        self.procs = []
         self.build()
 
     def p(self, *a):
@@ -144,7 +147,7 @@ class Fleet:
         open(self.p("ssh_config"), "w").write(
             f"Host peer*\n  HostName 127.0.0.1\n  Port {self.sshd_port}\n  User {self.user}\n"
             f"  IdentityFile {self.p('client_key')}\n  IdentitiesOnly yes\n  UserKnownHostsFile {self.p('known_hosts')}\n"
-            "  StrictHostKeyChecking no\n  LogLevel ERROR\n")
+            "  StrictHostKeyChecking no\n  LogLevel ERROR\n" + self.fleet_lines())
         # Logs one line per spawn (time, pid, argv) and becomes the real ssh: same pid, same CPU accounting.
         open(self.p("bin", "ssh"), "w").write(
             f'#!/bin/bash\nprintf \'%s %s %s\\n\' "$EPOCHREALTIME" "$$" "$*" >> {self.p("ssh.log")}\n'
@@ -155,11 +158,45 @@ class Fleet:
         peers = {f"peer{i:03d}": {"url": f"ssh://peer{i:03d}:{self.ws_port}"} for i in range(1, self.n + 1)}
         open(self.p("near", ".acpmux", "config.json"), "w").write(json.dumps({"peers": peers}))
 
+    def fleet_lines(self):
+        """The shape of Leo's fleet ssh config: a ProxyCommand relay that hands ssh a connected socket
+        (ProxyUseFdpass; the real one is a Python script that tries each route), a shared master per host
+        (ControlMaster auto, ControlPersist 90; %n in its path: every alias reaches one sshd, a %C hash would share one master) and the 10 s keepalive. This relay has one route: the same Python start."""
+        if self.style != "fleet":
+            return ""
+        relay = self.p("relay.py")
+        open(relay, "w").write(
+            "import array, os, socket, sys\n"
+            "s = socket.create_connection(('127.0.0.1', int(sys.argv[1])), 10)\n"
+            "c = socket.socket(fileno=os.dup(1))\n"
+            "c.sendmsg([b'\\0'], [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', [s.fileno()]))])\n")
+        return (f"  ProxyCommand python3 {relay} {self.sshd_port}\n  ProxyUseFdpass yes\n  ControlMaster auto\n"
+                f"  ControlPath {self.p('cm-%n')}\n  ControlPersist 90\n  ServerAliveInterval 10\n  ServerAliveCountMax 3\n")
+
+    def far_pids(self, kids):
+        return {self.sshd.pid, self.far.pid} | set(descendants(self.sshd.pid, kids)) | set(descendants(self.far.pid, kids))
+
+    def ours(self, kids):
+        """Pids this run started on the near side: the near daemon's descendants plus, in the fleet style, the
+        ControlPersist masters (a client's child that outlived it) and relays, found by this run's scratch
+        directory in their command line."""
+        near = getattr(self, "near", None)
+        desc = set(descendants(near.pid, kids)) if near else set()
+        found = set(desc)
+        if self.style == "fleet":
+            far = self.far_pids(kids)
+            for name in os.listdir("/proc"):
+                pid = int(name) if name.isdigit() else 0
+                if pid and pid not in desc and pid not in far and pid != os.getpid():
+                    st = stat_of(pid)
+                    if st and st[3] in ("ssh", "python3") and self.tmp in cmdline(pid):
+                        found.add(pid)
+        return found
+
     def env(self, home, path):
-        e = {"PATH": path, "HOME": home, "USER": self.user, "ACPMUX_HOME": os.path.join(home, ".acpmux"),
-             "ACPMUX_SOCKET": os.path.join(home, "s.sock"), "ACPMUX_LOGIN_ENV": "0", "ACPMUX_AGENT_LAUNCH": "deny",
-             "TMPDIR": self.tmp}
-        return e
+        return {"PATH": path, "HOME": home, "USER": self.user, "ACPMUX_HOME": os.path.join(home, ".acpmux"),
+                "ACPMUX_SOCKET": os.path.join(home, "s.sock"), "ACPMUX_LOGIN_ENV": "0", "ACPMUX_AGENT_LAUNCH": "deny",
+                "TMPDIR": self.tmp}
 
     def start_far(self):
         sysdirs = "/usr/local/bin:/usr/bin:/bin"
@@ -183,7 +220,6 @@ class Fleet:
 
     def start_near(self):
         open(self.p("ssh.log"), "w").close()
-        self.near_started = time.time()
         self.near = subprocess.Popen(
             [self.acpmux, "daemon", "run", "--memory", "--log", "warn"],
             env=self.env(self.p("near"), f'{self.p("bin")}:/usr/local/bin:/usr/bin:/bin'),
@@ -212,6 +248,12 @@ class Fleet:
             buf = buf.split(b"\n")[-1]
 
     def stop(self):
+        """End what this run started: the near daemon (its ssh children die with it), then any ControlPersist master
+        and relay it left (named by this run's scratch directory), the far daemon and sshd."""
+        try:
+            leftovers = self.ours(children_map())
+        except Exception:  # noqa: BLE001
+            leftovers = set()
         for pr in (getattr(self, "near", None), getattr(self, "far", None), getattr(self, "sshd", None)):
             if pr and pr.poll() is None:
                 pr.terminate()
@@ -219,7 +261,11 @@ class Fleet:
                     pr.wait(5)
                 except subprocess.TimeoutExpired:
                     pr.kill()
-        # Only what this run started: the ssh children of its own near daemon die with it (kill_on_drop).
+        for pid in leftovers:
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError:
+                pass
 
 
 def peers_up(fleet):
@@ -231,70 +277,73 @@ def peers_up(fleet):
     rows = ((v or {}).get("result") or {}).get("peers") or []
     if isinstance(rows, dict):
         rows = list(rows.values())
-
-    def up(r):
-        s = r.get("state")
-        s = s.get("state") if isinstance(s, dict) else s
-        return r.get("connected") is True or s in ("connected", "online", "ready", "up")
-
-    return sum(1 for r in rows if isinstance(r, dict) and up(r)), (rows[0] if rows else None)
+    up = sum(1 for r in rows if isinstance(r, dict) and (r.get("connected") is True or r.get("state") == "connected"))
+    return up, (rows[0] if rows else None)
 
 
-def cold_start(acpmux, peers, secs, keep):
+def cold_start(acpmux, peers, secs, style, keep):
     tmp = tempfile.mkdtemp(prefix="peercost-")
-    fleet = Fleet(acpmux, tmp, peers)
+    fleet = Fleet(acpmux, tmp, peers, style)
     try:
         fleet.start_far()
-        far_cpu0 = sum(tree_cpu(p.pid) for p in (fleet.sshd, fleet.far))
+        far0 = cpu_of(fleet.far_pids(children_map()))
         near = fleet.start_near()
         t0 = time.time()
-        peak_conc = peak_tunnels = peak_daemon_rss = 0
-        seen, tunnel_rss = {}, {}
+        peak_ssh = peak_tunnels = peak_procs = masters_peak = peak_daemon_rss = 0
+        seen_procs, tunnel_rss, master_rss = set(), {}, {}
         series, all_up_at, sample_row = [], None, None
-        last_rpc = 0
+        last_rpc, mark = 0, None  # `mark`: CPU at two thirds of the window; the rest of it is the idle, steady cost
         while time.time() - t0 < secs:
+            now = time.time() - t0
             kids = children_map()
-            live = [d for d in descendants(near.pid, kids) if (stat_of(d) or (0, 0, 0, ""))[3] == "ssh"]
-            tun = 0
-            for d in live:
+            mine = fleet.ours(kids)
+            seen_procs |= mine
+            ssh = [d for d in mine if (stat_of(d) or NOSTAT)[3] == "ssh"]
+            tun = masters = 0
+            for d in ssh:
                 cl = cmdline(d)
                 if " -W " in cl:
                     tun += 1
-                    r = rss_kb(d)
-                    if r:
-                        tunnel_rss[d] = max(tunnel_rss.get(d, 0), r)
-                seen[d] = True
-            peak_conc, peak_tunnels = max(peak_conc, len(live)), max(peak_tunnels, tun)
+                    tunnel_rss[d] = max(tunnel_rss.get(d, 0), rss_kb(d) or 0)
+                elif cl.startswith("ssh: "):
+                    masters += 1
+                    master_rss[d] = max(master_rss.get(d, 0), rss_kb(d) or 0)
+            peak_ssh, peak_tunnels, masters_peak = max(peak_ssh, len(ssh)), max(peak_tunnels, tun), max(masters_peak, masters)
+            peak_procs = max(peak_procs, len(mine))
             peak_daemon_rss = max(peak_daemon_rss, rss_kb(near.pid) or 0)
-            now = time.time() - t0
+            if mark is None and now >= secs * 2 / 3:
+                mark = (now, cpu_of({near.pid} | mine))
             if now - last_rpc >= 1:
                 last_rpc = now
                 n_up, row = peers_up(fleet)
                 sample_row = sample_row or row
-                series.append((round(now, 1), len(live), n_up))
-                if n_up is not None and n_up >= peers and all_up_at is None:
+                series.append((round(now, 1), len(ssh), n_up))
+                if peers and n_up is not None and n_up >= peers and all_up_at is None:
                     all_up_at = round(now, 1)
-            time.sleep(0.05)
-        near_cpu = tree_cpu(near.pid)
+            time.sleep(0.1)
+        end = time.time() - t0
+        total = cpu_of({near.pid} | fleet.ours(children_map()))
         own = stat_of(near.pid)
-        far_cpu = sum(tree_cpu(p.pid) for p in (fleet.sshd, fleet.far)) - far_cpu0
-        daemon_rss, hwm = rss_kb(near.pid), rss_kb(near.pid, "VmHWM")
+        far_cpu = cpu_of(fleet.far_pids(children_map())) - far0
         n_up, _ = peers_up(fleet)
-        load = open("/proc/loadavg").read().split()[0]
         log = [l.split(" ", 2) for l in open(fleet.p("ssh.log")).read().splitlines()]
-        spawned = len(log)
         tunnels = sum(1 for l in log if len(l) > 2 and " -W " in " " + l[2] + " ")
-        rss = sorted(tunnel_rss.values())
+        rss, mrss = sorted(tunnel_rss.values()), sorted(master_rss.values())
+        mb = lambda kb: round(kb / 1024, 2)  # noqa: E731
         out = {
-            "peers": peers, "secs": secs, "ssh_spawned": spawned, "ssh_tunnels": tunnels, "ssh_token_reads": spawned - tunnels,
-            "peak_concurrent_ssh": peak_conc, "peak_concurrent_tunnels": peak_tunnels,
-            "daemon_own_cpu_s": round(own[1], 2) if own else None,
-            "total_cpu_s_near": round(near_cpu, 2), "far_cpu_s_sshd_and_far_daemon": round(far_cpu, 2),
-            "daemon_rss_mb_final": round((daemon_rss or 0) / 1024, 1), "daemon_rss_mb_peak": round(max(hwm or 0, peak_daemon_rss) / 1024, 1),
-            "ssh_tunnel_rss_mb_median": round(statistics.median(rss) / 1024, 2) if rss else None,
-            "ssh_tunnel_rss_mb_max": round(rss[-1] / 1024, 2) if rss else None,
-            "loadavg1_at_end": float(load), "peers_up_at_end": n_up, "all_peers_up_s": all_up_at, "series_s_ssh_up": series[:: max(1, len(series) // 20)],
-            "peer_row_shape": sample_row,
+            "peers": peers, "style": style, "secs": secs,
+            "ssh_spawned": len(log), "ssh_tunnels": tunnels, "ssh_token_reads": len(log) - tunnels,
+            "peak_concurrent_ssh": peak_ssh, "peak_concurrent_tunnel_clients": peak_tunnels, "peak_masters": masters_peak,
+            "peak_processes_of_the_run": peak_procs, "processes_seen_in_all": len(seen_procs),
+            "total_cpu_s_near": round(total, 2), "daemon_own_cpu_s": round(own[1], 2) if own else None,
+            "steady_cpu_percent_of_one_core_last_third": round((total - mark[1]) / max(1e-9, end - mark[0]) * 100, 2) if mark else None,
+            "far_cpu_s_sshd_and_far_daemon": round(far_cpu, 2),
+            "daemon_rss_mb_final": mb(rss_kb(near.pid) or 0), "daemon_rss_mb_peak": mb(max(rss_kb(near.pid, "VmHWM") or 0, peak_daemon_rss)),
+            "ssh_tunnel_rss_mb_median": mb(statistics.median(rss)) if rss else None,
+            "ssh_master_rss_mb_median": mb(statistics.median(mrss)) if mrss else None,
+            "loadavg1_at_end": float(open("/proc/loadavg").read().split()[0]),
+            "peers_up_at_end": n_up, "all_peers_up_s": all_up_at,
+            "series_s_ssh_up": series[:: max(1, len(series) // 20)], "peer_row_shape": sample_row,
         }
         if keep:
             out["tmp"] = tmp
@@ -305,37 +354,44 @@ def cold_start(acpmux, peers, secs, keep):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
-def timed_ssh(argv, hold=False, stdin_payload=b""):
-    """One ssh run: (wall_s, cpu_s, rss_kb_while_idle). `hold`: keep the tunnel open to read its RSS."""
+def timed_ssh(argv, hold=False, payload=b""):
+    """One ssh run to its end: (wall_s to the first answer byte or to the end, cpu_s of the process and what it reaped,
+    rss_kb of the idle tunnel when `hold`). The payload is sent first; no payload: wait for the end of output."""
     t = time.monotonic()
     pr = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     rss = None
-    if stdin_payload:
-        pr.stdin.write(stdin_payload)
-        pr.stdin.flush()
-        pr.stdout.read1(1) if hasattr(pr.stdout, "read1") else pr.stdout.read(1)
-    wall = time.monotonic() - t
     if hold:
-        time.sleep(1.0)
+        time.sleep(1.5)  # the login is done and the channel to the far port is open; nothing is sent
         rss = rss_kb(pr.pid)
-    pr.stdin.close()
-    _, status, ru = os.wait4(pr.pid, 0)
+        wall = time.monotonic() - t
+    elif payload:
+        pr.stdin.write(payload)
+        pr.stdin.flush()
+        pr.stdout.read1(1)
+        wall = time.monotonic() - t
+    else:
+        pr.stdout.read()
+        wall = time.monotonic() - t
+    try:
+        pr.stdin.close()
+    except OSError:
+        pass
+    _, _, ru = os.wait4(pr.pid, 0)
     pr.returncode = 0
     return wall, ru.ru_utime + ru.ru_stime, rss
 
 
 def phases(argv):
-    """`ssh -vvv` stamped line by line: when each phase of one login begins, seconds since spawn."""
+    """`ssh -vvv` stamped line by line: when each phase of one login begins, ms since spawn."""
     t0 = time.monotonic()
     pr = subprocess.Popen(argv[:1] + ["-vvv"] + argv[1:], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                          stderr=subprocess.PIPE, text=False)
-    marks = {}
+                          stderr=subprocess.PIPE)
+    marks, kex = {}, None
     want = [("connect_start", rb"Connecting to"), ("tcp_connected", rb"Connection established"),
             ("banner", rb"Remote protocol version"), ("kexinit_sent", rb"SSH2_MSG_KEXINIT sent"),
-            ("kex_reply", rb"SSH2_MSG_KEX_ECDH_REPLY|SSH2_MSG_KEX_DH_GEX_REPLY|SSH2_MSG_KEX_ECDH_REPLY received|expecting SSH2_MSG_KEX"),
+            ("kex_reply", rb"SSH2_MSG_KEX_ECDH_REPLY|expecting SSH2_MSG_KEX"),
             ("newkeys", rb"SSH2_MSG_NEWKEYS received"), ("auth_start", rb"SSH2_MSG_SERVICE_ACCEPT received"),
             ("authenticated", rb"Authenticated to"), ("channel_open", rb"Local connections to|channel 0: new|direct-tcpip")]
-    kex = None
     pr.stdin.write(b"x")
     pr.stdin.flush()
     end = time.monotonic() + 8
@@ -355,42 +411,50 @@ def phases(argv):
     return {"ms_since_spawn": marks, "kex": kex}
 
 
-def handshake(acpmux, reps, real_host, keep):
+def handshake(acpmux, reps, style, real_host, keep):
     tmp = tempfile.mkdtemp(prefix="peercost-hs-")
-    fleet = Fleet(acpmux, tmp, 1)
+    fleet = Fleet(acpmux, tmp, 1, style)
     try:
         fleet.start_far()
-        port = fleet.ws_port
-        tun = [fleet.p("bin", "ssh"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-W", f"127.0.0.1:{port}", "--", "peer001"]
-        read = [fleet.p("bin", "ssh"), "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "--", "peer001",
-                "cat ~/.acpmux/config.json; printf '\\0'; cat ~/.acpmux/run/peer.token 2>/dev/null"]
+        port, wrap = fleet.ws_port, fleet.p("bin", "ssh")
+        opts = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
+        tun = lambda alias: [wrap, *opts, "-W", f"127.0.0.1:{port}", "--", alias]  # noqa: E731
+        read = lambda alias: [wrap, *opts, "--", alias,  # noqa: E731
+                              "cat ~/.acpmux/config.json; printf '\\0'; cat ~/.acpmux/run/peer.token 2>/dev/null"]
         probe = b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
-        timed_ssh(tun, stdin_payload=probe)  # warm: known_hosts, page cache
-        out = {"reps": reps, "kex": None}
+        timed_ssh(tun("peerwarm"), payload=probe)  # warm: page cache, known_hosts
+        out = {"style": style, "reps": reps}
 
-        def batch(label, argv, payload):
-            sshd0 = tree_cpu(fleet.sshd.pid)
-            rows = [timed_ssh(argv, stdin_payload=payload) for _ in range(reps)]
+        def sshd_cpu():
+            return cpu_of({fleet.sshd.pid} | set(descendants(fleet.sshd.pid, children_map())))
+
+        def batch(label, make, payload, first):
+            """A fresh alias per rep: each login is a first dial (its own key exchange, its own master)."""
+            sshd0 = sshd_cpu()
+            rows = [timed_ssh(make(f"peer{first + i:03d}"), payload=payload) for i in range(reps)]
             time.sleep(0.5)
-            far = (tree_cpu(fleet.sshd.pid) - sshd0) / reps
+            masters = [p for p in fleet.ours(children_map()) if (stat_of(p) or NOSTAT)[3] == "ssh"] if style == "fleet" else []
             cpu = [r[1] for r in rows]
             out[label] = {"client_cpu_ms_median": round(statistics.median(cpu) * 1000, 1),
                           "client_cpu_ms_mean": round(statistics.mean(cpu) * 1000, 1),
+                          "master_cpu_ms_per_login": round(cpu_of(masters) / reps * 1000, 1),
                           "wall_ms_median": round(statistics.median(r[0] for r in rows) * 1000, 1),
-                          "far_sshd_cpu_ms_per_login": round(far * 1000, 1)}
+                          "far_sshd_cpu_ms_per_login": round((sshd_cpu() - sshd0) / reps * 1000, 1)}
 
-        batch("tunnel_login", tun, probe)
-        batch("token_read_login", read, b"")
-        idle = timed_ssh(tun, hold=True, stdin_payload=probe)
-        out["idle_tunnel_rss_mb"] = round(idle[2] / 1024, 2) if idle[2] else None
-        ph = phases(tun)
-        out["phases"] = ph
-        out["kex"] = ph["kex"]
-        # CPU of the key exchange alone: a login that stops at the banner costs the TCP + version exchange only.
-        if real_host:
-            rt = [SSH, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-W", f"127.0.0.1:{SSH_PEER_PORT_DEFAULT}", "--", real_host]
+        batch("tunnel_login", tun, probe, 1)
+        batch("token_read_login", read, b"", 200)
+        idle = timed_ssh(tun("peer500"), hold=True)
+        out["idle_tunnel_client_rss_mb"] = round(idle[2] / 1024, 2) if idle[2] else None
+        out["phases"] = phases(tun("peer600"))
+        out["kex"] = out["phases"]["kex"]
+        if style == "fleet":  # the next login to a host with a live master: a mux client only
+            again = [timed_ssh(tun("peer001"), payload=probe) for _ in range(reps)]
+            out["tunnel_login_via_live_master"] = {"client_cpu_ms_median": round(statistics.median(a[1] for a in again) * 1000, 1),
+                                                    "wall_ms_median": round(statistics.median(a[0] for a in again) * 1000, 1)}
+        if real_host and style == "plain":
+            rt = [SSH, *opts, "-W", f"127.0.0.1:{SSH_PEER_PORT_DEFAULT}", "--", real_host]
             try:
-                rows = [timed_ssh(rt, stdin_payload=probe) for _ in range(max(3, reps // 4))]
+                rows = [timed_ssh(rt, payload=probe) for _ in range(max(3, reps // 4))]
                 out["real_host"] = {"client_cpu_ms_median": round(statistics.median(r[1] for r in rows) * 1000, 1),
                                     "wall_ms_median": round(statistics.median(r[0] for r in rows) * 1000, 1), "n": len(rows)}
             except Exception as e:  # noqa: BLE001 (a host that cannot be reached is a result)
@@ -402,9 +466,6 @@ def handshake(acpmux, reps, real_host, keep):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
-SSH_PEER_PORT_DEFAULT = 47811
-
-
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("mode", choices=["cold-start", "handshake", "both"])
@@ -412,22 +473,45 @@ def main():
     ap.add_argument("--peers", type=int, default=130)
     ap.add_argument("--secs", type=int, default=60)
     ap.add_argument("--reps", type=int, default=20)
+    ap.add_argument("--style", choices=["plain", "fleet", "all"], default="all", help="the ssh config of the aliases")
     ap.add_argument("--real-host", help="handshake: also time ssh -W to this host of the machine's own ssh config")
-    ap.add_argument("--keep", action="store_true", help="keep the scratch directory (logs, configs)")
+    ap.add_argument("--keep", action="store_true", help="keep the scratch directories (logs, configs)")
     ap.add_argument("--out", help="write the JSON here as well")
     a = ap.parse_args()
+    styles = ["plain", "fleet"] if a.style == "all" else [a.style]
     result = {}
+
+    def stage(name, fn, *args):
+        """One stage's result, or its failure as a result: one broken style does not lose the others' numbers."""
+        try:
+            result[name] = fn(*args)
+        except BaseException as e:  # noqa: BLE001
+            result[name] = {"error": f"{type(e).__name__}: {e}"}
+        return result[name]
+
     if a.mode in ("cold-start", "both"):
-        result["cold_start"] = cold_start(a.acpmux, a.peers, a.secs, a.keep)
+        base = stage("cold_start_baseline_0_peers", cold_start, a.acpmux, 0, min(a.secs, 15), "plain", a.keep)
+        for st in styles:
+            r = stage(f"cold_start_{st}", cold_start, a.acpmux, a.peers, a.secs, st, a.keep)
+            if a.peers and "error" not in r and "error" not in base:
+                r["per_peer"] = {
+                    "total_cpu_ms": round((r["total_cpu_s_near"] - base["total_cpu_s_near"]) / a.peers * 1000, 1),
+                    "daemon_own_cpu_ms": round((r["daemon_own_cpu_s"] - base["daemon_own_cpu_s"]) / a.peers * 1000, 1),
+                    "daemon_rss_mb": round((r["daemon_rss_mb_final"] - base["daemon_rss_mb_final"]) / a.peers, 3),
+                }
     if a.mode in ("handshake", "both"):
-        result["handshake"] = handshake(a.acpmux, a.reps, a.real_host, a.keep)
+        for st in styles:
+            stage(f"handshake_{st}", handshake, a.acpmux, a.reps, st, a.real_host, a.keep)
     rows = []
-    cs, hs = result.get("cold_start"), result.get("handshake")
-    if cs:
-        for k in ("ssh_spawned", "peak_concurrent_ssh", "total_cpu_s_near", "daemon_rss_mb_peak", "ssh_tunnel_rss_mb_median"):
-            rows.append({"name": f"acpmux.peer_cost.{k}", "value": cs[k], "peers": cs["peers"]})
-    if hs:
-        rows.append({"name": "acpmux.peer_cost.login_cpu_ms", "value": hs["tunnel_login"]["client_cpu_ms_median"]})
+    for st in styles:
+        cs = result.get(f"cold_start_{st}")
+        if cs and "error" not in cs:
+            for k in ("ssh_spawned", "peak_concurrent_ssh", "peak_processes_of_the_run", "total_cpu_s_near",
+                      "daemon_rss_mb_peak", "ssh_tunnel_rss_mb_median"):
+                rows.append({"name": f"acpmux.peer_cost.{st}.{k}", "value": cs[k], "peers": cs["peers"]})
+        hs = result.get(f"handshake_{st}")
+        if hs and "error" not in hs:
+            rows.append({"name": f"acpmux.peer_cost.{st}.login_cpu_ms", "value": hs["tunnel_login"]["client_cpu_ms_median"]})
     for k, v in result.items():
         print(f"PEERCOST {k} {json.dumps(v, sort_keys=True)}")
     result["rows"] = rows
