@@ -318,9 +318,14 @@ const shown = (box: Box | null) =>
 const modelHoldsStill: Play = async (ctx) => {
   const view = ctx.document.defaultView as Frame;
   await ctx.waitFor(() => ctx.document.querySelector(FIELD), { capMs: 10_000 });
-  await ctx.waitFor(() => boxOf(ctx.document.querySelector(MODEL)) && ctx.document.querySelector(".acpmux-mode-text"), {
-    capMs: 10_000,
-  });
+  await ctx
+    .waitFor(() => boxOf(ctx.document.querySelector(MODEL)) && ctx.document.querySelector(".acpmux-mode-text"), {
+      capMs: 10_000,
+    })
+    .catch((error: Error) => {
+      const has = (selector: string) => (ctx.document.querySelector(selector) ? "shown" : "missing");
+      throw new Error(`at rest: model chip ${has(MODEL)}, Mode text ${has(".acpmux-mode-text")}: ${error.message}`);
+    });
   // At rest: the model chip's box unchanged for 5 frames running (its label can arrive after the chip shows).
   let rest = boxOf(ctx.document.querySelector(MODEL))!;
   for (let still = 0, frame = 0; still < 5 && frame < 120; frame++) {
@@ -358,15 +363,16 @@ const modelHoldsStill: Play = async (ctx) => {
     await frames(view);
     step = "This Mac picked again";
     await ctx.waitFor(() => view.cmuxAcpmuxDebug?.runMode("persistent").runMode === "persistent", { capMs: 10_000 });
-    await ctx.waitFor(
-      () =>
-        ![...ctx.document.querySelectorAll(`${STRIP} .acpmux-location-button`)].some((button) =>
-          /cloud/i.test(button.getAttribute("aria-label") ?? ""),
-        ),
-      { capMs: 10_000 },
-    );
+    // The Environment chip stays mounted as it closes (its slot's data-shown turns false), so wait on the slot.
+    await ctx.waitFor(() => !ctx.document.querySelector(`${STRIP} .acpmux-cloud-env-slot[data-shown="true"]`), {
+      capMs: 10_000,
+    });
     await frames(view);
     await frames(view);
+  } catch (error) {
+    // Name the step a wait stalled in, and where the composer was then.
+    const mode = String(view.cmuxAcpmuxDebug?.runMode().runMode ?? "unknown");
+    throw new Error(`${step} (run mode ${mode}): ${(error as Error).message}`);
   } finally {
     sampling = false;
   }
