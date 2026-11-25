@@ -61,10 +61,20 @@ async fn both_sides_opening_toward_each_other_connect_from_their_listening_ports
     let (to_b, to_a) = ([to_b], [to_a]);
     let (from_a, from_b) =
         tokio::join!(open_toward(pa, &to_b, PUNCH_WINDOW), open_toward(pb, &to_a, PUNCH_WINDOW));
-    let (tcp, at) = from_a.expect("A connected");
-    assert_eq!(at, to_b[0]);
-    assert_eq!(tcp.local_addr().unwrap().port(), pa, "from the listening port");
-    assert!(from_b.is_some());
+    // One connection opens. Where both listen (loopback, an open NAT) the first connect meets
+    // the other's listener, which accepts it (`serve_direct` in the daemon), and the other
+    // side's own connect then names the same pair of addresses; a simultaneous open gives both
+    // sides that one connection instead.
+    let (tcp, at, listener, from_port) = match (from_a, from_b) {
+        (Some((tcp, at)), _) => (tcp, at, &b, pa),
+        (None, Some((tcp, at))) => (tcp, at, &a, pb),
+        (None, None) => panic!("neither side connected"),
+    };
+    assert_eq!(tcp.local_addr().unwrap().port(), from_port, "from the listening port");
+    assert_eq!(at.port(), listener.local_addr().unwrap().port());
+    let accepted = tokio::time::timeout(Duration::from_secs(2), listener.accept()).await;
+    let (_, peer) = accepted.expect("the other side's listener accepts").unwrap();
+    assert_eq!(peer.port(), from_port, "the accepted connection came from the listening port");
 }
 
 #[tokio::test]
