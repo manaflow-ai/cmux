@@ -2136,6 +2136,12 @@ async fn dispatch_request_with_identity(
             if remote_start {
                 let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
                 let cloud_mobile = super::remote_guard::cloud_mobile(&params);
+                let mesh_approved_default_preset = conn.origin == Origin::Peer
+                    && conn.auth == ConnAuth::MeshControl
+                    && mux_meta(&params)
+                        .and_then(|meta| meta.get(super::mesh_relay::APPROVED_DEFAULT_PRESET_FIELD))
+                        .and_then(Value::as_bool)
+                        == Some(true);
                 // The VM boundary its caller asked for (`hub/vm_boundary.rs`): a
                 // session the owner's peer daemon starts with no policy runs
                 // approve-all, as vmHost's did. Web clients still ask. Before the
@@ -2154,8 +2160,17 @@ async fn dispatch_request_with_identity(
                 {
                     heap(|| hub.grant_vm_host_approve_all(&s)).await;
                 }
-                heap(|| super::remote_guard::settle_web_session_mode(hub, &s, peer, cloud_mobile))
+                if mesh_approved_default_preset {
+                    // The receiving daemon selected a preset whose mode the person approved on
+                    // this machine. The normal start gate checks its bound digest and applies it
+                    // without carrying a session/set_mode or permission allow over the hub.
+                    heap(|| hub.start_in_mode(false, conn.caller(), &params, &s, adopting)).await?;
+                } else {
+                    heap(|| {
+                        super::remote_guard::settle_web_session_mode(hub, &s, peer, cloud_mobile)
+                    })
                     .await?;
+                }
             } else {
                 heap(|| hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting))
                     .await?;
