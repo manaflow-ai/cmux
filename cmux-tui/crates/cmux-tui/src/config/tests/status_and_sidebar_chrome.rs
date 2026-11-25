@@ -68,13 +68,14 @@ fn status_bar_segments_parse_validate_and_cap() {
     assert_eq!(commands.len(), 1);
     assert_eq!(commands[0].0, 1, "command index counts left segments first");
 
-    let overflow: Vec<RawStatusSegment> = (0..MAX_STATUS_SEGMENTS + 3)
+    // A side keeps more segments than the old limit of 8.
+    let many: Vec<RawStatusSegment> = (0..11)
         .map(|index| RawStatusSegment {
             text: Some(format!("{index}")),
             ..RawStatusSegment::default()
         })
         .collect();
-    assert_eq!(resolve_status_segments(overflow, "left").len(), MAX_STATUS_SEGMENTS);
+    assert_eq!(resolve_status_segments(many, "left").len(), 11);
 }
 
 #[test]

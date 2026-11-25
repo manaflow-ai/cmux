@@ -21,6 +21,38 @@ impl Mux {
         gate.admit(draft, now)
     }
 
+    /// `run` once per `key` (a participant's `op_id`, `conversation_inbox_once.rs`): a repeat
+    /// of the same `op` answers the first success and runs nothing. The ids' lock is held across
+    /// `run`, so two repeats never both write.
+    pub(crate) fn inbox_op_once(
+        &self,
+        key: Option<String>,
+        op: String,
+        run: impl FnOnce() -> anyhow::Result<Value>,
+    ) -> anyhow::Result<Value> {
+        use crate::conversation_inbox_once::Seen;
+        let Some(key) = key else { return run() };
+        let mut once = self.conversations.inbox_ops.lock().unwrap_or_else(PoisonError::into_inner);
+        match once.seen(&key, &op) {
+            Seen::Repeat(result) => return Ok(result),
+            Seen::Reused => anyhow::bail!(
+                "bad request: op_id names an earlier op with another op: send a new op_id"
+            ),
+            Seen::New => {}
+        }
+        let result = run()?;
+        once.keep(key, op, result.clone());
+        Ok(result)
+    }
+
+    /// The ids `inbox_op_once` keeps, its touch queue, and the repeats it answered.
+    #[cfg(test)]
+    pub(crate) fn inbox_ops_kept(&self) -> (usize, usize, u64) {
+        let once = self.conversations.inbox_ops.lock().unwrap_or_else(PoisonError::into_inner);
+        let (slots, order) = once.len();
+        (slots, order, once.repeats)
+    }
+
     /// The Send Later sender's wake (server/conversation_scheduled.rs).
     pub(crate) fn scheduled_sender_wake(
         &self,
