@@ -30,6 +30,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     /// Chrome's automatic-downloads rule for this page (CEFTab+Prompts).
     @ObservationIgnored public internal(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
+    /// A restored tab's own first load (no gesture: the tab was shown after a relaunch) may not start a download
+    /// (`CEFDownloads`): its address turned into a download in the run before, and every relaunch downloaded it
+    /// again. A person's gesture, load, reload or history step, or a committed document, ends it.
+    @ObservationIgnored public var refusesDownloadsUntilGesture = false
+    /// A tab's last frame over its new page until the page paints (`CEFTab+StandIn`).
+    @ObservationIgnored var standIn: NSView?
+    /// The stand-in's cap (`showStandIn`).
+    @ObservationIgnored var standInCap: DemandTimer?
 
     /// Chromium browser identifier once created.
     @ObservationIgnored public private(set) var browserID: Int32?
@@ -394,6 +402,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
             guard painted == true, !hasDocument else { return }
             host.lifecycleTrace.record(id, "paint-query painted")
             documentPainted = true
+            removeStandIn()
             documentMayTakeKeys()
         }
     }
@@ -410,6 +419,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // Chromium's own load (its `.loadingState(true)`), not the app's: a load the app asked for before Chromium began
         // it is no load yet, and a paint then is the document before it.
         if !committedThisLoad { paintBeforeCommit = chromiumLoading } else { documentPainted = true }
+        if documentPainted, contentful { removeStandIn() } // the new page drew content over its last frame
         if !hasDocument { host.lifecycleTrace.record(id, "cef-first-paint\(contentful ? "" : " frame-only") committed=\(committedThisLoad) loading=\(chromiumLoading)") }
         documentMayTakeKeys()
     }
@@ -646,6 +656,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func load(_ url: URL) {
         guard !isClosed else { return }
         automaticDownloads.userGesture()
+        refusesDownloadsUntilGesture = false
         guard browserID != nil || isCreationPending else {
             // No browser, and none on its way: a page made before any pane shows its tab (a rest on the tab, a
             // hibernated page restored in the background, an agent's read). Chromium makes its browser when a pane
@@ -671,6 +682,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     public func goBack() {
+        refusesDownloadsUntilGesture = false
         if !nativeHistory.back, restored.step(by: -1) { return }
         browserID.map { runtime.shim?.goBack($0) }
     }
@@ -678,6 +690,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Saved forward entries sit right after Chromium's first entry
     /// (`BrowserRestoredHistory`), so they come first from there.
     public func goForward() {
+        refusesDownloadsUntilGesture = false
         if !nativeHistory.back, restored.step(by: 1) { return }
         browserID.map { runtime.shim?.goForward($0) }
     }
@@ -688,6 +701,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public func reloadBypassingCache() { reload(bypassingCache: true) }
 
     private func reload(bypassingCache: Bool) {
+        refusesDownloadsUntilGesture = false
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return
@@ -835,6 +849,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         faviconTask?.cancel()
         documentFaviconRead?.cancel()
         dismissPrompts()
+        removeStandIn()
         if let browserID {
             runtime.shim?.close(browserID)
         } else {
