@@ -1,3 +1,4 @@
+public import CmuxEgress
 import CmuxNextCloud
 public import Foundation
 import os
@@ -21,7 +22,7 @@ public struct RemoteInstaller: Sendable {
     private let session: URLSession
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "ssh.install")
 
-    public init(commandLine: SSHCommandLine = SSHCommandLine(), paths: SSHPaths, session: URLSession = .shared) {
+    public init(commandLine: SSHCommandLine = SSHCommandLine(), paths: SSHPaths, session: URLSession = CmuxEgress.shared(site: "CmuxNextRemote.RemoteInstaller")) {
         self.commandLine = commandLine
         self.paths = paths
         self.session = session
