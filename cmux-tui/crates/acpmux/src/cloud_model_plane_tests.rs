@@ -123,22 +123,22 @@ fn a_spawn_gets_the_route_only_where_nothing_else_set_it() {
 #[test]
 fn a_resolver_that_fails_n_times_then_answers_still_gives_the_route() {
     let plane = validate(parse(BAKED)).unwrap();
-    let mut calls = 0;
-    let mut slept = Duration::ZERO;
+    let calls = std::cell::Cell::new(0);
+    let slept = std::cell::Cell::new(Duration::ZERO);
     let kept = where_resolves(plane.clone(), |_| {
         let (ok, tries) = resolve_with_retries(
             || {
-                calls += 1;
-                calls > 4
+                calls.set(calls.get() + 1);
+                calls.get() > 4
             },
-            |d| slept += d,
+            |d| slept.set(slept.get() + d),
             RETRY_BUDGET,
         );
         assert_eq!(tries, 5);
         ok
     });
     assert_eq!(kept, plane, "the spawn got the route");
-    assert!(slept < RETRY_BUDGET, "inside the budget");
+    assert!(slept.get() < RETRY_BUDGET, "inside the budget");
 }
 
 #[test]
