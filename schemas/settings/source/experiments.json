@@ -11,6 +11,30 @@
       "note": "Settings > Advanced > Experiments: taste prototypes, each behind its own switch, all off by default.",
       "rows": [
         {
+          "key": "experiments.appFontChrome",
+          "note": "Taste prototype: native chrome text (the sidebar, tabs, titlebar, menus cmux draws; CheckedFont.system) draws in appearance.appFont too, not only the web pages. Off by default; off keeps the system font in native chrome.",
+          "title": {
+            "key": "settings.experiments.appFontChrome",
+            "text": "App Font in Native Chrome"
+          },
+          "help": {
+            "key": "settings.experiments.appFontChrome.help",
+            "text": "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "font",
+            "app font",
+            "sidebar",
+            "tabs",
+            "chrome"
+          ]
+        },
+        {
           "key": "experiments.glassToolbarGroups",
           "note": "Taste prototype: the agent chat header's buttons draw as round glass buttons, related actions share one glass capsule, with a search chip and shortcut keycaps (webviews useExperimentSwitch(\"glassToolbarGroups\")). Off by default; off keeps today's header.",
           "title": {

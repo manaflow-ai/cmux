@@ -322,6 +322,7 @@
         "appearance.customDensities",
         "appearance.metrics.chromeFontSize",
         "appearance.fontSmoothing",
+        "appearance.appFont",
         "appearance.interfaceScale",
         "appearance.borders",
         "appearance.liquidGlass",
@@ -522,6 +523,7 @@
       "why": "Experiments are taste prototypes of how a surface looks (looks only), each off by default.",
       "keys": [
         "experiments.glassToolbarGroups",
+        "experiments.appFontChrome",
         "experiments.composerButtonsVisible",
         "experiments.composerV2",
         "experiments.hoverLook",

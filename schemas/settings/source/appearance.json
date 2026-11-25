@@ -1738,6 +1738,35 @@
           ]
         },
         {
+          "key": "appearance.appFont",
+          "note": "The font family of cmux's interface, any installed family (Leo, 2026-11-08: \"there's no whole app font change thing\"). Unset is the system font. Every web page (chat, Settings, palette) takes it as --font-ui live through the web theme (WebTheme.appFontStack, a <style id=cmux-app-font> rule under inline styles, so a chat font set on Chat still wins there). Native chrome text (CheckedFont.system) takes it too while experiments.appFontChrome is on. Terminals keep terminal.fontFamily. Validation domain:ui_font_family: any family name, the owner checks the shape only.",
+          "title": {
+            "key": "settings.appearance.appFont",
+            "text": "App Font"
+          },
+          "help": {
+            "key": "settings.appearance.appFont.help",
+            "text": "The font of cmux's interface: chat, Settings and every page. Terminals keep their own."
+          },
+          "kind": "font_family",
+          "default": null,
+          "default_label": {
+            "key": "settings.appearance.appFont.system",
+            "text": "System"
+          },
+          "swift_owner": "AppFontSetting",
+          "keywords": [
+            "font",
+            "app font",
+            "interface font",
+            "ui font",
+            "typeface",
+            "family",
+            "whole app",
+            "text"
+          ]
+        },
+        {
           "key": "appearance.interfaceScale",
           "title": {
             "key": "settings.appearance.interfaceSize",
