@@ -67,9 +67,12 @@ const QUEUE_SOFT_CAP: usize = 4096;
 const QUEUE_CAP: usize = 16_384;
 /// The prompt id of a hand-off turn's prompt starts with this, then the turn and `-`.
 pub(super) const PROMPT_PREFIX: &str = "handoff-";
-/// Sessions followed at most; past it a session with no turn being reported is forgotten, and a
-/// new session is not followed while every followed one is reporting a turn.
-const MAX_TRACKS: usize = 4096;
+/// Followed sessions past which the ones with no turn being reported are forgotten (a quarter
+/// of them at a time, so each new session costs a constant on average). A session reporting a
+/// turn is always followed: a track is a few dozen bytes, and it goes when its session closes.
+const QUIET_TRACKS_KEPT: usize = 4096;
+/// Turn ids remembered for attention lines past which they are all forgotten at once.
+const ACTIVE_TURNS_KEPT: usize = 4096;
 /// Closed sessions, and sessions whose hand-off closed, remembered at most (the oldest is
 /// forgotten first).
 const MAX_CLOSED: usize = 4096;
@@ -99,8 +102,6 @@ const LATER: [Duration; 4] = [
     Duration::from_secs(600),
     Duration::from_secs(1800),
 ];
-/// Turn ends waiting to be sent again, at most.
-const MAX_LATER: usize = 4096;
 /// A finished turn's summary: the start of its last reply.
 const DONE_CHARS: usize = 600;
 /// A failed turn's summary, and what a permission or question asks.
@@ -318,7 +319,7 @@ fn attention_for_record(kind: &str, msg: &Value, session: &str, seq: u64) -> Opt
     let digest = Sha256::digest(format!("{session}\0{key}\0{kind}").as_bytes());
     let event_id =
         format!("attn_{}", digest.iter().take(20).map(|b| format!("{b:02x}")).collect::<String>());
-    Some(json!({
+    let mut event = json!({
         "event_id": event_id,
         "kind": kind,
         "session": session,
@@ -327,7 +328,21 @@ fn attention_for_record(kind: &str, msg: &Value, session: &str, seq: u64) -> Opt
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0),
-    }))
+    });
+    // An ask's one-tap answers (`hub/ask_choices.rs`), each answered by `permission_id` and its
+    // id through `_acpmux/permission_respond` `choiceId`. Only for an ask acpmux can answer: one
+    // with its permission id.
+    if kind != "done"
+        && semantic_id != "record"
+        && let Some(permission) = msg.get("permissionId").and_then(Value::as_str)
+        && let Some(fields) = event.as_object_mut()
+    {
+        let (ask, choices) = crate::hub::ask_choices::choices(&msg["request"]);
+        fields.insert("ask".into(), json!(ask.name()));
+        fields.insert("permission_id".into(), json!(permission));
+        fields.insert("choices".into(), choices.iter().map(|c| c.json()).collect());
+    }
+    Some(event)
 }
 
 fn attention_for_event(
@@ -407,6 +422,57 @@ mod attention_tests {
         let first = attention_for_record("turn_result", &done, "s", 2).unwrap();
         let replay = attention_for_record("turn_result", &done, "s", 100).unwrap();
         assert_eq!(first["event_id"], replay["event_id"]);
+    }
+
+    #[test]
+    fn an_ask_carries_its_one_tap_choices_and_a_turn_end_none() {
+        let options = json!([{"optionId": "a1", "kind": "allow_once"},
+            {"optionId": "a2", "kind": "allow_always"}, {"optionId": "r1", "kind": "reject_once"}]);
+        let permission = json!({"permissionId": "perm-1",
+            "request": {"toolCall": {"title": "Write", "kind": "execute"}, "options": options}});
+        let event = attention_for_record("permission_request", &permission, "s", 1).unwrap();
+        assert_eq!(event["ask"], "permission");
+        assert_eq!(event["permission_id"], "perm-1");
+        let ids: Vec<&str> =
+            event["choices"].as_array().unwrap().iter().filter_map(|c| c["id"].as_str()).collect();
+        assert_eq!(ids, ["allow_once", "deny"]);
+        let plan = json!({"permissionId": "perm-2", "request": {"toolCall": {
+            "_meta": {"claude": {"tool": "ExitPlanMode"}}, "rawInput": {"plan": "1. Test"}},
+            "options": [{"optionId": "y", "kind": "allow_once"}, {"optionId": "n", "kind": "reject_once"}]}});
+        let event = attention_for_record("permission_request", &plan, "s", 2).unwrap();
+        assert_eq!(
+            (event["kind"].as_str(), event["ask"].as_str()),
+            (Some("permission"), Some("plan"))
+        );
+        assert_eq!(event["choices"][0]["id"], "approve");
+        // As the hub records it: with its normalized question (`hub/questions.rs`).
+        let asked = json!({"toolCall": {"_meta": {"claude": {"tool": "AskUserQuestion"},
+            "acpmux": {"question": {"harness": "claude", "items": [{"id": "q0", "prompt": "Ship it?",
+                "options": [{"id": "Yes", "label": "Yes"}, {"id": "No", "label": "No"}],
+                "multiSelect": false, "allowsOther": true}]}}}},
+            "options": [{"optionId": "ok", "kind": "allow_once"}]});
+        let question = json!({"permissionId": "perm-3", "request": asked});
+        let event = attention_for_record("permission_request", &question, "s", 3).unwrap();
+        assert_eq!(event["kind"], "question");
+        assert_eq!(
+            event["choices"][1],
+            json!({"id": "option.1", "label": "No", "kind": "answer", "signed": true})
+        );
+        // No permission id: nothing to answer, so no choices.
+        let bare = json!({"request": {"toolCall": {"title": "Write"}, "options": options}});
+        assert!(
+            attention_for_record("permission_request", &bare, "s", 4)
+                .unwrap()
+                .get("choices")
+                .is_none()
+        );
+        let done = attention_for_record(
+            "turn_result",
+            &json!({"status": "completed", "turnId": "t"}),
+            "s",
+            5,
+        );
+        assert!(done.unwrap().get("choices").is_none());
     }
 
     #[test]
@@ -585,10 +651,6 @@ impl<I: Io> Reporter<I> {
         // session's state; `report` sends nothing then, and a turn's end waits in `later`.
         if !self.tracks.contains_key(session) {
             self.make_room();
-            if self.tracks.len() >= MAX_TRACKS {
-                tracing::warn!(session, "hand-off reports: too many sessions, one not followed");
-                return;
-            }
         }
         let track = self.tracks.entry(session.to_owned()).or_default();
         let mut now = track.now.clone();
@@ -715,10 +777,6 @@ impl<I: Io> Reporter<I> {
             tracing::warn!(session, turn = later.turn, "hand-off report given up");
             return;
         };
-        if self.later.len() >= MAX_LATER && !self.later.contains_key(session) {
-            tracing::warn!(session, "hand-off reports: too many waiting, a turn's end dropped");
-            return;
-        }
         later.at = tokio::time::Instant::now() + *wait;
         self.later.insert(session.to_owned(), later);
     }
@@ -822,9 +880,10 @@ impl<I: Io> Reporter<I> {
         }
     }
 
-    /// Keeps the tracks under [`MAX_TRACKS`]: sessions with no turn being reported go first.
+    /// Past [`QUIET_TRACKS_KEPT`] tracks, forgets a quarter of the sessions with no turn being
+    /// reported. Sessions reporting a turn are never forgotten here.
     fn make_room(&mut self) {
-        if self.tracks.len() < MAX_TRACKS {
+        if self.tracks.len() < QUIET_TRACKS_KEPT {
             return;
         }
         let quiet: Vec<String> = self
@@ -1034,7 +1093,8 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
     let losses = Arc::new(AtomicU64::new(0));
     let mut reporter = Reporter::new(AgentSocket { path: path.clone() });
     let (lost, reader) = (losses.clone(), hub.clone());
-    tokio::spawn(async move {
+    // Its panic is this loop's (below), so the loop's supervisor starts both again (`daemon.rs`).
+    let worker = tokio::spawn(async move {
         let mut seen = 0;
         loop {
             let deadline = reporter.next_deadline();
@@ -1048,6 +1108,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
                 }
             };
             let Some(mut queued) = next else { break };
+            crate::supervise::panic_point("hand-off reporter", &queued.session);
             let now = lost.load(Ordering::SeqCst);
             if now != seen {
                 reporter.forget_turns();
@@ -1112,7 +1173,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             continue;
         }
         if ev.record.kind == "turn_started" {
-            if active_turns.len() >= MAX_TRACKS {
+            if active_turns.len() >= ACTIVE_TURNS_KEPT {
                 active_turns.clear();
             }
             active_turns.insert(
@@ -1154,7 +1215,16 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
                 tracing::warn!(session = %ev.session_id, "hand-off reports: queue full, a step dropped");
                 losses.fetch_add(1, Ordering::SeqCst);
             }
-            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
+            // The worker ended: a panic ends this loop too, so its supervisor starts both again.
+            // Before, the loop ended quietly and no hand-off was reported until a restart.
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                if let Err(e) = worker.await
+                    && e.is_panic()
+                {
+                    std::panic::resume_unwind(e.into_panic());
+                }
+                break;
+            }
         }
     }
 }

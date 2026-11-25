@@ -4,6 +4,7 @@ import { formatDuration } from "../conversation/turns";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import { StateMark } from "./StateMark";
 import { rowIconSize } from "../icons/iconSize";
 import { phaseAgents, tally } from "./foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "./workflow";
@@ -149,7 +150,7 @@ function Lanes({
         <section key={phase.id} className="acpmux-workflow-side-tab__lane" data-state={phase.state}>
           <header>
             <span>{phaseLabel(t, phase)}</span>
-            <span>{stateLabel(t, phase.state)}</span>
+            <StateMark state={phase.state} label={stateLabel(t, phase.state)} mark />
           </header>
           <PhaseAgents workflow={workflow} phase={phase} now={now} onOpenWorkflowAgent={onOpenWorkflowAgent} />
         </section>
@@ -193,7 +194,9 @@ function Table({
                   />
                 </ul>
               </td>
-              <td>{stateLabel(t, agent.state)}</td>
+              <td>
+                <StateMark state={agent.state} label={stateLabel(t, agent.state)} mark />
+              </td>
             </tr>
           )),
         )}
@@ -208,7 +211,12 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
   const elapsed = elapsedFor(workflow, now);
   const counts = tally(workflow.agents);
   return (
-    <aside className="acpmux-workflow-side-tab" data-layout={layout} aria-label={workflow.title}>
+    <aside
+      className="acpmux-workflow-side-tab ui-glass"
+      data-glass-level="popover"
+      data-layout={layout}
+      aria-label={workflow.title}
+    >
       <header className="acpmux-workflow-side-tab__head">
         <div className="acpmux-workflow-side-tab__title">
           <Icon name="agent.session" size={ROW_ICON} row />
@@ -233,7 +241,7 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
             ) : (
               <Icon name={workflow.state === "completed" ? "status.complete" : "status.error"} size={ROW_ICON} row />
             )}
-            {stateLabel(t, workflow.state)}
+            <StateMark state={workflow.state} label={stateLabel(t, workflow.state)} />
           </span>
           {elapsed !== undefined && (
             <time>

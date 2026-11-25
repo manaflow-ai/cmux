@@ -31,6 +31,8 @@ export type OnboardingGalleryProps = {
   /** The host's sign-in state on the agents step (shared/signIn/galleryFixtures.ts READINESS): sent
    * as `signInReadiness` and `signInAccounts`, its sign-in started through the mock's op. */
   readiness?: ReadinessFixture;
+  /** Draw the page as offline (false) or online (true) instead of the webview's own state. */
+  online?: boolean;
 };
 
 export function OnboardingGallery({
@@ -42,6 +44,7 @@ export function OnboardingGallery({
   makeItYours,
   makeLook,
   readiness,
+  online,
 }: OnboardingGalleryProps) {
   const [mock] = useState(() => {
     const base =
@@ -77,7 +80,7 @@ export function OnboardingGallery({
   }, [readiness, store, mock]);
   return (
     <div ref={root} style={{ display: "contents" }}>
-      <OnboardingPage store={store} strings={strings} agentsLook={look} makeItYoursLook={makeLook} />
+      <OnboardingPage store={store} strings={strings} agentsLook={look} makeItYoursLook={makeLook} online={online} />
     </div>
   );
 }

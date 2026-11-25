@@ -26,6 +26,11 @@ pub const SETTINGS_CAPABILITY: &str = "settings-v1";
 /// (`settings.file_mismatch`). v2: v1 had neither.
 pub const SETTINGS_EDIT_CAPABILITY: &str = "settings-edit-v2";
 
+/// The daemon records every published change of the settings file and serves
+/// `settings.history`, `settings.undo`, `settings.restore` and
+/// `settings.reset_group`, for every writer (page, palette, CLI, MCP, hand edit).
+pub const SETTINGS_HISTORY_CAPABILITY: &str = "settings-history-v1";
+
 #[derive(Default)]
 pub(crate) struct SettingsSlot {
     owner: OnceLock<SettingsOwner>,
@@ -164,6 +169,11 @@ impl Mux {
     pub(crate) fn settings_file_mismatch(self: &Arc<Self>, file: &Path) -> Option<PathBuf> {
         let store = self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner());
         (!store.serves(file)).then(|| store.config_path().to_path_buf())
+    }
+
+    /// The settings history (`settings.history`), newest first.
+    pub(crate) fn settings_history(self: &Arc<Self>) -> Vec<cmux_config::HistoryEntry> {
+        self.settings_store().lock().unwrap_or_else(|poison| poison.into_inner()).history()
     }
 
     /// The `settings.snapshot` answer, with the owner's settings file path.
