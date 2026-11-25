@@ -18,8 +18,14 @@
 //! `tokio` feature (so a paused test clock moves it). Every method also has an `_at(now)` form
 //! for a caller that already read the clock.
 
+mod progress;
+
 use std::ops::Add;
 use std::time::Duration;
+
+pub use progress::{IdleDeadline, Progress, Stalled};
+#[cfg(feature = "tokio")]
+pub use progress::{ProgressIo, progress_timeout};
 
 /// A monotonic instant a [`Deadline`] can be measured on.
 pub trait Clock: Copy + Ord + Add<Duration, Output = Self> {
