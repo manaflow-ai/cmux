@@ -14,6 +14,12 @@ import { captureServerEvent, type ServerEventInput } from "../../analytics/serve
 import { appleBillingPeriodForProduct, isSignedAppleEnvironment } from "./config";
 import { applyEntitlements, captureEntitlementGranted, errorText, tokenOwner } from "./effects";
 import { activeAppleEntitlementForUser, type AppleEntitlementRow } from "./entitlement";
+import {
+  isProductionLocked,
+  productionAccessOf,
+  withProductionAccess,
+  type AppleProductionAccessTracker,
+} from "./productionAccess";
 import { runRenewalCheck, sweepLapsedSubscriptions, type AppleRecheckBudget } from "./recheck";
 import { appleServerApi, type AppleServerApi } from "./serverApi";
 import {
@@ -55,6 +61,11 @@ export type AppleIapDependencies = {
   readonly now: () => Date;
   /** Configuration source; defaults to `process.env`. */
   readonly env?: Record<string, string | undefined>;
+  /**
+   * What this run learned about Production access (productionAccess.ts);
+   * the cron shares one across its steps. Without it each request asks anew.
+   */
+  readonly productionAccess?: AppleProductionAccessTracker;
 };
 
 /** A request the client can fix or must not retry; mapped to a 4xx. */
@@ -122,12 +133,15 @@ async function freshAppleState(
   const environment = transaction.environment;
   if (!deps.serverApi) return fallback("server_api_not_configured");
   if (!isSignedAppleEnvironment(environment)) return fallback("unsigned_environment");
+  const access = environment === "Production" ? productionAccessOf(deps) : null;
+  if (access?.isLocked(transaction.bundleId!)) return fallback("production_api_locked_until_release");
   try {
     const snapshot = await deps.serverApi.subscriptionStatus({
       originalTransactionId: transaction.originalTransactionId!,
       bundleId: transaction.bundleId!,
       environment,
     });
+    access?.markOk(transaction.bundleId!);
     if (!snapshot) return fallback("no_status");
     const fresh = await deps.verifier.verifyTransaction(snapshot.signedTransactionInfo);
     if (fresh.originalTransactionId !== transaction.originalTransactionId) return fallback("transaction_mismatch");
@@ -139,6 +153,9 @@ async function freshAppleState(
       : null;
     return { transaction: fresh, renewal, appleStatus: snapshot.status, fromAppleStatus: true };
   } catch (error) {
+    // Before the first App Store release Production refuses every call: the
+    // same fallback, under its own reason so the metric can leave it out.
+    if (await isProductionLocked(access, error, transaction.bundleId!)) return fallback("production_api_locked_until_release");
     return fallback("lookup_failed", error);
   }
 }
@@ -148,7 +165,9 @@ export type AppleClientFallbackReason =
   | "unsigned_environment"
   | "no_status"
   | "transaction_mismatch"
-  | "lookup_failed";
+  | "lookup_failed"
+  /** Production answered 401 while the Sandbox accepts the key: no App Store release yet. */
+  | "production_api_locked_until_release";
 
 /**
  * Every time a path trusts the client's (or a notification's) own signed
@@ -553,8 +572,9 @@ export type AppleRetryResult = {
  */
 export async function retryAppleNotifications(
   options: { readonly limit?: number } = {},
-  deps: AppleIapDependencies = defaultAppleIapDependencies(),
+  dependencies: AppleIapDependencies = defaultAppleIapDependencies(),
 ): Promise<AppleRetryResult> {
+  const deps = withProductionAccess(dependencies);
   const counts: Record<AppleNotificationOutcome, number> = { processed: 0, duplicate: 0, skipped: 0, failed: 0 };
   let deadLettered = 0;
   const pending = await deps.store.pendingNotifications(options.limit ?? 100, deps.now());

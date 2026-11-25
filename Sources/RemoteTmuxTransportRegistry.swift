@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// The transports cmux can carry a control stream over.
@@ -57,7 +58,8 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
     func profile(
         port: Int?,
         broker: RemoteTmuxTransportBroker? = nil,
-        transportHelperPath: String? = nil
+        transportHelperPath: String? = nil,
+        socketName: String? = nil
     ) -> RemoteTmuxTransportProfile {
         switch self {
         case .ssh:
@@ -81,7 +83,10 @@ enum RemoteTmuxTransportKind: String, Sendable, Equatable, CaseIterable {
                 // client flag before the destination. Caught by
                 // `brokeredArgvPutsBrokerFlagsFirstAndDropsEndpointFlags`.
                 remoteTerminalPath: transportHelperPath,
-                broker: broker
+                broker: broker,
+                // The et profile types its own `tmux` line rather than going through the host's
+                // resolver wrapper, so it has to carry the socket name itself.
+                socketName: socketName
             )
         }
     }
@@ -697,45 +702,37 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         return defaultClientPath
     }
 
-    /// Longest line a remote login shell will accept: `MAX_CANON`, which is 1024 on macOS.
-    ///
-    /// et types the command into a pty rather than exec'ing it, so this is a hard delivery limit
-    /// and not a style guide: a longer line never completes, the shell runs nothing, and the attach
-    /// dies on a timeout with nothing to explain it.
-    ///
-    /// The value is the smaller of the platforms cmux reaches, deliberately. It is 4096 on Linux,
-    /// so a bound of 1024 is safe against either — but only as a *starting* figure, because the
-    /// whole line is not cmux's to spend. See ``deliverableCommandBytes``.
-    static let maxCanonicalLineBytes = 1024
+    /// Longest line a remote login shell will accept: `MAX_CANON`. The value and the reason
+    /// for it live in `CmuxFoundation.RemoteTmuxETCommandLine`. See ``deliverableCommandBytes``.
+    static var maxCanonicalLineBytes: Int { RemoteTmuxETCommandLine.maxCanonicalLineBytes }
 
-    /// How much of that line cmux may actually fill.
-    ///
-    /// Measured, because assuming the whole line was available was wrong: against et 6.2.11+7 on
-    /// macOS, delivery stops between 953 and 1016 bytes, not at 1024. et appends `; exit` to
-    /// whatever it is given and the shell's own line editing costs more on top, so roughly 70
-    /// bytes of a 1024-byte line are already spent before cmux's command starts. A budget compared
-    /// against the raw `MAX_CANON` therefore passes its own check and still gets truncated, which
-    /// is the failure this constant exists to prevent.
-    ///
-    /// The allowance is rounded up from the measured 71 bytes to absorb a longer prompt or a
-    /// noisier shell. `scripts/remote-tmux-et-conformance.sh` re-measures the real threshold on
-    /// each run and fails if this budget no longer fits inside it, so the number cannot quietly
-    /// drift away from the transport again.
-    static let transportLineOverheadAllowanceBytes = 96
+    /// The part of that line et and the shell spend before cmux's command starts; measured, and
+    /// documented on `RemoteTmuxETCommandLine`.
+    static var transportLineOverheadAllowanceBytes: Int {
+        RemoteTmuxETCommandLine.transportLineOverheadAllowanceBytes
+    }
 
     /// Bytes available for the remote command itself.
-    static var deliverableCommandBytes: Int {
-        max(0, maxCanonicalLineBytes - transportLineOverheadAllowanceBytes)
-    }
+    static var deliverableCommandBytes: Int { RemoteTmuxETCommandLine.deliverableCommandBytes }
 
     /// Longest session name whose attach command still fits one deliverable line.
     ///
     /// Derived from the command this profile actually builds rather than guessed, so it cannot
     /// drift away from it. tmux itself accepts names far longer than this — roughly 1000 bytes —
     /// which is why an unbounded name reached et and silently delivered nothing.
-    static func maxSessionNameBytes(mode: RemoteTmuxControlAttachMode = .attach) -> Int {
-        let overhead = controlStreamRemoteCommand(sessionName: "", mode: mode).utf8.count
-        return max(0, deliverableCommandBytes - overhead - 1)
+    ///
+    /// Exact, not conservative: a name of this length renders to precisely
+    /// ``deliverableCommandBytes``, which ``commandLengthOverrun(sessionName:mode:)`` accepts.
+    /// It used to hold one byte back, so the socket boundary refused a name the spawn gate
+    /// would then have run.
+    static func maxSessionNameBytes(
+        mode: RemoteTmuxControlAttachMode = .attach,
+        socketName: String? = nil
+    ) -> Int {
+        let overhead = controlStreamRemoteCommand(
+            sessionName: "", mode: mode, socketName: socketName
+        ).utf8.count
+        return max(0, deliverableCommandBytes - overhead)
     }
 
     /// etserver's default port is 2022, not ssh's 22.
@@ -748,17 +745,25 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     /// `etterminal` using the remote environment; a caller may set this only
     /// when it knows the host's actual path.
     let remoteTerminalPath: String?
+    /// The host's tmux server name (`-L <name>`), or nil for the default server. Spent from
+    /// the same line budget as the session name, so it is part of the profile rather than
+    /// added at the spawn site.
+    let socketName: String?
 
+    /// Creates the profile. `executable` defaults to the `et` client found on this Mac;
+    /// `socketName` is the host's already-normalized tmux server name.
     init(
         port: Int = 2022,
         executable: String? = nil,
         remoteTerminalPath: String? = nil,
-        broker: RemoteTmuxTransportBroker? = nil
+        broker: RemoteTmuxTransportBroker? = nil,
+        socketName: String? = nil
     ) {
         self.broker = broker
         self.port = port
         self.executable = executable ?? Self.resolveClientExecutable()
         self.remoteTerminalPath = remoteTerminalPath
+        self.socketName = socketName
     }
 
     /// The remote command this profile runs, in one place so the length bound above is derived
@@ -770,15 +775,19 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
     /// rather than naming it, so it neither created a missing session nor attached to the named
     /// one.
     static func controlStreamRemoteCommand(
-        sessionName: String, mode: RemoteTmuxControlAttachMode
+        sessionName: String, mode: RemoteTmuxControlAttachMode, socketName: String? = nil
     ) -> String {
-        (["tmux"] + mode.tmuxArguments(sessionName: sessionName))
-            .map(RemoteTmuxHost.shellSingleQuoted)
-            .joined(separator: " ")
+        RemoteTmuxETCommandLine(
+            tmuxArguments: mode.tmuxArguments(sessionName: sessionName), socketName: socketName
+        ).rendered
     }
 
+    /// The local program this profile launches: the broker's wrapper when brokered, otherwise `et`.
     func executablePath() -> String { broker?.executable ?? executable }
 
+    /// The local argv that opens the control stream: the `et` client, or the broker's wrapper
+    /// when the host is brokered, running ``controlStreamRemoteCommand(sessionName:mode:socketName:)``
+    /// for this profile's socket name in a login shell on the host.
     func controlStreamArgv(
         host: RemoteTmuxHost,
         sessionName: String,
@@ -794,7 +803,9 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         // Dropping the resolver is safe precisely because it is a login shell: it has the user's
         // full PATH, so it finds tmux itself. ssh is the opposite case, running a non-login shell
         // with a minimal PATH, which is why that profile still needs the resolver.
-        let remote = Self.controlStreamRemoteCommand(sessionName: sessionName, mode: mode)
+        let remote = Self.controlStreamRemoteCommand(
+            sessionName: sessionName, mode: mode, socketName: socketName
+        )
         // A brokered host takes a different argv shape, not extra flags on this one.
         //
         // The wrapper parses its own flags up to the destination and forwards everything after
@@ -899,9 +910,9 @@ struct RemoteTmuxETTransportProfile: RemoteTmuxTransportProfile {
         sessionName: String,
         mode: RemoteTmuxControlAttachMode
     ) -> (actual: Int, budget: Int)? {
-        let actual = Self.controlStreamRemoteCommand(sessionName: sessionName, mode: mode).utf8.count
-        let budget = Self.deliverableCommandBytes
-        return actual > budget ? (actual: actual, budget: budget) : nil
+        RemoteTmuxETCommandLine(
+            tmuxArguments: mode.tmuxArguments(sessionName: sessionName), socketName: socketName
+        ).overrun
     }
 }
 

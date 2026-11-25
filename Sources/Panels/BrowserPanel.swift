@@ -10316,7 +10316,7 @@ private final class ChromiumCookieDecryptor {
 #endif
 
 enum BrowserDataImporter {
-    private struct CookieImportResult {
+    struct CookieImportResult {
         var importedCount: Int = 0
         var skippedCount: Int = 0
         var warnings: [String] = []
@@ -10462,15 +10462,10 @@ enum BrowserDataImporter {
             )
         case .webkit:
             if browser.descriptor.id == "safari" {
-                return CookieImportResult(
-                    importedCount: 0,
-                    skippedCount: 0,
-                    warnings: [
-                        String(
-                            localized: "browser.import.warning.safariCookiesUnsupported",
-                            defaultValue: "Safari cookies are stored in Cookies.binarycookies and are not yet supported by this importer."
-                        )
-                    ]
+                return await importSafariCookies(
+                    sourceProfiles: sourceProfiles,
+                    destinationProfileID: destinationProfileID,
+                    domainFilters: domainFilters
                 )
             }
             return CookieImportResult(
@@ -10526,6 +10521,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> CookieImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var cookies: [HTTPCookie] = []
         var warnings: [String] = []
@@ -10548,7 +10544,7 @@ enum BrowserDataImporter {
                     let isSecure = sqliteColumnInt64(statement, index: 5) != 0
 
                     guard !name.isEmpty else { return }
-                    guard domainMatches(host: host, filters: domainFilters) else { return }
+                    guard domainFilter.matches(host: host) else { return }
 
                     var properties: [HTTPCookiePropertyKey: Any] = [
                         .domain: host,
@@ -10585,12 +10581,159 @@ enum BrowserDataImporter {
         return CookieImportResult(importedCount: importedCount, skippedCount: max(0, dedupedCookies.count - importedCount), warnings: warnings)
     }
 
+    /// Imports cookies from Safari's `Cookies.binarycookies` stores.
+    ///
+    /// ``SafariCookieStoreReader`` finds and reads each profile's store; this
+    /// method turns its result into warnings, hands the decoded cookies to
+    /// ``SafariCookieImportPreparation`` and writes them to the destination
+    /// profile. Warnings name paths relative to
+    /// home and never include raw system error text.
+    private static func importSafariCookies(
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
+        domainFilters: [String]
+    ) async -> CookieImportResult {
+        await importSafariCookies(
+            sourceProfiles: sourceProfiles,
+            destinationProfileID: destinationProfileID,
+            domainFilters: domainFilters,
+            reader: SafariCookieStoreReader(homeDirectory: FileManager.default.homeDirectoryForCurrentUser),
+            parser: SafariBinaryCookiesParser(),
+            now: Date()
+        )
+    }
+
+    /// The Safari cookie import with its store reader, parser and clock
+    /// supplied, so tests can import a fixture store into a profile.
+    static func importSafariCookies(
+        sourceProfiles: [InstalledBrowserProfile],
+        destinationProfileID: UUID,
+        domainFilters: [String],
+        reader: SafariCookieStoreReader,
+        parser: SafariBinaryCookiesParser,
+        now: Date
+    ) async -> CookieImportResult {
+        let preparation = SafariCookieImportPreparation(domainFilters: domainFilters, date: now)
+        var cookies: [HTTPCookie] = []
+        var expiredCount = 0
+        var warnings: [String] = []
+
+        for profile in sourceProfiles {
+            let storeURL: URL
+            let data: Data
+            switch reader.load(for: profile) {
+            case .loaded(let url, let contents):
+                storeURL = url
+                data = contents
+            case .missing:
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesNotFound",
+                            defaultValue: "No Safari cookie store was found for the %@ profile."
+                        ),
+                        profile.displayName
+                    )
+                )
+                continue
+            case .accessDenied(let url, .filePermissions):
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesFilePermissionDenied",
+                            defaultValue: "Your macOS user account doesn't have permission to read Safari's cookies at %@. Make sure your account owns the file and can read it, then run the import again."
+                        ),
+                        reader.displayPath(for: url)
+                    )
+                )
+                continue
+            case .accessDenied(let url, .privacyProtected), .accessDenied(let url, .unspecified):
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesAccessDenied",
+                            defaultValue: "cmux can't read Safari's cookies at %@. Allow cmux under System Settings > Privacy & Security > Full Disk Access, then run the import again."
+                        ),
+                        reader.displayPath(for: url)
+                    )
+                )
+                continue
+            case .tooLarge(let url):
+                warnings.append(
+                    safariCookiesTooLargeWarning(
+                        path: reader.displayPath(for: url),
+                        limit: reader.maximumStoreBytes
+                    )
+                )
+                continue
+            case .unreadable(let url):
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesReadFailed",
+                            defaultValue: "cmux couldn't read the Safari cookie store at %@."
+                        ),
+                        reader.displayPath(for: url)
+                    )
+                )
+                continue
+            }
+
+            let records: [SafariBinaryCookie]
+            do {
+                records = try parser.parse(data)
+            } catch SafariBinaryCookiesParser.ParseError.decodedSizeExceeded(let limit) {
+                warnings.append(
+                    safariCookiesTooLargeWarning(path: reader.displayPath(for: storeURL), limit: limit)
+                )
+                continue
+            } catch {
+                warnings.append(
+                    String(
+                        format: String(
+                            localized: "browser.import.warning.safariCookiesCorrupt",
+                            defaultValue: "The Safari cookie store at %@ is damaged or in a format cmux doesn't recognize."
+                        ),
+                        reader.displayPath(for: storeURL)
+                    )
+                )
+                continue
+            }
+
+            let prepared = preparation.prepare(records)
+            cookies.append(contentsOf: prepared.cookies)
+            expiredCount += prepared.expiredCount
+        }
+
+        let dedupedCookies = dedupeCookies(cookies)
+        let importedCount = await setCookiesInStore(dedupedCookies, destinationProfileID: destinationProfileID)
+        return CookieImportResult(
+            importedCount: importedCount,
+            skippedCount: expiredCount + max(0, dedupedCookies.count - importedCount),
+            warnings: warnings
+        )
+    }
+
+    /// The warning for a Safari store that holds more cookie data than the
+    /// import limit of `limit` bytes, whether the reader or the parser found out.
+    private static func safariCookiesTooLargeWarning(path: String, limit: Int) -> String {
+        String(
+            format: String(
+                localized: "browser.import.warning.safariCookiesTooLarge",
+                defaultValue: "The Safari cookie store at %1$@ holds more cookie data than cmux's import limit of %2$@, so no cookies were imported from it."
+            ),
+            path,
+            ByteCountFormatter.string(fromByteCount: Int64(limit), countStyle: .binary)
+        )
+    }
+
     private static func importChromiumCookies(
         from browser: InstalledBrowserCandidate,
         sourceProfiles: [InstalledBrowserProfile],
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> CookieImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var cookies: [HTTPCookie] = []
         var warnings: [String] = []
@@ -10614,7 +10757,7 @@ enum BrowserDataImporter {
                     let encryptedValue = sqliteColumnData(statement, index: 6)
 
                     guard !name.isEmpty else { return }
-                    guard domainMatches(host: host, filters: domainFilters) else { return }
+                    guard domainFilter.matches(host: host) else { return }
 
                     var usableValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
                     if usableValue.isEmpty && !encryptedValue.isEmpty {
@@ -10678,6 +10821,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var rows: [HistoryRow] = []
         var warnings: [String] = []
@@ -10704,7 +10848,7 @@ enum BrowserDataImporter {
                     let lastVisitMicros = sqliteColumnInt64(statement, index: 3)
                     guard let parsedURL = URL(string: url),
                           let host = parsedURL.host,
-                          domainMatches(host: host, filters: domainFilters) else {
+                          domainFilter.matches(host: host) else {
                         return
                     }
                     let lastVisited = firefoxDate(fromUnixMicroseconds: lastVisitMicros) ?? .distantPast
@@ -10734,6 +10878,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var rows: [HistoryRow] = []
         var warnings: [String] = []
@@ -10760,7 +10905,7 @@ enum BrowserDataImporter {
                     let lastVisitMicros = sqliteColumnInt64(statement, index: 3)
                     guard let parsedURL = URL(string: url),
                           let host = parsedURL.host,
-                          domainMatches(host: host, filters: domainFilters) else {
+                          domainFilter.matches(host: host) else {
                         return
                     }
                     let lastVisited = chromiumDate(fromWebKitMicroseconds: lastVisitMicros) ?? .distantPast
@@ -10791,6 +10936,7 @@ enum BrowserDataImporter {
         destinationProfileID: UUID,
         domainFilters: [String]
     ) async -> HistoryImportResult {
+        let domainFilter = BrowserImportDomainFilter(filters: domainFilters)
         let fileManager = FileManager.default
         var rows: [HistoryRow] = []
         var warnings: [String] = []
@@ -10846,7 +10992,7 @@ enum BrowserDataImporter {
                     let lastVisitReferenceSeconds = sqliteColumnDouble(statement, index: 3)
                     guard let parsedURL = URL(string: url),
                           let host = parsedURL.host,
-                          domainMatches(host: host, filters: domainFilters) else {
+                          domainFilter.matches(host: host) else {
                         return
                     }
                     let lastVisited = Date(timeIntervalSinceReferenceDate: lastVisitReferenceSeconds)
@@ -10935,20 +11081,6 @@ enum BrowserDataImporter {
             }
         }
         return Array(dedupedByKey.values)
-    }
-
-    private static func domainMatches(host: String, filters: [String]) -> Bool {
-        if filters.isEmpty { return true }
-        var normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        while normalizedHost.hasPrefix(".") {
-            normalizedHost.removeFirst()
-        }
-        guard !normalizedHost.isEmpty else { return false }
-        for filter in filters {
-            if normalizedHost == filter { return true }
-            if normalizedHost.hasSuffix(".\(filter)") { return true }
-        }
-        return false
     }
 
     private static func chromiumDate(fromWebKitMicroseconds rawValue: Int64) -> Date? {
