@@ -78,7 +78,7 @@ fn a_turn_cut_by_a_lost_acpmux_connection_resumes_when_acpmux_is_back() {
     h.connect();
     h.say("user_local", "please summarize the inbox");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     // The app's update relaunch hands the daemon off: the link goes down,
     // then the running turn hears that its connection is lost.
@@ -240,7 +240,7 @@ fn a_turn_cut_by_an_upstream_502_runs_again_after_a_backoff() {
     h.connect();
     h.say("user_local", "check the build");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let began = Instant::now();
     settle_with_timers(&mut h);
@@ -269,7 +269,7 @@ fn a_turn_cut_by_an_update_relaunch_resumes_in_the_next_host() {
     h.connect();
     h.say("user_local", "tell a187 to rebase");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     h.brain.step(Input::from(AgentEvent::Down));
     h.agents.inner.lock().unwrap().lose = true;
@@ -312,7 +312,7 @@ fn an_update_relaunch_mid_turn_shows_no_error_in_the_run() {
     h.connect();
     h.say("user_local", "what changed today?");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     h.brain.step(Input::from(AgentEvent::Down));
     h.agents.inner.lock().unwrap().lose = true;
@@ -356,7 +356,7 @@ fn a_turn_the_next_daemon_adopted_runs_to_its_end_and_is_not_ended() {
     h.connect();
     h.say("user_local", "rebase a187 and report");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let session = h.agents.inner.lock().unwrap().prompt_sessions[0].clone();
     h.brain.step(Input::from(AgentEvent::Down));
@@ -427,7 +427,7 @@ fn a_persons_message_does_not_wait_for_an_adopted_turn() {
     h.connect();
     h.say("user_local", "rebase a187 and report");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let session = h.agents.inner.lock().unwrap().prompt_sessions[0].clone();
     h.brain.step(Input::from(AgentEvent::Down));
@@ -490,7 +490,7 @@ fn a_message_sent_during_the_restart_does_not_wait_for_an_adopted_turn() {
     h.connect();
     h.say("user_local", "rebase a187 and report");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let session = h.agents.inner.lock().unwrap().prompt_sessions[0].clone();
     h.brain.step(Input::from(AgentEvent::Down));
@@ -556,7 +556,7 @@ fn a_handoff_when_idle_lets_the_running_turn_end_before_the_host_stops() {
     h.connect();
     h.say("user_local", "tell a187 to rebase");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     h.brain.step(Input::HandoffWhenIdle);
     assert!(h.brain.fatal().is_none(), "the host waits for its turn");
@@ -627,7 +627,7 @@ fn a_handoff_when_idle_stops_the_host_at_its_deadline() {
     h.connect();
     h.say("user_local", "a long task");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     h.brain.set_handoff_deadline(Duration::from_millis(200));
     h.brain.step(Input::HandoffWhenIdle);
