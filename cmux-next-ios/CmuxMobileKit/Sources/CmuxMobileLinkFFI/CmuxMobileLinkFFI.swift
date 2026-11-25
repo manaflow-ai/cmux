@@ -11157,6 +11157,11 @@ public func FfiConverterTypeShareAsk_lower(_ value: ShareAsk) -> RustBuffer {
  */
 public struct TabsRow: Equatable, Hashable {
     public var tabId: String
+    /**
+     * The tab's durable id on the Mac (the daemon's `tab_resource_id`): `tab_id` names a tab
+     * only within one epoch, this one stays the tab's across them. Empty when unknown.
+     */
+    public var tabKey: String
     public var title: String
     /**
      * `browser`, `terminal`, `agent`, or a kind a newer Mac names.
@@ -11188,7 +11193,11 @@ public struct TabsRow: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(tabId: String, title: String, 
+    public init(tabId: String, 
+        /**
+         * The tab's durable id on the Mac (the daemon's `tab_resource_id`): `tab_id` names a tab
+         * only within one epoch, this one stays the tab's across them. Empty when unknown.
+         */tabKey: String, title: String, 
         /**
          * `browser`, `terminal`, `agent`, or a kind a newer Mac names.
          */kind: String, faviconHash: String?, thumbHash: String?, thumbW: UInt32, thumbH: UInt32, 
@@ -11205,6 +11214,7 @@ public struct TabsRow: Equatable, Hashable {
          * Every blob the card shows is on the phone.
          */filled: Bool) {
         self.tabId = tabId
+        self.tabKey = tabKey
         self.title = title
         self.kind = kind
         self.faviconHash = faviconHash
@@ -11237,6 +11247,7 @@ public struct FfiConverterTypeTabsRow: FfiConverterRustBuffer {
         return
             try TabsRow(
                 tabId: FfiConverterString.read(from: &buf), 
+                tabKey: FfiConverterString.read(from: &buf), 
                 title: FfiConverterString.read(from: &buf), 
                 kind: FfiConverterString.read(from: &buf), 
                 faviconHash: FfiConverterOptionString.read(from: &buf), 
@@ -11255,6 +11266,7 @@ public struct FfiConverterTypeTabsRow: FfiConverterRustBuffer {
 
     public static func write(_ value: TabsRow, into buf: inout [UInt8]) {
         FfiConverterString.write(value.tabId, into: &buf)
+        FfiConverterString.write(value.tabKey, into: &buf)
         FfiConverterString.write(value.title, into: &buf)
         FfiConverterString.write(value.kind, into: &buf)
         FfiConverterOptionString.write(value.faviconHash, into: &buf)
