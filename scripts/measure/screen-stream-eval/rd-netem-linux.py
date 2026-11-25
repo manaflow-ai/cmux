@@ -695,6 +695,12 @@ def ensure_deps():
               "libssl-dev", "nasm", "curl", "iproute2", "ethtool", "xvfb", "x11-xkb-utils"]))
 
 
+# What the build checks out: the crates, the vendored crates cmux-tui/Cargo.toml points at by path
+# (smoltcp, crossterm) and the build-support sources build scripts read; a sparse set without one
+# fails cargo's dependency load.
+SPARSE_PATHS = ("cmux-tui/crates", "cmux-tui/vendor", "cmux-tui/build-support")
+
+
 def build(commit: str, work: Path, repo_url: str) -> Path:
     src = work / f"src-{commit[:12]}"
     if src.exists():
@@ -704,7 +710,7 @@ def build(commit: str, work: Path, repo_url: str) -> Path:
     run(git + ["init", "-q"])
     run(git + ["remote", "add", "origin", repo_url])
     run(git + ["fetch", "-q", "--depth=1", "--filter=blob:none", "origin", commit])
-    run(git + ["sparse-checkout", "set", "cmux-tui/crates"])
+    run(git + ["sparse-checkout", "set", *SPARSE_PATHS])
     run(git + ["checkout", "-q", "--detach", commit])
     full = run(git + ["rev-parse", "HEAD"]).stdout.strip()
     if not full.startswith(commit):

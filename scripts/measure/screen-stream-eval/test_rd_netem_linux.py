@@ -33,6 +33,13 @@ class ParseTests(unittest.TestCase):
         row = {'commit': 'a' * 40, 'profile': 'loss-1', 'openh264': 'cisco', 'key': {}, 'passive': {}, 'reassembly': r}
         self.assertIn('| 7.50 (27.50, 20.0) |', rdnl.markdown_table([row]))
 
+    def test_sparse_checkout_covers_every_path_dependency(self):
+        import re
+        manifest = Path(__file__).resolve().parents[3] / 'cmux-tui' / 'Cargo.toml'
+        for dep in re.findall(r'path\s*=\s*"([^"]+)"', manifest.read_text()):
+            full = f'cmux-tui/{dep}'
+            self.assertTrue(any(full == p or full.startswith(p + '/') for p in rdnl.SPARSE_PATHS), full)
+
     def test_last_json_line_skips_log_noise(self):
         text = 'passive: first frame\n{"a": 1}\nnot json\n{"b": 2}\n'
         self.assertEqual(rdnl.last_json_line(text), {'b': 2})
