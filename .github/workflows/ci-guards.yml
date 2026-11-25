@@ -185,6 +185,11 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fleet_rule_lints.py
 
+      # Fleet-built test products a Mac unpacks: archive member checks and the same-length path mapping.
+      - name: Test the fleet test products fetcher
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fleet_test_products.py
+
       # Noclobber is not exclusive creation: no set -C, and no guessable name in a shared temp folder, in scripts/
       # and .github/ (an allowlist with reasons that only shrinks).
       - name: Validate no guessable shared-temp names
@@ -891,6 +896,11 @@ jobs:
       - name: Validate hook installation leaves existing hooks alone
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
+
+      # cmux#55547: string catalogs change in place (the checker, the in-place editor and the pre-push gate's check).
+      - name: Validate string catalogs are edited in place
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_check_xcstrings_diff.py
 
       - name: Validate the advisory post-edit checks
         if: ${{ !cancelled() && matrix.group == 'ci' }}
