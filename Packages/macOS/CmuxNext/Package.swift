@@ -707,6 +707,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                 .product(name: "CmuxPagePushBound", package: "CmuxPagePushBound"),
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
+                .product(name: "CmuxPagePushBound", package: "CmuxPagePushBound"),
             ],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
@@ -909,6 +910,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextOnboarding",
                 "CmuxNextSettings",
             ],
+            resources: [.process("Resources")],
             swiftSettings: uiSwiftSettings
         ),
         .target(
@@ -1129,6 +1131,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextWindowRules",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
+                "CmuxNextCompat",
                 "CmuxNextDaemon",
             ],
             swiftSettings: daemonSwiftSettings

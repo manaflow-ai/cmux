@@ -256,7 +256,7 @@ fn a_pending_turn_and_its_items_survive_a_restart_in_the_database() {
     h.connect();
     h.say("user_local", "first");
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     // The turn is running: its pending record is in the database.
     let rows = h.chat.state_prefix("host/turn").unwrap();
