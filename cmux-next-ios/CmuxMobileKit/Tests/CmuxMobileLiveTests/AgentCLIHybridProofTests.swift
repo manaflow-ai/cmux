@@ -559,4 +559,33 @@ import Testing
         }
         print("HYBRID_PROOF old-viewers {\"oldPhoneNewDaemon\":\"bytes\",\"newPhoneOldDaemon\":\"bytes\"}")
     }
+    /// The screen model erases a wide glyph whole, as Ghostty does, when an erase (ECH) covers
+    /// only one of its halves. shell-bash-5.2 frame 6 (since #51214) erases each wide glyph with
+    /// ECH 1 at its lead; a model that kept the width-0 trailing half drew a screen Ghostty never does.
+    @Test func anEraseOverHalfAWideGlyphErasesTheGlyph() {
+        func row(after bytes: String) -> [HybridParityFixture.Cell] {
+            var model = HybridScreenModel(columns: 6, rows: 1, widths: ["日": 2])
+            model.write(Data(bytes.utf8))
+            return model.cells[0]
+        }
+        func blank(_ cell: HybridParityFixture.Cell) -> Bool { cell.width == 1 && cell.text.isEmpty }
+        // ECH 1 at the lead: the trailing half goes too.
+        let atLead = row(after: "\u{1b}[1;1H日x\u{1b}[1;1H\u{1b}[1X")
+        #expect(blank(atLead[0]) && blank(atLead[1]), "\(atLead)")
+        #expect(atLead[2].text == "x")
+        // ECH 1 at the trailing half: the lead goes too.
+        let atTail = row(after: "\u{1b}[1;1H日x\u{1b}[1;2H\u{1b}[1X")
+        #expect(blank(atTail[0]) && blank(atTail[1]), "\(atTail)")
+        #expect(atTail[2].text == "x")
+        // A run that ends on a lead: its trailing half past the run goes too.
+        let endsOnLead = row(after: "\u{1b}[1;1Ha日x\u{1b}[1;1H\u{1b}[2X")
+        #expect(endsOnLead.prefix(3).allSatisfy(blank), "\(endsOnLead)")
+        #expect(endsOnLead[3].text == "x")
+        // No cell anywhere is a trailing half without its lead.
+        for cells in [atLead, atTail, endsOnLead] {
+            for (column, cell) in cells.enumerated() where cell.width == 0 {
+                #expect(column > 0 && cells[column - 1].width == 2, "\(cells)")
+            }
+        }
+    }
 }
