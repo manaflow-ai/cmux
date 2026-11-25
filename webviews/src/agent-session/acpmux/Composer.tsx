@@ -1,8 +1,9 @@
 import { acpmuxPerf } from "./perf";
+import { withoutHandedBack } from "./handedBack";
 import { sentWords } from "./computerUse/computerUseState";
 import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
-import { useStableHandlers } from "./stableHandlers";
+import { useStableHandlers, usePropChurn } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
@@ -125,9 +126,9 @@ import {
   readsDurableDrafts,
   readPersistedDraft,
   settlePendingDraftWrites,
-  useDraftActionsVersion,
   writePersistedDraft,
   restoredPrompt,
+  onDraftActionsChanged,
 } from "./composerDraft";
 import { RESTORED_CHAT_EVENT, replacedRestoredDraft, restoredDraft } from "./chatSnapshot/restoredDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
@@ -255,6 +256,9 @@ export type ComposerHandle = {
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest
   /// (`behind`: after them, for prompts sent after one already given back).
   restore(text: string, attachments: ComposerAttachment[], behind?: boolean): void;
+  /// Takes a handed-back prompt out again, because acpmux took it after all (handedBack.ts): its
+  /// words where they still stand in the prompt, its chips by id. Nothing the person changed goes.
+  withdraw(text: string, attachments: ComposerAttachment[]): void;
   /// Snapshot the unsent text without attachment markers or taking it out of this chat.
   draftText(): string;
   /// Prevent ordinary session-switch attachment handoff for text-only recovery.
@@ -730,7 +734,9 @@ function useRelayProps(props: Props): Props {
 const CALL_TIME_PROPS = ["holdsSend"] as const;
 
 export function Composer(props: Props) {
-  return <MemoComposer {...useStableHandlers(useRelayProps(props), CALL_TIME_PROPS)} />;
+  const stable = useStableHandlers(useRelayProps(props), CALL_TIME_PROPS);
+  usePropChurn("composer", stable, acpmuxPerf.enabled, (key) => acpmuxPerf.render(key));
+  return <MemoComposer {...stable} />;
 }
 
 /// The prompt box with the agent's `/` command menu:
@@ -854,9 +860,6 @@ function ComposerFrame({
   const queueing = useQueueing();
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
-  // The native action map is replaced on reconnect while the session stays the same. Subscribe
-  // so a durable read retries as soon as that map is available again.
-  const draftActionsVersion = useDraftActionsVersion();
   /// Where the open Search files palette draws (the composer form's parent); null while closed.
   const [findingFiles, setFindingFiles] = useState<HTMLElement | null>(null);
   // `/help`'s sheet (HelpSheet.tsx), where the `/` list draws.
@@ -1442,6 +1445,21 @@ function ComposerFrame({
       },
       restore: (restoredText, restoredAttachments, behind) =>
         restoreNow.current(restoredText, restoredAttachments, behind),
+      withdraw(landedText, landedAttachments) {
+        const now = field.current?.value() ?? promptRef.current.text;
+        const next = withoutHandedBack(now, landedText);
+        if (next !== now) {
+          notTyped();
+          if (!field.current?.type(next)) writeText(next, next.length);
+        }
+        const ids = landedAttachments
+          .map((chip) => chip.id)
+          .filter((id) => attachmentsRef.current.some((chip) => chip.id === id));
+        if (!ids.length) return;
+        attachmentsRef.current = attachmentsRef.current.filter((chip) => !ids.includes(chip.id));
+        setAttachments((current) => current.filter((chip) => !ids.includes(chip.id)));
+        for (const id of ids) field.current?.removeInline(id);
+      },
       attach(attachment) {
         // A Cloud start is out: no chip comes in from any caller (a highlight, a selection, a
         // recording, a link pick, the focused tab), and the note says why (`refusal`).
@@ -1673,32 +1691,45 @@ function ComposerFrame({
   useEffect(() => {
     if (!switching) carryPrompt.current = false;
   }, [switching]);
+  // Read again each time the native action map is installed or replaced (a reconnect), through a
+  // subscription rather than a render: a drop and its reconnect ("Waiting for the agent service")
+  // drew the composer again only to run this (Leo, 2026-11-22: "idk if the waiting for agent service
+  // bullshit has anything to do with it").
   useEffect(() => {
-    let current = true;
-    void readDurableDraftState(sessionId).then((state) => {
-      if (!current) return;
-      // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
-      // drafts, a dropped read): not while no client can ask yet.
-      if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
-      // acpmux did not answer (its action map not installed yet, a connection that failed or
-      // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
-      // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
-      // merged it (the action map's next version runs this again). Before, an unanswered read
-      // counted as "no draft", and the typed text then replaced the draft acpmux kept.
-      if (sessionId && !state) return;
-      applyDraftRead(sessionId, state?.draft);
-      // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
-      // caret after the text as it was (pages/shared/webSwap.ts).
-      if (takeWebSwapFocus("composer"))
-        requestAnimationFrame(() => {
-          focusRoute(field.current, "system", "the composer mounted");
-          field.current?.setCaret(Number.MAX_SAFE_INTEGER);
-        });
-    });
-    return () => {
-      current = false;
+    // A counter object, not a captured `let`: the React Compiler cannot lower `++` on a variable a
+    // closure captures, and skipped the whole component.
+    const generation = { n: 0 };
+    const read = () => {
+      generation.n += 1;
+      const request = generation.n;
+      void readDurableDraftState(sessionId).then((state) => {
+        if (request !== generation.n) return;
+        // Settled once acpmux answered, or the page asked it and it could not say (an acpmux without
+        // drafts, a dropped read): not while no client can ask yet.
+        if (sessionId && (state || readsDurableDrafts())) onDraftSettled?.(sessionId);
+        // acpmux did not answer (its action map not installed yet, a connection that failed or
+        // dropped): nothing is known of its draft, so the chat is not hydrated. What the person types
+        // meanwhile stays in the remount cache and goes to acpmux only once a read answered and
+        // merged it (the action map's next version runs this again). Before, an unanswered read
+        // counted as "no draft", and the typed text then replaced the draft acpmux kept.
+        if (sessionId && !state) return;
+        applyDraftRead(sessionId, state?.draft);
+        // A web update reloaded the page while the prompt had the keyboard: it takes it back, the
+        // caret after the text as it was (pages/shared/webSwap.ts).
+        if (takeWebSwapFocus("composer"))
+          requestAnimationFrame(() => {
+            focusRoute(field.current, "system", "the composer mounted");
+            field.current?.setCaret(Number.MAX_SAFE_INTEGER);
+          });
+      });
     };
-  }, [sessionId, draftActionsVersion, onDraftSettled]);
+    read();
+    const off = onDraftActionsChanged(read);
+    return () => {
+      generation.n += 1;
+      off();
+    };
+  }, [sessionId, onDraftSettled]);
   // The relaunch copy's script loads `async`, so it can land after this composer mounted: its prompt
   // still goes in before acpmux's read answers, while nothing was typed and the prompt is empty.
   useEffect(() => {
@@ -1803,7 +1834,8 @@ function ComposerFrame({
   const typedSlash = slash !== undefined && !facts.slashDismissed && !recalling ? slash : undefined;
   const query = typedSlash?.query;
   // The person's saved prompts lead the list (savedPrompts.ts); the prompt colours only the chat's own.
-  const savedPrompts = useSavedPrompts();
+  const slashOpen = typedSlash !== undefined;
+  const savedPrompts = useSavedPrompts(slashOpen);
   const menuCommands = useMemo(
     () => [...savedPromptCommands(savedPrompts), ...(commands ?? [])],
     [savedPrompts, commands],
@@ -1812,7 +1844,6 @@ function ComposerFrame({
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   const slashNames = useSlashNames(commands);
   // Each opening reads the list again, so a prompt saved in another chat is there.
-  const slashOpen = typedSlash !== undefined;
   useEffect(() => {
     if (slashOpen) void refreshSavedPrompts();
   }, [slashOpen]);
