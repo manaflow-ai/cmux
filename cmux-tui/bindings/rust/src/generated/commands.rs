@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 445de4bc7c360defe2059db0a42566492aa4758f16031f5e9d4bbd407683b8e2.
+// cmux-tui mux protocol 12, IR e1620065e298c750f8c38bb7def1d193f5724e07b50b491a3312be5fb6ffd9e0.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -1936,6 +1936,17 @@ pub struct FloatPaneRequest {
 
 #[rustfmt::skip]
 pub type FloatPaneResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct FlushLaunchSnapshotRequest {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlushLaunchSnapshotResult {
+    pub flushed: bool,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5206,6 +5217,10 @@ impl CmuxClient {
 
     pub fn float_pane(&mut self, request: FloatPaneRequest) -> Result<FloatPaneResult> {
         self.execute(&FLOAT_PANE_METADATA, &request)
+    }
+
+    pub fn flush_launch_snapshot(&mut self, request: FlushLaunchSnapshotRequest) -> Result<FlushLaunchSnapshotResult> {
+        self.execute(&FLUSH_LAUNCH_SNAPSHOT_METADATA, &request)
     }
 
     pub fn focus_direction(&mut self, request: FocusDirectionRequest) -> Result<T::FocusDirectionResult> {

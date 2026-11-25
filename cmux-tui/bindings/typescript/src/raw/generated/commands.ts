@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 445de4bc7c360defe2059db0a42566492aa4758f16031f5e9d4bbd407683b8e2. */
+/* cmux-tui mux protocol 12, IR e1620065e298c750f8c38bb7def1d193f5724e07b50b491a3312be5fb6ffd9e0. */
 
 
 import type * as T from "./types.js";
@@ -1340,6 +1340,14 @@ export interface FloatPaneRequest extends CmuxRequestBase {
   "y"?: (number) | null;
 }
 export type FloatPaneResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
+export interface FlushLaunchSnapshotRequest extends CmuxRequestBase {
+  cmd: "flush-launch-snapshot";
+}
+export type FlushLaunchSnapshotResult = {
+  "flushed": boolean;
+};
 
 /** Protocol v6; authority: control. */
 export interface FocusDirectionRequest extends CmuxRequestBase {
@@ -3315,6 +3323,7 @@ export type CmuxRequest =
   | FeedLocalListRequest
   | FeedLocalReadRequest
   | FloatPaneRequest
+  | FlushLaunchSnapshotRequest
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
@@ -4483,6 +4492,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "floating-panes-v1";
+    stream: null;
+  };
+  "flush-launch-snapshot": {
+    request: FlushLaunchSnapshotRequest;
+    result: FlushLaunchSnapshotResult;
+    authority: "control";
+    since: 12;
+    capability: "launch-snapshot-flush-v1";
     stream: null;
   };
   "focus-direction": {
