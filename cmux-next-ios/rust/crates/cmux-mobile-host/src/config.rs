@@ -399,6 +399,9 @@ impl HostConfig {
             .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
                 default_state_dir().join("mailbox-spent.json"),
             )))
+            .with_mailbox_cursor(std::sync::Arc::new(crate::mailbox::MailboxCursor::load(
+                default_state_dir().join("mailbox-cursor.json"),
+            )))
             .with_activity(std::sync::Arc::new(crate::activity::Activity::file(
                 default_state_dir().join("machine-activity.jsonl"),
             )))
@@ -425,12 +428,16 @@ impl HostConfig {
         // `CMUX_MOBILE_SURFACE_SIMULATORS=0`; an older app sets neither then), and Cloud desktops.
         let surface = match &supplied {
             Some(supplied) if env("CMUX_MOBILE_SURFACE_HOSTS").as_deref() == Some("1") => {
-                let config = crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs);
+                let mut config =
+                    crate::surface::SurfaceConfig::new(Some(supplied.surface.launcher()), max_tabs);
                 if env("CMUX_MOBILE_SURFACE_SIMULATORS").as_deref() == Some("0") {
-                    config.without_simulators()
-                } else {
-                    config
+                    config = config.without_simulators();
                 }
+                // The app's source also captures this Mac's displays (`d~<display>`).
+                if env("CMUX_MOBILE_MAC_DISPLAY").as_deref() == Some("1") {
+                    config = config.with_mac_display();
+                }
+                config
             }
             _ => crate::surface::SurfaceConfig::default(),
         };

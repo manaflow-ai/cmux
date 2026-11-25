@@ -9,6 +9,7 @@ pub mod cli;
 pub mod folder;
 pub mod ledger;
 pub mod pin;
+pub mod progress;
 pub mod seed;
 pub mod targets;
 pub mod wait;

@@ -90,7 +90,7 @@ impl Who {
 }
 
 /// The host's user, as the owner's name.
-fn owner_name() -> &'static str {
+pub(crate) fn owner_name() -> &'static str {
     static NAME: OnceLock<String> = OnceLock::new();
     NAME.get_or_init(|| {
         ["USER", "LOGNAME"]
@@ -109,6 +109,8 @@ struct Entry {
     name: String,
     viewing: bool,
     typing: bool,
+    /// A live pane's cutover for recap reads. This is memory-only and never appears in presence.
+    cutover: Option<(u64, u64)>,
     /// The running typing expiry, and which `on` started it.
     expiry: Option<(AbortHandle, u64)>,
 }
@@ -133,6 +135,7 @@ struct State {
     /// Each connection's typing calls in the last second.
     typing_calls: HashMap<String, VecDeque<Instant>>,
     next_on: u64,
+    next_cutover: u64,
 }
 
 struct Inner {
@@ -170,6 +173,20 @@ impl Presence {
 
     /// `_acpmux/view` (and a visible attach): `who` on `conn` shows the chat or stops.
     pub fn view(&self, chat: &str, conn: &str, who: &Who, visible: bool) -> Result<(), RpcError> {
+        self.view_with_cutover(chat, conn, who, visible, true, None)
+    }
+
+    /// Updates a view and its transient recap cutover atomically. The cutover is retained only
+    /// while this entry is visible and attending, and never changes presence participants.
+    pub fn view_with_cutover(
+        &self,
+        chat: &str,
+        conn: &str,
+        who: &Who,
+        visible: bool,
+        attending: bool,
+        cutover: Option<u64>,
+    ) -> Result<(), RpcError> {
         self.inner.change(chat, |state| {
             let key = (conn.to_owned(), who.id.clone());
             let entries = state.chats.entry(chat.to_owned()).or_default();
@@ -178,14 +195,32 @@ impl Presence {
                 let entry = entries.entry(key).or_insert_with(|| fresh(who));
                 entry.name.clone_from(&who.name);
                 entry.viewing = true;
+                entry.cutover = cutover.filter(|_| attending).map(|seq| {
+                    state.next_cutover = state.next_cutover.wrapping_add(1);
+                    (state.next_cutover, seq)
+                });
             } else if let Some(entry) = entries.get_mut(&key) {
                 entry.viewing = false;
+                entry.cutover = None;
                 if !entry.typing {
                     entries.remove(&key);
                 }
             }
             Ok(())
         })
+    }
+
+    /// The newest active cutover for a reader across its visible connections.
+    pub fn active_cutover(&self, chat: &str, reader: &str) -> Option<u64> {
+        let state = self.inner.state.lock_or_recover();
+        state
+            .chats
+            .get(chat)?
+            .iter()
+            .filter(|((_, id), entry)| id.as_str() == reader && entry.viewing)
+            .filter_map(|(_, entry)| entry.cutover)
+            .max_by_key(|(order, _)| *order)
+            .map(|(_, seq)| seq)
     }
 
     /// `_acpmux/typing`: `who` on `conn` starts or stops typing.
@@ -304,7 +339,7 @@ impl Inner {
 }
 
 fn fresh(who: &Who) -> Entry {
-    Entry { name: who.name.clone(), viewing: false, typing: false, expiry: None }
+    Entry { name: who.name.clone(), viewing: false, typing: false, cutover: None, expiry: None }
 }
 
 /// Refuses a new person past [`MAX_PEOPLE`]; one already in, and the owner, always pass.
@@ -377,5 +412,21 @@ mod tests {
         presence.typing("c", "other", &ana(), true).unwrap();
         presence.close("other");
         assert_eq!(presence.snapshot("c")["participants"], json!([]));
+    }
+
+    #[test]
+    fn a_cutover_is_transient_per_reader_and_connection() {
+        let presence = Presence::default();
+        let alice = ana();
+        let bob = Who { id: "tailnet:bob".into(), name: "Bob".into() };
+        presence.view_with_cutover("c", "conn-a", &alice, true, true, Some(2)).unwrap();
+        presence.view_with_cutover("c", "conn-b", &bob, true, true, Some(3)).unwrap();
+        assert_eq!(presence.active_cutover("c", "tailnet:ana"), Some(2));
+        assert_eq!(presence.active_cutover("c", "tailnet:bob"), Some(3));
+        presence.view_with_cutover("c", "conn-a", &alice, true, false, Some(4)).unwrap();
+        assert_eq!(presence.active_cutover("c", "tailnet:ana"), None);
+        assert_eq!(presence.active_cutover("c", "tailnet:bob"), Some(3));
+        presence.leave("c", "conn-b");
+        assert_eq!(presence.active_cutover("c", "tailnet:bob"), None);
     }
 }

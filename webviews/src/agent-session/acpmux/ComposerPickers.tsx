@@ -1,6 +1,16 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import { acpmuxPerf } from "./perf";
-import React, { useCallback, useContext, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import React, {
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useEffectEvent,
+} from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import { useClaudeConnectFlow } from "./ClaudeConnectRow";
@@ -19,14 +29,19 @@ import {
 } from "./defaultChoice";
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot, AcpmuxUsageLimits } from "./model";
-import type { SpeedSection } from "./EffortPicker";
+import { useComposerContribution } from "./composer/extensionCommands";
+import { modelPickerLayoutFrom } from "./composer/modelPickerLayoutFrom";
+import { EffortPicker, type SpeedSection } from "./EffortPicker";
+import { useComposerLook } from "./composerLook";
 import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
+import { Keycap } from "./Keycap";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
+import { listedNoDefault } from "./newtab/chipDefaults";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps, SetupRequest } from "./modelPickerLayout";
 import type { QuickSetup } from "./quickModelMenuModel";
@@ -60,6 +75,7 @@ import {
   useFullAccessProbe,
   useStartMode,
 } from "./startMode";
+import { chipProbe } from "./chipProbe";
 import type { PickerCatalog } from "./modelCatalogData";
 import { catalogProfiles } from "./pickerProfiles";
 import { switchTargets } from "./cmuxCommands";
@@ -87,6 +103,7 @@ import {
 } from "../../ui/Menu";
 import { cx } from "../../ui/cx";
 import { registerPicker } from "./pickerOpeners";
+import { MENU_WINDOW_AT, MenuWindowRows, sectionStarts, useMenuWindow } from "../../ui/menuWindow";
 import { PLAN_TOGGLE_OPENER } from "./composerControls";
 import { SHORTCUT_ACTIONS, tooltipProps, useShortcut } from "./shortcuts";
 import { experimentArm } from "../../experiments/experiment";
@@ -97,14 +114,14 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
-  cloudPickableModes,
   cloudStartAgent,
-  cloudStartMode,
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
   remoteStartMode,
   shownModes,
+  cloudPickableModes,
+  cloudStartMode,
 } from "./harnessModes";
 import {
   PICKER_LABELS,
@@ -217,6 +234,7 @@ export function ComposerPickers({
   startsChat = false,
 }: Props) {
   acpmuxPerf.render("composer:pickers");
+  const reasoningMenu = useComposerContribution(modelPickerLayoutFrom, undefined);
   const t = useT();
   const lastFastValue = useRef<{ scope: string; value: string } | undefined>(undefined);
   // Context usage rides on the model chip's tooltip, unless the person hid it (composerSettings.ts).
@@ -225,6 +243,7 @@ export function ComposerPickers({
   // Account and, when the model advertises a free inline toggle, Fast mode. Paid or otherwise
   // non-toggleable Fast remains in the model menu.
   const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
+  const studio = useComposerLook() === "studio";
   const chatAccounts = useChatAccounts();
   // With no Claude connection that serves Cloud, the Claude section's Connect row and its dialog.
   const claudeConnect = useClaudeConnectFlow();
@@ -416,6 +435,7 @@ export function ComposerPickers({
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
           values: fastOption.options.map((option) => option.value),
+          choices: fastOption.options,
           lastOnValue:
             fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
           onPick: (value: string) => onEffort(fastOption.id, value),
@@ -434,6 +454,7 @@ export function ComposerPickers({
   // once it settles: a switch passes through the new model with the old effort.
   const [recents, setRecents] = useState(loadRecents);
   const harness = summary?.harness;
+  const onNewTab = useContext(OnNewTab);
   // The chip draws a pick at once; the combo sequencing and the recents follow what the agent
   // reports (`confirmedModel`, set while a pick is unconfirmed).
   const shown = summary?.model;
@@ -1134,6 +1155,37 @@ export function ComposerPickers({
     const description = unrestricted(namedStart.modeId) ? t(PICKER_LABELS.fullAccessWarning) : undefined;
     return [{ id: namedStart.modeId, name: startModeName ?? namedStart.modeId, description }, ...asking, ...known];
   })();
+  // The access chip's inputs as this render saw them, for the debug `chat_state` verb (chipProbe.ts).
+  useEffect(() => {
+    chipProbe.last = {
+      chipHarness: chipHarness ?? null,
+      summaryHarness: harness ?? null,
+      faceHarness: pickerFaceHarness(pickerEntries) ?? null,
+      pickerHarnesses: pickerEntries.map((entry) => entry.id),
+      catalog: snapshot.catalog.map((entry) => entry.id),
+      sessionId: snapshot.sessionId ?? null,
+      summarySessionId: summary?.sessionId ?? null,
+      origin: snapshot.origin ?? null,
+      startsOnCloud: snapshot.startsOnCloud === true,
+      cloudStartMode: snapshot.cloudStartMode ?? null,
+      switchingPhase: snapshot.switching?.phase ?? null,
+      opening,
+      fresh,
+      awaiting,
+      local,
+      reportedModes: modes.map((choice) => choice.id),
+      currentModeId: summary?.modes?.currentModeId ?? null,
+      cloudAgent,
+      cloudAsking: cloudAsking ?? null,
+      cloudPick: cloudPick ?? null,
+      startAnswer: startAnswer ?? null,
+      highest: highest ?? null,
+      startMode: startMode ?? null,
+      startModeName: startModeName ?? null,
+      accessModes: accessModes.map((choice) => choice.id),
+      pendingAccessModes: pendingAccessModes.map((choice) => choice.id),
+    };
+  });
   useEffect(() => {
     if (!awaiting && chipHarness && summary?.sessionId && effortShown)
       rememberLastChips(chipHarness, { effort: effortShown });
@@ -1210,8 +1262,13 @@ export function ComposerPickers({
   };
   // The button names the effort after the model ("Opus 5.5  Medium"), and its short name for a
   // narrow row ("Med"). Before the session reports, it names the held pick.
-  const quickDetail = effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined);
-  const quickShort = effortLabel ? effortShort : awaiting ? heldShort : undefined;
+  // Studio's look (composerLook.ts) draws the effort as its own chip after the model's, as the
+  // reference composer does, so the model chip names only the model there.
+  const studioEffort = studio && !held ? quickEffort : undefined;
+  const quickDetail = studioEffort
+    ? undefined
+    : (effortLabel ?? (awaiting ? (heldChoice?.name ?? pendingEffort) : undefined));
+  const quickShort = studioEffort ? undefined : effortLabel ? effortShort : awaiting ? heldShort : undefined;
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
   const usageNote =
     showContextUsage && usage && usage.size > 0
@@ -1261,8 +1318,12 @@ export function ComposerPickers({
         ...(quickDetail ? { detail: quickDetail } : {}),
         ...(quickShort ? { detailShort: quickShort } : {}),
       });
+  // A New Tab on a Mac whose acpmux names no default (only the built-in Chief and UniiChat) starts
+  // on no agent (newTabStart): its chip is Add harness, as with none installed.
+  const unpickedNewTab = onNewTab && !harness && listedNoDefault(snapshot.catalog);
   const picksModel =
-    snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed);
+    !unpickedNewTab &&
+    (snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed));
   const chips = (
     <div className="acpmux-chips">
       {claudeConnect.dialog}
@@ -1305,7 +1366,9 @@ export function ComposerPickers({
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
           {...(claudeConnect.row ? { claudeConnect: claudeConnect.row } : {})}
-          {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
+          {...(fastMode && (!reasoningMenu || (fastOffered && !held && !switching))
+            ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } }
+            : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
@@ -1313,7 +1376,8 @@ export function ComposerPickers({
               : undefined
           }
           usage={usageNote}
-          quick={quick}
+          quick={reasoningMenu && (held || switching) ? { ...quick, effort: undefined } : quick}
+          reasoningMenu={reasoningMenu}
           {...(held
             ? heldDetail
               ? { detail: heldDetail }
@@ -1334,6 +1398,18 @@ export function ComposerPickers({
             </button>
           </span>
         )
+      )}
+      {studioEffort && (
+        <EffortPicker
+          label={t(PICKER_LABELS.effort)}
+          efforts={studioEffort.levels}
+          {...(studioEffort.current ? { current: studioEffort.current } : {})}
+          onPick={studioEffort.onPick}
+          defaulted={effortDefaulted}
+          chevron={<ChevronIcon />}
+          {...(effortShort ? { short: effortShort } : {})}
+          {...(studioEffort.slider ? { slider: true, sliderStyle: reasoningSliderStyle } : {})}
+        />
       )}
       {/* With no harness installed (the Add harness chip above) there is nothing to set a mode for:
           the start mode, its highest-level fallback and the inert "Mode" placeholder are the chips'
@@ -1516,12 +1592,15 @@ function AccessMenu({
   // disable bypass mode): the chip goes back to the mode in force and their rows are disabled.
   const [refused, setRefused] = useState<{ sessionId?: string; ids: readonly string[] }>({ ids: [] });
   const refusedIds = refused.sessionId === sessionId ? refused.ids : [];
+  // A set, so a row's check is not a pass over the refused list.
+  const refusedSet = new Set(refusedIds);
   // MDM or a team policy keeps full access off (#23322, `managed`): its rows are disabled and say so.
-  const blocked = (id: string) => refusedIds.includes(id) || (managed && unrestricted(id));
+  const blocked = (id: string) => refusedSet.has(id) || (managed && unrestricted(id));
   // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
   // and every mode, the first included, is a pick.
   const value = optimisticMode ?? current ?? "";
-  const reportedMode = modes.find((choice) => choice.id === value) ?? (offMenu?.id === value ? offMenu : undefined);
+  const valueIndex = modes.findIndex((choice) => choice.id === value);
+  const reportedMode: ModeChoice | undefined = modes[valueIndex] ?? (offMenu?.id === value ? offMenu : undefined);
   // A harness mode that asks under a policy that answers every prompt (approve-all) acts without
   // asking: the chip says full access, not the harness's Manual (cmux#27847). The menu still marks
   // the harness's own mode, the one a pick changes.
@@ -1554,14 +1633,44 @@ function AccessMenu({
   // A numbered menu (Claude Code's) draws no icon column, as Claude Code's mode menu does; the
   // button keeps the mode's symbol.
   const iconless = numbered && heading !== undefined;
+  // Past MENU_WINDOW_AT modes (an agent reports as many as it has) only the rows near the menu's
+  // viewport draw (menuWindow.tsx).
+  const menu = useMenuWindow(
+    open,
+    [modes.length],
+    (row) => modes[row]?.name ?? "",
+    valueIndex >= 0 ? valueIndex : undefined,
+  );
+  const badge = t(RECOMMENDED_BADGE);
+  const modeRow = (choice: ModeChoice, index: number, size?: number) => (
+    <AccessModeRow
+      key={choice.id}
+      id={choice.id}
+      name={choice.name}
+      icon={choice.icon}
+      badge={choice.recommended ? badge : undefined}
+      detail={
+        managed && unrestricted(choice.id)
+          ? // Managed off outranks an earlier refusal: the organization's bound is the reason now.
+            managedReason
+          : refusedSet.has(choice.id)
+            ? refusedReason
+            : choice.description || unrestricted(choice.id)
+              ? (choice.description ?? warning)
+              : undefined
+      }
+      disabled={blocked(choice.id)}
+      shortcut={numbered && !newTab && index < 9 ? String(index + 1) : undefined}
+      iconless={iconless}
+      {...(size === undefined ? {} : { place: index + 1, size })}
+    />
+  );
   // Nothing left to pick (every other mode refused): a plain label, never a dead menu.
   if (
     refusedIds.length > 0 &&
     // A full-access row managed off, the current one included, keeps the menu: it stays, disabled
     // and saying why (reviews 37 and 48).
-    modes.every(
-      (choice) => !(managed && unrestricted(choice.id)) && (choice.id === value || refusedIds.includes(choice.id)),
-    )
+    modes.every((choice) => !(managed && unrestricted(choice.id)) && (choice.id === value || refusedSet.has(choice.id)))
   ) {
     return (
       <span
@@ -1603,9 +1712,13 @@ function AccessMenu({
           side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
+          resize={{ id: "composer.access" }}
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
           onKeyDown={(event) => {
-            if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
+            if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) {
+              menu?.keyDown(event);
+              return;
+            }
             const choice = modes[Number(event.key) - 1];
             if (!choice) return;
             event.preventDefault();
@@ -1615,40 +1728,19 @@ function AccessMenu({
         >
           {modes.length > 0 && (
             <MenuRadioGroup value={value} onValueChange={pick}>
-              {modes.map((choice, index) => (
-                <MenuRadioItem
-                  key={choice.id}
-                  value={choice.id}
-                  disabled={blocked(choice.id)}
-                  shortcut={numbered && !newTab && index < 9 ? String(index + 1) : undefined}
-                  className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
-                >
-                  {!iconless && (
-                    <span className="acpmux-access-item-icon" aria-hidden="true">
-                      <ModeIcon modeId={choice.id} icon={choice.icon} />
-                    </span>
-                  )}
-                  <span className="acpmux-menu-text">
-                    {choice.recommended ? (
-                      // The name and Claude Code's Recommended badge on one line.
-                      <span className="acpmux-access-title">
-                        <span className="acpmux-menu-label">{choice.name}</span>
-                        <span className="acpmux-menu-badge">{t(RECOMMENDED_BADGE)}</span>
-                      </span>
-                    ) : (
-                      <span className="acpmux-menu-label">{choice.name}</span>
-                    )}
-                    {managed && unrestricted(choice.id) ? (
-                      // Managed off outranks an earlier refusal: the organization's bound is the reason now.
-                      <span className="acpmux-menu-description">{managedReason}</span>
-                    ) : refusedIds.includes(choice.id) ? (
-                      <span className="acpmux-menu-description">{refusedReason}</span>
-                    ) : choice.description || unrestricted(choice.id) ? (
-                      <span className="acpmux-menu-description">{choice.description ?? warning}</span>
-                    ) : null}
-                  </span>
-                </MenuRadioItem>
-              ))}
+              {menu ? (
+                <MenuWindowRows
+                  menu={menu}
+                  section={0}
+                  start={0}
+                  count={modes.length}
+                  estimate={ACCESS_ROW_ESTIMATE}
+                  {...(valueIndex >= 0 ? { opensAt: valueIndex } : {})}
+                  row={(index) => modeRow(modes[index]!, index, modes.length)}
+                />
+              ) : (
+                modes.map((choice, index) => modeRow(choice, index))
+              )}
             </MenuRadioGroup>
           )}
         </MenuPopup>
@@ -1656,6 +1748,65 @@ function AccessMenu({
     </span>
   );
 }
+
+/// A mode row before it is measured (a name, and a description under some).
+const ACCESS_ROW_ESTIMATE = 36;
+
+/// One mode row. Its props are values, so a row draws again only when its own mode changes.
+const AccessModeRow = memo(function AccessModeRow({
+  id,
+  name,
+  icon,
+  badge,
+  detail,
+  disabled,
+  shortcut,
+  iconless,
+  place,
+  size,
+}: {
+  id: string;
+  name: string;
+  icon?: ModeIconName;
+  /// Claude Code's Recommended badge, on the recommended mode.
+  badge?: string;
+  /// The line under the name: why it is disabled, or the mode's description.
+  detail?: string;
+  disabled: boolean;
+  shortcut?: string;
+  iconless: boolean;
+  /** In a windowed menu: the row's place among all the modes, and their count. */
+  place?: number;
+  size?: number;
+}) {
+  return (
+    <MenuRadioItem
+      value={id}
+      disabled={disabled}
+      shortcut={shortcut}
+      className={`acpmux-access-item${unrestricted(id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
+      {...(place === undefined ? {} : { "aria-posinset": place, "aria-setsize": size })}
+    >
+      {!iconless && (
+        <span className="acpmux-access-item-icon" aria-hidden="true">
+          <ModeIcon modeId={id} icon={icon} />
+        </span>
+      )}
+      <span className="acpmux-menu-text">
+        {badge !== undefined ? (
+          // The name and Claude Code's Recommended badge on one line.
+          <span className="acpmux-access-title">
+            <span className="acpmux-menu-label">{name}</span>
+            <span className="acpmux-menu-badge">{badge}</span>
+          </span>
+        ) : (
+          <span className="acpmux-menu-label">{name}</span>
+        )}
+        {detail !== undefined && <span className="acpmux-menu-description">{detail}</span>}
+      </span>
+    </MenuRadioItem>
+  );
+});
 
 /// What the keyboard tabs to, for leaving the context card forward.
 const TABBABLE =
@@ -1988,6 +2139,24 @@ function useRingMotion(chat: string | undefined, source: "context" | "plan" | un
 /// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
 export type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void | "keep" };
 
+/// The first section's current row, which a windowed menu opens at.
+function currentRow(sections: readonly Section[]): { section: number; index: number } | undefined {
+  for (let section = 0; section < sections.length; section++) {
+    const { current, choices } = sections[section]!;
+    if (current === undefined) continue;
+    const index = choices.findIndex((choice) => choice.id === current);
+    if (index >= 0) return { section, index };
+  }
+  return undefined;
+}
+
+/// Menu row `row`'s name, for typeahead.
+function rowLabel(sections: readonly Section[], starts: readonly number[], row: number): string {
+  let section = 0;
+  while (section + 1 < starts.length && starts[section + 1]! <= row) section++;
+  return sections[section]?.choices[row - (starts[section] ?? 0)]?.name ?? "";
+}
+
 /// A button that opens a menu above the composer: a select-only combobox, so
 /// focus stays on the button, which names the active option. Each section is
 /// a group with a check on its current choice; arrows move, Enter, Space or a
@@ -2024,6 +2193,8 @@ export function Picker({
   tooltip,
   shortcut,
   onOpen,
+  resizeId,
+  returnHint = false,
 }: {
   label: string;
   className: string;
@@ -2036,6 +2207,10 @@ export function Picker({
   /// The keycaps of the shortcut that opens it, shown after the tooltip (shortcuts.ts).
   shortcut?: string | undefined;
   onOpen?: () => void;
+  /// Resizable from its edges away from the button, its size kept under this name (ui/PopupResize.tsx).
+  resizeId?: string;
+  /// The highlighted row ends in the Return keycap and its choice's `verb` (the + menu). Off: no hint.
+  returnHint?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
@@ -2051,6 +2226,26 @@ export function Picker({
     [open],
   );
   useEffect(() => registerPicker(label, open), [label, open]);
+  // Past MENU_WINDOW_AT rows (the host's catalog rows are not bounded) only the rows near the
+  // menu's viewport draw (menuWindow.tsx).
+  const sizes = sections.map((section) => section.choices.length);
+  const starts = sectionStarts(sizes);
+  const windowed = sizes.reduce((sum, size) => sum + size, 0) > MENU_WINDOW_AT;
+  const opensAt = windowed ? currentRow(sections) : undefined;
+  const menu = useMenuWindow(
+    menuOpen,
+    sizes,
+    (row) => rowLabel(sections, starts, row),
+    opensAt === undefined ? undefined : starts[opensAt.section]! + opensAt.index,
+  );
+  // One pick function for every row, so a row does not draw again when the menu's model rebuilds.
+  const latest = useRef(sections);
+  useLayoutEffect(() => {
+    latest.current = sections;
+  });
+  const pick = useCallback((section: number, id: string) => {
+    if (latest.current[section]?.onPick(id) !== "keep") setMenuOpen(false);
+  }, []);
 
   return (
     <span className={cx("acpmux-picker", className)}>
@@ -2074,63 +2269,94 @@ export function Picker({
           // shared policy here also preserves prompt focus when a native capture is cancelled.
           finalFocus={undefined}
           className={cx("acpmux-menu acpmux-picker-menu", className)}
+          {...(menu ? { onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void menu.keyDown(event) } : {})}
+          {...(resizeId ? { resize: { id: resizeId } } : {})}
         >
           {heading && (
             <div className="acpmux-menu-heading" aria-hidden="true">
               {heading}
             </div>
           )}
-          {sections.map((section, sectionIndex) => (
-            <React.Fragment key={`section-${sectionIndex}`}>
-              {sectionIndex > 0 && <MenuSeparator />}
-              <div className="acpmux-menu-section">
-                {section.title ? (
-                  <MenuGroup label={section.title}>
-                    {section.choices.map((choice) => (
-                      <PickerMenuItem
-                        key={choice.id}
-                        choice={choice}
-                        section={section}
-                        current={choice.id === section.current}
-                        warnUnrestricted={warnUnrestricted}
-                        close={() => setMenuOpen(false)}
-                      />
-                    ))}
-                  </MenuGroup>
-                ) : (
-                  section.choices.map((choice) => (
+          {sections.map((section, sectionIndex) => {
+            const rows = menu ? (
+              <MenuWindowRows
+                menu={menu}
+                section={sectionIndex}
+                start={starts[sectionIndex]!}
+                count={section.choices.length}
+                estimate={PICKER_ROW_ESTIMATE}
+                {...(opensAt?.section === sectionIndex ? { opensAt: opensAt.index } : {})}
+                row={(index) => {
+                  const choice = section.choices[index]!;
+                  return (
                     <PickerMenuItem
-                      key={choice.id}
                       choice={choice}
-                      section={section}
+                      section={sectionIndex}
                       current={choice.id === section.current}
                       warnUnrestricted={warnUnrestricted}
-                      close={() => setMenuOpen(false)}
+                      pick={pick}
+                      place={starts[sectionIndex]! + index + 1}
+                      size={menu.total}
+                      returnHint={returnHint}
                     />
-                  ))
-                )}
-              </div>
-            </React.Fragment>
-          ))}
+                  );
+                }}
+              />
+            ) : (
+              section.choices.map((choice) => (
+                <PickerMenuItem
+                  key={choice.id}
+                  choice={choice}
+                  section={sectionIndex}
+                  current={choice.id === section.current}
+                  warnUnrestricted={warnUnrestricted}
+                  pick={pick}
+                  returnHint={returnHint}
+                />
+              ))
+            );
+            return (
+              <React.Fragment key={`section-${sectionIndex}`}>
+                {sectionIndex > 0 && <MenuSeparator />}
+                <div className="acpmux-menu-section">
+                  {section.title ? <MenuGroup label={section.title}>{rows}</MenuGroup> : rows}
+                </div>
+              </React.Fragment>
+            );
+          })}
         </MenuPopup>
       </Menu>
     </span>
   );
 }
 
-function PickerMenuItem({
+/// A + menu row before it is measured (one line of title and description).
+const PICKER_ROW_ESTIMATE = 32;
+
+/// A row draws again only when its own choice changes (by value: a rebuilt menu model makes new
+/// choice objects, and new icon elements, for rows that did not change) or it becomes the current one.
+type PickerRowProps = {
+  choice: Choice;
+  section: number;
+  current: boolean;
+  warnUnrestricted: boolean;
+  returnHint: boolean;
+  pick(section: number, id: string): void;
+  /** In a windowed menu: the row's place among all its rows, and their count. */
+  place?: number;
+  size?: number;
+};
+
+const PickerMenuItem = memo(function PickerMenuItem({
   choice,
   section,
   current,
   warnUnrestricted,
-  close,
-}: {
-  choice: Choice;
-  section: Section;
-  current: boolean;
-  warnUnrestricted: boolean;
-  close(): void;
-}) {
+  pick,
+  place,
+  size,
+  returnHint,
+}: PickerRowProps) {
   return (
     <MenuItem
       closeOnClick={false}
@@ -2139,9 +2365,8 @@ function PickerMenuItem({
         "acpmux-menu-item",
         warnUnrestricted && unrestricted(choice.id) ? "acpmux-unrestricted" : undefined,
       )}
-      onSelect={() => {
-        if (section.onPick(choice.id) !== "keep") close();
-      }}
+      {...(place === undefined ? {} : { "aria-posinset": place, "aria-setsize": size })}
+      onSelect={() => pick(section, choice.id)}
     >
       <span className="acpmux-menu-hit-area" aria-hidden="true" />
       {choice.icon}
@@ -2154,9 +2379,47 @@ function PickerMenuItem({
         )}
       </span>
       {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {returnHint && choice.verb && (
+        // Drawn on every row and shown on the highlighted one only (styles.css), so moving the
+        // highlight re-renders nothing. Decoration: the row's name is what a screen reader reads.
+        <span className="acpmux-menu-return" aria-hidden="true">
+          <span className="acpmux-menu-return-verb">{choice.verb}</span>
+          <Keycap>↩</Keycap>
+        </span>
+      )}
       {current && <CheckIcon />}
     </MenuItem>
   );
+}, samePickerRow);
+
+function samePickerRow(a: PickerRowProps, b: PickerRowProps): boolean {
+  return (
+    a.section === b.section &&
+    a.current === b.current &&
+    a.warnUnrestricted === b.warnUnrestricted &&
+    a.returnHint === b.returnHint &&
+    a.pick === b.pick &&
+    a.place === b.place &&
+    a.size === b.size &&
+    (a.choice === b.choice ||
+      (a.choice.id === b.choice.id &&
+        a.choice.name === b.choice.name &&
+        a.choice.description === b.choice.description &&
+        a.choice.hint === b.choice.hint &&
+        a.choice.verb === b.choice.verb &&
+        a.choice.recommended === b.choice.recommended &&
+        sameNode(a.choice.icon, b.choice.icon)))
+  );
+}
+
+/// The same element drawn again (an icon rebuilt with the same props).
+function sameNode(a: React.ReactNode, b: React.ReactNode): boolean {
+  if (a === b) return true;
+  if (!React.isValidElement(a) || !React.isValidElement(b) || a.type !== b.type || a.key !== b.key) return false;
+  const left = a.props as Record<string, unknown>;
+  const right = b.props as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every((key) => left[key] === right[key]);
 }
 
 // Composer icons (a 16px grid drawn at 18px, stroke in currentColor).
@@ -2283,12 +2546,13 @@ export const PlusIcon = () => (
     <path d="M8 2.75v10.5M2.75 8h10.5" />
   </Icon>
 );
-/** Send's arrow: a plain outline glyph with the mic's stroke (Leo 2026-10-21: no disc). */
-export const ArrowUpIcon = () => (
+/** The folder menu's Use path row: the folder chip's own folder outline. */
+export const MenuFolderIcon = () => (
   <Icon>
-    <path d="M8 12.9V3.4M3.9 7.5 8 3.4l4.1 4.1" />
+    <path d="M1.9 4.6c0-.8.6-1.4 1.4-1.4h2.6l1.5 1.6h5.3c.8 0 1.4.6 1.4 1.4v5.6c0 .8-.6 1.4-1.4 1.4H3.3c-.8 0-1.4-.6-1.4-1.4Z" />
   </Icon>
 );
+export { ArrowUpIcon } from "./icons/arrowUpIcon";
 export const ReturnIcon = () => (
   <Icon>
     <path d={RETURN_GLYPH_PATH} />

@@ -19,7 +19,7 @@ import Testing
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .turnTLS)) == [])
         #expect(machine.phase == .connected(.wireGuard, .turnTLS, rttMillis: nil))
         _ = machine.handle(.linkUpdated(generation: 1, path: .turnTLS, rttMillis: 27))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
     }
 
     @Test func offlineMacIsNotDialed() {
@@ -65,7 +65,7 @@ import Testing
         #expect(machine.phase == .connecting(.webRTC, attempt: 2))
         #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
         #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
         #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.
@@ -94,7 +94,7 @@ import Testing
         #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.relayOnly)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
     }
 
     /// Settings → Developer "Block UDP": a change redials, like relay only.
@@ -106,7 +106,7 @@ import Testing
         #expect(machine.handle(.blockUDP(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         #expect(machine.blockUDP)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turnTLS)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         // WebRTC ignores it: a change there does not redial.
         var webRTC = LinkMachine(transport: .webRTC)
         _ = webRTC.handle(.target(mac))
@@ -509,6 +509,21 @@ struct MockDialer: MacLinkDialer {
         #expect(second.workspaces[0].lastActivityAt == earlier)
     }
 
+    /// The Feed's working-now strip counts a working agent's time from the Mac's report.
+    @Test func aWorkingTabCarriesTheMacsReportTimeAndOthersNone() throws {
+        let started = Date(timeIntervalSince1970: 2000)
+        var agents = AgentStates()
+        agents.bySurface[1] = AgentState(state: "working", agent: "claude", updatedAt: started)
+        agents.bySurface[7] = AgentState(state: "blocked", agent: "claude", updatedAt: started)
+        let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
+        #expect(tree.workspaces[0].tabs.map(\.workingSince) == [started, nil, nil, nil])
+        // An older Mac's report has no time: working, with no start time.
+        agents.bySurface[1] = AgentState(state: "working", agent: "claude")
+        let older = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
+        #expect(older.workspaces[0].tabs[0].agentStatus == .working)
+        #expect(older.workspaces[0].tabs[0].workingSince == nil)
+    }
+
     @Test func tabsCarryTheirAgentStateAndTheMacsActiveTab() throws {
         var agents = AgentStates()
         agents.bySurface[1] = AgentState(state: "working", agent: "claude")
@@ -710,7 +725,7 @@ private struct LinkOf: MacLinkDialer {
         let link = setupDaemon(log)
         let prepared = await WorkspaceSync.prepare(try await link.openChannel(service: "daemon", args: [:]), deviceID: "d", deviceName: "iPhone")
         _ = await prepared.replies.value
-        #expect(log.count == 5)
+        #expect(log.count == 7, "six setup requests and the sidebar layout (#51114)")
         let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
         var trees: [DaemonTree] = []
         sync.onTree = { trees.append($0) }
@@ -718,7 +733,7 @@ private struct LinkOf: MacLinkDialer {
         #expect(trees.count == 1)
         #expect(sync.tree?.workspaces.map(\.id) == ["k1"])
         #expect(sync.daemon != nil)
-        #expect(log.count == 5)
+        #expect(log.count == 7, "binding sent another request")
     }
 
     /// `prepare` runs once per dial, before the link is handed over, and its

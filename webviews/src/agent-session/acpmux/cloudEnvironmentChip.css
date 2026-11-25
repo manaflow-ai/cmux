@@ -9,17 +9,30 @@
   min-width: 0;
   flex: 0 0 auto;
   opacity: 1;
+  visibility: visible;
   transition:
     grid-template-columns var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
     margin-inline-start var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
-    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
+    visibility 0s linear 0s;
 }
 .acpmux-cloud-env-slot > .acpmux-cloud-env { min-width: 0; overflow: hidden; }
+/* Closed (This Mac or a machine picked), it is not drawn at all once its column has shut: hidden,
+   not only clipped to 0 px and clear, so its "Environment: Auto" is never part of the strip's text
+   (innerText, find, a copy of the row) and never stands in a first frame of a local New Tab
+   (test/new-tab-warm-first-frame.test.ts: "atlas This Mac ::"). Visibility turns off after the
+   close and back on at the start of the open, so the transition is unchanged. */
 .acpmux-cloud-env-slot[data-shown="false"] {
   grid-template-columns: 0fr;
   margin-inline-start: calc(-1 * var(--acpmux-location-gap, 4px));
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
+  transition:
+    grid-template-columns var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    margin-inline-start var(--cmux-motion-standard, 180ms) var(--cmux-ease-out, ease-out),
+    opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
+    visibility 0s linear var(--cmux-motion-standard, 180ms);
 }
 :root[data-cmux-motion="reduced"] .acpmux-cloud-env-slot,
 :root[data-cmux-motion="off"] .acpmux-cloud-env-slot { transition: none; }
@@ -27,12 +40,21 @@
 /* "Environment: Auto": the name of the choice is quieter than the choice. */
 .acpmux-cloud-env-prefix { color: var(--agent-muted); }
 .acpmux-cloud-env-label { white-space: nowrap; }
-/* A narrow strip keeps the value ("Auto") and drops "Environment:", then the value, as the other chips do. */
-@container acpmux-strip (width < 472px) {
-  .acpmux-cloud-env-prefix { display: none; }
-}
-@container acpmux-strip (width < 340px) {
-  .acpmux-cloud-env .acpmux-location-label { display: none; }
+/* The Environment chip gives way first: where the strip has no room for every chip's name, it is its
+   icon alone (no label, no chevron), named in its tooltip and accessible name ("Cloud environment:
+   Auto", CloudEnvironmentChip.tsx), before the folder, the Where chip or its team tag cut. One step,
+   on the strip's own width as the other chips' steps (composerLocation.css); the label and chevron
+   go together, so the chips after it move once. Nothing changes at full width. cmux#39001, the
+   coordinator's decision on Leo's authority: "at narrow composer widths, the Environment chip
+   collapses to its icon first, with its label moving into its tooltip, before anything else gives
+   way." The step: the Cloud strip's chips with every name shown (folder "cmux" 79 px, Cloud and a
+   long team "leo@cmux.com's" 195 px, "Environment: Auto" about 150 px, the gaps) need about 440 px;
+   520 leaves room for a longer team or folder. At the 400 px pane the strip is 324 px, and the
+   icon alone (about 27 px) leaves the folder and team whole there (agent-pane.cloud-composer-chips,
+   Chromium; test/cloud-composer-chips-narrow.test.ts holds full width, 760 and 400 px). */
+@container acpmux-strip (width < 520px) {
+  .acpmux-cloud-env .acpmux-location-label,
+  .acpmux-cloud-env .acpmux-location-button > .ui-ghost-icon:last-child { display: none; }
 }
 
 /* The drop-up: the location menus' rows. */

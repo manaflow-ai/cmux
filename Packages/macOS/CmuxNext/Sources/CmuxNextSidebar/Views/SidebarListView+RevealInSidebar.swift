@@ -10,7 +10,7 @@ extension SidebarListViewComponents {
         return displayed.isOnScreen(.workspace(id), at: clip.bounds.minY, height: clip.bounds.height)
     }
 
-    /// Shows workspace `id`'s row: opens the list's own folds that hide it (the Archive, an "Archived (N)" or
+    /// Shows workspace `id`'s row: opens the list's own folds that hide it (an "Archived (N)" or
     /// "Done (N)" row, then a "Show N more" row, each only while the row is still not drawn), scrolls it into view
     /// (to the middle when `centre`, else the least scroll) and flashes it. False when the list draws no row for it.
     func revealRow(_ id: WorkspaceID, centre: Bool) -> Bool {
@@ -18,11 +18,11 @@ extension SidebarListViewComponents {
         if displayed.row(for: key) == nil, let workspace = model.workspace(id) {
             var lists = model.revealLists(of: id)
             var folds: Set<SidebarDoneFoldID> = []
-            if workspace.isArchived { folds.insert(.archive) }
             for list in lists {
                 if workspace.isArchived { folds.insert(list.of(.archived)) }
                 if workspace.taskStatus == .done { folds.insert(list.of(.done)) }
                 if model.settlesFinished, model.settledChats().contains(id) { folds.insert(list.of(.settled)) }
+                if model.automaticSessions().contains(id) { folds.insert(list.of(.automatic)) }
             }
             if !folds.isSubset(of: openDoneFolds) {
                 openDoneFolds.formUnion(folds)

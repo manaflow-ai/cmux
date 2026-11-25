@@ -122,10 +122,33 @@ async fn run(
     load: &Load,
     every: Duration,
 ) -> (paint_latency::Summary, paint_latency::Summary, StreamBytes) {
-    let lines = load.reads.len() as u64;
     let link_profile = ProfileFile::builtin().get(profile).cloned().expect("profile");
+    run_link(profile, link_profile, None, load, every).await
+}
+
+/// `resets`: every `.0`, nothing gets through for `.1` (a path reset: the link at NoPath, then
+/// back on its relay, as Leo's Mac logs about every 1 to 2 min).
+async fn run_link(
+    profile: &str,
+    link_profile: cmux_fault::shaper::LinkProfile,
+    resets: Option<(Duration, Duration)>,
+    load: &Load,
+    every: Duration,
+) -> (paint_latency::Summary, paint_latency::Summary, StreamBytes) {
+    let lines = load.reads.len() as u64;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let shaper = Shaper::start(listener.local_addr().unwrap(), link_profile, 7, &Trace::new()).await.unwrap();
+    let shaper =
+        Arc::new(Shaper::start(listener.local_addr().unwrap(), link_profile, 7, &Trace::new()).await.unwrap());
+    let resetter = resets.map(|(period, dark)| {
+        let shaper = Arc::clone(&shaper);
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
+            loop {
+                tick.tick().await;
+                shaper.blackout(dark);
+            }
+        })
+    });
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("phone-frames.jsonl");
 
@@ -201,6 +224,9 @@ async fn run(
     }
     frames.close("done", "").await;
     let _mac = tokio::time::timeout(Duration::from_secs(60), mac).await.unwrap().unwrap();
+    if let Some(resetter) = resetter {
+        resetter.abort();
+    }
 
     // hostd's own lines in phone-frames.jsonl, one per report.
     let text = std::fs::read_to_string(&path).unwrap();
@@ -824,5 +850,39 @@ fn host_capture_and_encode_per_redraw_by_grid_on_a_busy_machine() {
     stop.store(true, Ordering::Relaxed);
     for spinner in spinners {
         spinner.join().unwrap();
+    }
+}
+
+/// Leo's real link (his NIGHTLY's host log, 2026-11-22): the phone on wifi reaches the wired Mac
+/// through a TURN relay, never direct, and the path resets (NoPath, then the relay again) about
+/// every 1 to 2 min. Modelled: good-wifi's rates, plus a relay hop of 30 ms or 80 ms round trip
+/// with 10 ms jitter, and a reset every 90 s that carries nothing for 2 s. The relay's round trip
+/// is a guess until the rtt lines (path_report.rs) read his.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "a measurement (about 14 min): --ignored --nocapture prints the table"]
+async fn mac_redraw_to_phone_receive_over_a_relay_with_a_path_reset_every_90_s() {
+    let wifi = ProfileFile::builtin().get("good-wifi").cloned().expect("profile");
+    // 200 s at 40 redraws a second, two resets inside the run; under hostd's stamp ring
+    // (paint_latency::RING), since this bench reports once at the end.
+    let load = Load { name: "", reads: Arc::new((0..8_000).map(redraw_vt).collect()), cols: 100, rows: 40 };
+    for (name, relay_rtt) in [("relay-30", 30), ("relay-80", 80)] {
+        for resets in [None, Some((Duration::from_secs(90), Duration::from_secs(2)))] {
+            let mut profile = wifi.clone();
+            profile.rtt_ms += relay_rtt;
+            profile.jitter_ms = 10;
+            let label = if resets.is_some() { format!("{name}+reset-90s") } else { name.to_string() };
+            let (summary, truth, _bytes) =
+                run_link(&label, profile, resets, &load, Duration::from_millis(25)).await;
+            let mac = summary.mac.expect("mac part");
+            let wire = truth.wire.expect("wire part");
+            println!(
+                "PAINT-ROW {label}: a mac p50 {} p95 {} | b wire p50 {} p95 {} max {} | n {}",
+                mac.p50_ms, mac.p95_ms, wire.p50_ms, wire.p95_ms, wire.max_ms, wire.n
+            );
+            assert!(
+                wire.p50_ms + 2.0 >= relay_rtt as f64 / 2.0,
+                "{label}: the wire is at least the relay's one-way delay"
+            );
+        }
     }
 }

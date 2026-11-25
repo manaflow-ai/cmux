@@ -39,10 +39,8 @@ pub fn width(ch: char) -> usize {
             std::cmp::Ordering::Equal
         }
     });
-    match found {
-        Ok(i) => usize::from(tables::WIDTH[i].2),
-        Err(_) => 1,
-    }
+    // `binary_search_by` only answers an index in the table, so `get` always finds it.
+    found.ok().and_then(|i| tables::WIDTH.get(i)).map_or(1, |&(_, _, w)| usize::from(w))
 }
 
 /// How appending `ch` to a cluster ending in `prev` changes its width

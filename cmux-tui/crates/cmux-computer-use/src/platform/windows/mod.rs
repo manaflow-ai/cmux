@@ -201,6 +201,16 @@ impl Desktop for WindowsDesktop {
         input::scroll(hwnd, at, dx, dy)
     }
 
+    fn move_pointer(&self, target: &PointerTarget, delivery: Delivery) -> DResult<ActionOutcome> {
+        session::require_interactive()?;
+        let hwnd = self.window(target.window_id())?;
+        let at = match target {
+            PointerTarget::Element { element_id, .. } => self.uia.center(hwnd, element_id)?,
+            PointerTarget::Point { point, .. } => *point,
+        };
+        input::move_pointer(hwnd, at, delivery)
+    }
+
     fn drag(
         &self,
         window_id: &str,

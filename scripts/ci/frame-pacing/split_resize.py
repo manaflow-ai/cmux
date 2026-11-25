@@ -115,6 +115,13 @@ def _pixels(row: list) -> tuple[float, float, str | None]:
     return -1.0, -1.0, None
 
 
+def _pane_count(driver) -> int:
+    """Panes in the snapshot's topology (every workspace's screens)."""
+    topology = driver.read("snapshot.get", {}).get("topology") or {}
+    return sum(len(screen.get("panes") or []) for workspace in topology.get("workspaces") or []
+               for screen in workspace.get("screens") or [])
+
+
 def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
           gestures: tuple[str, ...] | list[str] = ("divider",)) -> None:
     """Splits right, opens the page (`pane`) in the right pane, then traces each of `gestures` four times.
@@ -129,8 +136,10 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
     if unknown:
         driver.save("split_resize", {"error": f"unknown gestures {unknown}"})
         return
+    panes_before = _pane_count(driver)
     split = driver.call("action.run", {"action": "splitRight", "focus": True}, timeout=30)
-    time.sleep(1.0)
+    driver.until(lambda: _pane_count(driver) > panes_before, "splitRight showing a new pane")
+    driver.settle("the window after the split")
     chat_pane: str | None = None
     if pane == "browser":
         page = out / "split-resize-probe.html"
@@ -157,7 +166,7 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
     else:
         # The chat opens in the split's new pane (the rightmost), not in a chat dock.
         driver.call("debug.motion", {"action": "trace_start", "targets": ["panes"]})
-        time.sleep(0.2)
+        time.sleep(0.2)  # sleep-ok: the trace window, a few frames sampled (trace_stop is its only read)
         snapshot = driver.call("debug.motion", {"action": "trace_stop"})
         rows = [sample for sample in snapshot.get("samples") or [] if sample.get("panes")]
         right = _pane_row(rows[-1], None) if rows else None
@@ -189,8 +198,13 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
 
         def recording() -> bool:
             probe("start")
-            time.sleep(0.3)
-            return len(read()[0]) > 2
+            # Until the probe holds a few frames; the caller retries a probe that has not started.
+            until = time.monotonic() + 2.0
+            while len(read()[0]) <= 2:
+                if time.monotonic() >= until:
+                    return False
+                time.sleep(0.05)
+            return True
 
     deadline = time.monotonic() + 60
     ready_page = False
@@ -203,13 +217,13 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
         driver.save("split_resize", {"error": f"the probe never ran in the {pane} pane", "pane": pane, "split": split,
                                      "opened": opened})
         return
-    time.sleep(1.5)
+    driver.settle(f"the window with the {pane} probe")
 
     def at_rest() -> dict | None:
         """One sample of the window at rest: the dividers, the panes and the window size."""
         if "error" in driver.call("debug.motion", {"action": "trace_start", "targets": TARGETS}):
             return None
-        time.sleep(0.2)
+        time.sleep(0.2)  # sleep-ok: the trace window, a few frames sampled at rest (trace_stop is its only read)
         snapshot = driver.call("debug.motion", {"action": "trace_stop"})
         rest = [sample for sample in snapshot.get("samples") or [] if sample.get("window")]
         return rest[-1] if rest else None
@@ -289,7 +303,7 @@ def drive(driver, out: Path, strip: bool = False, pane: str = "browser",
                 shots.append({"step": step, "path": path.name,
                               "result": driver.call("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=20)})
         driver.call("debug.mouse", {"action": "up", "x": x - 200, "y": y})
-        time.sleep(1.0)
+        driver.settle("the window after the recording drag landed")
         path = out / "strip-landed.png"
         shots.append({"step": "landed", "path": path.name,
                       "result": driver.call("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=20)})

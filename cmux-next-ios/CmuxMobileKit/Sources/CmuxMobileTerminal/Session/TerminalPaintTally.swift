@@ -107,15 +107,19 @@ public struct TerminalPaintReport: Sendable, Equatable {
     /// `[t0, t1, t2, t3]` clock probes, epoch ms.
     public var clock: [[Double]]
     public var rttMs: Int?
+    /// The phone's Agent CLI Screen Changes setting at the report (lean frames when on).
+    public var agentCLIHybrid: Bool?
 
     public init(program: String? = nil, app: String? = nil, load: String? = nil,
-                samples: [TerminalPaintTally.Sample], clock: [[Double]] = [], rttMs: Int? = nil) {
+                samples: [TerminalPaintTally.Sample], clock: [[Double]] = [], rttMs: Int? = nil,
+                agentCLIHybrid: Bool? = nil) {
         self.program = program
         self.app = app
         self.load = load
         self.samples = samples
         self.clock = clock
         self.rttMs = rttMs
+        self.agentCLIHybrid = agentCLIHybrid
     }
 
     public func line() -> Data? {
@@ -124,6 +128,7 @@ public struct TerminalPaintReport: Sendable, Equatable {
         if let app { object["app"] = app }
         if let load { object["load"] = load }
         if let rttMs { object["rtt_ms"] = rttMs }
+        if let agentCLIHybrid { object["agent_cli_hybrid"] = agentCLIHybrid }
         return try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
     }
 
