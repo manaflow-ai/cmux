@@ -19,7 +19,7 @@
 //! - **Stamps**: every datagram carries a stamp its ack echoes, so every ack (of a resend too)
 //!   is a round trip, and a datagram whose ack never comes is a loss.
 //! - **Resend**: while the latest state is unacked and nothing new is due, the latest diff goes
-//!   again every `max(1.5 * srtt, 30 ms)`.
+//!   again every `max(1.25 * srtt, 30 ms)`.
 //! - **Path selector** ([`PathSelector`], [`ViewportSync::select_path`]): per link, today's
 //!   stream until the measured loss is above 0.5% or the round trip above 20 ms, and back
 //!   only after 2 s below 0.25% and 15 ms; a small probe datagram every 100 ms keeps it
@@ -71,7 +71,7 @@ pub struct Config {
     pub initial_rate: f64,
     pub min_rate: f64,
     pub max_rate: f64,
-    /// The resend interval's floor (it is `max(1.5 * srtt, resend_floor)`).
+    /// The resend interval's floor (it is `max(1.25 * srtt, resend_floor)`).
     pub resend_floor: Duration,
     /// The resend interval before any round trip was measured.
     pub resend_unmeasured: Duration,
@@ -575,7 +575,7 @@ impl ViewportSync {
 
     fn resend_interval(&self) -> Duration {
         match self.srtt {
-            Some(srtt) => srtt.mul_f64(1.5).max(self.config.resend_floor),
+            Some(srtt) => srtt.mul_f64(1.25).max(self.config.resend_floor),
             None => self.config.resend_unmeasured.max(self.config.resend_floor),
         }
     }
@@ -1223,10 +1223,10 @@ mod tests {
         assert_eq!(sync.srtt(), Some(Duration::from_millis(200)));
         sync.feed(b" two");
         assert!(!sync.poll(acked_at).is_empty());
-        // Unacked: the resend waits 1.5 * srtt.
-        assert_eq!(sync.next_wake(acked_at), Some(acked_at + Duration::from_millis(300)));
-        assert!(sync.poll(acked_at + Duration::from_millis(299)).is_empty());
-        assert!(!sync.poll(acked_at + Duration::from_millis(300)).is_empty());
+        // Unacked: the resend waits 1.25 * srtt.
+        assert_eq!(sync.next_wake(acked_at), Some(acked_at + Duration::from_millis(250)));
+        assert!(sync.poll(acked_at + Duration::from_millis(249)).is_empty());
+        assert!(!sync.poll(acked_at + Duration::from_millis(250)).is_empty());
     }
 
     #[test]
@@ -1450,6 +1450,90 @@ mod tests {
         let mut link = FakeLink::new(Duration::from_millis(1), Duration::ZERO, 0.02);
         drive_fake(&mut sync, &mut link, start, 30);
         assert_eq!(sync.switches().first().map(|s| s.to), Some(Path::Datagram));
+    }
+
+    /// RFD 0140 §4: on a 200 ms round trip with 5% loss each way (and jitter that reorders), the
+    /// phone's screen matches the host's within one round trip after a burst of output ends. A
+    /// burst's last diff lost on the way can only come back with a resend, so the target is the
+    /// 95th percentile, and the worst within three round trips (the resend at 1.25 * srtt).
+    /// (ms from each burst's end to a match, bytes sent)
+    fn lossy_link_bursts(seed: u64, bursts: usize) -> (Vec<u64>, u64) {
+        let start = Instant::now();
+        let mut sync = driver(start);
+        let mut link = FakeLink::new(Duration::from_millis(90), Duration::from_millis(20), 0.05);
+        link.seed ^= seed.wrapping_mul(0x2545_f491_4f6c_dd1d);
+        let mut phone = SyncReceiver::new();
+        let mut ms = 0_u64;
+        let mut line = 0_u64;
+        let mut took_ms = Vec::with_capacity(bursts);
+        let mut tick = |sync: &mut ViewportSync, phone: &mut SyncReceiver, link: &mut FakeLink, ms: u64| {
+            let now = start + Duration::from_millis(ms);
+            let sent = sync.poll(now);
+            link.step(sync, phone, sent, now);
+        };
+        for _ in 0..bursts {
+            // 1 to 40 lines over up to 300 ms: test output, a progress line, typing.
+            let ticks = 1 + (link.random() * 20.0) as u64;
+            for _ in 0..ticks {
+                for _ in 0..(link.random() * 3.0) as u64 {
+                    line += 1;
+                    let text = match line % 4 {
+                        0 => format!("\x1b[32mok\x1b[0m test_{line} ... passed\r\n"),
+                        1 => format!("\r\x1b[Kbuilding {}%", line % 100),
+                        2 => "x".to_string(),
+                        _ => format!("\x1b[1;31merror\x1b[0m[E{line:04}]: at src/lib.rs:{line}\r\n"),
+                    };
+                    sync.feed(text.as_bytes());
+                }
+                for _ in 0..16 {
+                    tick(&mut sync, &mut phone, &mut link, ms);
+                    ms += 1;
+                }
+            }
+            let end = ms;
+            let target = sync.capture();
+            while phone.screen() != Some(&target) {
+                tick(&mut sync, &mut phone, &mut link, ms);
+                ms += 1;
+                assert!(ms - end < 10_000, "seed {seed}: no match 10 s after a burst");
+            }
+            took_ms.push(ms - end);
+            // Idle between commands.
+            for _ in 0..(200 + (link.random() * 400.0) as u64) {
+                tick(&mut sync, &mut phone, &mut link, ms);
+                ms += 1;
+            }
+        }
+        (took_ms, sync.bytes_sent())
+    }
+
+    #[test]
+    fn viewport_sync_matches_within_one_round_trip_after_a_burst_on_a_lossy_link() {
+        // 90 ms each way plus up to 20 ms of jitter each way: a 200 ms round trip at most.
+        const RTT: u64 = 200;
+        let mut all = Vec::new();
+        for seed in 1..=10 {
+            let (mut took, bytes) = lossy_link_bursts(seed, 50);
+            all.extend_from_slice(&took);
+            took.sort_unstable();
+            let within = took.iter().filter(|&&ms| ms <= RTT).count();
+            let worst = took.last().copied().unwrap_or(0);
+            println!(
+                "seed {seed}: {within}/{} within {RTT} ms, worst {worst} ms, {bytes} B sent",
+                took.len()
+            );
+        }
+        all.sort_unstable();
+        let p95 = all[(all.len() * 95).div_ceil(100) - 1];
+        let p50 = all[all.len() / 2];
+        let worst = all.last().copied().unwrap_or(0);
+        let within = all.iter().filter(|&&ms| ms <= RTT).count();
+        println!(
+            "all: {within}/{} within one round trip, p50 {p50} ms, p95 {p95} ms, worst {worst} ms",
+            all.len()
+        );
+        assert!(p95 <= RTT, "p95 {p95} ms > one round trip ({RTT} ms)");
+        assert!(worst <= 3 * RTT, "worst {worst} ms > three round trips");
     }
 
     #[tokio::test]
