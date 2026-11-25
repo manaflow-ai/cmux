@@ -15,7 +15,7 @@ public nonisolated indirect enum WhenClause: Hashable, Sendable {
     /// The key's text differs from the value's text. A missing key differs.
     case notEquals(String, KeyContextValue)
     /// The key's text matches the regular expression.
-    case matches(String, pattern: String)
+    case matches(String, pattern: WhenPattern)
     /// The key's text is an element of the list in `listKey`.
     case isIn(String, listKey: String)
 
@@ -36,7 +36,7 @@ public nonisolated indirect enum WhenClause: Hashable, Sendable {
         case .notEquals(let key, let value):
             return context[key]?.text != value.text
         case .matches(let key, let pattern):
-            guard let text = context[key]?.text, let regex = WhenRegexCache.regex(pattern) else { return false }
+            guard let text = context[key]?.text, let regex = pattern.regex else { return false }
             return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
         case .isIn(let key, let listKey):
             guard let text = context[key]?.text, case .strings(let list)? = context[listKey] else { return false }
@@ -56,18 +56,18 @@ public nonisolated indirect enum WhenClause: Hashable, Sendable {
     }
 }
 
-/// Compiled `=~` patterns, by pattern text. A `when` clause is evaluated for every candidate binding
-/// on each key event, and compiling an NSRegularExpression (ICU) each time cost far more than the
-/// match. Patterns come from the keybindings file, so the set is small. NSCache is thread-safe.
-nonisolated enum WhenRegexCache {
-    private static let cache = NSCache<NSString, NSRegularExpression>()
+/// A `=~` pattern compiled once when the clause is made. A clause is evaluated for every candidate
+/// binding on each key event, and compiling an NSRegularExpression (ICU) each time cost far more than
+/// the match. An invalid pattern keeps a nil regex and never matches. Equal when the text is.
+public nonisolated struct WhenPattern: Hashable, Sendable {
+    public let text: String
+    let regex: NSRegularExpression?
 
-    /// The compiled pattern (the same object on every call), or nil for an invalid pattern.
-    static func regex(_ pattern: String) -> NSRegularExpression? {
-        let key = pattern as NSString
-        if let hit = cache.object(forKey: key) { return hit }
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
-        cache.setObject(regex, forKey: key)
-        return regex
+    public init(_ text: String) {
+        self.text = text
+        regex = try? NSRegularExpression(pattern: text)
     }
+
+    public static func == (lhs: WhenPattern, rhs: WhenPattern) -> Bool { lhs.text == rhs.text }
+    public func hash(into hasher: inout Hasher) { hasher.combine(text) }
 }
