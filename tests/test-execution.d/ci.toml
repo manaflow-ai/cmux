@@ -119,6 +119,11 @@ path = "tests/test_ci_cmux_next_compile_status.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cmux_tui_channel_heal.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_cmux_tui_channel_heal.py"
+
+[[test]]
 path = "tests/test_ci_cmux_tui_fat_warm_target.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Checks that the shipped fat-LTO cmux-tui legs of cmux-tui-build-package.yml mount their own warm sticky disks (keys apart from the thin ones), restore before their builds and record (prune) only in the Record the warm target step after Stage binary, that the warm bound stays above measured use, and that the script empties a disk whose toolchain stamp changed; run python3 tests/test_ci_cmux_tui_fat_warm_target.py yourself after changing those steps, macos-cross.sh all or the script (about 2 s, no build)."
@@ -291,6 +296,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_kit_base_red.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ios_loading_placeholders.py"
 lane = "linux-guard"
 
 [[test]]
@@ -521,6 +534,10 @@ path = "tests/test_ci_parallel_artifact_transport.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_persisted_formats.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_piece_swap.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_piece_swap.py"
@@ -716,6 +733,11 @@ reason = "No workflow step runs it (lane derived by --write). Run it yourself: p
 [[test]]
 path = "tests/test_ci_run_guards.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_router_checkout_mirror.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_router_checkout_mirror.py"
 
 [[test]]
 path = "tests/test_ci_runner_capability_resolver.py"
@@ -948,6 +970,11 @@ reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts
 path = "tests/test_ci_why.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins how scripts/ci-why (an opt-in script for authors, not a gate) reads base_red_excuse.py's verdicts; run python3 tests/test_ci_why.py yourself after changing either (under a second, no network)."
+
+[[test]]
+path = "tests/test_ci_fast_tier_current_base.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_fast_tier_current_base.py"
 
 [[test]]
 path = "tests/test_ci_workflow_file_size.py"

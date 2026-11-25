@@ -427,6 +427,7 @@ imessage.automationSkipped
 imessage.enabled
 labs.agentCustomization
 labs.classicHome
+labs.commentThreads
 labs.liveCode
 labs.liveTree
 labs.machineJoin
@@ -546,6 +547,7 @@ phone.cloudReplica
 phone.keepAwake
 phone.startSessions
 picker.pinned
+presence.live
 remote.enabled
 remote.endSharingOnQuit
 remote.screenSharingProfile
@@ -615,6 +617,7 @@ sidebar.showAutomaticSessions
 sidebar.showChats
 sidebar.showColors
 sidebar.showCounts
+sidebar.showLiveToggle
 sidebar.showLocalMachine
 sidebar.showNewWorkspaceChooser
 sidebar.showProfileControl

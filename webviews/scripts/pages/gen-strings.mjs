@@ -191,9 +191,47 @@ export const PAGES = {
     out: "webviews/src/pages/history/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/history/Localizable.xcstrings" }],
   },
+  terminalHistory: {
+    out: "webviews/src/pages/terminal-history/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/pages/terminal-history/Localizable.xcstrings" },
+      {
+        file: `${sources}/CmuxNextApp/Resources/Localizable.xcstrings`,
+        keys: () => ["terminalHistory.tab"],
+      },
+      {
+        file: `${sources}/CmuxNextAgentPane/Resources/Localizable.xcstrings`,
+        keys: () => ["terminalHistory.unavailable"],
+      },
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: () => [
+          "files.searching",
+          "find.next",
+          "find.noResults",
+          "find.placeholder",
+          "find.previous",
+          "inbox.earlier",
+          "ledger.total.tools",
+          "message.more",
+          "subagents.empty.title",
+          "transcript.agent",
+          "transcript.jumpLatest",
+          "transcript.loading",
+          "transcript.loadingOlder",
+          "transcript.you",
+        ],
+      },
+    ],
+  },
   stash: {
     out: "webviews/src/pages/stash/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
+  },
+  // The Forum page (the team's hosted agent forum; behind experiments.forum).
+  forum: {
+    out: "webviews/src/pages/forum/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/forum/Localizable.xcstrings" }],
   },
   // The Feed page (plans/cmux-next/feed-page.md): its table moved next to it when the Swift Feed
   // module was deleted (the same keys and values), with the refusal toast's `toast.dismiss`.
