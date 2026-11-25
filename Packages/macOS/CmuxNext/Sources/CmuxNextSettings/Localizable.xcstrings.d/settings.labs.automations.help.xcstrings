@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.labs.automations.help" : {
+      "comment" : "Settings > Advanced > Labs: help for the Automations toggle",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show the cloud automations and webhook editor in Settings. Still being shaped."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
