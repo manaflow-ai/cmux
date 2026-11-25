@@ -225,14 +225,19 @@ export function readEnvFile(text: string): Record<string, string> {
 }
 
 export type Status = "pass" | "fail" | "skip";
-export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; reserved_hit?: boolean };
+export type FirstTextFields = { create_marks_ms?: Record<string, number>; create_to_first_text_ms?: number; guest_ms?: Record<string, number>; reserved_hit?: boolean };
 export type Step = { step: string; status: Status; ms: number; detail: string; fields?: FirstTextFields };
 
 /** One runner monotonic clock, from the create call. Reused machines have no create measurement. */
 export class FirstTextTiming {
   private start: number | undefined;
   private marks: Record<string, number> = {};
+  private onGuest: Record<string, number> = {};
   constructor(private readonly clock = () => performance.now()) {}
+  /** A part as the guest timed it (its own clock, without the exec route's trip): `guest_ms` beside the marks. */
+  guest(part: string, ms: number | null): void {
+    if (ms !== null && Number.isFinite(ms) && ms >= 0 && !(part in this.onGuest)) this.onGuest[part] = Math.round(ms);
+  }
   mark(phase: string): void {
     if (phase === "create" && this.start === undefined) {
       this.start = this.clock();
@@ -244,7 +249,11 @@ export class FirstTextTiming {
   }
   fields(): FirstTextFields {
     if (this.start === undefined) return {};
-    return { create_marks_ms: { ...this.marks }, ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}) };
+    return {
+      create_marks_ms: { ...this.marks },
+      ...(this.marks.first_text !== undefined ? { create_to_first_text_ms: this.marks.first_text } : {}),
+      ...(Object.keys(this.onGuest).length ? { guest_ms: { ...this.onGuest } } : {}),
+    };
   }
 }
 
@@ -1940,7 +1949,8 @@ export type ExecResult = { code: number; stdout: string; stderr: string };
 export type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** Follow a fresh session's ACP stream on the guest and return on text, not turn end. The exec response carries
- * only a marker, never the model's text. --since 0 closes the subscribe/send race on this run's unique session.
+ * only a marker, never the model's text: `@@first-text TURN THOUGHT`, the guest's own ms from the turn's start
+ * (acpmux took the prompt) to the first text and to the first thinking (-1: none), apart from the exec route. --since 0 closes the subscribe/send race on this run's unique session.
  * The process is bounded and reaped by its own parent; no daemon or unrelated process is signalled. */
 export function firstTextCommand(session: string, budgetMs: number): string {
   return `python3 - "$c" ${shq(session)} ${Math.min(270_000, budgetMs) / 1000} <<'CMUX_FIRST_TEXT'
@@ -1953,6 +1963,8 @@ end = time.monotonic() + float(sys.argv[3])
 buf = b''
 discarding = False
 started = False
+turn_at = None
+thought_ms = -1
 try:
     while time.monotonic() < end:
         if not sel.select(max(0, end - time.monotonic())):
@@ -1978,9 +1990,11 @@ try:
                 continue
             if event.get('kind') == 'turn_started':
                 started = True
+                if turn_at is None:
+                    turn_at = time.monotonic()
             if event.get('kind') in ('turn_result', 'turn_error'):
                 sys.exit('first turn ended without assistant text')
-            if not started or event.get('kind') not in (None, 'agent_message_chunk'):
+            if not started or event.get('kind') not in (None, 'agent_message_chunk', 'agent_thought_chunk'):
                 continue
             msg = event.get('msg', event)
             params = msg.get('params', {}) if isinstance(msg, dict) else {}
@@ -1989,11 +2003,13 @@ try:
             if isinstance(acpmux, dict) and acpmux.get('subagent'):
                 continue
             update = params.get('update', {}) if isinstance(params, dict) else {}
+            if isinstance(update, dict) and update.get('sessionUpdate') == 'agent_thought_chunk' and thought_ms < 0:
+                thought_ms = int((time.monotonic() - turn_at) * 1000)
             if not isinstance(update, dict) or update.get('sessionUpdate') != 'agent_message_chunk':
                 continue
             content = update.get('content', {})
             if isinstance(content, dict) and content.get('type') == 'text' and isinstance(content.get('text'), str) and content['text']:
-                print('@@first-text', flush=True)
+                print('@@first-text %d %d' % (int((time.monotonic() - turn_at) * 1000), thought_ms), flush=True)
                 sys.exit(0)
         if len(buf) > 1048576:
             buf = b''
@@ -2014,8 +2030,11 @@ CMUX_FIRST_TEXT`;
 export async function observeFirstText(exec: Exec, session: string, budgetMs: number, timing: FirstTextTiming, record: (step: Step) => void): Promise<void> {
   try {
     const r = await exec(`${GUEST}${firstTextCommand(session, budgetMs)}`, Math.min(270_000, budgetMs) + 5000);
-    if (r.code !== 0 || r.stdout.trim() !== "@@first-text") throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
+    const m = /^@@first-text(?: (\d+) (-?\d+))?$/.exec(r.stdout.trim());
+    if (r.code !== 0 || !m) throw new Error(`first-text observer: exit ${r.code}; ${r.stderr.slice(-300) || "no text marker"}`);
     timing.mark("first_text");
+    if (m[1] !== undefined) timing.guest("first_token", Number(m[1]));
+    if (m[2] !== undefined && Number(m[2]) >= 0) timing.guest("first_thought", Number(m[2]));
     record({ step: "first text", status: "pass", ms: 0, detail: "streamed assistant text observed (parallel to send/reply; includes exec return)", fields: timing.fields() });
   } catch (error) {
     record({ step: "first text", status: "pass", ms: 0, detail: `measurement unavailable: ${String((error as Error)?.message ?? error)}`, fields: timing.fields() });
@@ -5544,10 +5563,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the person's model connection (its launch credential); its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
-        const r = await exec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`, 120_000);
+        const r = await exec(guestTimed(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`), 120_000);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
         J.firstText.mark("session_ready");
-        return { value: null, detail: `session ${session}` };
+        J.firstText.guest("harness_spawn", guestMs(r.stdout));
+        return { value: null, detail: `session ${session}${guestDetail(guestMs(r.stdout))}` };
       });
       firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
       await J.step("send chat", async () => {
@@ -5555,6 +5575,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         J.firstText.mark("send");
         const onGuest = await send(prompt);
         J.firstText.mark("sent");
+        J.firstText.guest("request_sent", onGuest);
         return { value: null, detail: `${prompt.slice(0, 80)}${guestDetail(onGuest)}` };
       });
       await J.step("reply", async () => {
