@@ -609,6 +609,8 @@ impl Driver {
                 }
                 Event::DatagramError(error) => {
                     if is_transient(&error) {
+                        // What the timers sent this pass leaves now.
+                        self.underlay.flush();
                         continue;
                     }
                     self.shutdown();
@@ -907,6 +909,8 @@ impl Driver {
                 let moved_peer = matches!(rebind, Rebind::PeerMoved);
                 match rebind {
                     Rebind::Underlay(underlay) => {
+                        // What this pass staged leaves on the old one.
+                        self.underlay.flush();
                         self.underlay.replace(underlay);
                         let max = usize::from(self.config.mtu)
                             .saturating_sub(datagram_ops::DATAGRAM_OVERHEAD);
@@ -914,6 +918,7 @@ impl Driver {
                     }
                     Rebind::Socket(socket) => {
                         let peer = self.underlay.peer_hint();
+                        self.underlay.flush();
                         self.underlay.replace(Box::new(SocketPath::new(socket, peer)));
                     }
                     Rebind::Keep | Rebind::PeerMoved => {}
