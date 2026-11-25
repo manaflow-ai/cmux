@@ -17,8 +17,13 @@
 //!
 //! Each step is also a `tracing` span carrying `trace_id`, so a `CMUX_TRACE_FILE` trace shows it.
 //!
-//! Off everywhere else: not a Cloud VM, no trace id, or the edge gone, the prompt path pays one
-//! atomic load per prompt and per agent update.
+//! On by default: a prompt that carries no trace id gets one minted here (32 lowercase hex, a
+//! W3C trace id, never all zero), so every real Cloud send is traced whatever client sent it; the
+//! platform makes the trace on its first post and joins its `model_request` by machine. A
+//! client's own id is kept. `CMUX_SEND_TRACE=off` (read once) turns the whole thing off.
+//!
+//! Off everywhere else: not a Cloud VM, the switch off, or the edge gone, the prompt path pays
+//! one atomic load per prompt and per agent update.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -82,19 +87,42 @@ fn is_machine_id(v: &str) -> bool {
     })
 }
 
-fn enabled() -> bool {
-    !EDGE_DOWN.load(Ordering::Relaxed) && crate::cloud_host::is_cloud_vm()
+/// Whether `CMUX_SEND_TRACE`'s value turns send traces off (`off`, `0`, `false`, `no`).
+fn switch_off(v: Option<&str>) -> bool {
+    v.is_some_and(|v| {
+        matches!(v.trim().to_ascii_lowercase().as_str(), "off" | "0" | "false" | "no")
+    })
 }
 
-/// A `session/prompt` for `session` arrived with `params`: start its trace when it carries an
-/// id and this is a Cloud VM. A newer traced prompt of the same session replaces an older one.
+fn enabled() -> bool {
+    static OFF: LazyLock<bool> =
+        LazyLock::new(|| switch_off(std::env::var("CMUX_SEND_TRACE").ok().as_deref()));
+    !EDGE_DOWN.load(Ordering::Relaxed) && !*OFF && crate::cloud_host::is_cloud_vm()
+}
+
+/// A fresh W3C trace id: 16 random bytes as 32 lowercase hex, never all zero (W3C's invalid id).
+pub fn mint_trace_id() -> String {
+    loop {
+        let mut b = [0u8; 16];
+        if getrandom::fill(&mut b).is_err() {
+            b = uuid::Uuid::now_v7().into_bytes();
+        }
+        if b != [0u8; 16] {
+            return b.iter().map(|x| format!("{x:02x}")).collect();
+        }
+    }
+}
+
+/// A `session/prompt` for `session` arrived with `params`: on a Cloud VM, start its trace under
+/// the id it carries, or a minted one when it carries none. A newer prompt of the same session
+/// replaces an older one.
 pub fn received(session: &str, params: &Value) {
-    let Some(id) = trace_id_of(params) else { return };
     if !enabled() {
         return;
     }
+    let id = trace_id_of(params).map_or_else(mint_trace_id, str::to_owned);
     let step = tracing::info_span!(parent: None, "send_trace.agent_start", trace_id = %id, session = %session, cold = tracing::field::Empty);
-    let pending = Pending { trace_id: id.to_owned(), received_ms: now_ms(), handed: None, step };
+    let pending = Pending { trace_id: id, received_ms: now_ms(), handed: None, step };
     let Ok(mut map) = PENDING.lock() else { return };
     if map.len() >= MAX_PENDING && !map.contains_key(session) {
         let oldest = map.iter().min_by_key(|(_, p)| p.received_ms).map(|(k, _)| k.clone());
@@ -142,11 +170,12 @@ pub fn first_update(session: &str) {
         PENDING_COUNT.store(map.len(), Ordering::Relaxed);
         p
     };
-    let Some(mut p) = p else { return };
+    let Some(p) = p else { return };
     let end_ms = now_ms();
-    // Closes the step's span (its layer times it); `p` stays whole for `body`.
-    drop(std::mem::replace(&mut p.step, tracing::Span::none()));
-    let Some(body) = body(&p, end_ms, machine_id()) else { return };
+    let body = body(&p, end_ms, machine_id());
+    // Closing the first_token span.
+    drop(p.step);
+    let Some(body) = body else { return };
     let Ok(rt) = tokio::runtime::Handle::try_current() else { return };
     let trace_id = p.trace_id;
     rt.spawn(post(trace_id, body));
