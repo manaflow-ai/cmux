@@ -30,4 +30,10 @@ extension LayoutModel {
         attention[pane] = nil
         return true
     }
+
+    /// This layout came on screen in its window (a workspace switch, a top page closing) with the focus on a pane:
+    /// the person goes into that pane as a focus move into it does. Its focus did not move, so ``focus(_:notify:source:)``
+    /// never enters it, and its ring would wait for the focus machine, the viewed-tab rules and the read (cmux#46908).
+    @discardableResult
+    public func enterShownFocus() -> Bool { focusedPane.map { enterAttention($0) } ?? false }
 }

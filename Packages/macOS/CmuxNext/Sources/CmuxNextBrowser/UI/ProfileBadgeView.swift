@@ -136,9 +136,22 @@ final class ProfileBadgeView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            layer?.backgroundColor = (color?.fill ?? Palette.hoverFill).cgColor
-            label.textColor = Palette.textSecondary
-            symbol.contentTintColor = Palette.textSecondary
+            let plate = color?.fill ?? Palette.hoverFill
+            layer?.backgroundColor = plate.cgColor
+            // The bar's ink on this plate over every ground the bar shows (`OmnibarInk`), not the theme's secondary
+            // text, which a color plate or the bar's lift could take under 4.5:1 (issue 50986).
+            let ink = OmnibarStyle.ink.iconColor(on: [plate], bare: false)
+            label.textColor = ink
+            symbol.contentTintColor = ink
         }
     }
+
+    /// A theme repaint skips a badge outside a window: entering one redraws it in the shown theme's ink.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { needsDisplay = true }
+    }
+
+    /// The label's color now (tests).
+    var shownTextColor: NSColor? { label.textColor }
 }

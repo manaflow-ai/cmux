@@ -948,13 +948,16 @@ in the available area (above the composer when one exists): symbol 28 pt `label`
 
 ### 7.4 Offline and reconnecting
 
-- Connection banner (global overlay under the toolbar, centered, 8 pt below the toolbar line):
-  glass capsule 36 h, padding 14, `footnote` semibold:
-  - Reconnecting: small `ProgressView` + "Reconnecting to <Mac>…". Shown only after 1.5 s of
-    disconnection (most blips heal silently).
-  - Offline (no network): `wifi.slash` + "You're offline".
-  - Mac offline: `moon.zzz` + "<Mac> is offline". Tap → sheet with last seen time and "Wake
-    with Wake-on-LAN" (when supported, future) / "Retry".
+- Connection chip (`ConnectionChip`, a global overlay under the toolbar, centered, 8 pt below
+  the toolbar line): glass capsule 26 h, padding 10, `meta` semibold, one or two words, never a
+  sentence; the sentence is its VoiceOver label. It floats over the content and takes no room:
+  showing or hiding it moves nothing (Leo, 2026-11-21: "stop layout shifting"). Shown only after
+  the 10 s quiet gate (`QuietStatusGate`; most blips heal silently).
+  - Reconnecting: spinner + "Reconnecting".
+  - Offline (no network): `wifi.slash` + "Offline"; the chip is a Retry button.
+  - Mac offline: `moon.zzz` + "Mac offline"; the chip is a Retry button.
+- A state with a sentence to read or an action (signed out, pairing, a failed refresh) is the
+  wider banner (glass, 36 h, `footnote` semibold), also an overlay that moves nothing.
   - Recovered: `checkmark` + "Connected" for 1.5 s then hides.
   Enter/exit: move from y - 12 + opacity, `snappy`. Never more than one banner.
 - Stale data: lists keep the last snapshot visible with rows at full opacity; a `meta` "Updated
@@ -1166,13 +1169,13 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 (view) and `WorkspaceInbox.swift` (sections, status, search, folding; unit tested).
 
 - Toolbar: leading drawer, inline title "Workspaces" with a `navigationSubtitle`: the
-  filtered Mac and its presence; else "Updating…" when a refresh takes over 1.5 s; else
-  "N need you"; else with 2+ Macs "2 of 3 Macs online". Trailing glass capsule: the Mac
-  filter (only with 2+ Macs) and New Workspace.
+  filtered Mac's name; else "N need you"; else nothing. No presence, link or "2 of 3 Macs
+  online" words (Leo, 2026-11-24: "red dot green dot when you switch between your computers'
+  stuff"). Never that a refresh runs. Trailing glass capsule: the Mac filter (only with 2+
+  Macs) and New Workspace.
 - Mac filter: a toolbar `Menu` of `Toggle`s (a checkmark on the chosen one): All Macs, then
-  each Mac (online first, `desktopcomputer`; the model has no Mac kind) titled with its name
-  and subtitled with its presence ("Online" / "Last seen 2h ago", plus the link line in live
-  mode). Not an inline `Picker`: it drops the subtitles. Filtered fills the symbol
+  each Mac (online first) titled with its name and a green (online) or red (offline) dot; its
+  presence words are the VoiceOver value only. Not an inline `Picker`: it drops the dots. Filtered fills the symbol
   (`line.3.horizontal.decrease.circle.fill`). Remembered per team
   (`cmuxMobile.workspaces.macFilter.<team>`). In live mode, picking an online Mac the phone is not
   linked to links it.
@@ -1240,7 +1243,10 @@ full spec: `verify/workspaces-design-loop.md`. Code: `CmuxMobileWorkspaces/Works
 - States (live mode reads each Mac's `MacDataMachine` phase): team loading with no cache, or
   the linked Mac dialing with nothing known → `SkeletonList`. Last-known (snapshot) rows show
   at 55 % opacity with no agent state (never "is waiting" from a cache) until the Mac
-  answers; while the link connects the subtitle reads "Updating…" after 1.5 s. An online Mac
+  answers; while the link connects nothing says it updates (Leo, 2026-11-24: "they dont need
+  to know that it's updating before they KNOW it's updating"): no subtitle, chip or hairline
+  over rows the phone has, on Workspaces, Agent Chats, Home or an agent chat; only a fact the
+  person can act on speaks (the Offline or Mac offline chip, `ConnectionChip.Kind.paints`). An online Mac
   whose dial failed with nothing known is a "<Mac> · Can't connect" line (Retry); filtered to
   it, "Can't connect to <Mac>" + Retry. Team failed → "Couldn't load workspaces" + Retry. Filtered online Mac with none → "No workspaces on <Mac>" + New Workspace; filtered
   offline Mac → "<Mac> is offline"; live, filtered to an online Mac the phone is not linked to

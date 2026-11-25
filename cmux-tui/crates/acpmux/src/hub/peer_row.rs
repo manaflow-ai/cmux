@@ -6,7 +6,7 @@
 //! ([`PeerRow::listed`]); a reader that needs the whole row parses it then ([`PeerRow::value`]).
 //!
 //! The members a list writes itself (`stale`, `peerState`) or leaves out or cuts without tools
-//! (`tools`, `toolsMutable`, `title`), and `tags` (read on demand), are kept apart from the rest,
+//! (`tools`, `toolsMutable`, `timeBreakdown`, `title`), and `tags` (read on demand), are kept apart from the rest,
 //! so a list writes the row with no parse and no member twice.
 
 use super::*;
@@ -21,6 +21,8 @@ enum Apart {
     Title,
     Tools,
     ToolsMutable,
+    /// `timeBreakdown`, which a census row leaves out (`views::CENSUS_LEAVES_OUT`).
+    TimeBreakdown,
 }
 
 impl Apart {
@@ -32,6 +34,7 @@ impl Apart {
             "title" => Self::Title,
             "tools" => Self::Tools,
             "toolsMutable" => Self::ToolsMutable,
+            super::views::CENSUS_LEAVES_OUT => Self::TimeBreakdown,
             _ => return None,
         })
     }
@@ -44,6 +47,7 @@ impl Apart {
             Self::Title => "title",
             Self::Tools => "tools",
             Self::ToolsMutable => "toolsMutable",
+            Self::TimeBreakdown => super::views::CENSUS_LEAVES_OUT,
         }
     }
 }
@@ -71,6 +75,9 @@ struct Hot {
     stale: bool,
     /// Its `(mux.parent, mux.handle)` tags.
     pair: Option<(Box<str>, Box<str>)>,
+    /// Neither a side chat nor started by another chat's agent
+    /// (`session_order::top_level_summary`): what `topLevelOnly` keeps, read with no parse.
+    top_level: bool,
     /// Its `usageStats` as JSON text, when it carries any: what `_acpmux/usage` sends of the row
     /// (`usage_answer.rs`), read with no parse of the rest.
     usage_stats: Option<Box<str>>,
@@ -109,6 +116,7 @@ impl Hot {
             last_seen: number("lastSeen"),
             stale: summary.get("stale") == Some(&Value::Bool(true)),
             pair: pair_of(summary),
+            top_level: crate::session_order::top_level_summary(summary),
             usage_stats: summary
                 .get("usageStats")
                 .filter(|stats| !stats.is_null())
@@ -174,7 +182,11 @@ impl PeerRow {
         let Some(map) = summary.as_object() else {
             return Self { base: json_text(summary).into(), hot, ..Self::default() };
         };
-        let mut base = String::from("{");
+        // One buffer for the whole base, sized near its final text: a member is written into
+        // it, never through a String of its own (a round of 2000 rows each allocated about two
+        // per member, and the daemon's two malloc arenas made every shard wait on them).
+        let mut base: Vec<u8> = Vec::with_capacity(512);
+        base.push(b'{');
         let mut apart = Vec::new();
         let mut short_title = None;
         for (key, value) in map {
@@ -189,19 +201,20 @@ impl PeerRow {
                 continue;
             }
             if base.len() > 1 {
-                base.push(',');
+                base.push(b',');
             }
-            base.push_str(&json_text(key));
-            base.push(':');
-            base.push_str(&json_text(value));
+            let _ = serde_json::to_writer(&mut base, key);
+            base.push(b':');
+            let _ = serde_json::to_writer(&mut base, value);
         }
-        base.push('}');
+        base.push(b'}');
+        let base = String::from_utf8(base).unwrap_or_default();
         Self { base: base.into(), apart: apart.into(), short_title, hot, mark: None }
     }
 
     /// The row as JSON text: every member, `stale` as `stale` says (else as kept), `peerState`
-    /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`, a long
-    /// title cut) unless `tools`.
+    /// as `peer_state` says (else as kept), and without tools (`tools`, `toolsMutable`,
+    /// `timeBreakdown`, a long title cut) unless `tools`.
     fn text_with(&self, stale: Option<bool>, peer_state: Option<&str>, tools: bool) -> String {
         if let Some(last_seen) = self.mark {
             let plain = Self { mark: None, ..self.clone() };
@@ -231,7 +244,7 @@ impl PeerRow {
             let value = match which {
                 Apart::Stale if stale.is_some() => continue,
                 Apart::PeerState if peer_state.is_some() => continue,
-                Apart::Tools | Apart::ToolsMutable if !tools => continue,
+                Apart::Tools | Apart::ToolsMutable | Apart::TimeBreakdown if !tools => continue,
                 Apart::Title if !tools => self.short_title.as_ref().unwrap_or(value),
                 _ => value,
             };
@@ -377,7 +390,17 @@ impl PeerRow {
         self.hot.stale
     }
 
+    /// Whether a chat list shows it on its own (`_acpmux/sessions {topLevelOnly}`).
+    pub fn top_level(&self) -> bool {
+        self.hot.top_level
+    }
+
     /// Its `(mux.parent, mux.handle)` tags.
+    /// Whether its pair tag (`pair`) is the same as `other`'s, with no copy.
+    pub fn same_pair(&self, other: &PeerRow) -> bool {
+        self.hot.pair == other.hot.pair
+    }
+
     pub fn pair(&self) -> Option<(String, String)> {
         self.hot.pair.as_ref().map(|(parent, handle)| (parent.to_string(), handle.to_string()))
     }
@@ -402,6 +425,7 @@ mod tests {
             "sessionId": "s1", "name": "hb/x", "status": "running", "peer": "hb",
             "stale": false, "peerState": "old", "tags": {"mux.parent": "p", "mux.handle": "h"},
             "title": "t".repeat(400), "tools": [{"name": "a"}], "toolsMutable": true,
+            "timeBreakdown": {"totalMs": 9, "spans": [{"turnId": "t1"}]},
             "updatedAt": 5, "createdAt": 3, "pendingPermissions": 2,
         });
         let row = PeerRow::new(&summary);

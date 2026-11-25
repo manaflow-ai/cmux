@@ -36,8 +36,7 @@
 #   - the cloud wire clients: the TypeScript and Rust clients from the committed
 #     cloud catalog (backend/packages/protocol/scripts/export-client.ts and
 #     export-rust-client.ts; with --cloud-clients);
-#   - webviews formatting and the acpmux protocol types: applies PATCH, the `vp fmt`
-#     and `acpmux-protocol-codegen.ts` output of the
+#   - webviews formatting: applies PATCH, the `vp fmt` output of the
 #     workflow's read-only webviews-fmt job (it installs webviews' packages,
 #     which never run next to the push token); a patch reaching outside
 #     webviews/, or into its package.json or lockfile, is not applied
@@ -326,8 +325,7 @@ if (( app_host )) && [[ -f "$repo/$app_host_gen" ]]; then
 fi
 
 # 1e3. The defaults snapshot, from the action and settings exports
-# (scripts/ci/defaults_guard.py). Rewriting it never passes the defaults guard:
-# a changed default still needs a SHIP review receipt or a call owner's approval on the pull request.
+# (scripts/ci/defaults_guard.py snapshot).
 defaults_snapshot=schemas/defaults/cmux-next.json
 if (( unverified_exports || unverified_settings )); then
   waits=()
