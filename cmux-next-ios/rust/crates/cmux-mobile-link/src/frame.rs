@@ -281,22 +281,23 @@ mod tests {
     #[test]
     fn rejects_unknown_type_and_oversize() {
         let mut codec = FrameCodec;
-        let mut bad = BytesMut::from(&[0u8, 0, 0, 5, 0, 0, 0, 1, 10][..]);
-        assert!(matches!(codec.decode(&mut bad), Err(FrameError::UnknownType(10))));
+        let mut bad = BytesMut::from(&[0u8, 0, 0, 5, 0, 0, 0, 1, 11][..]);
+        assert!(matches!(codec.decode(&mut bad), Err(FrameError::UnknownType(11))));
         let mut huge = BytesMut::from(&[0xffu8, 0xff, 0xff, 0xff][..]);
         assert!(matches!(codec.decode(&mut huge), Err(FrameError::TooLarge(_))));
     }
 
-    /// Base shipped wire type 5 as the parked link's deflated data, so the
-    /// reliable link's frames sit above it: a type-5 frame is never a `seq`.
+    /// Base shipped wire type 5 as the parked link's deflated data and 6 as
+    /// classes' sequenced chunk, so the reliable link's frames sit above them.
     #[test]
-    fn type_5_is_deflated_data_and_the_reliable_frames_are_6_to_9() {
+    fn types_5_and_6_are_base_frames_and_the_reliable_frames_are_7_to_10() {
         let wire = [
             (5u8, FrameType::DeflatedData),
-            (6, FrameType::Seq),
-            (7, FrameType::Ack),
-            (8, FrameType::Hello),
-            (9, FrameType::Bye),
+            (6, FrameType::Sequenced),
+            (7, FrameType::Seq),
+            (8, FrameType::Ack),
+            (9, FrameType::Hello),
+            (10, FrameType::Bye),
         ];
         for (byte, kind) in wire {
             assert_eq!(FrameType::from_u8(byte), Some(kind), "type {byte}");
@@ -306,5 +307,6 @@ mod tests {
             assert_eq!(frame.kind, kind, "type {byte} decodes as {kind:?}");
         }
         assert_ne!(FrameType::from_u8(5), Some(FrameType::Seq));
+        assert_ne!(FrameType::from_u8(6), Some(FrameType::Seq));
     }
 }
