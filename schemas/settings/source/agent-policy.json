@@ -716,6 +716,7 @@
         "browser.omnibar.maxRows",
         "browser.omnibar.calculator",
         "browser.omnibar.showFullURLs",
+        "browser.omnibar.quietIcons",
         "browser.omnibar.glass",
         "browser.omnibar.glassTint",
         "browser.omnibar.glassTintStrength",
