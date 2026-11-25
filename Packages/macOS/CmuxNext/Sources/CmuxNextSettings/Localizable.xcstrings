@@ -18888,6 +18888,402 @@
         }
       }
     },
+    "settings.appearance.appFont.system": {
+      "comment": "Settings > Appearance > App Font: the default, the system font.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistemski"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "System"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Systemowa"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системный"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sistem"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Системний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系统"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "系統"
+          }
+        }
+      }
+    },
+    "settings.appearance.appFont.help": {
+      "comment": "Settings > Appearance > App Font: help text.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط واجهة cmux: الدردشة والإعدادات وكل صفحة. تحتفظ الطرفيات بخطها الخاص."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font interfejsa cmux: chat, Postavke i svaka stranica. Terminali zadržavaju svoj."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skrifttypen i cmux' brugerflade: chat, Indstillinger og hver side. Terminaler beholder deres egen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Schrift der cmux-Oberfläche: Chat, Einstellungen und jede Seite. Terminals behalten ihre eigene."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The font of cmux's interface: chat, Settings and every page. Terminals keep their own."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fuente de la interfaz de cmux: el chat, Ajustes y cada página. Los terminales conservan la suya."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La police de l'interface de cmux : le chat, les Réglages et chaque page. Les terminaux gardent la leur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il font dell'interfaccia di cmux: chat, Impostazioni e ogni pagina. I terminali mantengono il proprio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux のインターフェイス(チャット、設定、各ページ)のフォント。ターミナルは独自のフォントを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរនៃចំណុចប្រទាក់ cmux៖ ការជជែក ការកំណត់ និងគ្រប់ទំព័រ។ ស្ថានីយរក្សាពុម្ពអក្សររបស់ខ្លួន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 인터페이스의 글꼴: 채팅, 설정 및 모든 페이지. 터미널은 자체 글꼴을 유지합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skriften i cmux-grensesnittet: chat, Innstillinger og hver side. Terminaler beholder sin egen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka interfejsu cmux: czat, Ustawienia i każda strona. Terminale zachowują własną."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A fonte da interface do cmux: chat, Ajustes e todas as páginas. Os terminais mantêm a sua."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт интерфейса cmux: чат, Настройки и все страницы. У терминалов свой шрифт."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรของอินเทอร์เฟซ cmux: แชท การตั้งค่า และทุกหน้า เทอร์มินัลใช้แบบอักษรของตัวเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux arayüzünün yazı tipi: sohbet, Ayarlar ve her sayfa. Terminaller kendi yazı tiplerini korur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт інтерфейсу cmux: чат, Налаштування та кожна сторінка. Термінали зберігають власний."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ của giao diện cmux: trò chuyện, Cài đặt và mọi trang. Terminal giữ phông chữ riêng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 界面的字体:聊天、设置和每个页面。终端保留各自的字体。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 介面的字體:聊天、設定和每個頁面。終端機保留各自的字體。"
+          }
+        }
+      }
+    },
+    "settings.appearance.appFont": {
+      "comment": "Settings > Appearance: the row for the font of cmux's whole interface.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط التطبيق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font aplikacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens skrifttype"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Schrift"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Font"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente de la app"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police de l'app"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font dell'app"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリのフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរកម្មវិធី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "앱 글꼴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens skrift"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka aplikacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do app"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт приложения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรของแอป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uygulama Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт застосунку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ ứng dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "应用字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App 字體"
+          }
+        }
+      }
+    },
     "settings.appearance.appTheme": {
       "extractionState": "manual",
       "localizations": {
@@ -97154,6 +97550,268 @@
           "stringUnit": {
             "state": "translated",
             "value": "在輸入框中為拼字錯誤加上底線，並提供系統建議。"
+          }
+        }
+      }
+    },
+    "settings.agentPane.composerVimKeys": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مفاتيح Vim في محرر الرسائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim tipke u polju za poruke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim-taster i meddelelsesfeltet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim-Tasten im Nachrichtenfeld"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim Keys in the Composer"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teclas Vim en el cuadro de mensaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Touches Vim dans la zone de message"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tasti Vim nel campo messaggio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージ欄の Vim キー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្រាប់ចុច Vim ក្នុងប្រអប់សារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "메시지 입력란의 Vim 키"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vim-taster i meldingsfeltet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klawisze Vim w polu wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teclas Vim na caixa de mensagem"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Клавиши Vim в поле сообщения"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คีย์ Vim ในช่องข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesaj kutusunda Vim tuşları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Клавіші Vim у полі повідомлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phím Vim trong ô soạn tin"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消息框中的 Vim 按键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "訊息框中的 Vim 按鍵"
+          }
+        }
+      }
+    },
+    "settings.agentPane.composerVimKeys.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc للوضع العادي وi للكتابة. h j k l وw b e و0 $ وx وdd وu للتحرير. Return يرسل دائمًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc za normalni način, i za pisanje. h j k l, w b e, 0 $, x, dd i u za uređivanje. Return i dalje šalje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc for normal tilstand, i for at skrive. h j k l, w b e, 0 $, x, dd og u redigerer. Retur sender stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc für den Normalmodus, i zum Tippen. h j k l, w b e, 0 $, x, dd und u bearbeiten. Return sendet weiterhin."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc for normal mode, i to type again; h j k l, w b e, 0 $, x, dd and u edit. Return still sends."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc para el modo normal, i para escribir. h j k l, w b e, 0 $, x, dd y u editan. Intro sigue enviando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échap pour le mode normal, i pour écrire. h j k l, w b e, 0 $, x, dd et u modifient. Retour envoie toujours."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc per il modo normale, i per scrivere. h j k l, w b e, 0 $, x, dd e u modificano. Invio continua a inviare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc でノーマルモード、i で入力に戻ります。h j k l、w b e、0 $、x、dd、u で編集します。Return は引き続き送信します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc សម្រាប់ម៉ូដធម្មតា i ដើម្បីវាយ។ h j k l, w b e, 0 $, x, dd និង u សម្រាប់កែ។ Return នៅតែផ្ញើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc로 일반 모드, i로 입력합니다. h j k l, w b e, 0 $, x, dd, u로 편집합니다. Return은 계속 전송합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc for normalmodus, i for å skrive. h j k l, w b e, 0 $, x, dd og u redigerer. Retur sender fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc to tryb normalny, i to pisanie. h j k l, w b e, 0 $, x, dd i u edytują. Return nadal wysyła."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc para o modo normal, i para digitar. h j k l, w b e, 0 $, x, dd e u editam. Return continua enviando."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc включает обычный режим, i возвращает к вводу. h j k l, w b e, 0 $, x, dd и u редактируют. Return по-прежнему отправляет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc เข้าโหมดปกติ i เพื่อพิมพ์ h j k l, w b e, 0 $, x, dd และ u ใช้แก้ไข Return ยังคงส่งข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc normal kip, i yazma içindir. h j k l, w b e, 0 $, x, dd ve u düzenler. Return yine gönderir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc вмикає звичайний режим, i повертає до введення. h j k l, w b e, 0 $, x, dd і u редагують. Return, як і раніше, надсилає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc để vào chế độ thường, i để nhập. h j k l, w b e, 0 $, x, dd và u để chỉnh sửa. Return vẫn gửi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc 进入普通模式，i 继续输入。h j k l、w b e、0 $、x、dd 和 u 用于编辑。Return 仍然发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esc 進入一般模式，i 繼續輸入。h j k l、w b e、0 $、x、dd 和 u 用於編輯。Return 仍然傳送。"
           }
         }
       }
@@ -221461,6 +222119,270 @@
         }
       }
     },
+    "settings.agents.cacheCompact.minTokens": {
+      "comment": "Settings > General > Prompt Cache: number field, the context (tokens) from which an idle chat is compacted before its prompt cache expires, whatever its context window; works alongside the percent field",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أو فوق السياق المستخدم (رموز)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ili iznad iskorištenog konteksta (tokeni)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller over brugt kontekst (tokens)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oder ab genutztem Kontext (Tokens)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Or Above Context Used (Tokens)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O por encima del contexto usado (tokens)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou au-delà du contexte utilisé (jetons)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppure oltre il contesto usato (token)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "または使用コンテキストが次を超える場合 (トークン)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឬលើសបរិបទដែលបានប្រើ (តូខឹន)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "또는 사용한 컨텍스트 기준 (토큰)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eller over brukt kontekst (tokens)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lub powyżej użytego kontekstu (tokeny)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ou acima do contexto usado (tokens)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Или от использованного контекста (токенов)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หรือเมื่อบริบทที่ใช้เกิน (โทเค็น)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veya kullanılan bağlam şunun üzerinde (token)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Або від використаного контексту (токенів)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoặc trên ngữ cảnh đã dùng (token)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或已用上下文超过（令牌）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "或已用上下文超過（權杖）"
+          }
+        }
+      }
+    },
+    "settings.agents.cacheCompact.minTokens.help": {
+      "comment": "Settings > General > Prompt Cache: help under the token threshold field for compacting before the cache expires",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُضغط المحادثات التي يبلغ سياقها هذا القدر على الأقل، أيًا كانت نافذتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatovi s barem ovoliko konteksta se sažimaju, bez obzira na njihov prozor."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats med mindst så meget kontekst komprimeres, uanset deres vindue."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats mit mindestens so viel Kontext werden komprimiert, unabhängig von ihrem Fenster."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats with at least this much context are compacted, whatever their window."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats con al menos este contexto se compactan, sea cual sea su ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les chats ayant au moins ce contexte sont compactés, quelle que soit leur fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat con almeno questo contesto vengono compattate, qualunque sia la loro finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コンテキストがこれ以上のチャットは、ウィンドウの大きさに関係なく圧縮されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកដែលមានបរិបទយ៉ាងហោចណាស់ប៉ុណ្ណេះ ត្រូវបានបង្រួម ទោះបង្អួចរបស់វាធំប៉ុណ្ណាក៏ដោយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컨텍스트가 이 이상인 채팅은 창 크기와 관계없이 압축됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatter med minst så mye kontekst komprimeres, uansett vindu."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty z co najmniej takim kontekstem są kompaktowane niezależnie od ich okna."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats com pelo menos este contexto são compactados, seja qual for a janela."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты с контекстом не меньше этого сжимаются при любом размере окна."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตที่มีบริบทอย่างน้อยเท่านี้จะถูกบีบอัด ไม่ว่าหน้าต่างจะใหญ่เท่าใด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En az bu kadar bağlamı olan sohbetler, pencereleri ne olursa olsun sıkıştırılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати з контекстом не менше цього стискаються за будь-якого розміру вікна."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện có ít nhất lượng ngữ cảnh này sẽ được nén, bất kể cửa sổ của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文至少达到此值的聊天会被压缩，无论其窗口大小。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下文至少達到此值的聊天會被壓縮，無論其視窗大小。"
+          }
+        }
+      }
+    },
     "settings.agents.coldWake.enabled": {
       "comment": "Settings > General > Prompt Cache: toggle that gathers the messages that would wake an idle chat whose prompt cache expired into one batch",
       "extractionState": "manual",
@@ -241866,6 +242788,270 @@
         }
       }
     },
+    "settings.experiments.foldSummaryCounts": {
+      "comment": "Settings > Advanced > Experiments: the title of the switch that has a finished turn's closed Worked for line name what it hides (ran 4 commands, edited 2 files)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fold Summary Counts"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعداد ملخص الطي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brojevi u sažetku sklopljenog dijela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antal i foldeoversigt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zählungen in der Faltzusammenfassung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recuentos en el resumen plegado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Décomptes dans le résumé replié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conteggi nel riepilogo compresso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折りたたみ概要の件数"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចំនួនក្នុងសេចក្តីសង្ខេបដែលបានបត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "접힌 요약의 개수"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antall i sammendrag av sammenslått del"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liczniki w zwiniętym podsumowaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contagens no resumo recolhido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Счётчики в свёрнутой сводке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "จำนวนในสรุปที่ยุบไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Daraltılmış Özette Sayılar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лічильники у згорнутому підсумку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Số lượng trong tóm tắt thu gọn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折叠摘要计数"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "摺疊摘要計數"
+          }
+        }
+      }
+    },
+    "settings.experiments.foldSummaryCounts.help": {
+      "comment": "Settings > Advanced > Experiments: the help line under the Fold Summary Counts switch",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يذكر سطر «عمل لمدة» في الدور المكتمل أيضًا ما يخفيه، مثل: شغّل 4 أوامر، وعدّل ملفين."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Red „Radio je“ završenog poteza kaže i šta skriva, npr. pokrenuo 4 komande, uredio 2 fajla."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjen Arbejdede i for en afsluttet tur fortæller også, hvad den skjuler, fx kørte 4 kommandoer, redigerede 2 filer."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Zeile „Gearbeitet für“ eines beendeten Zugs nennt auch, was sie verbirgt, etwa 4 Befehle ausgeführt, 2 Dateien bearbeitet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La línea Trabajó durante de un turno terminado también dice lo que oculta, como ejecutó 4 comandos, editó 2 archivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La ligne A travaillé pendant d’un tour terminé indique aussi ce qu’elle masque, comme 4 commandes exécutées, 2 fichiers modifiés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La riga Ha lavorato per di un turno concluso dice anche cosa nasconde, ad esempio ha eseguito 4 comandi, ha modificato 2 file."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了したターンの「作業時間」行に、折りたたまれた内容も表示します（例: 4 件のコマンドを実行、2 件のファイルを編集）。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ទាត់ «បានធ្វើការរយៈពេល» នៃវេនដែលបានបញ្ចប់ ក៏ប្រាប់ពីអ្វីដែលវាលាក់ផងដែរ ដូចជា បានដំណើរការពាក្យបញ្ជា 4 បានកែឯកសារ 2។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료된 턴의 작업 시간 줄에 접힌 내용도 표시합니다(예: 명령 4개 실행, 파일 2개 편집)."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linjen Jobbet i for en fullført tur sier også hva den skjuler, for eksempel kjørte 4 kommandoer, redigerte 2 filer."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wiersz Pracował przez zakończonej tury mówi też, co ukrywa, np. uruchomiono 4 polecenia, edytowano 2 pliki."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A linha Trabalhou por de um turno concluído também diz o que oculta, como executou 4 comandos, editou 2 arquivos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Строка «Работал» завершённого хода также говорит, что в ней скрыто, например: выполнено 4 команды, изменено 2 файла."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บรรทัด ทำงานไป ของเทิร์นที่เสร็จแล้วจะบอกด้วยว่าซ่อนอะไรไว้ เช่น รัน 4 คำสั่ง แก้ไข 2 ไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biten bir turun Çalıştı satırı, gizlediği işi de söyler; örneğin 4 komut çalıştırdı, 2 dosya düzenledi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Рядок «Працював» завершеного ходу також каже, що в ньому сховано, наприклад: виконано 4 команди, змінено 2 файли."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dòng Đã làm việc trong của một lượt đã xong cũng cho biết nội dung bị ẩn, như đã chạy 4 lệnh, đã sửa 2 tệp."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已完成轮次的“工作了”行也会说明折叠的内容，例如：运行了 4 条命令，编辑了 2 个文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已完成輪次的「工作了」行也會說明摺疊的內容，例如：執行了 4 個指令，編輯了 2 個檔案。"
+          }
+        }
+      }
+    },
     "settings.experiments.glassToolbarGroups": {
       "extractionState": "manual",
       "localizations": {
@@ -249888,6 +251074,270 @@
         "vi": {"stringUnit": {"state": "translated", "value": "Cuộc trò chuyện vẫn hiển thị phía sau các thông báo và hàng “Cần bạn nhập” phía trên ô soạn thảo."}},
         "zh-Hans": {"stringUnit": {"state": "translated", "value": "在输入框上方的通知和“需要你的输入”行后面，对话依然可见。"}},
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "在輸入框上方的通知和「需要你的輸入」列後面，對話依然可見。"}}
+      }
+    },
+    "settings.experiments.appFontChrome.help": {
+      "comment": "Settings > Experiments > App Font in Native Chrome: help text.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يستخدم الشريط الجانبي وعلامات التبويب وشريط العنوان خط التطبيق أيضًا. يتغير بعض النص بعد إعادة تشغيل cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bočna traka, kartice i naslovna traka također koriste font aplikacije. Dio teksta se mijenja nakon ponovnog pokretanja cmuxa."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidepanelet, fanerne og titellinjen bruger også appens skrifttype. Noget tekst ændres først, når cmux genstartes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleiste, Tabs und Titelleiste nutzen ebenfalls die App-Schrift. Manche Texte ändern sich erst nach einem Neustart von cmux."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sidebar, tabs and titlebar draw in the App Font too. Some text changes after cmux restarts."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barra lateral, las pestañas y la barra de título también usan la fuente de la app. Parte del texto cambia tras reiniciar cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barre latérale, les onglets et la barre de titre utilisent aussi la police de l'app. Certains textes changent après le redémarrage de cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anche la barra laterale, le schede e la barra del titolo usano il font dell'app. Parte del testo cambia dopo il riavvio di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー、タブ、タイトルバーもアプリのフォントで表示します。一部のテキストは cmux の再起動後に変わります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របារចំហៀង ផ្ទាំង និងរបារចំណងជើងក៏ប្រើពុម្ពអក្សរកម្មវិធីដែរ។ អត្ថបទខ្លះផ្លាស់ប្ដូរបន្ទាប់ពី cmux ចាប់ផ្ដើមឡើងវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바, 탭, 제목 막대도 앱 글꼴로 표시됩니다. 일부 텍스트는 cmux를 다시 시작한 후에 바뀝니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sidefeltet, fanene og tittellinjen bruker også appens skrift. Noe tekst endres etter at cmux startes på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek boczny, karty i pasek tytułu też używają czcionki aplikacji. Część tekstu zmienia się po ponownym uruchomieniu cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A barra lateral, as abas e a barra de título também usam a fonte do app. Parte do texto muda após reiniciar o cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Боковая панель, вкладки и заголовок окна тоже используют шрифт приложения. Часть текста меняется после перезапуска cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบด้านข้าง แท็บ และแถบชื่อเรื่องใช้แบบอักษรของแอปด้วย ข้อความบางส่วนจะเปลี่ยนหลังจากเริ่ม cmux ใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğu, sekmeler ve başlık çubuğu da Uygulama Yazı Tipini kullanır. Bazı metinler cmux yeniden başlatıldıktan sonra değişir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бічна панель, вкладки й заголовок вікна теж використовують шрифт застосунку. Частина тексту змінюється після перезапуску cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thanh bên, các tab và thanh tiêu đề cũng dùng phông chữ ứng dụng. Một số văn bản thay đổi sau khi khởi động lại cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏、标签页和标题栏也使用应用字体。部分文字在重新启动 cmux 后才会改变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄、分頁和標題列也使用 App 字體。部分文字在重新啟動 cmux 後才會改變。"
+          }
+        }
+      }
+    },
+    "settings.experiments.appFontChrome": {
+      "comment": "Settings > Experiments: native chrome (sidebar, tabs, titlebar) draws in the App Font too.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خط التطبيق في الواجهة الأصلية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font aplikacije u izvornom okviru"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens skrifttype i den native ramme"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Schrift in nativen Bedienelementen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App Font in Native Chrome"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente de la app en la interfaz nativa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police de l'app dans l'interface native"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font dell'app nell'interfaccia nativa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ネイティブ UI にアプリのフォント"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពុម្ពអក្សរកម្មវិធីក្នុងផ្ទៃដើម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "네이티브 UI에 앱 글꼴 적용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appens skrift i det native rammeverket"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czcionka aplikacji w natywnym interfejsie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do app na interface nativa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт приложения в нативном интерфейсе"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบบอักษรของแอปในส่วนติดต่อแบบเนทีฟ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yerel arayüzde Uygulama Yazı Tipi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Шрифт застосунку в нативному інтерфейсі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phông chữ ứng dụng trong giao diện gốc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生界面使用应用字体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "原生介面使用 App 字體"
+          }
+        }
       }
     },
     "settings.experiments.attachmentTypeIcons": {

@@ -1,0 +1,181 @@
+// The three-state cloud control (Leo, 2026-11-23 11:08Z: "we can potentially have a split cloud /
+// computer looking button, then full cloud, then only computer"). Hybrid is the default: the chat
+// runs on this Mac and continues in Cloud when the Mac cannot serve it. The two others pin it.
+// `segments` shows all three glyphs with the chosen one lit; `cycle` is one button that shows the
+// chosen glyph and steps to the next on a click.
+import { useId, useState } from "react";
+import { useT } from "../i18n";
+import { Tooltip } from "../../../ui/Tooltip";
+import type { HybridLook, HybridPin } from "./hybridModel";
+import "./cloudToggle.css";
+
+const ORDER = ["auto", "cloud", "local"] as const;
+const NAMES = { auto: "hybrid.mode.hybrid", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
+const HELP = {
+  auto: "hybrid.mode.hybrid.help",
+  cloud: "hybrid.pin.cloud.help",
+  local: "hybrid.pin.local.help",
+} as const;
+
+const CLOUD = "M4.6 12.5h7a2.6 2.6 0 0 0 .4-5.17A3.6 3.6 0 0 0 5.1 6.2 3.15 3.15 0 0 0 4.6 12.5Z";
+const LAPTOP = "M3.5 4.5h9a1 1 0 0 1 1 1v5.5h-11V5.5a1 1 0 0 1 1-1ZM1.5 12.5h13";
+
+/// One mode's glyph. Hybrid: the cloud's left half and the computer's right half, split by a slash.
+function Glyph({ mode, paint }: { mode: HybridPin; paint: string }) {
+  const clip = useId();
+  return (
+    <svg
+      className="acpmux-hybrid-tri__glyph"
+      data-mode={mode}
+      width={mode === "auto" ? 22 : 16}
+      height={16}
+      viewBox={mode === "auto" ? "0 0 22 16" : "0 0 16 16"}
+      focusable="false"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id={paint} x1="2" y1="12" x2="14" y2="4" gradientUnits="userSpaceOnUse">
+          <stop offset="0" className="acpmux-hybrid-stop" data-stop="1" />
+          <stop offset="0.25" className="acpmux-hybrid-stop" data-stop="2" />
+          <stop offset="0.5" className="acpmux-hybrid-stop" data-stop="3" />
+          <stop offset="0.75" className="acpmux-hybrid-stop" data-stop="4" />
+          <stop offset="1" className="acpmux-hybrid-stop" data-stop="5" />
+        </linearGradient>
+        <clipPath id={`${clip}a`}>
+          <path d="M0 0h10.5L7.5 16H0Z" />
+        </clipPath>
+        <clipPath id={`${clip}b`}>
+          <path d="M6 0h10v16H3Z" />
+        </clipPath>
+      </defs>
+      {mode === "auto" ? (
+        <>
+          <path className="acpmux-hybrid-tri__cloud" d={CLOUD} clipPath={`url(#${CSS.escape(`${clip}a`)})`} />
+          <g transform="translate(6 0)">
+            <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} clipPath={`url(#${CSS.escape(`${clip}b`)})`} />
+          </g>
+        </>
+      ) : mode === "cloud" ? (
+        <path className="acpmux-hybrid-tri__cloud" d={CLOUD} />
+      ) : (
+        <path className="acpmux-hybrid-tri__laptop" d={LAPTOP} />
+      )}
+    </svg>
+  );
+}
+
+export function CloudTriToggle({
+  pin,
+  look = "rainbow",
+  form = "segments",
+  named = true,
+  lit = false,
+  waiting = false,
+  onChange,
+  onLitChange,
+}: {
+  pin: HybridPin;
+  look?: HybridLook;
+  form?: "segments" | "cycle";
+  /// Shows the chosen mode's name beside the glyphs.
+  named?: boolean;
+  /// Hybrid only: the chat is high priority (Keep Running), so the split glyph's cloud half is lit.
+  /// Only in Cloud is always lit; Only on This Mac never is.
+  lit?: boolean;
+  /// Hybrid only: the person asked for Keep Running and every slot is taken. The name says so,
+  /// because a tooltip alone is invisible (first-run finding, 2026-11-23).
+  waiting?: boolean;
+  onChange(pin: HybridPin): void;
+  /// Choosing Hybrid again while it is chosen turns its light on or off.
+  onLitChange?(lit: boolean): void;
+}) {
+  const t = useT();
+  const paint = useId();
+  const [fresh, setFresh] = useState(false);
+  const glows = (mode: HybridPin) => mode === "cloud" || (mode === "auto" && lit);
+  const pick = (next: HybridPin) => {
+    if (next === pin) {
+      if (pin !== "auto" || !onLitChange) return;
+      setFresh(!lit);
+      onLitChange(!lit);
+      return;
+    }
+    setFresh(glows(next));
+    onChange(next);
+  };
+  const style = { "--acpmux-hybrid-paint": `url(#${CSS.escape(paint)})` } as React.CSSProperties;
+  if (form === "cycle") {
+    const next = ORDER[(ORDER.indexOf(pin) + 1) % ORDER.length]!;
+    return (
+      <Tooltip label={t(NAMES[pin])} detail={t(HELP[pin])} side="top">
+        <button
+          type="button"
+          className="acpmux-hybrid-toggle acpmux-hybrid-tri"
+          data-testid="hybrid-tri-toggle"
+          data-look={look}
+          data-form="cycle"
+          data-mode={pin}
+          data-lit={glows(pin) ? "" : undefined}
+          data-fresh={fresh ? "" : undefined}
+          aria-label={`${t("hybrid.pin")}: ${t(NAMES[pin])}`}
+          style={style}
+          onClick={() => pick(next)}
+          onAnimationEnd={() => setFresh(false)}
+        >
+          <Glyph mode={pin} paint={paint} />
+          {named && <span className="acpmux-hybrid-label">{t(NAMES[pin])}</span>}
+        </button>
+      </Tooltip>
+    );
+  }
+  return (
+    <span
+      role="radiogroup"
+      aria-label={t("hybrid.pin")}
+      className="acpmux-hybrid-tri acpmux-hybrid-tri--segments"
+      data-testid="hybrid-tri-toggle"
+      data-look={look}
+      data-mode={pin}
+      style={style}
+    >
+      {ORDER.map((mode, index) => (
+        <Tooltip key={mode} label={t(NAMES[mode])} detail={t(HELP[mode])} side="top">
+          <button
+            type="button"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a segment holds a glyph and a tooltip, which an input cannot.
+            role="radio"
+            aria-checked={mode === pin}
+            aria-label={t(NAMES[mode])}
+            tabIndex={mode === pin ? 0 : -1}
+            className="acpmux-hybrid-toggle acpmux-hybrid-tri__segment"
+            data-look={look}
+            data-mode={mode}
+            data-on={mode === pin ? "" : undefined}
+            data-lit={mode === pin && glows(mode) ? "" : undefined}
+            data-fresh={fresh && mode === pin ? "" : undefined}
+            data-waiting={mode === pin && mode === "auto" && waiting ? "" : undefined}
+            onClick={() => pick(mode)}
+            onKeyDown={(event) => {
+              const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
+              if (!step) return;
+              event.preventDefault();
+              pick(ORDER[(index + step + ORDER.length) % ORDER.length]!);
+            }}
+            onAnimationEnd={() => setFresh(false)}
+          >
+            <Glyph mode={mode} paint={`${paint}${mode === pin ? "" : mode}`} />
+          </button>
+        </Tooltip>
+      ))}
+      {named && (
+        <span className="acpmux-hybrid-label acpmux-hybrid-tri__name">
+          {pin === "auto" && waiting
+            ? t("hybrid.waiting.label")
+            : pin === "auto" && lit
+              ? t("hybrid.keepRunning")
+              : t(NAMES[pin])}
+        </span>
+      )}
+    </span>
+  );
+}
