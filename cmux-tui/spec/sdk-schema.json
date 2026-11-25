@@ -2027,6 +2027,19 @@
      "constraints": [
       "With limit: the number of workspaces in the session."
      ]
+    },
+    "next": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "list-workspaces-page-v1",
+     "constraints": [
+      "With limit: the after of the next page, on every page that is not the last."
+     ]
     }
    },
    "additional_properties": false
@@ -12221,7 +12234,21 @@
       "since": 12,
       "capability": "list-workspaces-limit-v1",
       "constraints": [
-       "Only the first limit workspaces in sidebar order, with total. A reply with fewer than total workspaces has no tree_revision."
+       "Only the first limit workspaces in sidebar order, with total, and at most 64 KiB of rows (at least one row). A reply with fewer than total workspaces has no tree_revision."
+      ]
+     },
+     "after": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "list-workspaces-page-v1",
+      "constraints": [
+       "With limit: skip this many workspaces in sidebar order first (the next of the page before). Ignored without limit."
       ]
      }
     },

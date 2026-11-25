@@ -261,6 +261,13 @@ impl Item {
 /// The waiting `session/prompt` of an inbox message.
 type Waiter = tokio::sync::watch::Sender<Option<super::queue::Answer>>;
 
+impl Inbox {
+    /// The surge row's needYou as last journaled.
+    pub(super) fn surge_counts_need_you(&self) -> u64 {
+        self.surge_counts.lock().unwrap_or_else(|e| e.into_inner()).need_you()
+    }
+}
+
 /// A session's inbox (`Session::inbox`).
 #[derive(Default)]
 pub struct Inbox {
@@ -2352,6 +2359,9 @@ impl Hub {
             inbox.items.push(item);
         }
         trim(&mut inbox);
+        // A needYou journaled before a restart is counted again by the pass (a rule may have
+        // changed what counts: program notices are fyi now).
+        surge_held |= inbox.surge_counts_need_you() > 0;
         drop(inbox);
         // A restart resumes the held backlog's triage with no new arrival (`surge_triage.rs`).
         if surge_held {
@@ -2522,8 +2532,13 @@ impl Hub {
                     "count": list.len(), "newestAt": newest(list),
                     "surgeHeld": list.iter().any(|i| i.surge_held),
                     // The held bar's "need you" filter: an unread message for the person.
-                    "needYou": unread.iter().any(|i| crate::surge_triage::needs_person(
-                        i.class.as_str(), &i.text, super::presence::owner_name())),
+                    // A program's notice that is no FIRE never is, held before that rule or not.
+                    "needYou": unread.iter().any(|i| {
+                        crate::surge_triage::needs_person(
+                            i.class.as_str(), &i.text, super::presence::owner_name())
+                            && !crate::surge_triage::program_fyi(&json!({
+                                "fromSession": i.from_session, "sender": i.sender, "text": i.text}))
+                    }),
                     "newestPreview": last.map(|i| preview(&i.text)), "class": class,
                     "sender": last.map(|i| i.sender.clone()),
                 })
@@ -2578,8 +2593,11 @@ impl Hub {
             (messages, marked, label_key)
         };
         if !marked.is_empty() {
-            let msg = json!({"threadId": thread, "promptIds": marked});
-            self.append(session, "mux", "inbox_read", msg);
+            let msg = json!({"threadId": thread, "promptIds": marked, "wholeThread": true});
+            self.append(session, "mux", super::surge_triage::READ_KIND, msg);
+        }
+        if mark_read {
+            self.surge_after_read(session, Some(thread));
         }
         json!({"sessionId": session.id, "threadId": thread, "label": label(&label_key), "messages": messages})
     }

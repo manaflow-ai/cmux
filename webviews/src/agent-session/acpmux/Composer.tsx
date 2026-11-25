@@ -1,11 +1,12 @@
 import { acpmuxPerf } from "./perf";
+import { sentWords } from "./computerUse/computerUseState";
+import { runResumed, submitResumed } from "./composer/resumedSend";
 import { holdFlag, resumeOrFail, setRef } from "./heldFlag";
 import { useStableHandlers } from "./stableHandlers";
 import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
-  useId,
   useImperativeHandle,
   useInsertionEffect,
   useLayoutEffect,
@@ -13,6 +14,7 @@ import React, {
   useRef,
   useState,
   useSyncExternalStore,
+  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal } from "react-dom";
@@ -29,8 +31,8 @@ import {
   withoutInlineTokens,
   type ComposerAttachment,
   type DroppedKind,
-  type KnownPaths,
   inlineTokenSpans,
+  type KnownPaths,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -51,7 +53,7 @@ import { ComposerQueue } from "./ComposerQueue";
 import { ownQueue } from "./conversation/queuedMessages";
 import { BuildIcon, ContextRing, PlanIcon } from "./ComposerPickers";
 import { type Choice } from "./composerPickerModel";
-import { SendSlot, SendSlotGlyph, StopPulse } from "./composer/SendSlotGlyph";
+import { SendSlotGlyph, SendSlot, StopPulse } from "./composer/SendSlotGlyph";
 import { useStopPresence } from "./composer/turnPresence";
 import { SendMenu } from "./composer/SendMenu";
 import { SIDE_COMMAND, sendChoiceForKey, sendMenuChoices, type SendChoice } from "./composer/sendMenuModel";
@@ -64,13 +66,13 @@ import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { MentionMenu } from "./MentionMenu";
 import { mentionAsk, useExtensionMentionPrefixes, useExtensionMentions } from "./composer/extensionMentions";
 import { markdownOffset, mentionResults, useMentionSearch } from "./mentionMenuModel";
-import { wantAllSessions } from "./sessionPages";
 import {
-  hasOtherChats,
   loadRecentMentionPaths,
   mentionInsert,
   mentionItems,
+  mentionPath,
   mentionSelection,
+  mentionWantsFiles,
   recentMentionScope,
   rememberMentionPath,
   type MentionItem,
@@ -330,6 +332,13 @@ type Props = {
   /// Binds the person's current key press or click to one prompt (`transport.gesture`), for a send
   /// the composer holds until its files are ready (attachmentIntake.tsx `useSendWhenAttached`).
   onBindSendGesture?(): SendGesture | undefined;
+  /// True: the draft may not go now (`@computer-use` while Computer Use is not ready, App.tsx
+  /// `holdsForComputerUseSetup`), and the pane already opened setup or said why. Asked before anything
+  /// binds the send's key press or click (a hold for files, a side chat), so that gesture still opens
+  /// the setup page (CMUX-682).
+  /// `late`: the send resumed after a wait (files read or uploaded, dictation ended), whose key press
+  /// is long gone: hold and say why, never open setup (it would spend a key pressed since).
+  holdsSend?(text: string, late?: boolean): boolean;
   /// Binds the person's key press or click to `/side`'s prompt, held for its files, bound to no chat:
   /// the side chat it goes to does not exist yet (#40066). The prompt redeems it by its prompt id.
   onBindSideGesture?(): SendGesture | undefined;
@@ -701,6 +710,7 @@ function ComposerFrame({
   chips: Chips,
   onSend,
   onBindSendGesture,
+  holdsSend,
   onBindSideGesture,
   transcriptFollowing,
   onStop,
@@ -1236,6 +1246,14 @@ function ComposerFrame({
   // hidden, the prompt loses focus or the prompt is sent (unsentDraftThrottle.ts). Declared ahead of the
   // handle that flushes it: one read before its declaration keeps the composer uncompiled.
   const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
+  /// A send that resumes after a wait (`resumeSend`): its Computer Use hold only says why (`holdsSend` `late`).
+  const sendResuming = useRef(false);
+  /// Whether `draft` sends words to an agent: cmux's own commands other than `/side` and `/btw` (`/cd
+  /// @folder`, `/model`) send no prompt, so the Computer Use hold never reads them (Return and Cmd-Return).
+  const sendsPrompt = (draft: string) => {
+    const own = composerCommand(withoutInlineTokens(draft, attachmentId).trim(), snapshot.summary?.harness);
+    return own?.kind !== "cmux" || own.command.action === "side" || own.command.action === "btw";
+  };
   const restoreDraft = (restoredText: string, restoredAttachments: ComposerAttachment[], behind = false) => {
     // A prompt coming back (refused, taken back, edited from the queue) went with a Codex skill
     // as `/$name`: it is typed `/name` here, and send writes the `$` again. Its skills are the
@@ -1383,7 +1401,8 @@ function ComposerFrame({
         // Their places in the text go with them: no empty atom stays in the draft.
         for (const id of ids) field.current?.removeInline(id);
       },
-      send: () => submitNow.current(true),
+      // An imperative send (the Trust continuation's) runs long after its key press: notice-only.
+      send: () => runResumed(sendResuming, () => submitNow.current(true)),
       focus: () => field.current?.focus(),
       prefill(prefix) {
         const typed = (field.current?.value() ?? promptRef.current.text).trimStart();
@@ -1734,30 +1753,25 @@ function ComposerFrame({
     if (slashOpen) void refreshSavedPrompts();
   }, [slashOpen]);
 
-  // A new word or the list opening highlights the first row again; Return takes it (returnPicks).
-  useLayoutEffect(() => setActive(0), [query, open]);
-  // Typing @ at a word start lists other chats, then the chat's folders and files that match what
-  // follows (cx-ncc.68, mentionItems.ts).
-  const chatId = snapshot.summary?.sessionId;
-  const otherChats = useMemo(() => hasOtherChats(snapshot.sessions, chatId), [snapshot.sessions, chatId]);
+  // A new word or the list opening highlights the first row again; Return takes it (returnPicks). The
+  // row the arrows chose matters for a `$word` only: a new word, a cleared draft or the list closing forgets it.
+  const [arrowed, setArrowed] = useState(false);
+  useLayoutEffect(() => {
+    setActive(0);
+    setArrowed(false);
+  }, [query, open]);
+  // Typing @ at a word start lists the plugins (toolMentions.ts), then, for a specific word, the
+  // chat's folders and files that match what follows (mentionItems.ts). Computer use and browser use
+  // are always offered, so the menu always has rows.
   // Installed extensions' mention providers (`@pr`), composer/extensionMentions.ts.
   const mentionPrefixes = useExtensionMentionPrefixes();
-  const mentionTyped =
-    !open &&
-    !recalling &&
-    (searchFiles || otherChats || snapshot.catalog.length > 0 || mentionPrefixes.length > 0) &&
-    !facts.mentionDismissed
-      ? facts.mention
-      : undefined;
+  const mentionTyped = !open && !recalling && !facts.mentionDismissed ? facts.mention : undefined;
   const mentionWord = mentionTyped?.query;
   const extensionMentions = useExtensionMentions(mentionWord, mentionPrefixes);
-  // The @ picker finds any chat by name, not only the first page's: the pane reads the rest once
-  // it opens (sessionPages.ts `wantAllSessions`), and follows the list from then on.
-  const mentioning = mentionWord !== undefined;
-  useEffect(() => {
-    if (mentioning) wantAllSessions();
-  }, [mentioning]);
-  const mentionSearch = useMentionSearch(searchFiles, mentionWord);
+  // Any typed word asks for files; a short one lists only a file it names exactly (mentionItems.ts):
+  // `@b` lists the plugins, `@go` a root file `go`.
+  const fileWord = mentionWord?.trim() ? mentionWord : undefined;
+  const mentionSearch = useMentionSearch(searchFiles, fileWord);
   const mentionFiles = mentionResults(mentionSearch);
   // Recent @ picks belong to this chat's folder on its machine, and only where its files are searched.
   const recentScope = searchFiles
@@ -1773,29 +1787,28 @@ function ComposerFrame({
             query: mentionWord,
             files: mentionFiles,
             recent: loadRecentMentionPaths(recentScope),
-            sessions: snapshot.sessions,
-            chatId,
             harnesses: guestHarnesses,
+            toolName: (tool) => t(tool.label),
             extension: extensionMentions,
             extensionFirst: mentionProviderAsked,
           }),
-    [
-      mentionWord,
-      mentionFiles,
-      snapshot.sessions,
-      guestHarnesses,
-      chatId,
-      recentScope,
-      extensionMentions,
-      mentionProviderAsked,
-    ],
+    [mentionWord, mentionFiles, guestHarnesses, recentScope, extensionMentions, mentionProviderAsked, t],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
-  // chat; it never hints at a file search.
-  const mentionAt = searchFiles || mentions.length > 0 ? mentionTyped : undefined;
+  // row; it never hints at a file search.
   // The word's files are still on their way: asked, or about to be once typing settles.
   const mentionPending =
-    !!searchFiles && !!mentionWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
+    !!searchFiles && !!fileWord?.trim() && (mentionSearch.kind === "idle" || mentionSearch.kind === "searching");
+  // A short word whose lookups settled with no row opens nothing, so Return still sends. While an
+  // answer is on its way (an exact file for `@go`, a provider's items for `@pr`) the picker holds
+  // Return, so a quick Return never sends the bare word; a specific word holds it for its files.
+  const mentionAt =
+    mentions.length > 0 ||
+    mentionPending ||
+    mentionProviderAsked ||
+    (searchFiles && mentionWord !== undefined && mentionWantsFiles(mentionWord))
+      ? mentionTyped
+      : undefined;
   const mentionSelected = mentionSelection(mentions, mentionActive, mentionPending, mentionProviderAsked);
   useEffect(() => setMentionActive(undefined), [mentionWord]);
   // `:` and two letters at a word start list emoji by shortcode; a text emoticon (`:)`, `:DD`,
@@ -1893,7 +1906,9 @@ function ComposerFrame({
   };
   const pick = (command: SlashCommand) => {
     if (command.source === "saved") return pickSaved(command);
-    setRecentCommandNames(rememberRecentCommand(command.name));
+    // A row that writes its own text (a built-in tool, an extension's command) is no command to recall:
+    // the + menu's recents write `/name`, which would lose what it writes.
+    if (!insertsText(command)) setRecentCommandNames(rememberRecentCommand(command.name));
     notePicked(command);
     // In place, over the typed `/word`, the text around it kept; the field reports the edit.
     if (field.current?.insertCommand(shownName(command), insertsText(command) ? command.insert : undefined)) {
@@ -1958,6 +1973,7 @@ function ComposerFrame({
     edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
     field.current?.focus();
   };
+  const resumeSend = <T,>(run: () => T): T => runResumed(sendResuming, run);
   /// `kept`: the gesture an earlier hold of this send bound (`useSendWhenAttached`). `route` "side":
   /// the draft goes as `/side`'s prompt, to a side chat forked from this one (Send's menu).
   const send = (force: boolean, steer = false, kept?: SendGesture, route?: "side"): boolean => {
@@ -1982,7 +1998,7 @@ function ComposerFrame({
     if (dictation && isActive(dictation.state) && !shell && !dictationEnded.current) {
       dictation.finish(() => {
         // The session is over even if this render has not heard so yet.
-        holdFlag(dictationEnded, true, () => submitNow.current(force, steer, kept, route));
+        holdFlag(dictationEnded, true, () => resumeSend(() => submitNow.current(force, steer, kept, route)));
       });
       return true;
     }
@@ -1990,6 +2006,12 @@ function ComposerFrame({
     // A token whose attachment is gone (sent, then the clear undone in the same task, before the
     // field drops its node: inlineAttachments.tsx) is no place: it goes as the field will hold it.
     const draftText = withoutDeadTokens(unwrapped());
+    // Held before anything binds the gesture (a hold for files, a side chat): the draft stays.
+    if (
+      sendsPrompt(draftText) &&
+      holdsSend?.(sentWords(draftText, attachments), sendResuming.current || submitResumed())
+    )
+      return false;
     // The attachments placed in the text go at their places (attachments.ts placeInline); a chip still
     // being read is not one of them yet.
     // A Codex skill typed or picked as `/name` goes as `/$name` (slashCommands.ts withSkillDollars).
@@ -2038,7 +2060,7 @@ function ComposerFrame({
       // being read, and for the originals a too-large prompt goes with, as a send does.
       const sideFiles = owned.action === "side";
       if (sideFiles) {
-        const again = (gesture?: SendGesture) => submitNow.current(force, steer, gesture, route);
+        const again = (gesture?: SendGesture) => resumeSend(() => submitNow.current(force, steer, gesture, route));
         // Bound to no chat: one bound to this chat would not let its prompt go to the side chat.
         const bindSide = () => onBindSideGesture?.();
         if (holdForAttachments(again, kept, bindSide)) return false;
@@ -2160,12 +2182,12 @@ function ComposerFrame({
       return true;
     }
     // A file pasted or dropped is still being read or uploaded: the prompt waits for its chip.
-    if (holdForAttachments((gesture) => submitNow.current(force, steer, gesture), kept)) return false;
+    if (holdForAttachments((gesture) => resumeSend(() => submitNow.current(force, steer, gesture)), kept)) return false;
     // Too large for one message until the originals still uploading are saved: it waits for them.
     if (
       holdForOriginals(
         awaitsOriginals(prompt, placed.attachments, (id) => originalUploads.has(id), {}, undefined, needsOriginal),
-        (gesture) => submitNow.current(force, steer, gesture),
+        (gesture) => resumeSend(() => submitNow.current(force, steer, gesture)),
         kept,
       )
     )
@@ -2245,8 +2267,9 @@ function ComposerFrame({
   });
   /// + then Mention: an "@" at the caret, set off by a space, for the agent to read as a path.
   // Writes "@" at the caret, or "@path " for a file picked in Search files.
-  const mention = (path?: string) => {
+  const mention = (picked?: string) => {
     if (composing.current) return;
+    const path = picked === undefined ? undefined : mentionPath(picked);
     const { text, caret } = promptRef.current;
     const at = markdownOffset(text, caret);
     const before = text.slice(0, at);
@@ -2834,8 +2857,8 @@ function ComposerFrame({
   };
   // Enter sends unless it picks a command (slashCommands.ts returnPicks): while the list shows, it
   // takes the highlighted row, unless the typed word is that row's name in full with no arguments to
-  // take (Return runs it). Esc closes the list and keeps the word as typed.
-  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "");
+  // take (Return runs it), or it is a `$word` whose row the arrows did not choose. Esc closes the list.
+  const returnSends = () => !open || !returnPicks(matches[selected], query ?? "", arrowed, typedSlash?.mark);
   const sendOnReturn = (event: { preventDefault(): void }) => {
     if (!returnSteers || returnHolds) return submit(event);
     event.preventDefault();
@@ -3044,7 +3067,10 @@ function ComposerFrame({
       // earlier screenshot is still being read. Ordinary prompts retain Return's attachment wait.
       const owned =
         composerCommand(typedWords().trim(), snapshot.summary?.harness, attachments.length)?.kind === "cmux";
-      if (!owned && holdForAttachments(sendAndOpen)) return;
+      // Held for Computer Use on this key press, before a wait for files reserves its gesture (CMUX-682).
+      const quickDraft = withoutDeadTokens(unwrapped());
+      if (sendsPrompt(quickDraft) && holdsSend?.(sentWords(quickDraft, attachments))) return;
+      if (!owned && holdForAttachments((gesture) => resumeSend(() => sendAndOpen(gesture)))) return;
       sendAndOpen();
       return;
     }
@@ -3072,6 +3098,8 @@ function ComposerFrame({
       event.preventDefault();
       const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
+      // The arrows chose this row: a `$word`'s Return now picks it (returnPicks).
+      setArrowed(true);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
       event.preventDefault();
       pick(matches[selected].command);
@@ -3504,6 +3532,7 @@ function ComposerFrame({
               <ComposerListLayer>
                 <SlashMenu
                   key={query}
+                  mark={typedSlash?.mark ?? "/"}
                   matches={matches}
                   active={selected}
                   empty={!commands?.length ? t(COMPOSER_LABELS.noCommands) : t(COMPOSER_LABELS.noMatchingCommands)}

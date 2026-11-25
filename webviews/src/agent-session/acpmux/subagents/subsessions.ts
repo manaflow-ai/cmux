@@ -103,6 +103,19 @@ export function subsessionName(
   return session.name === session.sessionId || OPAQUE_ID.test(session.name) ? undefined : session.name;
 }
 
+/// Whether anything names the subagent (its task, its name, what it was asked, its kind), so a line
+/// can show it by more than the generic "Subagent" or its raw id. A start line names only these, and
+/// counts the rest (runningTray.ts `startedLine`).
+export function subagentNamed(agent: {
+  id: string;
+  name: string;
+  task?: string;
+  kind?: string;
+  prompt?: string;
+}): boolean {
+  return (namedBy(agent, firstLine(agent.task)) ?? namedBy(agent, agent.name) ?? fallbackName(agent)) !== undefined;
+}
+
 /// `text` when it names the subagent: not empty and not one of its raw ids.
 function namedBy(agent: { id: string; name: string }, text: string | undefined): string | undefined {
   if (!text) return undefined;

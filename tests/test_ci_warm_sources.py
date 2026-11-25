@@ -141,7 +141,7 @@ WIRING: dict[str, re.Pattern] = {
     "deriveddata-reuse": re.compile(
         _names(
             "owned_build_state.py", "seed_derived_data.py", "e2e_warm_derived_data.py", "release-derived-data-path.sh",
-            "cmux-tui-warm-target.sh",
+            "cmux-tui-warm-target.sh", "cmux-tui-mac-warm-target.sh",
         )
         + r"|\bCMUX_COMPILE_ADMISSION_DERIVED_DATA\b|\bcmux_next_cas_fresh_tree\b"
         # A tour or visual-gate build in its claimed warm slot's DerivedData, and the Chief's per-runner target.

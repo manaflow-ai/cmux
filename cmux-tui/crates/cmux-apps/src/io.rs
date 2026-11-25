@@ -47,8 +47,9 @@ pub struct Start<'a> {
     /// `service.setup`, run first in the same process, bounded.
     pub setup: Option<&'a str>,
     pub port: u16,
-    /// `PATH`, `LANG`, `TZ` and the `service.env` literals; the agent adds `HOME` and `PORT`
-    /// and nothing else.
+    /// `PATH`, `LANG`, `TZ`, the `service.env` literals, and this app's own secrets (the
+    /// platform's `process-env`, held only in memory); the agent adds `HOME` and `PORT` and
+    /// nothing else.
     pub env: &'a [(String, String)],
     /// A restart (rollback) runs the tree the version first started from; a fresh start
     /// replaces it with the staged archive.

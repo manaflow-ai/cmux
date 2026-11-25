@@ -26,8 +26,6 @@ use super::transfer_out::{
     reject_stale_epoch, require_epoch, transfers_dir,
 };
 use super::*;
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64;
 use cmux_json::JsonSet as _;
 
 /// Held by a receive, a finish and a forget, so a forget either sees the move landed or drops its
@@ -500,14 +498,23 @@ impl Hub {
             crate::home_fs::write(dir.join("manifest.json"), serde_json::to_vec(&manifest)?)
         });
         made.map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
-        if let Some(Err(e)) = stage_id
-            .map(|stage| self.take_stage(stage, &manifest, &dir, guard.as_ref().map(|g| g.control)))
-        {
-            let _ = crate::home_fs::remove_dir_all(&dir);
-            return Err(e);
+        let mut have = Vec::new();
+        let control = guard.as_ref().map(|g| g.control);
+        match stage_id.map(|stage| self.take_stage(stage, &manifest, &dir, control)) {
+            Some(Err(e)) => {
+                let _ = crate::home_fs::remove_dir_all(&dir);
+                return Err(e);
+            }
+            Some(Ok(seeded)) => have = seeded,
+            None => {}
         }
         super::transfer_watch::note_activity(&dir, None);
         let mut answer = json!({"receiveId": receive_id, "sessionId": id});
+        // What the stage's native files already hold, for the client to page only the rest
+        // (`transfer_live.rs`).
+        if !have.is_empty() {
+            answer.set("have", json!(have));
+        }
         if guard.is_some() {
             answer.set("guarded", json!(true));
         }
@@ -530,10 +537,19 @@ impl Hub {
                 format!("{path:?} is not a file a guarded move takes"),
             ));
         }
-        let data = BASE64.decode(text("data")).map_err(|e| transfer_error("data", e))?;
+        // Compressed by a client for a slow link (`transfer_live.rs`).
+        let data = super::transfer_out::transfer_live::page_bytes(params)?;
         let file = inside(&dir.join("bundle"), path)?;
-        let have = std::fs::metadata(&file).map_or(0, |m| m.len());
+        let mut have = std::fs::metadata(&file).map_or(0, |m| m.len());
         let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
+        // A resumed stage whose bytes the source's new prepare does not hold as they are is
+        // written again from where they part (`transfer_live.rs`); a move's bundle never is.
+        let staging = manifest.get("schema").and_then(Value::as_str)
+            == Some(super::transfer_out::transfer_precopy::PREFIX_SCHEMA);
+        if offset < have && (staging || super::transfer_out::transfer_live::seeded(&dir, path)) {
+            super::transfer_out::transfer_live::truncate_stage_file(&dir, path, offset)?;
+            have = offset;
+        }
         if offset != have {
             let e = transfer_error("offset", format!("{path:?} has {have} bytes, not {offset}"));
             return Err(e.with_data(json!({"size": have})));

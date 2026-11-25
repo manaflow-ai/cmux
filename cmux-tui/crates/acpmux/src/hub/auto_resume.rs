@@ -76,7 +76,7 @@ use cmux_json::JsonSet as _;
 pub(super) mod reset_hint;
 #[path = "restart_resume.rs"]
 mod restart_resume;
-pub(in crate::hub) use restart_resume::Cut;
+pub(in crate::hub) use restart_resume::{Cut, silent};
 mod restore;
 
 use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
@@ -782,6 +782,16 @@ impl Hub {
         is_pending(session.auto_resume.lock().as_ref())
     }
 
+    /// Whether no continuation is pending but one whose wait is the chat's rate-limit hold
+    /// (`rate_hold.rs` `wait_rate_hold`): a chat held past its idle period may then hibernate
+    /// (`sleeps_through_hold`). One deciding, firing or waiting for any other reason keeps it.
+    pub(super) fn continuation_waits_on_hold(&self, session: &Session) -> bool {
+        match session.auto_resume.lock().as_ref() {
+            Some(Mark::Waiting { retry: Some(r), .. }) => r.reason == RetryReason::RateLimit,
+            mark => !is_pending(mark),
+        }
+    }
+
     /// Whether the chat's continuation is only a rate-limit retry waiting for the reset of a chat
     /// the limit has, with no turn running: a stop parks or closes such a chat and starts
     /// nothing (`stop_auto_resume`), so a conditional stop counts it idle (`stop_if_idle.rs`). A
@@ -1166,6 +1176,25 @@ impl Hub {
     #[cfg(test)]
     pub(super) fn stopped_for_test(&self, session: &Session, turn: &str) -> bool {
         matches!(session.auto_resume.lock().as_ref(), Some(Mark::Stopped(t)) if t == turn)
+    }
+
+    /// Tests only: a continuation of `turn` waits, for `reason`'s wait.
+    #[cfg(test)]
+    pub(super) fn set_waiting_for_test(&self, session: &Session, turn: &str, reason: RetryReason) {
+        let retry = RetrySummary {
+            attempt: 1,
+            of: 4,
+            reason,
+            next_at: u64::MAX,
+            prompt_id: format!("p-{turn}"),
+            turn_id: turn.to_owned(),
+        };
+        let wake = Wake(Arc::new(Notify::new()));
+        session.auto_resume.lock().replace(Mark::Waiting {
+            turn: turn.to_owned(),
+            retry: Some(retry),
+            _wake: wake,
+        });
     }
 
     #[cfg(test)]

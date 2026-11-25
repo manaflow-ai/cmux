@@ -6,7 +6,7 @@
 //! Nothing here is a second relay or a second handshake. The relay is the Cloud carrier's
 //! (cmux `relays/cloudflare-do`, Worker `cmux-remote-relay-<env>`), reached with cmux-remote's
 //! relay client ([`RelayProvider`] to dial, [`spawn_relay_daemon_registration`] to serve), and
-//! the stream runs cmux-remote's Noise XX handshake ([`initiate_secure_link`],
+//! the stream runs cmux-remote's Noise XX handshake ([`initiate_secure_link_pipelined`],
 //! [`accept_secure_link`]) with each machine's node key (`node.wg.key`, whose public half the hub
 //! already holds as the machine's `daemonId`). The relay and the platform see ciphertext only.
 //!
@@ -80,7 +80,7 @@ use bytes::Bytes;
 use cmux_remote::crypto::{
     AuthGrant, AuthKind, AuthRequest, ClientAuthMode, ClientHandshake, ConnectionAttemptId,
     CryptoError, InboundAuthEvidence, NetworkPeer, ServerAuthenticator, ServiceAuthority,
-    StaticIdentity, accept_secure_link, initiate_secure_link, public_key_fingerprint,
+    StaticIdentity, accept_secure_link, initiate_secure_link_pipelined, public_key_fingerprint,
 };
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
@@ -990,7 +990,9 @@ impl HubCarrier {
             .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
         stages.peer_join = step.elapsed();
         let step = Instant::now();
-        let secure = initiate_secure_link(
+        // The service hello rides behind the last Noise message; its first receive checks the
+        // daemon's welcome (the key is pinned, and enrolled auth never waits on a human).
+        let secure = initiate_secure_link_pipelined(
             link,
             ClientHandshake {
                 identity: self.identity(),

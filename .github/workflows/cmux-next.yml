@@ -1288,6 +1288,8 @@ jobs:
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-24
           FLEET_CLIENT_JOBS: fast-tier
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-555
+          CI_FAST_TIER_FLEET_SPILL: ${{ vars.CI_FAST_TIER_FLEET_SPILL }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-122
           GATEWAY_JOBS: >-
             ${{ format('{0} {1}',
@@ -5458,6 +5460,8 @@ jobs:
           RESULTS: https://gh-events.cmux.com/compile-checks/v1
           # Why: docs/ci/cmux-next-workflow-notes.md#note-64 (none: compile-status already waited 40 min for nothing)
           SEEN: ${{ needs.compile-status.outputs.state }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-554 (undo: vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE = '0')
+          SUPERSEDED_GATE: ${{ vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE || '1' }}
         run: |
           set -uo pipefail
           # Why: docs/ci/cmux-next-workflow-notes.md#note-482
@@ -5489,7 +5493,7 @@ jobs:
                     if .sha != $sha or .repo != $repo or .recipe_version != 2 or .configuration != "release-onone"
                     then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
                   echo "read $reads: $state"
-                  case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac ;;
+                  case "$state" in pass|fail|unavailable|mismatch|unreadable|superseded) break ;; esac ;;
                 404) ok_at=$SECONDS last=""; echo "no fleet result for $REF yet" ;;
                 *) last="HTTP $code" ;;
               esac
@@ -5497,6 +5501,20 @@ jobs:
               (( gap <= 0 )) || sleep "$gap"
             done
             [[ "$state" == "results service down"* || -z "$last" ]] || state="results service down ($last for $((SECONDS - ok_at)) s)"
+            # Why: docs/ci/cmux-next-workflow-notes.md#note-554
+            if [[ "$state" == superseded ]]; then
+              head=""
+              if [[ "${SUPERSEDED_GATE:-1}" != 0 ]]; then
+                head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+                  "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
+                  awk 'NR==1{print $1}')" || head=""
+              fi
+              if [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$REF" ]]; then
+                echo "::notice title=Fast fleet compile check::superseded push $REF: the branch head is $head, whose tip check covers this push; no Mac fallback"
+                echo "verdict=superseded" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
             case "$state" in
               pass) verdict=pass; echo "The build fleet compiled and linked the app at $REF in Release (-Onone) on Linux." ;;
               fail) verdict=fail; echo "::error title=Fast fleet compile check::the build fleet's Release compile failed at $REF; see cmux-next/compile's log: $(jq -r '.log_url // empty' "$reply" 2>/dev/null)" ;;
@@ -5542,7 +5560,7 @@ jobs:
   # Why: docs/ci/cmux-next-workflow-notes.md#note-65
   release-compile-fast-admission:
     needs: release-compile-fast
-    if: ${{ (always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && needs.release-compile-fast.outputs.verdict != '') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
+    if: ${{ (always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && needs.release-compile-fast.outputs.verdict != '' && needs.release-compile-fast.outputs.verdict != 'superseded') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'full-ci') }}
     name: cmux-next Release compile (Xcode 26)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     permissions:
@@ -7249,6 +7267,8 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-82
           FALLBACK: ${{ needs.push-head-preflight.outputs.current == 'true' && (github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'full-ci') || needs.path_route.outputs.mac_release == 'true') }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-554 (undo: vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE = '0')
+          SUPERSEDED_GATE: ${{ vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE || '1' }}
         run: |
           set -uo pipefail
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
@@ -7306,6 +7326,17 @@ jobs:
           ok_at=$SECONDS  # the last usable answer (200 or 404): one start time, before the first read
           # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (the controller posts the status itself)
           controller="" poster_unknown="${PR:+1}"
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-554
+          superseded="" head_read=""
+          tip_moved() {  # a push head whose branch moved on: the controller's newer tip check covers it
+            [[ -z "${PR:-}" && "${SUPERSEDED_GATE:-1}" != 0 && -z "$head_read" ]] || return 1
+            head_read=1
+            local head
+            head="$(timeout 30 git -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
+              awk 'NR==1{print $1}')" || head=""
+            [[ "$head" =~ ^[0-9a-f]{40}$ && "$head" != "$SHA" ]]
+          }
           controller_posts() {  # the reply in $1 is a non-terminal receipt of this head the controller posts
             [[ -n "${PR:-}" ]] && jq -e --arg sha "$SHA" --arg repo "$REPO" '.sha == $sha and .repo == $repo and
               .recipe_version == 2 and .configuration == "release-onone" and .status_poster == "controller" and
@@ -7332,6 +7363,7 @@ jobs:
                   then "mismatch" else (.state // "") end' "$reply" 2>/dev/null || echo unreadable)"
                 echo "read $reads: $state"
                 case "$state" in pass|fail|unavailable|mismatch|unreadable) break ;; esac
+                [[ "$state" == superseded ]] && tip_moved && { superseded=1; break; }
                 controller_posts "$reply" && { controller=1; break; }
                 poster_unknown="" ;;
               404) ok_at=$SECONDS last="" ;;  # no result yet
@@ -7343,6 +7375,13 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-521
           [[ -z "$down" && -n "$last" ]] && down="$last for $((SECONDS - ok_at)) s"
           echo "state=${state:-none}" >> "$GITHUB_OUTPUT"
+          if [[ -n "$superseded" ]]; then
+            by="$(jq -r '.superseded_by // empty' "$reply" 2>/dev/null || true)"
+            [[ "$by" =~ ^[0-9a-f]{7,40}$ ]] || by="a newer push"
+            post error "[no-verdict] [superseded] The controller checks ${by:0:12} instead; that tip check covers this commit" "$RUN_URL" || true
+            echo "::notice title=Compile check::superseded push $SHA: the controller checks ${by:0:12} instead and the branch moved on; no 40-minute wait"
+            exit 0
+          fi
           if [[ -n "$controller" ]]; then
             echo "::notice title=Compile check::$SHA: the controller posts cmux-next/compile itself"
             exit 0

@@ -22,7 +22,9 @@
   --cv-exit-ease: var(--cmux-ease-out, cubic-bezier(0, 0, 0.58, 1));
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
-  --cv-text-dim: var(--agent-soft); /* progress rows */
+  /* Progress rows, times, command meta: text, so the theme's secondary ink, which holds 4.5:1 on every fill.
+     The tertiary ink (--agent-soft) is a mark ink held at 3:1: on a card it read 3.52:1 light, 3.94:1 dark. */
+  --cv-text-dim: var(--agent-muted);
   /* Background activity follows Claude Code's secondary reading level. */
   --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);
   --cv-fg: var(--agent-text);
@@ -3421,18 +3423,25 @@ body {
 .cv-tool.is-live > :is(.cv-tool__text, .cv-command__text):has(> .cv-row-shimmer) {
   position: relative;
 }
-/* A running background turn's line ("Scheduled check", BackgroundTurnLine.tsx) shimmers its words
-   the same way: the copy lies over the sentence, centred on the line as its words are. */
-.cv-tool.cv-background-turn.is-live:not(:focus-within) > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
+/* A running background turn's line ("Scheduled check", BackgroundTurnLine.tsx) and the activity line's
+   message going out ("Sending message to tests", ActivityLine.tsx) shimmer their words the same way:
+   the copy lies over the sentence, centred on the line as its words are. */
+.cv-tool:is(.cv-background-turn, .cv-activity-row).is-live:not(:focus-within)
+  > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
   color: var(--cv-text-dim);
 }
-.cv-tool.cv-background-turn.is-live > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
+.cv-tool:is(.cv-background-turn, .cv-activity-row).is-live > .cv-agent-activity__sentence:has(> .cv-row-shimmer) {
   position: relative;
 }
-.cv-tool.cv-background-turn.is-live .cv-row-shimmer__lit {
+.cv-tool.cv-activity-row .cv-row-shimmer .cv-agent-tag {
+  background: none;
+}
+.cv-tool:is(.cv-background-turn, .cv-activity-row).is-live .cv-row-shimmer__lit {
   display: flex;
   height: 100%;
   align-items: center;
+  /* The sentence's own gap (TranscriptActivityRow.css), so the lit name lies on the chip's name. */
+  gap: var(--cv-tool-gap);
 }
 /* What a background turn's line cites after its words (BackgroundTurnLine.tsx `BackgroundSource`):
    the helper in the rows' muted tone, a link as the background task row's owner is, then the task's
@@ -6960,6 +6969,88 @@ a.cv-sha:focus-visible {
   }
 }
 
+/* SEND-POP (Leo 2026-11-22: "dang it's CUTE and so much NICER FEELING than just a jarring instant
+ * send"; "it does a little pop and settle"). A prompt the reader sends still lands at once: its room,
+ * the thread and the thinking row are in place in the frame the composer empties (the send step stays
+ * 0, SEND-ENTRANCE above). Only the prompt itself, its pictures and its bubble together, pops where it
+ * already sits: it starts at 92% of its size and 6px low, anchored at its trailing edge, passes its
+ * size by about 0.25% at 300 ms and settles back by 450 ms. That is the Claude desktop app's own
+ * user-message entrance (`cds-um-enter`: 450 ms, cubic-bezier(.34, 1.3, .64, 1), scale(.92)
+ * translateY(6px), transform-origin at the trailing edge), read from its stylesheet, not guessed from
+ * a recording. Claude Code's sweep that lifts the prompt to the top over a blank foot is not cmux's.
+ *
+ * Cost: a transform on the one presentation wrapper (RowFrame's `.acpmux-row__message-presentation`,
+ * so the virtualizer's measured article never changes size). The compositor plays it: no layout, no
+ * paint and no style pass per frame, and the same cost whatever the transcript's length. A sent
+ * prompt the composer morphed (`data-send-morphed`) and another agent's message (a line row) keep
+ * their own entrances. The clock is the scale's send-pop step scaled by ui.animationSpeed
+ * (--agent-motion-send-pop, theme.ts): 0 with motion off or the app's Reduce Motion, and the system's
+ * Reduce Motion takes the reduce block above (in place at once).
+ *
+ * Off unless switched on (Settings > Agent Chat > Pop In Sent Prompts, `agentPane.display.sendPop`; Leo,
+ * 2026-11-22: "hm im not necessarily sure if people will be wanting to do the send pop by default"): the
+ * rule plays only under a `data-send-pop` ancestor, which chatDisplay.ts sets on the root when it is on.
+ * The gallery's agent-pane.send-pop compares variants through `data-send-pop` on an ancestor
+ * (SendPop.gallery.tsx): `claude` (the product's), `claude-fade` (Claude's earlier build, which also
+ * faded in), `spring` (a damped spring, zeta 0.72, from 94%), `none` (today's instant send). */
+@keyframes cv-send-pop {
+  from {
+    transform: scale(0.92) translateY(6px); /* MOTION_SEND_POP_FROM (motion-scale.json sendPop) */
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes cv-send-pop-fade {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(6px); /* MOTION_SEND_POP_FROM (motion-scale.json sendPop) */
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes cv-send-pop-spring {
+  from {
+    transform: scale(0.94) translateY(4px);
+  }
+  to {
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* The gate in :where() adds no weight: the variants below and the RTL origin still override. */
+  :where([data-send-pop]:not([data-send-pop="none"]))
+    .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line, [data-send-morphed])
+    > .acpmux-row__message-presentation {
+    transform-origin: right center;
+    animation: cv-send-pop var(--agent-motion-send-pop, var(--cmux-motion-send-pop, 450ms))
+      var(--cmux-ease-send-pop, cubic-bezier(0.34, 1.3, 0.64, 1)) both;
+  }
+  :root[dir="rtl"]
+    .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line, [data-send-morphed])
+    > .acpmux-row__message-presentation {
+    transform-origin: left center;
+  }
+  [data-send-pop="claude-fade"]
+    .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line, [data-send-morphed])
+    > .acpmux-row__message-presentation {
+    animation-name: cv-send-pop-fade;
+  }
+  [data-send-pop="spring"]
+    .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line, [data-send-morphed])
+    > .acpmux-row__message-presentation {
+    animation-name: cv-send-pop-spring;
+    animation-timing-function: linear(0, 0.0758, 0.243, 0.437, 0.618, 0.767, 0.879, 0.955, 1, 1.03, 1.04, 1.04, 1.03, 1.02, 1.02, 1.01, 1.01, 1, 1);
+  }
+  [data-send-pop="none"]
+    .acpmux-user.acpmux-row--message-enter:not(.acpmux-row--line, [data-send-morphed])
+    > .acpmux-row__message-presentation {
+    animation: none;
+  }
+}
+
 /* A row from older history fades on its first mounted copy (OlderRowFade in App.tsx), including
  * a warm copy outside the view. Its layout effect starts the fade before paint, so intersection
  * never defers opacity and a remount draws in full ink. Opacity only: no row moves or changes
@@ -7617,11 +7708,19 @@ a.cv-sha:focus-visible {
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest {
   --glass-tint: color-mix(in srgb, var(--agent-page-bg) var(--ds-glass-popover-tint), transparent);
 }
-/* Hover lays a wash of the text over the glass, in every mode. */
+/* Hover and press lay a wash of the text over the glass, in every mode, on the composer controls'
+   ink ladder (hq docs/design/design-system-decisions A1: hover 8, pressed 16, pressed is fill only;
+   Leo, 2026-11-23: "nor style properly"). */
 .acpmux-jump-latest:hover {
   background-image: linear-gradient(
-    color-mix(in srgb, var(--agent-text) 6%, transparent),
-    color-mix(in srgb, var(--agent-text) 6%, transparent)
+    color-mix(in srgb, var(--agent-text) 8%, transparent),
+    color-mix(in srgb, var(--agent-text) 8%, transparent)
+  );
+}
+.acpmux-jump-latest:active {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--agent-text) 16%, transparent),
+    color-mix(in srgb, var(--agent-text) 16%, transparent)
   );
 }
 /* Keyboard focus: the pane's focus pill (agent-session/shared/styles.css) laid over the glass, with
@@ -8503,22 +8602,18 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   white-space: nowrap;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-/* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
-   reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock.
-   The activity and Worked-for lines (ActivityLine.tsx, WorkingFor.tsx) keep this look. */
-.cv-waiting {
-  color: var(--cv-text);
-}
-/* The Thinking line's form of it (Thinking.tsx), as Claude desktop's "Needs your input" (Leo,
-   2026-11-05): a ringed dot in the attention mark's colour, then the words in it on a pill tinted
-   with it. The mark is the one needs-input colour (styles.css --acpmux-needs-you-mark). */
+/* The running turn's line while the chat waits on the person (waitingOn.ts) has no colour of its
+   own: no white, the line's own tone and the live spot's one shimmer, as "Thinking" (Leo,
+   2026-11-22: "this is still white. stop having white things"). It holds still: no clock.
+   The Thinking line's form of it (Thinking.tsx), as Claude desktop's "Needs your input" (Leo,
+   2026-11-05): a ringed dot in the attention mark's colour, then the words on a pill tinted with it,
+   under the live spot's one shimmer like every status there (Leo, 2026-11-22). The mark is the one needs-input colour (styles.css --acpmux-needs-you-mark). */
 .cv-thinking.cv-waiting {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
-  color: var(--acpmux-needs-you-mark);
 }
 .cv-waiting__pill {
   min-width: 0;
@@ -8603,11 +8698,11 @@ article.acpmux-row:not(:has(> :not(.acpmux-row__gap))) {
   animation: none;
 }
 
-/* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`):
-   the cause in the line's text color, the count and error muted, the error the part that gives way. */
+/* The live line while the harness retries a failed model request (Thinking.tsx `retryParts`): the
+   cause under the live spot's one shimmer, as "Thinking" (Leo, 2026-11-22: "all in the "thinking"
+   spot should glimmer like that"), the count and error muted, the error the part that gives way. */
 .cv-retrying {
   flex: 0 0 auto;
-  color: var(--cv-text);
 }
 .cv-retrying__error {
   flex: 0 1 auto;

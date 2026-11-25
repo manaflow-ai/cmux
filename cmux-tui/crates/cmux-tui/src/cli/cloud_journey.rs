@@ -612,6 +612,8 @@ async fn journey(global: &GlobalArgs, args: &Args) -> Result<i32, String> {
         },
         image: None,
         from_snapshot: None,
+        origin: None,
+        ttl_seconds: None,
     };
     let mut created = None;
     for attempt in 0..3 {

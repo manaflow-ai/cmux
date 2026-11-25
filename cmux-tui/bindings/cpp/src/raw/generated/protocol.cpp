@@ -16714,6 +16714,11 @@ Result<Json> Codec<Tree>::encode(const Tree& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("generation", std::move(encoded).value());
     }
+    if (value.next) {
+        auto encoded = encode_value(*value.next);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("next", std::move(encoded).value());
+    }
     if (value.pane_revision) {
         auto encoded = encode_value(*value.pane_revision);
         if (!encoded) return std::move(encoded).error();
@@ -16764,6 +16769,12 @@ Result<Tree> Codec<Tree>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_generation);
         if (!decoded) return std::move(decoded).error();
         result.generation = std::move(decoded).value();
+    }
+    const Json* field_next = value.find("next");
+    if (field_next) {
+        auto decoded = decode_value<std::uint64_t>(*field_next);
+        if (!decoded) return std::move(decoded).error();
+        result.next = std::move(decoded).value();
     }
     const Json* field_pane_revision = value.find("pane_revision");
     if (field_pane_revision) {
@@ -27491,6 +27502,11 @@ Result<ListWorkspaceGroupsRequest> Codec<ListWorkspaceGroupsRequest>::decode(con
 Result<Json> Codec<ListWorkspacesRequest>::encode(const ListWorkspacesRequest& value) {
     (void)value;
     Json::Object object;
+    if (!value.after.is_absent()) {
+        auto encoded = encode_value(value.after);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("after", std::move(encoded).value());
+    }
     if (!value.known.is_absent()) {
         auto encoded = encode_value(value.known);
         if (!encoded) return std::move(encoded).error();
@@ -27508,6 +27524,16 @@ Result<ListWorkspacesRequest> Codec<ListWorkspacesRequest>::decode(const Json& v
     auto source = value.as_object();
     if (!source) return std::move(source).error();
     ListWorkspacesRequest result{};
+    const Json* field_after = value.find("after");
+    if (field_after) {
+        if (field_after->is_null()) {
+            result.after = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_after);
+            if (!decoded) return std::move(decoded).error();
+            result.after = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
     const Json* field_known = value.find("known");
     if (field_known) {
         if (field_known->is_null()) {
@@ -47938,7 +47964,8 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand134FieldRequirements{{
     {"machine_metadata", 12U, "machine-identity-v1"},
     {"revisions", 12U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand150FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand150FieldRequirements{{
+    {"after", 12U, "list-workspaces-page-v1"},
     {"known", 12U, "list-workspaces-known-v1"},
     {"limit", 12U, "list-workspaces-limit-v1"},
 }};

@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 import CmuxNextDaemon
+import CmuxNextHistoryDaemon
 import CmuxNextHistory
 import Foundation
 import Testing
@@ -45,7 +46,7 @@ struct ClosedBlankItemsTests {
             ("chat", Self.closed("tab", name: "Fix the flaky upload test", Self.chat)),
             ("untitled chat", Self.closed("tab", name: "about:blank", Self.untitledChat)),
             ("workspace with a terminal", Self.closed("workspace", name: "workspace-7", Self.newTabPage, Self.terminal)),
-        ].filter { HistoryService.isWorthReopening($0.1) }.map { name, item in
+        ].filter { DaemonClosedItem.isWorthReopening($0.1) }.map { name, item in
             let text = HistoryService.daemonClosedText(item, pages: pages)
             return "\(name): \(text.title) · \(text.detail ?? "-")"
         }

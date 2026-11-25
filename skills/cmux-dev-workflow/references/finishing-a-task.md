@@ -13,7 +13,11 @@ The report also names, for the person to run, the command that puts the change i
 [the loop](../../../CLAUDE.md#the-loop-use-it-first-then-test) (`cmux app try <PR>`, `cmux customize use pr:N`), so they
 use it before the build is done. The agent itself runs it there only when asked; otherwise it uses a side copy (`hot-verify.py look`).
 
-- **Mac:** build the pushed exact head on the fleet and publish it to HQ, never on the person's Mac:
+- **Mac:** first ask `scripts/cmux-next/hot-verify.py plan --source dir:. --json`. `needs_build: false` (web
+  only, daemon, or both): the person opens it with `cmux app try <PR>` (a copy of their NIGHTLY with the change
+  swapped in), your own look is `cmux app try .` (off a Mac: `cmux-ci hot-verify N --look`), and the build below is
+  only for a person who asks for one. Otherwise build the pushed exact head on the fleet and publish it to HQ,
+  never on the person's Mac:
 
   ```bash
   JOB_ID=$(cmux-ci build cmux --ref "$(git rev-parse HEAD)" --tag <task-slug> \

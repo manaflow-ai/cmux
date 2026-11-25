@@ -32,9 +32,21 @@ pub struct ForkParams {
     /// With `live`: the harness the fork runs on, carrying the conversation over (a model switch).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub harness: Option<String>,
-    /// With `harness`: the model the fork starts on, at most 256 bytes.
+    /// The model the fork starts on, at most 256 bytes: with `harness` that harness's, else the
+    /// chat's own harness's (set before the reply, or the fork is refused and removed).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// With `live`: fork one of the chat's subagents into a chat of its own, from the subagent's
+    /// own conversation, not the chat's (`hub/fork_subagent.rs`). The id `_meta.acpmux.subagents`
+    /// names it by, or its `agentId` (a Claude agent's id; a Codex child's thread id is its id).
+    /// A Claude Code or Codex chat only; a running subagent forks through its last settled step.
+    /// Capability `acp.session.fork.subagent.v1`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_id: Option<String>,
+    /// With `live`: the permission mode the fork starts in, one of the modes the chat's harness
+    /// lists (`modes.availableModes`); another is refused. Capability `acp.session.fork.subagent.v1`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<String>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
 }

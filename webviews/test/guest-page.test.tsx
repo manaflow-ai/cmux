@@ -440,6 +440,34 @@ test("anonymous, an older room without whoami, or a failure: the name prompt as 
   }
 });
 
+test("a signed-out link guest is offered sign-in back to the same link, and can still join by name", async () => {
+  const page = await mount({ whoami: async () => ({ signedIn: false }) });
+  await roomFrames();
+  const offer = page.host.querySelector("[data-testid=guest-join-sign-in]");
+  expect(offer?.textContent).toContain(translate("guest.join.signInOffer"));
+  const href = offer?.querySelector("a")?.getAttribute("href") ?? "";
+  // The room's sign-in returns to /g/<id>; the secret stays in this tab's storage, never in the URL.
+  expect(href).toBe(`/g/${SHARE}?sign_in=1`);
+  expect(href).not.toContain("c2VjcmV0LWFiY2RlZmdo");
+  expect(href).not.toContain("#");
+  const nameField = page.host.querySelector("input") as HTMLInputElement | null;
+  expect(nameField?.disabled).toBe(false);
+  await page.unmount();
+});
+
+test("no sign-in offer on a link that lost its secret, a room without whoami, or a signed-in visitor", async () => {
+  const noSecret = await mount({ whoami: async () => ({ signedIn: false }), secret: undefined });
+  const oldRoom = await mount({});
+  const signedInPage = await mount({ whoami: async () => ({ signedIn: true, name: "Priya Raman" }) });
+  await roomFrames();
+  for (const page of [noSecret, oldRoom, signedInPage])
+    expect(page.host.querySelector("[data-testid=guest-join-sign-in]")).toBeNull();
+  expect(signedInPage.host.querySelector("[data-testid=guest-join-as]")).not.toBeNull();
+  await noSecret.unmount();
+  await oldRoom.unmount();
+  await signedInPage.unmount();
+});
+
 test("an invite or a tab that already joined never asks whoami", async () => {
   const asked: string[] = [];
   const whoami = async (share: string) => {
