@@ -100,20 +100,35 @@ jobs:
           GH_BUDGET_WAIT_MAX_SECONDS: '300'
         run: bash tools/scripts/ci/gh_budget_wait.sh --install
 
+      # By git transport, not the REST compare it used to be: that one call shared the repository's
+      # installation budget with every workflow and was refused for it in nearly every run of 11-24 and 11-25
+      # (runs 45526342887, 45530598508, 45546440185, 45559872517: "API rate limit exceeded for
+      # installation", past the 5-minute wait), so few trees were Team-signed and hot-apply.py could not put
+      # merged daemon fixes into Leo's NIGHTLY (it refuses an ad-hoc daemon for a Team-signed app). A fetch
+      # spends no REST quota: the commit, then feat-cmux-next's history back to an hour before it.
       - name: Check the commit
         env:
           COMMIT: ${{ inputs.commit }}
           GH_TOKEN: ${{ github.token }}
-          GH_BUDGET_WAIT_MAX_SECONDS: '300'
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           # On feat-cmux-next: the commit is feat-cmux-next's head or behind it.
-          status="$(gh api "repos/$REPO/compare/$COMMIT...feat-cmux-next" --jq .status)"
-          case "$status" in
-            identical|ahead) echo "$COMMIT is on feat-cmux-next ($status)" ;;
-            *) echo "::error::$COMMIT is not on feat-cmux-next (compare: $status); only a merged commit's tree is Team-signed"; exit 1 ;;
-          esac
+          dir="$RUNNER_TEMP/on-feat-cmux-next"
+          git init -q "$dir"
+          auth=()
+          [ -z "${GH_TOKEN:-}" ] ||
+            auth=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')")
+          fetch() { git -C "$dir" -c maintenance.auto=false ${auth[@]+"${auth[@]}"} fetch -q --no-tags --filter=tree:0 "$@"; }
+          fetch --depth=1 "https://github.com/$REPO.git" "$COMMIT"
+          at="$(git -C "$dir" show -s --format=%ct "$COMMIT")"
+          fetch --shallow-since="$((at - 3600))" "https://github.com/$REPO.git" \
+            "+refs/heads/feat-cmux-next:refs/remotes/origin/feat-cmux-next"
+          if git -C "$dir" merge-base --is-ancestor "$COMMIT" refs/remotes/origin/feat-cmux-next; then
+            echo "$COMMIT is on feat-cmux-next (tip $(git -C "$dir" rev-parse refs/remotes/origin/feat-cmux-next))"
+          else
+            echo "::error::$COMMIT is not on feat-cmux-next; only a merged commit's tree is Team-signed"; exit 1
+          fi
 
       - name: Checkout the commit (its tree key script)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

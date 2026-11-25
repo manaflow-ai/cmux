@@ -890,6 +890,10 @@ path = "tests/test_ci_target_graph.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_team_signed_on_branch_check.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_test_execution_registry.py"
 lane = "linux-guard"
 
