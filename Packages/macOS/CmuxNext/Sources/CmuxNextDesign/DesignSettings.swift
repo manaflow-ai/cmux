@@ -8,6 +8,7 @@ public import CmuxNextDesignTokens
 public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case sidebarWidth
     case sidebarRowHeight
+    case spaceButtonSpacing
     case tabStripHeight
     case tabMaxWidth
     /// Chrome's tab minimums (design-tokens.json `motion.tabStrip`): crowding shrinks every tab
@@ -160,6 +161,16 @@ public final class DesignSettings {
         didSet {
             guard wallpaperTint != oldValue else { return }
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
+        }
+    }
+    /// `appearance.wallpaperLighting`: treats the desktop wallpaper as a light source (glass edges
+    /// facing its brightest part catch its color, the composer glows with it, the glass leans toward
+    /// its hue). Off by default and until the setting reaches it (``SettingsApplier``).
+    public var wallpaperLighting = false {
+        didSet {
+            guard wallpaperLighting != oldValue else { return }
+            BackdropImageStore.shared.light.enabled = wallpaperLighting
+            BackdropImageStore.shared.desktop.lightingEnabled = wallpaperLighting
         }
     }
     /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
@@ -442,6 +453,7 @@ public final class DesignSettings {
         switch key {
         case .sidebarWidth: 160...420
         case .sidebarRowHeight: 20...48
+        case .spaceButtonSpacing: 18...48
         case .tabStripHeight: 22...44
         case .tabMaxWidth: 120...320
         case .tabMinActiveWidth: 32...200
