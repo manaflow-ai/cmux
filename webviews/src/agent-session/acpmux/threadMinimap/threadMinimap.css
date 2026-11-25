@@ -66,6 +66,7 @@
    transcript at its ends. Its scrollbar is hidden in both engines, so the transcript's shared one is
    the only one on screen (SCROLLBARS-THIN; #23285 left this list a second visible scroller). */
 .acpmux-minimap__list {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -372,21 +373,15 @@
   isolation: isolate;
   will-change: transform;
   box-sizing: border-box;
-  /* The one hover material (ui/glass/glass.css HOVER SURFACES), as every tooltip and hover card:
-     the tooltip's veil, its frost and its corner, a hover card's elevation 2, over the transcript blurred
-     in place (PreviewCard.tsx useSeeThroughBlur). It drew the popover level by hand before, a look of
-     its own (Leo, 2026-11-22: "multiple styles for hover previews"). The edge is an inset shadow one
-     device pixel wide (--cmux-hairline, #20713); appearance.borders none clears it through
-     --acpmux-minimap-rim. Reduce Transparency turns the fill into the solid popup surface (below)
-     and the blur off (pages/shared/desktop.css). */
-  padding: var(--ds-space-2);
-  border-radius: var(--tooltip-radius); /* concentric-allow: a hover card takes the one hover material's radius, like every tooltip and hover card */
-  background: var(--tooltip-tint);
-  -webkit-backdrop-filter: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
-  backdrop-filter: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
-    var(--elevation-2);
+  /* A hover card (PreviewCard.tsx: .ui-card.ui-glass) in the one hover material of every tooltip and
+     hover card (ui/glass/glass.css HOVER SURFACES): the tooltip's veil over the transient frost and
+     the tooltip's corner, with the hover card glass's rim and elevation 2, never a fill, blur or
+     shadow of its own. It drew the popover level by hand before, a look of its own (Leo, 2026-11-22:
+     "multiple styles for hover previews"). appearance.borders none clears the glass rim; Reduce
+     Transparency makes the fill the solid popup surface (--glass-opaque). */
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: var(--surface-popup, var(--acpmux-minimap-card));
+  border-radius: calc(var(--role-tooltip-radius) * var(--cmux-interface-scale, 1)); /* concentric-allow: a hover card takes the one hover material's radius, like every tooltip and hover card */
   color: var(--agent-text);
   font: var(--text-body) / var(--text-body--line-height) var(--font-ui);
   letter-spacing: var(--text-body--letter-spacing);
@@ -401,6 +396,16 @@
   .acpmux-minimap__card {
     background: var(--surface-popup, var(--acpmux-minimap-card));
   }
+}
+/* The one hover material's veil and frost (glass.css HOVER SURFACES), over glass.css's hover card
+   level (.ui-card.ui-glass) whichever sheet loads last. */
+.acpmux-minimap__card.ui-card.ui-glass {
+  --glass-tint: var(--tooltip-tint);
+  --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
+}
+/* Its insets over desktop.css's .ui-card ones, whichever sheet loads last. */
+.acpmux-minimap__card.ui-card {
+  padding: var(--ds-space-2);
 }
 /* The sender of another session's message, above its words: secondary text, one line. */
 .acpmux-minimap__from {
@@ -742,4 +747,33 @@
 }
 .acpmux-minimap__show:focus-visible {
   outline: 1px solid var(--agent-focus-ring, var(--acpmux-minimap-text));
+}
+
+/* The transcript's New line, in the gap between rail ticks or at its height on the full map.
+   It occupies no slot and leaves scrolling, focus and prompt hit targets alone. */
+.acpmux-minimap__cutover {
+  position: absolute;
+  inset-inline-start: 0;
+  z-index: var(--layer-raised);
+  width: min(100%, var(--ds-space-3));
+  height: var(--acpmux-minimap-bar-height);
+  border-radius: var(--ds-space-1);
+  background: var(--cmux-app-accent, var(--agent-text));
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.acpmux-minimap__cutover[data-look="band"] {
+  width: 100%;
+  height: var(--ds-space-1);
+  opacity: 0.45;
+}
+.acpmux-minimap__cutover[data-look="dot"] {
+  width: var(--ds-space-1);
+  height: var(--ds-space-1);
+}
+.acpmux-minimap__cutover[data-edge="start"] {
+  transform: none;
+}
+.acpmux-minimap__cutover[data-edge="end"] {
+  transform: translateY(-100%);
 }

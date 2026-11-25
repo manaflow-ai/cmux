@@ -15,6 +15,10 @@ public struct ConversationHeaderPresentation {
     }
 
     public var scrollEdge: ScrollEdge
+    /// With ``ScrollEdge/system``: the top edge is UIKit's hard style, so text
+    /// scrolled under the header stops at it instead of showing through the
+    /// soft blur into the title. False keeps the soft edge.
+    public var hardTopEdge: Bool
     /// Space below the header before the transcript starts. Nil preserves
     /// Messages' portrait/landscape spacing. Negative values are clamped to zero.
     public var transcriptTopSpacing: CGFloat?
@@ -24,12 +28,14 @@ public struct ConversationHeaderPresentation {
 
     public init(
         scrollEdge: ScrollEdge = .messages,
+        hardTopEdge: Bool = false,
         transcriptTopSpacing: CGFloat? = nil,
         actionAccessibilityLabel: String? = nil,
         avatarAccessibilityLabel: String? = nil,
         avatarAccessibilityHint: String? = nil
     ) {
         self.scrollEdge = scrollEdge
+        self.hardTopEdge = hardTopEdge
         self.transcriptTopSpacing = transcriptTopSpacing
         self.actionAccessibilityLabel = actionAccessibilityLabel
         self.avatarAccessibilityLabel = avatarAccessibilityLabel

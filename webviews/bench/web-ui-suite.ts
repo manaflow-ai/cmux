@@ -76,6 +76,15 @@ export const BENCHES: readonly Bench[] = [
     args: ["3000", "2"],
     timeoutMs: 240_000,
   },
+  // The RFD 0040 transcript replacement's named fling benchmark. It reports both the current web transcript and
+  // a plain-text floor with one schema so a future native arm can join without changing the driver.
+  {
+    name: "transcript-fling",
+    file: "transcript-fling.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
   // thread-rail-jump takes 24 to 29 s on the perf runner (2026-11-12).
   {
     name: "thread-rail-jump",
@@ -154,6 +163,26 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // Scrolling up a long chat page by page at 1k, 10k and 100k rows: each older page's ask to its drawn frame (target
+  // 50 ms p95), loading and blank frames, the anchor's shift, and the 100k / 1k ratio (target 1.2x). perf-cron.py's
+  // web-ui-scroll-up part runs it.
+  {
+    name: "transcript-scroll-up-scale",
+    file: "transcript-scroll-up-scale.bench.ts",
+    args: [],
+    timeoutMs: 900_000,
+    ownPart: true,
+  },
+  // One orchestrator chat with 16 sub-sessions (8 local worktrees, 8 Cloud) all streaming (RFD 0167 row 12, goal
+  // competitive-orchestrator-16): every frame's work at 60 Hz; the p99 is NOW's
+  // competitive.orchestrator.p99_frame_ms_16_children. perf-cron.py's web-ui-orchestrator part runs it.
+  {
+    name: "orchestrator-16",
+    file: "orchestrator-16.bench.ts",
+    args: ["16", "30"],
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
   // A chat at any length (goal chats-flat-at-any-length): a 100k-row chat opened and grown live, one and 20 at once,
   // against empty chats; renderer idle CPU, streaming CPU and PSS, and their worst ratio. perf-cron.py's web-ui-flat
   // part runs it, under that part's 30-minute run cap.
@@ -162,7 +191,19 @@ export const BENCHES: readonly Bench[] = [
     file: "chat-100k-flat.bench.ts",
     args: ["100000", "20"],
     env: { CASES: "main" },
-    timeoutMs: 1_200_000,
+    // Seven launches, each about a minute of CPU settle and then its windows: still in long_x20 at 1200 s on an
+    // 8-vCPU runner (Actions run 45422305557). perf-cron.py's web-ui-flat run cap (2700 s) sits above it.
+    timeoutMs: 2_400_000,
+    ownPart: true,
+  },
+  // Ten 100-turn chats in one shared renderer against an empty one (goal memory-per-chat): renderer PSS, MB per chat
+  // and chat_pages_memory.n10.ratio_vs_empty. Linux only (/proc). perf-cron.py's web-ui-memory part runs it
+  // (`--only chat-pages-memory`).
+  {
+    name: "chat-pages-memory",
+    file: "chat-pages-memory.bench.ts",
+    args: ["10", "100"],
+    timeoutMs: 300_000,
     ownPart: true,
   },
   // Several heavy coordinators streaming at 10x while readers attach, scroll, find, switch and type (coord-sim's
@@ -175,14 +216,35 @@ export const BENCHES: readonly Bench[] = [
     ownPart: true,
   },
   // Its 20 chats grown live to 100k rows each (about 28 minutes on a 4-vCPU runner): perf-cron.py's web-ui-flat-grown
-  // part, under that part's 30-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
+  // part, under that part's 55-minute run cap. Its windows are 5 s (three of each kind, as in the main part) so the
   // repeats fit under that cap.
   {
     name: "chat-100k-flat-grown",
     file: "chat-100k-flat.bench.ts",
     args: ["100000", "20"],
     env: { CASES: "grown-many", IDLE_S: "5", STREAM_S: "5" },
-    timeoutMs: 1_770_000,
+    // Timed out at 1770 s in two perf cron ticks running; perf-cron.py's web-ui-flat-grown run cap (3300 s) sits above.
+    timeoutMs: 3_000_000,
+    ownPart: true,
+  },
+  // The sim's stress ladder (goal sim-fidelity-flat-ladder): chats and browser tabs at 1, 10 and 100 in one shared
+  // renderer listing 3,000 chats; the cost per added item at 100 over at 10 (sim_ladder.ratio_max). perf-cron.py's
+  // web-ui-ladder part runs it, under that part's 30-minute run cap.
+  {
+    name: "sim-ladder",
+    file: "sim-ladder.bench.ts",
+    args: ["--sessions", "3000"],
+    timeoutMs: 1_700_000,
+    ownPart: true,
+  },
+  // The same sim at a profile of Leo's running NIGHTLY (goal sim-fidelity-flat-ladder): its pages, tabs, listed chats,
+  // change rate and load, against its frame p95, keydown, script ms/s and agent renderer RSS; divergence past 1.5x is
+  // red. perf-cron.py's web-ui-fidelity part runs it.
+  {
+    name: "sim-fidelity",
+    file: "sim-ladder.bench.ts",
+    args: ["--profile", "bench/profiles/leo-nightly.json"],
+    timeoutMs: 600_000,
     ownPart: true,
   },
   // Composer typing under load (CMUX-571, Leo 2026-11-16: "but typing under load is not good enough"): 500 keys
@@ -214,6 +276,18 @@ export const BENCHES: readonly Bench[] = [
     file: "sidebar-chats-fling.bench.ts",
     args: ["200", "500", "1000", "10000"],
     timeoutMs: 600_000,
+    ownPart: true,
+  },
+  // The power-user input stress harness's long seed (Leo, 2026-11-22: "we need to test like power users more often"):
+  // test/power-user-bursts.browser.test.ts with a random seed and 150 waves of overlapping scroll flicks, resizes,
+  // pointer sweeps, 15-60 key/s typing, large pastes and chat switches mid-stream, in Chromium and WebKit; its numbers
+  // per input class as webui.power_user.* rows and each breach with its replay seed. perf-cron.py's web-ui-power-user
+  // part runs it.
+  {
+    name: "power-user-bursts",
+    file: "power-user-bursts.bench.ts",
+    args: ["--waves", "150", "--seed", "random", "--engines", "chromium,webkit"],
+    timeoutMs: 1_500_000,
     ownPart: true,
   },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
@@ -248,6 +322,19 @@ export const BENCHES: readonly Bench[] = [
     file: "chat-open.bench.ts",
     args: ["7", "300"],
     env: { FIXTURE: "god", PAIRED: "1" },
+    timeoutMs: 300_000,
+    ownPart: true,
+  },
+  // A chat's cold open to its composer taking a key, ten rounds (goal startup-every-path; Leo 2026-11-22: "i hope
+  // we're still pursuing startup times for the app itself aka percieved time and percieved interactive time"):
+  // dom_content_loaded, first_row and composer_interactive with each round's value (COMPOSER=1, chat-open.bench.ts).
+  // cmuxterm-hq's synthetic-probes.yml web-startup job runs it (`--only chat-open-startup`) and records the
+  // web-chat-open-startup probe's p50 and p95; the perf cron does not.
+  {
+    name: "chat-open-startup",
+    file: "chat-open.bench.ts",
+    args: ["10", "300"],
+    env: { COMPOSER: "1" },
     timeoutMs: 300_000,
     ownPart: true,
   },
@@ -316,7 +403,7 @@ export function slowestFirst(rows: readonly PerfRow[]): PerfRow[] {
   });
 }
 
-async function run(bench: Bench) {
+async function run(bench: Bench, timeoutMs = bench.timeoutMs) {
   const webviews = path.resolve(import.meta.dir, "..");
   const started = performance.now();
   const proc = Bun.spawn(["bun", path.join("bench", bench.file), ...bench.args], {
@@ -330,7 +417,7 @@ async function run(bench: Bench) {
   const timer = setTimeout(() => {
     timedOut = true;
     proc.kill("SIGKILL");
-  }, bench.timeoutMs);
+  }, timeoutMs);
   const [stdout, stderr, exit] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -358,13 +445,22 @@ async function main() {
     console.error(`web-ui-suite: unknown bench ${unknown.join(", ")}`);
     process.exit(2);
   }
+  // `--timeout-s N` replaces the timeout of each bench `--only` names: the nightly interaction-latency job runs one
+  // bench at a time on a runner two to three times slower than the perf runner, so it brings its own (TIMEOUT_S in
+  // scripts/ci/nightly_interaction_latency.py), and the defaults stay sized to SUITE_CAP_MS for the perf cron.
+  const timeoutS = flag("--timeout-s") === undefined ? undefined : Number(flag("--timeout-s"));
+  if (timeoutS !== undefined && !(only && Number.isFinite(timeoutS) && timeoutS > 0)) {
+    console.error("web-ui-suite: --timeout-s takes a positive number of seconds, with --only");
+    process.exit(2);
+  }
   const rows: PerfRow[] = [];
   const failed: Failure[] = [];
   const benches: Record<string, { exit: number | null; seconds: number; rows: number; load: number }> = {};
   for (const bench of BENCHES.filter((each) => (only ? only.includes(each.name) : !each.ownPart))) {
     console.log(`web-ui-suite: ${bench.name} ${bench.args.join(" ")}`);
     const before = probe();
-    const result = await run(bench);
+    const timeoutMs = timeoutS === undefined ? bench.timeoutMs : timeoutS * 1000;
+    const result = await run(bench, timeoutMs);
     const load = contentionFactor([...before, ...probe()]);
     const { rows: measured, bad } = parseRows(result.stdout);
     const got = normalizeRows(measured, load);
@@ -374,7 +470,7 @@ async function main() {
       if (line && !line.startsWith(PERF_ROW_MARK)) console.log(`  ${bench.name}| ${line}`);
     benches[bench.name] = { exit: result.exit, seconds: result.seconds, rows: got.length, load };
     const why = result.timedOut
-      ? `timed out after ${bench.timeoutMs / 1000} s`
+      ? `timed out after ${timeoutMs / 1000} s`
       : result.exit !== 0
         ? `exit ${result.exit}`
         : got.length === 0

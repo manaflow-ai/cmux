@@ -20,6 +20,7 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
+import { keycapLegend } from "./keycapLegend";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";
 import { HOVER_INTENT } from "./hoverIntent";
@@ -150,11 +151,12 @@ export function Tooltip({
             <BaseTooltip.Popup
               ref={setPopup}
               className={cx("ui-tooltip ui-glass", className)}
+              data-surface-role={wraps ? "hoverCard" : "tooltip"}
               // One hover material (glass.css HOVER SURFACES): the page draws it, a label and a card
               // alike, never the App's glass under one and the page's under the other.
               {...(wraps && { "data-tooltip-card": "" })}
             >
-              {shortcut && <span className="ui-tooltip-hint">{shortcut}</span>}
+              {shortcut && <span className="ui-tooltip-hint">{keycapLegend(shortcut)}</span>}
               {typeof label === "string" || typeof label === "number" ? (
                 <span className="ui-tooltip-text">{label}</span>
               ) : (
@@ -268,6 +270,7 @@ export function AnchoredCard({
             ref={setPopup}
             id={id}
             className={cx("ui-tooltip ui-card ui-glass", className)}
+            data-surface-role="hoverCard"
             // The one hover material (glass.css HOVER SURFACES), drawn by the page; a card given
             // `under` blurs what it covers itself.
             data-state={state}

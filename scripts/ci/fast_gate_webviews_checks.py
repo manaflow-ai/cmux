@@ -5,7 +5,8 @@
 
 Installs webviews' node_modules (bun install --frozen-lockfile; --no-install when the job already did) and runs, in
 webviews/, every check in CHECKS, each on its own: a red never stops the next. ci-web's "Check webviews" step runs
-this on a pull request (BASE the merge parent) and on a push (no BASE), and the fast gates run it on a dispatch.
+this on a pull request (BASE the merge parent) and on a push (no BASE), and the fast gates run it on a dispatch
+and on a pull request that changes its inputs.
 
 Only findings the pull request adds fail: a check that fails on the merge runs again on BASE (a worktree of it,
 sharing the merge's node_modules), and the gate fails only on findings BASE does not have as often. A finding is
@@ -23,8 +24,10 @@ they run on a tree with a type error.
 #23763 (2026-10-21) merged a TS2339 in test/composer-row-layout.test.ts: the base was red, so its own red read as
 "the same base red". Compared per error, it is the one new finding (tests/test_cmux_next_fast_gates.py replays it).
 
-cmux_next_fast_gates.py runs this only on a dispatch (pr=N, against the current tip): on a pull_request event
-ci-web already ran these checks on the same merge commit. A merger dispatches when a check path
+cmux_next_fast_gates.py runs this on a dispatch (pr=N, against the current tip) and on a pull request that changes one
+of its inputs (CHECK_INPUTS there: webviews/, a string catalog, the protocol spec). ci-web runs it on the same merge
+commit too, but inside the webview suite's first shard, which land-judge's merged-tree carry does not wait for on a
+base merge: cmux-next/fast-gates is the status it does wait for (cmux#49052's `foldsPrompt`, cmuxterm-hq#19108). A merger dispatches when a check path
 (scripts/ci/check-paths.txt) changed on the base after the pull request's last fast-gates base, so a check that
 landed after the pull request's CI runs on it before it merges (2026-10-21: #22967, #22975 and #23094 merged past
 the new check:fixed-waits; replayed, #22975 merged with 01ea78b3 adds
@@ -98,6 +101,10 @@ def advisory_class(check: str, lines: list[str]) -> bool:
     return CHECK_CLASSES[check][0] == "lint" or (check == "typecheck" and outside_the_app(lines))
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
+# Vite bundles its config to `node_modules/.vite-temp/vite.config.ts.timestamp-<ms>-<hash>.mjs` on every run, so a
+# config that fails to load prints stack frames that differ between the base's run and the merge's (#46890's fast
+# gate read the base's own `Resources/markdown-viewer` ENOENT as five new findings). The name is kept, the stamp dropped.
+VITE_TEMP = re.compile(r"\.timestamp-\d+-[0-9a-f]+\.(m?js)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 # Oxlint's graphical report (the type check, `vp lint`): `  x typescript(TS2339): message`, wrapped lines of the
 # message, `   ,-[path:line:col]`, a code frame and `help:` lines. One finding per diagnostic, its whole message.
@@ -175,8 +182,8 @@ def run_check(webviews: Path, check: str, fixit: bool = False) -> tuple[int, str
 
 
 def key(line: str, root: str = "") -> str:
-    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers and timings dropped."""
-    return TIMING.sub("<time>", LINE_REF.sub(r"\1", unroot(line, root).strip()))
+    """A line as a finding: stripped, its checkout root, `path:line[:col]` numbers, timings and Vite's temp config stamp dropped."""
+    return TIMING.sub("<time>", LINE_REF.sub(r"\1", VITE_TEMP.sub(r".timestamp.\1", unroot(line, root).strip())))
 
 
 def unroot(text: str, root: str) -> str:
@@ -254,6 +261,31 @@ def compare(merge_output: str, base_output: str, merge_root: str = "", base_root
 def added(merge_output: str, base_output: str, merge_root: str = "", base_root: str = "") -> list[str]:
     """The merge's findings the base does not have (compare's first half)."""
     return compare(merge_output, base_output, merge_root, base_root)[0]
+
+
+def optional_only(new: list[str], env: dict | None = None) -> list[str]:
+    """ci-oops fault isolation (scripts/ci/oops/isolate.py): when every type error a pull request adds is in an
+    optional unit (a page or the gallery that optional-units.json lists), the unit ids, reported as CI_OOPS soft
+    fails (one per unit, for the follow-up); else []. Only a pull request build: a push, the nightly (which runs
+    this without a base) and any ship path keep every error red. A finding with no path is core."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "oops"))
+    import isolate  # noqa: PLC0415  (scripts/ci/oops/isolate.py)
+
+    if not isolate.allowed(env)[0]:
+        return []
+    units: dict[str, str] = {}
+    for line in new:
+        path = line.split(": ", 1)[0] if ": " in line else ""
+        unit = isolate.unit_of_path(isolate.webview_path(path), ("webview-page", "gallery")) if path else None
+        if unit is None:
+            return []
+        units.setdefault(unit["name"], line)
+    pages = {name: line for name, line in units.items() if name != "gallery"}
+    if pages:
+        isolate.report("webview-page", pages, step="webviews typecheck", env=env)
+    if "gallery" in units:
+        isolate.report("gallery", {"gallery": units["gallery"]}, step="webviews typecheck", env=env)
+    return [("gallery" if name == "gallery" else f"webview-page:{name}") for name in units]
 
 
 def shares_deps(repo: Path, base: str, directory: str) -> bool:
@@ -365,6 +397,12 @@ def main(argv: list[str] | None = None) -> int:
             if not new:
                 print(f"webviews checks: {check} fails on the base {args.base[:12]} too and this adds nothing to it",
                       flush=True)
+                continue
+            if check == "typecheck" and (dropped := optional_only(new)):
+                print(f"webviews checks: typecheck adds errors only in optional units ({', '.join(dropped)}); "
+                      "they are left out of this pull request's build and need a follow-up", flush=True)
+                for line in new:
+                    print(f"  optional: {line}", flush=True)
                 continue
             failed.append(check)
             shown[check] = new

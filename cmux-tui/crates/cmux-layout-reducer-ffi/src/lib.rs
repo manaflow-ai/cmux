@@ -27,6 +27,8 @@
 //! `cloud_agent_check`: whether the start's agent can run, before its lease;
 //! `cloud_ask_answer`, `cloud_ask_first`: who may answer an agent's Cloud ask;
 //! `cloud_sequence_*`: the start's one sequencer, its step order and times;
+//! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
+//! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
 //! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
@@ -78,6 +80,7 @@ pub mod closing_panes;
 mod cloud_bootstrap;
 mod cloud_config;
 mod cloud_handler;
+mod cloud_hybrid;
 mod cloud_machine;
 mod cloud_move;
 mod cloud_sequence;
@@ -548,6 +551,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             }
             operation if cloud_handler::handles(operation) => {
                 cloud_handler::respond(operation, request)?
+            }
+            operation if cloud_hybrid::handles(operation) => {
+                cloud_hybrid::respond(operation, request)?
             }
             operation if cloud_move::handles(operation) => cloud_move::respond(operation, request)?,
             operation if cloud_sequence::handles(operation) => {

@@ -194,6 +194,7 @@ impl AuthDatabase {
             route_hints,
             relay_access,
             approval_required: bound_device.is_none(),
+            via_machine: None,
         };
         invitation.to_uri()?;
         let mut state = self.state.lock().await;

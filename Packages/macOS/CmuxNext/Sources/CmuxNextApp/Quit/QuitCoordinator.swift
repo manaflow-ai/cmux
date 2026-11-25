@@ -147,6 +147,7 @@ final class QuitCoordinator {
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
+            services.windows.recordSaver.layoutCache.flushNow() // the layout as seen, before anything leaves the screen
             let choice = QuitPolicy.decide(origin, behavior: behavior)
             // Unsaved documents (R96 quit hook) are the only question a quit can ask.
             guard await resolveUnsaved(origin) else {
@@ -178,13 +179,14 @@ final class QuitCoordinator {
         logger.notice("quit choice=\(choice.rawValue, privacy: .public)")
         DebugTimings.markLaunch("quit.decided")
         let services = services
+        await services.updater.afterimage?.untilShown(limit: .milliseconds(600)) // a relaunch's pictures are up before any step takes a window off screen (RelaunchAfterimage)
+        // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
+        // (then it is cancelled now), once the keep for rollback its staging started ends (bounded).
+        await services.updater.prepareForQuitAfterKeep()
         // A keep quit ends within `keepQuitLimit` from here, whatever any step
         // below does (slow quit, 2026-10-20). An End quit arms its deadline
         // once its sessions ended (the end steps show their failures).
         if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) }
-        // Sparkle installs a staged update as the app exits unless
-        // `updates.installOnQuit` is off (then its installer is cancelled now).
-        services.updater.prepareForQuit()
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.
@@ -210,6 +212,7 @@ final class QuitCoordinator {
                     terminalFrames: {
                         await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
                             .save(services.cache.terminals.mapValues(\.session))
+                        await services.cache.savePageFramesForQuit() // and browser pages' (`BrowserPageFrames`)
                     },
                     browserRecords: { await services.cache.browserTabs.flushRecords() },
                     windows: {
@@ -250,6 +253,7 @@ final class QuitCoordinator {
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
                 await services.windows.recordSaver.launchRecord.flush()
+                await services.windows.recordSaver.layoutCache.flush()
                 guard let self else { return }
                 // CefShutdown runs on the main thread and can block it for good: from here the quit ends by a deadline whatever it
                 // does (a keep quit's deadline is armed already and stays), and a debug build reports that hang, never asserts it.

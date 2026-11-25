@@ -13,14 +13,27 @@ const raw = env as unknown as RawEnv
 const inDO = runInDurableObject as unknown as <T>(stub: unknown, fn: (instance: any, state: DurableObjectState) => Promise<T>) => Promise<T>
 
 describe("build spaces inside the Worker", () => {
-  it("production ignores the header and never builds a dev space", () => {
+  it("production refuses a dev space instead of serving it as nightly's, and never builds one", async () => {
     const request = new Request("https://api.test/v1/read", { headers: { "x-cmux-build-space": "dev:a" } })
-    expect(spaceOf(request, { ENVIRONMENT: "production" })).toEqual({ ok: true, space: "" })
-    expect(spaceOf(new Request("https://api.test", { headers: { "x-cmux-build-space": "nope" } }), { ENVIRONMENT: "production" })).toEqual({ ok: true, space: "" })
+    const refused = async (result: ReturnType<typeof spaceOf>) => {
+      if (result.ok) return { ok: true, space: result.space }
+      return { ok: false, status: result.response.status, code: ((await result.response.json()) as { error: { code: string } }).error.code }
+    }
+    // A dev build pointed at production fails on its first request, before auth or any read: it never reads or
+    // writes the person's real (nightly) data under its own session (the mobile Worker's rule, cmux-next-ios/backend).
+    expect(await refused(spaceOf(request, { ENVIRONMENT: "production" }))).toEqual({ ok: false, status: 403, code: "build_space.not_allowed" })
+    // A value that is not a space is refused as malformed everywhere, production included.
+    const malformed = new Request("https://api.test", { headers: { "x-cmux-build-space": "nope" } })
+    expect(await refused(spaceOf(malformed, { ENVIRONMENT: "production" }))).toEqual({ ok: false, status: 400, code: "build_space.invalid" })
+    expect(await refused(spaceOf(malformed, { ENVIRONMENT: "staging" }))).toEqual({ ok: false, status: 400, code: "build_space.invalid" })
+    // Nightly and stable send no header (or an empty one): production serves them as before.
+    expect(spaceOf(new Request("https://api.test/v1/read"), { ENVIRONMENT: "production" })).toEqual({ ok: true, space: "" })
+    expect(spaceOf(new Request("https://api.test/v1/read", { headers: { "x-cmux-build-space": "" } }), { ENVIRONMENT: "production" })).toEqual({ ok: true, space: "" })
     expect(spaceOf(request, { ENVIRONMENT: "staging" })).toEqual({ ok: true, space: "dev:a" })
-    // An allow-list: an environment that is missing or misspelled serves nightly only.
+    // An allow-list: an environment that is missing or misspelled serves nightly only, and refuses a dev space.
     for (const ENVIRONMENT of ["", "prod", "Production", "preview"]) {
-      expect(spaceOf(request, { ENVIRONMENT })).toEqual({ ok: true, space: "" })
+      expect(await refused(spaceOf(request, { ENVIRONMENT }))).toEqual({ ok: false, status: 403, code: "build_space.not_allowed" })
+      expect(spaceOf(new Request("https://api.test/v1/read"), { ENVIRONMENT })).toEqual({ ok: true, space: "" })
       expect(() => spacedEnv({ ...raw, ENVIRONMENT } as RawEnv, "dev:a")).toThrow(/serves no dev spaces/)
     }
     const production = { ...raw, ENVIRONMENT: "production" } as RawEnv

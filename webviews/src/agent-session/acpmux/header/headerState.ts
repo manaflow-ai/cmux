@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { readHeaderControls, type HeaderControls } from "./headerTrio";
 import { headerMotionOf, type HeaderMotionStyle } from "./headerMotion";
 import { readHeaderIconsStyle, type HeaderIconsStyle } from "./headerRelevance";
+import { readTopRightLayout, type TopRightLayout } from "./topRightLayout";
 
 /// What the chat header shows from the chat's tab (CmuxNextAgentPane AgentPaneHeaderState): the pin the
 /// "..." menu's labels read, whether the panes beside the chat show ([+] New tab reads Hide tabs), and
@@ -78,6 +79,9 @@ export interface HeaderState {
   /// Which top-right icons show (Debug Settings `agentChat.headerIcons.contextual`, headerRelevance.ts):
   /// `standard` (today's), `contextual` or `contextualPeek`.
   readonly headerIcons: HeaderIconsStyle;
+  /// How the top-right icons are laid out (Debug Settings `agentChat.topRight.consolidate`,
+  /// TopRightLayouts.tsx): `row` (today's), `morph`, `tabStrip` or `dock`.
+  readonly topRightLayout: TopRightLayout;
   /// The chip beside the tools; the App sends `null` when the chat's folder has none.
   readonly pullRequest?: HeaderPullRequest;
   /// The chat's workspace (CmuxNextAgentPane AgentPaneHeaderWorkspace) and how many agent chats it
@@ -116,6 +120,7 @@ const INITIAL: HeaderState = {
   headerControls: "standard",
   headerMotion: "still",
   headerIcons: "standard",
+  topRightLayout: "row",
   moves: [],
   moveReasons: {},
   moveTargets: [],
@@ -153,6 +158,7 @@ export function setHeaderState(value: unknown): void {
     headerControls?: unknown;
     headerMotion?: unknown;
     headerIcons?: unknown;
+    topRightLayout?: unknown;
     pullRequest?: unknown;
     workspace?: unknown;
     moves?: unknown;
@@ -173,6 +179,7 @@ export function setHeaderState(value: unknown): void {
     headerControls: readHeaderControls(raw.headerControls) ?? current.headerControls,
     headerMotion: "headerMotion" in raw ? headerMotionOf(raw.headerMotion) : current.headerMotion,
     headerIcons: readHeaderIconsStyle(raw.headerIcons) ?? current.headerIcons,
+    topRightLayout: readTopRightLayout(raw.topRightLayout) ?? current.topRightLayout,
     pullRequest: "pullRequest" in raw ? pullRequestOf(raw.pullRequest) : current.pullRequest,
     workspace: "workspace" in raw ? workspaceOf(raw.workspace) : current.workspace,
     moves: Array.isArray(raw.moves) ? raw.moves.filter((id): id is string => typeof id === "string") : current.moves,

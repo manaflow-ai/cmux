@@ -57,9 +57,7 @@ Leo and every agent:
 - Never move a nightly job to Blacksmith, a GitHub-hosted runner or a Mac without
   that label, and never split one nightly across Macs, also not "only for this run".
 - Never cancel a nightly run, a nightly job or the nightly queue to make room or
-  to speed up a proof. A queued nightly waits its turn; the sign yield
-  (`scripts/ci/nightly_sign_yield.py`) hands an older build's slot to a newer
-  one without cancelling anything.
+  to speed up a proof. A queued nightly waits its turn.
 - When a signing Mac is short of capacity or a nightly is slow, report it and
   fix that Mac or the workflow on it. Do not reroute the nightly.
 

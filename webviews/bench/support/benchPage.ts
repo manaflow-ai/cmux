@@ -16,7 +16,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { Page } from "playwright";
+import type { Frame, Page } from "playwright";
 import { build, createServer } from "vite";
 import { warmViteServer } from "../../test/support/warmDevServer";
 
@@ -159,6 +159,12 @@ export async function serveBenchPage(
     }
     return undefined;
   };
+  // The page is served at the root, as the app serves its pages. The build writes the page's own
+  // `<link>`s relative to it (`./assets/x.css`) while a lazy chunk's preload asks for its CSS from
+  // the root (`/assets/x.css`); under `test/browser/` those are two URLs, so the preload added every
+  // sheet a second time and each restyle matched the whole stylesheet twice (17,092 rules for
+  // 8,546): the transcript fling's forced row measures read about 30% slower than the app's.
+  const servedAt = path.basename(emitted);
   const statics = Bun.serve({
     port: 0,
     hostname: "127.0.0.1",
@@ -172,13 +178,13 @@ export async function serveBenchPage(
         // A malformed escape is read as itself.
       }
       const asked = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-      const found = resolveEmitted(asked);
+      const found = asked === servedAt ? emitted : resolveEmitted(asked);
       if (found === undefined) return new Response("not found", { status: 404 });
       return new Response(Bun.file(path.join(outDir, found)));
     },
   });
   return {
-    url: `http://127.0.0.1:${statics.port}/${emitted}${query}`,
+    url: `http://127.0.0.1:${statics.port}/${servedAt}${query}`,
     dev: false,
     close: async () => {
       await statics.stop(true);
@@ -193,10 +199,7 @@ export async function gotoBenchPage(page: Page, served: BenchPage): Promise<void
   // A page that throws while it mounts installs none of its hooks, and the bench then fails 30 s
   // later as `waitForFunction: Timeout` with nothing to point at. So every page error and console
   // error is printed as it happens.
-  page.on("pageerror", (error) => console.error(`bench page error: ${error.message}`));
-  page.on("console", (message) => {
-    if (message.type() === "error") console.error(`bench page console: ${message.text()}`);
-  });
+  watchPageErrors(page);
   // Before the page's own code: the recorder has to see react-dom's request, and the pane clears the
   // resource list as it goes.
   await installReactWatch(page);
@@ -374,4 +377,58 @@ export async function requireProductionReact(page: Page, { dev }: { dev: boolean
 /// How a bench labels its numbers: `dev` when they came from a dev server, `production` otherwise.
 export function buildLabel({ dev }: { dev: boolean }): "dev" | "production" {
   return dev ? "dev" : "production";
+}
+
+/// Every page error and error-level console message the page has produced since this was called, in
+/// order, newest last. A bench that waits for a hook the page installs needs them: a page that threw
+/// while it mounted installs nothing, and the wait then fails as `waitForFunction: Timeout` with
+/// `log: []` and nothing to point at (2026-11-23: both arms of a composer-typing before/after run
+/// died that way, and the run reported no measurement at all).
+export function watchPageErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => {
+    errors.push(`page error: ${error.message}`);
+    console.error(`bench page error: ${error.message}`);
+  });
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    errors.push(`console: ${message.text()}`);
+    console.error(`bench page console: ${message.text()}`);
+  });
+  return errors;
+}
+
+/// Waits for the page to install `hook` on `window` and, when it does not, says what the page held
+/// instead: the errors it threw (`watchPageErrors`, when its list is given), its title, whether the
+/// React root has any children, and the start of its text. A 404 served as a body, a page that threw
+/// while mounting and a pane that mounted but installed nothing read identically through a bare
+/// `waitForFunction`; each of them is a different fix.
+export async function waitForPageHook(
+  surface: Page | Frame,
+  hook: string,
+  { timeout = 60_000, errors }: { timeout?: number; errors?: string[] } = {},
+): Promise<void> {
+  try {
+    await surface.waitForFunction((name) => name in window, hook, { timeout });
+  } catch (cause) {
+    const held = await surface
+      .evaluate(() => {
+        const root = document.querySelector("#root, [id*='root']");
+        return {
+          url: location.href,
+          title: document.title,
+          rootChildren: root ? root.childElementCount : -1,
+          text: (document.body?.innerText ?? "").slice(0, 200).replace(/\s+/g, " ").trim(),
+          hooks: Object.keys(window).filter((key) => key.startsWith("cmux")),
+        };
+      })
+      .catch((error: unknown) => ({ error: String(error) }));
+    const said = errors?.length ? ` The page's errors: ${errors.join(" | ")}.` : " The page threw nothing.";
+    throw new Error(
+      `bench: the page never installed window.${hook} within ${timeout} ms, so nothing could be measured.` +
+        `${said} What it held instead: ${JSON.stringify(held)}` +
+        " (bench/support/benchPage.ts waitForPageHook).",
+      { cause },
+    );
+  }
 }

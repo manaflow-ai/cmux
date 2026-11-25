@@ -64,6 +64,12 @@ extension AgentTurn {
                     // "Who else is working on these files" stands alone: its row draws as the card.
                     flush()
                     rows.append(.tool(call))
+                } else if call.hasImages {
+                    // A call that holds pictures (a screenshot, an image the agent sent) stands
+                    // alone, its pictures drawn under its line (`ToolRowView`), never folded
+                    // into a group's summary.
+                    flush()
+                    rows.append(.tool(call))
                 } else {
                     pending.append(call)
                 }
@@ -143,7 +149,7 @@ public struct ToolWording: Sendable {
         case .fetch: return "globe"
         case .think: return "brain"
         case .switchMode: return "arrow.triangle.swap"
-        case .other: return "puzzlepiece.extension"
+        case .other: return call.hasImages ? "photo" : "puzzlepiece.extension"
         }
     }
 

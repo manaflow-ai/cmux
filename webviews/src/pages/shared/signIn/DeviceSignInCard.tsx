@@ -194,6 +194,7 @@ function PasteField({
       <input
         className="field signin-paste-field"
         aria-label={strings.t("signIn.code.label")}
+        placeholder={strings.t("signIn.code.label")}
         type="password"
         autoComplete="off"
         autoCorrect="off"
@@ -222,7 +223,8 @@ export function DeviceSignInCard(props: DeviceSignInCardProps) {
   const strings = useSignInStrings();
   const titleId = useId();
   const [code, setCode] = useState("");
-  const title = strings.t(TITLE_KEY[family]);
+  // Once signed in the card names the account's provider: "Sign In to ..." would read as undone.
+  const title = view.state === "signedIn" ? FAMILY_BRAND[family] : strings.t(TITLE_KEY[family]);
   const line = statusLine(strings, family, view);
   const shown = view.state === "waiting" && view.way.kind === "code" ? view.way.code : null;
   const pasting = view.state === "waiting" && view.way.kind === "paste";

@@ -45,7 +45,8 @@ export function trayHead(
     items,
     finished,
     waiting,
-    working,
+    // Running work is its mark and count now, never "Running in background" (Leo, 2026-11-23).
+    working: _working,
     chatHarness,
     arm,
     separator = " · ",
@@ -83,8 +84,9 @@ export function trayHead(
     else agents += 1;
   }
   const parts: (string | false)[] = [
-    working ? agents > 0 && t("subagents.allRunning", { n: agents }) : items.length > 0 && t("bgWork.running"),
-    !working && agents > 0 && t("subagents.count", { n: agents }),
+    // Between turns too, the work is counted, never headed "Running in background" (Leo, 2026-11-23:
+    // "there's no point in even saying it's running").
+    agents > 0 && t("subagents.count", { n: agents }),
     sessions > 0 && t("turn.working.sessions", { n: sessions }),
     waitingOnYou > 0 && t("summary.subagents.waiting", { n: waitingOnYou }),
     ...(arm === "running"
@@ -169,12 +171,14 @@ export type TrayHeadPart = {
   key: string;
   /// The kind's mark: a command kind's (trayCommandKinds.ts), a subagent's, a session's, a state's.
   icon: string;
-  /// Its count in words ("1 wait", "2 subagents running").
+  /// Its count in words ("1 wait", "2 subagents").
   text: string;
   /// What it counts, in list order; the hover names them.
   items: readonly TrayItem[];
   /// A failed count draws in the danger colour, what waits on the person in its tone.
   tone?: "failed" | "waiting";
+  /// The tally arm: the subagents' harness, whose mark this part draws (one part per family).
+  harness?: string;
 };
 
 /// The header's kinds, in the order `trayHead` counts them: what runs (subagents, sessions, what waits
@@ -186,13 +190,15 @@ export function trayHeadParts(
     items,
     finished,
     waiting,
-    working,
   }: {
     items: readonly TrayItem[];
     finished: readonly TrayItem[];
     waiting: ReadonlySet<string>;
-    working: boolean;
   },
+  /// The tally arm (trayFoldHead.experiment.ts): subagents counted per harness family, and what ended
+  /// counted only when it needs the person (failed); done and stopped need nothing, so they go.
+  tally = false,
+  chatHarness?: string,
 ): readonly TrayHeadPart[] {
   const agents: TrayItem[] = [];
   const sessions: TrayItem[] = [];
@@ -238,12 +244,30 @@ export function trayHeadParts(
     if (list.length > 0) parts.push({ key, icon, text, items: list, ...(tone ? { tone } : {}) });
   };
   const n = (list: readonly TrayItem[]) => ({ n: list.length });
-  add("agents", SUBAGENT_ICON, agents, t(working ? "subagents.allRunning" : "subagents.count", n(agents)));
+  if (tally) {
+    // One part per harness family, in the order each first appears (the longest-running first).
+    const families = new Map<string, { harness: string | undefined; list: TrayItem[] }>();
+    for (const item of agents) {
+      const harness = item.kind === "agent" ? (item.agent.harness ?? chatHarness) : chatHarness;
+      const family = harness ? harnessFamily(harness) : "";
+      const entry = families.get(family);
+      if (entry) entry.list.push(item);
+      else families.set(family, { harness, list: [item] });
+    }
+    for (const [family, { harness, list }] of families) {
+      const text = t("subagents.count", n(list));
+      parts.push({ key: `agents:${family}`, icon: SUBAGENT_ICON, text, items: list, ...(harness ? { harness } : {}) });
+    }
+  } else add("agents", SUBAGENT_ICON, agents, t("subagents.count", n(agents)));
   add("sessions", "agent.session", sessions, t("turn.working.sessions", n(sessions)));
   add("waiting", "status.needsinput", waits, t("summary.subagents.waiting", n(waits)), "waiting");
   for (const kind of COMMAND_KINDS) {
     const list = byKind.get(kind) ?? [];
     add(kind, COMMAND_KIND_ICON[kind], list, t(COMMAND_KIND_COUNT[kind], n(list)));
+  }
+  if (tally) {
+    add("failed", "status.failure", failed, t("summary.subagents.failed", n(failed)), "failed");
+    return parts;
   }
   add(
     "done",

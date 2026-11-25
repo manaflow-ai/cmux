@@ -31,6 +31,8 @@ struct CmuxMobileApp: App {
         ClassicLeftovers.cleanUpIfDue()
         // Settings and account saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        // Agent Chats restores the last page from the phone's read-first store before refreshing.
+        PhoneReadFirst.installAgentChats()
         #if !CMUX_MOBILE_PRODUCTION
         // Messages' own + menu and tapback art (ConversationSystemArt). Every shipping
         // build (Production, TestFlight/cmux INTERNAL, AppStore) carries no
@@ -78,6 +80,9 @@ struct CmuxMobileApp: App {
         LiveFeedFixture.shared.startIfRequested()
         // Input responsiveness: main-thread hitches with stacks, keyboard windows, key and send latency.
         InputLatencyTrace.startIfRequested()
+        if let trace = InputLatencyTrace.shared {
+            ComposerDraftStore.mainThreadWrite = { trace.note("draft_file_write_main") }
+        }
         // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
         TerminalFeedFixture.shared.startIfRequested()
         #endif
@@ -132,6 +137,9 @@ struct CmuxMobileApp: App {
             // App Shortcut's own perform() at launch, as the system would on a tap (a headless
             // simulator's Spotlight opens the app without running an app's intents).
             .task { await NewAgentChatIntent.runFromLaunchArguments() }
+            // `-cmux-mobile-kbd-pin-trace` for every root, not only RootView's (TerminalDemoRoot's
+            // terminal for the keyboard motion bench); it starts once.
+            .task { KeyboardPinTrace.startIfRequested() }
             #endif
         }
     }

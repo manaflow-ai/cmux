@@ -148,7 +148,7 @@ final class AppControl {
                 guard let services, let (tab, _) = services.locateTab(id) else { return .missing }
                 guard tab.agentSession != nil else { return .notAgentChat }
                 return services.madeAgentTabs.flatMap { $0.views[$0.tabKey(of: tab)] }.map { .page($0) } ?? .notLoaded
-            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }),
+            }.controlMethod(sources: { [weak services] in services?.madeAgentTabs?.retirer.sources }), ClickTraceControl.method(), // and `cmux app clicks`: where the last presses went (every build)
         ])
         // Frames, hangs, layout counters and switch times in Release too, off by default (PerfProbes):
         // `perf.probes.enable {"on": true}` opens them for `cmux perf profile --frames`.
@@ -321,6 +321,12 @@ final class AppControl {
             .mainActor("debug.cef_pages") { [weak services] _ in
                 guard let services else { return .value(.null) }
                 return .value(debugCEFPagesReport(services))
+            },
+            // Every live agent page by the owner that holds it, and the ones with no tab that still draw (AgentTabs+Liveness).
+            .mainActor("debug.agent_pages") { [weak services] call in
+                guard let tabs = services?.madeAgentTabs else { return .value(.null) }
+                let swept = call.params["sweep"]?.boolValue == true ? tabs.sweepOrphans() : 0 // {sweep: true}: as a tab's release does a second later
+                return .value(tabs.livePages.report(owner: tabs.pageOwner(), swept: swept))
             },
             // A DevTools method on one of cmux's own Chromium pages by browser id (bench_power.py idle-chats).
             .async("debug.cef_page_devtools") { [weak services] call in

@@ -20,8 +20,26 @@
       "pending": "An outside-only look: there is no built-in twin."
     },
     {
+      "id": "nature",
+      "addon": "nature",
+      "builtIn": null,
+      "pending": "An outside-only look: the wallpaper leads on the clearest glass. There is no built-in twin."
+    },
+    {
       "id": "grove",
       "addon": "grove",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "overdrive",
+      "addon": "overdrive",
+      "builtIn": null,
+      "pending": "An outside-only look: there is no built-in twin."
+    },
+    {
+      "id": "astrolabe",
+      "addon": "astrolabe",
       "builtIn": null,
       "pending": "An outside-only look: there is no built-in twin."
     },
@@ -30,6 +48,30 @@
       "addon": "gel",
       "builtIn": null,
       "pending": "An outside-only look on the flush corner with goo fillets: there is no built-in twin."
+    },
+    {
+      "id": "workbench",
+      "addon": "workbench",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "hearth",
+      "addon": "hearth",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "halo",
+      "addon": "halo",
+      "builtIn": null,
+      "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
+    },
+    {
+      "id": "grid",
+      "addon": "grid",
+      "builtIn": null,
+      "pending": "An outside-only look on a strict grid (zero corners, 1 px rules, one accent): there is no built-in twin."
     },
     {
       "id": "claude",
@@ -59,7 +101,7 @@
       "setup": "codex/send-parity",
       "addon": null,
       "builtIn": null,
-      "pending": "An opt-in behavior preset, not a stylesheet look: no entrance on send and the sent prompt placed near the top with room for the reply. Its placement switch, agentPane.sendPlacement (bottom by default, top), does not exist yet; agentPane.display.sendPop off arrives with cmux#50293."
+      "pending": "An opt-in behavior preset, not a stylesheet look: no entrance on send and the sent prompt placed near the top with room for the reply, plus the builder New Tab page (customize/, cmux.newtab/1, tabs.newTabApp). Its placement switch, agentPane.sendPlacement (bottom by default, top), does not exist yet; agentPane.display.sendPop off arrives with cmux#50293."
     }
   ]
 }

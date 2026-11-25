@@ -235,7 +235,7 @@ class WorkflowTests(unittest.TestCase):
                                    "hold the publish")
         sites = {job_id for job_id, job in doc["jobs"].items() for step in job.get("steps", []) or []
                  if "fast_gate_webviews_checks.py" in str(step.get("run", ""))}
-        self.assertEqual(sites, {"check-nightly-webviews", "nightly-next-one"})
+        self.assertEqual(sites, {"check-nightly-webviews", "early-nightly-webviews", "nightly-next-one"})
 
     def test_the_report_job_only_writes_issues(self):
         import yaml

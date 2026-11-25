@@ -1,7 +1,8 @@
-// The thread minimap's preview card (hovering a mark) is glass, as the chat's other hover cards
-// are (the link preview, a session's card): the one hover material, its tint over its blur, never an
-// opaque fill (Leo, 2026-10-21: "a SOLID tooltip card"). Reduce Transparency makes the fill the solid
-// popup surface and the level's blur none (pages/shared/desktop.css).
+// The thread minimap's preview card (hovering a mark) is the one hover material of every tooltip and
+// hover card (glass.css HOVER SURFACES): .ui-card.ui-glass with the tooltip's veil over the transient
+// frost, never a fill of its own (Leo, 2026-10-21: "a SOLID tooltip card"; 2026-11-22: "multiple
+// styles for hover previews"). Reduce Transparency makes the glass the solid popup surface
+// (--glass-opaque, glass.css).
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
@@ -9,6 +10,10 @@ const css = readFileSync(
   new URL("../src/agent-session/acpmux/threadMinimap/threadMinimap.css", import.meta.url),
   "utf8",
 ).replace(/\/\*[\s\S]*?\*\//g, "");
+const markup = readFileSync(
+  new URL("../src/agent-session/acpmux/threadMinimap/PreviewCard.tsx", import.meta.url),
+  "utf8",
+);
 /// The declarations of the rule whose whole selector is `selector`.
 const rule = (selector: string) => {
   const at = css.search(new RegExp(`(^|\\})\\s*${selector.replaceAll(".", "\\.")}\\s*\\{`));
@@ -17,16 +22,26 @@ const rule = (selector: string) => {
   return css.slice(open + 1, css.indexOf("}", open));
 };
 
-test("the minimap card is the one hover material: the tooltip's veil over the transient frost", () => {
+test("the minimap card is the shared hover card glass, with no fill, blur or shadow of its own", () => {
+  expect(markup).toMatch(/className="ui-card ui-glass acpmux-minimap__card"/);
   const card = rule(".acpmux-minimap__card");
   expect(card).not.toBe("");
-  expect(card).toMatch(/background:\s*var\(--tooltip-tint\)/);
-  const frost = "blur\\(var\\(--ds-transient-web-blur\\)\\) saturate\\(var\\(--ds-transient-web-saturation\\)\\)";
-  expect(card).toMatch(new RegExp(`(^|[^-])backdrop-filter:\\s*${frost}`));
-  expect(card).toMatch(new RegExp(`-webkit-backdrop-filter:\\s*${frost}`));
-  expect(card).toMatch(/border-radius:\s*var\(--tooltip-radius\)/);
-  // Still the raised elevation step (subtle-elevation.test.ts).
-  expect(card).toMatch(/--elevation-2/);
+  expect(card).not.toMatch(/(^|[;\s])background(-color)?\s*:/);
+  expect(card).not.toMatch(/backdrop-filter\s*:/);
+  expect(card).not.toMatch(/box-shadow\s*:/);
+});
+
+test("the minimap card is the one hover material: the tooltip's veil over the transient frost, its corner", () => {
+  const tokens = rule(".acpmux-minimap__card.ui-card.ui-glass");
+  expect(tokens).toMatch(/--glass-tint:\s*var\(--tooltip-tint\)/);
+  expect(tokens).toMatch(
+    /--glass-backdrop:\s*blur\(var\(--ds-transient-web-blur\)\) saturate\(var\(--ds-transient-web-saturation\)\)/,
+  );
+  expect(rule(".acpmux-minimap__card")).toMatch(/border-radius:\s*calc\(var\(--role-tooltip-radius\)/);
+});
+
+test("Reduce Transparency makes it the solid popup surface", () => {
+  expect(rule(".acpmux-minimap__card")).toMatch(/--glass-opaque:\s*var\(--surface-popup\b/);
 });
 
 test("the card draws no accent: theme text tones only, never orange or a system color", () => {
