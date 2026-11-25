@@ -423,6 +423,11 @@ impl Feed {
             let Ok(bytes) = serde_json::to_vec(&value) else { continue };
             if bytes.len() > MAX_PLAINTEXT {
                 flushed.skipped.push((surface.clone(), format!("snapshot {} bytes", bytes.len())));
+                // Not again before the next is due: the phone gets this one from the Mac.
+                let state = self.surfaces.entry(surface.clone()).or_default();
+                state.missed = false;
+                state.deltas_since_snapshot = 0;
+                state.snapshot_at = Some(now);
                 continue;
             }
             let published = self.publisher.publish_snapshot(viewers, &surface, &bytes).await;

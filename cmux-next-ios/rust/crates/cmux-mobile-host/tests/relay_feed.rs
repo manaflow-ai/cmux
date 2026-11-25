@@ -119,7 +119,7 @@ fn config(dir: &Path, acpmux_url: String) -> Arc<ServiceConfig> {
         default_socket: None,
         file_roots: vec![],
         acpmux: AcpmuxTarget::Fixed { url: acpmux_url, token: None },
-        pairing: Some(Pairing::new(MAC.into(), trust, Arc::new(|_| {}))),
+        pairing: Some(Pairing::new(MAC.into(), trust, Arc::new(|_: cmux_mobile_host::control::Event| {}))),
         agent_tab_host: None,
         uploads_dir: dir.join("uploads"),
         chief_socket: None,
