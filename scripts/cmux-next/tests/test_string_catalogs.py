@@ -164,5 +164,31 @@ class RealTree(unittest.TestCase):
             self.assertEqual(sorted(sc.load(directory)["strings"]), ["a"])
 
 
+class ModuleResources(unittest.TestCase):
+    """check-module-resources.sh: a plugin-built table's entry files give its target a module bundle."""
+
+    def run_check(self, pkg: Path) -> subprocess.CompletedProcess:
+        return subprocess.run(["bash", str(ROOT / "scripts/cmux-next/check-module-resources.sh"), str(pkg)],
+                              capture_output=True, text=True)
+
+    def test_a_target_on_the_plugin_needs_no_resources_line_and_a_stray_catalog_still_does(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = Path(tmp)
+            (pkg / "Package.swift").write_text(
+                'let package = Package(\n    targets: [\n        .target(\n            name: "Strings",\n'
+                '            exclude: ["Localizable.xcstrings.d"],\n'
+                '            plugins: [.plugin(name: "StringCatalogsPlugin")]\n        ),\n    ]\n)\n')
+            src = pkg / "Sources/Strings"
+            (src / "Localizable.xcstrings.d").mkdir(parents=True)
+            (src / "Localizable.xcstrings.d/a.xcstrings").write_text(sc.entry_text("a", {}))
+            (src / "Text.swift").write_text('let a = String(localized: "a", bundle: .module)\n')
+            ok = self.run_check(pkg)
+            self.assertEqual(ok.returncode, 0, ok.stderr)
+            (src / "Other.xcstrings").write_text("{}")
+            stray = self.run_check(pkg)
+            self.assertEqual(stray.returncode, 1)
+            self.assertIn("Other.xcstrings", stray.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
