@@ -1188,8 +1188,13 @@ export type LibraryEntry = {
 /** A pull request's code as a library entry: its web part is served on this app while it is on and
  * the highest such entry; what it cannot carry needs a build. */
 export type LibraryCode = {
+  /** Where the code comes from (cmux-customize `CodeKind`); absent on a PR, which older entries all are. */
+  kind?: "pr" | "branch" | "sha" | "dir" | "fork";
+  /** The branch, the full commit, the folder's absolute path, or `OWNER/REPO@REF`; absent on a PR. */
+  source?: string;
   /** `owner/name`. */
   repo: string;
+  /** The pull request; 0 for every other kind. */
   pr: number;
   title: string;
   /** The PR head the layer was built from. */

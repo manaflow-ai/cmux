@@ -202,11 +202,11 @@ test("a line under a title fits 60 characters: the words, else their first sente
 test("unmerged code in the build is its own group, one switch each, worded by the standup line", () => {
   const pr: LibraryEntry = {
     ...entry("pr-43496", true),
-    code: { pr: 43496, repo: "manaflow-ai/cmux", title: "Cat icon", note: "in your build" },
+    code: { pr: 43496, repo: "manaflow-ai/cmux", title: "Cat icon", head: "9c1e2f0", base: "", note: "in your build" },
   };
   const branch: LibraryEntry = {
     ...entry("branch-lane-cat", false),
-    code: { kind: "branch", repo: "manaflow-ai/cmux", source: "lane/cat" },
+    code: { kind: "branch", repo: "manaflow-ai/cmux", source: "lane/cat", pr: 0, title: "", head: "4d2a7b1", base: "" },
   };
   const groups = checklistGroups(
     input({
