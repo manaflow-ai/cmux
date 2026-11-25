@@ -7,6 +7,7 @@ import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeig
 import { freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
+import type { ComposerStatus } from "./composerStatusModel";
 import { BUBBLE } from "./transcriptSpacing";
 import {
   footerAfter,
@@ -96,17 +97,11 @@ import {
   recordedBody,
 } from "./conversation/promptCollapse";
 import { sentPasteJoin } from "./conversation/sentPasteJoin.experiment";
-import { attachmentOnlyPrompt, bubbleLayout } from "./conversation/bubbleParts";
+import { attachmentOnlyPrompt, bubbleLayout, stripAttachments } from "./conversation/bubbleParts";
 import { composerSettingsSnapshot } from "./composerSettings";
 import { isPromptMarkdown } from "./conversation/promptMarkdown";
 import { sentUIPick, sentUIPickSegments, type SentPromptSegment } from "./conversation/sentUIPickModel";
-import {
-  linkedImagePath,
-  SENT_IMAGE_HEIGHT,
-  SENT_IMAGE_MAX_WIDTH,
-  sentImageSize,
-  sentImageWidth,
-} from "./conversation/userBubbleModel";
+import { linkedImagePath, sentImageSize, sentVideoSize } from "./conversation/userBubbleModel";
 import { sentVideoOf, sentVideosOf } from "./conversation/sentVideos";
 import { fileSizeLabel, shownFileSize } from "./fileAttachmentModel";
 import { mcpCall } from "./conversation/mcpCalls";
@@ -456,6 +451,10 @@ export type PromptContentPart =
       pageCount?: number;
       uri?: string;
       video?: VideoInfo;
+      /// A video's picture size, which acpmux keeps with its part (hub/prompt_images.rs), so its
+      /// sent tile has its box from the first frame after a reload (conversation/sentVideos.ts).
+      width?: number;
+      height?: number;
       source?: AttachmentSource;
     };
 /// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
@@ -1310,8 +1309,10 @@ export type AcpmuxTimeBreakdown = {
 
 export type AcpmuxSnapshot = {
   type: "snapshot";
-  /// The one-shot admission warning returned by `session/new`, while its chat is starting.
-  startupAdmission?: { sessionId: string; scalingUp: true };
+  /// The one-shot admission warning of an Auto start: with no `sessionId` while `session/new` waits
+  /// for a machine being added (`_acpmux/admission_waiting`), then the one `session/new` returned,
+  /// while its chat is starting.
+  startupAdmission?: { sessionId?: string; scalingUp: true };
   /** The selected chat's daemon-owned retry, including the last automatic attempt. */
   autoResume?: AutoResumeStatus;
   /** The chat acpmux holds for capacity (hub/capacity_wait.rs): one calm state, never red. */
@@ -1408,6 +1409,10 @@ export type AcpmuxSnapshot = {
     machine?: string;
     peer?: string;
     hostKind?: "local" | "cloud";
+    /// The composer footer's status dot items and quiet facts, as acpmux decided them
+    /// (`composerStatus`, acpmux `protocol/composer_status.rs`); absent from an older acpmux. Read
+    /// through composerStatusModel.ts `readComposerStatus`, which takes a null field as absent.
+    composerStatus?: ComposerStatus;
     /// Where an Auto chat stands (acpmux `autoSession`, autoSession/autoSession.ts): unset from an
     /// acpmux without Auto, and the pane then offers and draws nothing of it.
     autoSession?: AutoSession;
@@ -2828,33 +2833,61 @@ function fallbackRowHeight(
     (!row.text?.trim() || attachmentOnlyPrompt(row)) &&
     (row.images?.length || row.retryAttachments?.length || row.inlineParts?.some((part) => part.kind !== "text"))
   ) {
-    // Sent thumbnails wrap at the 70% user column. Use the widest thumbnail (userBubbleModel.ts
-    // SENT_IMAGE_MAX_WIDTH, plus its 8px gap) when estimating columns so a wide image never lets a
-    // second attachment row overlap the next row.
+    // A prompt whose recorded parts are its attachments alone draws them in the strip
+    // (UserBubble.tsx `inlineAttachmentOnly`), each at its own sent size: measured as that strip,
+    // so a short wide video or screenshot is not reserved a 160px row.
+    // One whose `images` hold more than its parts (UserBubble.tsx `looseImages`) keeps the rows below.
+    const recorded = attachmentOnlyPrompt(row) ? stripAttachments(row) : undefined;
+    const recordedImages = recorded?.filter((part) => part.kind === "image").length ?? 0;
+    if (recorded?.length && (row.images?.length ?? 0) <= recordedImages) {
+      const bandWidth = USER_BUBBLE_SHARE * width + 2 * INLINE_ATTACHMENT_MARGIN.x;
+      const band =
+        attachmentBandHeight(row, recorded, bandWidth, new Map(), new Set()) +
+        ATTACHMENT_BAND_BELOW -
+        INLINE_ATTACHMENT_MARGIN.y;
+      return finish(band + messageBelow(beforeFooter) + chromeHeight(row, actions));
+    }
+    // The thumbnail band (conversation.css .cv-user__images: flex-wrap in the 70% user column, an
+    // 8px gap): the video tiles lead, then the images, each at its own sent size (UserBubble.tsx
+    // sentVideoSize, sentImageSize; a 160px square when no size is known), so a short wide video or
+    // screenshot reserves its own height, not a 160px row.
     const inlineParts = row.inlineParts ?? [];
-    // A video sent with its frames draws as a SENT_IMAGE_HEIGHT tile in the thumbnail row (UserBubble.tsx
-    // SentVideoTiles), not as a file chip.
-    const videoCount = sentVideosOf(row).length;
-    const imageCount =
-      Math.max(
-        row.images?.length ?? 0,
-        inlineParts.filter((part) => part.kind === "image").length,
-        row.retryAttachments?.filter((part) => part.kind === "image").length ?? 0,
-      ) + videoCount;
-    const columns = Math.max(1, Math.floor((width * USER_BUBBLE_SHARE + 8) / (SENT_IMAGE_MAX_WIDTH + 8)));
-    const imageRows = imageCount ? Math.ceil(imageCount / columns) : 0;
+    const videos = sentVideosOf(row);
+    const imageSources = [
+      row.images ?? [],
+      inlineParts.filter((part) => part.kind === "image"),
+      row.retryAttachments?.filter((part) => part.kind === "image") ?? [],
+    ];
+    const images = imageSources.reduce((most, one) => (one.length > most.length ? one : most), imageSources[0]!);
+    const boxes = [
+      ...videos.map((video) => sentVideoSize(video)),
+      ...images.map((image) => sentImageSize(image as { width?: number; height?: number })),
+    ];
+    const column = width * USER_BUBBLE_SHARE;
+    let bandHeight = 0;
+    let rowWidth = 0;
+    let rowHeight = 0;
+    for (const box of boxes) {
+      const shown = Math.min(box.width, column);
+      const tall = (box.height * shown) / box.width;
+      if (rowWidth > 0 && rowWidth + 8 + shown > column) {
+        bandHeight += rowHeight + 8;
+        rowWidth = 0;
+        rowHeight = 0;
+      }
+      rowWidth += (rowWidth > 0 ? 8 : 0) + shown;
+      rowHeight = Math.max(rowHeight, tall);
+    }
+    bandHeight += rowHeight;
     const otherAttachments = Math.max(
       0,
       Math.max(
         row.retryAttachments?.filter((part) => part.kind !== "image").length ?? 0,
         inlineParts.filter((part) => part.kind !== "text" && part.kind !== "image").length,
-      ) - videoCount,
+      ) - videos.length,
     );
-    // Each thumbnail row and the gap under it (conversation.css .cv-user__images, its 8px row gap
-    // and its ATTACHMENT_BAND_BELOW margin under the last row).
-    const attachmentHeight = imageRows
-      ? imageRows * SENT_IMAGE_HEIGHT + (imageRows - 1) * 8 + ATTACHMENT_BAND_BELOW + otherAttachments * 36
-      : otherAttachments * 36;
+    // The band and the gap under it (its ATTACHMENT_BAND_BELOW margin), then each file chip.
+    const attachmentHeight = (boxes.length ? bandHeight + ATTACHMENT_BAND_BELOW : 0) + otherAttachments * 36;
     // Its pending state is its footer's time slot (PromptDelivery.tsx), taking no line of its own,
     // so the row keeps its height when the send lands.
     return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
@@ -3714,11 +3747,8 @@ function attachmentBox(
   };
   if (part.kind === "image") return thumbnail(sentImageSize(part));
   const video = part.kind === "file" ? sentVideoOf(part, videos) : undefined;
-  if (video)
-    return thumbnail({
-      width: sentImageWidth(video),
-      height: SENT_IMAGE_HEIGHT,
-    });
+  // A video's tile: its own shape under the same rule (UserBubble.tsx `sentVideoSize`).
+  if (video) return thumbnail(sentVideoSize(video));
   // An image sent as its file's link draws as a sent image of unknown size (UserBubble.tsx
   // `SentLinkedImage`) until it is read.
   if (linkedImagePath(part)) return thumbnail(sentImageSize({}));
@@ -3864,10 +3894,50 @@ function pickedPromptHeight(
 /// `scale` is the Interface Size it was measured at (gridScale), which a remembered height must share.
 /// `open` is the row's state signature then (conversation/rowOpenState.ts): an estimate taken with a
 /// run, group, call or message open is never reused for the row once it is closed, or the other way.
-export type RowHeights = WeakMap<
-  AcpmuxRow,
-  { width: number; height: number; edge?: string; scale?: number; open?: string }
->;
+/// `width` and `height` are the newest measure; `older` holds the ones before it at other widths, newest
+/// first, up to ROW_HEIGHT_WIDTHS in all: a divider dragged narrow and back finds every row's height at
+/// the width it comes back to and measures none of them again. The older ones share the newest's edge,
+/// scale and open state (`withHeight` drops them when one changes).
+export type RowHeights = WeakMap<AcpmuxRow, RowHeight>;
+export interface RowHeight {
+  width: number;
+  height: number;
+  edge?: string;
+  scale?: number;
+  open?: string;
+  older?: readonly { width: number; height: number }[];
+}
+/// How many widths a row's estimated height is kept at (`RowHeight.older`).
+export const ROW_HEIGHT_WIDTHS = 4;
+/// The row's kept height at `width`, when it was measured there at this edge and scale.
+function heightAt(
+  kept: RowHeight | undefined,
+  width: number,
+  edge: string | undefined,
+  scale: number,
+): number | undefined {
+  if (!kept || kept.edge !== edge || (kept.scale ?? 1) !== scale) return undefined;
+  if (kept.width === width) return kept.height;
+  return kept.older?.find((entry) => entry.width === width)?.height;
+}
+/// The row's entry with `height` at `width` as its newest measure; its other widths stay while the edge,
+/// scale and open state do.
+function withHeight(
+  kept: RowHeight | undefined,
+  width: number,
+  height: number,
+  edge: string | undefined,
+  scale: number,
+  open: string | undefined,
+): RowHeight {
+  if (!kept || kept.edge !== edge || (kept.scale ?? 1) !== scale || (kept.open ?? "") !== (open ?? ""))
+    return { width, height, edge, scale, open };
+  if (kept.width === width) return { ...kept, height };
+  const older = [{ width: kept.width, height: kept.height }];
+  for (const entry of kept.older ?? [])
+    if (entry.width !== width && older.length < ROW_HEIGHT_WIDTHS - 1) older.push(entry);
+  return { width, height, edge, scale, open, older };
+}
 
 /// A footer with nothing to show at rest (turns.ts isEmptyFooter) lays its hover controls over the gap
 /// and takes no height. A reply's footer is a row of its own: ChatGPT's 32 line of buttons, 8 under
@@ -3904,7 +3974,10 @@ export function layoutConversation(
   /// view and the cached ones, not the whole chat. This is Chromium's `content-visibility: auto` with
   /// `contain-intrinsic-size: auto`: content off screen keeps its last remembered size and is laid out
   /// again as it is rendered; here the row's drawn height replaces it once it mounts.
-  near?: { from: number; to: number },
+  /// `all`: every row away from the view keeps its last height, prepared or not, whatever it draws: a
+  /// new box width (a divider that held, a window edge, a sidebar) then costs the rows near the view
+  /// whatever the chat's length, not every prepared row and every row with no text again.
+  near?: { from: number; to: number; all?: boolean },
   /// A cold open at the chat's end: the rows within this many px of the end are measured, and every
   /// row above them with no known height takes its rough height (`fallbackRowHeight`, no text is
   /// prepared). The layout is then `rough`, and the transcript lays it out whole after the first
@@ -3987,8 +4060,9 @@ export function layoutConversation(
     // one taken in another open state is estimated again, from the same stores the DOM opens from.
     const open = kept ? rowOpenState(sessionId, row) : undefined;
     const keptOpen = kept !== undefined && (kept.open ?? "") === open;
+    const keptHere = heightAt(kept, width, edge, scale);
     let height: number;
-    if (kept && keptOpen && kept.width === width && kept.edge === edge) height = kept.height;
+    if (keptOpen && keptHere !== undefined) height = keptHere;
     else if (
       resizing &&
       (resizing.layout.scale ?? 1) === scale &&
@@ -3999,7 +4073,14 @@ export function layoutConversation(
       // Out of view during a live resize: its height at the last width, never recorded as this width's.
       height = resizing.layout.heights[index]!;
     else {
-      const customHeight = measureOverride?.(row, width);
+      const away =
+        near !== undefined &&
+        kept !== undefined &&
+        keptOpen &&
+        kept.edge === edge &&
+        (kept.scale ?? 1) === scale &&
+        (index < near.from || index >= near.to);
+      const customHeight = away && near.all ? undefined : measureOverride?.(row, width);
       const custom = customHeight !== undefined && Number.isFinite(customHeight) && customHeight >= 0;
       if (
         !custom &&
@@ -4022,18 +4103,8 @@ export function layoutConversation(
         if (height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
         rough = true;
         remembered = true;
-      } else if (
-        !custom &&
-        near &&
-        kept &&
-        keptOpen &&
-        kept.edge === edge &&
-        (kept.scale ?? 1) === scale &&
-        (index < near.from || index >= near.to) &&
-        row.text &&
-        !cache.has(row.id)
-      ) {
-        // Away from the view, with its prepared text gone (PREPARED_ROWS): its last height, never
+      } else if (away && (near.all || (!custom && row.text && !cache.has(row.id)))) {
+        // Away from the view, at a new width or with its prepared text gone (PREPARED_ROWS): its last height, never
         // recorded as this width's. Its drawn height replaces it once it mounts, and a layout that
         // measures it (near the view, after a change above it) records this width's.
         height = kept.height;
@@ -4061,7 +4132,7 @@ export function layoutConversation(
         }
         // A row that draws nothing stays at 0; a custom renderer's height is its own.
         if (!custom && height > 0) height += statusDelta(row, statusEdge(row, rows[nextDrawn], prev));
-        if (known) known.set(row, { width, height, edge, scale, open: open ?? rowOpenState(sessionId, row) });
+        known?.set(row, withHeight(kept, width, height, edge, scale, open ?? rowOpenState(sessionId, row)));
       }
     }
     if (height > 0) {
@@ -4413,10 +4484,10 @@ export function mergeRowRanges(ranges: RowRange[]): RowRange[] {
 export const PREDICTED_JITTER = 0.05;
 
 /// The rows a transcript at `scrollTop` mounts while it moves `delta` per scroll: the view and
-/// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll past the cap (a fling or a
-/// scrollbar drag that moves several viewports a frame) also mounts each view the next `steps`
-/// frames reach (a jump past the cap itself, only the next one), with a margin for uneven frames:
-/// the rows between them are never on screen, so they are not built (cx-j33s4).
+/// `steps` scrolls of motion ahead of it, capped at `maxLead`. A scroll whose lead runs past the cap
+/// also mounts each view the next `steps` frames reach, with a margin for uneven frames: the rows
+/// between them are never on screen, so they are not built (cx-j33s4). A jump (more than a view a
+/// frame: a fling or a scrollbar drag) mounts its view alone.
 /// A moving scroll within the cap also keeps `trail` px behind the view mounted: the rows the
 /// reader just passed, already drawn. Dropping them the moment they left the view made a quick
 /// reversal (up and down fast) scroll the compositor into bare background for a frame before its
@@ -4443,8 +4514,8 @@ export function scrollLeadRanges(
     const top = delta < 0 ? scrollTop - lead : scrollTop - behind;
     return [visibleLayoutRange(layoutModel, top, viewportHeight + lead + behind)];
   }
-  // A jump lands past the rows between the views, so each of its frames mounts the view and the view
-  // the next frame reaches, not the rows it jumps over: a fling of tens of viewports a frame (a god
+  // A jump lands past the rows between the views, so each of its frames mounts its view, not the rows
+  // it jumps over: a fling of tens of viewports a frame (a god
   // session) built 5 viewports of rows a frame that no frame showed. A view it lands short of (a drag
   // that stops) is mounted by the commit that draws it.
   const contiguous = jumping ? 0 : lead;
@@ -4458,17 +4529,19 @@ export function scrollLeadRanges(
       overscan,
     ),
   ];
-  // A jump builds one window ahead, so it takes a viewport of margin either side: a paced fling's
-  // frames vary by a fifth of a 5-viewport jump, past the half viewport a two-window lead used.
-  const margin = Math.min(Math.abs(delta) / 4, jumping ? viewportHeight : viewportHeight / 2);
+  // A jump builds no view ahead of it. The view the next frame would reach, with the viewport of
+  // margin either side its frame-to-frame unevenness needed, was three views of rows built and
+  // measured (each new row's height read back from layout) in the commit of a frame that showed one;
+  // a fling's next frame builds its own view in its own commit anyway. In one harness at 3,000 rows,
+  // dropping it took fling React p95 from 57 to 24 ms (Chromium) and 30 to 22 ms (WebKit, 7 pairs),
+  // with no blank frame either way (2026-11-24).
+  if (jumping) return ranges;
+  const margin = Math.min(Math.abs(delta) / 4, viewportHeight / 2);
   // The next views are built only while their margin holds a frame's unevenness (a few percent of
   // its jump): past that, the next frame lands outside the window it built as often as in it, and
   // the view it lands on is built in its own commit anyway.
   if (margin < Math.abs(delta) * PREDICTED_JITTER) return ranges;
-  // A jump builds only the next frame's view: the commit after it builds the one after that, and a
-  // second window ahead doubled the rows a frame built (and drew again as rows above them measured).
-  const predicted = jumping ? 1 : steps;
-  for (let step = 1; step <= predicted; step += 1)
+  for (let step = 1; step <= steps; step += 1)
     ranges.push(
       visibleLayoutRange(layoutModel, scrollTop + delta * step - margin, viewportHeight + 2 * margin, overscan),
     );

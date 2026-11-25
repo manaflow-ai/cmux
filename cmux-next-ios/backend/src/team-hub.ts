@@ -4,7 +4,7 @@ import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
 import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS, MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE } from "./push.ts";
 import { userTeams } from "./stack.ts"
-import { relayRoomName } from "./link-relay.ts"
+import { locationHintOf, relayPlacement, relayRoomName } from "./placement.ts"
 import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
@@ -275,6 +275,9 @@ const MAX_TEXT_FRAME = 64 * 1024
  */
 export const RELAY_ERROR_INTERVAL_MS = 5000
 
+/** At most this many prewarmed session ids are remembered per hub instance; past it the set starts over. */
+const PREWARMED_MAX = 1024
+
 /**
  * Token buckets per socket, in memory only: text (signaling), and binary (an older client's retired relay
  * frames), which bounds how often a flood of them costs a refusal check; excess frames are dropped silently.
@@ -349,6 +352,8 @@ export class TeamHub extends DurableObject<Env> {
   private readonly linkStats = new WeakMap<WebSocket, number>()
   /** The open socket of each device, so a signal needs no socket scan (rebuilt lazily after hibernation). */
   private readonly live = new Map<string, WebSocket>()
+  /** Sessions whose relay this instance prewarmed (`prewarmRelay`), in memory only. */
+  private readonly prewarmed = new Set<string>()
   private ownerKey: string | null | undefined
 
   constructor(ctx: DurableObjectState, env: Env) {
@@ -443,9 +448,14 @@ export class TeamHub extends DurableObject<Env> {
       const att = this.attach(ws)
       if (!att || att.kind !== "mac" || att.replaced || ws.readyState !== WebSocket.OPEN) continue
       const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime()
-      if (pinged === undefined && this.recordedPing(att.deviceId) === null) continue
       const heard = Math.max(att.connectedAt ?? 0, pinged ?? 0)
       if (!heard) continue
+      if (pinged === undefined && this.recordedPing(att.deviceId) === null) {
+        // No ping yet, none on record: a new host before its first ping (15 s), or one that predates them. Look again
+        // when it would be due, so an alarm that came first does not end the chain and leave it never reaped.
+        if (now - heard < GONE_MS) next = Math.min(next ?? Infinity, heard + GONE_MS)
+        continue
+      }
       if (now - heard < GONE_MS) {
         next = Math.min(next ?? Infinity, heard + GONE_MS)
         continue
@@ -1075,6 +1085,7 @@ export class TeamHub extends DurableObject<Env> {
       // also carries the recipient's own relay ticket (PROTOCOL.md "WebSocket relay"), never a client's.
       const relayTicket = f.payload.kind.startsWith("wg-") ? this.ticketFor(f.sessionId, f.to) : undefined
       target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, fromUserId: att.userId, sessionId: f.sessionId, payload: f.payload, ...(relayTicket ? { relayTicket } : {}) }))
+      if (f.payload.kind === "wg-init") this.prewarmRelay(f.sessionId, att, target)
       if (f.payload.kind === "bye") this.endSession(f.sessionId)
       return
     }
@@ -1125,9 +1136,7 @@ export class TeamHub extends DurableObject<Env> {
     if (!owner || typeof owner.ownerKey !== "string" || !owner.ownerKey || typeof owner.space !== "string" || !this.isUserHubOf(owner.ownerKey, owner.space))
       throw new WrongHubError("not this user's hub")
     const { ownerKey, space } = owner
-    if (this.ownerKey === undefined)
-      this.ownerKey = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value ?? null
-    if (this.ownerKey === null) {
+    if (this.boundOwner() === null) {
       this.sql.exec(`INSERT INTO meta (key, value) VALUES ('owner', ?)`, ownerKey)
       if (space) this.sql.exec(`INSERT INTO meta (key, value) VALUES ('space', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, space)
       this.ownerKey = ownerKey
@@ -1210,6 +1219,41 @@ export class TeamHub extends DurableObject<Env> {
     return true
   }
 
+  /**
+   * Creates and places link session `sessionId`'s relay (RFD 0142 C4, PROTOCOL.md "Relay placement") while the
+   * session's `wg-init` is forwarded, so a fallback to the relay later finds the object made instead of paying
+   * for its creation, placement and cold start on the critical path. A Durable Object stays where it is first
+   * created, so this placement is the session's: from both ends' signal sockets (each one's ingress and
+   * netcheck), else the sender's own region. The same name as the Worker's relay route (`relayRoomName` of this
+   * hub's owner key, its build space and the lowercase session id). Once per session and instance (a retried
+   * `wg-init` does not fetch again; a wake forgets, and a second prewarm is harmless). Never awaited: the signal
+   * is already on its way, and a failed prewarm only leaves the first join to create the object, as before.
+   */
+  private prewarmRelay(sessionId: string, from: Attachment, target: WebSocket) {
+    if (this.env.LINK_RELAY_MODE === "off") return
+    const id = sessionId.toLowerCase()
+    if (this.prewarmed.has(id)) return
+    const owner = this.boundOwner()
+    if (!owner) return
+    if (this.prewarmed.size >= PREWARMED_MAX) this.prewarmed.clear()
+    this.prewarmed.add(id)
+    const placed = relayPlacement(from.ingress, this.attach(target)?.ingress, locationHintOf(from.ingress))
+    const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)), placed.hint ? { locationHint: placed.hint } : undefined)
+    this.ctx.waitUntil(
+      room.fetch("https://link-relay/prewarm", { method: "POST" }).then(
+        (r) => r.body?.cancel(),
+        () => {}
+      )
+    )
+  }
+
+  /** The owner key this hub was bound to (null before its first bind). */
+  private boundOwner(): string | null {
+    if (this.ownerKey === undefined)
+      this.ownerKey = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value ?? null
+    return this.ownerKey
+  }
+
   private session(id: string): SessionRow | undefined {
     const hit = this.sessions.get(id)
     if (hit) {
@@ -1273,7 +1317,7 @@ export class TeamHub extends DurableObject<Env> {
   private closeRelay(id: string, code: number, reason: string) {
     if (this.sql.exec(`SELECT 1 FROM relay_sessions WHERE session_id = ?`, id).toArray().length === 0) return
     this.sql.exec(`DELETE FROM relay_sessions WHERE session_id = ?`, id)
-    const owner = this.ownerKey ?? this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value
+    const owner = this.boundOwner()
     if (!owner) return
     const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)))
     this.ctx.waitUntil(
