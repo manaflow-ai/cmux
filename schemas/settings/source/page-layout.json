@@ -170,7 +170,7 @@
             {"title": {"key": "settings.pageGroup.sidebarWorkspaces", "text": "Sidebar Workspaces"}, "keys": [
               "workspaces.newPlacement", "workspaces.autoName", "sidebar.groupByComputer", "sidebar.sessionTree",
               "sidebar.showProjects", "sidebar.groupBy", "sidebar.detailedStatusIcons", "sidebar.showTimestamps", "sidebar.settleFinished",
-              "sidebar.showAutomaticSessions", "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
+              "sidebar.showColors", "sidebar.showLocalMachine", "sidebar.groupHeader.memberCount",
               "sidebar.groupHeader.unreadCount", "sidebar.groupHeader.background", "sidebar.priorityView.enabled", "sidebar.priorityView.shown"
             ]},
             {"title": {"key": "settings.pageGroup.sidebarSections", "text": "Sidebar Sections"}, "note": "Which sidebar sections show and which come first (customization matrix row sidebar-sections); their own card so the Sidebar card stays under max_rows_per_card.", "keys": [
