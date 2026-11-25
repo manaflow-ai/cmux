@@ -132,6 +132,8 @@ public actor AgentSessionAttachClient {
         var side = false
         /// `agent-session-presence-v1`.
         var presence = false
+        /// `agent-session-attention-v1`.
+        var attention = false
         /// `agent-session-folders-v1`.
         var folders = false
         /// `agent-session-settings-v1`.
@@ -163,6 +165,8 @@ public actor AgentSessionAttachClient {
 
     /// `surface`: the tab's surface id in the daemon's store.
     /// `reconnect`: asked when a connection fails (``Reconnect``); nil, never tried again.
+    /// `requestTimeout`: how long a call may go with no byte moving on its connection (``TransportProgress``),
+    /// not how long it may take: a prompt with a large image keeps going while it uploads.
     public init(surface: UInt64, requestTimeout: Duration = .seconds(10), mode: Mode = .attach,
                 reconnect: Reconnect? = nil, personName: String? = nil, endpoint: @escaping EndpointProvider) {
         self.surface = surface
@@ -274,12 +278,17 @@ public actor AgentSessionAttachClient {
     /// VM, so it is no ``DaemonCapability`` case, as ``startCredentialsCapability``.
     public static let prewarmCapability = "agent-session-prewarm-v1"
 
+    /// ``prewarm(cwd:harness:ownerLink:model:permissionMode:startMode:credentials:)`` with no folder: the daemon makes the
+    /// chat's own `~/chats/<id>` (the folder a no-folder start of the tab runs in) and warms the agent there. An older
+    /// daemon refuses a prewarm without a folder, so none is sent to it.
+    public static let prewarmChatFolderCapability = "agent-session-prewarm-chat-folder-v1"
+
     /// Warms the agent a coming ``start(cwd:harness:homeConfirmed:personKey:ownerLink:model:permissionMode:startMode:credentials:)``
     /// of this tab will run, on the owner's own Cloud VM, so that start takes a running agent instead of a cold one. It sends
     /// exactly the params that start would (``startParams``), so the machine's acpmux keys the warmed agent as that start's
     /// `session/new`; a start that differs starts cold, as before. Binds nothing and answers whether acpmux took the hint.
     /// Only over the owner answer of the link (``ownedConnection(_:check:)``), as the start: never to a teammate's machine.
-    public func prewarm(cwd: String, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
+    public func prewarm(cwd: String?, harness: String?, ownerLink: @escaping OwnerLink, model: String? = nil, permissionMode: String? = nil,
                         startMode: String? = nil, credentials: [String: String]? = nil) async throws -> Bool {
         guard mode == .attach else { return false }
         let (transport, served, callerOwnsVM) = try await ownedConnection(ownerLink) { served in
@@ -636,11 +645,18 @@ public actor AgentSessionAttachClient {
     }
 
     /// `agent-session-view` (`agent-session-presence-v1`): whether the person's window shows the
-    /// attached chat now. A daemon without the verb keeps counting the attach as shown.
-    public func view(_ visible: Bool) async throws {
+    /// attached chat now. A daemon without the verb keeps counting the attach as shown. Newer
+    /// daemons also accept `attending` and `seenSeq` (`agent-session-attention-v1`) so a shown chat
+    /// left while the person is away keeps the person's read cutover.
+    public func view(_ visible: Bool, attending: Bool? = nil, seenSeq: UInt64? = nil) async throws {
         _ = try await liveTransport()
         guard served.presence else { return }
-        _ = try await call("agent-session-view", ["visible": visible])
+        var params: [String: any Sendable] = ["visible": visible]
+        if served.attention {
+            if let attending { params["attending"] = attending }
+            if let seenSeq { params["seen_seq"] = seenSeq }
+        }
+        _ = try await call("agent-session-view", params)
     }
 
     /// The code the setting verbs throw for a daemon without `agent-session-settings-v1`.
@@ -958,6 +974,7 @@ public actor AgentSessionAttachClient {
                             fork: identity.supports(DaemonCapability.agentSessionFork.rawValue),
                             side: identity.supports(DaemonCapability.agentSessionSide.rawValue),
                             presence: identity.supports(DaemonCapability.agentSessionPresence.rawValue),
+                            attention: identity.supports(DaemonCapability.agentSessionAttention.rawValue),
                             folders: identity.supports(DaemonCapability.agentSessionFolders.rawValue),
                             settings: identity.supports(DaemonCapability.agentSessionSettings.rawValue),
                             login: identity.supports(DaemonCapability.agentSessionLogin.rawValue),

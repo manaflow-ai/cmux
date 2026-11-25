@@ -120,11 +120,16 @@ extension UpdaterService {
                     return false
                 }
             }) ?? false
+            self?.keptRunningBuild = kept ? .kept : nil
             // The kept copy's own CLI runs once now (KeptWarmup): macOS checks a new bundle's code on
             // its first launch (3.4 s for a NIGHTLY clone), so going back to it later does not; its
-            // answer is the stores the copy reads when its Info.plist does not say.
-            if kept { await KeptWarmup.warm(store: store, build: build, log: log, runningBuild: build) }
-            self?.keptRunningBuild = kept ? .kept : nil
+            // answer is the stores the copy reads when its Info.plist does not say. The keep is done
+            // before it: a quit waits for the clone only, never this run (a Restart to Update right
+            // after staging waited 3.4 s for it, ask-ad4a68e740); one cut short runs again at the next
+            // launch (``KeptWarmup/warmPending(store:log:runningBuild:running:)``).
+            guard kept else { return }
+            // task-owner: one run of the kept copy's CLI that ends by itself; nobody waits on it (the quit waits on `keepTask`).
+            Task(priority: WorkPriority.bestEffort.taskPriority) { await KeptWarmup.warm(store: store, build: build, log: log, runningBuild: build) }
         }
     }
 
