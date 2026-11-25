@@ -31,6 +31,7 @@ const ALLOWED: &[&str] = &[
     method::MUX_EVENTS,
     method::MUX_ATTACHMENT,
     method::MUX_TURN_SHOTS,
+    method::MUX_TURN_FRAMES,
     method::MUX_QUEUE_TEXT,
     method::MUX_ROWS,
     method::MUX_HISTORY,
