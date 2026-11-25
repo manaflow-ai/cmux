@@ -86,6 +86,21 @@ export function FolderPopover({
   const [query, setQuery] = useState("");
   const typed = query.trim();
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  // Add project's page to open on: its GitHub page when it opens again after a Connect to GitHub.
+  const [sourcesPage, setSourcesPage] = useState<"github">();
+  // Connect to GitHub from Add project sends the person to the browser, and the palette closes. When the connect
+  // ends connected, the palette opens again on its GitHub page with the repositories (cmux#53226: "it should
+  // connect and then this menu should remain open with all of the github repositories afterwards").
+  const [reopenGitHub, setReopenGitHub] = useState(false);
+  const githubConnectOut =
+    sources?.github !== undefined && (sources.github.state.waiting || sources.github.state.connecting === true);
+  if (reopenGitHub && !githubConnectOut) {
+    setReopenGitHub(false);
+    if (sources?.github?.state.status?.state === "ready") {
+      setSourcesPage("github");
+      setSourcesOpen(true);
+    }
+  }
   const [cloning, setCloning] = useState<string>();
   const cloningName = cloning ?? cloningRepository;
   const cloudFolders = sources?.cloudFolders;
@@ -644,7 +659,12 @@ export function FolderPopover({
           options={sources}
           current={current}
           currentPeer={currentPeer}
-          onClose={() => setSourcesOpen(false)}
+          {...(sourcesPage ? { startPage: sourcesPage } : {})}
+          onClose={() => {
+            setSourcesOpen(false);
+            setSourcesPage(undefined);
+            if (githubConnectOut) setReopenGitHub(true);
+          }}
           onBrowse={onBrowse && browse}
           onPick={(value) => {
             // A GitHub repository added as a project is listed in this menu from now on (cmux#53226).

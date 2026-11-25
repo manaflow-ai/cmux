@@ -384,6 +384,57 @@ test("install completion and window refocus refresh the repository status", asyn
   }
 });
 
+// cmux#53226: "if i connect github from this menu, it should connect and then this menu should remain open with all of
+// the github repositories afterwards as well". The palette closes as the browser takes over (here the person closes
+// it); once the connect ends connected it opens again on its GitHub page, the repositories listed.
+test("Connect to GitHub from Add project opens the palette again on its repositories once connected", async () => {
+  const uninstall = installPageKey(doc());
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await press(option("Connect to GitHub")!);
+    // The browser takes over: the palette closes.
+    await key("Escape");
+    await key("Escape");
+    expect(palette()).toBeNull();
+    // Back from the browser, connected.
+    gh.answers["github.status"] = ready;
+    gh.answers["github.repos.list"] = installed;
+    await gh.back();
+    await settle();
+    expect(palette()).not.toBeNull();
+    expect(option("acme/api")).toBeDefined();
+    expect(option("acme/web")).toBeDefined();
+  } finally {
+    await act(async () => root.unmount());
+    uninstall();
+  }
+});
+
+test("Connect to GitHub that ends unconnected leaves Add project closed", async () => {
+  const uninstall = installPageKey(doc());
+  const gh = host({ "github.status": status("not_connected"), "github.connect": { opened: true } });
+  const { root } = await renderTray({}, gh.store);
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(gitHubRow());
+    await press(option("Connect to GitHub")!);
+    await key("Escape");
+    await key("Escape");
+    gh.answers["github.status"] = status("unavailable", { reason: "not_allowed" });
+    await gh.back();
+    await settle();
+    expect(palette()).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+    uninstall();
+  }
+});
+
 test.each([
   [{ code: "github.unavailable" }, "Offline", "Couldn't load repositories"],
   [{ code: "github.rate_limited" }, "Busy", "GitHub is busy"],
