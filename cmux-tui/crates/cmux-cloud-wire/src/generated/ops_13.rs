@@ -5,6 +5,46 @@
 use super::*;
 
 wire_op! {
+    /// Make the text confirmation level safer (applies at once). A riskier level needs lower.challenge and lower.
+    UserTextConfirmLevelSetOp {
+        name: "user.text_confirm.level.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:UserDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: UserTextConfirmLevelSetParams,
+        result: UserTextConfirmLevelSetResult,
+        error: UserTextConfirmLevelSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTextConfirmLevelSetParams {
+    pub level: ConfirmLevel,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserTextConfirmLevelSetResult {
+    pub level: ConfirmLevel,
+}
+
+wire_errors! {
+    /// The error codes user.text_confirm.level.set declares.
+    UserTextConfirmLevelSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        TextConfirmLocked = "text_confirm.locked",
+        TextConfirmProofRequired = "text_confirm.proof_required",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Lower the level with the signed challenge. Spends the nonce on any attempt; a refused proof commits `lowered: false` with a code.
     UserTextConfirmLowerOp {
         name: "user.text_confirm.lower",

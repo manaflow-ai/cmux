@@ -4,6 +4,128 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Start verifying an email domain for the team (owners and admins): returns the DNS TXT record to publish. Public mail domains are refused.
+    DomainClaimOp {
+        name: "domain.claim",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: DomainClaimParams,
+        result: TeamDomain,
+        error: DomainClaimError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainClaimParams {
+    pub domain: EmailDomain,
+}
+
+wire_errors! {
+    /// The error codes domain.claim declares.
+    DomainClaimError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        PolicyInvalid = "policy.invalid",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// The team's claimed and verified email domains (owners and admins).
+    DomainListOp {
+        name: "domain.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: DomainListParams,
+        result: DomainListResult,
+        error: DomainListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainListParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainListResult {
+    pub team: TeamId,
+    pub domains: Vec<TeamDomain>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes domain.list declares.
+    DomainListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Give up a claimed or verified domain (owners and admins). Another team may then verify it.
+    DomainReleaseOp {
+        name: "domain.release",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: DomainReleaseParams,
+        result: DomainReleaseResult,
+        error: DomainReleaseError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainReleaseParams {
+    pub domain: EmailDomain,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainReleaseResult {
+    pub domain: EmailDomain,
+}
+
+wire_errors! {
+    /// The error codes domain.release declares.
+    DomainReleaseError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Check the TXT record through two DNS-over-HTTPS resolvers and, when both see it, make the team the domain's owner (owners and admins).
+    DomainVerifyOp {
+        name: "domain.verify",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: DomainVerifyParams,
+        result: TeamDomain,
+        error: DomainVerifyError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainVerifyParams {
+    pub domain: EmailDomain,
+}
+
 wire_errors! {
     /// The error codes domain.verify declares.
     DomainVerifyError {
@@ -777,130 +899,4 @@ pub struct FeedUnarchiveResultItemsItem {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedUnarchiveResult {
     pub items: Vec<FeedUnarchiveResultItemsItem>,
-}
-
-wire_errors! {
-    /// The error codes feed.unarchive declares.
-    FeedUnarchiveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        FeedClosed = "feed.closed",
-        FeedFull = "feed.full",
-        FeedMoving = "feed.moving",
-        FeedRateLimited = "feed.rate_limited",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerMoved = "owner.moved",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Allow a validated path through the caller's private network.
-    FirewallCreateOp {
-        name: "firewall.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session],
-        params: FirewallCreateParams,
-        result: FirewallCreateResult,
-        error: FirewallCreateError,
-    }
-}
-
-wire_enum! {
-    FirewallCreateParamsSourceProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateParamsSource {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallCreateParamsSourceProtocol>,
-}
-
-wire_enum! {
-    FirewallCreateParamsDestinationProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateParamsDestination {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallCreateParamsDestinationProtocol>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateParams {
-    pub source: FirewallCreateParamsSource,
-    pub destination: FirewallCreateParamsDestination,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-}
-
-wire_enum! {
-    FirewallCreateResultSourceProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateResultSource {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallCreateResultSourceProtocol>,
-}
-
-wire_enum! {
-    FirewallCreateResultDestinationProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
 }

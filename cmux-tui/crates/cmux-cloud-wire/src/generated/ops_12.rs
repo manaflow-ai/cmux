@@ -5,15 +5,47 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmRetiredExportResult {
-    pub vm: String,
-    pub path: String,
-    pub expires_at: i64,
-    pub files: i64,
-    pub bytes: i64,
-    pub archive_bytes: i64,
-    pub skipped: Vec<String>,
-    pub skipped_count: i64,
+pub struct TeamVmLeaseReleaseResult {
+    pub lease: TeamVmLeaseId,
+    pub released: bool,
+}
+
+wire_errors! {
+    /// The error codes team_vm.lease.release declares.
+    TeamVmLeaseReleaseError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Replace the team VM (epoch) with a new VM from the base snapshot at the next epoch. The old VM is paused and kept, and its install revoked, until an owner deletes it with team_vm.retired.delete (download its files first with team_vm.retired.export); members get no team SSH certificate until the provider confirmed the pause. At most 3 replaced VMs are kept. Owners and admins only, in a person's session; audited.
+    TeamVmRebuildOp {
+        name: "team_vm.rebuild",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: TeamVmRebuildParams,
+        result: TeamVmRebuildResult,
+        error: TeamVmRebuildError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRebuildParams {
+    pub epoch: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamVmRebuildResult {
+    pub retired: String,
+    pub epoch: i64,
 }
 
 wire_errors! {
@@ -862,45 +894,5 @@ wire_errors! {
     /// The error codes user.text_confirm.get declares.
     UserTextConfirmGetError {
         AuthForbidden = "auth.forbidden",
-    }
-}
-
-wire_op! {
-    /// Make the text confirmation level safer (applies at once). A riskier level needs lower.challenge and lower.
-    UserTextConfirmLevelSetOp {
-        name: "user.text_confirm.level.set",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: UserTextConfirmLevelSetParams,
-        result: UserTextConfirmLevelSetResult,
-        error: UserTextConfirmLevelSetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTextConfirmLevelSetParams {
-    pub level: ConfirmLevel,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct UserTextConfirmLevelSetResult {
-    pub level: ConfirmLevel,
-}
-
-wire_errors! {
-    /// The error codes user.text_confirm.level.set declares.
-    UserTextConfirmLevelSetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        TextConfirmLocked = "text_confirm.locked",
-        TextConfirmProofRequired = "text_confirm.proof_required",
-        ValidationInvalid = "validation.invalid",
     }
 }
