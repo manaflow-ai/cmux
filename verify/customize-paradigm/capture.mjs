@@ -59,6 +59,8 @@ const startSampler = () => {
     const now = performance.now();
     if (now - s.last > 34) s.long++;
     s.last = now; s.frames++;
+    // A full-page screenshot shrinks the viewport to 1x1 for a frame: that is the camera, not the page.
+    if (innerWidth < 100) return requestAnimationFrame(tick);
     s.heights.add(Math.round(root.getBoundingClientRect().height));
     for (const el of root.querySelectorAll("[data-customization],[data-setup],.mini-cmux-large")) {
       if (getComputedStyle(el.closest(".studio-detail,.studio-manager-preview") ?? el).position === "sticky" || getComputedStyle(el).position === "sticky") continue;

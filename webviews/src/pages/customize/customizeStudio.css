@@ -14,7 +14,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--ds-space-3);
-  min-height: 48px;
+  min-height: var(--ds-space-48);
   padding: var(--ds-space-2) var(--ds-space-3);
   border-radius: var(--ds-radius-card);
   background: var(--ds-surface-card);
@@ -330,11 +330,17 @@
   color: var(--cmux-text-secondary);
   font-size: 12px;
 }
-.studio-on-dot {
-  width: 6px;
-  aspect-ratio: 1;
-  border-radius: 999px;
-  background: var(--ds-color-accent);
+.studio-card-title {
+  flex: 1;
+  min-width: 0;
+}
+.studio-on-pill {
+  background: color-mix(in oklab, var(--ds-color-accent) 18%, transparent);
+  color: var(--ds-color-accent);
+  font-weight: 400;
+}
+.studio-on-pill:not([data-shown]) {
+  visibility: hidden;
 }
 
 /* Store. */
@@ -463,7 +469,7 @@
   align-items: center;
   gap: var(--ds-space-2);
   width: 100%;
-  min-height: 48px;
+  min-height: var(--ds-space-48);
   padding: var(--ds-space-1) var(--ds-space-2);
   border: none;
   border-radius: var(--ds-radius-md);
@@ -550,6 +556,12 @@ li[data-peeked] > .studio-row {
   gap: var(--ds-space-3);
   align-items: start;
 }
+.studio-setups-changes ul {
+  min-height: calc(var(--ds-space-48) * 8);
+}
+.studio-nothing {
+  padding: var(--ds-space-2);
+}
 .studio-setups-changes {
   display: flex;
   flex-direction: column;
@@ -560,11 +572,120 @@ li[data-peeked] > .studio-row {
   gap: var(--ds-space-2);
 }
 
+/* Tiles. */
+.studio-tiles {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-3);
+}
+.studio-tiles-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: var(--ds-space-3);
+  align-items: start;
+}
+.studio-tiles-setups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+}
+.studio-tiles-setups > .studio-muted {
+  padding: 0 var(--ds-space-2);
+}
+.studio-setup-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: var(--ds-space-48);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: none;
+  border-radius: var(--ds-radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.studio-setup-row:hover,
+.studio-setup-row[aria-pressed="true"] {
+  background: var(--ds-surface-hover);
+}
+.studio-radio {
+  flex: none;
+  width: 16px;
+  aspect-ratio: 1;
+  border: 1px solid var(--ds-surface-control-line);
+  border-radius: 999px;
+}
+.studio-setup-row[aria-pressed="true"] .studio-radio {
+  border: 4px solid var(--ds-color-accent);
+}
+.studio-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ds-space-2);
+}
+.studio-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+  padding: var(--ds-space-2);
+  border: 1px solid var(--ds-surface-card-line);
+  border-radius: calc(var(--ds-radius-md) + var(--ds-space-2));
+  background: var(--ds-surface-card);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+.studio-tile[aria-checked="true"] {
+  border-color: var(--ds-color-accent);
+}
+.studio-tile-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+}
+.studio-tile-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-setup-row .studio-card-line {
+  white-space: normal;
+}
+@container studio (width >= 1200px) {
+  .studio-tile-grid {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+}
+/* Where a tile is too narrow for its name on one line, every name gets two lines' room, so the
+   tiles in a row still line up and nothing is cut. */
+@container studio (width >= 1200px) or (width < 760px) {
+  .studio-tile-name {
+    display: flex;
+    align-items: center;
+    min-height: 2lh;
+    white-space: normal;
+  }
+}
+@container studio (width < 600px) {
+  .studio-tile-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 /* A pane narrower than two columns: the live window goes on top and the list under it, each the
    pane's full width, instead of two columns that fold their text a word a line. */
 @container studio (width < 600px) {
   .studio-store,
   .studio-manager,
+  .studio-tiles-top,
   .studio-setups-body,
   .studio-setups-people {
     grid-template-columns: minmax(0, 1fr);
