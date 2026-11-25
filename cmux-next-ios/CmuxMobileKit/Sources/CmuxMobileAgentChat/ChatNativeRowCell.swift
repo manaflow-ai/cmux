@@ -312,7 +312,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             let view = symbols[index]
             let original = view.image
             view.image = UIImage(systemName: "checkmark", withConfiguration: view.image?.symbolConfiguration)
-            UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+            CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7)
             UIAccessibility.post(notification: .announcement, argument: "Copied")
             copiedReset?.cancel()
             copiedReset = Task { @MainActor [weak view] in
@@ -718,7 +718,7 @@ final class ChatCodeCardView: UIView, UIScrollViewDelegate {
     @objc private func copyCode() {
         UIPasteboard.general.string = code
         setCopied(true)
-        UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.7)
+        CmuxMobileTheme.standard.haptics.impact(.light, intensity: 0.7)
         copiedReset?.cancel()
         copiedReset = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(1.5))

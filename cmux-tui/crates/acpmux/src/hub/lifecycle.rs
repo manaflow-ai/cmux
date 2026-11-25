@@ -377,6 +377,7 @@ impl Hub {
         // Every way out of here (an error, or this future dropped) before
         // `ensure_child` took the entry puts it back or ends it.
         let _claim = pooled.as_ref().map(|id| self.pool_claim_guard(id.clone()));
+        let warm = pooled.is_some();
         let id =
             fixed_id.unwrap_or_else(|| pooled.unwrap_or_else(|| uuid::Uuid::now_v7().to_string()));
         meta.id = id.clone();
@@ -473,6 +474,8 @@ impl Hub {
             *session.credential.lock().unwrap_or_else(|e| e.into_inner()) = credential;
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
+            // In its meta too, written below: a restart before its first start forks it still.
+            session.keep_fork_start(true);
             // Read before the session is published: a stop from then on ends its first start.
             let stops = session.stops.load(Ordering::SeqCst);
             sessions.insert(id.clone(), session.clone());
@@ -528,6 +531,24 @@ impl Hub {
             creation_guard.disarm();
             return Ok(self.begin_watch(&session, &store_family, file.clone()));
         }
+        // A fresh Claude Code chat the person started spawns in its start mode (`--permission-mode`,
+        // `claude_spawn_start_mode`), so `start_mode_for` below finds it there and sends no
+        // `set_mode`, which Claude Code would answer only once booted. The chat's modes are the
+        // agent's own once it started (`cold_start`); a process that cannot take the mode (bypass
+        // not allowed) runs Claude Code's own, and the `set_mode` below moves it as before.
+        let spawn_start_mode = if !warm
+            && mode_eligible
+            && limits_from.is_none()
+            && profile.kind == crate::config::HarnessKind::ClaudeStdio
+        {
+            self.claude_spawn_start_mode(&session).await
+        } else {
+            None
+        };
+        if let Some(mode) = &spawn_start_mode {
+            session.meta.lock().unwrap_or_else(|e| e.into_inner()).modes =
+                Some(json!({ "currentModeId": mode }));
+        }
         let spawned =
             match self.spawn_profile(&session, &profile, launch_digest, &defaults.env).await {
                 Ok(spawn) => {
@@ -542,6 +563,14 @@ impl Hub {
             self.discard_failed_creation(&session, created_stops).await;
             creation_guard.disarm();
             return Err(e);
+        }
+        // A start mode the agent spawned in and runs is cmux's own, as `set_mode` records it
+        // (`trust_wait.rs` `full_access_by_cmux`).
+        if let Some(mode) = spawn_start_mode {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if crate::web_modes::mode_of(&m).as_deref() == Some(mode.as_str()) {
+                m.mode_set_by_cmux = Some(mode);
+            }
         }
         // An agent that started fresh instead of resuming fails creation.
         if let Some(a) = adopt.as_ref().filter(|_| fork_from.is_none()) {
@@ -746,7 +775,11 @@ impl Hub {
         );
         // Only while nothing of the chat still runs: an agent or host a failed stop left behind is
         // reached below, which ends or adopts it and holds it to the policy again (review F1).
-        if let Some(e) = session.policy_refusal.held(&refusal_key) {
+        // A harness that exited while it started, with the same error again, is not started
+        // again on every wake until its window passed (`launch_backoff.rs`).
+        let held = session.policy_refusal.held(&refusal_key);
+        let held = held.or_else(|| session.launch_backoff.held(std::time::Instant::now()));
+        if let Some(e) = held {
             let child = session.child.lock().await.clone();
             let alive = match child {
                 Some(child) => child.is_alive().await,
@@ -775,6 +808,12 @@ impl Hub {
             }
             Err(e) => {
                 self.wake_ended(session, wake, Some(&e));
+                if super::launch_backoff::is_launch_failure(&e)
+                    && let Some((fails, hold)) =
+                        session.launch_backoff.failed(&e, std::time::Instant::now())
+                {
+                    tracing::warn!(session = %session.id, fails, hold_secs = hold.as_secs(), "the same launch failure again: not started for {}s unless the person writes to it: {}", hold.as_secs(), e.message);
+                }
                 return Err(e);
             }
         };
@@ -807,6 +846,7 @@ impl Hub {
             return Err(e);
         }
         self.wake_ended(session, wake, None);
+        session.launch_backoff.clear();
         // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
         child.enter_run_class().await;
         // A Codex that went ahead at the head but started without the repository hook gets no
@@ -1632,7 +1672,7 @@ impl Hub {
                     self.restore_mode_mark(session, mode);
                 }
                 if fork_from.is_some() {
-                    session.fork_from.lock().unwrap().take();
+                    session.fork_resumed();
                 }
                 if level != "new" {
                     self.append(
@@ -1685,6 +1725,7 @@ impl Hub {
                             Some(&sid),
                             &child,
                             &codex_answer,
+                            &init,
                         ),
                     )
                     .await;
@@ -1728,7 +1769,15 @@ impl Hub {
             let res = match child
                 .request(
                     method::SESSION_NEW,
-                    self.acp_params(&session.id, &meta, profile, None, &child, &codex_answer),
+                    self.acp_params(
+                        &session.id,
+                        &meta,
+                        profile,
+                        None,
+                        &child,
+                        &codex_answer,
+                        &init,
+                    ),
                 )
                 .await
             {
@@ -1765,7 +1814,10 @@ impl Hub {
                 );
             }
         }
-        if saved.agent_session_id.is_some() || saved.fork_before.is_some() {
+        // A guarded relay import may retire the source ACP id when its native agent files are
+        // absent. Its carried choices still need replaying after the fresh session/new, just as
+        // they do for an ordinary respawn or fork.
+        if saved.agent_session_id.is_some() || saved.fork_before.is_some() || saved.remote_origin {
             self.replay_config(session, &child, &saved, off).await;
         }
         self.cap_full_access(session, &child, profile, off).await?;
@@ -1830,13 +1882,38 @@ impl Hub {
                     .collect()
             })
             .unwrap_or_default();
-        // Model first.
-        let ordered: Vec<(String, Value)> = opts
-            .iter()
-            .filter(|(k, _)| k == "model")
-            .chain(opts.iter().filter(|(k, _)| k != "model"))
-            .cloned()
-            .collect();
+        // A legacy ACP model report is the selected model for harnesses such as Codex. It can
+        // coexist with a config-option model that only reflects the fresh harness's default, so
+        // let the carried report win and skip that stale option.
+        let legacy_model = saved
+            .models
+            .as_ref()
+            .and_then(|m| m.get("currentModelId"))
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        if let Some(model) = legacy_model.as_deref() {
+            match child
+                .request(method::SESSION_SET_MODEL, json!({"sessionId": sid, "modelId": model}))
+                .await
+            {
+                Ok(res) => {
+                    let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(reported) = res.get("models").filter(|v| !v.is_null()) {
+                        meta.models = Some(reported.clone());
+                    }
+                    if let Some(models) = meta.models.as_mut().and_then(Value::as_object_mut) {
+                        models.insert("currentModelId".into(), json!(model));
+                    } else {
+                        meta.models = Some(json!({"currentModelId": model}));
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(session = %session.id, "replay model {model}: {}", e.message)
+                }
+            }
+        }
+        let ordered: Vec<(String, Value)> =
+            opts.iter().filter(|(k, _)| legacy_model.is_none() || k != "model").cloned().collect();
         for (id, value) in ordered {
             if value.is_null() {
                 continue;
@@ -1866,17 +1943,6 @@ impl Hub {
                 }
                 Err(e) => tracing::warn!(session = %session.id, "replay {id}: {}", e.message),
             }
-        }
-        // No model option was replayed (the agent may list other options,
-        // such as effort, without one): restore the legacy model id.
-        if !opts.iter().any(|(k, v)| k == "model" && !v.is_null())
-            && let Some(model) =
-                saved.models.as_ref().and_then(|m| m.get("currentModelId")).and_then(Value::as_str)
-            && let Err(e) = child
-                .request(method::SESSION_SET_MODEL, json!({"sessionId": sid, "modelId": model}))
-                .await
-        {
-            tracing::warn!(session = %session.id, "replay model {model}: {}", e.message);
         }
         self.append(session, "mux", "config", json!({"replayed": true}));
     }

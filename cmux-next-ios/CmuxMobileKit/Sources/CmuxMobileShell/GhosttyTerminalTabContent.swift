@@ -310,6 +310,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) ?? framesBeingWritten[$0] } ?? previous?.model.frameToKeep()
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
+        #if DEBUG
+        if frame == nil, live == nil, TerminalColdFrameDemo.servesFrame { frame = TerminalColdFrameDemo.frame() }
+        #endif
         model.restoreLastFrame(frame)
         // Its rows, fed to the new surface before the attach: the page is live at once.
         var rows = key.flatMap { lastRows.removeValue(forKey: $0) } ?? previous?.model.rowsToKeep()
@@ -409,7 +412,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A web link that opens on the Mac opens beside the terminal, in this workspace (the Mac's
         // Cmd-click); a public page opens on this iPhone (TerminalLinkRoute).
         host.model.linkOpener = context.openLink
-        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
+        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, chromeTop: context.chromeTop,
+                                           isInteractive: context.isInteractive, isOnPage: context.isOnPage))
     }
 
     /// Releases a tab that fell out of the warm set: its Mac attach and its
@@ -497,8 +501,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         indicators[id]?.cancel()
     }
 
-    /// A read (no host is created): the tab's pill says "Reattaching…" (or
-    /// "Connecting…", "Can't connect", "Mac offline") only once its outage has
+    /// A read (no host is created): the tab's pill says "Can't connect" or
+    /// "Mac offline" only once its outage has
     /// lasted `QuietStatusGate.threshold`; before that the tab shows its last
     /// frame and says nothing. The only place a terminal tab shows its
     /// connection: no row by the composer (Leo, 2026-11-17: "The reconnect
@@ -507,7 +511,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         let indicator = indicator(tab.id)
         guard indicator.isShown else { return nil }
         if indicator.isOffline { return "Mac offline" }
-        return hosts[tab.id]?.model.connectionState.pillSubtitle ?? "Reattaching…"
+        // Still reattaching (or no host yet): nothing, the pill keeps its usual words (Leo, 2026-11-24).
+        return hosts[tab.id]?.model.connectionState.pillSubtitle
     }
 
     func focusInput(for tab: WorkspaceTab, in workspace: Workspace) {
@@ -774,11 +779,21 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             actions.append(TerminalTabAction(title: "Fit to Phone", systemImage: fits ? "checkmark" : "iphone") { [weak self] in
                 self?.setFitToPhone(!fits, program: program, tab: tab, in: workspace)
             })
+            // The projection's exception undone by hand: typing into a TUI fitted it to the
+            // phone on its own (`TerminalProjectingSession`); this gives the Mac its size back
+            // and forgets the program.
+            if model.session.fitsToPhone == true {
+                actions.append(TerminalTabAction(title: "Keep the Mac's Size", systemImage: "macbook") {
+                    model.session.toggleFitToPhone()
+                })
+            }
         }
         return actions + [
             TerminalTabAction(title: "Files and Links", systemImage: "folder") { model.showFilesAndLinks() },
             TerminalTabAction(title: "Paste", systemImage: "doc.on.clipboard") { model.paste() },
             TerminalTabAction(title: "Find…", systemImage: "magnifyingglass") { model.showFind() },
+            // Wide output on its own page (Leo, 2026-11-23): Wide on, the key row and composer away.
+            TerminalTabAction(title: "Wide View", systemImage: "arrow.left.and.right.square") { model.openWideView() },
             // The Mac's Clear Screen and Scrollback: the Mac clears the terminal, scrollback
             // included, on the Mac and every phone (`clear-history`), not a Ctrl-L to the shell.
             TerminalTabAction(title: "Clear", systemImage: "clear", isEnabled: model.canClearScreenAndScrollback) {
@@ -884,10 +899,13 @@ final class TerminalTabSlot {
 struct TerminalTabSlotPage: View {
     let slot: TerminalTabSlot
     let insets: EdgeInsets
+    var chromeTop: CGFloat?
     let isInteractive: Bool
+    let isOnPage: Bool
 
     var body: some View {
-        TerminalTabPage(host: slot.host, insets: insets, isInteractive: isInteractive)
+        TerminalTabPage(host: slot.host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive,
+                        isOnPage: isOnPage)
             .id(ObjectIdentifier(slot.host))
     }
 }
