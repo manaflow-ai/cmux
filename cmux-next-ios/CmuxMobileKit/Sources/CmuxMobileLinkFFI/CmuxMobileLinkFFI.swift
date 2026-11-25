@@ -3777,6 +3777,21 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      */
     func warmMedia() 
     
+    /**
+     * Open the Mac's file at `path` into `dest` on the phone, over `bundle` when the Mac has it:
+     * chunks the phone already holds (it sent the file, or opened it before) do not cross again.
+     * Falls back to `file` on an older Mac.
+     */
+    func openFileBundle(path: String, dest: String, storeDir: String) async throws  -> FileTransfer
+    
+    /**
+     * Send the phone's file at `path` to the Mac as attachment `name` (into `cwd`'s attachments
+     * folder when given, as `upload`), over `bundle` when the Mac has it: a file the Mac already
+     * holds costs one round trip and its manifest. `store_dir` is this Mac's folder in the app's
+     * Caches. Falls back to `upload` on an older Mac.
+     */
+    func uploadFileBundle(path: String, name: String, cwd: String, storeDir: String) async throws  -> FileTransfer
+    
 }
 /**
  * A connected link to one Mac.
@@ -4279,6 +4294,51 @@ open func warmMedia()  {try! rustCall() {
             self.uniffiCloneHandle(),$0
     )
 }
+}
+    
+    /**
+     * Open the Mac's file at `path` into `dest` on the phone, over `bundle` when the Mac has it:
+     * chunks the phone already holds (it sent the file, or opened it before) do not cross again.
+     * Falls back to `file` on an older Mac.
+     */
+open func openFileBundle(path: String, dest: String, storeDir: String)async throws  -> FileTransfer  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_open_file_bundle(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(path),FfiConverterString.lower(dest),FfiConverterString.lower(storeDir)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFileTransfer_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
+}
+    
+    /**
+     * Send the phone's file at `path` to the Mac as attachment `name` (into `cwd`'s attachments
+     * folder when given, as `upload`), over `bundle` when the Mac has it: a file the Mac already
+     * holds costs one round trip and its manifest. `store_dir` is this Mac's folder in the app's
+     * Caches. Falls back to `upload` on an older Mac.
+     */
+open func uploadFileBundle(path: String, name: String, cwd: String, storeDir: String)async throws  -> FileTransfer  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_upload_file_bundle(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(path),FfiConverterString.lower(name),FfiConverterString.lower(cwd),FfiConverterString.lower(storeDir)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeFileTransfer_lift,
+            errorHandler: FfiConverterTypeCmuxMobileError_lift
+        )
 }
     
 
@@ -9272,6 +9332,228 @@ public func FfiConverterTypeClassicCleanupPlan_lower(_ value: ClassicCleanupPlan
 }
 
 
+/**
+ * What a hint does: resume the machine now, or skip it for `reason`.
+ */
+public struct CloudWakeAnswer: Equatable, Hashable {
+    public var resume: Bool
+    public var reason: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(resume: Bool, reason: String?) {
+        self.resume = resume
+        self.reason = reason
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CloudWakeAnswer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudWakeAnswer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeAnswer {
+        return
+            try CloudWakeAnswer(
+                resume: FfiConverterBool.read(from: &buf), 
+                reason: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CloudWakeAnswer, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.resume, into: &buf)
+        FfiConverterOptionString.write(value.reason, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeAnswer_lift(_ buf: RustBuffer) throws -> CloudWakeAnswer {
+    return try FfiConverterTypeCloudWakeAnswer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeAnswer_lower(_ value: CloudWakeAnswer) -> RustBuffer {
+    return FfiConverterTypeCloudWakeAnswer.lower(value)
+}
+
+
+/**
+ * A hint as the phone forwards it: the raw signal (`focus`, `terminal`, `unlock`) and the
+ * facts its models hold.
+ */
+public struct CloudWakeHint: Equatable, Hashable {
+    public var v: UInt32
+    public var machine: String
+    public var signal: String
+    /**
+     * The hidden setting (default off).
+     */
+    public var enabled: Bool
+    /**
+     * The phone may call Cloud (signed in).
+     */
+    public var allowed: Bool
+    /**
+     * The machine's status was read.
+     */
+    public var loaded: Bool
+    public var status: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(v: UInt32, machine: String, signal: String, 
+        /**
+         * The hidden setting (default off).
+         */enabled: Bool, 
+        /**
+         * The phone may call Cloud (signed in).
+         */allowed: Bool, 
+        /**
+         * The machine's status was read.
+         */loaded: Bool, status: String?) {
+        self.v = v
+        self.machine = machine
+        self.signal = signal
+        self.enabled = enabled
+        self.allowed = allowed
+        self.loaded = loaded
+        self.status = status
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CloudWakeHint: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudWakeHint: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeHint {
+        return
+            try CloudWakeHint(
+                v: FfiConverterUInt32.read(from: &buf), 
+                machine: FfiConverterString.read(from: &buf), 
+                signal: FfiConverterString.read(from: &buf), 
+                enabled: FfiConverterBool.read(from: &buf), 
+                allowed: FfiConverterBool.read(from: &buf), 
+                loaded: FfiConverterBool.read(from: &buf), 
+                status: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CloudWakeHint, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.v, into: &buf)
+        FfiConverterString.write(value.machine, into: &buf)
+        FfiConverterString.write(value.signal, into: &buf)
+        FfiConverterBool.write(value.enabled, into: &buf)
+        FfiConverterBool.write(value.allowed, into: &buf)
+        FfiConverterBool.write(value.loaded, into: &buf)
+        FfiConverterOptionString.write(value.status, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeHint_lift(_ buf: RustBuffer) throws -> CloudWakeHint {
+    return try FfiConverterTypeCloudWakeHint.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeHint_lower(_ value: CloudWakeHint) -> RustBuffer {
+    return FfiConverterTypeCloudWakeHint.lower(value)
+}
+
+
+/**
+ * How a hint wake ended, for the wake log.
+ */
+public struct CloudWakeOutcome: Equatable, Hashable {
+    /**
+     * `used` (input followed; `ms` from the resume's answer to it) or `false` (no input within
+     * the bound; `ms` awake).
+     */
+    public var tag: String
+    public var signal: String
+    public var ms: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `used` (input followed; `ms` from the resume's answer to it) or `false` (no input within
+         * the bound; `ms` awake).
+         */tag: String, signal: String, ms: UInt64) {
+        self.tag = tag
+        self.signal = signal
+        self.ms = ms
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CloudWakeOutcome: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudWakeOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeOutcome {
+        return
+            try CloudWakeOutcome(
+                tag: FfiConverterString.read(from: &buf), 
+                signal: FfiConverterString.read(from: &buf), 
+                ms: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CloudWakeOutcome, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.tag, into: &buf)
+        FfiConverterString.write(value.signal, into: &buf)
+        FfiConverterUInt64.write(value.ms, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeOutcome_lift(_ buf: RustBuffer) throws -> CloudWakeOutcome {
+    return try FfiConverterTypeCloudWakeOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeOutcome_lower(_ value: CloudWakeOutcome) -> RustBuffer {
+    return FfiConverterTypeCloudWakeOutcome.lower(value)
+}
+
+
 public struct ComposerSendDone: Equatable, Hashable {
     public var seq: UInt64
     public var outcome: ComposerSendOutcome
@@ -9548,6 +9830,105 @@ public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> Con
 #endif
 public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
     return FfiConverterTypeConnectOptions.lower(value)
+}
+
+
+/**
+ * One file moved: where it landed and what crossed the link.
+ */
+public struct FileTransfer: Equatable, Hashable {
+    /**
+     * The upload: the file's path on the Mac (the `upload` reply's). The open: `dest`.
+     */
+    public var path: String
+    /**
+     * The file's size.
+     */
+    public var size: UInt64
+    /**
+     * Whether it went over `bundle` (false: the old `upload` / `file`).
+     */
+    public var bundle: Bool
+    /**
+     * Channel payload bytes the phone sent.
+     */
+    public var sentBytes: UInt64
+    /**
+     * Channel payload bytes the phone received.
+     */
+    public var receivedBytes: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The upload: the file's path on the Mac (the `upload` reply's). The open: `dest`.
+         */path: String, 
+        /**
+         * The file's size.
+         */size: UInt64, 
+        /**
+         * Whether it went over `bundle` (false: the old `upload` / `file`).
+         */bundle: Bool, 
+        /**
+         * Channel payload bytes the phone sent.
+         */sentBytes: UInt64, 
+        /**
+         * Channel payload bytes the phone received.
+         */receivedBytes: UInt64) {
+        self.path = path
+        self.size = size
+        self.bundle = bundle
+        self.sentBytes = sentBytes
+        self.receivedBytes = receivedBytes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FileTransfer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFileTransfer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FileTransfer {
+        return
+            try FileTransfer(
+                path: FfiConverterString.read(from: &buf), 
+                size: FfiConverterUInt64.read(from: &buf), 
+                bundle: FfiConverterBool.read(from: &buf), 
+                sentBytes: FfiConverterUInt64.read(from: &buf), 
+                receivedBytes: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FileTransfer, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.path, into: &buf)
+        FfiConverterUInt64.write(value.size, into: &buf)
+        FfiConverterBool.write(value.bundle, into: &buf)
+        FfiConverterUInt64.write(value.sentBytes, into: &buf)
+        FfiConverterUInt64.write(value.receivedBytes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFileTransfer_lift(_ buf: RustBuffer) throws -> FileTransfer {
+    return try FfiConverterTypeFileTransfer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFileTransfer_lower(_ value: FileTransfer) -> RustBuffer {
+    return FfiConverterTypeFileTransfer.lower(value)
 }
 
 
@@ -10583,6 +10964,149 @@ public func FfiConverterTypePairRequestCard_lift(_ buf: RustBuffer) throws -> Pa
 #endif
 public func FfiConverterTypePairRequestCard_lower(_ value: PairRequestCard) -> RustBuffer {
     return FfiConverterTypePairRequestCard.lower(value)
+}
+
+
+/**
+ * The overview's filter: a scope, and whether browsers and simulator
+ * screens show.
+ */
+public struct PaneFilter: Equatable, Hashable {
+    public var scope: PaneScope
+    public var showBrowsers: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(scope: PaneScope, showBrowsers: Bool) {
+        self.scope = scope
+        self.showBrowsers = showBrowsers
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PaneFilter: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneFilter: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneFilter {
+        return
+            try PaneFilter(
+                scope: FfiConverterTypePaneScope.read(from: &buf), 
+                showBrowsers: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PaneFilter, into buf: inout [UInt8]) {
+        FfiConverterTypePaneScope.write(value.scope, into: &buf)
+        FfiConverterBool.write(value.showBrowsers, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneFilter_lift(_ buf: RustBuffer) throws -> PaneFilter {
+    return try FfiConverterTypePaneFilter.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneFilter_lower(_ value: PaneFilter) -> RustBuffer {
+    return FfiConverterTypePaneFilter.lower(value)
+}
+
+
+/**
+ * What the overview shows under a filter.
+ */
+public struct PaneFilterResult: Equatable, Hashable {
+    /**
+     * Indices into the panes, in their order, of the panes shown.
+     */
+    public var shown: [UInt32]
+    /**
+     * Panes hidden, by what hid them, for the control's count and the
+     * header's "3 of 7": a hidden browser never looks lost.
+     */
+    public var hiddenTerminals: UInt32
+    public var hiddenBrowsers: UInt32
+    /**
+     * The filter hides something: the control shows as on.
+     */
+    public var filtering: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Indices into the panes, in their order, of the panes shown.
+         */shown: [UInt32], 
+        /**
+         * Panes hidden, by what hid them, for the control's count and the
+         * header's "3 of 7": a hidden browser never looks lost.
+         */hiddenTerminals: UInt32, hiddenBrowsers: UInt32, 
+        /**
+         * The filter hides something: the control shows as on.
+         */filtering: Bool) {
+        self.shown = shown
+        self.hiddenTerminals = hiddenTerminals
+        self.hiddenBrowsers = hiddenBrowsers
+        self.filtering = filtering
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension PaneFilterResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneFilterResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneFilterResult {
+        return
+            try PaneFilterResult(
+                shown: FfiConverterSequenceUInt32.read(from: &buf), 
+                hiddenTerminals: FfiConverterUInt32.read(from: &buf), 
+                hiddenBrowsers: FfiConverterUInt32.read(from: &buf), 
+                filtering: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PaneFilterResult, into buf: inout [UInt8]) {
+        FfiConverterSequenceUInt32.write(value.shown, into: &buf)
+        FfiConverterUInt32.write(value.hiddenTerminals, into: &buf)
+        FfiConverterUInt32.write(value.hiddenBrowsers, into: &buf)
+        FfiConverterBool.write(value.filtering, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneFilterResult_lift(_ buf: RustBuffer) throws -> PaneFilterResult {
+    return try FfiConverterTypePaneFilterResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneFilterResult_lower(_ value: PaneFilterResult) -> RustBuffer {
+    return FfiConverterTypePaneFilterResult.lower(value)
 }
 
 
@@ -13367,6 +13891,98 @@ public func FfiConverterTypeChatUploadState_lower(_ value: ChatUploadState) -> R
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What to do about a machine a hint woke when its idle check comes due.
+ */
+
+public enum CloudWakeIdle: Equatable, Hashable {
+    
+    /**
+     * Ask again this much later.
+     */
+    case wait(checkAfterMs: UInt64
+    )
+    /**
+     * Pause it (script-originated); the wake was false.
+     */
+    case pause(outcome: CloudWakeOutcome
+    )
+    /**
+     * Nothing more to do.
+     */
+    case done
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension CloudWakeIdle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCloudWakeIdle: FfiConverterRustBuffer {
+    typealias SwiftType = CloudWakeIdle
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeIdle {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .wait(checkAfterMs: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        case 2: return .pause(outcome: try FfiConverterTypeCloudWakeOutcome.read(from: &buf)
+        )
+        
+        case 3: return .done
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CloudWakeIdle, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .wait(checkAfterMs):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt64.write(checkAfterMs, into: &buf)
+            
+        
+        case let .pause(outcome):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeCloudWakeOutcome.write(outcome, into: &buf)
+            
+        
+        case .done:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeIdle_lift(_ buf: RustBuffer) throws -> CloudWakeIdle {
+    return try FfiConverterTypeCloudWakeIdle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCloudWakeIdle_lower(_ value: CloudWakeIdle) -> RustBuffer {
+    return FfiConverterTypeCloudWakeIdle.lower(value)
+}
+
+
 
 public enum CmuxMobileError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -15074,6 +15690,189 @@ public func FfiConverterTypeMediaState_lower(_ value: MediaState) -> RustBuffer 
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a pane is, as the overview sorts it.
+ */
+
+public enum PaneKind: Equatable, Hashable {
+    
+    /**
+     * An agent session (a chat).
+     */
+    case agent
+    /**
+     * A terminal.
+     */
+    case terminal
+    /**
+     * A web page.
+     */
+    case browser
+    /**
+     * A streamed simulator screen: the same dev-server case as a browser.
+     */
+    case simulator
+    /**
+     * A kind this build does not know (a newer Mac's): always shown, since a
+     * filter must never hide what it cannot name.
+     */
+    case other
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PaneKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneKind: FfiConverterRustBuffer {
+    typealias SwiftType = PaneKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .agent
+        
+        case 2: return .terminal
+        
+        case 3: return .browser
+        
+        case 4: return .simulator
+        
+        case 5: return .other
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PaneKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .agent:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .terminal:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .browser:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .simulator:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .other:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneKind_lift(_ buf: RustBuffer) throws -> PaneKind {
+    return try FfiConverterTypePaneKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneKind_lower(_ value: PaneKind) -> RustBuffer {
+    return FfiConverterTypePaneKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The overview's main choice.
+ */
+
+public enum PaneScope: Equatable, Hashable {
+    
+    /**
+     * Agent sessions only.
+     */
+    case agents
+    /**
+     * Agent sessions and terminals.
+     */
+    case agentsAndTerminals
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PaneScope: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePaneScope: FfiConverterRustBuffer {
+    typealias SwiftType = PaneScope
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PaneScope {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .agents
+        
+        case 2: return .agentsAndTerminals
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PaneScope, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .agents:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .agentsAndTerminals:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneScope_lift(_ buf: RustBuffer) throws -> PaneScope {
+    return try FfiConverterTypePaneScope.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePaneScope_lower(_ value: PaneScope) -> RustBuffer {
+    return FfiConverterTypePaneScope.lower(value)
+}
+
+
 
 /**
  * Why the store refused.
@@ -16191,6 +16990,30 @@ fileprivate struct FfiConverterOptionTypeChatPromptRequest: FfiConverterRustBuff
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeCloudWakeOutcome: FfiConverterRustBuffer {
+    typealias SwiftType = CloudWakeOutcome?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeCloudWakeOutcome.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeCloudWakeOutcome.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeComposerSendDone: FfiConverterRustBuffer {
     typealias SwiftType = ComposerSendDone?
 
@@ -16569,6 +17392,31 @@ fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterR
         case 1: return try FfiConverterSequenceTypeKeychainLeftover.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = [UInt32]
+
+    public static func write(_ value: [UInt32], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt32.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt32] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [UInt32]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterUInt32.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -17175,6 +18023,31 @@ fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypePaneKind: FfiConverterRustBuffer {
+    typealias SwiftType = [PaneKind]
+
+    public static func write(_ value: [PaneKind], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypePaneKind.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [PaneKind] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [PaneKind]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypePaneKind.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeProjectionSegment: FfiConverterRustBuffer {
     typealias SwiftType = [ProjectionSegment]
 
@@ -17469,6 +18342,17 @@ public func keepaliveBeatDelayMs(periodMs: UInt64) -> UInt64  {
 })
 }
 /**
+ * The key-to-paint histogram as JSON: per network and route p50/p95/p99,
+ * max and bucket counts; the newest spikes, the gaps between them and the
+ * period they share, if any (named by the link timer it matches).
+ */
+public func keyPaintSnapshot() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_key_paint_snapshot($0
+    )
+})
+}
+/**
  * The device's network changed or came back (iOS `NWPathMonitor`): every
  * WireGuard link moves onto the new network at once without a redial, and
  * the signaling socket is checked (and replaced when dead) so signaling
@@ -17534,6 +18418,25 @@ public func recordKeyEcho(echoMs: UInt32, ackMs: UInt32?)  {try! rustCall() {
 }
 }
 /**
+ * A typed key's echo was painted `paint_ms` after its tap (the terminal's
+ * first frame showing the Mac's echo of it, `TerminalViewController`).
+ * Counted in the key-to-paint histogram under the current network and route.
+ */
+public func recordKeyPaint(paintMs: UInt32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_record_key_paint(
+        FfiConverterUInt32.lower(paintMs),$0
+    )
+}
+}
+/**
+ * Empty the key-to-paint histogram.
+ */
+public func resetKeyPaint()  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_reset_key_paint($0
+    )
+}
+}
+/**
  * Forget every warm socket and cached ICE server (sign-out, account switch).
  */
 public func resetWarmState()async   {
@@ -17587,6 +18490,16 @@ public func setCellularPath(cellular: Bool)  {try! rustCall() {
 public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_set_keepalive_alignment(
         FfiConverterBool.lower(on),$0
+    )
+}
+}
+/**
+ * The device's network now, `wifi`, `lte` (any cellular), `wired` or
+ * `other` (iOS `NWPathMonitor`, every path update): the key-to-paint tag.
+ */
+public func setNetworkKind(kind: String)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_network_kind(
+        FfiConverterString.lower(kind),$0
     )
 }
 }
@@ -17671,6 +18584,57 @@ public func classicCleanupPlan(bundleId: String, keychain: [KeychainLeftover]?, 
 public func classicCleanupVersion() -> Int64  {
     return try!  FfiConverterInt64.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_version($0
+    )
+})
+}
+/**
+ * Decides one hint. On `resume`, run the resume and tell [`cloud_wake_resumed`].
+ */
+public func cloudWakeHint(hint: CloudWakeHint) -> CloudWakeAnswer  {
+    return try!  FfiConverterTypeCloudWakeAnswer_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_hint(
+        FfiConverterTypeCloudWakeHint_lower(hint),$0
+    )
+})
+}
+/**
+ * The idle check of a machine a hint woke, with its status now.
+ */
+public func cloudWakeIdle(machine: String, status: String?) -> CloudWakeIdle  {
+    return try!  FfiConverterTypeCloudWakeIdle_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_idle(
+        FfiConverterString.lower(machine),
+        FfiConverterOptionString.lower(status),$0
+    )
+})
+}
+/**
+ * The person used `machine` (sent a prompt in its chat): a hint wake it had is `used`, once.
+ */
+public func cloudWakeInput(machine: String) -> CloudWakeOutcome?  {
+    return try!  FfiConverterOptionTypeCloudWakeOutcome.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_input(
+        FfiConverterString.lower(machine),$0
+    )
+})
+}
+/**
+ * The hint's resume answered; accepted: the idle check is due in the returned ms.
+ */
+public func cloudWakeResumed(machine: String, ok: Bool) -> UInt64?  {
+    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_resumed(
+        FfiConverterString.lower(machine),
+        FfiConverterBool.lower(ok),$0
+    )
+})
+}
+/**
+ * The wake hint's protocol version the phone sends (`WAKE_HINT_VERSION`).
+ */
+public func cloudWakeVersion() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_version($0
     )
 })
 }
@@ -17941,6 +18905,63 @@ public func pairRequestsSupported(capabilities: [String]) -> Bool  {
 })
 }
 /**
+ * The panes the overview shows. `active` is the open pane's index: it always
+ * shows, so opening the overview from a pane the filter hides still zooms
+ * out of its own card, and the way back to it is one tap.
+ */
+public func paneFilterApply(kinds: [PaneKind], active: UInt32?, filter: PaneFilter) -> PaneFilterResult  {
+    return try!  FfiConverterTypePaneFilterResult_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_apply(
+        FfiConverterSequenceTypePaneKind.lower(kinds),
+        FfiConverterOptionUInt32.lower(active),
+        FfiConverterTypePaneFilter_lower(filter),$0
+    )
+})
+}
+/**
+ * A saved filter back; anything unreadable (an empty or newer setting) is
+ * the default, so a bad value can never hide panes.
+ */
+public func paneFilterDecode(saved: String) -> PaneFilter  {
+    return try!  FfiConverterTypePaneFilter_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_decode(
+        FfiConverterString.lower(saved),$0
+    )
+})
+}
+/**
+ * The overview's filter until the person picks another: agent sessions and
+ * terminals, browsers behind their toggle.
+ */
+public func paneFilterDefault() -> PaneFilter  {
+    return try!  FfiConverterTypePaneFilter_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_default($0
+    )
+})
+}
+/**
+ * The filter as one stable word, for the phone's settings: it never changes
+ * for a filter, so a saved choice survives updates.
+ */
+public func paneFilterEncode(filter: PaneFilter) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_encode(
+        FfiConverterTypePaneFilter_lower(filter),$0
+    )
+})
+}
+/**
+ * Whether one pane of `kind` shows under `filter`, before the open-pane rule.
+ */
+public func paneFilterShows(filter: PaneFilter, kind: PaneKind) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_pane_filter_shows(
+        FfiConverterTypePaneFilter_lower(filter),
+        FfiConverterTypePaneKind_lower(kind),$0
+    )
+})
+}
+/**
  * Turn relay-held sends on or off for links made from now on (default off).
  */
 public func setRelayHoldEnabled(on: Bool)  {try! rustCall() {
@@ -18194,6 +19215,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_keepalive_beat_delay_ms() != 42732) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_key_paint_snapshot() != 27731) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_network_changed() != 41080) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18206,6 +19230,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_record_key_echo() != 59925) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_record_key_paint() != 63665) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_key_paint() != 7589) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18216,6 +19246,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_network_kind() != 35548) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
@@ -18240,6 +19273,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_hint() != 36428) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_idle() != 47657) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_input() != 1920) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_resumed() != 44344) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_version() != 59133) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
@@ -18306,6 +19354,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_supported() != 49678) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_apply() != 17630) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_decode() != 25789) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_default() != 6491) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_encode() != 63147) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_pane_filter_shows() != 3846) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_relay_hold_enabled() != 23892) {
@@ -18465,6 +19528,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_warm_media() != 33318) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_open_file_bundle() != 4368) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_upload_file_bundle() != 2441) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkobserver_on_event() != 31759) {
