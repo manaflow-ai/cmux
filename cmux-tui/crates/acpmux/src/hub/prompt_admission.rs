@@ -37,6 +37,9 @@ use crate::rpc::RpcError;
 pub(crate) const ADMISSION_BOUND: Duration = Duration::from_secs(3);
 /// How long after it came a prompt someone waits on goes without an answer before it is queued.
 pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
+/// How long a prompt someone waits on waits in `queue_slot` for a turn lock held with no turn
+/// shown (or a restore) before it joins the queue, which answers it (#55502's bound).
+pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
 
 /// One prompt's admission: the lock while it holds it, the step it is in, and whether it reached
 /// a step it must finish (then it is never deferred).
@@ -46,6 +49,8 @@ pub struct Admission {
     committed: AtomicBool,
     acquired: AtomicBool,
     came: Instant,
+    /// Someone waits on its acceptance or refusal.
+    listened: AtomicBool,
     session: String,
 }
 
@@ -64,6 +69,7 @@ impl Admission {
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
             came: Instant::now(),
+            listened: AtomicBool::new(false),
             session: session.id.clone(),
         })
     }
@@ -77,7 +83,11 @@ impl Admission {
 
     /// Takes the session's admission, waiting at most [`ADMISSION_BOUND`], and holds it at most
     /// that long (its lease). Once: a prompt the RPC layer admitted does not wait again.
-    pub(crate) async fn acquire(self: &Arc<Self>, session: &Arc<Session>) {
+    pub(crate) async fn acquire(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        scope: &cmux_scope::Scope,
+    ) {
         if self.acquired.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -89,7 +99,7 @@ impl Admission {
         *self.guard.lock().unwrap_or_else(|e| e.into_inner()) = Some(guard);
         self.enter("setup");
         let lease = Arc::downgrade(self);
-        tokio::spawn(async move {
+        scope.spawn_named("prompt-admission-lease", async move {
             tokio::time::sleep(ADMISSION_BOUND).await;
             let Some(admission) = lease.upgrade() else { return };
             let lapsed = admission.guard.lock().unwrap_or_else(|e| e.into_inner()).take();
@@ -129,13 +139,23 @@ impl Admission {
     pub(crate) fn answer_due(&self) -> Instant {
         self.came + ANSWER_BOUND
     }
+
+    /// Someone waits on its acceptance or refusal.
+    pub(super) fn listen(&self) {
+        self.listened.store(true, Ordering::SeqCst);
+    }
+
+    /// The due time `queue_slot` keeps to for the turn lock: None when no one waits on it.
+    pub(super) fn queue_due(&self) -> Option<Instant> {
+        self.listened.load(Ordering::SeqCst).then(|| self.answer_due())
+    }
 }
 
 /// Takes `session`'s prompt admission for a prompt that came now ([`Admission::acquire`]). The
 /// only way a prompt takes it.
-pub(crate) async fn admit(session: &Arc<Session>) -> Arc<Admission> {
+pub(crate) async fn admit(session: &Arc<Session>, scope: &cmux_scope::Scope) -> Arc<Admission> {
     let admission = Admission::new(session);
-    admission.acquire(session).await;
+    admission.acquire(session, scope).await;
     admission
 }
 
@@ -164,6 +184,8 @@ pub(super) enum Unanswered {
     Defer(Deferral),
     /// It may not queue (`no_queue`, an automatic continuation): busy, as a full chat is.
     Busy,
+    /// A process-local race fence cannot be reconstructed by a deferred runner.
+    Guarded(Arc<dyn Fn() -> Result<(), RpcError> + Send + Sync>),
     /// A steer that only steers: unavailable.
     SteerUnavailable,
 }
@@ -182,6 +204,9 @@ impl Unanswered {
         }
         if opts.no_queue || opts.after_turn.is_some() {
             return Some(Self::Busy);
+        }
+        if let Some(guard) = &opts.race_guard {
+            return Some(Self::Guarded(guard.clone()));
         }
         let prompt_id =
             opts.prompt_id.get_or_insert_with(|| uuid::Uuid::now_v7().to_string()).clone();
@@ -213,6 +238,10 @@ impl Unanswered {
             on_accepted,
         }))
     }
+}
+
+pub(super) fn restore_deadline() -> RpcError {
+    RpcError::deadline_exceeded("prompt waiting for journal restore", ANSWER_BOUND)
 }
 
 impl Hub {
@@ -256,6 +285,7 @@ impl Hub {
             admitted: d.admitted,
             after_turn: false,
             steer_on_start: false,
+            answer_due: None,
         };
         if let Some(refused) = self.takes_no_prompt(session, &slot) {
             return Err(refused);
@@ -266,36 +296,30 @@ impl Hub {
             Err(_) => QueueLimits::defaults(),
         };
         let turn_id = uuid::Uuid::now_v7().to_string();
+        // A restore must not start between our check and the queued journal entry.
+        // Its writer can still be finishing the last page after releasing its lease.
+        let admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+        if session.restoring.load(Ordering::SeqCst)
+            || session.restore_token.load(Ordering::SeqCst) != 0
+        {
+            return Err(restore_deadline());
+        }
         // Counted as `queue_slot` counts a prompt that queues, before it goes in.
         session.queued.fetch_add(1, Ordering::SeqCst);
-        let ((_, _, _), position) = self
-            .enqueue_or_refuse(session, &slot, &turn_id, limits)
-            .map_err(|refused| match refused {
-                Err(e) => e,
-                Ok(v) => RpcError::internal(format!("the queue answered a deferral: {v}")),
-            })?;
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.
-        let outcome = {
-            let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
-            let outcome = match ledger.iter().find(|(id, _)| *id == d.prompt_id) {
-                Some((_, outcome)) => outcome.clone(),
-                None => {
-                    let outcome = Arc::new(tokio::sync::watch::channel(None).0);
-                    ledger.push_back((d.prompt_id.clone(), outcome.clone()));
-                    outcome
-                }
-            };
-            let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
-            restored.push((d.prompt_id.clone(), turn_id.clone()));
-            drop(restored);
-            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(q) = queue.iter_mut().find(|q| q.turn_id == turn_id) {
-                q.restored = true;
-                q.resume = true;
-            }
+        let (outcome, position) = self.enqueue(session, &slot, &turn_id, limits, |row, _| {
+            let outcome = super::prompt_ledger::recover(session, &row.prompt_id);
+            row.restored = true;
+            row.resume = true;
+            session
+                .restored
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push((row.prompt_id.clone(), row.turn_id.clone()));
             outcome
-        };
+        })?;
+        drop(admit);
         let mut answer = outcome.subscribe();
         tracing::warn!(session = %session.id, prompt = %d.prompt_id, stage, position, "prompt unanswered in time: queued");
         let accepted = json!({"sessionId": session.id, "promptId": d.prompt_id, "turnId": turn_id, "queued": true, "state": "queued", "position": position, "deferred": true});

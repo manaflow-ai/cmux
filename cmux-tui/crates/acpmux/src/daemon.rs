@@ -51,6 +51,8 @@ mod cloud_handoff;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_activity;
+#[cfg(all(test, unix))]
+pub(crate) use cloud_activity::probe as cloud_activity_probe;
 // Connect to the daemon, or start one and connect (the client side).
 mod connect;
 use connect::*;
@@ -62,6 +64,8 @@ mod home_watch;
 #[cfg(unix)]
 pub(crate) mod listener_handover;
 mod managed_unit;
+// A launchd job's start stands by while another daemon holds its home (`daemon/launchd_standby.rs`).
+mod launchd_standby;
 // A take-over start yields to a successor of its own build (`daemon/take_over_yield.rs`).
 mod take_over_yield;
 use managed_unit::managed_unit_connect_with;
@@ -164,12 +168,12 @@ fn install_panic_log() {
     }
 }
 
-/// Debug builds and unit tests: the one panic the test triggers raise (below, and the agent host's
+/// Debug builds only: the one panic the test triggers raise (below, and the agent host's
 /// translator seam, `agent_host/host.rs` `test_translator_panic`).
 #[cfg(any(test, debug_assertions))]
 #[allow(
     clippy::panic,
-    reason = "debug-build test trigger for the acpmux panic log; release builds have no seam"
+    reason = "debug-build and test-build trigger for the acpmux panic log; release builds have no seam"
 )]
 pub(crate) fn test_panic(message: &str) -> ! {
     // crash-allow: debug-only test trigger for the acpmux panic log
@@ -554,6 +558,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
 
     let store = crate::store::open(&config.store, &home())?;
     crate::mcp_gateway::start(&home()).await; // before any session starts
+    #[cfg(unix)]
+    crate::mcp_pool::start(&home()).await;
     let mut moved_listener = false;
     // The handed web listener, when it is bound where this start would bind (and the address
     // still passes the listener rule above); otherwise closed before the bind below.
@@ -745,6 +751,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             }
         }
         let pending = hub.outbox.open(&home().join("outbox.json"));
+        // A delivery that ends failed bounces to its sender (`hub/dead_letters.rs`).
+        hub.start_bounces();
         crate::hub::register::load_registered();
         // Whatever the rename did: a rename that failed leaves the copied outbox in place, and
         // none of it is this machine's to deliver.
@@ -938,6 +946,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let carrier_file = crate::server::carrier::start(&hub, &home()).await;
+    // A fleet host takes a new channel build within a minute (`cli/host_update_watch.rs`), only
+    // from the daemon `acpmux.service` runs: one in another home (a test's, a second daemon's) leaves it.
+    if home() == crate::config::default_home() {
+        hub.scope.spawn_until_cancelled("channel watch", crate::cli::hosts::watch_channel());
+    }
     let ws_shutdown = hub.ws_shutdown.clone();
     // Opt-in (`CMUX_TAILNET_CARRIER`): peers of this person's tailnet may also reach the same
     // port on this machine's tailnet address, whois-admitted (`tailnet_carrier.rs`).
@@ -1216,8 +1229,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         });
     }
     // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
-    let _usage_upload =
-        hub.scope.spawn_until_cancelled("usage-share-upload", crate::server::usage_upload_loop());
+    let _usage_upload = hub.scope.spawn_until_cancelled(
+        "usage-share-upload",
+        crate::server::usage_upload_loop(hub.settings_changes.subscribe()),
+    );
     #[cfg(target_os = "linux")]
     {
         let hub = hub.clone();
@@ -1737,9 +1752,19 @@ async fn acquire_daemon_lock(path: &std::path::Path, take_over: bool) -> Result<
     // successor of the same update (`daemon/take_over_yield.rs`). A unit's daemon never yields:
     // it must own the home, or the unit is left failed while a detached daemon serves it.
     let yields_since = (!unit).then(crate::store::now_ms);
+    let stands_by = !unit && launchd_standby::this_start_stands_by(take_over);
     loop {
         match acquire_lock(path) {
             Ok(lock) => return Ok(lock),
+            Err(error) if stands_by && error.downcast_ref::<LockHeld>().is_some() => {
+                // launchd restarts its job whatever the exit status: a refusal here was a
+                // respawn loop on a home the app's daemon serves. Stand by until it is free.
+                tracing::info!("{error} launchd started this daemon: standing by until it ends");
+                while lock_has_live_holder(path) {
+                    tokio::time::sleep(launchd_standby::STANDBY_LOOK).await;
+                }
+                tokio::time::sleep(launchd_standby::STANDBY_GRACE).await;
+            }
             Err(error) if supervised && error.downcast_ref::<LockHeld>().is_some() => {
                 #[cfg(unix)]
                 let ours =

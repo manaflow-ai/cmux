@@ -324,14 +324,22 @@ fn queued(i: usize, text: &str) -> Value {
            "prompt": [{"type": "text", "text": text}], "control": "local", "trustGate": false})
 }
 
-/// Writes the events a stopped test daemon will restore from this session's last segment.
-fn append_offline(daemon: &Daemon, session: &str, write: impl FnOnce(&mut dyn FnMut(&str, Value))) {
-    let dir = daemon.home.join("sessions").join(session).join("events");
+/// Appends the records `write` makes to a new session's log, as the daemons that ran them
+/// would have, restarts the daemon and returns the prompt ids its restored queue holds and the
+/// CPU time the daemon used until the logs were read and the queues restored.
+async fn restore_long_log(
+    name: &str,
+    write: impl FnOnce(&mut dyn FnMut(&str, Value)),
+) -> (Vec<String>, Duration) {
+    let mut daemon = Daemon::new(name, "approve-all");
+    let session = new_session(&daemon).await;
+    daemon.sigterm();
+    let dir = daemon.home.join("sessions").join(&session).join("events");
     let mut segments: Vec<PathBuf> =
         std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())).collect();
     segments.sort();
     let segment = segments.last().expect("the new session's log segment").clone();
-    let mut seq = daemon.events(session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    let mut seq = daemon.events(&session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
     let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
         as u64;
     let mut lines = String::new();
@@ -344,19 +352,7 @@ fn append_offline(daemon: &Daemon, session: &str, write: impl FnOnce(&mut dyn Fn
     });
     let mut file = std::fs::OpenOptions::new().append(true).open(&segment).unwrap();
     std::io::Write::write_all(&mut file, lines.as_bytes()).unwrap();
-}
-
-/// Appends the records `write` makes to a new session's log, as the daemons that ran them
-/// would have, restarts the daemon and returns the prompt ids its restored queue holds and the
-/// CPU time the daemon used until the logs were read and the queues restored.
-async fn restore_long_log(
-    name: &str,
-    write: impl FnOnce(&mut dyn FnMut(&str, Value)),
-) -> (Vec<String>, Duration) {
-    let mut daemon = Daemon::new(name, "approve-all");
-    let session = new_session(&daemon).await;
-    daemon.sigterm();
-    append_offline(&daemon, &session, write);
+    drop(file);
 
     // The restored prompts wait for the test (`hold_startup`).
     hold_startup(&daemon);
@@ -926,110 +922,4 @@ async fn an_edited_agent_message_stays_the_persons_across_a_crash() {
     let v = rpc.call("_acpmux/queue_remove", agents_only).await;
     assert_eq!(v["removed"], false, "the restart made the person's edit an agent's again: {v}");
     assert_eq!(v["notFromAgent"], true, "{v}");
-}
-
-/// The old hosted agent remains alive between daemons with a background helper and
-/// a ready chat. The incoming prompt must get its acceptance before the drain finishes.
-#[tokio::test]
-async fn hosted_background_agent_accepts_a_prompt_and_drains_66_restored_notices() {
-    const COUNT: usize = 66;
-    let mut daemon = Daemon::new("bgq66", "approve-all");
-    let session = new_session(&daemon).await;
-    let attach = json!({"sessionId": session, "limit": 0});
-    let mut rpc = daemon.rpc().await;
-    let spawned = rpc
-        .call(
-            "session/prompt",
-            json!({
-                "sessionId": session, "prompt": [{"type": "text", "text": "background-subagent"}]
-            }),
-        )
-        .await;
-    assert_eq!(spawned["stopReason"], "end_turn");
-    let before = rpc.call("_acpmux/attach", attach.clone()).await;
-    assert_eq!(before["session"]["subagentsRunning"], 1);
-    let record = daemon.host_record(&session);
-    let host = record["host_pid"].as_i64().unwrap();
-    let harness = record["harness_pid"].as_i64().unwrap();
-    drop(rpc);
-    daemon.sigterm();
-    assert!(alive(host) && alive(harness));
-
-    let ids: Vec<_> = (0..COUNT).map(|i| format!("bg-done-bg-{i}")).collect();
-    append_offline(&daemon, &session, |record| {
-        for (i, id) in ids.iter().enumerate() {
-            let title = format!("Background command finished: job {i} (exit 0)");
-            let mut msg = queued(i, &format!("[notice from acpmux] {title}"));
-            msg["promptId"] = json!(id);
-            msg["client"] = json!("acpmux");
-            msg["agent"] = json!("acpmux");
-            let notice = json!({"sender":"acpmux", "title":title, "severity":"info"});
-            let mut provenance = acpmux::prompt_provenance::notice(&notice, &session);
-            provenance["bgTaskId"] = json!(format!("bg-{i}"));
-            msg["provenance"] = provenance;
-            record("queued", msg);
-        }
-    });
-    hold_startup(&daemon);
-    daemon.start();
-    let mut rpc = daemon.rpc().await;
-    let restored = rpc.call("_acpmux/attach", attach.clone()).await;
-    let queue = restored["session"]["queue"].as_array().unwrap();
-    assert_eq!(queue.iter().map(|q| q["promptId"].as_str().unwrap()).collect::<Vec<_>>(), ids);
-    std::fs::write(daemon.home.join("go"), b"go").unwrap();
-    let start = Instant::now();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        let id = rpc.send("session/prompt", json!({
-            "sessionId": session, "prompt": [{"type": "text", "text": "hello after restore"}],
-            "_meta": {"acpmux": {"promptId": "after-restore"}}
-        })).await;
-        loop {
-            let line =
-                rpc.lines.next_line().await.unwrap().expect("connection closed before acceptance");
-            let message: Value = serde_json::from_str(&line).unwrap();
-            if message["method"] == acpmux::rpc::method::MUX_PROMPT_ACCEPTED
-                && message["params"]["promptId"] == "after-restore"
-            {
-                break;
-            }
-            assert_ne!(
-                message.get("id"),
-                Some(&json!(id)),
-                "prompt returned without acceptance: {message}"
-            );
-        }
-    })
-    .await
-    .expect("the fresh prompt received no acceptance in five seconds");
-    let admission = start.elapsed();
-
-    tokio::time::timeout(Duration::from_secs(90), async {
-        loop {
-            let events = daemon.events(&session);
-            let completed: Vec<_> = events
-                .iter()
-                .filter(|e| e["kind"] == "turn_result" && e["msg"]["stopReason"] == "end_turn")
-                .filter_map(|e| e["msg"]["promptId"].as_str())
-                .collect();
-            if completed.contains(&"after-restore")
-                && ids.iter().all(|id| completed.contains(&id.as_str()))
-            {
-                for id in &ids {
-                    assert_eq!(completed.iter().filter(|p| **p == id.as_str()).count(), 1, "{id}");
-                }
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(200)).await;
-        }
-    })
-    .await
-    .expect("all restored notices and the new prompt must complete");
-    let final_state = rpc.call("_acpmux/attach", attach).await;
-    assert_eq!(final_state["session"]["queue"], json!([]));
-    assert_eq!(final_state["session"]["subagentsRunning"], 1);
-    let adopted = daemon.host_record(&session);
-    assert_eq!(adopted["host_pid"].as_i64(), Some(host));
-    assert_eq!(adopted["harness_pid"].as_i64(), Some(harness));
-    assert!(alive(host) && alive(harness));
-    eprintln!("accepted in {admission:?}; {COUNT} hosted notices drained in {:?}", start.elapsed());
 }

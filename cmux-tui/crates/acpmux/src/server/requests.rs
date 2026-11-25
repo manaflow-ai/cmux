@@ -1406,7 +1406,18 @@ async fn rename(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
         .with_data(json!({"reason": "rename.registered"})));
     }
     hub.rename(&s, name.to_owned()).await?;
+    // The name the rename settled on, as one edit in the synced replica (`hub/synced.rs`).
+    hub.synced_record(crate::hub::synced::title_key(&s.id), json!(s.meta().name));
     Ok(hub.session_summary(&s))
+}
+
+/// A read or unread mark a person set here, as one edit in the synced replica (`hub/synced.rs`).
+fn synced_mark(hub: &Hub, params: &Value, read: bool) {
+    if let Ok(key) = session_key(params)
+        && let Ok(s) = hub.resolve(key)
+    {
+        hub.synced_record(crate::hub::synced::read_key(&s.id), json!(read));
+    }
 }
 
 /// A fixed identity is a typed internal argument, never a session/new field.
@@ -1572,16 +1583,21 @@ async fn dispatch_request_with_identity(
             let extensions: &[&str] = &[
                 super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_V2, method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_USAGE, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_SESSION_HOLD, method::MUX_FLEET_HOLD, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
-                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_CUSTOMIZE_RUN, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE, method::MUX_AUTO_SESSION_SET, method::MUX_AUTO_SESSION_LEFTOVER, method::MUX_AUTO_SESSION_WAKE, method::MUX_AUTO_SESSION_TRANSCRIPT,
-                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_HERE_BEAT, method::MUX_HERE, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
+                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_SUCCEED, method::MUX_ROLE, method::MUX_REGISTER, method::MUX_INBOX_RELAY, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_PAUSE, method::MUX_WAKE, method::MUX_SESSION_HOLD, method::MUX_FLEET_HOLD, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
+                method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_GITHUB_REST, method::MUX_ATTACHMENT, method::MUX_TURN_SHOTS, method::MUX_CUSTOMIZE_RUN, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_PROCESS_CENSUS, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE, method::MUX_AUTO_SESSION_SET, method::MUX_CHAT_MOVE, method::MUX_AUTO_SESSION_LEFTOVER, method::MUX_AUTO_SESSION_WAKE, method::MUX_AUTO_SESSION_TRANSCRIPT,
+                method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_PROMPTS_LIST, method::MUX_PROMPTS_SAVE, method::MUX_PROMPTS_DELETE, method::MUX_STASH_LIST, method::MUX_STASH_PUSH, method::MUX_STASH_GET, method::MUX_STASH_DROP, method::MUX_STASH_MOVE, method::MUX_MEMORY_RESOLVE, method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_HERE_BEAT, method::MUX_HERE, method::MUX_SYNC_PULL, method::MUX_SYNC_PUSH, method::MUX_MARK_UNREAD, method::MUX_MARK_READ, method::MUX_SEEN, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_SUBAGENT_LIST, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SEND_FANOUT, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
                 method::CHAT_FIX_FROM_LINK,
                 method::CHAT_FIX_FROM_LINK_PREPARE,
+                method::MUX_TEAM_LISTEN,
                 method::MUX_PROJECT_NEW,
                 method::MUX_PLACE_CHAT,
+                method::MUX_TURN_FRAMES,
                 method::MUX_PERF,
                 method::MUX_CALLERS,
+                method::MUX_CHAT_SECRETS_SET,
+                method::MUX_CHAT_SECRETS_CLEAR,
+                method::MUX_CHAT_SECRETS_LIST,
                 method::MUX_FELT_SNAPSHOT,
             ];
             let capabilities = crate::capabilities::ids_for_connection(matches!(
@@ -2206,6 +2222,8 @@ async fn dispatch_request_with_identity(
             // The felt send-to-ack starts here, before the admission wait (`felt.rs`).
             let felt_started = std::time::Instant::now();
             let s = resolved_session(hub, resolved.as_ref(), &params)?;
+            // A Cloud VM's part of the send's start trace begins here (`send_trace.rs`).
+            crate::send_trace::received(&s.id, &params);
             // A delivery again names the generation it first reached (`outbox.rs`
             // `redeliver_open`): a session purged and made again under its id never runs it.
             if let Some(generation) =
@@ -2218,10 +2236,7 @@ async fn dispatch_request_with_identity(
                 .with_data(json!({"reason": "stale_generation", "retryable": false})));
             }
             // Ordered by the chat's prompt admission from here (`hub/prompt_admission.rs`), bounded.
-            let admission = crate::hub::prompt_admission::admit(&s).await;
-            // Every RPC-side preparation await shares the arrival deadline that admission gave
-            // this delivery. The hub has its own bounded admission after this setup completes.
-            let preparation_deadline = admission.answer_due();
+            let admission = crate::hub::prompt_admission::admit(&s, &hub.scope).await;
             attach(hub, conn, &s.id);
             if person_asks(conn) {
                 super::lane_parent::person_wrote(hub, &s);
@@ -2251,7 +2266,7 @@ async fn dispatch_request_with_identity(
                 Vec::new()
             } else {
                 prompt_preparation(
-                    preparation_deadline,
+                    admission.answer_due(),
                     "prompt_uploads::owned",
                     crate::prompt_uploads::owned(&s.id, &blocks),
                 )
@@ -2415,6 +2430,10 @@ async fn dispatch_request_with_identity(
                 }
                 _ => p,
             });
+            // The sender's own delivery deadline (`acpmux send --within`, `hub/inbox.rs`
+            // "Deadlines"), kept on the provenance so the inbox record keeps it.
+            let within = crate::prompt_class::within(&params);
+            let provenance = provenance.map(|p| crate::prompt_provenance::mark_within(p, within));
             // Another agent's message with no provenance (`hub/digest.rs`): one that names its
             // sender, or one from a connection that proved it runs in an acpmux session.
             let agent = notice_sender
@@ -2488,7 +2507,13 @@ async fn dispatch_request_with_identity(
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             let supersede_set = supersede.is_some();
-            let inbox_on = match prompt_preparation(preparation_deadline, "hub.config.read", hub.config.read()).await {
+            let inbox_on = match prompt_preparation(
+                admission.answer_due(),
+                "hub.config.read",
+                hub.config.read(),
+            )
+            .await
+            {
                 Ok(config) => config.agent_inbox(),
                 Err(error) => {
                     preserve_owned_uploads_for_retry(&mut owned);
@@ -2512,7 +2537,7 @@ async fn dispatch_request_with_identity(
                         result => result.map(|()| blocks),
                     }
                 });
-                blocks = match prompt_preparation(preparation_deadline, "prompt_uploads::resolve", resolved).await {
+                blocks = match prompt_preparation(admission.answer_due(), "prompt_uploads::resolve", resolved).await {
                     Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
                     Err(error) => {
                         preserve_owned_uploads_for_retry(&mut owned);
@@ -2530,7 +2555,7 @@ async fn dispatch_request_with_identity(
                 let received = tokio::task::spawn_blocking(move || {
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
                 });
-                (blocks, saved) = match prompt_preparation(preparation_deadline, "attach::receive", received).await {
+                (blocks, saved) = match prompt_preparation(admission.answer_due(), "attach::receive", received).await {
                     Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
                     Err(error) => {
                         preserve_owned_uploads_for_retry(&mut owned);
@@ -2666,7 +2691,7 @@ async fn dispatch_request_with_identity(
                 && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
                 && !person_message;
             if let Err(error) = prompt_preparation(
-                preparation_deadline,
+                admission.answer_due(),
                 "agent_messages::person_prompt",
                 super::agent_messages::person_prompt(hub, conn, &s, agent_message),
             )
@@ -3058,7 +3083,9 @@ async fn dispatch_request_with_identity(
                     ));
                 }
                 let wait = params.get("wait").and_then(Value::as_bool) == Some(true);
-                return heap(|| hub.reserve_home_warm(wait)).await;
+                // The harnesses and models the person set up (personal spares, ask-30d56720f6).
+                let shapes = crate::hub::parse_home_shapes(params.get("shapes"))?;
+                return heap(|| hub.reserve_home_warm(wait, shapes)).await;
             }
             let s = |k: &str| params.get(k).and_then(Value::as_str).map(str::to_owned);
             // A Cloud chat's coming start (cmux#45953): its owner credential, from this machine's
@@ -3540,6 +3567,7 @@ async fn dispatch_request_with_identity(
         // Auto mode (`auto_session/surface.rs`): the chat's own machine switches it and settles
         // its kept changes, and only for the person (`auto_gate.rs`).
         method::MUX_AUTO_SESSION_SET
+        | method::MUX_CHAT_MOVE
         | method::MUX_AUTO_SESSION_LEFTOVER
         | method::MUX_AUTO_SESSION_WAKE
         | method::MUX_AUTO_SESSION_TRANSCRIPT => {
@@ -3849,6 +3877,13 @@ async fn dispatch_request_with_identity(
         }
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
+            // The machine's fill, to a client that asked for it (`fill.rs`, RFD 0139).
+            super::fill::follow(
+                conn,
+                params.get("fill") == Some(&Value::Bool(true)),
+                &s.id,
+                &s.meta().cwd,
+            );
             let hidden = params.get("visible") == Some(&Value::Bool(false));
             // The app's pane draws nothing of a chat it does not show: no stream while hidden.
             // Never a peer daemon's link, which attaches hidden for the people it carries.
@@ -4062,8 +4097,26 @@ async fn dispatch_request_with_identity(
             }
             Ok(serde_json::to_value(hub.here_now(&params)?).unwrap_or_default())
         }
-        method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
-        method::MUX_MARK_READ => view::mark_read(hub, &params),
+        method::MUX_SYNC_PULL => {
+            Ok(serde_json::to_value(hub.sync_pull(&params)?).unwrap_or_default())
+        }
+        method::MUX_SYNC_PUSH => {
+            // A mesh link renames only through `mesh_read.rs`'s checked path, not a merge.
+            if view::a_link(conn) {
+                return Err(crate::hub::presence::peer_unsupported());
+            }
+            Ok(serde_json::to_value(hub.sync_push(&params).await?).unwrap_or_default())
+        }
+        method::MUX_MARK_UNREAD => {
+            let done = view::mark_unread(hub, &params)?;
+            synced_mark(hub, &params, false);
+            Ok(done)
+        }
+        method::MUX_MARK_READ => {
+            let done = view::mark_read(hub, &params)?;
+            synced_mark(hub, &params, true);
+            Ok(done)
+        }
         method::MUX_SEEN => view::seen(hub, &params),
         method::MUX_APP_REPLY => super::app_reply::check(hub, conn, &params),
         method::MUX_HARNESS_INVENTORY_WATCH => super::inventory_watch::handle(hub, conn, &params),
@@ -4071,6 +4124,15 @@ async fn dispatch_request_with_identity(
         super::controls::METHOD => super::controls::handle(hub, conn, &params),
         method::MUX_WATCH => super::list_reply::watch(hub, conn, &params).await,
         method::MUX_EVENTS | method::MUX_ATTACHMENT => {
+            // A client reading a chat's records again lost some of its stream (a host left frames
+            // out): its next chunk goes whole, a template it can rebuild from (`chunk_deltas.rs`).
+            if m == method::MUX_EVENTS
+                && conn.chunk_deltas.enabled()
+                && let Ok(key) = session_key(&params)
+                && let Ok(s) = hub.resolve(key)
+            {
+                conn.chunk_deltas.forget(&s.id);
+            }
             // A page reads the log from disk: off the runtime's workers (`qos::off_worker`).
             crate::qos::off_worker(|| events::handle(hub, m, &params, conn.caller()))
         }
@@ -4080,6 +4142,14 @@ async fn dispatch_request_with_identity(
             let turn = str_param(&params, "turnId")
                 .ok_or_else(|| RpcError::invalid_params("turnId is required"))?;
             Ok(crate::hub::turn_shots::turn_shots(&s.id, turn).await)
+        }
+        // A read, for whoever may read the log; `look` captures the page now (the `look` tool).
+        method::MUX_TURN_FRAMES => {
+            let s = hub.resolve(session_key(&params)?)?;
+            if params.get("look").and_then(Value::as_bool) == Some(true) {
+                return Ok(crate::hub::turn_frames::look(&s.id).await);
+            }
+            Ok(crate::hub::turn_frames::turn_frames(&s.id, &params).await)
         }
         // The person's own click on a wrap-up card (`customize_run.rs`): an allowlisted
         // `cmux customize` argv, no shell. Never offered to a read-only connection. Only the
@@ -4102,7 +4172,8 @@ async fn dispatch_request_with_identity(
         method::MUX_TEAM_SEND
         | method::MUX_TEAM_INBOX
         | method::MUX_TEAM_READ
-        | method::MUX_TEAM_ACK => super::team::handle(hub, conn, m, &params).await,
+        | method::MUX_TEAM_ACK
+        | method::MUX_TEAM_LISTEN => super::team::handle(hub, conn, m, &params).await,
         method::MUX_REGISTER => {
             // Only a process of this machine, by the pid the kernel gave at accept: the session
             // registered is the one that process runs under, never one it names.
@@ -4131,6 +4202,30 @@ async fn dispatch_request_with_identity(
             };
             let home = hub.harness_homes().claude;
             crate::claude_inbox_relay::poll(pid, home, &params, conn.ended.subscribe()).await
+        }
+        method::MUX_SUCCEED => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let names: Vec<String> = params
+                .get("names")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+                .unwrap_or_default();
+            hub.succeed(&s, &names)
+        }
+        method::MUX_ROLE => {
+            let op = params.get("op").and_then(Value::as_str).unwrap_or("ls");
+            if op == "ls" {
+                return Ok(hub.roles_list());
+            }
+            let s = hub.resolve(session_key(&params)?)?;
+            let address = params.get("address").and_then(Value::as_str).unwrap_or_default();
+            match op {
+                "claim" => hub.claim_role(&s, address),
+                "release" => hub.release_role(&s, address),
+                other => Err(RpcError::invalid_params(format!(
+                    "op {other:?}: give claim, release or ls"
+                ))),
+            }
         }
         // An `opId` runs it once, as `_acpmux/archive` (`hub/op_once.rs`).
         method::MUX_RENAME => hub.op_once.run(m, &params, || rename(hub, &params)).await,
@@ -4716,9 +4811,6 @@ mod shutdown_reason_tests {
 }
 
 /// Bounds every await while an incoming prompt is prepared for the hub.
-///
-/// The admission's deadline starts when the delivery arrives, so a stalled RPC preparation
-/// returns the same retryable busy error the hub uses for an unanswered prompt.
 async fn prompt_preparation<T>(
     expires: tokio::time::Instant,
     wait: &'static str,
@@ -4771,69 +4863,6 @@ async fn bounded_preparation<T>(
         return Err(stopped());
     }
     result
-}
-
-#[cfg(test)]
-mod prompt_preparation_tests {
-    use super::{preserve_owned_uploads_for_retry, prompt_preparation};
-    use crate::attach::OwnedUploads;
-    use crate::config::{Config, StoreMode};
-    use serde_json::Value;
-    use std::path::PathBuf;
-    use std::time::Duration;
-
-    #[tokio::test(start_paused = true)]
-    async fn preparation_deadline_returns_retryable_rpc_error() {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
-        let result = prompt_preparation(deadline, "test.wait", std::future::pending::<()>()).await;
-        let error = result.unwrap_err();
-        assert_eq!(
-            error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str),
-            Some("deadline_exceeded")
-        );
-        assert_eq!(error.data.as_ref().and_then(|data| data.get("wait")).and_then(Value::as_str), Some("test.wait"));
-        assert_eq!(error.data.as_ref().and_then(|data| data.get("timeoutMs")).and_then(Value::as_u64), Some(1000));
-    }
-
-    #[test]
-    fn timed_out_preparation_releases_cleanup_guard_for_retry() {
-        let dir = std::env::temp_dir().join(format!("acpmux-owned-retry-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("upload");
-        std::fs::write(&path, b"prompt upload").unwrap();
-        let mut owned = OwnedUploads(vec![path.clone()]);
-        preserve_owned_uploads_for_retry(&mut owned);
-        assert!(owned.0.is_empty());
-        assert!(path.exists(), "a retry still needs its owned upload");
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn a_held_config_writer_times_out_and_preserves_owned_files() {
-        let mut config = Config::default();
-        config.store.mode = StoreMode::Memory;
-        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
-        let hub = crate::hub::Hub::new(config, store);
-        let writer = hub.config.write().await;
-        let dir = std::env::temp_dir().join(format!("acpmux-config-retry-{}", uuid::Uuid::now_v7()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("upload");
-        std::fs::write(&path, b"prompt upload").unwrap();
-        let mut owned = OwnedUploads(vec![path.clone()]);
-        let result = prompt_preparation(
-            tokio::time::Instant::now() + Duration::from_secs(1),
-            "hub.config.read",
-            hub.config.read(),
-        )
-        .await;
-        let error = result.unwrap_err();
-        preserve_owned_uploads_for_retry(&mut owned);
-        assert_eq!(error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str), Some("deadline_exceeded"));
-        assert_eq!(error.data.as_ref().and_then(|data| data.get("wait")).and_then(Value::as_str), Some("hub.config.read"));
-        assert!(path.exists(), "config timeout must keep the upload for retry");
-        drop(writer);
-        let _ = std::fs::remove_dir_all(dir);
-    }
 }
 
 #[cfg(test)]

@@ -56,6 +56,10 @@
 //! timer's entry goes as it is taken, so a compaction its gates refuse (a draft, a Web turn
 //! last) keeps the harness up for at most one more idle period, never for good.
 //!
+//! A deadline that comes while only a turn's lease (`turn_lock`) is still held, in the last steps
+//! of a turn already answered, waits for the lease, bounded by the cache's expiry, and checks
+//! again: refused there, the timer was spent and nothing armed it again.
+//!
 //! A turn of [`KIND`] that fails is not continued by `auto_resume.rs` (`turns.rs`): the next
 //! turn's usage arms the timer again, and a continuation would be a model call nobody asked for.
 
@@ -87,7 +91,7 @@ pub(crate) fn lead_ms(left_ms: u64) -> u64 {
 /// The armed timers: session id -> (generation, the task).
 static TIMERS: std::sync::LazyLock<StdMutex<TimerMap>> = std::sync::LazyLock::new(Default::default);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
-/// session id -> (generation, the task, the cache expiry it was armed for, the context share).
+/// session id -> (generation, the task, the cache expiry it was armed for, the context `(used, size)`).
 type TimerMap = HashMap<String, (u64, tokio::task::AbortHandle, u64, (u64, u64))>;
 pub const SETTING_ENABLED: &str = "agents.cacheCompact.enabled";
 pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
@@ -198,6 +202,15 @@ fn completed_compaction(update: &Value) -> bool {
         && update.get("state").and_then(Value::as_str) == Some("completed")
 }
 
+/// What [`Hub::cache_compact_ready`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ready {
+    Yes,
+    /// Ready but for a turn's lease (`turn_lock`) still held: the fire waits for it.
+    Leased,
+    No,
+}
+
 impl Hub {
     /// `on_update` for an update the agent sent, then the timer for a live `usage_update`, which
     /// arms it, or a completed compaction, which ends it.
@@ -288,9 +301,9 @@ impl Hub {
     }
 
     /// Whether `session` may be compacted now: idle as the reaper judges it, nobody typing, no
-    /// draft, no Web turn last (module docs).
-    fn cache_compact_ready(&self, session: &Session) -> bool {
-        let idle = self.idle_eligible(session) && session.turn_lock.try_lock().is_ok();
+    /// draft, no Web turn last (module docs). [`Ready::Leased`]: all of that, but a turn's lease
+    /// (`turn_lock`) is still held.
+    fn cache_compact_ready(&self, session: &Session) -> Ready {
         let remote = session.floor.last_turn_web.load(Ordering::SeqCst)
             || session.floor.cloud_mobile_turn.load(Ordering::SeqCst);
         let presence = self.presence.snapshot(&session.id);
@@ -301,7 +314,13 @@ impl Hub {
         let draft = session
             .read_meta(|m| m.composer_draft.as_deref().is_some_and(|d| !d.trim().is_empty()))
             || session.composers.lock().unwrap_or_else(|e| e.into_inner()).any_draft();
-        idle && !remote && !typing && !draft
+        if !self.idle_eligible(session) || remote || typing || draft {
+            Ready::No
+        } else if session.turn_lock.try_lock().is_err() {
+            Ready::Leased
+        } else {
+            Ready::Yes
+        }
     }
 
     /// The timer's deadline: `/compact` for a chat at `used` of its window, if it still may be.
@@ -315,16 +334,39 @@ impl Hub {
         // with no await before the turn is taken and again after). Read before the checks below:
         // a Web or phone turn that ends after this read refuses it at admission, and one that
         // started before the checks shows in them, so it never lifts that turn's remote floor.
-        let last = session.meta().last_turn.as_ref().and_then(|t| t.get("turnId").cloned());
-        let Some(last) = last.and_then(|t| t.as_str().map(str::to_owned)) else { return };
-        // Read again: the setting may have been turned off or its threshold raised since the
-        // timer was armed, and the cache must still be warm when the request goes.
-        if read_threshold().is_none_or(|threshold| !over(used, threshold))
-            || now_ms() >= expires_ms
-            || !self.cache_compact_ready(session)
-        {
-            return;
-        }
+        // A turn's lease outlives its end: the prompt is answered and the chat reads idle while
+        // the turn's task still holds `turn_lock` for its last steps. A deadline that fell there
+        // was refused, its entry already taken, and nothing armed it again (the turn's usage came
+        // before): the chat's cache lapsed uncompacted. So the deadline waits for the lease, until
+        // the cache's expiry, and every check runs again; a turn that starts meanwhile shows in
+        // them or moves the last turn (this deadline then ends: that turn's usage arms its own
+        // timer), and `after_turn` refuses this one if it starts later still.
+        let last_turn = || {
+            let last = session.meta().last_turn.as_ref().and_then(|t| t.get("turnId").cloned());
+            last.and_then(|t| t.as_str().map(str::to_owned))
+        };
+        let Some(at_deadline) = last_turn() else { return };
+        let last = loop {
+            let Some(last) = last_turn().filter(|last| *last == at_deadline) else { return };
+            // Read again: the setting may have been turned off or its threshold raised since the
+            // timer was armed, and the cache must still be warm when the request goes.
+            if read_threshold().is_none_or(|threshold| !over(used, threshold)) {
+                return;
+            }
+            let Some(left) = expires_ms.checked_sub(now_ms()).filter(|left| *left > 0) else {
+                return;
+            };
+            match self.cache_compact_ready(session) {
+                Ready::Yes => break last,
+                Ready::No => return,
+                Ready::Leased => {
+                    let lease = session.turn_lock.lock();
+                    let left = std::time::Duration::from_millis(left);
+                    let Ok(guard) = tokio::time::timeout(left, lease).await else { return };
+                    drop(guard);
+                }
+            }
+        };
         let opts = PromptOptions {
             prompt_id: Some(format!("cache-compact-{}", uuid::Uuid::now_v7())),
             provenance: Some(json!({"kind": KIND})),
