@@ -695,8 +695,9 @@ pub struct Translator {
     step_stopped: AtomicBool,
     pub slash_commands: Mutex<Vec<Value>>,
     /// The skills Claude Code names in its system/init (`skills`, names
-    /// without "/"): their slash commands are tagged as skills.
-    skills: Mutex<Vec<String>>,
+    /// without "/"): their slash commands are tagged as skills. None until
+    /// the first system/init, which comes only with the first turn.
+    skills: Mutex<Option<Vec<String>>>,
     /// The `availableCommands` list last sent, so a turn's system/init that
     /// changes nothing sends no new one.
     sent_commands: Mutex<Option<Vec<Value>>>,
@@ -872,7 +873,7 @@ impl Translator {
             cancelled: AtomicBool::new(false),
             step_stopped: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
-            skills: Mutex::new(Vec::new()),
+            skills: Mutex::new(None),
             sent_commands: Mutex::new(None),
             stdin_replies: Mutex::new(Vec::new()),
             subagents: Mutex::new(HashMap::new()),
@@ -1020,8 +1021,14 @@ impl Translator {
 
     /// The `available_commands_update` for Claude's slash commands, an entry
     /// per command with `_meta.kind: "skill"` on a skill's (the pane's picker
-    /// labels it "Skill"). Without `always`, a list that is unchanged, or
-    /// empty before any was sent, sends nothing.
+    /// labels it "Skill", and lists it mid-prompt too). Without `always`, a
+    /// list that is unchanged, or empty before any was sent, sends nothing.
+    ///
+    /// Before the first system/init names the skills (a chat with no turn
+    /// yet, such as the New Tab's deferred one), a command that Claude Code's
+    /// `initialize` answer does not mark `builtin` is a skill: the person's,
+    /// a project's or a plugin's. Its bundled skills are `builtin`, so they
+    /// are tagged once the init names them.
     async fn commands_update(&self, always: bool) -> Option<Value> {
         let skills = self.skills.lock().await.clone();
         let list: Vec<Value> = self
@@ -1033,9 +1040,13 @@ impl Translator {
                 let mut entry = json!({"name": c.get("name"), "description": c.get("description")});
                 let name = c.get("name").and_then(Value::as_str).unwrap_or("");
                 let name = name.strip_prefix('/').unwrap_or(name);
-                if !name.is_empty()
-                    && skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
-                {
+                let skill = match &skills {
+                    Some(skills) => {
+                        skills.iter().any(|s| s.strip_prefix('/').unwrap_or(s.as_str()) == name)
+                    }
+                    None => c.get("builtin").and_then(Value::as_bool) != Some(true),
+                };
+                if !name.is_empty() && skill {
                     entry.set("_meta", json!({"kind": "skill"}));
                 }
                 entry
