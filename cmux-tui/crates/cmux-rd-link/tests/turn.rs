@@ -4,6 +4,9 @@
 //! the relay, the path is `turn_relay`, the allocation is refreshed, and bad
 //! credentials or a hostile server fail without bringing the driver down.
 
+// The in-process TURN server (support/fake_turn.rs) waits with poll(2).
+#![cfg(unix)]
+
 #[path = "support/fake_turn.rs"]
 mod fake_turn;
 #[path = "support/stun.rs"]
