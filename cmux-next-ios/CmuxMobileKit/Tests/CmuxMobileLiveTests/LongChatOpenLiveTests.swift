@@ -86,7 +86,10 @@ import Testing
                 return #""hasMore":\#(more),"events":[\#(picked.map(\.json).joined(separator: ","))]"#
             }
             switch method {
-            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
+            // A current Mac: it names its capabilities, so the attach the first connection
+            // pipelines with `initialize` asks the kinds it serves and is read, not asked again
+            // (#56036; a Mac naming none is an older one and is asked twice).
+            case "initialize": return [reply(#"{"protocolVersion":1,"_meta":{"acpmux":{"capabilities":["elevation-cards-v1"]}}}"#)]
             case "_acpmux/watch": return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
             case "_acpmux/attach":
                 requests.append(method, params)
