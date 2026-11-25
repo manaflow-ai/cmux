@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.spacesVisibility.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«عند التمرير» يُخفي المساحات مع عناصر تحكم الشريط الجانبي الأخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pri prelasku skriva prostore zajedno s ostalim kontrolama bočne trake."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ved markør skjuler rummene sammen med sidepanelets andre knapper."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„Beim Überfahren“ blendet die Bereiche mit den anderen Steuerelementen der Seitenleiste aus."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On Hover hides the spaces with the other sidebar controls."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Al pasar el puntero oculta los espacios con los demás controles de la barra lateral."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Au survol masque les espaces avec les autres commandes de la barre latérale."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Al passaggio nasconde gli spazi insieme agli altri controlli della barra laterale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「ポインタを置いたとき」は、ほかのサイドバーのコントロールと一緒にスペースを非表示にします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពេលដាក់ទស្សន៍ទ្រនិច លាក់ចន្លោះជាមួយការគ្រប់គ្រងរបារចំហៀងផ្សេងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "호버 시는 다른 사이드바 컨트롤과 함께 스페이스를 숨깁니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ved peker skjuler rommene sammen med de andre sidepanelkontrollene."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Po najechaniu ukrywa przestrzenie razem z innymi elementami paska bocznego."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ao passar o ponteiro oculta os espaços com os outros controles da barra lateral."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«При наведении» скрывает пространства вместе с другими элементами боковой панели."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เมื่อวางเมาส์ จะซ่อนสเปซพร้อมตัวควบคุมอื่นของแถบด้านข้าง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Üzerine Gelince, alanları diğer kenar çubuğu denetimleriyle birlikte gizler."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«При наведенні» ховає простори разом з іншими елементами бічної панелі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Khi di chuột sẽ ẩn các không gian cùng các điều khiển khác của thanh bên."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“悬停时”会让空间与其他侧边栏控件一起隐藏。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「懸停時」會讓空間與其他側邊欄控制項一起隱藏。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -238,8 +238,10 @@ fleet_verdict() { # <sha>
   fi
   body="$(mktemp "${TMPDIR:-/tmp}/nightly-next-precheck.XXXXXX")"
   # The default read only: a phase= read submits a build (cmuxterm-hq handbook, scheme-debug).
-  # The compile-results CDN attributes fleet reads by user agent. Keep this
-  # read aligned with scripts/ci/fleet_compile_result.py.
+  # The compile-results CDN rejects curl's default user agent (handbook
+  # cdn-refuses-the-default-client). Keep this read aligned with
+  # scripts/ci/fleet_compile_result.py so a valid verdict is not mistaken for
+  # an outage and an unchecked nightly is not promoted.
   code="$(curl -sS -A 'cmux-ci-fleet-compile-result/1' -o "$body" -w '%{http_code}' --connect-timeout 10 --max-time 20 \
     "$precheck_results/$1?repo=${repo/\//%2F}" 2>/dev/null)" || code="${code:-000}"
   case "$code" in
@@ -254,13 +256,15 @@ if not isinstance(r, dict) or r.get("sha") != sys.argv[2] or r.get("repo") != sy
     print("none")
 elif r.get("state") in ("pass", "fail"):
     print(r["state"])
-elif r.get("state") in ("pending", "queued", "running", "deferred", "", None):
+elif r.get("state") in ("queued", "running", "deferred", "", None):
     print("pending")
 else:
     print("none")
 ' "$body" "$1" "$repo" 2>/dev/null)" || word=none ;;
     404) word=none ;;
-    # Busy answers mean the service is reachable without a stable verdict yet.
+    # Busy answers mean the service is reachable but has no stable verdict for
+    # this tick. Wait for the next tick instead of treating them as a cache
+    # outage and promoting an unchecked commit.
     429|503) word=pending ;;
     *) word=down ;;
   esac
@@ -279,7 +283,6 @@ precheck() { # <sha>
   case "$word" in
     pass) precheck_reason="the build fleet compiled it in Release"; return 0 ;;
     fail) precheck_reason="the build fleet's Release compile of it failed"; return 1 ;;
-    pending) precheck_reason="the build fleet's Release compile is still pending"; return 3 ;;
     down)
       echo "::warning title=nightly-next precheck::the compile results service did not answer for ${1:0:12}; promoting it unprechecked" >&2
       precheck_reason="the results service did not answer, so it is not prechecked"
