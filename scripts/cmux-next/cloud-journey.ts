@@ -490,17 +490,22 @@ const OWNER_RETRY_NOTE = "retried once after owner.unreachable";
 /** The running Journey step's notes; the API client adds a note here when it retries. */
 const stepNotes = new AsyncLocalStorage<string[]>();
 
+/** One cloud.machine.create attempt's wait. A fresh staging create holds the call open past 60 s
+ *  (151 s, 2026-11-25), so a 60 s cut made every journey and bench fail its create and leak the machine. */
+export const CREATE_OP_TIMEOUT_MS = 300_000;
+
 export class Api {
   bearer = "";
   constructor(readonly origin: string, readonly team?: string) {}
   private headers(): Record<string, string> {
     return { authorization: `Bearer ${this.bearer}`, ...(this.team ? { "x-cmux-team": this.team } : {}) };
   }
-  /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace). */
-  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}): Promise<any> {
+  /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace).
+   *  `timeoutMs` is one attempt's wait; a machine create gets CREATE_OP_TIMEOUT_MS by default. */
+  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000): Promise<any> {
     let ownerRetried = false;
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, 60_000, !!key);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
       if (key && attempt < OP_ATTEMPTS && opRetryable(r.body)) { await sleep(2000 * attempt); continue; }
       // An owner reset: once more, under the same key so the op cannot apply twice.
@@ -1974,6 +1979,21 @@ export async function idleHeldBy(api: Api, machine: string, now = Date.now()): P
   const bits = [clock, `idle policy ${m?.idle_seconds ?? m?.idle_policy?.idle_seconds ?? "?"} s`];
   if (activity && typeof activity === "object") bits.push(`activity ${short(activity)}`);
   return bits.join("; ");
+}
+
+/** The idle policy a machine's record carries, in seconds; null when it names none. */
+export async function machineIdleSeconds(api: Api, machine: string): Promise<number | null> {
+  const m = await api.read("cloud.machine.get", { machine });
+  const s = Number(m?.idle_seconds ?? m?.idle_policy?.idle_seconds);
+  return Number.isFinite(s) && s > 0 ? s : null;
+}
+
+/**
+ * How long the journey waits for an idle pause: the idle policy or the post-chat hold, whichever is longer, plus
+ * 300 s for the alarm's re-check. A policy the record does not name gets the 24 h backstop's worth (86400 s).
+ */
+export function idlePauseDeadlineMs(policyS: number | null, holdS: number): number {
+  return (Math.max(policyS ?? 86400, holdS) + 300) * 1000;
 }
 
 /** Test-side bounded wait on a machine field (the product never polls; this is the harness). */
@@ -3696,7 +3716,8 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     if (!r || r.status === "deleted" || r.status === "deleting") continue;
     const name = typeof r.name === "string" ? r.name : "";
     // A start bench's machines (runStartBench) are the sweep's too: only a run that deletes them names them so.
-    const m = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name);
+    // So are the Auto mode journey's (auto-journey.ts `auto journey aj-<tag>`): it always deletes its machine.
+    const m = /^cloud journey auto jr-([0-9a-z]+)( long)?(?: \S.*)?$/.exec(name) ?? /^cloud start bench jr-([0-9a-z]+) (?:source|(?:spare|cold|snapshot) \d+)$/.exec(name) ?? /^auto journey aj-([0-9a-z]+)$/.exec(name);
     if (!m) continue;
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
@@ -3722,9 +3743,10 @@ export function staleJourneyInstalls(installs: any[], nowMs: number, maxAgeMs = 
   const out: string[] = [];
   for (const i of installs) {
     if (!i || i.revoked_at !== null || i.kind !== "cli") continue;
-    const m = /^cloud journey (jr-([0-9a-z]+))$/.exec(typeof i.name === "string" ? i.name : "");
+    // The Auto mode journey's install (`auto journey aj-<tag>`, revoked at its cleanup) is the sweep's too.
+    const m = /^(?:cloud journey (jr-([0-9a-z]+))|auto journey (aj-([0-9a-z]+)))$/.exec(typeof i.name === "string" ? i.name : "");
     if (!m) continue;
-    const started = parseInt(m[2], 36);
+    const started = parseInt(m[2] ?? m[4], 36);
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
     if (nowMs - started <= maxAgeMs) continue;
     if (typeof i.id === "string" && i.id) out.push(i.id);
@@ -4666,6 +4688,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     probeExtra.failure_facts = facts;
     J.record({ step: "failure facts", status: "skip", ms: Date.now() - t0, detail: `read before any delete: ${JSON.stringify(facts)}` });
+  };
+  // The send's Chrome trace (Perfetto): printed and saved on a green or red run, once, never a step, so tracing can
+  // never fail the journey. CMUX_JOURNEY_SEND_TRACE_SETTLE_MS=0 (the fake's runs, cloud-journey-fake.ts) skips the
+  // settle: no platform spans land there.
+  let sendTraceSaved = false;
+  const saveSendTraceOnce = async () => {
+    if (reuse || sendTraceSaved) return;
+    sendTraceSaved = true;
+    const settle = process.env.CMUX_JOURNEY_SEND_TRACE_SETTLE_MS === "0" ? async () => {} : sleep;
+    await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle)
+      .catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
   };
   // This run's install (install token step), revoked at cleanup.
   let journeyInstall: string | null = null;
@@ -6208,7 +6241,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (!idleDefault) await api.op("cloud.machine.idle_policy.set", { machine: created.id, idle_seconds: idlePauseS }, `${tag}-idle`);
         // The deadline covers the post-chat hold (staging CLOUD_POST_CHAT_WARM_SECONDS=600 keeps a machine up after a
         // chat turn whatever its idle policy) plus the alarm's re-check, so a pause the platform owes is never missed.
-        const m = await waitMachine(api, created.id, (x) => x.status === "paused", (Math.max(idlePauseS, POST_CHAT_HOLD_S) + 300) * 1000).catch(async (error) => {
+        // --idle-pause default sets no policy, so the deadline reads the machine's own (staging's default is 1800 s):
+        // a wait sized from 0 s timed out at 900 s before the default could ever pause it (k8-defaultf, 2026-11-24).
+        const policyS = idleDefault ? await machineIdleSeconds(api, created.id) : idlePauseS;
+        const m = await waitMachine(api, created.id, (x) => x.status === "paused", idlePauseDeadlineMs(policyS, POST_CHAT_HOLD_S)).catch(async (error) => {
           // A pause that never came: name what held the machine (the idle clock's start, the report's open sessions and
           // workload), so the failure says why instead of only "still running" (two walks on 2026-11-24 could not tell).
           throw new Error(`${(error as Error).message}; ${await idleHeldBy(api, created.id)}`);
@@ -6271,10 +6307,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const hops = Object.entries(hopDurations(got.trace)).map(([h, ms]) => `${h} ${ms}`).join(", ");
       return { value: null, detail: `${got.trace.trace} ${got.trace.path ?? "?"} ${got.trace.total_ms} ms: ${hops}${slow ? `; slowest 24 h p50 ${slow.hop} ${slow.p50_ms} ms (p95 ${slow.p95_ms ?? "-"})` : ""}` };
     }).catch(() => undefined);
-    // The send's Chrome trace (Perfetto): printed and saved, never a step, so tracing can never fail the journey.
-    // CMUX_JOURNEY_SEND_TRACE_SETTLE_MS=0 (the fake's runs, cloud-journey-fake.ts) skips the settle: no platform spans land there.
-    const settle = process.env.CMUX_JOURNEY_SEND_TRACE_SETTLE_MS === "0" ? async () => {} : sleep;
-    if (!reuse) await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle).catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+    await saveSendTraceOnce();
     // A step that failed without ending the run (the key probe, a chaos fault, the handoff record): its facts first.
     await readGuestDiagnostics("before-cleanup");
     await readFailureFacts();
@@ -6289,6 +6322,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   } catch {
     // The failed step is recorded. What the machine says, then the journey-only checks the failure cut off; cleanup below.
     await readFailureFacts();
+    // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
+    await saveSendTraceOnce();
     await runJourneyOnly?.().catch(() => undefined);
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
