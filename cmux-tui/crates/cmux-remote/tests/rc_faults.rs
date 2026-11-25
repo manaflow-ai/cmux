@@ -84,6 +84,7 @@ fn claims(permission: RelayPermission, issued: u64, expires: u64) -> RelayTicket
         issued_at_unix: issued,
         expires_at_unix: expires,
         grant: None,
+        region: None,
     }
 }
 

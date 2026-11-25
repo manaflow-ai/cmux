@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.layout.focusFollowsMouse.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pointing at or scrolling over a pane focuses it."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "الإشارة إلى جزء أو التمرير فوقه ينقل التركيز إليه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazivanje na okno ili skrolanje preko njega fokusira to okno."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når du peger på eller ruller over en rude, får den fokus."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigen auf oder Scrollen über einen Bereich gibt ihm den Fokus."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apuntar a un panel o desplazarse sobre él lo enfoca."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pointer sur un panneau ou le faire défiler lui donne le focus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Puntare o scorrere su un riquadro lo rende attivo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ペインにポインタを置くか、その上でスクロールすると、そのペインにフォーカスします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការចង្អុល ឬរំកិលលើផ្ទាំង នឹងផ្ដោតលើផ្ទាំងនោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "창을 가리키거나 그 위에서 스크롤하면 그 창에 포커스됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Når du peker på eller ruller over en rute, får den fokus."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wskazanie panelu lub przewinięcie nad nim ustawia na nim fokus."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Apontar ou rolar sobre um painel o coloca em foco."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наведение указателя на панель или прокрутка над ней переводит на неё фокус."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "การชี้หรือเลื่อนบนบานหน้าต่างจะโฟกัสบานนั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir bölmeye işaret etmek veya üzerinde kaydırmak ona odaklanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Наведення вказівника або прокручування над панеллю переводить на неї фокус."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Trỏ vào hoặc cuộn trên một ô sẽ đặt tiêu điểm vào ô đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "指向窗格或在其上滚动会聚焦该窗格。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "將指標移到窗格上或在其上捲動會聚焦該窗格。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

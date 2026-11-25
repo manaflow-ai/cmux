@@ -16,6 +16,36 @@ pub struct AppOpenArgs {
     pub options: Vec<String>,
 }
 
+/// `session place-set`: where an existing chat runs, from the place menu's choices.
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct PlaceSessionArgs {
+    /// The chats to place (ids or names).
+    #[arg(required = true)]
+    pub sessions: Vec<String>,
+    /// Auto (nothing moves now), cloud (a fresh cloud machine) or machine (move there, stay).
+    #[arg(long, value_parser = ["auto", "cloud", "machine"], required_unless_present_any = ["undo", "status"])]
+    pub mode: Option<String>,
+    /// With `--mode machine`: the machine.
+    #[arg(long, value_name = "MACHINE")]
+    pub machine: Option<String>,
+    /// With `--mode machine`: run the chat in this folder there (as `session move --cwd`).
+    #[arg(long, value_name = "PATH")]
+    pub cwd: Option<String>,
+    /// The reason the chat's move line gives (default: you chose it).
+    #[arg(long)]
+    pub why: Option<String>,
+    /// Go on although the move leaves something behind (a localhost server, files outside the
+    /// repo, an ssh tunnel); without it the move lists them and does nothing.
+    #[arg(long, short = 'y')]
+    pub yes: bool,
+    /// Move back to where the chat's last move came from. Ask the machine the chat is on now.
+    #[arg(long, conflicts_with_all = ["mode", "status"])]
+    pub undo: bool,
+    /// Say where each chat is pinned and where a move stands; change nothing.
+    #[arg(long, conflicts_with = "mode")]
+    pub status: bool,
+}
+
 /// `session rebalance`: one pass of the lane rebalancer on this host (`crate::rebalance`).
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
 pub struct RebalanceArgs {
@@ -31,9 +61,14 @@ pub struct RebalanceArgs {
     /// The longest each move waits for a turn that started meanwhile to end, in seconds.
     #[arg(long, value_name = "SECS", default_value_t = 60)]
     pub timeout: u64,
-    /// Move a receipt's session back here (the id a pass printed, in rebalance.jsonl).
+    /// Move a receipt's session back where it came from (the id a pass printed, in
+    /// rebalance.jsonl).
     #[arg(long, value_name = "RECEIPT", conflicts_with_all = ["dry_run", "force", "max_moves"])]
     pub undo: Option<String>,
+    /// Run the pass for a peer host from this hub: its sessions read with `session info`, each
+    /// moved with `session move HOST/ID` (the registry switch is read for that host).
+    #[arg(long, value_name = "HOST", conflicts_with = "undo")]
+    pub machine: Option<String>,
 }
 
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
@@ -282,9 +317,10 @@ pub enum Command {
     Wait {
         /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
-        /// Give up after this many seconds.
-        #[arg(long)]
-        timeout: Option<u64>,
+        /// Give up after this many seconds (exit 3). Default an hour, as `pr-wait`'s: no wait an
+        /// agent arms sleeps forever, so a hung turn or a lost event wakes it to look again.
+        #[arg(long, default_value_t = crate::cli::orchestrate::WAIT_BOUND_S)]
+        timeout: u64,
         /// Wait for every named session, not just the first to resolve.
         #[arg(long)]
         all: bool,
@@ -378,6 +414,15 @@ pub enum Command {
     /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
     #[command(name = "sub-fork-job", hide = true)]
     SubForkJob,
+    /// Run a heavy build or test on a fork of this Cloud machine (RFD 0144 piece 3,
+    /// `placement/run_vm.rs`): its output streams here, its file changes come back. Runs here
+    /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
+    #[command(name = "run-vm", hide = true)]
+    RunVm {
+        /// The shell command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -544,6 +589,12 @@ pub enum Command {
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
     Inbox(InboxArgs),
+    /// Listen on a teammate's agent address: read what it receives while its owner's grant
+    /// lets you. Needs a team hub (`meshRelay`).
+    Listen {
+        #[command(subcommand)]
+        command: ListenCmd,
+    },
     /// Append a report to a human basket without waking any agent session.
     /// The target must be `reports:<person>`; the sender is the attached local
     /// ACP session (or `--from` when the daemon can bind that session).
@@ -790,7 +841,7 @@ pub enum Command {
     /// for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     ForumMcp,
-    /// The agent's Cloud repository tools (list_repos and add_repo), only on Cloud machines.
+    /// The agent's Cloud repository tools (this_folder, list_repos and add_repo), only on Cloud machines.
     #[command(hide = true)]
     RepoMcp,
     /// cmux's hosted MCP server with the signed-in person's tools (GitHub connectors, their own
@@ -919,6 +970,8 @@ pub enum Command {
     PauseAgent { session: String },
     #[command(hide = true)]
     WakeAgent { session: String },
+    #[command(hide = true)]
+    PlaceSession(PlaceSessionArgs),
     // Built only by flattening `session hold` / `session release`; its fields carry no #[arg], so it
     // is no subcommand of its own (clap's debug build refused the positional `held` switch).
     #[command(skip)]
@@ -1049,6 +1102,14 @@ pub enum Command {
         session: String,
         #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
         answer: Vec<String>,
+    },
+    #[command(hide = true)]
+    Place {
+        session: String,
+        #[arg(long)]
+        on: String,
+        #[arg(long)]
+        reason: Option<String>,
     },
     #[command(hide = true)]
     Export {
@@ -1616,6 +1677,20 @@ pub enum SessionCmd {
         #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
         answer: Vec<String>,
     },
+    /// Move a chat between Local (this Mac), Cloud (stays in cmux Cloud) and AutoCloud (here
+    /// while the Mac is up, in the Cloud while it sleeps), through Auto mode's fenced handoff. The
+    /// person may make any move; a chat's own agent may move it off the Mac only while the
+    /// AutoCloud setting is on, and back to local never (the answer says needs_person and the
+    /// command). `cmux chat move SESSION --on PLACE` runs this.
+    Place {
+        session: String,
+        /// local, cloud or auto (autocloud).
+        #[arg(long)]
+        on: String,
+        /// Why, for the log.
+        #[arg(long)]
+        reason: Option<String>,
+    },
     /// Export a session bundle.
     Export {
         session: String,
@@ -1633,6 +1708,11 @@ pub enum SessionCmd {
     /// worktree, a plain folder under the home maps to the same path under the machine's home. The
     /// chat here never runs again, and `resolve` and agent links lead to its new place.
     Move(MoveSessionsArgs),
+    /// Place an existing chat as the place menu does: `--mode auto`, `--mode cloud` or `--mode machine --machine NAME`. A chat moves only between turns (mid-turn it
+    /// moves after the turn); a move that leaves something behind lists it and needs `--yes`;
+    /// each move writes one line in the chat. `--undo` moves back; `--status` reads the pin.
+    #[command(name = "place-set")]
+    PlaceSet(PlaceSessionArgs),
     /// Move this machine's excess chats off when it holds more live chats than its lanes.max_lanes:
     /// only chats between turns with no work running below them, at most a few a pass, to the
     /// machines placement gives room. Each move leaves a receipt whose undo moves it back. Off
@@ -1872,6 +1952,30 @@ pub enum InboxCmd {
 }
 
 #[derive(Subcommand)]
+pub enum ListenCmd {
+    /// Open a listen on a teammate's agent address.
+    Open {
+        /// The address, @member/agent.
+        address: String,
+        /// How long it stays open, in seconds (60 to 604800; the hub's default without it).
+        #[arg(long, value_name = "SECONDS")]
+        ttl: Option<u64>,
+    },
+    /// List your listens and others' on your addresses.
+    Ls,
+    /// Close one of your listens by id.
+    Close { id: String },
+    /// Read the messages an address you listen on received.
+    Read {
+        /// The address, @member/agent.
+        address: String,
+        /// Continue from the previous JSON response's `next` cursor.
+        #[arg(long)]
+        before: Option<u64>,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum DaemonCmd {
     /// Run the daemon in the foreground.
     Run {
@@ -2097,6 +2201,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
+            SessionCmd::PlaceSet(args) => Command::PlaceSession(args),
             SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
                 Command::SessionHold {
                     session,
@@ -2148,6 +2253,7 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
+            SessionCmd::Place { session, on, reason } => Command::Place { session, on, reason },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
             SessionCmd::Transfer { session, to, cwd, name, interrupt, after_turn } => {

@@ -320,6 +320,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         // This hub runs no holder loop, so the switch answers `auto.unavailable` (the arm's own
         // answer); `$S` has no kept changes, so `show` lists none.
         (method::MUX_AUTO_SESSION_SET, Run(json!({"sessionId": "$S", "auto": false}))),
+        // No holder loop here either: the move answers `auto.unavailable`.
+        (method::MUX_AUTO_SESSION_MOVE, Run(json!({"sessionId": "$S", "to": "cloud"}))),
+        // `$S` has Auto off, so it is local already and nothing is asked of a holder loop.
+        (method::MUX_CHAT_MOVE, Run(json!({"sessionId": "$S", "on": "local"}))),
         (method::MUX_AUTO_SESSION_LEFTOVER, Run(json!({"sessionId": "$S", "action": "show"}))),
         (method::MUX_AUTO_SESSION_WAKE, Run(json!({}))),
         // No holder loop: the chat's own log is its transcript (`projection: null`).
@@ -484,6 +488,10 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         (
             method::MUX_TEAM_ACK,
             Any(json!({"id": "x"}), "team messaging is off without a mesh relay (invalid params)"),
+        ),
+        (
+            method::MUX_TEAM_LISTEN,
+            Any(json!({"op": "ls"}), "team messaging is off without a mesh relay (invalid params)"),
         ),
         (
             method::MUX_REGISTER,
