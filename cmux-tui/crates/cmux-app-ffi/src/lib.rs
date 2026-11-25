@@ -29,6 +29,8 @@
 //! status indicator's snapshot (cmux-health-core, include/cmux_health.h).
 //! `launch_image` is each window's last committed frame for the launch's first
 //! frame (cmux-launch-image, include/cmux_launch_image.h).
+//! `chat_markdown` is the agent chat transcript's markdown parser (cmux-chat-markdown,
+//! include/cmux_chat_markdown.h): the parsed document as bytes; the app renders it.
 //! `pane_pictures` is when a pane's live thumbnail is captured again (cmux-pane-pictures,
 //! include/cmux_pane_pictures.h).
 //! `sdk` is the daemon client the `cmux` CLI uses (the cmux SDK), as a C ABI
@@ -67,6 +69,7 @@ pub mod wallpaper;
 pub use acpmux_client::ffi as agent_client;
 pub use cmux_action_catalog::ffi as action_catalog;
 pub use cmux_agent_pane_policy::ffi as agent_pane_policy;
+pub use cmux_chat_markdown::ffi as chat_markdown;
 pub use cmux_cookie_sync::ffi as cookie_sync;
 pub use cmux_daemon_conn_core::ffi as daemon_conn;
 pub use cmux_daemon_launch_core::ffi as daemon_launch;

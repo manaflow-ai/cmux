@@ -66,6 +66,7 @@ FIRST_PARTY_GPL = {
     "cmux-health-core",
     "cmux-launch-image",
     "cmux-pane-pictures",
+    "cmux-chat-markdown",
     "cmux-local-auth",
     "cmux-palette-ranker",
     "cmux-remote-browser",
