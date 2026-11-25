@@ -110,30 +110,39 @@ impl Hub {
         } else {
             self.append(session, "mux", "directories", json!({FIELD: dirs}));
             self.save_meta_answered(session)?;
-            if session.child.lock().await.is_none() {
-                "nextStart"
-            } else {
-                // As `restart_harnesses`: a turn that ended before it saw the flag restarts nothing,
-                // so the lock is tried again once the flag is set.
-                let mut turn = session.turn_lock.try_lock().ok();
-                if turn.is_none() {
-                    session.route_switch.store(true, Ordering::SeqCst);
-                    turn = session
-                        .turn_lock
-                        .try_lock()
-                        .ok()
-                        .filter(|_| session.route_switch.load(Ordering::SeqCst));
-                }
-                match turn {
-                    Some(_turn) => {
-                        self.restart_on_route(session).await?;
-                        "now"
-                    }
-                    None => "afterTurn",
-                }
-            }
+            self.restart_on_change(session).await?
         };
         Ok(json!({"sessionId": session.id, FIELD: dirs, "applied": applied}))
+    }
+
+    /// Restarts the chat's agent on what changed for its start (its folders, its chat secrets,
+    /// `chat_secrets.rs`), resuming the same conversation: `now` between turns, `afterTurn` at
+    /// the end of a running turn, `nextStart` for an agent that is not running.
+    pub(crate) async fn restart_on_change(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+    ) -> Result<&'static str, RpcError> {
+        if session.child.lock().await.is_none() {
+            return Ok("nextStart");
+        }
+        // As `restart_harnesses`: a turn that ended before it saw the flag restarts nothing,
+        // so the lock is tried again once the flag is set.
+        let mut turn = session.turn_lock.try_lock().ok();
+        if turn.is_none() {
+            session.route_switch.store(true, Ordering::SeqCst);
+            turn = session
+                .turn_lock
+                .try_lock()
+                .ok()
+                .filter(|_| session.route_switch.load(Ordering::SeqCst));
+        }
+        match turn {
+            Some(_turn) => {
+                self.restart_on_route(session).await?;
+                Ok("now")
+            }
+            None => Ok("afterTurn"),
+        }
     }
 }
 

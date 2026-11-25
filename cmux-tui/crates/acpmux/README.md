@@ -441,6 +441,15 @@ not accepted yet with its outbox state. Removing a watch stops new wakes, and wa
 owes are still delivered (`watch_rm` answers how many). `cmux agent wait` remains the blocking
 script interface.
 
+A time watch (`acpmux watch add --at <RFC3339|+DURATION> | --every <DURATION> [--until <time>]
+--prompt TEXT`, MCP `watch_add` with `at`/`every`/`end`/`prompt`; params `atMs`, `everyMs`,
+`endMs`, `prompt`) wakes its recipient with its prompt at a time instead of on a session's state
+(`hub/watch_timers.rs`, RFD 0177). One hub task sleeps until the earliest due time and never polls;
+watches due within 1 s of each other share one wake, each at most 1 s late. Each fire's prompt id
+is `<watch id>@<due ms>`, saved with the watch's next due time in one write, so a fire is delivered
+once across restarts. An `--every` the host slept through fires once, then reschedules from now.
+`watch ls` shows the next due time.
+
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`cmux agent last @`), so an agent can drive its own
 session and siblings. A session an agent starts (`cmux agent new` in its shell, or its
@@ -1550,9 +1559,14 @@ opens, so a change applies without a restart (the variable needs the daemon rest
 |---|---|---|---|---|
 | Compact before the cache expires | `agents.cacheCompact.enabled` | `ACPMUX_CACHE_COMPACT=0\|1` | on | on, off |
 | Only above context used (%) | `agents.cacheCompact.minContextPercent` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT=N` | 30 | 10-95 |
+| Or above context used (tokens) | `agents.cacheCompact.minContextTokens` | `ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS=N` | 60000 | 10000-500000 |
 | Batch wakes of cold chats | `agents.coldWake.enabled` | `ACPMUX_COLD_WAKE=0\|1` | on | on, off |
 | Compact cold chats before waking (needs batching on) | `agents.coldWake.compact` | `ACPMUX_COLD_WAKE_COMPACT=0\|1` | on | on, off |
-| Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 50000 | 10000-500000 |
+| Compact cold chats above (tokens) | `agents.coldWake.compactAboveTokens` | `ACPMUX_COLD_COMPACT_ABOVE_TOKENS=N` | 100000 | 10000-500000 |
+
+The warm timer arms at the percent or the token count, whichever a chat reaches first (a
+percent alone sat above Claude Code's autocompact on a 1M-token window). Cold compaction pays
+from about 76K tokens: it costs about the context plus 76K, a plain wake about twice the context.
 
 On/off variables take `1`, `true`, `on` or `0`, `false`, `off`. Context surgery itself (masking old
 tool output instead of `/compact`) is `agents.harnessMagic.surgery.enabled`, off with
@@ -1734,7 +1748,7 @@ Extensions:
 | --- | --- |
 | `_acpmux/status`, `_acpmux/harnesses`, `_acpmux/sessions` | Daemon and fleet state; status also reports `ready`, `loginEnv`, `listen` and `capabilities`. |
 | `_acpmux/attach {sessionId, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?, eventStream?}` | Subscribe and get the session detail, a page of events, and `hasMore`. |
-| `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. |
+| `_acpmux/detach`, `_acpmux/watch {enabled}` | Unsubscribe; or receive `_acpmux/session_changed` for every session. `{enabled:false}` pauses that and answers `{}`, building no list. |
 | `_acpmux/typing {sessionId, on}` | A person in an attached chat starts or stops typing ([presence](#chat-presence)). At most 2 calls a second per connection (`typing.rate_limited`); an `on` lapses after 8 s. |
 | `_acpmux/harness/inventory/watch {enabled}` | Local socket only: [sanitized cached inventory snapshots](docs/inventory-watch.md), with monotonic per-run revisions and no health checks or CLI execution. Requires `harnessInventoryWatch`. |
 | `_acpmux/events {sessionId, sinceSeen?, afterSeq?, beforeSeq?, limit?, maxBytes?, kinds?}` | Page through the log, forwards or backwards, with `hasMore`. Pass `sinceSeen: true` for the first recap page, then `afterSeq: pageThrough` for subsequent pages. The first reply returns `seenSeq: null` and an empty page for a reader without a cursor. A page ends at `maxBytes` of JSON (default 1 MiB, at most 4 MiB). |

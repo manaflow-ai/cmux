@@ -2,8 +2,8 @@
 // The host's chip above the composer while the pane gets acpmux back (HostError.tsx). It follows the
 // connection's state, never a clock (Leo, 2026-11-22: "surely we can think of better fixes than random
 // timing which can shift"): a drop, a handshake that waits for acpmux, or a planned restart shows nothing
-// however long it lasts; a failed attempt (`linkDown`) shows only the quiet "Reconnecting…" chip until a
-// connect: no clock, no button, no words about the service. "Restoring sessions…" keeps its ticking
+// however long it lasts, and so does a failed attempt (`linkDown`): the pane keeps connecting quietly
+// (Leo, 2026-11-24: "let's just keep optimistically connecting and reinforcing the connection"). "Restoring sessions…" keeps its ticking
 // `m:ss` in the shared clock (ui/Typography.tsx `Clock`).
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -20,12 +20,11 @@ test("a link that is not down shows nothing at any time", () => {
   }
 });
 
-test("a link down shows the Reconnecting chip from its first frame to the connect, and nothing else", () => {
+test("a link down shows nothing from its first frame to the connect", () => {
   for (let now = 0; now <= 90_000; now += 250) {
     const line = renderToStaticMarkup(<HostRecoveringLine linkDown now={now} />);
     expect(text(line)).not.toMatch(NEVER);
-    expect(line).not.toContain("<button");
-    expect(text(line).trim()).toBe("Reconnecting…");
+    expect(line).toBe("");
   }
   // The connect clears it.
   expect(renderToStaticMarkup(<HostRecoveringLine linkDown={false} now={90_000} />)).toBe("");

@@ -119,7 +119,15 @@ export function PendingSteer({
             </button>
           )}
         </span>
-        {kept && <span className="cv-user__kept">{t("message.readAfterStep")}</span>}
+        {kept && (
+          <span
+            className="cv-user__kept"
+            // tooltip-allow: in a narrow pane the note is cut to the row so Send now stays clear of it
+            title={t("message.readAfterStep")}
+          >
+            {t("message.readAfterStep")}
+          </span>
+        )}
         {offersSendNow && (
           <button
             type="button"

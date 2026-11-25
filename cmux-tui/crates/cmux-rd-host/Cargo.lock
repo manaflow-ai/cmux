@@ -700,6 +700,7 @@ dependencies = [
 name = "cmux-rd-host"
 version = "0.2.9"
 dependencies = [
+ "async-io",
  "cc",
  "cmux-codecs",
  "cmux-computer-use",
@@ -712,6 +713,7 @@ dependencies = [
  "cmux-rd-link",
  "cmux-rd-proto",
  "cmux-wg",
+ "futures-lite",
  "getrandom 0.3.4",
  "libc",
  "openh264",
@@ -738,6 +740,7 @@ dependencies = [
  "md-5",
  "sha1",
  "snow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

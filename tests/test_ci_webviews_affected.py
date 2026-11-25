@@ -549,7 +549,7 @@ class PullRequestShardsTest(unittest.TestCase):
         self.assertEqual(seen, [1, 2])
 
     def test_a_picked_shard_past_1_owns_only_its_touched_tests(self) -> None:
-        """--direct-out: one job past shard 1 runs the touched tests the pick found, not any shard's closure share."""
+        """--direct-out: touched tests past shard 1 fold into shard 1's one job (up to FOLD_MAX), not any shard's closure share."""
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("webviews/src/leaf.ts")
         split = {1: set(), 2: {"webviews/test/leaf.test.ts", "webviews/test/a.test.ts"}, 3: {"webviews/test/other.test.ts"},
@@ -558,10 +558,17 @@ class PullRequestShardsTest(unittest.TestCase):
         ps.shard_files = lambda repo, shard, count, selected: split[shard]
         try:
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
-            self.assertEqual((shards, own), ([1, 2], {1: [], 2: ["test/leaf.test.ts"]}))
-            # Touched tests in several shards past 1 become one job, under the lowest of them.
+            self.assertEqual((shards, own), ([1], {1: ["test/leaf.test.ts"]}))
+            # Touched tests in several shards past 1 join shard 1's one job.
             self.touched("webviews/test/other.test.ts", "webviews/test/leaf.test.ts")
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
+            self.assertEqual((shards, own), ([1], {1: ["test/leaf.test.ts", "test/other.test.ts"]}))
+            # More than FOLD_MAX keep their own job under the lowest shard.
+            ps.FOLD_MAX = 1
+            try:
+                shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
+            finally:
+                ps.FOLD_MAX = 40
             self.assertEqual((shards, own), ([1, 2], {1: [], 2: ["test/leaf.test.ts", "test/other.test.ts"]}))
         finally:
             ps.shard_files = real
@@ -683,7 +690,7 @@ class PushClassTest(unittest.TestCase):
         self.assertTrue(ps.comment_only("a.yml", "a: 1\n", "# why\na: 1\n"))
         self.assertFalse(ps.comment_only("a.sh", "echo\n", "#!/bin/bash\necho\n"))
         cls, shards, _, _ = self.classify({"webviews/src/leaf.ts": leaf + "// @ts-ignore\n"})
-        self.assertEqual((cls, shards), ("sampled", [1, 5]))
+        self.assertEqual((cls, shards), ("sampled", [1]))
 
     def test_a_doc_is_fast_unless_a_webviews_file_reads_it(self) -> None:
         self.assertEqual(self.classify({"docs/readme.md": "y\n"})[0], "fast")
@@ -692,7 +699,7 @@ class PushClassTest(unittest.TestCase):
 
     def test_a_code_edit_is_sampled_with_its_touched_tests(self) -> None:
         cls, shards, _, own = self.classify({"webviews/src/leaf.ts": 'import { hub } from "./hub";\nexport const leaf = hub + 1;\n'})
-        self.assertEqual((cls, shards, own), ("sampled", [1, 5], {1: [], 5: ["test/leaf.test.ts"]}))
+        self.assertEqual((cls, shards, own), ("sampled", [1], {1: ["test/leaf.test.ts"]}))
         cls, shards, why, _ = self.classify({"unrelated/tool.py": "x = 2\n"})
         self.assertEqual((cls, shards), ("sampled", [1]))
         self.assertIn("touches no webviews test", why)
@@ -748,6 +755,30 @@ class PushClassTest(unittest.TestCase):
             self.assertEqual((cls, shards, own), ("full", list(range(1, 13)), {}), path)
             self.assertIn(path, why)
         self.assertLessEqual(len(ps.FULL), 6)  # the list stays short
+
+    def test_full_paths_into_the_batched_base_are_sampled(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        saved = {k: os.environ.get(k) for k in ("CI_WEBVIEWS_PR_BASE", "CI_WEBVIEWS_FULL_TO_BATCH")}
+        try:
+            os.environ["CI_WEBVIEWS_PR_BASE"] = "feat-cmux-next"
+            for i, path in enumerate(("scripts/ci/run-webviews-tests.sh", "webviews/bun.lock", "webviews/test/preload.ts")):
+                cls, shards, why, _ = self.classify({path: f"changed {path} {i}\n"})
+                self.assertEqual(cls, "sampled", path)
+                self.assertEqual(shards[0], 1)
+                self.assertEqual(len(shards), 1 + ps.SAMPLE_COUNT, (path, shards))
+                self.assertIn(path, why)
+                self.assertIn(ps.BATCHED_WHY, why)
+            os.environ["CI_WEBVIEWS_FULL_TO_BATCH"] = "0"
+            self.assertEqual(self.classify({"webviews/bun.lock": "switched off\n"})[0], "full")
+            os.environ["CI_WEBVIEWS_FULL_TO_BATCH"] = "1"
+            os.environ["CI_WEBVIEWS_PR_BASE"] = "main"
+            self.assertEqual(self.classify({"webviews/bun.lock": "another base\n"})[0], "full")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
     def run_cli(self, *args: str, classes: str = "1") -> tuple[list, str, str]:
         import json  # noqa: PLC0415
