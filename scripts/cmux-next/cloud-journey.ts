@@ -2455,7 +2455,7 @@ export function autocloudTuiChat(tui: string, cmux: string, api: Pick<Api, "orig
   const { CMUX_CLOUD_TEAM: _inherited, ...inherited } = process.env;
   const env = { ...inherited, PATH: `${bin}:${process.env.PATH ?? ""}`, CMUX_CLOUD_API_URL: api.origin, CMUX_CLOUD_ACCESS_TOKEN: api.bearer, ...(api.team ? { CMUX_CLOUD_TEAM: api.team } : {}), CMUX_AUTOCLOUD_TRACE: "1" };
   const started = Date.now();
-  const r = spawnSync(tui, ["--machine", machine, "-m", agent, "--plain", "--until-idle", "Reply with the single word pong."], { env, encoding: "utf8", timeout: 180_000, stdio: ["ignore", "pipe", "pipe"] });
+  const r = spawnSync(tui, ["--machine", machine, "-m", agent, "--plain", "--until-idle", "Reply with the single word pong."], { env, encoding: "utf8", timeout: 120_000, stdio: ["ignore", "pipe", "pipe"] });
   rmSync(bin, { recursive: true, force: true });
   const out = r.stdout ?? "";
   const tail = (s: string) => s.trim().split("\n").slice(-6).join(" | ").slice(0, 600);
@@ -2463,10 +2463,11 @@ export function autocloudTuiChat(tui: string, cmux: string, api: Pick<Api, "orig
   // The last lines say where a link that did come up stopped (a session/new with no answer); each line is
   // clipped so one long initialize reply cannot push them out.
   const head = (s: string) => {
-    const lines = s.trim().split("\n").map((line) => (line.length > 400 ? `${line.slice(0, 400)}…` : line));
-    return (lines.length > 24 ? [...lines.slice(0, 8), `(${lines.length - 24} lines)`, ...lines.slice(-16)] : lines).join(" | ");
+    // The step's detail is cut at 1000 characters, so keep only the last lines, short: where the link stopped.
+    const lines = s.trim().split("\n").map((line) => (line.length > 160 ? `${line.slice(0, 160)}…` : line));
+    return lines.slice(-7).join(" | ");
   };
-  if (r.error) throw new Error(`cmux-autocloud: ${r.error.message}; stdout: ${tail(out)}; stderr: ${head(r.stderr ?? "")}`);
+  if (r.error) throw new Error(`cmux-autocloud: ${r.error.code ?? r.error.message}; stderr tail: ${head(r.stderr ?? "")}; stdout: ${tail(out).slice(0, 150)}`);
   const problem = autocloudTuiVerdict(out, word);
   if (r.status !== 0 || problem) throw new Error(`cmux-autocloud exit ${r.status}${problem ? `, ${problem}` : ""}; stdout: ${tail(out)}; stderr: ${head(r.stderr ?? "")}`);
   return `${Date.now() - started} ms: ${tail(out)}`;
