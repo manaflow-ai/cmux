@@ -117,6 +117,11 @@ pub(crate) struct PoolState {
     /// Harnesses whose spare died, for the spare worker to start again (`spare.rs`).
     spare_restart: StdMutex<Vec<String>>,
     spare_wake: Notify,
+    /// A person request's spare check is running (`spare_on_person_request`): one at a time.
+    spare_presence_busy: AtomicBool,
+    /// A spare a person request wanted was refused (pool off, over the RSS cap, no spec): the
+    /// next person request tries again only after this.
+    spare_presence_retry_at: StdMutex<Option<std::time::Instant>>,
 }
 
 type Spec = (String, Option<String>);
@@ -140,6 +145,8 @@ impl PoolState {
             spare_file: StdMutex::new(()),
             spare_restart: StdMutex::new(Vec::new()),
             spare_wake: Notify::new(),
+            spare_presence_busy: AtomicBool::new(false),
+            spare_presence_retry_at: StdMutex::new(None),
         }
     }
 }
@@ -369,36 +376,6 @@ impl Drop for ReaperClaim<'_> {
         if self.held {
             self.flag.store(false, Ordering::SeqCst);
         }
-    }
-}
-
-#[cfg(test)]
-mod reaper_claim_tests {
-    use super::*;
-
-    /// Before: a reaper that panicked left the flag set, so no reaper ever ran again and idle
-    /// pooled harnesses were never ended. After: the claim clears it as the task unwinds.
-    #[tokio::test]
-    async fn a_reaper_that_panics_gives_its_claim_back() {
-        let flag: &'static AtomicBool = Box::leak(Box::new(AtomicBool::new(true)));
-        let died = tokio::spawn(async move {
-            let _claim = ReaperClaim { flag, held: true };
-            panic!("reaper died");
-        })
-        .await;
-        assert!(died.is_err());
-        assert!(!flag.load(Ordering::SeqCst), "a dead reaper still holds the pool's claim");
-    }
-
-    /// A reaper that released its claim on the normal exit never clears a successor's.
-    #[test]
-    fn a_released_claim_leaves_a_successors_claim_alone() {
-        let flag = AtomicBool::new(true);
-        let mut claim = ReaperClaim { flag: &flag, held: true };
-        claim.release();
-        flag.store(true, Ordering::SeqCst);
-        drop(claim);
-        assert!(flag.load(Ordering::SeqCst));
     }
 }
 
@@ -1475,4 +1452,34 @@ async fn end_pooled_host(record: &HostRecord) {
     let nonce = record.start_nonce.clone();
     let _ = tokio::task::spawn_blocking(move || agent_host::end_left_behind(&nonce)).await;
     agent_host::remove_artifacts(&dir, record);
+}
+
+#[cfg(test)]
+mod reaper_claim_tests {
+    use super::*;
+
+    /// Before: a reaper that panicked left the flag set, so no reaper ever ran again and idle
+    /// pooled harnesses were never ended. After: the claim clears it as the task unwinds.
+    #[tokio::test]
+    async fn a_reaper_that_panics_gives_its_claim_back() {
+        let flag: &'static AtomicBool = Box::leak(Box::new(AtomicBool::new(true)));
+        let died = tokio::spawn(async move {
+            let _claim = ReaperClaim { flag, held: true };
+            panic!("reaper died");
+        })
+        .await;
+        assert!(died.is_err());
+        assert!(!flag.load(Ordering::SeqCst), "a dead reaper still holds the pool's claim");
+    }
+
+    /// A reaper that released its claim on the normal exit never clears a successor's.
+    #[test]
+    fn a_released_claim_leaves_a_successors_claim_alone() {
+        let flag = AtomicBool::new(true);
+        let mut claim = ReaperClaim { flag: &flag, held: true };
+        claim.release();
+        flag.store(true, Ordering::SeqCst);
+        drop(claim);
+        assert!(flag.load(Ordering::SeqCst));
+    }
 }
