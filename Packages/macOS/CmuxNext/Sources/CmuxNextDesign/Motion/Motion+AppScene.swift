@@ -109,13 +109,13 @@ public nonisolated struct SceneLoop: Hashable, Sendable {
     public var amount: Double
 
     /// Nil for an unknown effect. `period` in seconds (clamped to [the effect's minimum, 60]);
-    /// `amount` clamped to [0, 10].
+    /// `amount` clamped to [-10, 10], as `cmux.motion/1` clamps it (a negative `spin` turns counterclockwise).
     public init?(effect: String, period: Double? = nil, amount: Double? = nil) {
         guard let effect = Effect(rawValue: effect) else { return nil }
         self.effect = effect
         let seconds = period.flatMap { $0.isFinite ? $0 : nil } ?? effect.defaultPeriod
         self.period = min(max(seconds, effect.minimumPeriod), 60)
-        self.amount = min(max(amount.flatMap { $0.isFinite ? $0 : nil } ?? 1, 0), 10)
+        self.amount = min(max(amount.flatMap { $0.isFinite ? $0 : nil } ?? 1, -10), 10)
     }
 }
 
@@ -240,8 +240,9 @@ extension MotionGate {
         case .spin:
             // Matrix keyframes 10 degrees apart: a matrix cannot say a whole turn, and a turn about the
             // center moves the anchor along an arc, which close keyframes follow.
-            let turns = max(amount, 0)
-            let steps = max(Int((36 * turns).rounded(.up)), 1)
+            // A negative amount turns counterclockwise (ABI.md), as the web renderer's `--scene-loop-turn`.
+            let turns = amount
+            let steps = max(Int((36 * abs(turns)).rounded(.up)), 1)
             let spin = CAKeyframeAnimation(keyPath: "transform")
             spin.values = (0...steps).map { value(space.transform(degrees: 360 * turns * CGFloat($0) / CGFloat(steps))) }
             spin.calculationMode = .linear
@@ -287,9 +288,11 @@ extension MotionGate {
     /// The enter (`entering`) or exit animations of `transition`, additive on the model `transform`
     /// and `opacity` (`opacity` is the node's own, so a fade reaches zero), keyed by key path; empty
     /// when it applies at once (movement does not animate in `window`). An exit holds its end until
-    /// the caller removes the view.
+    /// the caller removes the view. `motion` (a timed transition's) replaces the springs and the
+    /// fade's length and curve; nil keeps them.
     @MainActor public func sceneTransition(_ transition: SceneTransition, entering: Bool, opacity: Float,
-                                           in space: SceneTransformSpace, window: NSWindow?) -> [String: CAAnimation] {
+                                           in space: SceneTransformSpace, window: NSWindow?,
+                                           motion: SceneMotion? = nil) -> [String: CAAnimation] {
         guard animatesMovement(in: window) else { return [:] }
         // The web's distances (scene.css): +y is down on screen.
         let away: CATransform3D? = switch transition {
@@ -299,11 +302,11 @@ extension MotionGate {
         case .move: space.transform(offset: CGPoint(x: entering ? -12 : 12, y: 0))
         case .pop: space.transform(scale: 0.6)
         }
-        let spring: SceneMotion = switch (transition, entering) {
+        let spring: SceneMotion = if let motion { motion } else { switch (transition, entering) {
         case (.pop, true): .bouncy
         case (_, true): .spring(MotionSpring.appear.base)
         case (_, false): .spring(MotionSpring.disappear.base)
-        }
+        } }
         var out: [String: CAAnimation] = [:]
         func ends(_ hidden: Any, _ shown: Any) -> (Any, Any) { entering ? (hidden, shown) : (shown, hidden) }
         if let away {
@@ -311,14 +314,19 @@ extension MotionGate {
             out["transform"] = sceneAnimation(spring, "transform", from: from, to: to, additive: true, in: window)
         }
         do {
-            let fade = duration(entering ? .fadeIn : .fadeOut)
+            let base = duration(entering ? .fadeIn : .fadeOut)
+            let fade = motion.map { base > 0 ? $0.visibleDuration(scale: speed.timeScale) : 0 } ?? base
             if fade > 0 {
                 let (from, to) = ends(-opacity, 0 as Float)
                 let animation = CABasicAnimation(keyPath: "opacity")
                 animation.fromValue = from
                 animation.toValue = to
                 animation.duration = fade
-                animation.timingFunction = fadeCurve
+                animation.timingFunction = switch motion {
+                case .timed(_, .linear)?: CAMediaTimingFunction(name: .linear)
+                case .timed(_, .easeInOut)?: CAMediaTimingFunction(name: .easeInEaseOut)
+                default: fadeCurve
+                }
                 animation.isAdditive = true
                 out["opacity"] = animation
             }

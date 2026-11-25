@@ -1032,9 +1032,10 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(steps["web-complexity"].job, "linux")
         # cmux-vm-clients.yml keeps its rust job's pull requests; its moved sdk job skips only feat-cmux-next's.
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-vm-clients.yml").read_text())
-        self.assertEqual(wf["jobs"]["sdk"]["if"],
-                         "${{ github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next' }}")
-        self.assertNotIn("if", wf["jobs"]["rust"])
+        # The land tier (tests/test_head_tier.py) wraps it: the condition, then the land condition and label guard.
+        self.assertTrue(wf["jobs"]["sdk"]["if"].startswith(
+            "${{ (github.event_name != 'pull_request' || github.base_ref != 'feat-cmux-next') && "), wf["jobs"]["sdk"]["if"])
+        self.assertNotIn("github.base_ref", wf["jobs"]["rust"].get("if", ""))
         self.assertEqual(steps["cmux-vm-sdk"].job, "linux")
         # ci-guards.yml's submodule guard skips only feat-cmux-next's pull requests; every gitlink routes its step.
         wf = yaml.safe_load((ROOT / ".github/workflows/ci-guards.yml").read_text())
@@ -1065,9 +1066,10 @@ class PipelineTest(unittest.TestCase):
         # cmux-next-guards.yml's security-holes job judged every pull request (gitleaks reads any file), so its step's
         # inputs are `**` and any change routes it; the job skips feat-cmux-next's pull requests (the base matched exactly).
         wf = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())
-        self.assertEqual(wf["jobs"]["security-holes"]["if"],
-                         "${{ (github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && "
-                         "(github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback')) }}")
+        self.assertTrue(wf["jobs"]["security-holes"]["if"].startswith(  # then the land tier (test_head_tier.py)
+                        "${{ ((github.event.action != 'ready_for_review') && (github.event_name == 'pull_request' && "
+                        "(github.base_ref != 'feat-cmux-next' || github.workflow == 'docs-only fallback'))) && "),
+                        wf["jobs"]["security-holes"]["if"])
         holes = steps["security-holes"]
         self.assertEqual(holes.job, "linux")
         self.assertEqual(holes.inputs, ("**",))
@@ -1162,7 +1164,9 @@ class PipelineTest(unittest.TestCase):
         for (name, job), step in jobs.items():
             with self.subTest(workflow=name, job=job):
                 wf = yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
-                self.assertEqual(wf["jobs"][job]["if"], "github.event_name != 'pull_request'")
+                condition = str(wf["jobs"][job]["if"])  # the land tier may wrap it (tests/test_head_tier.py)
+                self.assertTrue(condition == "github.event_name != 'pull_request'"
+                                or condition.startswith("${{ (github.event_name != 'pull_request') && "), condition)
                 runs = [s["run"] for s in wf["jobs"][job]["steps"] if "run" in s]
                 self.assertEqual(runs, [steps[step].run])
                 self.assertEqual(steps[step].job, "linux")
@@ -1700,6 +1704,47 @@ class WebBrowserStepsTest(unittest.TestCase):
         status = wf["jobs"]["web-status"]["steps"][0]["run"]
         self.assertIn('may_skip.update({"web-typecheck", "web-tests", "web-production-build", "web-instant-navigation", '
                       '"agent-pane-real-acpmux"})', status)
+
+
+class RustToolCompileCacheTest(unittest.TestCase):
+    """The rust tool's cargo compiles through the runner's own sccache on a persistent GHA pool runner (its
+    SCCACHE_DIR outlives the job; the job-done hook wipes target/, so with no wrapper every cmux_next_ daemon test
+    run compiled 626 crates cold), keeps a wrapper already set (the fleet's kache), and changes nothing elsewhere."""
+
+    def run_tool(self, **env: str) -> tuple[str, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            cargo_home, tools, stub_bin, cache = base / "cargo", base / "tools", base / "stub", base / "sccache"
+            for d in (cargo_home / "bin", tools, stub_bin, cache):
+                d.mkdir(parents=True)
+            (cargo_home / "bin" / "rustup").write_text("#!/bin/sh\nexit 0\n")
+            (cargo_home / "bin" / "cargo").write_text('#!/bin/sh\necho "wrapper=${RUSTC_WRAPPER:-none} args=$*"\n')
+            (stub_bin / "sccache").write_text("#!/bin/sh\nexit 0\n")
+            for f in (cargo_home / "bin" / "rustup", cargo_home / "bin" / "cargo", stub_bin / "sccache"):
+                f.chmod(0o755)
+            full = {"PATH": f"{stub_bin}:/usr/bin:/bin", "HOME": tmp, "CARGO_HOME": str(cargo_home),
+                    "CI_TOOLS": str(tools), "GITHUB_ACTIONS": "true", "SCCACHE_DIR": str(cache)}
+            full.update(env)
+            full = {k: v for k, v in full.items() if v != ""}
+            subprocess.run(["bash", "-euo", "pipefail", "-c", ci_steps.load().tools["rust"]], env=full, check=True,
+                           capture_output=True, text=True, cwd=ROOT)
+            said = subprocess.run([str(tools / "bin" / "cargo"), "test", "-p", "x"], env=full, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+            return said, str(stub_bin / "sccache")
+
+    def test_a_pool_runner_with_sccache_compiles_through_it(self) -> None:
+        said, sccache = self.run_tool()
+        self.assertEqual(said, f"wrapper={sccache} args=test -p x")
+
+    def test_a_wrapper_already_set_is_kept(self) -> None:
+        said, _ = self.run_tool(RUSTC_WRAPPER="/opt/kache/kache")
+        self.assertEqual(said, "wrapper=/opt/kache/kache args=test -p x")
+
+    def test_no_sccache_dir_or_not_actions_is_as_before(self) -> None:
+        for env in ({"SCCACHE_DIR": ""}, {"GITHUB_ACTIONS": ""}):
+            with self.subTest(env=env):
+                said, _ = self.run_tool(**env)
+                self.assertEqual(said, "wrapper=none args=test -p x")
 
 
 class IosJobTest(unittest.TestCase):
