@@ -340,7 +340,7 @@ DELETES = re.compile(
 # path, or a Swift `defer` that drops a scratch copy. It trusts the variable's name, from a closed
 # list, and the argument must be that bare name (`&temp`, `self.staged`), so `&path` still counts.
 OWN_TEMP = re.compile(
-    r"\b(remove_file|remove_dir_all|remove_dir|rmSync|removeItem)\s*\(\s*(at:\s*)?&?(self\.)?"
+    r"\b(remove_file|remove_dir_all|remove_dir|rmSync)\s*\(\s*&?(self\.)?"
     r"(temp|tmp|temporary|part|partial|staged|staging|scratch)\s*[,)]"
     r"|^defer\s*\{\s*(try\?\s*)?FileManager\.\w+\.removeItem\(at:\s*\w+\s*\)\s*\}$")
 DELETE_SCOPE_EXCLUDED = ("scripts/*", "*/scripts/*", ".github/*", "tools/*", "dogfood/*", "Prototypes/*",
@@ -621,7 +621,7 @@ def delete_lines(patch: str, sign: str, path: str = "", source: str | None = Non
             code = " ".join(text.split())
             if code.startswith(("//", "#", "--", "*", "/*")):
                 continue
-            if DELETES.search(code) and not OWN_TEMP.search(code):
+            if DELETES.search(OWN_TEMP.sub(" ", code)):
                 found.append(code)
     return found
 
