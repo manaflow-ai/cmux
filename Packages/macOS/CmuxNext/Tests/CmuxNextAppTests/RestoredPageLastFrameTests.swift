@@ -229,4 +229,18 @@ import Testing
         #expect(picture.width == 60 && picture.height == 45, "scaled to the card")
         #expect(frames.hasPicture(tab.id), "a hover never hands out the picture the first show covers the page with")
     }
+
+    /// A restored New Tab tab not shown since the relaunch pictures nothing, as a live New Tab page does: its disk picture
+    /// is never its card's.
+    @Test func aRestoredNewTabTabShowsNoPicture() async throws {
+        let cache = cache()
+        let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 44), kind: .browser, url: "chrome://newtab/", browserRenderer: "frontend", browserEngine: "cef"))
+        let (frames, folder) = try await frames(with: tab.id)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        cache.pageFrames = frames
+        cache.findTab = { $0 == tab.id ? tab : nil }
+        let image = await cache.previewImage(for: tab.id, maxPixelSize: CGSize(width: 60, height: 60))
+        #expect(image != nil)
+        #expect(await TabPreviewSource.shown(image, key: tab.id, cache: cache) == nil, "a New Tab page's card shows no picture")
+    }
 }

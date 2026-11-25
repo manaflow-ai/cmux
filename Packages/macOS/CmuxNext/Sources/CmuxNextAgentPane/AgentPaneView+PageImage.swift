@@ -20,12 +20,13 @@ extension AgentPaneView {
     /// ground, the color the pane shows under its page. ``pageImage()`` is a JPEG in Chromium: the chat page is clear
     /// over that ground, so its picture came out flat white (capture of 2026-11-23); nil when there is none.
     public func cardPicture(maxPixelWidth: CGFloat) async -> CGImage? {
+        let ground = performWithTheme { AgentPaneTheme.pageBackground(themeTokens, surface: surfaceKind, backgrounds: themeScope.surfaceBackgrounds) }
         let shot: CGImage?
-        if let page { shot = await page.picture(maxPixelWidth: maxPixelWidth) } else {
+        // Over an opaque ground the clear areas take its color anyway: the cheaper JPEG (cmux#56141).
+        if let page { shot = await page.picture(maxPixelWidth: maxPixelWidth, opaque: PageImageBackground.isOpaque(ground)) } else {
             shot = await pageSnapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
         }
         guard let shot else { return nil }
-        let ground = performWithTheme { AgentPaneTheme.pageBackground(themeTokens, surface: surfaceKind, backgrounds: themeScope.surfaceBackgrounds) }
         return PageImageBackground.flattened(shot, over: ground)
     }
 

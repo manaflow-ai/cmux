@@ -64,9 +64,14 @@ extension PageWebView {
     /// out and rastered again, twice, and shows the bare page ground meanwhile. Every hover of a tab or
     /// workspace whose chat was on screen flashed the whole chat white for about a second (cmux#56141).
     ///
-    /// - Parameter maxPixelWidth: The widest the picture may be, in pixels.
+    /// A full viewport PNG costs the main thread more to encode than the old small one (``CEFThumbnail``): a caller
+    /// that lays the picture over an opaque ground anyway passes `opaque` and gets the fast JPEG, about a quarter of it.
+    ///
+    /// - Parameters:
+    ///   - maxPixelWidth: The widest the picture may be, in pixels.
+    ///   - opaque: The caller draws the picture over an opaque ground, so its clear areas need not stay clear.
     /// - Returns: The picture, or nil when the page has no size or the engine gave none.
-    public func picture(maxPixelWidth: CGFloat) async -> CGImage? {
+    public func picture(maxPixelWidth: CGFloat, opaque: Bool = false) async -> CGImage? {
         let size = bounds.size
         guard size.width >= 1, size.height >= 1 else { return nil }
         guard let page = chromiumSession?.page else {
@@ -75,7 +80,7 @@ extension PageWebView {
             configuration.snapshotWidth = NSNumber(value: Double(min(size.width, maxPixelWidth)))
             return (try? await webView.takeSnapshot(configuration: configuration))?.cgImage(forProposedRect: nil, context: nil, hints: nil)
         }
-        guard let json = try? await page.devTools("Page.captureScreenshot", params: Self.pictureParams),
+        guard let json = try? await page.devTools("Page.captureScreenshot", params: opaque ? Self.opaquePictureParams : Self.pictureParams),
               let data = await Self.screenshotData(json) else { return nil }
         return await Self.scaledPicture(data, maxPixelWidth: maxPixelWidth)
     }
@@ -83,6 +88,8 @@ extension PageWebView {
     /// `Page.captureScreenshot` for ``picture(maxPixelWidth:)``: a fast-mode PNG of the viewport as it draws. Never a
     /// `clip` or `captureBeyondViewport`: either re-lays out the page on screen for the capture (cmux#56141).
     nonisolated static var pictureParams: [String: any Sendable] { ["format": "png", "optimizeForSpeed": true] }
+    /// ``pictureParams`` for a picture laid over an opaque ground: a fast-mode JPEG.
+    nonisolated static var opaquePictureParams: [String: any Sendable] { ["format": "jpeg", "quality": 80, "optimizeForSpeed": true] }
 
     /// The picture in `data` (an encoded image) scaled to at most `maxPixelWidth` pixels wide, alpha kept, decoded off
     /// the main actor; nil when `data` holds no image.

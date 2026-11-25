@@ -130,7 +130,7 @@ struct PageWebViewEngineNeutralTests {
     /// The class of cmux#56141: no picture the app takes on its own (hover, leave, cover, quit) asks Chromium for a
     /// clip or a beyond-viewport capture, either of which re-lays out the page on screen.
     @Test func noPassivePictureAsksForAViewportEmulation() {
-        for params in [PageWebView.pictureParams, PageWebView.snapshotParams, PageWebView.clearAreaSnapshotParams] {
+        for params in [PageWebView.pictureParams, PageWebView.opaquePictureParams, PageWebView.snapshotParams, PageWebView.clearAreaSnapshotParams] {
             #expect(params["clip"] == nil && params["captureBeyondViewport"] == nil, "\(params.keys.sorted())")
         }
     }
