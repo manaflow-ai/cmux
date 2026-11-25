@@ -52,6 +52,10 @@ private struct PendingTextBubble: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Sending: \(text)")
+        #if DEBUG
+        // The send trace's tap-to-bubble mark (OptimisticSendCaptureUITests).
+        .onAppear { LoadFrameProbe.shared?.event("pending-bubble") }
+        #endif
     }
 }
 
