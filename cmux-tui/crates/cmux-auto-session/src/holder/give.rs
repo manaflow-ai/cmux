@@ -35,22 +35,42 @@ fn decline(out: &mut Out, to: MoveTo, why: Declined) {
     }
 }
 
-/// The wish a holder acts on now, from what the store's answer said. An answer with no wish
-/// clears a refusal: the next wish is a new one. A chat too large to copy cannot be given, and
-/// a wish the store refused to act on is not tried again while the store still tells it.
-pub(super) fn wanted(out: &mut Out, wish: Option<MoveTo>) -> Option<MoveTo> {
-    match wish {
-        None => {
-            out.chat.declined = false;
-            None
-        }
-        Some(_) if out.chat.declined => None,
-        Some(to) if out.chat.too_large => {
-            decline(out, to, Declined::TooLarge);
-            None
-        }
-        Some(to) => Some(to),
+/// Nothing is remembered of a wish: the next one the store tells is a new one.
+pub(super) fn forget(out: &mut Out) {
+    out.chat.declined = false;
+    out.chat.wish_at = None;
+}
+
+/// The store tells a wish the person asked for at `at` (None: it does not say when). Asking
+/// again starts a wish's time again, so a time other than the one last told is the person
+/// asking again: a new wish, and a refusal of the old one no longer holds. A wish first told
+/// with a time, after this daemon heard of it without one, is the same wish.
+pub(super) fn told(out: &mut Out, at: Option<u64>) {
+    let Some(at) = at else { return };
+    if out.chat.wish_at.is_some_and(|last| last != at) {
+        out.chat.declined = false;
     }
+    out.chat.wish_at = Some(at);
+}
+
+/// The wish a holder acts on now, from what the store's answer said: where to, and when the
+/// person asked (`at`). An answer with no wish clears a refusal, and so does a wish asked
+/// again ([`told`]): the next wish is a new one. A chat too large to copy cannot be given, and
+/// a wish the store refused to act on is not tried again while the store still tells it.
+pub(super) fn wanted(out: &mut Out, wish: Option<MoveTo>, at: Option<u64>) -> Option<MoveTo> {
+    let Some(to) = wish else {
+        forget(out);
+        return None;
+    };
+    told(out, at);
+    if out.chat.declined {
+        return None;
+    }
+    if out.chat.too_large {
+        decline(out, to, Declined::TooLarge);
+        return None;
+    }
+    Some(to)
 }
 
 /// Starts a give of the chat this machine holds at `epoch`: the turn that runs is stopped
