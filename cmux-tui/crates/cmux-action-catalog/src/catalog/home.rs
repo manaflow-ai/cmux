@@ -38,6 +38,20 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "home.makeItYours",
+        cli_name: "action home-make-it-yours",
+        group: GROUP,
+        title: t("ActionCatalog", "action.home.makeItYours", "Make cmux Yours"),
+        keywords: &["make cmux yours", "onboarding", "intro", "walk", "replay", "first run", "look", "density", "background", "opacity", "material", "terminal first", "agents first"],
+        category: "window",
+        symbol: "paintbrush",
+        surfaces: PALETTE,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menu_exemption: Some("noObject"), ..SurfacePlan::DEFAULT },
+        focuses: true,
+        is_person_only: true,
+        ..Action::DEFAULT
+    },
+    Action {
         id: "home.meetChief",
         group: GROUP,
         title: t("HomeActions", "action.home.meetChief", "Meet Chief"),

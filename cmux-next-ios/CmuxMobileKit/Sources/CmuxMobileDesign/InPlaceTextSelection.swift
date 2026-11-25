@@ -127,7 +127,7 @@ public final class InPlaceTextSelection: NSObject {
         anchor = word
         view.selectedTextRange = word
         loupe = UITextLoupeSession.begin(at: point, fromSelectionWidgetView: nil, in: view)
-        UISelectionFeedbackGenerator().selectionChanged()
+        CmuxMobileHaptics().selectionChanged()
         onChange?(true)
     }
 
@@ -139,7 +139,7 @@ public final class InPlaceTextSelection: NSObject {
             let end = view.compare(word.end, to: anchor.end) == .orderedDescending ? word.end : anchor.end
             if let range = view.textRange(from: start, to: end), range != view.selectedTextRange {
                 view.selectedTextRange = range
-                UISelectionFeedbackGenerator().selectionChanged()
+                CmuxMobileHaptics().selectionChanged()
             }
         }
         let caret = view.selectedTextRange.map { view.caretRect(for: $0.end) } ?? .zero
