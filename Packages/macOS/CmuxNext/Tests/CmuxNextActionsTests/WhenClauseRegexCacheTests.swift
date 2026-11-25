@@ -1,3 +1,4 @@
+import Foundation
 @testable import CmuxNextActions
 import Testing
 
@@ -34,7 +35,19 @@ import Testing
         let start = ContinuousClock.now
         for _ in 0..<10_000 where clause.evaluate(hit) { matched += 1 }
         let elapsed = ContinuousClock.now - start
-        print("WHEN_REGEX_10K_EVALUATIONS_MS=\(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)")
+        print("WHEN_REGEX_10K_AFTER_MS=\(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000)")
         #expect(matched == 10_000)
+
+        // The previous evaluate: compile the pattern on every call (same harness, same pattern and text).
+        let text = "terminal-42"
+        var oldMatched = 0
+        let oldStart = ContinuousClock.now
+        for _ in 0..<10_000 {
+            guard let regex = try? NSRegularExpression(pattern: "^term(inal)?-[0-9]+$") else { continue }
+            if regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil { oldMatched += 1 }
+        }
+        let old = ContinuousClock.now - oldStart
+        print("WHEN_REGEX_10K_BEFORE_MS=\(old.components.seconds * 1000 + old.components.attoseconds / 1_000_000_000_000_000)")
+        #expect(oldMatched == 10_000)
     }
 }
