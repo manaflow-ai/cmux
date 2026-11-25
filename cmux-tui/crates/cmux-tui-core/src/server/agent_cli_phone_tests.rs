@@ -106,9 +106,18 @@ fn the_mac_screens_facts_and_the_transcript_make_the_phones_screen() {
         let mut render = ghostty_vt::RenderState::new().unwrap();
         render.update(&mut term).unwrap();
         let mac = super::super::agent_cli_hybrid::grid(&render.build_frame().unwrap());
-        let (_, drawn) = phone.draw(&mac, true);
+        let (history, drawn) = phone.draw(&mac, true);
         assert_eq!((drawn.cols, drawn.rows), (50, 34));
-        let rows: Vec<String> = (0..drawn.cells.len()).map(|y| drawn.row_text(y)).collect();
+        // The phone's screen and the rows above it, which its scrollback holds.
+        let above = cmux_agent_cli_render::Grid {
+            cols: 50,
+            rows: u16::try_from(history.len()).unwrap(),
+            cells: history,
+        };
+        let rows: Vec<String> = (0..above.cells.len())
+            .map(|y| above.row_text(y))
+            .chain((0..drawn.cells.len()).map(|y| drawn.row_text(y)))
+            .collect();
         for want in want {
             assert!(rows.iter().any(|r| r.contains(want)), "{moment}: no {want:?} in {rows:#?}");
         }
