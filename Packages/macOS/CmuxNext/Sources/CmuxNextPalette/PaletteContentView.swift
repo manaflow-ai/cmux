@@ -15,6 +15,8 @@ final class PaletteContentView: NSView {
     var onPreferredSizeChange: ((CGSize) -> Void)?
 
     let searchBar = PaletteSearchBar()
+    /// The v2 scope bar under the field (`PaletteV2Look.scoped`), in its own band.
+    let scopeBar = PaletteScopeBarView(frame: .zero)
     private let stage = FlippedView()
     /// The panel's material: glass, or opaque under Reduce Transparency.
     let glass = Glass.makeOverlayPanel(cornerRadius: PaletteLayout.cornerRadius, tone: .neutralGlass(.transient))
@@ -22,6 +24,8 @@ final class PaletteContentView: NSView {
     private let topRule = NSView()
     private let bottomRule = NSView()
     private let list = PaletteListView()
+    /// The v2 rail left of the list (`PaletteV2Look.rail`), in the list's band.
+    private let rail = PaletteRailView(frame: .zero)
     /// The list's insets above the first row and below the last (tests: the rows' gap to the panel).
     var listContentInsets: NSEdgeInsets { list.contentInsets }
     /// Hosts the results and fades them out at the top or bottom while more
@@ -31,6 +35,8 @@ final class PaletteContentView: NSView {
     /// The page's line under the field (`PaletteModel.fieldHint`).
     private let fieldHint = PaletteText.label(Typography.caption, tone: .tertiary)
     private let footer = PaletteFooterView()
+    /// The detail pane right of the list (`experiments.palettePreview`), in the list's band.
+    let previewPane = PalettePreviewPaneView(frame: .zero)
     let actionsMenuView = PaletteActionsMenuView()
     private let recorderView = PaletteShortcutRecorderView()
     private var recorderHeight: CGFloat = 0
@@ -50,7 +56,7 @@ final class PaletteContentView: NSView {
 
     init(model: PaletteModel) {
         self.model = model
-        super.init(frame: NSRect(origin: .zero, size: PaletteLayout.windowSize))
+        super.init(frame: NSRect(origin: .zero, size: PaletteLayout.windowSize(model.experiments)))
         wantsLayer = true
         layer?.masksToBounds = false
         glass.translatesAutoresizingMaskIntoConstraints = true
@@ -60,6 +66,12 @@ final class PaletteContentView: NSView {
         [topRule, bottomRule].forEach { $0.wantsLayer = true }
         fieldHint.isHidden = true
         [searchBar, fieldHint, topRule, listHost, emptyTitle, bottomRule, footer].forEach(body.addSubview)
+        scopeBar.isHidden = true
+        body.addSubview(scopeBar)
+        rail.isHidden = true
+        body.addSubview(rail)
+        previewPane.isHidden = true
+        body.addSubview(previewPane)
         stage.addSubview(glass)
         stage.addSubview(actionsMenuView)
         stage.addSubview(recorderView)
@@ -101,10 +113,13 @@ final class PaletteContentView: NSView {
         searchBar.onPopTo = { model.pop(to: $0) }
         searchBar.onKeywordHint = { model.handle(.openActions) }
         searchBar.onRemoveToken = { model.removeToken(at: $0) }
+        searchBar.onEscChip = { model.closeFromEscChip() }
+        scopeBar.onChoose = { model.chooseScopeSegment($0) }
         list.onHover = { model.hover($0) }
         list.onPointerMove = { model.pointerMoved(over: $0) }
         list.onActivate = { model.activate(rowID: $0) }
         list.onMiddleClick = { model.closeRow(rowID: $0) }
+        rail.onChoose = { model.chooseRail($0) }
         footer.onPrimary = { model.handle(.submit) }
         footer.onActions = { model.handle(.toggleActions) }
         footer.onCrumb = { model.openCrumb(at: $0) }
@@ -133,7 +148,7 @@ final class PaletteContentView: NSView {
         let pageToken = model.pageToken
         let menuState = model.actionsMenu
         let recorderState = model.shortcutRecorder
-        let size = PaletteLayout.windowSize
+        let size = PaletteLayout.windowSize(model.experiments)
         let textSizes = PaletteLayout.textSizes
 
         if resultsVersion != appliedResults {
@@ -157,17 +172,35 @@ final class PaletteContentView: NSView {
         let showEmpty = sections.isEmpty && !model.isLoading && !model.awaitsRank
         listHost.isHidden = showEmpty
         emptyTitle.isHidden = !showEmpty
+        let railEntries = model.railEntries
+        rail.update(entries: railEntries, chosen: model.railFilter)
+        rail.isHidden = railEntries.isEmpty
+        // The preview pane follows the highlighted row (the hovered one, else the selected one; the selected one
+        // after a key moved it), as a page's live preview does; its facts are read for that row only.
+        let previews = model.experiments.preview
+        previewPane.isHidden = !previews
+        if previews {
+            let shownID = model.keyboardLeads ? selection : hover ?? selection
+            previewPane.show(shownID.flatMap { id in sections.lazy.flatMap(\.rows).first { $0.id == id }?.item }, version: resultsVersion)
+        }
 
         searchBar.update(
             query: model.query,
             placeholder: model.placeholder,
-            chips: model.scopeChips,
+            chips: model.fieldScopeChips,
             rootTitle: model.navigation.graph.root.title,
             style: model.chipStyle,
             keywordHint: model.keywordHint?.title,
             isLoading: model.isLoading,
-            tokens: model.pageTokens
+            tokens: model.fieldTokenChips,
+            showsEscChip: model.experiments.look.isOn
         )
+        let showsScopeBar = model.experiments.look.showsScopeBar
+        if scopeBar.isHidden == showsScopeBar {
+            scopeBar.isHidden = !showsScopeBar
+            needsLayout = true
+        }
+        if showsScopeBar { scopeBar.update(selected: model.scopeSegment) }
         footer.update(
             pageTitle: model.prefixHints ?? model.pageTitle,
             // The scope hints ("@ Tabs  # Workspaces …") draw without the page's ⌘ icon, which read as a key held
@@ -176,7 +209,8 @@ final class PaletteContentView: NSView {
             primaryTitle: model.primaryTitle,
             actionsEnabled: model.selectedItem?.isEnabled == true,
             closeTitle: model.selectedItem.flatMap { $0.isEnabled ? $0.closeCommand?.title : nil },
-            crumbs: model.pageCrumbs
+            crumbs: model.pageCrumbs,
+            pill: previews
         )
         if fieldHint.stringValue != model.fieldHint ?? "" || fieldHint.isHidden != (model.fieldHint == nil) {
             fieldHint.stringValue = model.fieldHint ?? ""
@@ -236,13 +270,16 @@ final class PaletteContentView: NSView {
         super.layout()
         let margin = PaletteLayout.shadowMargin
         stage.frame = bounds
-        glass.frame = NSRect(x: margin, y: margin, width: PaletteLayout.width, height: PaletteLayout.height)
+        glass.frame = NSRect(x: margin, y: margin, width: PaletteLayout.width(model.experiments), height: PaletteLayout.height(model.experiments))
         glass.cornerRadius = PaletteLayout.cornerRadius
         body.frame = CGRect(origin: .zero, size: glass.bounds.size)
         let width = body.bounds.width
         var y: CGFloat = 0
         searchBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.searchHeight)
         y += PaletteLayout.searchHeight
+        // The v2 scope bar's band (zero high in every other look).
+        scopeBar.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.scopeBarHeight(model.experiments))
+        y += PaletteLayout.scopeBarHeight(model.experiments)
         // The hint takes its line from the top of the list.
         let fieldHintHeight = fieldHint.isHidden ? 0 : PaletteText.height(fieldHint) + Metrics.space2
         fieldHint.frame = body.pixelAligned(NSRect(x: PaletteLayout.horizontalPadding, y: y,
@@ -250,23 +287,27 @@ final class PaletteContentView: NSView {
         y += fieldHintHeight
         topRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
-        let listFrame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.listHeight - fieldHintHeight)
+        // [rail: railWidth][list: listWidth][preview]; with no rail and no preview the list is the whole width.
+        let listFrame = NSRect(x: PaletteLayout.railWidth(model.experiments), y: y, width: PaletteLayout.listWidth, height: PaletteLayout.listHeight - fieldHintHeight)
         listHost.frame = listFrame
+        rail.frame = NSRect(x: 0, y: listFrame.minY, width: PaletteLayout.railWidth(model.experiments), height: listFrame.height)
+        previewPane.frame = NSRect(x: listFrame.maxX, y: listFrame.minY, width: PaletteLayout.previewWidth(model.experiments), height: listFrame.height)
         list.contentInsets = NSEdgeInsets(top: PaletteLayout.listInset, left: 0, bottom: PaletteLayout.listInset, right: 0)
         let titleHeight = PaletteText.height(emptyTitle)
         let emptyTop = listFrame.midY - titleHeight / 2
-        emptyTitle.frame = body.pixelAligned(NSRect(x: 0, y: emptyTop, width: width, height: titleHeight))
+        emptyTitle.frame = body.pixelAligned(NSRect(x: listFrame.minX, y: emptyTop, width: listFrame.width, height: titleHeight))
         y += PaletteLayout.listHeight - fieldHintHeight
         bottomRule.frame = NSRect(x: 0, y: y, width: width, height: Metrics.dividerThickness)
         y += Metrics.dividerThickness
         footer.frame = NSRect(x: 0, y: y, width: width, height: PaletteLayout.footerHeight)
         // The recorder floats over the top of the list, under the field.
-        let recorderWidth = min(PaletteLayout.width - 2 * Metrics.space6, PaletteLayout.actionsMenuWidth * 1.5)
+        let recorderWidth = min(PaletteLayout.width(model.experiments) - 2 * Metrics.space6, PaletteLayout.actionsMenuWidth * 1.5)
         recorderView.frame = NSRect(x: glass.frame.midX - recorderWidth / 2, y: glass.frame.minY + PaletteLayout.searchHeight + Metrics.space4,
                                     width: recorderWidth, height: recorderHeight)
         let menuWidth = PaletteLayout.actionsMenuWidth
         actionsMenuView.frame = NSRect(
-            x: glass.frame.maxX - menuWidth - Metrics.space4,
+            // The preview look anchors it above the footer pill's Actions, at the pill's right end.
+            x: glass.frame.maxX - menuWidth - (model.experiments.preview ? PaletteFooterView.pillTrailing : Metrics.space4),
             y: glass.frame.minY + y - menuHeight - Metrics.space2,
             width: menuWidth,
             height: menuHeight
@@ -344,7 +385,7 @@ final class PaletteContentView: NSView {
     /// Center of the glass panel in this view's coordinates.
     var panelCenter: CGPoint {
         let margin = PaletteLayout.shadowMargin
-        return CGPoint(x: margin + PaletteLayout.width / 2, y: bounds.height - margin - PaletteLayout.height / 2)
+        return CGPoint(x: margin + PaletteLayout.width(model.experiments) / 2, y: bounds.height - margin - PaletteLayout.height(model.experiments) / 2)
     }
 
     /// The panel scaled about its own center (`Motion.scale` accounts for

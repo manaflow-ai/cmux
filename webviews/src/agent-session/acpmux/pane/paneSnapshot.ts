@@ -52,6 +52,7 @@ import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
 import { setWaitingPreview } from "../waiting/waitingPreview";
+import { setComputerUsePreviewControls } from "../computerUse/computerUsePreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
 import { preparedMockTransport } from "../mockTransport";
 import { BridgeSocket } from "../bridgeSocket";
@@ -545,7 +546,11 @@ export function paneSnapshotEffect({
   };
   window.cmuxAcpmuxBridge = {
     toggleInspector,
-    perfCapture: (options) => chatPerfCapture.capture(options),
+    perfCapture: (options) =>
+      chatPerfCapture.capture(options, undefined, () => ({
+        rows: rowsRef.current.length,
+        events: directClient.current?.eventSeq ?? null,
+      })),
     lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
     composerState: () => {
       const draft = composerHandle.current?.draft();
@@ -713,6 +718,7 @@ export function paneSnapshotEffect({
       setStartRecoveryPreview(on === true);
       // Waiting on me on the home (waiting/HomeWaitingSection.tsx) ships dark behind Labs at first.
       setWaitingPreview(on === true);
+      setComputerUsePreviewControls(on === true);
       // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
     },
     applyLiveTree(on) {

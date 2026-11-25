@@ -19,7 +19,9 @@ nonisolated extension AcpmuxPaneMethods {
         // the chat sees beside its own (the composer's Add folder…, cmux#32811); AcpmuxPathPolicy checks
         // each as it checks `cwd`. `restricted`: a read-only chat in a folder the person declined
         // (Read-only here); acpmux keeps its policy and the folder's config off (hub/restricted.rs).
-        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted"]),
+        // `autoPlace`: the person picked Auto, so with no room anywhere acpmux may wait for a machine
+        // being added (hub/admission.rs); an explicit This Mac or machine never sends it.
+        "session/new": (["cwd", "mcpServers", "additionalDirectories", "_meta"], ["harness", "adopt", "peer", "noProject", "model", "restricted", "autoPlace"]),
         "chat.fix_from_link": (["url", "cwd", "harness", "model", "_meta"], []),
         "chat.fix_from_link.prepare": (["url", "cwd", "harness", "model"], []),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
@@ -191,6 +193,7 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/archive": (["sessionId", "archived"], []),
         "_acpmux/cold_archive": (["sessionId", "archived"], []),
         "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        "_acpmux/customize_run": (["run", "_meta"], []),
         // Auto (plans/cmux-next/auto-mode/DESIGN.md): `keepInCloud` only while the Cloud runs the chat.
         "_acpmux/auto_session/set": (["sessionId", "auto", "keepInCloud"], []),
         // `action`: show, apply or discard.
