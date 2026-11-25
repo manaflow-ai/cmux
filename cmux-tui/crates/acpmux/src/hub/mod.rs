@@ -539,6 +539,10 @@ pub(crate) fn prompt_attribution_mark(
 ) {
     prompt_attribution::mark(params, sender, provenance);
 }
+/// A failed turn's error as auto-resume reads it, for a client that waits on the chat (`cmux cloud
+/// start-chat`): why it is continued by itself (`capacity`, `transport`), and the wait its own
+/// `retry after` names.
+pub use auto_resume::reset_hint::retry_after_ms;
 pub use digest::{MAX_FROM_AGENT_CHARS, declared_sender, on_peer_host};
 pub use key_store::{CliKeyStore, KeepAsk, KeyStore};
 pub use pool::{
@@ -552,6 +556,7 @@ pub(crate) use seen::{Look, reader_of};
 pub use session::{Session, live_tags};
 pub(crate) use transfer_out::TOOL_IN_FLIGHT;
 pub(crate) use turn_errors::is_limit_error;
+pub use turn_errors::transient_cause;
 /// A line of session text as every view may show it: masked (`secret_scan`), then cut to `max`
 /// characters (`task_list.rs`'s steps).
 pub(crate) fn masked_step(s: &str, max: usize) -> String {
