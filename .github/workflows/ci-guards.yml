@@ -802,6 +802,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py
 
+      - name: Validate red-autofix triage, verify and land
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 -I tests/test_ci_red_autofix.py
+
       - name: Validate Ghostty helper cache failure handling
         if: ${{ matrix.group == 'release-tooling' }}
         run: bash tests/test_ghostty_cli_helper_cache.sh
