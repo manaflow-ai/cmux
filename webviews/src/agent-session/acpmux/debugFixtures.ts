@@ -1,5 +1,5 @@
 // Loaded only by an explicit debug seed; native chats never evaluate these fixtures.
-export { syntheticRows } from "./synthetic";
+export { syntheticRows, workedResizeRows } from "./synthetic";
 export { workedTurnPageRows, workedTurnRows } from "./workedTurn";
 export { incomingRows } from "./incomingFixture";
 export { LINKED_GITHUB_PULL_REQUEST, linkRows } from "./linkFixture";

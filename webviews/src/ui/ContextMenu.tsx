@@ -25,6 +25,7 @@ import { useNativePopup, type NativePopupDescription } from "./nativePopup";
 import type { NativePopupEvent } from "./popupProtocol";
 import { popupAction } from "./popupDescriptors";
 import { trackHeldMenuRelease } from "./pressRelease";
+import { usePopupSettle } from "./popupSettle";
 import { useExperimentArm } from "../experiments/useExperimentArm";
 import { menuStyleV2 } from "./menuStyleV2.experiment";
 import { menuRowStates } from "./menuRowStates.experiment";
@@ -210,10 +211,12 @@ export function ContextMenu({
   });
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
   const edges = useScrollEdges();
-  const attach = useCallback((node: HTMLDivElement | null) => {
+  const keep = useCallback((node: HTMLDivElement | null) => {
     menu.current = node;
     setShown(node);
   }, []);
+  // Opens at its final size and keeps it while data arrives (popupSettle.ts).
+  const attach = usePopupSettle<HTMLDivElement>(keep);
   useEffect(
     () => () => {
       heldPress.current?.();

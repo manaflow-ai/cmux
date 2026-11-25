@@ -1,3 +1,4 @@
+public import CmuxNextDaemon
 import Foundation
 
 /// The NEXT Cloud create's same-key retry rules and the power ops' retry, asked of Rust
@@ -21,6 +22,15 @@ extension CloudStartCore {
         let reply = call("cloud_create_team", Request(current: current, wasSent: request.wasSent, first: request.team), as: Reply.self)
         guard let team = reply?.team else { throw changedTeam() }
         return team
+    }
+
+    /// The create answer's spare claim report (cmux-platform `withSpareAnswer`) as one log note for the
+    /// `created machine` line: `spare_fallback=all_skipped spare_skips={"image":2} spare_skipped=3`, reason codes
+    /// and counts only, `spare=none` for an answer with no claim attempt. `spare=unread` when the FFI does not answer.
+    public func spareNote(answer: JSONValue) -> String {
+        struct Request: Encodable { var answer: JSONValue }
+        struct Reply: Decodable { var note: String }
+        return call("cloud_create_spare_note", Request(answer: answer), as: Reply.self)?.note ?? "spare=unread"
     }
 
     /// Whether a pause or start that failed with `code` on try `attempt` (from 1) of `attempts` is asked

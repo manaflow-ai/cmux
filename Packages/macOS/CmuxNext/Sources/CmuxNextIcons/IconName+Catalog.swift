@@ -298,6 +298,7 @@ extension IconName {
         .statusInprogress,
         .statusNeedsinput,
         .statusProgress,
+        .statusQuestion,
         .statusRunning,
         .statusSuccess,
         .statusWarning,

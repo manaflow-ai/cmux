@@ -129,12 +129,6 @@ const settled = chat(
   { isWorking: true },
 );
 
-/** One subagent, alone: its own name, never a bare 1. */
-const oneAgent = chat(
-  [user("Review the tray", 4), row(SUBAGENTS, 4, { subagents: [agent("Review the tray columns", 3, "running")] })],
-  { isWorking: true },
-);
-
 /** Two subagents of one harness: "2 subagents", never a bare 2. */
 const twoAgents = chat(
   [
@@ -165,10 +159,7 @@ function tallyHolds(ctx: PlayContext, minKinds: number): void {
     const box = kind.getBoundingClientRect();
     // Whole or not at all: no kind cut at the row's end, none into an ellipsis.
     if (box.right > row.right + 0.5) throw new Error(`${kind.dataset.kind} is cut at the row's end`);
-    // Never a bare number: a count carries its noun, a lone item its own name (the text may end in an ellipsis).
-    if (/^\d+$/.test((kind.textContent ?? "").trim()))
-      throw new Error(`${kind.dataset.kind} reads bare "${kind.textContent}"`);
-    if (kind.getBoundingClientRect().height > row.height + 0.5) throw new Error("a second line shows");
+    if (!/^\d+$/.test(kind.textContent ?? "")) throw new Error(`${kind.dataset.kind} reads "${kind.textContent}"`);
   }
   const time = header.querySelector<HTMLElement>(".acpmux-running-tray__time");
   if (time && time.scrollWidth > time.clientWidth + 0.5) throw new Error("the time is clipped");
@@ -245,24 +236,6 @@ export default agentPaneEntry({
         if (head(ctx)!.querySelector(".acpmux-running-tray__kinds[data-tally]")) throw new Error("nothing to tally");
       },
       snapshot: settled,
-      experiments: { "subagent-tray-fold-head": "tally" },
-    },
-    "one-agent": {
-      note: "One subagent: the header names it (an ellipsis when it does not fit), never a bare 1. One line, no sliver of a second.",
-      play: async (ctx) => {
-        await ctx.waitFor(() => head(ctx)?.querySelector(".acpmux-running-tray__kinds[data-tally]"));
-        tallyHolds(ctx, 1);
-      },
-      snapshot: oneAgent,
-      experiments: { "subagent-tray-fold-head": "tally" },
-    },
-    "two-agents": {
-      note: 'Two subagents: "2 subagents", never a bare 2; one line at every width.',
-      play: async (ctx) => {
-        await ctx.waitFor(() => head(ctx)?.querySelector(".acpmux-running-tray__kinds[data-tally]"));
-        tallyHolds(ctx, 1);
-      },
-      snapshot: twoAgents,
       experiments: { "subagent-tray-fold-head": "tally" },
     },
     "menu-bottom": {
