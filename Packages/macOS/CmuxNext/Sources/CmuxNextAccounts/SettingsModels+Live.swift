@@ -146,10 +146,11 @@ extension SettingsModels {
     }
 
     /// Add a Claude setup token (`claude setup-token`'s `sk-ant-oat…`, pasted after the terminal tab ran
-    /// it): into the Keychain first, then `connections/claude_token.add` with its reference only. The
-    /// pasted value itself is never trimmed into shape: a token with whitespace inside is refused.
+    /// it): into the Keychain first, then `connections/claude_token.add` with its reference only. Every
+    /// whitespace character comes out first, inner ones too: a terminal wraps the long line and pads it
+    /// with spaces and newlines, and a token has none of its own.
     func addClaudeToken(_ token: String, label: String?) async throws {
-        let token = token.trimmingCharacters(in: .newlines)
+        let token = Self.withoutWhitespace(token)
         guard token.hasPrefix(Self.claudeTokenPrefix), Self.isOneWord(token) else {
             throw PageError.invalidParams("addClaudeToken needs the sk-ant-oat token claude setup-token printed, with no spaces")
         }
@@ -157,6 +158,13 @@ extension SettingsModels {
     }
 
     nonisolated static let claudeTokenPrefix = "sk-ant-oat"
+
+    /// SECRET with every whitespace and newline character taken out, wherever it sits.
+    nonisolated static func withoutWhitespace(_ secret: String) -> String {
+        var kept = String.UnicodeScalarView()
+        kept.append(contentsOf: secret.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) })
+        return String(kept)
+    }
 
     /// One line of printable characters with no spaces, as a key or token is; the Keychain line must not break.
     nonisolated static func isOneWord(_ secret: String) -> Bool {

@@ -271,11 +271,21 @@ import Testing
         #expect(row["servesCloud"] == .bool(true))
     }
 
-    @Test func aClaudeTokenNeedsItsPrefixAndNoWhitespace() async throws {
+    @Test func aPastedClaudeTokenLosesEveryWhitespaceCharacter() async throws {
         let daemon = Daemon()
         let keys = Keys()
         let models = make(daemon: daemon, keys: keys)
-        for token in ["sk-ant-api03-not-a-setup-token", "sk-ant-oat01-two words", "sk-ant-oat01-a\tb", " sk-ant-oat01-lead", ""] {
+        // A terminal's copy of `claude setup-token`'s line: wrapped, padded, a tab and a no-break space.
+        let pasted = "  sk-ant-oat01-THE-RAW-\n   TOKEN-01\t23\u{00A0}45 \r\n"
+        _ = try await models.run(["action": "addClaudeToken", "token": .string(pasted)], context: click)
+        #expect(keys.stored.withLock { $0 } == ["keychain:cmux-model-key/claude-token-test": "sk-ant-oat01-THE-RAW-TOKEN-012345"])
+    }
+
+    @Test func aClaudeTokenNeedsItsPrefix() async throws {
+        let daemon = Daemon()
+        let keys = Keys()
+        let models = make(daemon: daemon, keys: keys)
+        for token in ["sk-ant-api03-not-a-setup-token", "sk-ant-api03 two words", "sk-ant-oat01-\u{7F}", " \n\t", ""] {
             await #expect(throws: PageError.self) {
                 _ = try await models.run(["action": "addClaudeToken", "token": .string(token)], context: click)
             }

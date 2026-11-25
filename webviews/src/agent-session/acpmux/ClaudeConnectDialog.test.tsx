@@ -111,7 +111,11 @@ test("the token check is the one Settings > Models uses", () => {
   expect(checkToken("   ")).toBe("empty");
   expect(checkToken(" sk-ant-oat01-abc ")).toBe("valid");
   expect(checkToken("sk-ant-api03-abc")).toBe("invalid");
-  expect(checkToken("sk-ant-oat01 abc")).toBe("invalid");
+  // A terminal's copy of the token, wrapped and padded: every whitespace character comes out.
+  expect(checkToken("sk-ant-oat01 abc")).toBe("valid");
+  expect(checkToken("  sk-ant-oat01-ab\n   cd\t ef \r\n")).toBe("valid");
+  expect(connectRequest("  sk-ant-oat01-ab\n   cd\t ef \r\n", "")).toEqual({ token: "sk-ant-oat01-abcdef" });
+  expect(checkToken("sk-ant-api03 abc")).toBe("invalid");
   expect(connectRequest(" sk-ant-oat01-abc ", "  ")).toEqual({ token: "sk-ant-oat01-abc" });
   expect(connectRequest("sk-ant-oat01-abc", " Work ")).toEqual({ token: "sk-ant-oat01-abc", label: "Work" });
   expect(refusalText(new Error(" Refused (401) "), "x")).toBe("Refused (401)");
