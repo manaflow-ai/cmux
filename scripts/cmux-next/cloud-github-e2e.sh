@@ -8,10 +8,12 @@
 #                                         a PR comment read back, the PR's checks read, one GitHub MCP
 #                                         tool call; then the PR is closed, the branch deleted, and
 #                                         nothing is at rest
-#   cloud-github-e2e.sh --agent-pr OWNER/REPO BRANCH FILE
+#   cloud-github-e2e.sh --agent-pr OWNER/REPO BRANCH FILE [LINE]
 #                                         reads back what an agent was asked to do (the journey's
-#                                         "GitHub by the agent (live)"): BRANCH exists, FILE is on it,
-#                                         an open PR from it; then closes that PR and deletes BRANCH
+#                                         "GitHub by the agent (live)"): BRANCH exists, FILE is on it
+#                                         (holding the one line LINE, when given), an open draft PR
+#                                         from it; then closes that PR and deletes BRANCH, whatever
+#                                         the checks said
 #   cloud-github-e2e.sh --stub            the same wiring against a stub minter and a stub GitHub MCP
 #                                         server, for a team with no GitHub connection yet
 #
@@ -104,18 +106,23 @@ close_pr() { gh pr close "$1" --comment "cmux Cloud e2e: closed by the journey" 
 delete_branch() { gh api -X DELETE "repos/$repo/git/refs/heads/$1" >/dev/null 2>"$work/delete.err"; }
 
 if [ "${1:-}" = "--agent-pr" ]; then
-  repo=${2:-}; branch=${3:-}; file=${4:-}
-  if ! valid_repo "$repo" || ! valid_ref "$branch" || ! valid_ref "$file"; then
-    say "agent_pr FAIL usage: cloud-github-e2e.sh --agent-pr OWNER/REPO BRANCH FILE"; exit 1
+  repo=${2:-}; branch=${3:-}; file=${4:-}; line=${5:-}
+  if ! valid_repo "$repo" || ! valid_ref "$branch" || ! valid_ref "$file" || ! printf '%s' "$line" | grep -Eq '^[A-Za-z0-9 ._-]*$'; then
+    say "agent_pr FAIL usage: cloud-github-e2e.sh --agent-pr OWNER/REPO BRANCH FILE [LINE]"; exit 1
   fi
   export GH_REPO="$repo"
   agent_branch() { gh api "repos/$repo/branches/$branch" --jq .name >/dev/null 2>"$work/branch.err"; }
-  agent_commit() { gh api "repos/$repo/contents/$file?ref=$branch" --jq .path >/dev/null 2>"$work/commit.err"; }
+  # The file as committed on the branch (raw), kept for the content cell.
+  agent_commit() { gh api -H "Accept: application/vnd.github.raw" "repos/$repo/contents/$file?ref=$branch" >"$work/agent-file" 2>"$work/commit.err"; }
+  # The one line asked for: the file, its carriage returns and trailing blank lines dropped, is exactly LINE.
+  agent_content() { [ "$(tr -d '\r' <"$work/agent-file")" = "$line" ]; }
+  agent_pr_draft() { [ "$(gh pr view "$pr" --json isDraft --jq .isDraft 2>"$work/draft.err")" = true ]; }
   check agent_branch agent_branch; why branch
   check agent_commit agent_commit; why commit
+  if [ -n "$line" ]; then check agent_content agent_content; fi
   pr=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty' 2>"$work/pr.err")
   check agent_pr test -n "$pr"; why pr
-  [ -n "$pr" ] && say "agent_pr number $pr"
+  if [ -n "$pr" ]; then say "agent_pr number $pr"; check agent_pr_draft agent_pr_draft; why draft; fi
   # The cleanup is the journey's, not the agent's: close what it opened and delete its branch.
   if [ -n "$pr" ]; then check pr_close close_pr "$pr"; why close; fi
   check branch_delete delete_branch "$branch"; why delete
@@ -123,7 +130,7 @@ if [ "${1:-}" = "--agent-pr" ]; then
   exit $((fails > 0))
 fi
 
-repo=${1:?usage: cloud-github-e2e.sh OWNER/REPO | --agent-pr OWNER/REPO BRANCH FILE | --stub}
+repo=${1:?usage: cloud-github-e2e.sh OWNER/REPO | --agent-pr OWNER/REPO BRANCH FILE [LINE] | --stub}
 valid_repo "$repo" || { say "repo FAIL not OWNER/REPO"; exit 1; }
 # gh through the image's shim mints for this one repo; GH_REPO names it outside a checkout.
 export GH_REPO="$repo"

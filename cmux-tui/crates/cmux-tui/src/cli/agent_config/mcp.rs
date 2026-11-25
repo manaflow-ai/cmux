@@ -28,6 +28,7 @@ Usage:
                             [--header KEY=VALUE]...
   cmux agent-config mcp remove|enable|disable NAME --agent claude|codex [--scope ...] [--project DIR]
   cmux agent-config hooks list|enable|disable|add|remove ...   (cmux agent-config hooks --help)
+  cmux agent-config subagents [list] [--cwd DIR] [--json]       (cmux agent-config subagents --help)
   cmux agent-config commands add NAME --prompt TEXT [--agent claude|codex|cmux]
   cmux agent-config commands list|remove ...   (cmux agent-config commands --help)
 
@@ -68,7 +69,7 @@ pub(in crate::cli) fn run_if_requested(args: &[String]) -> Option<i32> {
     if command_args.first().map(String::as_str) != Some("agent-config") {
         return None;
     }
-    let (json_flag, rest) = take_json_flag(&command_args[1..]);
+    let (json_flag, rest) = take_json_flag(command_args.get(1..).unwrap_or_default());
     let json_out = json_flag || global.output == OutputMode::Json;
     if rest.is_empty()
         || rest.iter().any(|a| a == "--help" || a == "-h") && !rest.contains(&"--".to_owned())
@@ -116,9 +117,13 @@ fn parse(rest: &[String]) -> Result<Parsed, String> {
     match words.next().map(String::as_str) {
         Some("mcp") => {}
         Some(other) => {
-            return Err(format!("unknown part {other:?}: `skills`, `hooks`, `settings` or `mcp`"));
+            return Err(format!(
+                "unknown part {other:?}: `skills`, `subagents`, `commands`, `hooks`, `settings` or `mcp`"
+            ));
         }
-        None => return Err("name a part: skills, hooks, settings or mcp".into()),
+        None => {
+            return Err("name a part: skills, subagents, commands, hooks, settings or mcp".into());
+        }
     }
     let mut parsed = Parsed {
         verb: words.next().cloned().ok_or("name a verb: list, add, remove, enable or disable")?,

@@ -51,3 +51,29 @@ fn a_crash_loop_status_names_the_extensions() {
     assert!(text.contains("local/customize"), "{text}");
     assert!(text.contains("Roll Back"), "{text}");
 }
+
+#[test]
+fn bisect_parses_its_steps_and_says_what_to_do_next() {
+    assert_eq!(
+        parse(&words("bisect"), false),
+        Some(Ok((Request::Bisect { step: "status".into() }, None)))
+    );
+    for step in ["start", "good", "bad", "reset", "status"] {
+        assert_eq!(
+            parse(&words(&format!("bisect {step}")), false),
+            Some(Ok((Request::Bisect { step: step.into() }, None)))
+        );
+    }
+    assert!(matches!(parse(&words("bisect maybe"), false), Some(Err(_))));
+    assert!(matches!(parse(&words("bisect good bad"), false), Some(Err(_))));
+
+    let running = json!({"on": true, "bisect": {
+        "suspects": ["a", "b", "c"], "running": ["a", "b"], "held": ["c"], "steps": 0}});
+    let text = bisect_human(&running);
+    assert!(text.contains("3 extensions left") && text.contains("Running now: a, b."), "{text}");
+    assert!(text.contains("Still off: c.") && text.contains("bisect bad"), "{text}");
+    let found = json!({"on": true, "bisect": {"suspects": ["b"], "running": [], "held": ["b"], "steps": 2, "found": "b"}});
+    assert!(bisect_human(&found).starts_with("Found it: b breaks cmux."));
+    assert!(bisect_human(&json!({"on": true})).contains("bisect start"));
+    assert!(bisect_human(&json!({"on": false})).contains("Safe mode is off"));
+}

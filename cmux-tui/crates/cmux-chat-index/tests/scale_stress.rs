@@ -14,12 +14,62 @@
 //! per size. The counted tests below run on every `cargo test`: they count bytes read (Linux
 //! `/proc/thread-self/io`), not time, so they are the same on every machine.
 
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use cmux_chat_index::{AdapterKind, ChatIndex, ChatRoot, RootSource};
 use serde_json::{Value, json};
+
+thread_local! {
+    /// While [`thread_peak_bytes`] runs on this thread: bytes held now and at most.
+    static PEAK_BYTES: Cell<Option<(isize, isize)>> = const { Cell::new(None) };
+}
+
+fn note_bytes(delta: isize) {
+    let _ = PEAK_BYTES.try_with(|peak| {
+        if let Some((live, most)) = peak.get() {
+            let live = live + delta;
+            peak.set(Some((live, most.max(live))));
+        }
+    });
+}
+
+struct AllocationCounter;
+
+unsafe impl GlobalAlloc for AllocationCounter {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        note_bytes(layout.size() as isize);
+        unsafe { System.alloc(layout) }
+    }
+
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        note_bytes(layout.size() as isize);
+        unsafe { System.alloc_zeroed(layout) }
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        note_bytes(-(layout.size() as isize));
+        unsafe { System.dealloc(ptr, layout) }
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        note_bytes(size as isize - layout.size() as isize);
+        unsafe { System.realloc(ptr, layout, size) }
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: AllocationCounter = AllocationCounter;
+
+fn thread_peak_bytes<T>(run: impl FnOnce() -> T) -> (T, usize) {
+    let outer = PEAK_BYTES.with(|peak| peak.replace(Some((0, 0))));
+    let value = run();
+    let most = PEAK_BYTES.with(|peak| peak.replace(outer)).map_or(0, |(_, most)| most);
+    (value, most.max(0) as usize)
+}
 
 /// Every this many Claude chats, one long transcript (past the 64 KiB head and tail windows).
 const LONG_EVERY: usize = 500;
@@ -48,11 +98,15 @@ fn clock(i: usize) -> String {
 }
 
 fn claude_line(i: usize, kind: &str, text: &str) -> String {
+    claude_line_at(i, kind, text, i)
+}
+
+fn claude_line_at(i: usize, kind: &str, text: &str, timestamp: usize) -> String {
     format!(
         r#"{{"type":"{kind}","isSidechain":false,"cwd":"/work/p{}","sessionId":"{}","timestamp":"{}","message":{{"role":"{kind}","content":"{text}"}}}}"#,
         i % 50,
         claude_id(i),
-        clock(i)
+        clock(timestamp)
     )
 }
 
@@ -167,6 +221,14 @@ impl Corpus {
         let file = claude_file(&self.projects, i);
         let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
         writeln!(f, "{}", claude_line(i, "user", &format!("next prompt {n}"))).unwrap();
+        file
+    }
+
+    fn append_claude_activity(&self, i: usize, n: usize) -> PathBuf {
+        let file = claude_file(&self.projects, i);
+        let mut f = std::fs::OpenOptions::new().append(true).open(&file).unwrap();
+        writeln!(f, "{}", claude_line_at(i, "user", &format!("activity {n}"), 1_000_000 + n))
+            .unwrap();
         file
     }
 
@@ -296,10 +358,25 @@ fn stress_bench_chat_index_scale() {
         for _ in 0..3 {
             loaded = load.time(|| ChatIndex::load(&cache, corpus.roots()));
         }
+
         // The daemon's start: the cache, then a rescan that should find nothing to read.
         let mut start = Samples::default();
         let start_bytes = bytes_read(|| {
             start.time(|| loaded.rescan_all());
+        });
+
+        let activity_paths: Vec<_> =
+            (0..1_000).map(|n| corpus.append_claude_activity(n % corpus.claude, n)).collect();
+        let (_, heap_cold_bytes) = thread_peak_bytes(|| {
+            let loaded = ChatIndex::load(&cache, corpus.roots());
+            std::hint::black_box(loaded);
+        });
+        let (_, heap_churn_bytes) = thread_peak_bytes(|| {
+            let mut loaded = ChatIndex::load(&cache, corpus.roots());
+            for path in &activity_paths {
+                std::hint::black_box(loaded.paths_changed(std::slice::from_ref(path)));
+            }
+            std::hint::black_box(loaded.len());
         });
 
         let max = |v: &[u64]| v.iter().copied().max().unwrap_or(0);
@@ -314,6 +391,10 @@ fn stress_bench_chat_index_scale() {
                 "codex_update": codex_update.summary(), "codex_update_bytes_max": max(&codex_bytes),
                 "first_page": page.summary(),
                 "save": save.summary(), "load": load.summary(), "cache_bytes": cache_bytes,
+                "heap_cold_bytes": heap_cold_bytes,
+                "heap_cold_bytes_per_chat": heap_cold_bytes / indexed.max(1),
+                "heap_churn_bytes": heap_churn_bytes,
+                "heap_churn_bytes_per_chat": heap_churn_bytes / indexed.max(1),
             })
         );
     }

@@ -195,19 +195,62 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
 public final class SidebarSessionTree {
     public static let shared = SidebarSessionTree()
 
-    public var state: SidebarSessionTreeState?
+    public var state: SidebarSessionTreeState? {
+        didSet {
+            // Only the agents' states moved (a lane's turn started or ended, many a second across 10,000 sessions):
+            // `statesRevision`, which redraws no row unless a folded parent rolls them up. Anything else: the shape.
+            if state?.parents != oldValue?.parents { parentsRevision &+= 1 }
+            var (now, was) = (state, oldValue)
+            now?.states = [:]
+            was?.states = [:]
+            if now != was { shapeRevision &+= 1 } else { statesRevision &+= 1 }
+        }
+    }
+    /// The lineage drawn last while acpmux's lanes were live (child to parent), kept across launches: the last run's,
+    /// then this run's. While the lanes are not live (a launch before the watch's first page, a watch gap) the feed
+    /// keeps these parents, so the rows nest from the first frame as they were and nothing un-nests and nests again
+    /// when the lanes land (Leo, 2026-11-22, after a relaunch: "the sidebar re-rendered/re-ordered with some
+    /// animations").
+    @ObservationIgnored public var savedParents: [WorkspaceID: WorkspaceID] = [:] {
+        didSet {
+            guard savedParents != oldValue else { return }
+            defaults.set(Dictionary(uniqueKeysWithValues: savedParents.map { ($0.key.rawValue, $0.value.rawValue) }),
+                         forKey: Self.lineageKey)
+        }
+    }
     /// Every row's pull request badge, with the tree on or off.
-    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
+    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:] { didSet { pullRequestsRevision &+= 1 } }
     /// The parents the user folded (a chevron on the row), kept across launches.
-    public private(set) var collapsed: Set<WorkspaceID>
+    public private(set) var collapsed: Set<WorkspaceID> { didSet { shapeRevision &+= 1 } }
     /// The parents below the top level the user opened (they start folded), kept across launches.
-    public private(set) var opened: Set<WorkspaceID>
+    public private(set) var opened: Set<WorkspaceID> { didSet { shapeRevision &+= 1 } }
+    /// Moves on every write of the tree other than its agents' states alone (on or off, parents, pull requests in the
+    /// tree, folds): what the list draws changes. A render compares this counter, never the tree's whole-list
+    /// dictionaries (cmuxterm-hq#13493).
+    public private(set) var shapeRevision: UInt64 = 0
+    /// Moves on every write that changed the lineage (`SidebarSessionTreeState.parents`, nil and empty apart): a
+    /// restore's arrival (`SidebarView.isRestoreArrival`) compares this, never the parents dictionary.
+    public private(set) var parentsRevision: UInt64 = 0
+    /// Moves on a write that changed only the agents' states (`SidebarSessionTreeState.states`).
+    public private(set) var statesRevision: UInt64 = 0
+    /// Moves on every write of `pullRequests`.
+    public private(set) var pullRequestsRevision: UInt64 = 0
     @ObservationIgnored private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         collapsed = Set((defaults.stringArray(forKey: Self.collapsedKey) ?? []).map(WorkspaceID.init))
         opened = Set((defaults.stringArray(forKey: Self.openedKey) ?? []).map(WorkspaceID.init))
+        savedParents = Dictionary(((defaults.dictionary(forKey: Self.lineageKey) as? [String: String]) ?? [:])
+            .map { (WorkspaceID($0.key), WorkspaceID($0.value)) }) { first, _ in first }
+        // The first frame nests its rows as the last run drew them.
+        if !savedParents.isEmpty, SidebarTunables.lineageNesting.value { state = SidebarSessionTreeState(parents: savedParents) }
+    }
+
+    /// Forgets the saved lineage, and the tree it seeded if no feed pass replaced it (no acpmux here: no lanes will).
+    public func dropSavedLineage() {
+        if let seeded = state, seeded == SidebarSessionTreeState(parents: savedParents) { state = nil }
+        savedParents = [:]
     }
 
     /// What the list draws: the live state with the user's folds, a parent below the top level
@@ -221,8 +264,10 @@ public final class SidebarSessionTree {
     }
 
     /// Folds or opens the subtree under `id`. `folded`: whether its row draws it folded now (a
-    /// parent below the top level starts folded); nil reads the user's own fold.
-    public func toggle(_ id: WorkspaceID, folded: Bool? = nil) {
+    /// parent below the top level starts folded); nil reads the user's own fold. `keeping`: the rows
+    /// that are parents of subagents (a chat's subagents nest under its row, `SidebarSubagentStrip`),
+    /// whose folds stay though no session lists under them.
+    public func toggle(_ id: WorkspaceID, folded: Bool? = nil, keeping: Set<WorkspaceID> = []) {
         if folded ?? collapsed.contains(id) {
             collapsed.remove(id)
             opened.insert(id)
@@ -230,7 +275,7 @@ public final class SidebarSessionTree {
             collapsed.insert(id)
             opened.remove(id)
         }
-        save()
+        save(keeping: keeping)
     }
 
     /// Opens every fold above `id` (a selected session, or one the needs-you tray goes to) in each of `lists`
@@ -255,9 +300,9 @@ public final class SidebarSessionTree {
     /// prunes only on the user's own fold while the tree has parents: before the first pass every
     /// fold is kept, and `reveal` (which runs for the restored selection at launch, while the lanes
     /// may still be loading) never prunes.
-    private func save(pruning: Bool = true) {
+    private func save(pruning: Bool = true, keeping: Set<WorkspaceID> = []) {
         if pruning, let parents = state?.parents, !parents.isEmpty {
-            let live = Set(parents.values)
+            let live = Set(parents.values).union(keeping)
             collapsed = collapsed.filter(live.contains)
             opened = opened.filter(live.contains)
         }
@@ -267,4 +312,5 @@ public final class SidebarSessionTree {
 
     static let collapsedKey = "sidebar.sessionTree.collapsed"
     static let openedKey = "sidebar.sessionTree.opened"
+    static let lineageKey = "sidebar.sessionTree.savedLineage"
 }

@@ -2,6 +2,7 @@ import AppKit
 public import CmuxNextBrowser
 public import CmuxNextTabs
 import CmuxNextWakeups
+public import Foundation
 public import Observation
 
 /// Favicons for tab strips, per browser profile: the live page's icon or,
@@ -49,6 +50,8 @@ public final class TabFaviconStore {
     /// loader's image each came from: one stable `TabImage` per icon, made without writing observed state.
     @ObservationIgnored private var adopted = LRUCache<Key, (source: NSImage, image: TabImage)>(capacity: 256)
     @ObservationIgnored private let loader: any BrowserFaviconLoading
+    /// The last good icon of each site origin: a page's face never goes back to the globe once its site's icon was known.
+    @ObservationIgnored public let kept: OriginFaviconKeeper
     /// Times the failure memory (a test moves its own).
     @ObservationIgnored private let clock: any Clock<Duration>
 
@@ -79,9 +82,23 @@ public final class TabFaviconStore {
     /// - Parameters:
     ///   - loader: the browser favicon loader used for pages without a live tab.
     ///   - clock: times the failure memory.
-    public init(loader: any BrowserFaviconLoading, clock: any Clock<Duration> = ContinuousClock()) {
+    ///   - originDirectory: where each site origin's last good icon persists (``OriginFaviconKeeper``); nil keeps them in memory.
+    public init(loader: any BrowserFaviconLoading, clock: any Clock<Duration> = ContinuousClock(), originDirectory: URL? = nil) {
         self.loader = loader
         self.clock = clock
+        kept = OriginFaviconKeeper(directory: originDirectory)
+        kept.onLoaded = { [weak self] in self?.revision += 1 }
+    }
+
+    /// ``image(for:profile:tab:)`` for a page at `page` (or `origin`, `https://host[:port]`), which never answers nil for a
+    /// site whose icon was known (an in-site navigation, a reload, a fetch that failed or is still out, a cold start, a
+    /// tab made again): the origin's last good icon stands in until a new one arrives. `persist` off for an incognito tab.
+    /// `fetching` off reads only what is here (a list of every bookmark must not fetch every site's icon).
+    public func face(for address: String?, profile: BrowserProfileID, tab: (any BrowserTab)? = nil, page: URL? = nil,
+                     origin: String? = nil, persist: Bool = true, fetching: Bool = true) -> TabImage? {
+        let fresh = fetching ? image(for: address, profile: profile, tab: tab) : address.flatMap { cachedImage(for: $0, profile: profile) }
+        return kept.face(fresh: fresh, origin: origin ?? OriginFaviconKeeper.origin(of: page), profile: profile, persist: persist,
+                         keeps: OriginFaviconKeeper.keeps(tab))
     }
 
     /// The icon at `address` for a page of `profile`, or nil while it loads

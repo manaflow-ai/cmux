@@ -6,6 +6,8 @@ import UIKit
 struct CardMenuEntry {
     var title: String
     var symbol: String
+    /// Set: `symbol` is a custom symbol in this bundle's asset catalog (`TabsKitMenuItem.symbolBundle`).
+    var symbolBundle: Bundle? = nil
     var destructive = false
     var action: () -> Void
 }
@@ -131,7 +133,7 @@ struct CardInteraction: UIViewRepresentable {
             return UIContextMenuConfiguration(identifier: nil, previewProvider: nil, actionProvider: { _ in
                 let groups = sections.map { group in
                     UIMenu(options: .displayInline, children: group.map { e in
-                        UIAction(title: e.title, image: UIImage(systemName: e.symbol),
+                        UIAction(title: e.title, image: e.symbolBundle.flatMap { UIImage(named: e.symbol, in: $0, with: nil) } ?? UIImage(systemName: e.symbol),
                                  attributes: e.destructive ? .destructive : []) { _ in e.action() }
                     })
                 }

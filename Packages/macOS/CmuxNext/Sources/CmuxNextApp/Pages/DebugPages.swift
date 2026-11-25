@@ -40,7 +40,8 @@ import Foundation
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
 //   Cloud page, a hidden one is made first (so a probe needs no open Cloud tab);
 // - `open` (`route`?): a hidden live page of `page` when none is live, so the other actions have one to
-//   read: `cmux.cloud`, or `cmux.feed` on `route` (default `#/needs-you`, the one route the app opens;
+//   read: `cmux.cloud`, `cmux.settings` (its `cmux.settings.host.lists`, read by cmux-next-ios review.sh), or
+//   `cmux.feed` on `route` (default `#/needs-you`, the one route the app opens;
 //   the app shows the Feed only in Chief Home's Needs you, opt-in and only while something waits, so a
 //   fresh run has none). Answers the page's identity with `made` (false: a live one was already there).
 // The control router's deadline bounds every action.
@@ -144,7 +145,7 @@ enum DebugPages {
     }
 
     /// The page ids `open` can make hidden.
-    @MainActor static let openable = [PageDescriptor.cloud.id, PageDescriptor.feed.id]
+    @MainActor static let openable = [PageDescriptor.cloud.id, PageDescriptor.feed.id, PageDescriptor.settings.id]
 
     /// `open`: the live page of `id`, else a hidden one made through the app's own factory.
     @MainActor
@@ -157,7 +158,11 @@ enum DebugPages {
         }
         guard let services else { return ["error": "no app services"] }
         let factory = PageFactory(services: services)
-        let made = id == PageDescriptor.feed.id ? factory.feedWebPage(route: route ?? "#/needs-you") : factory.cloudWebPage()
+        let made = switch id {
+        case PageDescriptor.feed.id: factory.feedWebPage(route: route ?? "#/needs-you")
+        case PageDescriptor.settings.id: factory.settingsPage(route: route)
+        default: factory.cloudWebPage()
+        }
         guard let made else { return ["error": .string("no \(id) page: its resources are missing")] }
         Self.made.append(made)
         return .object(made.debugIdentity.merging(["made": true]) { _, new in new })
