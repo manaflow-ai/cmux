@@ -180,7 +180,7 @@
    "todo": true
   },
   "cmux_tui_core::server::forum_routed": {
-   "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+   "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
   },
   "cmux_vm_pool::http": {
    "todo": true
