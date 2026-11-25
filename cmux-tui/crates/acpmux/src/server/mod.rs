@@ -3163,6 +3163,7 @@ pub(crate) mod host_power;
 pub(crate) mod interest;
 mod move_targets;
 pub mod peer_auth;
+mod peer_demand_wait;
 mod peer_forward;
 pub(crate) mod peer_status;
 pub mod peer_text;

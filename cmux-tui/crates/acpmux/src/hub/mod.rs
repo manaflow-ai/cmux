@@ -451,6 +451,7 @@ mod peer_flap_soak;
 mod peer_grace;
 #[cfg(test)]
 mod peer_grace_tests;
+mod peer_idle;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 mod spoken_handles;

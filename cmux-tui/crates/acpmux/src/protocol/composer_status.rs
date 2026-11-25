@@ -365,7 +365,7 @@ pub fn machine_link_item(
     use MachineLink::*;
     let kind = StatusKind::MachineLink;
     let (level, words, action, quiet) = match link {
-        Connected | Paused => return None,
+        Connected | Paused | Idle => return None,
         _ if removed => (StatusLevel::Attention, "removed".to_owned(), None, false),
         Connecting => (StatusLevel::Info, "connecting".to_owned(), None, true),
         Reconnecting => (StatusLevel::Info, "reconnecting".to_owned(), None, true),

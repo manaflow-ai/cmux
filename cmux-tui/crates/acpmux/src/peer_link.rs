@@ -767,6 +767,8 @@ pub enum PeerState {
     Restarting,
     /// Never reached, and attempts failed. Attempts go on.
     Offline,
+    /// Not dialed on purpose (`peer_demand.rs`): reachable when last linked; use connects it.
+    Idle,
 }
 
 impl PeerState {
@@ -781,6 +783,7 @@ impl PeerState {
             Self::Reconnecting => W::Reconnecting,
             Self::Restarting => W::Restarting,
             Self::Offline => W::Offline,
+            Self::Idle => W::Idle,
         }
     }
 
@@ -792,6 +795,7 @@ impl PeerState {
             Self::Reconnecting => "reconnecting",
             Self::Restarting => "restarting",
             Self::Offline => "offline",
+            Self::Idle => "idle",
         }
     }
 }
@@ -803,6 +807,8 @@ pub const PARK_AFTER_MS: u64 = 24 * 60 * 60 * 1_000;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Link {
     restarting: bool,
+    /// Left undialed until something uses the peer (`peer_demand.rs`, `Link::idle`).
+    pub(crate) idle: bool,
     open: bool,
     ready: bool,
     overdue: bool,
@@ -828,6 +834,10 @@ impl Link {
     pub fn state(&self) -> PeerState {
         if self.restarting {
             return PeerState::Restarting;
+        }
+        if self.idle && !self.open {
+            // Down when it was last linked: offline, and it reconnects on use.
+            return if self.down_since.is_some() { PeerState::Offline } else { PeerState::Idle };
         }
         match (self.open, self.ready && !self.overdue) {
             (true, true) => PeerState::Connected,
@@ -912,6 +922,7 @@ impl Link {
 
     /// The WebSocket opened; the handshake runs.
     pub fn opened(&mut self, now: u64) {
+        self.idle = false;
         self.retry_at = None;
         self.opened_at = Some(now);
         self.open = true;
@@ -952,6 +963,14 @@ impl Link {
         self.overdue = false;
         self.ready_at = None;
         self.down_since.get_or_insert(now);
+    }
+
+    /// Left undialed until something uses the peer, or closed because nothing did
+    /// (`peer_demand.rs`): no failed attempt counts, no outage starts, no attempt is scheduled.
+    pub fn idle(&mut self) {
+        (self.idle, self.restarting, self.open, self.ready, self.overdue) =
+            (true, false, false, false, false);
+        (self.ready_at, self.opened_at, self.retry_at) = (None, None, None);
     }
 
     /// How long the link has been ready, while it is.

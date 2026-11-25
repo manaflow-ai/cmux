@@ -403,6 +403,7 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
+    super::peer_demand_wait::use_peer(hub, m, params).await;
     let reply = gated(hub, conn, m, params).await;
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
     // A prompt kept for its peer's link (`queue_for_link`) is sent by the outbox, which records it.
@@ -686,7 +687,7 @@ fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: 
 /// (`_acpmux/composer_set`).
 /// Clearing it or stopping typing is not, and neither is `_acpmux/draft_set`: the pane saves the
 /// last chat's draft when it switches away, unchanged, which is no one writing.
-fn composing(m: &str, params: &Value) -> bool {
+pub(super) fn composing(m: &str, params: &Value) -> bool {
     match m {
         method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
         method::MUX_COMPOSER_SET => {

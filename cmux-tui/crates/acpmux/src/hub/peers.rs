@@ -10,6 +10,8 @@ pub(super) fn peer_origin_state(peer: &crate::peer::Peer) -> OriginState {
         crate::peer_link::PeerState::Connected | crate::peer_link::PeerState::Degraded => {
             OriginState::Connected
         }
+        // Left closed because unused: its rows are last-known, the machine is not down.
+        crate::peer_link::PeerState::Idle => OriginState::Stale,
         _ if peer.outage_ended.load(std::sync::atomic::Ordering::Acquire)
             || peer.link().down_since.is_some_and(|at| {
                 crate::store::now_ms().saturating_sub(at)
@@ -163,7 +165,9 @@ impl Hub {
         for (name, pc) in peers {
             // A gate released during shutdown cannot start a new tunnel after the existing
             // peers were stopped. Registration and the shutdown fence share this lock.
-            if self.before_shutdown(|| self.start_peer(&name, &pc)).is_none() {
+            // Each waits to be used before it dials (`peer_demand.rs`).
+            let start = || crate::peer::lazily(|| self.start_peer(&name, &pc));
+            if self.before_shutdown(start).is_none() {
                 started_all = false;
                 break;
             }
@@ -213,7 +217,8 @@ impl Hub {
             }
             return tokio::sync::watch::channel(1).1;
         }
-        self.spawn_peer(name, pc, true).1
+        // A saved peer: its link closes once unused (`peer_demand.rs`).
+        crate::peer::saved(|| self.spawn_peer(name, pc, true)).1
     }
 
     /// Run a peer under `name`, replacing any peer of that name; with
@@ -950,6 +955,7 @@ impl Hub {
                     self.peer_snapshots.flush(Some(&peer));
                     tracing::info!(peer = %peer, "peer restarting");
                 }
+                PeerNotice::Idle => self.peer_went_idle(&peer, generation),
                 PeerNotice::Disconnected(e) => {
                     // Channels that rode the link end for their local side.
                     crate::server::channels::link_lost(self, &peer, generation);
