@@ -100,6 +100,9 @@ public enum ComposerCardMetrics {
     public static let rowVerticalInset: CGFloat = 2
     /// The circles the controls draw; their touch targets reach 4 pt past them (44 pt).
     public static let control: CGFloat = 36
+    /// The attachment strip over the row, both composers': 56 pt tiles under a 12 pt top inset.
+    /// The field gives this height up while the strip shows (``ComposerFieldHeight/maxLines(_:sharing:lineHeight:)``).
+    public static let attachmentStripHeight: CGFloat = 68
     /// The card's inset from the screen's sides.
     public static let horizontalInset: CGFloat = 12
 }
