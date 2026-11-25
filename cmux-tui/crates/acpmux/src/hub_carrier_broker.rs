@@ -60,8 +60,16 @@ pub(super) async fn open(
         }
     };
     let (client, server) = tokio::io::duplex(PIPE_BYTES);
-    tokio::spawn(serve(server, socket, machine, Budget::shared()));
+    scope().spawn_named("lane-gh broker stream", serve(server, socket, machine, Budget::shared()));
     Ok(client)
+}
+
+/// The owner of every broker stream's relay task. Each ends on its own, when either end of the
+/// stream closes or the budget refuses its first line.
+#[cfg(unix)]
+fn scope() -> &'static cmux_scope::Scope {
+    static SCOPE: OnceLock<cmux_scope::Scope> = OnceLock::new();
+    SCOPE.get_or_init(|| cmux_scope::Scope::new("lane-gh broker streams"))
 }
 
 // ---------------------------------------------------------------------------------------------
