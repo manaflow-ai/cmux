@@ -41,10 +41,7 @@ fn only_a_command_that_is_gh_pr_create_counts() {
 
 #[test]
 fn script_reads_a_string_a_shell_argv_and_falls_back_to_the_title() {
-    assert_eq!(
-        script(&json!({"rawInput": {"command": "gh pr create"}})).unwrap(),
-        "gh pr create"
-    );
+    assert_eq!(script(&json!({"rawInput": {"command": "gh pr create"}})).unwrap(), "gh pr create");
     let argv = json!({"rawInput": {"command": ["/bin/bash", "-lc", "cd x && gh pr create"]}});
     assert_eq!(script(&argv).unwrap(), "cd x && gh pr create");
     let words = json!({"rawInput": {"command": ["gh", "pr", "create"]}});
@@ -87,14 +84,8 @@ fn a_gh_pr_merge_or_close_anywhere_in_the_script_names_its_pull_request() {
     let url = |n: u64| Target::Url(format!("https://github.com/o/r/pull/{n}"));
     for (script, want) in [
         ("gh pr merge 5 --squash", vec![Target::Number(5)]),
-        (
-            "gh pr merge 5 --squash --match-head-commit abc 2>&1 | tail -3",
-            vec![Target::Number(5)],
-        ),
-        (
-            "cd /src && GH_HOST=github.com gh pr close '#6' -c 'done now'",
-            vec![Target::Number(6)],
-        ),
+        ("gh pr merge 5 --squash --match-head-commit abc 2>&1 | tail -3", vec![Target::Number(5)]),
+        ("cd /src && GH_HOST=github.com gh pr close '#6' -c 'done now'", vec![Target::Number(6)]),
         ("git fetch; gh pr merge https://github.com/o/r/pull/7", vec![url(7)]),
         ("gh pr merge -R o/r 8 --squash; gh pr close --repo=o/r 9", vec![url(8), url(9)]),
         ("gh pr merge --repo https://github.com/o/r 10 -t subject", vec![url(10)]),
@@ -134,8 +125,7 @@ fn settled_urls_are_what_gh_says_it_merged_or_closed() {
         ✓ Squashed and merged o/r#12\n\
         ✓ Closed o/r#13\n\
         ✓ Squashed and merged pull request o/r#5 (Fix it)\n";
-    let urls: Vec<String> =
-        (5..=13).map(|n| format!("https://github.com/o/r/pull/{n}")).collect();
+    let urls: Vec<String> = (5..=13).map(|n| format!("https://github.com/o/r/pull/{n}")).collect();
     let mut want = urls.clone();
     want[2] = "https://github.com/a-b/c.d/pull/7".into();
     assert_eq!(settled_urls(out), want);
@@ -221,10 +211,7 @@ fn a_shell_create_behind_timeout_and_a_pipe_counts_but_not_one_that_already_exis
             "rawInput": {"command": command}, "rawOutput": {"stdout": stdout}})
     };
     let printed = "https://github.com/o/r/pull/9\nsession-footer: added\n";
-    assert_eq!(
-        track(&mut calls, &run(printed)).as_deref(),
-        Some("https://github.com/o/r/pull/9")
-    );
+    assert_eq!(track(&mut calls, &run(printed)).as_deref(), Some("https://github.com/o/r/pull/9"));
     // The pipe hides gh's exit status: the line before its URL says it was not opened here.
     let exists = "a pull request for branch \"x\" into branch \"main\" already exists:\nhttps://github.com/o/r/pull/9\n";
     assert_eq!(track(&mut calls, &run(exists)), None);
@@ -272,12 +259,12 @@ fn a_background_create_counts_what_its_task_printed() {
 
 #[test]
 fn printed_url_is_the_last_line_that_is_only_a_pull_url() {
-    let out =
-        "Creating pull request for b into main in o/r\n\nhttps://github.com/o/r/pull/12\n";
+    let out = "Creating pull request for b into main in o/r\n\nhttps://github.com/o/r/pull/12\n";
     assert_eq!(printed_url(out).as_deref(), Some("https://github.com/o/r/pull/12"));
     assert_eq!(printed_url("see https://github.com/o/r/pull/3 for more"), None);
     assert_eq!(printed_url("https://github.com/o/r/pull/3/files"), None);
-    let stdout = json!({"rawOutput": {"stdout": "https://github.com/o/r/pull/4\n", "stderr": "warning"}});
+    let stdout =
+        json!({"rawOutput": {"stdout": "https://github.com/o/r/pull/4\n", "stderr": "warning"}});
     assert_eq!(
         printed_url(&output_text(&stdout)).as_deref(),
         Some("https://github.com/o/r/pull/4")
