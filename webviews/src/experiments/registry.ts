@@ -25,6 +25,7 @@ import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.exper
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
+import { chatgptSignedInLook } from "../pages/shared/signIn/chatgptSignedIn.experiment";
 import { agentStartLook } from "../agent-session/acpmux/conversation/agentStart.experiment";
 import { composerUnpop } from "../agent-session/acpmux/conversation/unpop.experiment";
 import { liveLineTokens } from "../agent-session/acpmux/conversation/liveLineTokens.experiment";
@@ -73,6 +74,7 @@ import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTur
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
 import { hoverLook } from "../ui/hoverLook.experiment";
+import { textRollLook } from "../ui/motion/textRoll.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
@@ -132,6 +134,7 @@ import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
+import { earlierPlanHat } from "../agent-session/acpmux/subagents/earlierPlanHat.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
 import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
@@ -207,6 +210,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   cloudStartQuietLook,
   cloudProgressLook,
   cloudStartAskLook,
+  chatgptSignedInLook,
   startRecoveryLook,
   agentStartLook,
   composerUnpop,
@@ -225,6 +229,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayMotionLook,
   composerHatLook,
   hatCountMotion,
+  textRollLook,
   hatQuestionsLook,
   hatOpenLook,
   subagentForkChipsLook,
@@ -279,6 +284,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   holdToApproveDuration,
   jumpLatestPlace,
   hatPillPlace,
+  earlierPlanHat,
   dockBand,
   draftFoot,
   outcomeAsk,
