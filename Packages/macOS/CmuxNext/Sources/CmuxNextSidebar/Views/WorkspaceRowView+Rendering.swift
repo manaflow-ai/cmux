@@ -275,7 +275,8 @@ extension WorkspaceRowView {
         // Where the row runs is a status mark like the bell-slash: a Cloud row's small muted cloud sits in the trailing
         // cluster, never in the leading slot or against the name (Leo 2026-11-22).
         if !cloudMark.isHidden {
-            cloudMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: ind, height: ind))
+            let side = Self.cloudMarkSide
+            cloudMark.frame = columns.trailingFrame(before: trailing, centerY: cy, size: CGSize(width: side, height: side))
             trailing = columns.trailingEdge(before: cloudMark.frame)
         }
         if !usageWarningMark.isHidden {
@@ -362,6 +363,14 @@ extension WorkspaceRowView {
             fadeOpacity(mark, to: covered || underControl ? 0 : 1, fades: fades)
         }
         giveWayToControls(shownControls, fades: fades)
+        // Whatever the rules above left drawn, no two icons share a box: the ✕, the ⋮, the pin, the tree chevron, the
+        // speaker and the drive button keep theirs; a dot, spinner, chip or count meeting one of them, or an icon kept
+        // before it, clears (Leo 2026-11-22: "this too. fucking overlapping icons. over 24 hours ago.": the blue dot
+        // drew on a tree parent's ⋮ beside its chevron).
+        clearMarksMeetingIcons(keep: [closeSlot.made, moreSlot.made, pinSlot.made, treeFoldSlot.made, audioSlot.made, driveIndicator],
+                               marks: [rowBadge, badge, activity, agentMark, keycap, pullRequests, rollUp, mutedMark, cloudMark,
+                                       presenceDots, tabCount, prBadge, timeLabel],
+                               fades: fades)
         if showsNeedsYouGlow { hideMarksForNeedsYouGlow() } else { marksHiddenForGlow = false } // the mark pass showed them
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         layoutSubagents(textX: textX, head: b.maxY + statusHeight, full: full)
