@@ -70,7 +70,7 @@ pub(crate) async fn connect_gated(
     (WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::handshake::client::Response),
     tungstenite::Error,
 > {
-    cmux_egress::ws::connect_dialed(request, crate::signaling::SIGNALING_SITE, |request| async move {
+    cmux_egress::ws::connect_dialed(request, "cmux_mobile_link::signaling", |request| async move {
         connect_tcp(&request).await
     })
     .await
