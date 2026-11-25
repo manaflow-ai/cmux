@@ -440,6 +440,26 @@ pub struct HypervisorOpts {
     /// libvirt connection URI (`virsh -c`), such as qemu:///system.
     #[arg(long, value_name = "URI")]
     pub connect: Option<String>,
+    /// What a slot is: a KVM guest (libvirt), or a pod on this host (a systemd slice
+    /// whose init runs in bwrap), for hosts that cannot run VMs.
+    #[arg(long, value_enum, default_value_t = HypervisorDriverKind::Libvirt)]
+    pub driver: HypervisorDriverKind,
+    /// With --driver pods: the folder of pod roots (default: <state dir>/pods).
+    #[arg(long, value_name = "DIR")]
+    pub pods_dir: Option<PathBuf>,
+    /// With --driver pods: the program each pod boots, HOME at its root (default: sleep
+    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`.
+    #[arg(long, value_name = "PROGRAM")]
+    pub pod_init: Option<String>,
+    /// An argument for --pod-init; repeat for more.
+    #[arg(long = "pod-init-arg", value_name = "ARG", allow_hyphen_values = true)]
+    pub pod_init_args: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum HypervisorDriverKind {
+    Libvirt,
+    Pods,
 }
 
 #[derive(Subcommand)]
