@@ -684,7 +684,9 @@ fn run(
     let checks = Instant::now();
     let until = checks + START_PATIENCE.ceiling;
     let cwd = params.cwd.as_deref().ok_or((Refusal::BadRequest, None))?;
-    let (link, catalog) = ready_catalog(&socket, link, cwd, until).map_err(|r| (r, None))?;
+    let ensure = params.harness.as_deref().filter(|harness| validate_harness(harness).is_ok());
+    let (link, catalog) =
+        ready_catalog(&socket, link, cwd, ensure, until).map_err(|r| (r, None))?;
     let result = still_keyed(&link, &params).and_then(|()| {
         start_and_bind(mux, client, &link, &catalog, &params, phone, checks, until, timings)
             .map_err(|StartRefused(refusal, data)| (refusal, data))
@@ -704,10 +706,19 @@ fn ready_catalog(
     socket: &std::path::Path,
     mut link: Arc<AcpmuxLink>,
     cwd: &str,
+    ensure: Option<&str>,
     until: Instant,
 ) -> Result<(Arc<AcpmuxLink>, Value), Refusal> {
+    // `ensure` asks acpmux to read the login PATH again and reload when the harness is one its
+    // catalog lacks but discovery adds (hq#12175 fixed that for `session/new`; this read comes
+    // first, so a start of a Claude chat on a machine whose boot-time login read failed refused
+    // `harness_missing` for the life of the daemon). An acpmux that predates it ignores it.
+    let mut ask_params = json!({"cwd": cwd});
+    if let Some(ensure) = ensure {
+        ask_params["ensure"] = json!(ensure);
+    }
     loop {
-        match ask(&link, until, "_acpmux/harnesses", json!({"cwd": cwd})) {
+        match ask(&link, until, "_acpmux/harnesses", ask_params.clone()) {
             Ok(catalog) => return Ok((link, catalog)),
             Err(LinkError::Closed) if Instant::now() < until => link.close(),
             Err(error) => {

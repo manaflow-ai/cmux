@@ -202,3 +202,55 @@ async fn a_rescan_that_finds_a_fresh_install_tells_the_watchers() {
     let _ = std::fs::remove_file(&claude);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// A remote start (`agent_session.start`, the Cloud chat's) reads the catalog (`_acpmux/harnesses`)
+/// and refuses `harness_missing` from it before any `session/new` runs, so the rediscovery above
+/// never reached it. With `ensure` the same read finds a harness installed after the catalog
+/// loaded (the production cloud chat probe, 2026-11-24: "Claude (`claude`) isn't installed on that
+/// machine" on a machine whose daemon's boot-time login shell read failed). Without it the
+/// catalog is unchanged.
+#[tokio::test]
+async fn a_catalog_read_that_ensures_a_harness_finds_it_installed_since_the_load() {
+    let _home_bin = HOME_BIN.lock().await;
+    let home = std::path::PathBuf::from(std::env::var_os("HOME").expect("hermetic HOME"));
+    let root = std::env::temp_dir().join(format!("acpmux-ensure-{}", uuid::Uuid::now_v7()));
+    let state = root.join("acpmux");
+    std::fs::create_dir_all(&state).unwrap();
+    let claude = home.join(".local/bin/claude");
+    assert!(!claude.exists(), "the hermetic HOME holds no claude");
+    let path = state.join("config.json");
+    Config {
+        path: Some(path.clone()),
+        profile_sources: ProfileSources::none(),
+        permission_policy: PermissionPolicy::ApproveAll,
+        ..Config::default()
+    }
+    .save()
+    .unwrap();
+    let mut cfg = Config::load_from_with(&path, &ProfileSources::none()).unwrap();
+    assert!(cfg.resolve_harness("claude").is_err(), "no claude at the daemon's start");
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, &state).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut c = Client::connect(&hub);
+    c.request(method::INITIALIZE, json!({"protocolVersion": 1, "clientInfo": {"name": "test"}}))
+        .await
+        .unwrap();
+
+    std::fs::create_dir_all(claude.parent().unwrap()).unwrap();
+    let script = format!(
+        "#!/bin/sh\n[ \"$1\" = --version ] && {{ echo '2.1.329 (Claude Code)'; exit 0; }}\nexec python3 {} \"$@\"\n",
+        daemon_env::sh_quote(FAKE_CLAUDE)
+    );
+    std::fs::write(&claude, script).unwrap();
+    std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    let has_claude = |view: &Value| view["harnesses"].get("claude").is_some();
+    let plain = c.request(method::MUX_HARNESSES, json!({})).await.unwrap();
+    assert!(!has_claude(&plain), "a plain read keeps the loaded catalog: {plain}");
+    let ensured = c.request(method::MUX_HARNESSES, json!({"ensure": "claude"})).await.unwrap();
+    assert!(has_claude(&ensured), "ensure found the new install: {ensured}");
+
+    let _ = std::fs::remove_file(&claude);
+    let _ = std::fs::remove_dir_all(&root);
+}

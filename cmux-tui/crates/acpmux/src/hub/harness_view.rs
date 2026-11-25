@@ -99,6 +99,15 @@ impl Hub {
         // the catalog lacks every harness installed under the person's home. Not
         // the rest of startup: launcher checks can take seconds each.
         let _ = self.catalog_ready.subscribe().wait_for(|ready| *ready).await;
+        // `ensure`: the harness the caller is about to start. A catalog that lacks it, though
+        // PATH discovery adds it once installed, is read again after the login PATH (the same
+        // rule `session/new` applies, `rediscover_head`): a Cloud machine's daemon whose 3 s
+        // login shell read failed at boot has no `claude`, and a remote start refuses on this
+        // catalog before it ever reaches `session/new`.
+        if let Some(ensure) = params.get("ensure").and_then(Value::as_str).filter(|e| !e.is_empty())
+        {
+            self.rediscover_head(Some(ensure), None).await;
+        }
         let mut view = self.harnesses_view().await;
         let Some(cwd) = cwd.filter(|_| !remote) else { return Ok(view) };
         let cfg = self.config.read().await.clone();
