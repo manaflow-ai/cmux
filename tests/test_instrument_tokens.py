@@ -36,14 +36,14 @@ class InstrumentTokenTests(unittest.TestCase):
 
     def test_sheet_carries_todays_values_not_instruments(self):
         sheet = tokens.css(self.data)
-        self.assertIn('--instrument-corner-card: 14px; /* Instrument 12px; waits leo-2 */', sheet)
+        self.assertIn('--instrument-corner-popup: 8px; /* Instrument 12px; waits leo-2 */', sheet)
         self.assertIn('--instrument-prose-measure: 800px;', sheet)
         for t in self.data['tokens']:
             if 'today' in t and tokens._css_value(t) is not None:
                 self.assertIn(f'--instrument-{t["name"].replace(".", "-")}: {tokens._css_value(t)};', sheet)
 
     def test_moved_default_is_drift(self):
-        # A PR that moves the card corner in design-scale.json without saying so here.
+        # A PR that moves the chip corner in design-scale.json without saying so here.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             for t in self.data['tokens']:
@@ -54,21 +54,21 @@ class InstrumentTokenTests(unittest.TestCase):
                         dest.write_text((ROOT / t['today']['file']).read_text())
             scale_path = root / 'schemas/design-scale/design-scale.json'
             scale = json.loads(scale_path.read_text())
-            next(r for r in scale['namedRadii'] if r['name'] == 'card')['px'] = 12
+            next(r for r in scale['radii'] if r['name'] == 'md')['px'] = 4
             scale_path.write_text(json.dumps(scale))
             found = tokens.drift(self.data, root)
         self.assertEqual(1, len(found))
-        self.assertIn('corner.card', found[0])
+        self.assertIn('corner.chip', found[0])
         self.assertIn('A default moved', found[0])
 
     def test_applying_a_value_shrinks_and_must_be_locked(self):
         data = copy.deepcopy(self.data)
-        card = self.token('corner.card', data)
-        card['today']['value'] = 12
-        del card['waits']
+        popup = self.token('corner.popup', data)
+        popup['today']['value'] = 12
+        del popup['waits']
         tokens.validate(data)
         problems = tokens.ratchet(data, self.baseline)
-        self.assertEqual(['corner.card: now draws Instrument\'s value; lock it in with --update-baseline'], problems)
+        self.assertEqual(['corner.popup: now draws Instrument\'s value; lock it in with --update-baseline'], problems)
         shrunk = json.loads(tokens.baseline_text(tokens.pending_names(data)))
         self.assertEqual([], tokens.ratchet(data, shrunk))
 
@@ -82,7 +82,7 @@ class InstrumentTokenTests(unittest.TestCase):
                           'the gap may only shrink'], tokens.ratchet(data, self.baseline))
 
     def test_a_gap_must_say_what_it_waits_on(self):
-        del self.token('corner.card')['waits']
+        del self.token('corner.popup')['waits']
         with self.assertRaisesRegex(tokens.TokenError, 'record what it waits on'):
             tokens.validate(self.data)
 
@@ -92,13 +92,13 @@ class InstrumentTokenTests(unittest.TestCase):
             tokens.validate(self.data)
 
     def test_waits_names_a_question(self):
-        self.token('corner.card')['waits'] = 'someday'
+        self.token('corner.popup')['waits'] = 'someday'
         with self.assertRaisesRegex(tokens.TokenError, 'not one of the questions'):
             tokens.validate(self.data)
 
     def test_version_needs_a_changelog_entry(self):
-        data = dict(self.data, version='0.2.0')
-        self.assertEqual(['schemas/instrument/CHANGELOG.md has no "## 0.2.0" entry'],
+        data = dict(self.data, version='0.3.0')
+        self.assertEqual(['schemas/instrument/CHANGELOG.md has no "## 0.3.0" entry'],
                          tokens.changelog_problems(data, (ROOT / tokens.CHANGELOG).read_text()))
 
     def test_off_token_entries_are_where_they_say(self):
@@ -113,6 +113,25 @@ class InstrumentTokenTests(unittest.TestCase):
             self.assertEqual([], tokens.stale_off_token(data, Path(tmp)))
             data['tokens'][0]['offToken'][0]['line'] = 3
             self.assertIn('refresh the entry', tokens.stale_off_token(data, Path(tmp))[0])
+
+    def test_stylesheet_source_reads_every_fallback(self):
+        # A value only a stylesheet sets: the token reads the fallback of each var(--instrument-*, X).
+        token = {'name': 'result.size', 'instrument': '12 / 14', 'unit': 'prose', 'drawnOn': 'x',
+                 'today': {'file': 'a.css', 'path': '--instrument-result-size', 'value': '12 / 14'}}
+        data = {'tokens': [token]}
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = Path(tmp) / 'a.css'
+            sheet.write_text('.x { font-size: calc(1px * var(--instrument-result-size, 12 / 14)); }\n'
+                             '.y { --s: var(--a, var(--instrument-result-size, 12  /  14)); }\n')
+            self.assertEqual([], tokens.drift(data, Path(tmp)))
+            sheet.write_text(sheet.read_text() + '.z { font-size: calc(1px * var(--instrument-result-size, 13 / 14)); }\n')
+            self.assertIn('A default moved', tokens.drift(data, Path(tmp))[0])
+            sheet.write_text('.x {}\n')
+            self.assertIn('no declaration', tokens.drift(data, Path(tmp))[0])
+        self.assertIn('--instrument-result-size: 12 / 14;', tokens.css(data | {'version': '0'}))
+        token['today']['path'] = '--instrument-other'
+        with self.assertRaisesRegex(tokens.TokenError, "token's own property"):
+            tokens.validate({'system': 'Instrument', 'version': '0.0.1', 'questions': {}, 'tokens': [token]})
 
     def test_off_token_entry_shape(self):
         self.token('corner.card')['offToken'].append({'file': 'x.css', 'value': '8px'})

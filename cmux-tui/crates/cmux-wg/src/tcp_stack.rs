@@ -35,9 +35,28 @@ use crate::send_gate::{SendGate, SendPacer};
 use crate::stream::{Outbound, WgStream};
 use crate::wire::{ip_address, socket_addr};
 
-/// Per-socket receive and transmit buffers. Terminal traffic is small; the
-/// bulk lane (screen replay) benefits from a full window.
-pub(crate) const SOCKET_BUFFER_BYTES: usize = 256 * 1024;
+/// Per-socket receive and transmit buffers, by default: the most one stream's
+/// window may grow to. A stream moves at most one window per round trip, so
+/// the old fixed 256 KiB held bulk to about 21 Mbit/s at 100 ms; 4 MiB is
+/// about 335 Mbit/s there. How much of it a stream keeps in flight is sized
+/// from its path ([`crate::send_gate::SendPacer::send_window`]), so short
+/// paths keep the 256 KiB flight that served them. The buffers
+/// are zeroed allocations the OS maps on first touch, and smoltcp's ring
+/// starts over at its front whenever it drains, so a stream that never has
+/// more than a few KiB queued (a terminal) only ever touches its first pages.
+/// Keystrokes do not queue behind a larger send buffer: [`crate::send_gate`]
+/// holds the unsent bytes at its low-water mark, not at the buffer's size.
+pub(crate) const DEFAULT_STREAM_WINDOW: usize = 4 << 20;
+/// The smallest and largest window [`STREAM_WINDOW_ENV`] may ask for.
+/// The largest stays under the underlay's [`crate::RECEIVE_BUFFER`], so one
+/// window of datagrams never overflows the peer's UDP socket
+/// (`tests/receive_buffer.rs`).
+pub(crate) const MIN_STREAM_WINDOW: usize = 64 * 1024;
+pub(crate) const MAX_STREAM_WINDOW: usize = 6 << 20;
+/// Overrides [`DEFAULT_STREAM_WINDOW`] for new connections, in bytes (a `K`
+/// or `M` suffix is KiB or MiB), clamped to
+/// [`MIN_STREAM_WINDOW`]..=[`MAX_STREAM_WINDOW`]. For benches and tuning.
+pub const STREAM_WINDOW_ENV: &str = "CMUX_WG_STREAM_WINDOW";
 /// Largest chunk moved from a smoltcp socket into a stream at once.
 pub(crate) const INBOUND_CHUNK_BYTES: usize = 16 * 1024;
 /// Queued chunks per direction per connection before backpressure.
@@ -62,6 +81,13 @@ const TCP_KEEP_ALIVE: Duration = Duration::from_secs(15);
 /// with the same floor against each other's delayed ACKs, and smoltcp delays
 /// an ACK by 10 ms.
 const TCP_MIN_RTO: Duration = Duration::from_millis(200);
+/// The retransmission timeout before a connection has an RTT sample, which
+/// is what a lost SYN or SYN-ACK waits. smoltcp defaults to RFC 6298's 1 s,
+/// so one lost SYN held a cold dial a full second (3% of them on a lossy
+/// phone link). 300 ms is above a typical cellular round trip; a slower one
+/// resends a SYN early, which costs one segment, and no RTT sample is taken
+/// from a resent segment (Karn), so the estimate is not skewed.
+const TCP_INITIAL_RTO: Duration = Duration::from_millis(300);
 /// How long a peer may hold an ACK, in the tail-loss probe timeout
 /// (`2 * SRTT` plus this). smoltcp peers delay ACKs 10 ms; the margin covers
 /// a kernel peer's first delayed ACK. A probe sent too early costs one
@@ -81,6 +107,26 @@ pub(crate) const LINK_TCP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// connection is accepted; past this bound the ones without a half-open
 /// socket are dropped, and a SYN that still finds no room is dropped too.
 const MAX_SYN_ORIGINS: usize = 1024;
+
+/// The window [`STREAM_WINDOW_ENV`] asks for, else [`DEFAULT_STREAM_WINDOW`].
+fn stream_window_from_env() -> usize {
+    std::env::var(STREAM_WINDOW_ENV)
+        .ok()
+        .and_then(|value| parse_window(&value))
+        .unwrap_or(DEFAULT_STREAM_WINDOW)
+}
+
+/// `value` as bytes (`262144`, `256K`, `4M`), clamped to the allowed range.
+pub(crate) fn parse_window(value: &str) -> Option<usize> {
+    let value = value.trim();
+    let (digits, unit) = match value.as_bytes().last()? {
+        b'k' | b'K' => (&value[..value.len() - 1], 1 << 10),
+        b'm' | b'M' => (&value[..value.len() - 1], 1 << 20),
+        _ => (value, 1),
+    };
+    let bytes = digits.trim().parse::<usize>().ok()?.checked_mul(unit)?;
+    Some(bytes.clamp(MIN_STREAM_WINDOW, MAX_STREAM_WINDOW))
+}
 
 /// A peer's public key, the tag of a connection in a mesh.
 pub(crate) type PeerKey = [u8; 32];
@@ -162,6 +208,8 @@ pub(crate) struct TcpStack {
     /// Congestion control for new connections: Cubic, or none when ultra
     /// mode holds the rate through loss (`CMUX_WG_ULTRA_CC=none`).
     pub(crate) congestion: tcp::CongestionControl,
+    /// Receive and transmit buffer bytes of each new connection: its window.
+    pub(crate) stream_window: usize,
     /// [`TcpStack::set_hold`]: how long a peer that went silent on purpose
     /// is waited for, while it is held.
     hold: Option<Duration>,
@@ -221,6 +269,7 @@ impl TcpStack {
             syn_origins: tagged.then(HashMap::new),
             closing: false,
             congestion: tcp::CongestionControl::Cubic,
+            stream_window: stream_window_from_env(),
             hold: None,
             release_at: None,
         })
@@ -345,9 +394,12 @@ impl TcpStack {
     fn update_send_gates(&mut self) {
         let now = Instant::now();
         for conn in &mut self.conns {
-            let socket = self.sockets.get::<tcp::Socket>(conn.handle);
+            let socket = self.sockets.get_mut::<tcp::Socket>(conn.handle);
             let srtt = socket.smoothed_rtt().map(|srtt| Duration::from_micros(srtt.total_micros()));
             conn.send.update(now, socket.send_queue(), socket.unsent_queue(), srtt);
+            // The buffer is the most a stream may use; the path decides how
+            // much it does (`SendPacer::send_window`).
+            socket.set_send_window_cap(Some(conn.send.send_window(socket.send_capacity())));
         }
     }
 
@@ -404,16 +456,21 @@ impl TcpStack {
     pub(crate) fn new_socket(
         timeout: Duration,
         congestion: tcp::CongestionControl,
+        window: usize,
     ) -> tcp::Socket<'static> {
+        // The receive buffer's size fixes the window scale the SYN offers.
         let mut socket = tcp::Socket::new(
-            tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
-            tcp::SocketBuffer::new(vec![0u8; SOCKET_BUFFER_BYTES]),
+            tcp::SocketBuffer::new(vec![0u8; window]),
+            tcp::SocketBuffer::new(vec![0u8; window]),
         );
         // Keystrokes are latency-bound; the OS dial path disables Nagle too.
         socket.set_nagle_enabled(false);
         socket.set_congestion_control(congestion);
         socket.set_min_rto(smoltcp::time::Duration::from_micros(
             u64::try_from(TCP_MIN_RTO.as_micros()).unwrap_or(u64::MAX),
+        ));
+        socket.set_initial_rto(smoltcp::time::Duration::from_micros(
+            u64::try_from(TCP_INITIAL_RTO.as_micros()).unwrap_or(u64::MAX),
         ));
         // A lone lost segment is resent after about two round trips, not the RTO.
         socket.set_tail_loss_probe(Some(smoltcp::time::Duration::from_micros(
@@ -448,7 +505,8 @@ impl TcpStack {
         }
         let port = self.allocate_port();
         let local = SocketAddr::new(local_ip, port);
-        let mut socket = Self::new_socket(user_timeout(remote.port()), self.congestion);
+        let mut socket =
+            Self::new_socket(user_timeout(remote.port()), self.congestion, self.stream_window);
         let result = socket.connect(
             self.iface.context(),
             IpEndpoint::new(ip_address(remote.ip()), remote.port()),
@@ -477,7 +535,7 @@ impl TcpStack {
     }
 
     pub(crate) fn listening_socket(&mut self, port: u16) -> Result<SocketHandle, WgError> {
-        let mut socket = Self::new_socket(user_timeout(port), self.congestion);
+        let mut socket = Self::new_socket(user_timeout(port), self.congestion, self.stream_window);
         socket
             .listen(IpListenEndpoint::from(port))
             .map_err(|error| WgError::Stack(format!("{error}")))?;
