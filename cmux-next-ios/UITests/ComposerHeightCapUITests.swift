@@ -112,13 +112,14 @@ final class ComposerHeightCapUITests: XCTestCase {
             XCTAssertEqual(shift.frames, 0, "\(screen): \(shift.adding ? "adding" : "removing") \(shift.attachments) attachment(s) at \(shift.lines) line(s) moved the rows \(shift.max) pt")
         }
         for keyboard in [false, true] {
-            guard let one = readings.height(lines: 1, attachments: 0, keyboard: keyboard),
+            guard let one = readings.height(lines: 5, attachments: 0, keyboard: keyboard),
                   let capped = readings.height(lines: 20, attachments: 0, keyboard: keyboard) else {
                 XCTFail("\(screen): no heights read")
                 return
             }
-            // Six lines of 22 pt over one: the cap stops the card about 110 pt above its one-line height.
-            XCTAssertLessThanOrEqual(capped - one, 5 * 22 + 4, "\(screen): 20 lines stop at the six-line cap")
+            // The card's one-line layout is a shorter row (the controls sit beside the field), so the
+            // cap is read from five lines: the sixth, 22 pt, is the last the card grows.
+            XCTAssertLessThanOrEqual(capped - one, 22 + 4, "\(screen): 20 lines stop at the six-line cap")
             for lines in [1, 5, 20] {
                 for attachments in [2, 5] {
                     guard let height = readings.height(lines: lines, attachments: attachments, keyboard: keyboard) else { continue }
