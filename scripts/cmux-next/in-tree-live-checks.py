@@ -1716,17 +1716,26 @@ def check_chaos_resize(tab, pane):
         scale = float(layers.get("backing_scale") or 2.0)
 
     def held(path):
+        # Coalesced as the window server's drags are: when the app is still busy with the last event, the points the
+        # hand passed meanwhile are skipped and the next event is where the hand is now (one event per point otherwise
+        # queued every event and the app laid out each, several steps a frame).
         x, y = path[0][1], path[0][2]
         rpc("debug.mouse", {"action": "down", "x": x, "y": y})
-        base = time.monotonic()
-        for t, nx, ny in path[1:]:
-            if base + t > time.monotonic():
-                time.sleep(base + t - time.monotonic())  # test harness: one event at each point's time, as a hand moves
+        base, i, sent, skipped = time.monotonic(), 1, 0, 0
+        while i < len(path):
+            now = time.monotonic() - base
+            late = i
+            while late + 1 < len(path) and path[late + 1][0] <= now:
+                late += 1
+            skipped += late - i
+            t, nx, ny = path[late]
+            if t > now:
+                time.sleep(t - now)  # test harness: one event at each point's time, as a hand moves
             rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": nx, "to_y": ny, "steps": 1, "press": False,
                                 "release": False})
-            x, y = nx, ny
+            x, y, i, sent = nx, ny, late + 1, sent + 1
         rpc("debug.mouse", {"action": "up", "x": x, "y": y})
-        return {"route": "held", "events": len(path)}
+        return {"route": "held", "events": sent, "coalesced": skipped}
 
     def cua_strokes(path):
         done = []
@@ -1736,8 +1745,9 @@ def check_chaos_resize(tab, pane):
             if window_id:
                 q["window_id"] = window_id
             reply = cua("drag", q)
-            done.append(str(reply)[:40])
-        return {"route": "cua", "strokes": len(done), "refused": sum("✅" not in d for d in done)}
+            done.append(json.dumps(reply, ensure_ascii=False)[:160])
+        return {"route": "cua", "strokes": len(done), "refused": sum("Posted drag" not in d for d in done),
+                "first_reply": done[0] if done else None}
 
     def measure(drive, path):
         rpc("debug.layout_counters", {"reset": True})
@@ -1771,14 +1781,17 @@ def check_chaos_resize(tab, pane):
             key = name if route == "held" else f"{name}_{route}"
             results[key] = per
             window_drag = name != "divider"
+            # A divider drag moves panes without a root layout pass: its panes' chrome follows each move (a drag that
+            # missed the divider updates none).
             resized = all(((r["resize_steps"] or {}).get("set_frame") or {}).get("steps") for r in per) if window_drag \
-                else all((r.get("layouts") or 0) >= 20 for r in per)
+                else all((r.get("pane_chrome") or 0) >= 20 for r in per)
             refresh = max(((r["app_frames"] or {}).get("refresh_ms") or 0) for r in per) or 16.7
             worst = max(((r["app_frames"] or {}).get("max_ms") or 0) for r in per)
             p95 = max(((r["app_frames"] or {}).get("p95_ms") or 0) for r in per)
             set_frame = [((r["resize_steps"] or {}).get("set_frame") or {}) for r in per]
             fit = [((r["resize_steps"] or {}).get("root_fit_screens") or {}) for r in per]
             summary = {"bug": 19, "route": route, "in_tree": opts.in_tree,
+                       "pane_chrome": [r.get("pane_chrome") for r in per], "drag_s": [r.get("drag_s") for r in per],
                        "set_frame_p50_ms": [s.get("p50_ms") for s in set_frame],
                        "set_frame_p95_ms": [s.get("p95_ms") for s in set_frame],
                        "set_frame_steps": [s.get("steps") for s in set_frame],
