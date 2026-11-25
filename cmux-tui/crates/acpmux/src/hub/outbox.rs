@@ -949,7 +949,9 @@ impl OutboxState {
                 self.stall.lock().unwrap_or_else(|e| e.into_inner()).take()
             {
                 let _ = started.send(());
-                let _ = go_on.recv();
+                // A dropped sender lets the write go on, as before; a test that never lets it
+                // go on fails its own wait instead of hanging the worker.
+                let _ = go_on.recv_timeout(std::time::Duration::from_secs(30));
             }
             #[cfg(test)]
             if let Some(error) =

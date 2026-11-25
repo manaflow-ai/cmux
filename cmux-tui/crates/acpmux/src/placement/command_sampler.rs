@@ -339,7 +339,7 @@ impl Shadow {
         }
         let Some((file, written)) = inner.file.as_mut() else { return };
         if *written + line.len() as u64 > FILE_CAP {
-            let _ = std::fs::rename(&self.path, self.path.with_extension("jsonl.1"));
+            let _ = crate::home_fs::rename(&self.path, self.path.with_extension("jsonl.1"));
             match open_append(&self.path) {
                 Ok(fresh) => {
                     *file = fresh;

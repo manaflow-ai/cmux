@@ -132,11 +132,11 @@ impl FleetHoldCache {
     fn put(&mut self, hold: &FleetHold) -> std::io::Result<()> {
         let path = self.path();
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+            crate::home_fs::create_dirs(dir)?;
         }
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(hold).unwrap_or_default())?;
-        std::fs::rename(&tmp, &path)?;
+        crate::home_fs::write(&tmp, serde_json::to_vec_pretty(hold).unwrap_or_default())?;
+        crate::home_fs::rename(&tmp, &path)?;
         self.read = None;
         Ok(())
     }

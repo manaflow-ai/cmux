@@ -420,7 +420,7 @@ impl ForkLink for CloudLink {
         let (host, port, user, host_key) = ssh_route(&endpoint)?;
         let known = dir.path().join("known_hosts");
         let name = if port == 22 { host.clone() } else { format!("[{host}]:{port}") };
-        std::fs::write(&known, format!("{name} {host_key}\n"))
+        crate::home_fs::write(&known, format!("{name} {host_key}\n"))
             .map_err(|e| format!("known hosts: {e}"))?;
         let mut ssh = cmux_process::Command::new("ssh");
         ssh.arg("-i").arg(&key);

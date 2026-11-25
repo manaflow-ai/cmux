@@ -80,11 +80,11 @@ pub fn write_shim(dir: &Path, text: &str) -> std::io::Result<()> {
     if std::fs::read_to_string(&gh).is_ok_and(|t| t == text) {
         return Ok(());
     }
-    std::fs::create_dir_all(dir)?;
+    crate::home_fs::create_dirs(dir)?;
     let tmp = dir.join(format!(".gh.{}", std::process::id()));
-    std::fs::write(&tmp, text)?;
-    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
-    std::fs::rename(&tmp, &gh)
+    crate::home_fs::write(&tmp, text)?;
+    crate::home_fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
+    crate::home_fs::rename(&tmp, &gh)
 }
 
 /// Sets [`entries`] on a session's command whose environment is `env`. With no own acpmux
