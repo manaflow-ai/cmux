@@ -1876,6 +1876,7 @@
       "name": "Free",
       "price": "$0",
       "cta": "Download for Mac",
+      "compareCta": "Download",
       "featuresLead": "Includes:",
       "features": [
         "Native macOS terminal built on Ghostty, fully open source",
