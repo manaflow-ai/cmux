@@ -607,7 +607,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         case let cell as SidebarWorkspaceRowTableCellView:
             return cell.detachPresentation(commitEdits: commitEdits)
         case let cell as SidebarGroupHeaderTableCellView:
-            cell.suspendPresentation()
+            return cell.detachPresentation(commitEdits: commitEdits)
         case let cell as SidebarWorkspaceTableCellView:
             cell.clearRetainedPayload()
         default:
@@ -1072,10 +1072,7 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
 #if DEBUG
         cmuxDebugLog("sidebar.table.doubleClick row=\(row) rows=\(rows.count)")
 #endif
-        guard rows.indices.contains(row),
-              rows[row].appKitWorkspaceRowModel != nil,
-              let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false)
-                as? SidebarWorkspaceRowTableCellView else { return }
+        guard rows.indices.contains(row) else { return }
         // The single-click action fires for both clicks of a double-click, so
         // click 2 has a trailing selection application queued. Letting it land
         // after the rename field takes the field editor re-activates the
@@ -1083,8 +1080,18 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
         // end-editing commits the untouched title — the field flashes and
         // vanishes. A double-click is a rename gesture: drop the queued
         // selection before starting the edit.
-        cancelSelectionIntent()
-        cell.beginInlineRename()
+        switch table.view(atColumn: 0, row: row, makeIfNecessary: false) {
+        case let cell as SidebarWorkspaceRowTableCellView
+            where rows[row].appKitWorkspaceRowModel != nil:
+            cancelSelectionIntent()
+            cell.beginInlineRename()
+        case let cell as SidebarGroupHeaderTableCellView
+            where rows[row].appKitGroupHeaderActions != nil:
+            cancelSelectionIntent()
+            cell.beginInlineRename()
+        default:
+            break
+        }
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {

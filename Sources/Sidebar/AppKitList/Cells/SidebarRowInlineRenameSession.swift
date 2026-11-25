@@ -1,6 +1,7 @@
 import AppKit
 
-/// One inline-rename editing session for a pure-AppKit sidebar workspace row.
+/// One inline-rename editing session for a pure-AppKit sidebar workspace row
+/// or group header.
 ///
 /// Reuses the SwiftUI sidebar's rename engine so both sidebars share a single
 /// behavior path: `SidebarInlineRenameTextField` takes focus and selects the
@@ -32,12 +33,22 @@ final class SidebarRowInlineRenameSession {
     ///     baseline for the unchanged-title no-op rule.
     ///   - baselineHadUserCustomTitle: Whether the workspace already had a
     ///     user-owned custom title when editing began.
+    ///   - placeholder: Shown while the field is empty.
+    ///   - accessibilityLabel: VoiceOver label for the field.
     ///   - onResolve: Runs exactly once with the title to persist, or `nil`
     ///     when the rename cancels or resolves to no write. The receiver
     ///     owns tearing the session's field down.
     init(
         baselineTitle: String,
         baselineHadUserCustomTitle: Bool,
+        placeholder: String = String(
+            localized: "commandPalette.rename.workspacePlaceholder",
+            defaultValue: "Workspace name"
+        ),
+        accessibilityLabel: String = String(
+            localized: "sidebar.workspace.rename.field.accessibilityLabel",
+            defaultValue: "Rename workspace"
+        ),
         onResolve: @escaping @MainActor (String?) -> Void
     ) {
         self.baselineTitle = baselineTitle
@@ -51,14 +62,8 @@ final class SidebarRowInlineRenameSession {
         field.usesSingleLineMode = true
         field.cell?.usesSingleLineMode = true
         field.lineBreakMode = .byTruncatingTail
-        field.placeholderString = String(
-            localized: "commandPalette.rename.workspacePlaceholder",
-            defaultValue: "Workspace name"
-        )
-        field.setAccessibilityLabel(String(
-            localized: "sidebar.workspace.rename.field.accessibilityLabel",
-            defaultValue: "Rename workspace"
-        ))
+        field.placeholderString = placeholder
+        field.setAccessibilityLabel(accessibilityLabel)
         coordinator.onCommit = { [weak self] draft in self?.resolve(draft: draft) }
         coordinator.onCancel = { [weak self] in self?.resolveAsCancel() }
         field.delegate = coordinator

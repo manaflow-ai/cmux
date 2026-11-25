@@ -65,7 +65,10 @@ struct SidebarGroupHeaderRowActions {
     let onFocusAnchor: (NSEvent.ModifierFlags) -> Void
     let onTapPlus: () -> Void
     let onRunResolvedItem: (CmuxResolvedConfigMenuAction) -> Void
+    /// Opens the palette rename prompt; the SwiftUI header's only rename path.
     let onRename: () -> Void
+    /// Persists a name committed from the AppKit header's inline rename field.
+    let onCommitRename: (String) -> Void
     let onTogglePinned: () -> Void
     let onMarkRead: () -> Void
     let onMarkUnread: () -> Void
