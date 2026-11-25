@@ -1148,7 +1148,9 @@ mod tests {
     #[test]
     fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
         let d = dirs();
-        let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab\n  cd\t\u{a0}ef \r");
+        // A `file:` secret is one line (`profile_env::file_secret`); the spaces, tab and no-break
+        // space inside it are what `delivered` takes out.
+        let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab  cd\t\u{a0}ef \r");
         add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
         let (_, kind, _, secret) =
             credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();

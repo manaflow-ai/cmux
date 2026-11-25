@@ -37,14 +37,16 @@ fn row_live(row: &Value) -> bool {
     row.get("status").and_then(Value::as_str).is_some_and(|s| LIVE.contains(&s))
 }
 
-/// Why the registry keeps new work off the machine named `names[0]`: its hold or reservation
-/// (carried in `lanes._held` by `lane_hosts_at`), else a stopped `status`.
+/// Why the registry keeps new work off the machine named `names[0]`: a stopped `status`, else its
+/// hold or reservation (carried in `lanes._held` by `lane_hosts_at`).
 fn kept_off(registry: &Value, names: &[String], lanes: &Value) -> Option<String> {
-    if let Some(why) = lanes.get("_held").and_then(Value::as_str) {
-        return Some(format!("held: {why}"));
+    // A stopped `status` is named as itself: `lane_hosts_at`'s `_held` carries it too (its
+    // `held_at` reads `stopped` first), where it would read "held: idle-stopped ...".
+    let machine = names.first().and_then(|n| crate::placement::machine(Some(registry), n));
+    if let Some(why) = machine.and_then(crate::placement::stopped) {
+        return Some(why);
     }
-    let machine = crate::placement::machine(Some(registry), names.first()?)?;
-    crate::placement::stopped(machine)
+    lanes.get("_held").and_then(Value::as_str).map(|why| format!("held: {why}"))
 }
 
 /// The cell report for `sessions` (fleet listing rows) against `registry` at `now_ms`.

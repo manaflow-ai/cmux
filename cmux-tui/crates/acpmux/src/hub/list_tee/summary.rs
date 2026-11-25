@@ -129,7 +129,9 @@ fn selected_extra(row: &Map<String, Value>, state: &str) -> Value {
         .iter()
         .filter(|(key, value)| {
             EXTRA_KEYS.contains(&key.as_str())
-                && !(matches!(key.as_str(), "stuckError" | "stuckSince") && value.is_null())
+                // A null says what a missing key says, and two dozen of them (one per optional
+                // field) cost a form ~330 bytes of the 2 KiB both forms share: none rides.
+                && !value.is_null()
                 && !(key.as_str() == "handle" && derived_handle(row, value))
                 && !(key.as_str() == "icon"
                     && value.get("kind").and_then(Value::as_str) == Some("image"))
