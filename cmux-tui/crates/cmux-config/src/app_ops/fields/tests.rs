@@ -261,7 +261,7 @@ fn sidebar_sections_defaults_and_bad_values() {
     let out = sections(json!({}));
     assert_eq!(out["diagnostics"], json!([]));
     assert_eq!(out["values"]["sidebar.stepping"], super::reader::default_of("sidebar.stepping"));
-    assert_eq!(out["values"]["sidebar.showAgentSessions"].is_boolean(), true);
+    assert!(out["values"]["sidebar.showAgentSessions"].is_boolean());
     let out = sections(json!({"sidebar": {
         "sectionLook": "nope", "topBandMaxShare": 5, "steppingWraps": "yes", "density": 3}}));
     let diags = diag_paths(&out);

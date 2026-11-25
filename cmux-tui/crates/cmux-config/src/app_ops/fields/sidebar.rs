@@ -270,7 +270,7 @@ pub(super) fn workspace_row(root: &Value) -> (Value, Vec<Value>) {
     }
     shown.sort_by_key(|e| ELEMENTS.iter().position(|x| x == e));
     let second =
-        order(&mut cx, &format!("{base}.secondLineOrder")).unwrap_or_else(|| default_second_line());
+        order(&mut cx, &format!("{base}.secondLineOrder")).unwrap_or_else(default_second_line);
     let mut overrides = Map::new();
     for kind in KINDS {
         let mut elements = Map::new();
