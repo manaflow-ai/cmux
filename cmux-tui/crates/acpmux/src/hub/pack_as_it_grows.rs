@@ -138,6 +138,9 @@ impl Hub {
             || session.read_meta(|m| m.moved_to.is_some())
             || self.history_awaited(id).is_some()
         {
+            // Its entry goes with it: a purged or moved chat's id is not kept for the daemon's
+            // life, and a chat that comes back (a history that arrived) is packed whole.
+            self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
             return Ok(None);
         }
         let _turn = PackTurn::take(id);
@@ -146,8 +149,15 @@ impl Hub {
         if through == 0 {
             return Ok(None);
         }
-        let store = self.pack_store(id)?;
-        let stamp = self.store.log_stamp(id)?;
+        let opened = self.pack_store(id).and_then(|store| Ok((store, self.store.log_stamp(id)?)));
+        let (store, stamp) = match opened {
+            Ok(opened) => opened,
+            Err(error) => {
+                // As any failed seal below: the next one trusts nothing.
+                self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+                return Err(error);
+            }
+        };
         let checked =
             self.pack_checked.lock().unwrap_or_else(|e| e.into_inner()).get(id) == Some(&stamp);
         let work = store.root().join(format!("work-{}", uuid::Uuid::now_v7().simple()));
