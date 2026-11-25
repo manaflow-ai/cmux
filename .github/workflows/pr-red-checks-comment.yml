@@ -43,9 +43,7 @@ jobs:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
           # Into its own folder, never the workspace: on a reused pool VM the workspace holds the last job's full
-          # checkout, and a sparse checkout over it refused to drop that job's edited files and then stalled 60 s
-          # fetching blobs from the promisor remote before failing (job 139305954541: 65 s, no comment written).
-          # That stall was most of this job's ~1.2 minutes per call over ~18,000 calls a day.
+          # checkout, and a sparse checkout over it refused to drop that job's edited files.
           path: .red-checks-src
           sparse-checkout: |
             scripts/ci/pr_red_checks_comment.py
@@ -55,6 +53,11 @@ jobs:
             scripts/ci/workflow_paths_cover_inputs.py
             scripts/ci/gh_expressions.py
             .github/workflows/
+            /.gitmodules
+          # .gitmodules is listed because checkout's post-checkout `git submodule foreach` reads it: left out of the
+          # sparse set it was fetched lazily from the promisor remote after auth was removed, stalled 60 s and failed
+          # the job with no comment written (run 45648850755). That stall was most of this job's ~1.2 minutes per call
+          # over ~18,000 calls a day.
           sparse-checkout-cone-mode: false
 
       - name: Update the red checks line
