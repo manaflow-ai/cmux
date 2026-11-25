@@ -101,6 +101,7 @@ pub(crate) mod file_uploads;
 /// The windowed upload sender (`file_uploads/window.rs`), for the upload bench.
 pub use file_uploads::window as file_put_window;
 mod gemini_plan;
+pub(crate) mod queue_origin;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 #[cfg(test)]
 mod agent_messaging_tests;
@@ -524,6 +525,7 @@ pub(crate) mod outbox;
 mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
+pub(crate) mod outbox_stats;
 pub(crate) mod pause;
 /// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
 pub(crate) mod pause_state;
