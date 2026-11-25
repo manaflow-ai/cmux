@@ -59,6 +59,8 @@ struct DaemonTerminalEventParser: Sendable {
     private var grid: (columns: Int, rows: Int)?
     /// Whether this attach drew an `agent-cli-frame` yet: a later keyframe at another grid starts the mirror over.
     private var drewHybridFrame = false
+    /// The cursor the last drawn agent CLI frame left (column, row, visible).
+    private var drewCursor: (x: Int, y: Int, visible: Bool)?
     /// This attach's lean frames (`agent-cli-lean`): their header and style table.
     private var lean = AgentCLIHybridLeanDecoder()
     /// The stream and frame the mirror shows: the one this attach drew last, or before its
@@ -223,7 +225,14 @@ struct DaemonTerminalEventParser: Sendable {
             // A resumed stream applies on the mirror as it was, on the screen it showed.
             detector = AlternateScreenDetector(active: resumeAlternate)
         }
-        out.append(.output(bytes))
+        // An equal refresh (no cell, no row, the same cursor, on the screen this attach already
+        // drew) changes nothing on screen: no bytes, so the terminal view is not woken; the frame
+        // mark still follows, so a resume applies on it (Leo, 2026-11-24, ask-983c698fa4).
+        let cursor = (x: frame.cursorX, y: frame.cursorY, visible: frame.cursorVisible)
+        let unchanged = drewHybridFrame && sameGrid && frame.changesNoCell
+            && drewCursor.map { $0.x == cursor.x && $0.y == cursor.y && $0.visible == cursor.visible } == true
+        if !unchanged { out.append(.output(bytes)) }
+        drewCursor = cursor
         out.append(.hybridFrame(stream: frame.stream, frame: frame.frame, resumed: frame.base != nil && !drewHybridFrame))
         drewHybridFrame = true
     }

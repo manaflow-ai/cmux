@@ -527,6 +527,14 @@ pub enum Command {
         attach: Vec<PathBuf>,
         #[command(flatten)]
         notice: Box<SendNotice>,
+        /// Wait for the receiver's batch instead of waking it at once, as another agent's
+        /// message does: a chat whose prompt cache lapsed takes everything that came in its
+        /// window as one turn (`hub/cold_wake.rs`). For a producer outside any chat (a forum or
+        /// Slack bridge, a CI notifier): it needs a sender (--from, ACPMUX_FROM or --notice),
+        /// and is refused as a block, a question or a fire notice, which wake at once. Does not
+        /// wait for the reply.
+        #[arg(long, conflicts_with_all = ["wait", "quiet", "timeout", "tag"])]
+        gather: bool,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
@@ -683,6 +691,10 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
+    /// The fleet memory mount (~/.cmux/memory): sync, put, get, ls, history, status, and link a
+    /// harness's memory folder into it.
+    #[command(subcommand)]
+    Memory(crate::cli::memory::MemoryCmd),
     /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
     /// connect, send, inbox.
     #[command(subcommand)]
@@ -904,6 +916,7 @@ pub enum Command {
         set_allow: Option<Vec<String>>,
         reason: Option<String>,
         status: bool,
+        hold_for: Option<String>,
     },
     #[command(hide = true)]
     ResumeQueue {
@@ -937,6 +950,26 @@ pub enum Command {
         after_help = "Examples:\n  acpmux icon @ 🥭\n  acpmux icon @ sf:leaf.fill\n  acpmux icon @ ./mark.svg\n  acpmux icon @ https://github.com\n  acpmux rename @ Mango --handle --icon 🥭\n  acpmux icon @ none"
     )]
     Icon { session: String, icon: Option<String> },
+    /// Make a session the successor of sessions that died or moved (a rotation, a restart under a
+    /// new name, a move): a message to one of them reaches it, here and through the mesh hub.
+    /// Each name it takes over keeps the names that one answered to.
+    #[command(
+        after_help = "Examples:\n  acpmux succeed old-host/old-lane\n  acpmux succeed --session lane-b lane-a"
+    )]
+    Succeed {
+        /// The session that takes over (default: the one this shell runs in).
+        #[arg(long, default_value = "@")]
+        session: String,
+        /// `HOST/NAME`, or a NAME on this machine.
+        #[arg(required = true)]
+        names: Vec<String>,
+    },
+    /// Role addresses a session answers to: `goal:SLUG`, `area:NAME`, `topic:NAME`. A message
+    /// to one reaches the session that claimed it last, here and through the mesh hub.
+    Role {
+        #[command(subcommand)]
+        cmd: RoleCmd,
+    },
     /// Give the session this shell runs in a stable name every machine that peers this one sends
     /// to: a Claude Code session acpmux did not start (the Claude desktop app's Code tab, a
     /// terminal `claude`). Run it from that session's own Bash tool: it delivers a one-time code
@@ -1375,6 +1408,26 @@ pub enum SecretCmd {
 }
 
 #[derive(Subcommand)]
+pub enum RoleCmd {
+    /// Claim ADDRESS: every other session here gives it up.
+    #[command(after_help = "Examples:\n  acpmux role claim goal:ci-linux-on-pool")]
+    Claim {
+        address: String,
+        /// The session that claims it (default: the one this shell runs in).
+        #[arg(long, default_value = "@")]
+        session: String,
+    },
+    /// Give ADDRESS up.
+    Release {
+        address: String,
+        #[arg(long, default_value = "@")]
+        session: String,
+    },
+    /// Every role and successor entry the sessions here hold.
+    Ls,
+}
+
+#[derive(Subcommand)]
 pub enum SessionCmd {
     /// Queue a new session on a mesh host; prints a receipt, not completed execution.
     Start(crate::cli::mesh_control::StartArgs),
@@ -1419,8 +1472,9 @@ pub enum SessionCmd {
     /// paused. Its person's own prompt, opening it in the app, or `session release` lifts it.
     /// With `--fleet`: hold every session on this machine but the allowlist's names (a trailing
     /// `*` matches a prefix, `*TERM*` any name containing TERM in any case), and refuse new
-    /// sessions outside them. `--allow` adds names to the allowlist and keeps the rest;
-    /// `--set-allow` replaces it. Prints the allowlist before and after.
+    /// sessions outside them, for 12 hours unless `--for` says otherwise. `--allow` adds names
+    /// to the allowlist of a hold that is on and keeps the rest (with no hold on it changes
+    /// nothing); `--set-allow` replaces it. Prints the allowlist before and after.
     Hold {
         /// The session (not with `--fleet`).
         session: Option<String>,
@@ -1441,6 +1495,10 @@ pub enum SessionCmd {
         /// With `--fleet`: print the fleet hold, change nothing.
         #[arg(long)]
         status: bool,
+        /// With `--fleet`: how long it holds (`30m`, `4h`, `2d`; `never` keeps it until
+        /// released). Default 12h.
+        #[arg(long = "for", value_name = "DURATION")]
+        hold_for: Option<String>,
     },
     /// Release a held session (`session hold`): it runs its next prompt as usual. With
     /// `--fleet`: lift the fleet hold.
@@ -2025,7 +2083,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
             SessionCmd::Wake { session } => Command::WakeAgent { session },
-            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status } => {
+            SessionCmd::Hold { session, fleet, allow, set_allow, reason, status, hold_for } => {
                 Command::SessionHold {
                     session,
                     held: true,
@@ -2034,6 +2092,7 @@ pub fn flatten(c: Command) -> Command {
                     set_allow,
                     reason,
                     status,
+                    hold_for,
                 }
             }
             SessionCmd::Release { session, fleet } => Command::SessionHold {
@@ -2044,6 +2103,7 @@ pub fn flatten(c: Command) -> Command {
                 set_allow: Some(Vec::new()),
                 reason: None,
                 status: false,
+                hold_for: None,
             },
             SessionCmd::Icon { session, icon } => Command::Icon { session, icon },
             SessionCmd::Rename { session, new_name, handle, icon } => {
@@ -2209,6 +2269,31 @@ mod deadline_defaults_tests {
         match cli.command {
             Some(Command::Send { stall, .. }) => assert_eq!(stall, 7),
             _ => panic!("expected send command"),
+        }
+    }
+
+    /// `acpmux send --gather` (`hub/cold_wake.rs`): a named sender's message or notice that waits
+    /// for the chat's batch, and so never waits for its reply.
+    #[test]
+    fn a_gather_send_parses_and_never_waits_for_a_reply() {
+        let parse = |argv: &[&str]| Cli::try_parse_from(argv);
+        assert!(parse(&["acpmux", "send", "c", "hi", "--gather", "--from", "forum"]).is_ok());
+        let notice = [
+            "acpmux",
+            "send",
+            "c",
+            "--notice",
+            "--severity",
+            "info",
+            "--title",
+            "T",
+            "--sender",
+            "slack",
+            "--gather",
+        ];
+        assert!(parse(&notice).is_ok());
+        for clash in ["--wait", "--quiet"] {
+            assert!(parse(&["acpmux", "send", "c", "hi", "--gather", clash]).is_err(), "{clash}");
         }
     }
 }
