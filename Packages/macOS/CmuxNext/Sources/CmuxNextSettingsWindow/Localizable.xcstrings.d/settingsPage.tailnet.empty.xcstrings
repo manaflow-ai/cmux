@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.tailnet.empty" : {
+      "comment" : "Settings > Tailscale Cloud machine join.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Enable tailnet joins in the Tailscale settings above to add Cloud machines."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "trust.continueReadOnly" : {
+      "comment" : "Folder trust: what the read-only continuation in a declined folder does",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أو اقرأه هنا: يمكن للوكيل قراءة هذا المجلد والبحث فيه، لكن لا يمكنه تعديله أو تشغيل أي شيء يغيّره. تبقى خطافات المشروع وإعداداته وخوادم MCP معطّلة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ili ga čitaj ovdje: agent može čitati i pretraživati ovaj folder, ali ga ne može uređivati niti pokretati išta što ga mijenja. Hookovi, postavke i MCP serveri projekta ostaju isključeni."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eller læs den her: agenten kan læse og søge i denne mappe, men kan ikke redigere den eller køre noget, der ændrer den. Projektets hooks, indstillinger og MCP-servere forbliver slået fra."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oder hier lesen: Der Agent kann diesen Ordner lesen und durchsuchen, ihn aber nicht bearbeiten oder etwas ausführen, das ihn ändert. Projekt-Hooks, Einstellungen und MCP-Server bleiben aus."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Or read it here: the agent can read and search this folder, but cannot edit it or run anything that changes it. Project hooks, settings and MCP servers stay off."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O léela aquí: el agente puede leer y buscar en esta carpeta, pero no puede editarla ni ejecutar nada que la cambie. Los hooks, la configuración y los servidores MCP del proyecto siguen desactivados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ou lisez-le ici : l’agent peut lire ce dossier et y chercher, mais ne peut ni le modifier ni exécuter quoi que ce soit qui le change. Les hooks, réglages et serveurs MCP du projet restent désactivés."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppure leggila qui: l’agente può leggere e cercare in questa cartella, ma non può modificarla né eseguire nulla che la cambi. Hook, impostazioni e server MCP del progetto restano disattivati."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "またはここで読む：エージェントはこのフォルダを読み取り・検索できますが、編集したり、変更を加えるものを実行したりはできません。プロジェクトのフック、設定、MCP サーバーはオフのままです。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ឬអាននៅទីនេះ៖ ភ្នាក់ងារអាចអាន និងស្វែងរកក្នុងថតនេះ ប៉ុន្តែមិនអាចកែសម្រួល ឬដំណើរការអ្វីដែលផ្លាស់ប្តូរវាបានទេ។ hooks ការកំណត់ និងម៉ាស៊ីនមេ MCP របស់គម្រោងនៅតែបិទ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "또는 여기서 읽기: 에이전트는 이 폴더를 읽고 검색할 수 있지만 편집하거나 폴더를 바꾸는 작업을 실행할 수는 없습니다. 프로젝트 훅, 설정, MCP 서버는 꺼진 상태로 유지됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eller les den her: agenten kan lese og søke i denne mappen, men kan ikke redigere den eller kjøre noe som endrer den. Prosjektets hooks, innstillinger og MCP-servere forblir av."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Albo czytaj tutaj: agent może czytać i przeszukiwać ten folder, ale nie może go edytować ani uruchamiać niczego, co go zmienia. Hooki, ustawienia i serwery MCP projektu pozostają wyłączone."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ou leia aqui: o agente pode ler e pesquisar esta pasta, mas não pode editá-la nem executar nada que a altere. Os hooks, as configurações e os servidores MCP do projeto continuam desativados."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Или читайте здесь: агент может читать эту папку и искать в ней, но не может её редактировать или запускать то, что её меняет. Хуки, настройки и MCP-серверы проекта остаются выключены."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "หรืออ่านที่นี่: เอเจนต์อ่านและค้นหาในโฟลเดอร์นี้ได้ แต่แก้ไขหรือเรียกใช้สิ่งที่เปลี่ยนแปลงโฟลเดอร์ไม่ได้ ฮุก การตั้งค่า และเซิร์ฟเวอร์ MCP ของโปรเจกต์ยังคงปิดอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ya da burada oku: ajan bu klasörü okuyup içinde arama yapabilir, ancak onu düzenleyemez veya onu değiştiren bir şey çalıştıramaz. Projenin hook’ları, ayarları ve MCP sunucuları kapalı kalır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Або читайте тут: агент може читати цю папку й шукати в ній, але не може її редагувати чи запускати те, що її змінює. Хуки, налаштування та MCP-сервери проєкту залишаються вимкненими."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hoặc đọc tại đây: tác nhân có thể đọc và tìm kiếm trong thư mục này, nhưng không thể chỉnh sửa hay chạy bất cứ thứ gì làm thay đổi nó. Hook, cài đặt và máy chủ MCP của dự án vẫn tắt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "或在此阅读：代理可以读取和搜索此文件夹，但不能编辑它，也不能运行任何会更改它的内容。项目的钩子、设置和 MCP 服务器保持关闭。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "或在此閱讀：代理可以讀取和搜尋此資料夾，但不能編輯它，也不能執行任何會變更它的內容。專案的鉤子、設定和 MCP 伺服器保持關閉。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

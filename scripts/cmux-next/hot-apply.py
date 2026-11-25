@@ -625,7 +625,10 @@ def web_catalogs(repo: Path, sha: str, strings: list[str]) -> tuple[list[str], l
             git(repo, "show", f"{sha}:webviews/scripts/pages/gen-strings.mjs")) or []
     except (RuntimeError, OSError):
         named = []  # unreadable: every catalog stays with the Swift build, as before
-    return [p for p in strings if p in named], [p for p in strings if p not in named]
+    # A one-file-per-key table (`<Table>.xcstrings.d`, scripts/cmux-next/string_catalogs.py) is named as its directory.
+    def read(p):
+        return p in named or any(p.startswith(d.rstrip("/") + "/") for d in named if d.endswith(".xcstrings.d"))
+    return [p for p in strings if read(p)], [p for p in strings if not read(p)]
 
 
 def hot_keys(repo: Path, sha: str, web: str | None = None) -> dict:

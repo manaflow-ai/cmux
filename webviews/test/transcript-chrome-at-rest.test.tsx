@@ -9,6 +9,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { readCatalog } from "../scripts/pages/catalog.mjs";
 import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
 import {
   RetryAffordanceContext,
@@ -233,8 +235,8 @@ test("a failed line's Retry waits for the pointer or keyboard focus, over the wo
 });
 
 test('the catalog has no "Ask parent to retry"', () => {
-  const catalog = JSON.parse(
-    readFileSync(new URL("../src/agent-session/acpmux/Localizable.xcstrings", import.meta.url), "utf8"),
+  const catalog = readCatalog(
+    fileURLToPath(new URL("../src/agent-session/acpmux/Localizable.xcstrings.d", import.meta.url)),
   ) as { strings: Record<string, unknown> };
   expect(catalog.strings["retry.askParent"]).toBeUndefined();
 });

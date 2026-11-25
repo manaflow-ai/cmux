@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agentPane.display.thinking.glyphSize.help" : {
+      "comment" : "Settings > Chat > Jump Button Glyph Size: help",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حجم نقاط رمز التفكير في زر الانتقال إلى الأحدث. 0 يستخدم حجم الرمز نفسه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Veličina tačaka simbola razmišljanja u dugmetu za skok na najnovije. 0 koristi vlastitu veličinu simbola."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikstørrelsen for tænkesymbolet i Hop til seneste. 0 bruger symbolets egen størrelse."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Punktgröße des Denk-Symbols in „Zum Neuesten springen“. 0 verwendet die eigene Größe des Symbols."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tamaño de los puntos del símbolo de pensamiento en Ir a lo último. 0 usa el tamaño propio del símbolo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Taille des points du symbole de réflexion dans Aller au plus récent. 0 utilise la taille propre du symbole."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dimensione dei puntini del simbolo di elaborazione in Vai all'ultimo. 0 usa la dimensione propria del simbolo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「最新へ移動」の思考グリフのドットサイズ。0 はグリフ自体のサイズを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ទំហំចំណុចនៃសញ្ញាកំពុងគិតក្នុងប៊ូតុងលោតទៅថ្មីបំផុត។ 0 ប្រើទំហំផ្ទាល់របស់សញ្ញា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "최신으로 이동 버튼의 생각 글리프 점 크기. 0이면 글리프 자체 크기를 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikkstørrelsen for tenkesymbolet i Hopp til nyeste. 0 bruker symbolets egen størrelse."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rozmiar kropek symbolu myślenia w Przejdź do najnowszych. 0 używa własnego rozmiaru symbolu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tamanho dos pontos do símbolo de raciocínio em Ir para o mais recente. 0 usa o tamanho próprio do símbolo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Размер точек символа размышления в кнопке «К последнему». 0 — собственный размер символа."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ขนาดจุดของสัญลักษณ์กำลังคิดในปุ่มข้ามไปล่าสุด 0 ใช้ขนาดของสัญลักษณ์เอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En yeniye atla düğmesindeki düşünme simgesinin nokta boyutu. 0, simgenin kendi boyutunu kullanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Розмір крапок символу роздумів у кнопці «До останнього». 0 — власний розмір символу."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kích thước chấm của biểu tượng suy nghĩ trong nút Đến mới nhất. 0 dùng kích thước riêng của biểu tượng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“跳到最新”中思考字形的圆点大小。0 使用字形自身大小。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「跳到最新」中思考字形的圓點大小。0 使用字形本身大小。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
