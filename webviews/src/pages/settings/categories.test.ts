@@ -48,6 +48,9 @@ test("the categories are the approved ones, in order", () => {
     "chief",
     // Settings > Models: which subscription or key each Cloud thread runs on (model-connections.md).
     "models",
+    // Settings > Automations: cloud automations, what sets an agent off and what it does (Leo
+    // 2026-11-24: "having people be able to set up their own conditions for when autocloud will go off").
+    "automations",
     "notifications",
     "keyboard",
     "accounts",
@@ -70,6 +73,9 @@ test("the categories are the approved ones, in order", () => {
     "cloud",
     // Keys: the keys agents keep and ask the person for (design/settings-keys.md).
     "keys",
+    // Integrations: the integrations hub, linked accounts agents act through (Leo 2026-11-23: "an
+    // aggregator of integrations. linking up things like e.g. stripe so that your agents can refund for you").
+    "integrations",
     "import",
     "privacy",
     "advanced",

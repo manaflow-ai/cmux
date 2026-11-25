@@ -819,12 +819,21 @@ fn apply(
 /// One request-only dial (`projection.brought_back`, `projection.release`): the machine's answer,
 /// `Err` with it when refused.
 fn dial_answer(socket: &Path, line: &Value) -> anyhow::Result<Result<Value, Value>> {
-    let (answer, _) = dial_raw(socket, line, &[])?;
+    dial_answer_within(socket, line, ANSWER_WAIT)
+}
+
+/// [`dial_answer`], waiting up to `wait` for the answer (a pin fetches before it answers).
+pub(super) fn dial_answer_within(
+    socket: &Path,
+    line: &Value,
+    wait: Duration,
+) -> anyhow::Result<Result<Value, Value>> {
+    let (answer, _) = dial_raw(socket, line, &[], wait)?;
     Ok(if field(&answer, "/ok").as_bool() == Some(true) { Ok(answer) } else { Err(answer) })
 }
 
 /// The value at `pointer` in a machine's answer, `null` when it has none.
-fn field<'a>(answer: &'a Value, pointer: &str) -> &'a Value {
+pub(super) fn field<'a>(answer: &'a Value, pointer: &str) -> &'a Value {
     static NULL: Value = Value::Null;
     answer.pointer(pointer).unwrap_or(&NULL)
 }
@@ -836,7 +845,7 @@ fn dial(
     line: &Value,
     body: &[u8],
 ) -> anyhow::Result<(Value, BufReader<UnixStream>)> {
-    let (answer, reader) = dial_raw(socket, line, body)?;
+    let (answer, reader) = dial_raw(socket, line, body, ANSWER_WAIT)?;
     if field(&answer, "/ok").as_bool() != Some(true) {
         let code = answer.get("error_code");
         if code.is_none_or(|code| code.as_str() == Some("projection.unavailable")) {
@@ -852,6 +861,7 @@ fn dial_raw(
     socket: &Path,
     line: &Value,
     body: &[u8],
+    wait: Duration,
 ) -> anyhow::Result<(Value, BufReader<UnixStream>)> {
     let mut stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
@@ -864,7 +874,7 @@ fn dial_raw(
     stream.write_all(&bytes)?;
     stream.write_all(body)?;
     stream.flush()?;
-    stream.set_read_timeout(Some(ANSWER_WAIT))?;
+    stream.set_read_timeout(Some(wait))?;
     let mut reader = BufReader::with_capacity(256 * 1024, stream);
     let mut answer = String::new();
     reader.read_line(&mut answer)?;
