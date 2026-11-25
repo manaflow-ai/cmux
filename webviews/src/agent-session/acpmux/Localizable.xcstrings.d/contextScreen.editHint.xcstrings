@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "contextScreen.editHint" : {
+      "comment" : "Agent pane: the Context screen (Session Info's View Prompt): a chat's prompt context and the guidance new chats get",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يرسل cmux هذا مرة واحدة مع أول رسالة في كل محادثة تبدأ بعد الحفظ. تركه فارغًا يوقفه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ovo šalje jednom, s prvom porukom svakog chata pokrenutog nakon spremanja. Prazno ga isključuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sender dette én gang med den første besked i hver chat, der startes efter du gemmer. Tomt slår det fra."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sendet dies einmal mit der ersten Nachricht jedes Chats, der nach dem Sichern beginnt. Leer schaltet es aus."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sends this once, with the first message of each chat started after you save. Empty turns it off."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux lo envía una vez, con el primer mensaje de cada chat iniciado después de guardar. Vacío lo desactiva."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux l'envoie une fois, avec le premier message de chaque chat ouvert après l'enregistrement. Vide le désactive."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux lo invia una volta, con il primo messaggio di ogni chat avviata dopo il salvataggio. Vuoto lo disattiva."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "保存後に開始した各チャットの最初のメッセージと一緒に、cmux が一度だけ送信します。空にするとオフになります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ផ្ញើវាម្តង ជាមួយសារដំបូងនៃការជជែកនីមួយៗដែលចាប់ផ្តើមក្រោយពេលអ្នករក្សាទុក។ ទុកទទេដើម្បីបិទ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "저장한 뒤 시작하는 각 채팅의 첫 메시지와 함께 cmux가 한 번 보냅니다. 비우면 꺼집니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux sender dette én gang, med den første meldingen i hver chat som startes etter at du lagrer. Tomt slår det av."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux wysyła to raz, z pierwszą wiadomością każdego czatu rozpoczętego po zapisaniu. Puste wyłącza."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O cmux envia isto uma vez, com a primeira mensagem de cada chat iniciado depois de salvar. Vazio desativa."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux отправляет это один раз, с первым сообщением каждого чата, начатого после сохранения. Пустое поле отключает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux ส่งสิ่งนี้ครั้งเดียว พร้อมข้อความแรกของแต่ละแชทที่เริ่มหลังจากคุณบันทึก เว้นว่างเพื่อปิด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux bunu, kaydettikten sonra başlayan her sohbetin ilk mesajıyla bir kez gönderir. Boş bırakmak kapatır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux надсилає це один раз, з першим повідомленням кожного чату, розпочатого після збереження. Порожнє поле вимикає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux gửi nội dung này một lần, cùng tin nhắn đầu tiên của mỗi cuộc trò chuyện bắt đầu sau khi bạn lưu. Để trống để tắt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 会在你保存后开始的每个聊天的第一条消息中发送一次。留空则关闭。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux 會在你儲存後開始的每個聊天的第一則訊息中傳送一次。留空則關閉。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
