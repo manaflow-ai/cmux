@@ -20,7 +20,6 @@
 {"file":"agent-session/acpmux/avatars/avatars.css","kind":"spacing","property":"margin","values":{"0 0 6px":1}}
 {"file":"agent-session/acpmux/bottomStack.css","kind":"height","property":"min-height","values":{"calc(44px + var(--acpmux-transcript-min, 96px))":1,"var(--acpmux-stack-row-min, 34px)":1}}
 {"file":"agent-session/acpmux/changes/changes.css","kind":"height","property":"height","values":{"1px":1}}
-{"file":"agent-session/acpmux/changes/changes.css","kind":"token-copy","property":"outline","values":{"1.5px":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"height","property":"min-height","values":{"44px":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"radius","property":"border-radius","values":{"10px":1}}
 {"file":"agent-session/acpmux/changes/git.css","kind":"spacing","property":"gap","values":{"2px":1,"6px":1}}
