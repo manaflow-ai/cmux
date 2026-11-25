@@ -286,6 +286,53 @@ import UIKit
         #expect(journal.events.last?.line.contains("only its kind and seq") == true)
     }
 
+    /// Detector (audit 18): every record was JSON-encoded on the main actor as it came, for an
+    /// inspector that is almost never open. With the inspector closed, records encode nothing.
+    @Test func aClosedInspectorEncodesNothing() {
+        let journal = AgentEventJournal()
+        for seq in 1...(AgentEventJournal.limit + 100) {
+            journal.record(.object(["seq": .number(Double(seq)), "dir": .string("in"), "kind": .string("tool_call_update"),
+                                    "msg": .object(["method": .string("session/update"), "text": .string("line \(seq)\n")])]))
+        }
+        #expect(journal.linesEncoded == 0)
+        #expect(journal.events.count == AgentEventJournal.limit)
+    }
+
+    /// The byte budget counts each record's line without encoding it, to the byte.
+    @Test func theCountedSizeIsTheEncodedLine() {
+        let records: [JSONValue] = [
+            .null, .bool(true), .bool(false), .number(0), .number(-3), .number(1.5), .number(1e21), .number(0.1),
+            .number(1_779_000_000_123), .string(""), .string("plain"), .string("quote \" back \\ slash /"),
+            .string("tab\tnew\nline\rcr\u{08}\u{0C}"), .string("ctl \u{01}\u{1F}"), .string("ünïcødé ✓ 🚀"),
+            .array([]), .array([.number(1), .string("a"), .null]), .object([:]),
+            .object(["seq": .number(7), "msg": .object(["params": .object(["update": .object(["b": .array([.bool(true)]), "a": .string("x")])])]),
+                     "k\"ey": .string("v")]),
+        ]
+        for record in records {
+            #expect(record.compactJSONSize == AgentInspectorEvent(id: 0, record: record).line.utf8.count, "\(record)")
+        }
+    }
+
+    /// The inspector's filter and export encode each row once, and its opening encodes the rows
+    /// off the main actor so they read from memory.
+    @Test func theInspectorEncodesEachRowOnce() async {
+        let journal = AgentEventJournal()
+        for seq in 1...30 {
+            journal.record(.object(["seq": .number(Double(seq)), "kind": .string("agent_message_chunk"), "msg": .string("m\(seq)")]))
+        }
+        #expect(journal.rows(matching: "m2").count == 11)
+        #expect(journal.linesEncoded == 30)
+        _ = journal.rows(matching: "m3")
+        _ = journal.jsonLines(journal.events)
+        #expect(journal.linesEncoded == 30)
+        journal.record(.object(["seq": .number(31), "kind": .string("agent_message_chunk"), "msg": .string("m31")]))
+        await journal.prepareLines()
+        #expect(journal.linesEncoded == 31)
+        #expect(journal.jsonLines([journal.events[0]]) == #"{"kind":"agent_message_chunk","msg":"m1","seq":1}"#)
+        journal.clear()
+        #expect(journal.rows(matching: "m").isEmpty)
+    }
+
     // MARK: Replay Conversation
 
     @Test func replayCutsLongPausesAndFindsToolCalls() {
