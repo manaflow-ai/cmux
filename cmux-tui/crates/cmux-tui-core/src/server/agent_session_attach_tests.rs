@@ -1737,8 +1737,7 @@ fn a_new_chat_signs_its_agent_in_on_this_machine_without_a_session() {
     }
     for bad in [
         json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"Open Code"}),
-        json!({"cmd":"agent-session-login","surface":surface,"op":"start","agent":"cursor",
-               "sessionId":"acp_other"}),
+        // An unknown param (`sessionId`) is ignored, not refused (cmux#49712): no row here.
         json!({"cmd":"agent-session-login","surface":surface,"op":"run","agent":"cursor"}),
     ] {
         assert_code(&client.request(bad), "agent_session.bad_request");
