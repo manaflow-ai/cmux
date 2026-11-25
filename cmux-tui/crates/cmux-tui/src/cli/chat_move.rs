@@ -59,7 +59,14 @@ pub(super) fn parse(words: &[String]) -> Result<Parsed, UsageError> {
     let on = on.ok_or_else(|| UsageError("--on local|cloud|auto is required".to_owned()))?;
     if !matches!(
         on.to_ascii_lowercase().as_str(),
-        "local" | "here" | "mac" | "laptop" | "cloud" | "auto" | "autocloud" | "auto-cloud"
+        "local"
+            | "here"
+            | "mac"
+            | "laptop"
+            | "cloud"
+            | "auto"
+            | "autocloud"
+            | "auto-cloud"
             | "auto_cloud"
     ) {
         return Err(UsageError(format!("--on must be local, cloud or auto (got {on:?})")));
@@ -126,10 +133,7 @@ mod tests {
     fn parses_every_place_and_refuses_the_rest() {
         for on in ["local", "cloud", "auto", "AutoCloud", "here"] {
             let parsed = parse(&w(&format!("s-1 --on {on}"))).unwrap();
-            assert_eq!(
-                parsed,
-                Parsed::Run { session: "s-1".into(), on: on.into(), reason: None }
-            );
+            assert_eq!(parsed, Parsed::Run { session: "s-1".into(), on: on.into(), reason: None });
         }
         assert!(parse(&w("s-1 --on mars")).is_err());
         assert!(parse(&w("s-1")).is_err());
