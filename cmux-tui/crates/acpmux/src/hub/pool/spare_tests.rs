@@ -54,3 +54,27 @@ fn a_harness_whose_spare_idled_out_is_missing_and_a_warming_or_ready_one_is_not(
     let week = u64::try_from(RECENT.as_millis()).unwrap();
     assert!(missing(&list, week + 100, |_| false).is_empty(), "only a recent harness");
 }
+
+#[test]
+fn a_reserve_moves_home_chat_shapes_to_its_folder_and_remembers_the_persons_picks() {
+    let home = std::path::Path::new("/home/p");
+    let old = "/home/p/chats/r0123456789abcdef0123456789abcdef";
+    let next = std::path::Path::new("/home/p/chats/rfedcba9876543210fedcba9876543210");
+    // A Codex home chat in the folder it took, and a harness used in a project folder.
+    let mut list = vec![r("codex", old, 5), r("opencode", "/home/p/src/app", 6)];
+    let given = vec![super::reserved::HomeShape {
+        harness: "claude".into(),
+        preset: None,
+        model: Some("opus".into()),
+    }];
+    home_shapes(&mut list, home, next, given, 9);
+    let next_s = next.to_str().unwrap();
+    let mut claude = r("claude", next_s, 9);
+    claude.model = Some("opus".into());
+    assert_eq!(
+        list,
+        vec![r("codex", next_s, 5), r("opencode", "/home/p/src/app", 6), claude],
+        "the home chat's harness waits in the next folder with its old use time; a project \
+         folder's stays"
+    );
+}

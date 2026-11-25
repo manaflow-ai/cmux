@@ -213,10 +213,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
-        Command::WarmHome { wait } => {
+        Command::WarmHome { wait, shapes } => {
             let client = connect(true).await?;
+            // `HARNESS[:MODEL]`: the model is everything after the first colon.
+            let shapes: Vec<Value> = shapes
+                .iter()
+                .map(|s| match s.split_once(':') {
+                    Some((h, m)) => json!({"harness": h, "model": m}),
+                    None => json!({"harness": s}),
+                })
+                .collect();
             let v = client
-                .request(method::MUX_PREWARM, json!({"reserveHome": true, "wait": wait}))
+                .request(
+                    method::MUX_PREWARM,
+                    json!({"reserveHome": true, "wait": wait, "shapes": shapes}),
+                )
                 .await?;
             if json_out {
                 print_json(&v);
