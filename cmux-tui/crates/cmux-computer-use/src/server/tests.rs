@@ -340,3 +340,74 @@ fn a_preview_watch_gets_the_card_of_an_active_session() {
         "origin": {"kind": "remote", "machine": "m", "same_account": true}}));
     assert_eq!(remote.recv()["ok"], false);
 }
+
+/// The first id of a `role` element in a look's outline (`[3] button "Save"`).
+fn id_of(answer: &Value, role: &str) -> String {
+    let tree = answer["result"]["body"]["tree"].as_str().unwrap_or_else(|| panic!("{answer}"));
+    let line = tree
+        .lines()
+        .map(str::trim_start)
+        .find(|l| l.split_whitespace().nth(1) == Some(role))
+        .unwrap_or_else(|| panic!("no {role} in {tree}"));
+    line[1..line.find(']').unwrap()].to_string()
+}
+
+/// `cmux computer-use call` runs each call in its own process, with no attach: the element ids
+/// one call was shown act in the next call on a new connection (they were `stale_element`
+/// when the process's exit ended its session).
+#[test]
+fn a_detached_sessions_ids_act_from_its_next_connection() {
+    let f = fixture("det", None);
+    f.gate.release();
+    let mut first = Client::connect(&f.path);
+    first.call(1, "cli", "get_ui_tree", json!({"window_id": "1"}), None);
+    let id = id_of(&first.recv(), "button");
+    first.send(&json!({"id": 2, "method": "session/idle", "session": "cli"}));
+    assert_eq!(first.recv()["ok"], true);
+    drop(first);
+    let mut second = Client::connect(&f.path);
+    second.call(3, "cli", "click", json!({"window_id": "1", "element_id": id}), Some("c2"));
+    let answer = second.recv();
+    assert_eq!(answer["result"]["is_error"], false, "{answer}");
+    assert!(f.desktop.events().iter().any(|e| matches!(e, Event::Click { .. })));
+}
+
+/// An agent's session (attached) still ends with its process: its ids do not outlive it.
+#[test]
+fn an_attached_sessions_ids_end_with_its_presence() {
+    let f = fixture("dat", None);
+    f.gate.release();
+    let mut presence = Client::connect(&f.path);
+    presence.send(&json!({"id": 1, "method": "session/attach", "session": "s"}));
+    assert_eq!(presence.recv()["ok"], true);
+    let mut calls = Client::connect(&f.path);
+    calls.call(2, "s", "get_ui_tree", json!({"window_id": "1"}), None);
+    let id = id_of(&calls.recv(), "button");
+    drop(presence);
+    assert!(eventually(|| f.engine.active_sessions().is_empty()));
+    // The session's end runs on its lane; a call queued after it sees it ended.
+    calls.call(3, "s", "click", json!({"window_id": "1", "element_id": id}), Some("c3"));
+    let answer = calls.recv();
+    assert_eq!(answer["result"]["code"], "stale_element", "{answer}");
+}
+
+#[test]
+fn a_detached_session_is_tracked_and_an_attached_one_is_not() {
+    let f = fixture("dtr", None);
+    let mut presence = Client::connect(&f.path);
+    presence.send(&json!({"id": 1, "method": "session/attach", "session": "agent"}));
+    assert_eq!(presence.recv()["ok"], true);
+    let mut calls = Client::connect(&f.path);
+    for (id, session) in [(2, "agent"), (3, "cli"), (4, "remote:mini:k")] {
+        calls.call(id, session, "list_windows", json!({}), None);
+        assert_eq!(calls.recv()["result"]["is_error"], false);
+    }
+    let shared = &f.server.as_ref().unwrap().shared;
+    let detached = lock(&shared.detached);
+    assert!(detached.contains("cli") && detached.contains("remote:mini:k"));
+    assert!(!detached.contains("agent"));
+    drop(detached);
+    calls.send(&json!({"id": 5, "method": "session/end", "session": "cli"}));
+    assert_eq!(calls.recv()["ok"], true);
+    assert!(!lock(&shared.detached).contains("cli"));
+}

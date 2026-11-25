@@ -1,9 +1,11 @@
 //! `cmux computer-use`: cmux Computer Use from a shell, through the same
 //! daemon endpoint and worker the agents' bridge uses
 //! (acpmux `computer_use/client.rs`). The CLI is a local caller with the
-//! session key `cli`; a call with `--machine` goes over the person's machine
-//! links like an agent's. Settings are not here: they go through
-//! `cmux settings` (`computerUse.*`), which agents may not change.
+//! session key `cli` (or `cli:NAME`, [`SESSION_ENV`]) that outlives each
+//! process, so ids from one call act in the next; a call with `--machine`
+//! goes over the person's machine links like an agent's. Settings are not
+//! here: they go through `cmux settings` (`computerUse.*`), which agents may
+//! not change.
 
 use acpmux::computer_use::client::{
     Caller, Daemon, DaemonError, ENDPOINT_CMD, Outcome, new_call_id,
@@ -16,7 +18,7 @@ use serde_json::{Value, json};
 use super::app::cu_upgrade;
 use super::{GlobalArgs, MachineFlag, scan_globals};
 
-const HELP: &str = "Usage: cmux computer-use <status|doctor|displays|tools|call|screenshot|record|approvals|machines|alerts|upgrade>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object)\n  cmux computer-use screenshot --out FILE [--window ID | --display ID] [--machine M]\n                                                 Save a PNG of a window, or of a display (default: the main one)\n  cmux computer-use record --out FILE --seconds N [--display ID] [--fps N] [--machine M]\n                                                 Record a display to an MP4 (H.264) for N seconds\n  cmux computer-use record start [--max-seconds N] [--display ID] [--machine M]\n  cmux computer-use record stop --out FILE       Start a recording and return; stop it later and save the file\n  cmux computer-use displays [--machine M]      The displays: id (what --display takes), frame, scale, main\n  cmux computer-use doctor [--machine M] [--json]\n                                                 Whether capture and input would work, and what fixes each failure (read-only, no prompts; exit 0 when all pass)\n  cmux computer-use upgrade [--from nightly|PR|SHA] [--dry-run]\n                                                 Hot-upgrade only the Computer Use engine (the signed helper) to that build's; the app and its sessions keep running\n  cmux computer-use upgrade --undo               Put back the helper from before the last upgrade (once)\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n  cmux computer-use alerts [--json] [--machine M]\n                                                 System alerts on screen: owner, text, buttons, class (needs computerUse.alerts)\n  cmux computer-use alerts dismiss ID --button TITLE [--machine M]\n                                                 Put one alert off with one of its put_off buttons (never one that allows or opens)\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
+const HELP: &str = "Usage: cmux computer-use <status|doctor|displays|tools|call|screenshot|record|approvals|machines|alerts|upgrade>\n\ncmux Computer Use is built into cmux: agents get it in the cmux MCP server as the cu_* tools (scripted in cmux_exec as cu.click({...})). These commands reach the same worker.\n\n  cmux computer-use status [--machine M]        Platform, permissions, mode and denied apps\n  cmux computer-use tools                        The tools and their arguments\n  cmux computer-use mcp [--primary]              Serve the tools alone as an MCP stdio server (cmux-computer-use, for other MCP clients;\n                                                 --primary: the client's only Computer Use, never presented as a second choice)\n  cmux computer-use call TOOL [--args JSON] [--machine M]\n                                                 Run one tool (arguments as a JSON object). Element ids one call shows act in the next\n                                                 (session `cli`, or `cli:NAME` with CMUX_COMPUTER_USE_SESSION=NAME; ends after 30 min idle)\n  cmux computer-use screenshot --out FILE [--window ID | --display ID] [--machine M]\n                                                 Save a PNG of a window, or of a display (default: the main one)\n  cmux computer-use record --out FILE --seconds N [--display ID] [--fps N] [--machine M]\n                                                 Record a display to an MP4 (H.264) for N seconds\n  cmux computer-use record start [--max-seconds N] [--display ID] [--machine M]\n  cmux computer-use record stop --out FILE       Start a recording and return; stop it later and save the file\n  cmux computer-use displays [--machine M]      The displays: id (what --display takes), frame, scale, main\n  cmux computer-use doctor [--machine M] [--json]\n                                                 Whether capture and input would work, and what fixes each failure (read-only, no prompts; exit 0 when all pass)\n  cmux computer-use upgrade [--from nightly|PR|SHA] [--dry-run]\n                                                 Hot-upgrade only the Computer Use engine (the signed helper) to that build's; the app and its sessions keep running\n  cmux computer-use upgrade --undo               Put back the helper from before the last upgrade (once)\n  cmux computer-use approvals list               Apps saved as Always allow or Never\n  cmux computer-use approvals forget APP         Forget APP's saved answer (needs the cmux app; use Settings > Computer Use)\n  cmux computer-use approvals revoke-sessions    End every agent session's approvals now\n  cmux computer-use machines                     Your other machines and whether Computer Use is on there\n  cmux computer-use alerts [--json] [--machine M]\n                                                 System alerts on screen: owner, text, buttons, class (needs computerUse.alerts)\n  cmux computer-use alerts dismiss ID --button TITLE [--machine M]\n                                                 Put one alert off with one of its put_off buttons (never one that allows or opens)\n\nSettings (mode, denied apps, other machines) are in Settings > Computer Use and `cmux settings get|set computerUse.<key>`.\n";
 
 /// The daemon command for saved approvals (served with the worker's host).
 const APPROVALS_CMD: &str = "computer-use-approvals";
@@ -266,7 +268,7 @@ impl cu_upgrade::Host for CliHost<'_> {
     }
 
     fn worker(&self) -> Result<Value, String> {
-        match caller(self.global).call("status", &json!({}), &new_call_id()) {
+        match call_once(self.global, "status", &json!({})) {
             Outcome::Output(out) if !out.is_error => {
                 out.body.get("worker").cloned().ok_or_else(|| "the worker named no pid".to_owned())
             }
@@ -279,8 +281,34 @@ impl cu_upgrade::Host for CliHost<'_> {
     }
 }
 
+/// Names the CLI's Computer Use session (`cli:NAME`): scripts that set different names do not
+/// share element ids or last looks. Unset, every CLI call on this machine is session `cli`.
+const SESSION_ENV: &str = "CMUX_COMPUTER_USE_SESSION";
+
+/// The CLI's session key: `cli`, or `cli:NAME` from [`SESSION_ENV`] (its first 64 printable
+/// characters; empty or blank is `cli`).
+pub(super) fn session_key(name: Option<&str>) -> String {
+    let name: String =
+        name.unwrap_or_default().trim().chars().filter(|c| !c.is_control()).take(64).collect();
+    if name.is_empty() { "cli".into() } else { format!("cli:{name}") }
+}
+
+/// The CLI's caller. Detached: each `cmux computer-use` is its own process, and a presence
+/// connection closing at its exit ended the session on the worker, so the element ids one call
+/// showed were `stale_element` in the next. The session now outlives the process and the
+/// worker ends it once idle (cmux-computer-use `server/detached.rs`).
 fn caller(global: &GlobalArgs) -> Caller<CliDaemon> {
-    Caller::new(CliDaemon { global: global.clone() }, "cli".into(), "cmux CLI".into())
+    let key = session_key(std::env::var(SESSION_ENV).ok().as_deref());
+    Caller::new(CliDaemon { global: global.clone() }, key, "cmux CLI".into()).detached()
+}
+
+/// One tool call from this process, then the session idles (its cursor hides; its element ids
+/// and last looks stay for the next call).
+fn call_once(global: &GlobalArgs, tool: &str, args: &Value) -> Outcome {
+    let caller = caller(global);
+    let outcome = caller.call(tool, args, &new_call_id());
+    caller.idle();
+    outcome
 }
 
 fn with_machine(mut args: Value, machine: Option<&str>) -> Value {
@@ -372,12 +400,10 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
             let list = tools::mcp_list();
             super::wire::print_local_success(&list, global.output)
         }
-        Request::Machines => {
-            print(global, caller(global).call("list_machines", &json!({}), &new_call_id()))
-        }
+        Request::Machines => print(global, call_once(global, "list_machines", &json!({}))),
         Request::Call { tool, args, machine } => {
             let args = with_machine(args, machine.as_deref());
-            print(global, caller(global).call(&tool, &args, &new_call_id()))
+            print(global, call_once(global, &tool, &args))
         }
         Request::Doctor { machine, json } => doctor::run(global, machine.as_deref(), json),
         Request::Screenshot { out, window, display, machine } => {
@@ -389,7 +415,7 @@ fn run(global: &GlobalArgs, args: &[String]) -> i32 {
                 args.set("display", json!(display));
             }
             let args = with_machine(args, machine.as_deref());
-            match caller(global).call("screenshot", &args, &new_call_id()) {
+            match call_once(global, "screenshot", &args) {
                 Outcome::Output(shot) if !shot.is_error => {
                     let Some(png) = shot.png_base64.as_deref() else {
                         return super::wire::print_local_error(

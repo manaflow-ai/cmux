@@ -552,6 +552,40 @@ fn a_session_attaches_once_and_a_relayed_one_never() {
     assert!(relayed_worker.attaches.lock().unwrap().is_empty());
 }
 
+/// The `cmux computer-use call` CLI is one process per call: a presence connection would close
+/// at its exit and end its session on the worker, so the element ids one call showed were stale
+/// in the next. A detached caller never attaches and hides its cursor with `session/idle`, which
+/// keeps the session's state.
+#[test]
+fn a_detached_caller_never_attaches_and_idles_after_its_call() {
+    let dir = tmp();
+    let worker = FakeWorker::start(dir.path(), "w", Behavior::Answer, Arc::default());
+    for id in ["c1", "c2"] {
+        // A new process per call, as the CLI runs.
+        let cli =
+            Caller::new(FakeDaemon::new(vec![Ok(worker.ready())]), "cli".into(), "cmux CLI".into())
+                .detached();
+        assert!(!cli.attaches());
+        assert!(matches!(cli.call("get_ui_tree", &json!({}), id), Outcome::Output(_)));
+        cli.idle();
+    }
+    assert!(worker.attaches.lock().unwrap().is_empty());
+    let seen = worker.seen.lock().unwrap().clone();
+    let methods: Vec<&str> = seen.iter().map(|r| r["method"].as_str().unwrap()).collect();
+    assert_eq!(methods, ["tools/call", "session/idle", "tools/call", "session/idle"]);
+    assert!(seen.iter().all(|r| r["session"] == "cli"), "{seen:?}");
+    assert!(!methods.contains(&"session/end"));
+}
+
+#[test]
+fn a_caller_that_never_reached_the_worker_sends_no_idle() {
+    let dir = tmp();
+    let worker = FakeWorker::start(dir.path(), "w", Behavior::Answer, Arc::default());
+    let cli = Caller::new(FakeDaemon::new(vec![]), "cli".into(), "cmux CLI".into()).detached();
+    cli.idle();
+    assert!(worker.seen.lock().unwrap().is_empty());
+}
+
 #[test]
 fn routable_machines_are_reachable_ready_and_not_the_locked_one() {
     let data = json!({"machines": [
