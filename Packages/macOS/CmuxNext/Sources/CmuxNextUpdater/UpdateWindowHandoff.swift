@@ -85,7 +85,16 @@ public final class UpdateWindowHandoff {
             Hidden(window: $0, ignoresMouse: $0.ignoresMouseEvents, animation: $0.animationBehavior)
         }
         for entry in hidden { entry.window?.ignoresMouseEvents = true }
-        leave(after: saveBeforeLeaving())
+        // The click pictured the pages while they were on screen: the windows leave at once, whatever that save's age
+        // (Lawrence 2026-11-25: "clicking on the restart button should feel instant"); the quit awaits that save.
+        if let early = clickSave {
+            clickSave = nil
+            pausesPictures?()
+            updater?.savedForRelaunch = early.task
+            leaveScreen()
+        } else {
+            leave(after: saveBeforeLeaving())
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("windows_hidden.\(hidden.count)")
         #endif

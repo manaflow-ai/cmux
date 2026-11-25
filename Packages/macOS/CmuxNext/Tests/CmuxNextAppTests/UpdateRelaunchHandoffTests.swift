@@ -116,8 +116,9 @@ import Testing
         handoff.attach(to: updater)
         updater.picturesAtClick?()
         #expect(handoff.hide())
+        // Lawrence 2026-11-25 ("clicking on the restart button should feel instant"): gone in the same turn, no wait for the save.
+        #expect(!window.isVisible, "the windows waited on screen for the click's save")
         await updater.savedForRelaunch?.value
-        for _ in 0..<20 where window.isVisible { await Task.yield() }
         #expect(saves == 1, "the relaunch saved the pages again instead of using the click's save")
         #expect(paused == 1, "the running picture saver kept saving from windows off screen")
         #expect(!window.isVisible)
