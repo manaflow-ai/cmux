@@ -31,7 +31,7 @@
 //! 5. the answer: `{machine, machine_name, host, install, chief, conversation, host_unit, stage}`.
 //!
 //! With the owner's Claude credential after the request's first newline (the `cmux cloud api`
-//! tail, [`chief_turn`]), step 4 first writes it to the machine as `/run/cmux/chief-turn.env`
+//! tail, [`chief_turn`]), step 4 first writes it to the machine as `/run/cmux-chief/turn.env`
 //! (root's, 0600, tmpfs), which the unit reads beside `/etc/cmux/chief.env`, so the Chief answers
 //! its turns with it ([`write_turn_credential`]). A host that already runs is restarted only when
 //! that file changed; the answer then also says `turn_credential: "changed" | "same"`. With no
@@ -424,7 +424,7 @@ async fn exec_ok<C: Cloud>(cloud: &C, machine: &str, command: &str) -> Result<St
 
 /// Puts the owner's turn credential on the machine as [`chief_turn::TURN_ENV_FILE`]: the bytes go
 /// in the write's body to [`chief_turn::TURN_ENV_STAGE`] (0600), then a root command with no
-/// secret in its text moves them into place, root's and 0600 in a 0700 `/run/cmux` it makes
+/// secret in its text moves them into place, root's and 0600 in a 0700 `/run/cmux-chief` it makes
 /// ([`chief_turn::install_script`]). True when the file is new or changed, false when it was
 /// already there as is. Neither the command, its output nor an error carries the value.
 pub async fn write_turn_credential<C: Cloud>(

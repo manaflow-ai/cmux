@@ -21,9 +21,10 @@ use zeroize::Zeroizing;
 use super::Failure;
 
 /// The file the Chief unit reads its turn credential from (tmpfs: gone on reboot, never on disk).
-pub const TURN_ENV_FILE: &str = "/run/cmux/chief-turn.env";
-/// Its folder, made by the install itself: root's, 0700.
-pub const TURN_ENV_DIR: &str = "/run/cmux";
+pub const TURN_ENV_FILE: &str = "/run/cmux-chief/turn.env";
+/// Its folder, made by the install itself: root's, 0700. Its own, not `/run/cmux`, which acpmux reads as
+/// the `cmux` user (`machine-health.json`).
+pub const TURN_ENV_DIR: &str = "/run/cmux-chief";
 /// Where the write puts the bytes first, as whichever user the write route runs as (tmpfs too).
 pub const TURN_ENV_STAGE: &str = "/dev/shm/cmux-chief-turn.env.stage";
 /// The opt-in the host reads (optchat-chief `turn_credential::OPT_IN_ENV`).

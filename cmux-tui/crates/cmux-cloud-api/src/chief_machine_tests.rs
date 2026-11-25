@@ -573,14 +573,14 @@ async fn a_failed_install_names_no_secret_and_starts_nothing() {
 #[test]
 fn the_install_makes_a_root_only_folder_and_file_and_says_whether_it_changed() {
     let script = chief_turn::install_script();
-    assert!(script.contains("mkdir -p /run/cmux"));
-    assert!(script.contains("chown root:root /run/cmux"));
-    assert!(script.contains("chmod 0700 /run/cmux"));
+    assert!(script.contains("mkdir -p /run/cmux-chief"));
+    assert!(script.contains("chown root:root /run/cmux-chief"));
+    assert!(script.contains("chmod 0700 /run/cmux-chief"));
     assert!(script.contains(&format!(
-        "install -m 0600 -o root -g root {} /run/cmux/chief-turn.env.next",
+        "install -m 0600 -o root -g root {} /run/cmux-chief/turn.env.next",
         chief_turn::TURN_ENV_STAGE
     )));
-    assert!(script.contains("cmp -s /run/cmux/chief-turn.env.next /run/cmux/chief-turn.env"));
+    assert!(script.contains("cmp -s /run/cmux-chief/turn.env.next /run/cmux-chief/turn.env"));
     assert!(script.contains("echo same") && script.contains("echo changed"));
     // The stage is removed whatever happens.
     assert!(script.starts_with(&format!("trap 'rm -f {}", chief_turn::TURN_ENV_STAGE)));
@@ -647,7 +647,7 @@ fn the_fallback_unit_reads_both_env_files_as_the_image_unit_does() {
         text.lines().filter(|l| l.starts_with("EnvironmentFile=")).map(str::to_owned).collect()
     };
     let expected =
-        vec!["EnvironmentFile=-/etc/cmux/chief.env", "EnvironmentFile=-/run/cmux/chief-turn.env"];
+        vec!["EnvironmentFile=-/etc/cmux/chief.env", "EnvironmentFile=-/run/cmux-chief/turn.env"];
     assert_eq!(lines(&unit), expected);
     // The image's own unit, where the source tree has it.
     let image = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
