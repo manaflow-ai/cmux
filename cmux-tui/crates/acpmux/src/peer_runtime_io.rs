@@ -693,13 +693,13 @@ impl Peer {
         }
     }
 
-    /// A link silent past its budget dials a replacement before it drops (`serve_heard`): only a
-    /// ready one with no other path up (with one, it moves there at once), and not over ssh,
-    /// whose dial starts a process.
+    /// A link silent past its budget dials a replacement before it drops (`serve_heard`): one with
+    /// no other path up (with one, it moves there at once), and not over ssh, whose dial starts a
+    /// process. Ready or still in its handshake alike: `serve` clears ready on every open, and a
+    /// handshake stuck behind a blackout is the same silence.
     fn may_replace(&self) -> bool {
         use crate::peer_paths::Via;
-        self.link().is_ready()
-            && self.serving().is_some_and(|via| via != Via::Ssh && !self.another_path_alive(via))
+        self.serving().is_some_and(|via| via != Via::Ssh && !self.another_path_alive(via))
     }
 
     pub(super) fn ws_request(
