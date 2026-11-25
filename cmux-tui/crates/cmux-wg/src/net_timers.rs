@@ -24,6 +24,10 @@ const FAREWELL_WAITS: [Duration; 4] = [
     Duration::from_millis(800),
 ];
 
+/// The least time between two handshakes sent at once for a cookie reply
+/// (see [`Driver::answer_cookie`]).
+pub(super) const COOKIE_RETRY_SPACING: Duration = Duration::from_millis(250);
+
 impl Driver {
     /// A reset is sent once and never retransmitted, and the driver ends
     /// right after it: one lost datagram would leave the peer's connection
@@ -138,6 +142,29 @@ impl Driver {
             }
         }
         self.schedule.on_activity(Instant::now());
+    }
+
+    /// The peer's rate limiter answered this side's latest handshake
+    /// message with a cookie (boringtun has checked it and stored the cookie
+    /// for MAC2). boringtun itself waits for its 5 s retry before sending a
+    /// handshake that carries it, and until then nothing is answered: the
+    /// queued data, and the stream dial waiting on it, sit there. Send that
+    /// handshake now. Two peers that both initiate at once spend the 10 a
+    /// second limit between them (each message comes in on every candidate
+    /// path), so a hybrid dial meets the challenge without any attack. At
+    /// most one such retry per [`COOKIE_RETRY_SPACING`], so a peer that
+    /// keeps challenging gets at most four handshakes a second.
+    pub(super) fn answer_cookie(&mut self, now: Instant) {
+        if self.cookie_retry_at.is_some_and(|at| now.duration_since(at) < COOKIE_RETRY_SPACING) {
+            return;
+        }
+        if let TunnResult::WriteToNetwork(packet) =
+            self.tunn.format_handshake_initiation(&mut self.scratch, true)
+        {
+            self.cookie_retry_at = Some(now);
+            self.underlay.send(packet);
+            self.schedule.on_activity(now);
+        }
     }
 
     /// Send this side's ultra hello when one is due and a session exists
