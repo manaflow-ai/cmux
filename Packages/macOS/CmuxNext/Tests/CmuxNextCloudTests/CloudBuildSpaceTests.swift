@@ -85,7 +85,7 @@ struct CloudBuildSpaceTests {
     @Test("CloudDaemon of a misconfigured dev build refuses before the child starts")
     func workerClientRefuses() async {
         var daemon = Self.workerClient(Self.misconfigured)
-        daemon.daemon.daemonCall = { _, _ in
+        daemon.daemonCall = { _, _ in
             Issue.record("a misconfigured build started a daemon call")
             return Data()
         }
