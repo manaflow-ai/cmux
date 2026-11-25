@@ -6,8 +6,8 @@ import Testing
 
 /// Leo, 2026-11-19 ("for claude there's the font and the nested sessions and whatever"): a chat's subagents
 /// list under its row as the Claude desktop app's Code tab nests a chat's tasks. With the session tree on,
-/// an open row draws one line per subagent (at most five, then "N more") and a folded one a single
-/// stacked line; with it off, no subagent line at all (https://github.com/manaflow-ai/cmux/issues/52977).
+/// an open row draws one line per subagent (at most five, then "N more"); folded or with it off, no line, and
+/// failed subagents count in the title line's failed mark.
 @MainActor @Suite struct SidebarSubagentRowsTests {
     private static let chat = WorkspaceID("ws-chat")
     private static let tab = TabID("tab-chat")
@@ -51,17 +51,27 @@ import Testing
         #expect(Strings.moreSubagents(35) == "35 more")
     }
 
-    @Test func aFoldedChatShowsOneStackedLine() throws {
+    /// Leo 2026-11-23 on "◇◇◇◇◇ 4 running · 3 failed" under a row: "this is weird and bad and unncessary". Folded,
+    /// or with the tree off, a chat lists no line; its failed subagents are the title line's one failed mark.
+    @Test func aFoldedChatDrawsNoLineAndItsFailuresAreTheFailedMark() throws {
         let tree = SidebarSessionTreeState(collapsed: [Self.chat])
-        let strip = try #require(Self.layout(Self.subagents([.done, .running, .running]), tree: tree)?.content?.subagents)
-        #expect(strip.mode == .stack)
-        #expect(strip.lineCount == 1)
-        #expect(strip.marks.first == .running)
-        #expect(Strings.subagentStack(strip) == "2 running")
-        let finished = try #require(Self.layout(Self.subagents([.done, .done, .failed], total: 9), tree: tree)?.content?.subagents)
-        #expect(Strings.subagentStack(finished) == "8 done · 1 failed")
-        let stopped = try #require(Self.layout(Self.subagents([.done, .stopped, .stopped]), tree: tree)?.content?.subagents)
-        #expect(stopped.done == 1, "a stopped subagent is not done")
+        let folded = try #require(Self.layout(Self.subagents([.done, .running, .failed, .failed]), tree: tree)?.content)
+        #expect(folded.subagents == nil)
+        #expect(folded.subagentsFailed == 2)
+        #expect(folded.drawnRollUp == SidebarTreeRollUp(failed: 2))
+        #expect(folded.treeFold == .collapsed, "the chevron stays, to open the rows")
+        let bare = try #require(Self.layout(nil, tree: tree))
+        let quiet = try #require(Self.layout(Self.subagents([.done, .running]), tree: tree))
+        #expect(quiet.height == bare.height, "nothing running or done adds a line")
+        #expect(quiet.content?.drawnRollUp == nil)
+    }
+
+    @Test func withTheTreeOffNoLineShows() throws {
+        let running = try #require(Self.layout(Self.subagents([.done, .running]), tree: nil)?.content)
+        #expect(running.subagents == nil)
+        #expect(running.drawnRollUp == nil)
+        #expect(Self.layout(Self.subagents([.done, .failed]), tree: nil)?.content?.subagentsFailed == 1)
+        #expect(Self.layout(Self.subagents([.done, .running]), tree: nil)?.content?.treeFold == nil, "no chevron off the tree")
     }
 
     /// https://github.com/manaflow-ai/cmux/issues/52977: a "✧ 1 running" line under a row, with the tree off,
