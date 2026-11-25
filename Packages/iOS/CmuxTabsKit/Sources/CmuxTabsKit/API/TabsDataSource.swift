@@ -220,6 +220,10 @@ public struct TabsKitContentContext {
     public var chromeInsets: EdgeInsets
     /// The page is settled full screen and takes input (no zoom, swipe or menu).
     public var isInteractive: Bool
+    /// The page is full screen, not zoomed out to the tab grid. Unlike
+    /// ``isInteractive`` it stays true while a menu is open, a swipe runs
+    /// or the address bar is edited (the page's orientation follows this).
+    public var isOnPage: Bool
     /// A pinch is driving the tab zoom: stop the content's own pinch zoom
     /// (for a web view, disable its pinch recognizer while this is true).
     public var isZoomGestureActive: Bool
@@ -230,12 +234,13 @@ public struct TabsKitContentContext {
     let onScroll: @MainActor (CGFloat) -> Void
 
     init(pageSize: CGSize, safeAreaInsets: EdgeInsets, chromeInsets: EdgeInsets? = nil, isInteractive: Bool,
-         isZoomGestureActive: Bool, isToolbarCollapsed: Bool, toolbarEdge: TabsKitBarEdge = .bottom,
+         isOnPage: Bool, isZoomGestureActive: Bool, isToolbarCollapsed: Bool, toolbarEdge: TabsKitBarEdge = .bottom,
          onScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.pageSize = pageSize
         self.safeAreaInsets = safeAreaInsets
         self.chromeInsets = chromeInsets ?? safeAreaInsets
         self.isInteractive = isInteractive
+        self.isOnPage = isOnPage
         self.isZoomGestureActive = isZoomGestureActive
         self.isToolbarCollapsed = isToolbarCollapsed
         self.toolbarEdge = toolbarEdge
