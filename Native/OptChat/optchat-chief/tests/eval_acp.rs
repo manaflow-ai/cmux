@@ -118,7 +118,10 @@ fn a_spawned_task_is_the_agent_chats_first_turn_from_the_chief() {
         .filter(|p| p.starts_with("optchat-sub:a"))
         .collect();
     assert_eq!(subs.len(), 2, "{:?}", inner.prompt_ids);
-    assert!(subs[0].starts_with("optchat-sub:a1:"), "{subs:?}");
+    // The two start in parallel, so their first turns arrive in either order.
+    for id in ["optchat-sub:a1:", "optchat-sub:a2:"] {
+        assert!(subs.iter().any(|s| s.starts_with(id)), "{subs:?}");
+    }
 }
 
 /// The Chief's tell into a running turn is steered in and sent now: the step stops, the agent
