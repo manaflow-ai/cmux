@@ -347,7 +347,7 @@ async fn a_second_copy_hears_no_turn_before_the_first_is_accepted() {
     assert!(s.turn().is_some(), "the first copy's turn shows");
     assert!(first_accepted.try_recv().is_err(), "the first copy is not accepted yet");
 
-    let (second_tx, second_notice) = tokio::sync::oneshot::channel();
+    let (second_tx, mut second_notice) = tokio::sync::oneshot::channel();
     let second = prompt(&hub, &s, "f1", "first", second_tx);
     assert!(second_notice.try_recv().is_err(), "duplicate callback fired before first acceptance");
 
