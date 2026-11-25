@@ -2544,6 +2544,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             ],
             swiftSettings: uiSwiftSettings
         ),
+        .testTarget(
+            name: "CmuxNextTabsTests",
+            dependencies: ["CmuxNextTabs"],
+            swiftSettings: uiSwiftSettings
+        ),
         .target(
             name: "CmuxNextSidebar",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
