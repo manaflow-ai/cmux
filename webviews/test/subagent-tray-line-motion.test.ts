@@ -86,6 +86,15 @@ await requireBrowserLane("subagent-tray-line-motion.test.ts", async () => {
     expect(body.split(" ")[0]).toBe("none");
   });
 
+  test("only the dock tray grows its laid-out height", async () => {
+    const p = await page(`<div class="acpmux-dock">${tray()}</div>${tray()}`, "no-preference");
+    const dock = await motionOf(p, ".acpmux-dock > .acpmux-running-tray");
+    const transcript = await motionOf(p, "body > .acpmux-running-tray");
+    await p.close();
+    expect(dock).toBe(`acpmux-tray-dock-settle-in ${MOTION_SETTLE_MS / 1000}s ${MOTION_SETTLE}`);
+    expect(transcript).toBe(`acpmux-tray-settle-in ${MOTION_SETTLE_MS / 1000}s ${MOTION_SETTLE}`);
+  });
+
   test("the gallery's row arms: fade is the opacity-only arrival; slide rises on the fold's clock", async () => {
     const fade = await page(tray("fade"), "no-preference");
     const faded = await motionOf(fade, ".acpmux-running-tray__list > li");

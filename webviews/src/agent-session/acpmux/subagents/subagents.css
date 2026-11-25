@@ -1542,12 +1542,10 @@ button.cv-subagent > :last-child {
    gallery/fixtures/trayMotionArms.css only. The card is marked to enter only while motion may run
    (trayMotionModel.ts `motionAllowed`), so Reduce Motion and the host's switch show it at once. */
 .acpmux-running-tray {
-  /* The tray's box is part of the transcript's dock. It enters by growing from 0 to its measured
-     height (trayMotionModel.ts `TRAY_ENTER_HEIGHT`) as it fades and rises 4px, on the same settle its
-     leaving copy folds on, so the rows over the stack follow it a little each frame with the rest gap
-     held. It took its whole height in one frame, and every row in view jumped 28px for a one-line
-     header, 56px for two (Leo, softened: "the chat jumps 30-70 px at the bottom"). */
+  /* The tray's ink settles with the transcript's motion: a fade and 4px rise. The dock adds a
+     height entrance below, because only the dock's box pushes the composer and transcript. */
   --acpmux-tray-enter: acpmux-tray-settle-in var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  --acpmux-tray-dock-enter: acpmux-tray-dock-settle-in var(--cmux-motion-settle, 180ms) var(--cmux-ease-settle, cubic-bezier(0.16, 1, 0.3, 1)) both;
   /* The kept copy leaves in the card's place, folding its height to 0 as it fades, on the same settle
      as the entrance, so the composer and the transcript over the stack move once, continuously, as
      the hat goes (Leo, 2026-11-08: "the hat auto removing/auto hiding stuff that's super done is maybe
@@ -1588,7 +1586,10 @@ button.cv-subagent > :last-child {
 .acpmux-dock > .acpmux-running-tray:not([data-tray-enter]) {
   animation: none;
 }
-.acpmux-running-tray[data-tray-enter],
+.acpmux-running-tray[data-tray-enter] {
+  transform-origin: bottom center;
+  animation: var(--acpmux-tray-enter);
+}
 .acpmux-dock > .acpmux-running-tray[data-tray-enter] {
   transform-origin: bottom center;
   /* Its height grows from 0 (the stack's row floor, bottomStack.css, would hold it at a row's height
@@ -1596,7 +1597,7 @@ button.cv-subagent > :last-child {
   box-sizing: border-box;
   min-height: 0;
   overflow: hidden;
-  animation: var(--acpmux-tray-enter);
+  animation: var(--acpmux-tray-dock-enter);
 }
 :is(.acpmux-dock, *) > .acpmux-running-tray.acpmux-running-tray--ghost {
   z-index: var(--layer-raised);
@@ -1609,6 +1610,12 @@ button.cv-subagent > :last-child {
   animation: none !important;
 }
 @keyframes acpmux-tray-settle-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+@keyframes acpmux-tray-dock-settle-in {
   from {
     height: 0;
     margin-block: 0;
