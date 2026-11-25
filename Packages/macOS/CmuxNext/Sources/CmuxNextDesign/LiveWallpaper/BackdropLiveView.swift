@@ -53,6 +53,8 @@ public final class BackdropLiveView: NSView {
     private var lastActivity: CFTimeInterval = 0
     private var lastPointerMove: CFTimeInterval = -.infinity
     private var pointer = CmuxWallpaperPointer()
+    /// The pointer's recent path (`Frame.trail`), in backing pixels like ``pointer``.
+    private var trail = CmuxWallpaperTrail()
     private var colors: LiveWallpaperColors?
     private let seed = Float.random(in: 0..<1)
     private var keyMonitor: Any?
@@ -87,6 +89,7 @@ public final class BackdropLiveView: NSView {
         isHidden = true
         setAccessibilityElement(false)
         cmux_wallpaper_pointer_reset(&pointer)
+        cmux_wallpaper_trail_reset(&trail)
     }
 
     @available(*, unavailable)
@@ -111,6 +114,7 @@ public final class BackdropLiveView: NSView {
         scale = wallpaper?.scale ?? 1
         lastActivity = CACurrentMediaTime()
         cmux_wallpaper_pointer_reset(&pointer)
+        cmux_wallpaper_trail_reset(&trail)
         updateTracking()
         updateKeyMonitor()
         guard let wallpaper else { return stopCoverage() }
@@ -184,6 +188,7 @@ public final class BackdropLiveView: NSView {
         // The master switch, `ui.animations.panes` or speed "off".
         input.animations_off = !Motion.panes.isEnabled
         input.interactive = wallpaper.interactive
+        input.idle_after_s = wallpaper.idleAfter
         input.has_frame = hasFrame
         return input
     }
@@ -253,7 +258,7 @@ public final class BackdropLiveView: NSView {
         frame.sinceMoved = cmux_wallpaper_pointer_since_moved(&pointer, now)
         frame.buttonDown = pointer.inside && NSEvent.pressedMouseButtons != 0
         frame.params = wallpaper.params
-        let drawn = renderer.draw(frame.packed(), pipeline: pipeline, drawableSize: CGSize(width: CGFloat(width), height: CGFloat(height))) {
+        let drawn = renderer.draw(frame.packed(trail: trail, at: now, scale: scale), pipeline: pipeline, drawableSize: CGSize(width: CGFloat(width), height: CGFloat(height))) {
             [weak self] milliseconds in
             MainDelivery().run { self?.frameCompleted(milliseconds) }
         }
@@ -305,7 +310,9 @@ public final class BackdropLiveView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         let backing = Float(window.backingScaleFactor)
         let now = CACurrentMediaTime()
-        cmux_wallpaper_pointer_update(&pointer, Float(point.x) * backing, Float(bounds.height - point.y) * backing, now)
+        let (x, y) = (Float(point.x) * backing, Float(bounds.height - point.y) * backing)
+        cmux_wallpaper_pointer_update(&pointer, x, y, now)
+        cmux_wallpaper_trail_update(&trail, x, y, now)
         lastPointerMove = now
         if link == nil, wallpaper.interactive { update() }
     }

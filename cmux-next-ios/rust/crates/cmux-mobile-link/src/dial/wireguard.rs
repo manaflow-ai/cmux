@@ -906,7 +906,7 @@ struct HandshakeRepeat {
 /// [`Control`] messages, which the underlay applies before its next send or
 /// receive.
 struct HybridUnderlay {
-    socket: UdpSocket,
+    socket: multipath::TunnelSocket,
     options: DialOptions,
     /// The peer's endpoints as it last announced them.
     peer_endpoints: Vec<String>,
@@ -1077,7 +1077,7 @@ fn addresses(texts: &[String]) -> HashSet<SocketAddr> {
 impl HybridUnderlay {
     fn new(spec: UnderlaySpec<'_>, options: &DialOptions) -> Self {
         let mut underlay = Self {
-            socket: spec.socket,
+            socket: multipath::TunnelSocket::new(spec.socket),
             options: options.clone(),
             peer_endpoints: Vec::new(),
             candidates: Vec::new(),
@@ -1256,7 +1256,7 @@ impl HybridUnderlay {
                 {
                     self.candidates.push(route.addr);
                 }
-                self.socket = socket;
+                self.socket = multipath::TunnelSocket::new(socket);
                 self.blackhole = false;
                 // The old allocation belongs to the old network's 5-tuple; a
                 // `reach` still in flight that names it is stale.
@@ -2089,6 +2089,122 @@ impl HybridUnderlay {
     }
 }
 
+impl HybridUnderlay {
+    /// The next datagram from any socket or relay ([`Underlay::poll_recv`]
+    /// notes it for the second interface's copy rule first).
+    fn poll_recv_any(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
+        if !self.recv_waker.as_ref().is_some_and(|waker| waker.will_wake(cx.waker())) {
+            self.recv_waker = Some(cx.waker().clone());
+        }
+        while let Poll::Ready(Some(control)) = self.control.poll_recv(cx) {
+            self.apply(control);
+        }
+        self.poll_handshake_repeat(cx);
+        if let Some(received) = self.pop_delayed(buffer) {
+            return Poll::Ready(Ok(received));
+        }
+        if self.assist.primary_streak >= multipath::PRIMARY_BURST {
+            self.assist.primary_streak = 0;
+            if let Some(received) = self.poll_secondary(cx, buffer) {
+                return Poll::Ready(Ok(received));
+            }
+        }
+        loop {
+            let mut read = ReadBuf::new(buffer);
+            match self.socket.poll_recv_from(cx, &mut read) {
+                Poll::Ready(Ok(source)) => {
+                    let len = read.filled().len();
+                    if self.blackhole
+                        || self.dark
+                        || self.options.block_udp
+                        || self.options.force_relay
+                        || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
+                        || self.stun_answer(&buffer[..len], source)
+                    {
+                        continue;
+                    }
+                    self.note_arrival(source, &buffer[..len]);
+                    let origin = Origin { path: UDP_PATH, addr: Some(source) };
+                    if self.impaired(&buffer[..len], origin) {
+                        continue;
+                    }
+                    self.last_udp_source = Some(source);
+                    self.assist.primary_streak += 1;
+                    return Poll::Ready(Ok(Received { len, origin }));
+                }
+                // ICMP unreachable and friends: keep going on TURN.
+                Poll::Ready(Err(error)) => {
+                    tracing::trace!(%error, "UDP receive error");
+                    if self.blackhole {
+                        // A socket whose network went away can fail every
+                        // receive at once; wait for the roam instead of spinning.
+                        break;
+                    }
+                    continue;
+                }
+                Poll::Pending => {
+                    self.assist.primary_streak = 0;
+                    break;
+                }
+            }
+        }
+        // A dark network is the primary one: the second socket's interface
+        // stays up (Wi-Fi died, cell lives).
+        if let Some(received) = self.poll_secondary(cx, buffer) {
+            return Poll::Ready(Ok(received));
+        }
+        while let Some(turn) = &mut self.turn
+            && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
+        {
+            if self.dark {
+                continue;
+            }
+            let origin = Origin { path: TURN_PATH, addr: Some(from) };
+            if self.impaired(&datagram, origin) {
+                continue;
+            }
+            let len = datagram.len().min(buffer.len());
+            buffer[..len].copy_from_slice(&datagram[..len]);
+            self.last_turn_source = Some(from);
+            return Poll::Ready(Ok(Received { len, origin }));
+        }
+        while let Some(relay) = &mut self.relay {
+            match relay.inbound.poll_recv(cx) {
+                Poll::Ready(Some(datagram)) => {
+                    if self.dark {
+                        continue;
+                    }
+                    let origin = Origin { path: RELAY_PATH, addr: Some(RELAY_PEER) };
+                    if self.impaired(&datagram, origin) {
+                        continue;
+                    }
+                    let len = datagram.len().min(buffer.len());
+                    buffer[..len].copy_from_slice(&datagram[..len]);
+                    return Poll::Ready(Ok(Received { len, origin }));
+                }
+                // The socket is gone: its route with it.
+                Poll::Ready(None) => {
+                    self.drop_relay("the relay socket closed", false);
+                    break;
+                }
+                Poll::Pending => break,
+            }
+        }
+        if let Some(&(at, ..)) = self.delayed.front() {
+            let timer = self.delay_timer.get_or_insert_with(|| Box::pin(tokio::time::sleep_until(at)));
+            if timer.deadline() != at {
+                timer.as_mut().reset(at);
+            }
+            if timer.as_mut().poll(cx).is_ready()
+                && let Some(received) = self.pop_delayed(buffer)
+            {
+                return Poll::Ready(Ok(received));
+            }
+        }
+        Poll::Pending
+    }
+}
+
 impl Underlay for HybridUnderlay {
     fn send(&mut self, datagram: &[u8]) {
         self.drain_control();
@@ -2148,6 +2264,10 @@ impl Underlay for HybridUnderlay {
         }
     }
 
+    fn hold_routine_probes(&mut self, floor: Option<Instant>) {
+        self.paths.hold_routine(floor);
+    }
+
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.drain_control();
         self.paths.poll(now)
@@ -2158,105 +2278,13 @@ impl Underlay for HybridUnderlay {
     }
 
     fn poll_recv(&mut self, cx: &mut Context<'_>, buffer: &mut [u8]) -> Poll<io::Result<Received>> {
-        if !self.recv_waker.as_ref().is_some_and(|waker| waker.will_wake(cx.waker())) {
-            self.recv_waker = Some(cx.waker().clone());
-        }
-        while let Poll::Ready(Some(control)) = self.control.poll_recv(cx) {
-            self.apply(control);
-        }
-        self.poll_handshake_repeat(cx);
-        if let Some(received) = self.pop_delayed(buffer) {
-            return Poll::Ready(Ok(received));
-        }
-        loop {
-            let mut read = ReadBuf::new(buffer);
-            match self.socket.poll_recv_from(cx, &mut read) {
-                Poll::Ready(Ok(source)) => {
-                    let len = read.filled().len();
-                    if self.blackhole
-                        || self.dark
-                        || self.options.block_udp
-                        || self.options.force_relay
-                        || (self.options.restrict_inbound_udp && !self.sent_to.contains(&source))
-                        || self.stun_answer(&buffer[..len], source)
-                    {
-                        continue;
-                    }
-                    self.note_arrival(source);
-                    let origin = Origin { path: UDP_PATH, addr: Some(source) };
-                    if self.impaired(&buffer[..len], origin) {
-                        continue;
-                    }
-                    self.last_udp_source = Some(source);
-                    return Poll::Ready(Ok(Received { len, origin }));
-                }
-                // ICMP unreachable and friends: keep going on TURN.
-                Poll::Ready(Err(error)) => {
-                    tracing::trace!(%error, "UDP receive error");
-                    if self.blackhole {
-                        // A socket whose network went away can fail every
-                        // receive at once; wait for the roam instead of spinning.
-                        break;
-                    }
-                    continue;
-                }
-                Poll::Pending => break,
-            }
-        }
-        // A dark network is the primary one: the second socket's interface
-        // stays up (Wi-Fi died, cell lives).
-        if let Some(received) = self.poll_secondary(cx, buffer) {
-            return Poll::Ready(Ok(received));
-        }
-        while let Some(turn) = &mut self.turn
-            && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
+        let polled = self.poll_recv_any(cx, buffer);
+        if let Poll::Ready(Ok(received)) = &polled
+            && let Some(datagram) = buffer.get(..received.len)
         {
-            if self.dark {
-                continue;
-            }
-            let origin = Origin { path: TURN_PATH, addr: Some(from) };
-            if self.impaired(&datagram, origin) {
-                continue;
-            }
-            let len = datagram.len().min(buffer.len());
-            buffer[..len].copy_from_slice(&datagram[..len]);
-            self.last_turn_source = Some(from);
-            return Poll::Ready(Ok(Received { len, origin }));
+            self.note_handed(datagram, received.origin);
         }
-        while let Some(relay) = &mut self.relay {
-            match relay.inbound.poll_recv(cx) {
-                Poll::Ready(Some(datagram)) => {
-                    if self.dark {
-                        continue;
-                    }
-                    let origin = Origin { path: RELAY_PATH, addr: Some(RELAY_PEER) };
-                    if self.impaired(&datagram, origin) {
-                        continue;
-                    }
-                    let len = datagram.len().min(buffer.len());
-                    buffer[..len].copy_from_slice(&datagram[..len]);
-                    return Poll::Ready(Ok(Received { len, origin }));
-                }
-                // The socket is gone: its route with it.
-                Poll::Ready(None) => {
-                    self.drop_relay("the relay socket closed", false);
-                    break;
-                }
-                Poll::Pending => break,
-            }
-        }
-        if let Some(&(at, ..)) = self.delayed.front() {
-            let timer = self.delay_timer.get_or_insert_with(|| Box::pin(tokio::time::sleep_until(at)));
-            if timer.deadline() != at {
-                timer.as_mut().reset(at);
-            }
-            if timer.as_mut().poll(cx).is_ready()
-                && let Some(received) = self.pop_delayed(buffer)
-            {
-                return Poll::Ready(Ok(received));
-            }
-        }
-        Poll::Pending
+        polled
     }
 
     fn authenticated(&mut self, origin: Origin) {
@@ -2539,14 +2567,27 @@ fn start_tunnel(
         ultra: ultra_for_dial(options.ultra),
     };
     let peer = underlay.peer.subscribe();
-    let net = WgNet::start_with_underlay(config, underlay).map_err(transport_error)?;
+    let net = Arc::new(WgNet::start_with_underlay(config, underlay).map_err(transport_error)?);
+    if options.idle_air_gap.is_some() || options.air_floor.is_some() {
+        let net = Arc::clone(&net);
+        // The floor keeps the phone's radio awake: the Mac's has none to keep.
+        let (gap, floor) = (options.idle_air_gap, options.air_floor.filter(|_| spec.dialer));
+        tokio::spawn(async move {
+            if let Err(error) = net.set_idle_air_gap(gap).await {
+                tracing::debug!(%error, "idle air gap not set");
+            }
+            if let Err(error) = net.set_air_floor(floor).await {
+                tracing::debug!(%error, "air floor not set");
+            }
+        });
+    }
     let session = Session::register(roam::SessionParts {
         session_id: spec.session_id.to_owned(),
         peer: spec.peer_device.to_owned(),
         dialer: spec.dialer,
         peer_ip: spec.peer_ip,
         signaling: current,
-        net: Arc::new(Mutex::new(Some(Arc::new(net)))),
+        net: Arc::new(Mutex::new(Some(net))),
         control: control_tx,
         reach: reach_rx,
         options: options.clone(),
@@ -2651,6 +2692,7 @@ pub(super) fn dial_wireguard<'a>(
             .map_err(|e| DialError::Signaling(e.to_string()))?;
         options.timeline.mark("wg_init_sent");
         let agreed;
+        let reliable;
         let video_agreed;
         let webrtc_media_agreed;
         let liveness_agreed;
@@ -2677,6 +2719,7 @@ pub(super) fn dial_wireguard<'a>(
                             .map_err(|_| DialError::Unexpected("wg-resp overlayIP is not IPv4".into()))?;
                         agreed = super::input_lane_agreed(options, &lanes);
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
+                        reliable = super::reliable_agreed(options, &lanes);
                         classes_agreed = classes_offered()
                             && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
                         screen_agreed =
@@ -2785,6 +2828,7 @@ pub(super) fn dial_wireguard<'a>(
             None
         };
         options.timeline.mark("wg_liveness");
+        let overlay = super::Overlay { net: Arc::clone(&net), peer_ip: IpAddr::V4(peer_ip) };
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
         options.timeline.mark("tunnel_tcp_connected");
@@ -2818,6 +2862,8 @@ pub(super) fn dial_wireguard<'a>(
             media,
             webrtc_media,
             liveness,
+            overlay: Some(overlay),
+            reliable,
         })
     })
 }
@@ -2864,6 +2910,7 @@ impl Dialer for WireGuardDialer {
                 return Err(DialError::Unexpected("expected wg-init".into()));
             };
             let agreed = super::input_lane_agreed(options, &lanes);
+            let reliable = super::reliable_agreed(options, &lanes);
             let video_wanted = options.video_lane && super::video_lane_listed(&lanes);
             let webrtc_media_wanted =
                 video_wanted && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -2972,6 +3019,7 @@ impl Dialer for WireGuardDialer {
             } else {
                 None
             };
+            let overlay = super::Overlay { net: Arc::clone(&net), peer_ip: IpAddr::V4(peer_ip) };
             drop(net);
             signaling
                 .send_signal(
@@ -3034,6 +3082,8 @@ impl Dialer for WireGuardDialer {
                 lane,
                 webrtc_media,
                 liveness,
+                overlay: Some(overlay),
+                reliable,
                 media: media.map(|carrier| {
                     options.timeline.mark("video_lane");
                     super::PendingMedia::Send(carrier)

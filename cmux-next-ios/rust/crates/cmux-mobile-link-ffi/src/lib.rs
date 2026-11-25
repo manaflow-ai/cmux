@@ -8,13 +8,16 @@ use std::time::Duration;
 
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::api::{HttpClient, IceCache, IceServer};
-use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
+use cmux_mobile_link::link::ChannelSender;
+use cmux_mobile_link::viewport::{PhoneViewport, ViewportReceiver};
 use cmux_mobile_link::{
     BuildSpace, ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient, Timeline,
 };
 use tokio::runtime::Runtime;
 
+mod auto_chats;
 mod browser;
+mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
@@ -34,7 +37,14 @@ mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
 
+pub use auto_chats::{
+    AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
+};
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use chat_prompt_outbox::{
+    ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
+    ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
+};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
@@ -327,6 +337,9 @@ pub struct LinkHandle {
     /// The WebRTC media session beside a WireGuard link, when both sides
     /// support one (cmux_mobile_link::hybrid).
     media: Option<cmux_mobile_link::hybrid::MediaManager>,
+    /// The phone end of viewport sync (cmux_mobile_link::viewport): what
+    /// daemon channels ask for, and the link's datagram receivers.
+    viewport: PhoneViewport,
 }
 
 impl Drop for LinkHandle {
@@ -398,7 +411,7 @@ impl LinkHandle {
         args_json: String,
         lane: cmux_mobile_link::Lane,
     ) -> Result<Arc<ChannelHandle>, CmuxMobileError> {
-        let args: serde_json::Value = if args_json.trim().is_empty() {
+        let mut args: serde_json::Value = if args_json.trim().is_empty() {
             serde_json::json!({})
         } else {
             serde_json::from_str(&args_json)
@@ -409,6 +422,14 @@ impl LinkHandle {
                 message: "args_json must be a JSON object".into(),
             });
         }
+        // A daemon channel asks for pseq stamps and, with the gate on and an
+        // overlay, viewport sync; its receiver turns synced screens into
+        // `output` lines.
+        let daemon = service == "daemon";
+        if daemon {
+            self.viewport.merge_daemon_args(&mut args);
+        }
+        let hub = (daemon && self.viewport.requests_sync()).then(|| self.viewport.clone());
         let link = self.link.clone();
         let channel = on_runtime(async move { link.open_on(&service, args, lane).await }).await?;
         let id = channel.id();
@@ -416,7 +437,7 @@ impl LinkHandle {
         Ok(Arc::new(ChannelHandle {
             id,
             sender: Arc::new(sender),
-            receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
+            receiver: Arc::new(tokio::sync::Mutex::new(ViewportReceiver::new(receiver, hub))),
             closed: Arc::new(Mutex::new(None)),
         }))
     }
@@ -709,7 +730,7 @@ impl LinkHandle {
 pub struct ChannelHandle {
     id: u32,
     sender: Arc<ChannelSender>,
-    receiver: Arc<tokio::sync::Mutex<ChannelReceiver>>,
+    receiver: Arc<tokio::sync::Mutex<ViewportReceiver>>,
     closed: Arc<Mutex<Option<(String, String)>>>,
 }
 
@@ -940,6 +961,7 @@ async fn finish_link(
     observer: Option<Arc<dyn LinkObserver>>,
 ) -> Result<Arc<LinkHandle>, CmuxMobileError> {
     let transport = request.transport;
+    let viewport = PhoneViewport::new(connected.overlay.as_ref(), cmux_mobile_link::viewport::enabled());
     let mut path = connected.path.clone();
     emit(&observer, LinkEvent::Connected { transport, path: (*path.borrow()).into() });
     let media = connected.webrtc_media.then(|| media_manager(pool, request, &connected, &signaling));
@@ -1024,6 +1046,7 @@ async fn finish_link(
         session_id: connected.session_id,
         tunnel_keys: connected.tunnel_keys,
         media,
+        viewport,
     }))
 }
 
@@ -1527,56 +1550,6 @@ pub async fn prewarm(base_url: String, token: String, team_id: String, device_id
 #[uniffi::export]
 pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
-}
-
-/// What a network interface is (mirror of `cmux_mobile_link::dial::wireguard::InterfaceKind`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
-pub enum InterfaceKind {
-    Wifi,
-    Cellular,
-    Wired,
-    Other,
-}
-
-/// One interface that is up, as iOS `NWPath.availableInterfaces` says
-/// (mirror of `cmux_mobile_link::dial::wireguard::NetInterface`).
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct NetInterface {
-    pub name: String,
-    pub kind: InterfaceKind,
-    pub expensive: bool,
-    pub constrained: bool,
-    pub primary: bool,
-}
-
-/// The interfaces that are up now (every path update). Rust decides what to
-/// do with them (a second socket on cell beside Wi-Fi, roaming).
-#[uniffi::export]
-pub fn set_network_interfaces(interfaces: Vec<NetInterface>) {
-    use cmux_mobile_link::dial::wireguard as wg;
-    wg::set_interfaces(
-        interfaces
-            .into_iter()
-            .map(|i| wg::NetInterface {
-                name: i.name,
-                kind: match i.kind {
-                    InterfaceKind::Wifi => wg::InterfaceKind::Wifi,
-                    InterfaceKind::Cellular => wg::InterfaceKind::Cellular,
-                    InterfaceKind::Wired => wg::InterfaceKind::Wired,
-                    InterfaceKind::Other => wg::InterfaceKind::Other,
-                },
-                expensive: i.expensive,
-                constrained: i.constrained,
-                primary: i.primary,
-            })
-            .collect(),
-    );
-}
-
-/// The person allows cell beside Wi-Fi (on unless they turn it off).
-#[uniffi::export]
-pub fn set_cellular_assist(allowed: bool) {
-    cmux_mobile_link::dial::wireguard::set_cellular_assist(allowed);
 }
 
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap

@@ -114,6 +114,7 @@ async fn recovery_sample(wake: bool) -> Duration {
             chief_socket: None,
             browser: crate::browser::BrowserConfig::new(None, 1),
             surface: crate::surface::SurfaceConfig::new(None, 1),
+            viewport_sync: None,
         },
     };
     let (changes, receiver) = watch::channel(0);
