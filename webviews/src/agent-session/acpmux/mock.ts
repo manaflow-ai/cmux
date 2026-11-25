@@ -203,6 +203,14 @@ const done = (toolCallId: string, extra: Update = {}): Update => ({
 
 /// A turn shaped like a real agent's: text, a tool call, more text, file edits, a closing answer.
 export function mockTurn(prompt: string, turn: number): Step[] {
+  // `/compact` compacts, as Claude Code does: a running note, Claude Code's 30-second repeat, then its end
+  // (snappy-bench's compaction transition: Leo 2026-11-25, "layout shifts and awkward looking animations").
+  if (/^\/compact\b/.test(prompt.trim()))
+    return [
+      { update: { sessionUpdate: "compaction", state: "running" } },
+      { update: { sessionUpdate: "compaction", state: "running" } },
+      { update: { sessionUpdate: "compaction", state: "completed", preTokens: 152_000, postTokens: 18_000 } },
+    ];
   const greeting = "/mock/project/src/greeting.ts";
   const notes = "/mock/project/NOTES.md";
   return [

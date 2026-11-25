@@ -37,6 +37,7 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::{FileExt as _, FileTypeExt as _, MetadataExt as _};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -57,6 +58,8 @@ const STOP_WAIT: Duration = Duration::from_secs(5);
 const GIVE_UP_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 /// How often the server redials over a quiet socket: a refused quiet dial costs no platform call.
 const QUIET_RETRY: Duration = Duration::from_millis(500);
+/// The folder this process serves (`serve`), named on each of its dials as `from`.
+static SERVED_FOLDER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// The env switch that overrides the setting (`1`/`true` on, `0`/`false` off).
 const ENV: &str = "CMUX_PROJECTED_FOLDERS";
 
@@ -543,6 +546,8 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let name = name.unwrap_or_else(|| name_of(&at));
     let folder = std::fs::canonicalize(&folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
+    // Every dial of this server names the folder, so the machine's mount says which it mirrors.
+    let _ = SERVED_FOLDER.set(folder.to_string_lossy().into_owned());
     let started = Instant::now();
     let listed = list(&folder)?;
     let listed_ms = elapsed_ms(started);
@@ -708,6 +713,10 @@ fn serve_until_gone(
     revisions: &mut Revisions,
 ) {
     let mut stream = Some(first);
+    // What this server sent, for its log: a start's bytes moved, read back by
+    // scripts/cmux-next/cloud-chat-matrix.py (every folder kind on prod, RFD 0007).
+    let sent = Sent::default();
+    let counted = Counted { source: listed, sent: &sent };
     let mut unreachable_since: Option<Instant> = None;
     let mut backoff = Duration::from_millis(200);
     let mut via_quiet = quiet_socket(socket).is_some();
@@ -725,11 +734,16 @@ fn serve_until_gone(
                 let reader = cmux_tui_core::projection::LineReader::new(reader);
                 let _ = if packed {
                     let writer = cmux_tui_core::projection::LineWriter::binary(writer);
-                    answer_asks_packed(reader, writer, listed)
+                    answer_asks_packed(reader, writer, &counted)
                 } else {
-                    answer_asks(reader, cmux_tui_core::projection::LineWriter::new(writer), listed)
+                    answer_asks(
+                        reader,
+                        cmux_tui_core::projection::LineWriter::new(writer),
+                        &counted,
+                    )
                 };
             }
+            eprintln!("cmux link project: sent {}", sent.line());
         }
         let since = *unreachable_since.get_or_insert_with(Instant::now);
         if since.elapsed() > GIVE_UP_AFTER {
@@ -891,6 +905,10 @@ fn ask(
         // the machine does too (an older machine ignores this and keeps base64 lines).
         "wire": cmux_tui_core::projection::WIRE,
     });
+    if let (Some(from), Some(object)) = (SERVED_FOLDER.get(), line.as_object_mut()) {
+        // The folder on this Mac: the machine names it in its mount table, for the agent.
+        object.insert("from".into(), json!(from));
+    }
     if let (Some(revision), Some(object)) = (revision, line.as_object_mut()) {
         // The listing is in the store: the machine fetches it from there by this reference.
         object.insert("revision".into(), revision.clone());
@@ -1145,6 +1163,66 @@ impl Source for Listed {
             Ok(len) if len <= wire::MAX_READ => self.read(entry, 0, len),
             _ => Part::status(wire::FAILED),
         }
+    }
+}
+
+/// File bytes this server answered the machine with, over every connection of one projection.
+/// The log gets a `sent` line at most once a second while reads come, and after each connection.
+#[derive(Default)]
+struct Sent {
+    reads: AtomicU64,
+    bytes: AtomicU64,
+    logged: Mutex<Option<Instant>>,
+}
+
+impl Sent {
+    /// The log's `sent` line: reads answered and their file bytes (the wire's framing not counted).
+    fn line(&self) -> Value {
+        json!({
+            "reads": self.reads.load(Ordering::Relaxed),
+            "bytes": self.bytes.load(Ordering::Relaxed),
+        })
+    }
+
+    /// Writes the `sent` line when the last was a second ago or more.
+    fn log_now_and_then(&self) {
+        let Ok(mut logged) = self.logged.lock() else { return };
+        if logged.is_some_and(|at| at.elapsed() < Duration::from_secs(1)) {
+            return;
+        }
+        *logged = Some(Instant::now());
+        eprintln!("cmux link project: sent {}", self.line());
+    }
+}
+
+/// A [`Source`] that counts what it answers in [`Sent`].
+struct Counted<'a> {
+    source: &'a (dyn Source + Sync),
+    sent: &'a Sent,
+}
+
+impl Counted<'_> {
+    fn note(&self, part: Part) -> Part {
+        if part.status == wire::OK || part.status == wire::OK_ZSTD {
+            self.sent.reads.fetch_add(1, Ordering::Relaxed);
+            self.sent.bytes.fetch_add(part.bytes.len() as u64, Ordering::Relaxed);
+            self.sent.log_now_and_then();
+        }
+        part
+    }
+}
+
+impl Source for Counted<'_> {
+    fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
+        self.note(self.source.read(entry, offset, len))
+    }
+
+    fn whole(&self, entry: u32) -> Part {
+        self.note(self.source.whole(entry))
+    }
+
+    fn stored(&self, since: u32) -> Vec<Part> {
+        self.source.stored(since)
     }
 }
 

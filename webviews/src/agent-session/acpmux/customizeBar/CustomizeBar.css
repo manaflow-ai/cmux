@@ -108,7 +108,6 @@
   background: var(--acpmux-row-hover);
   color: var(--agent-text);
   font: inherit;
-  cursor: pointer;
 }
 
 .acpmux-customize-bar-chip:focus-visible {
