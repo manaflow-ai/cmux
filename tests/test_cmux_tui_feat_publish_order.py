@@ -222,9 +222,10 @@ def machine_channel_follows_an_adopted_manifest(all_jobs):
     _check(calls[:1] == ['scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir" --same-tree'],
            f"point-machine-channel keeps a channel of the same tree key ({calls[:1]})")
     _check(len(calls) == 2 and "--same-tree" not in calls[1], f"only the Cloud machine call takes --same-tree ({calls})")
-    early = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())["jobs"]["point"]["steps"]
-    _check(not any("--same-tree" in str(step.get("run", "")) for step in early),
-           "cmux-machine-channel.yml's point moves by its new build, as before")
+    channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())["jobs"]
+    for name in ("point-x86_64", "point-linux"):
+        _check(not any("--same-tree" in str(step.get("run", "")) for step in channel[name]["steps"]),
+               f"cmux-machine-channel.yml's {name} moves by its new build, as before")
     # The same-tree rule computes the tree key of the commit the channel names, so the job's checkout
     # holds history (the full checkout's fetch-depth), not a sparse or single-commit one.
     checkout = next(step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@"))

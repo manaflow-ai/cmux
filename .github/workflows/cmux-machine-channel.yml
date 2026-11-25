@@ -14,6 +14,11 @@ name: cmux machine channel
 # newer push replaces the waiting one (only the newest tree matters: the point is forward-only). The
 # plan job skips the build when the channel already names this commit's tree or a later commit.
 #
+# LINUX_X86_64_FIRST (cmux#55570): each thin musl target is its own build call, so point-x86_64 moves
+# the channel for x86_64 machines when that leg is done, and an aarch64 failure never holds it back;
+# point-linux adds aarch64 once both legs pass (web-ota-pointer.py newer's completes rule). In run
+# 45536155088 (2026-11-25) the x86_64 leg ended at 03:19:28Z and aarch64 failed at 03:27:16Z.
+#
 # Safe beside cmux-tui-artifacts.yml's point-machine-channel (the fat fallback after publish): both
 # move the channel forward only (web-ota-pointer.py newer), that one keeps a channel of the same tree
 # (--same-tree), and this one's objects are write-once (cmux-machine-linux-bytes.sh early).
@@ -39,7 +44,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       build: ${{ steps.plan.outputs.build }}
-      target_set: ${{ steps.plan.outputs.target_set }}
+      x86_64_target_set: ${{ steps.plan.outputs.x86_64_target_set }}
+      aarch64_target_set: ${{ steps.plan.outputs.aarch64_target_set }}
       lto: ${{ steps.plan.outputs.lto }}
       artifact_prefix: ${{ steps.plan.outputs.artifact_prefix }}
     steps:
@@ -66,7 +72,7 @@ jobs:
           python3 -c '
           import json
           p = json.load(open("scripts/cmux-next/cmux-tui-build-profiles.json"))["machine_channel"]
-          for k in ("target_set", "lto", "artifact_prefix"):
+          for k in ("x86_64_target_set", "aarch64_target_set", "lto", "artifact_prefix"):
               print(f"{k}={p[k]}")' >> "$GITHUB_OUTPUT"
           # The channel's commit (an unverified read: it only decides whether to build; a wrong
           # answer at worst leaves the move to point-machine-channel after publish).
@@ -93,7 +99,9 @@ jobs:
           fi
           echo "build=$build" >> "$GITHUB_OUTPUT"
 
-  build:
+  build-x86_64:
+    # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
+    name: build-machine-channel
     needs: plan
     if: ${{ needs.plan.outputs.build == 'true' }}
     permissions:
@@ -112,19 +120,102 @@ jobs:
       package_npm: false
       package_pypi: false
       include_windows: false
-      target_set: ${{ needs.plan.outputs.target_set }}
+      target_set: ${{ needs.plan.outputs.x86_64_target_set }}
       lto: ${{ needs.plan.outputs.lto }}
       artifact_prefix: ${{ needs.plan.outputs.artifact_prefix }}
       linux_runner: cmux-linux
 
-  point:
+  build-aarch64:
+    # Both calls show as "build-machine-channel / build TARGET", as in cmux-tui-artifacts.yml before.
+    name: build-machine-channel
+    needs: plan
+    if: ${{ needs.plan.outputs.build == 'true' }}
+    permissions:
+      contents: read
+      # The reusable package workflow's permission ceiling.
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    # The R2 cargo cache's write credentials (its own thin key), as cmux-tui-artifacts.yml's build-linux.
+    secrets:
+      CI_CACHE_R2_ACCESS_KEY_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
+      CI_CACHE_R2_SECRET_ACCESS_KEY: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
+      CI_CACHE_R2_ACCOUNT_ID: ${{ github.ref == 'refs/heads/feat-cmux-next' && secrets.CI_CACHE_R2_ACCOUNT_ID || '' }}
+    with:
+      version: 0.0.0-r2.sha-${{ github.sha }}
+      package_npm: false
+      package_pypi: false
+      include_windows: false
+      target_set: ${{ needs.plan.outputs.aarch64_target_set }}
+      lto: ${{ needs.plan.outputs.lto }}
+      artifact_prefix: ${{ needs.plan.outputs.artifact_prefix }}
+      linux_runner: cmux-linux
+
+  point-x86_64:
     # R2 credentials and the channel signing key.
     environment:
       name: artifacts
       deployment: false
-    name: point the Cloud machine channel at this commit's Linux build
-    needs: build
-    if: ${{ needs.build.result == 'success' }}
+    name: point the Cloud machine channel at this commit's x86_64 Linux build
+    needs: [build-x86_64]
+    if: ${{ needs.build-x86_64.result == 'success' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Repair a reused self-hosted checkout
+        shell: bash
+        run: |
+          if [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ]; then
+            git sparse-checkout disable 2>/dev/null || true
+            git reset -q --hard HEAD
+          fi
+
+      - name: Download the machine channel's Linux cmux-tui binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          # The thin copy only (MACHINE_CHANNEL_THIN), never the shipped cmux-tui-* artifacts.
+          pattern: machine-channel-cmux-tui-x86_64-unknown-linux-musl
+          path: assets/cmux-tui
+          merge-multiple: true
+
+      # The x86_64 machines' half: a set of two claims under its own name (cmux-machine-linux-bytes.sh).
+      - name: Upload the Linux binaries and point the channel
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/machine-channel"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          # Write-once: another run or attempt that uploaded other bytes first keeps them, and this skips.
+          rc=0
+          scripts/ci/cmux-machine-linux-bytes.sh early assets/cmux-tui || rc=$?
+          [[ $rc == 3 ]] && exit 0
+          [[ $rc == 0 ]] || exit "$rc"
+          python3 scripts/ci/cmux-machine-channel.py payload --binaries-dir assets/cmux-tui --machine-path \
+            --commit "$GITHUB_SHA" --committed-at "$(git show -s --format=%ct HEAD)" \
+            --download-dir "$dir/binaries" --out "$dir/payload.json" --target x86_64-unknown-linux-musl
+          rm -rf "$dir/binaries"
+          scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir"
+
+  # Adds aarch64 after point-x86_64 (needs it, so the two never race on one commit's channel move).
+  point-linux:
+    # R2 credentials and the channel signing key.
+    environment:
+      name: artifacts
+      deployment: false
+    name: point the Cloud machine channel at this commit's Linux builds
+    needs: [build-x86_64, build-aarch64, point-x86_64]
+    if: ${{ !cancelled() && needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:

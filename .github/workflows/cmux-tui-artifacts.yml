@@ -203,9 +203,6 @@ jobs:
   # sets the window (default 60: about 48 pushes fit the marker search's 40 commits
   # and the probe fallback's 50 only up to an hour; about 24 builds a day).
   coalesce:
-    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed.
-    permissions:
-      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-tui-artifacts
@@ -390,6 +387,7 @@ jobs:
           sparse-checkout: |
             scripts/ci/api_call_log/
             scripts/ci/cmux_tui_superseded_push.py
+            scripts/ci/ci_pool_tokens.py
             scripts/ci/cmux-tui-darwin-builder
             scripts/cmux-next/cmux-tui-build-profiles.json
             scripts/ci/cmux_tui_tree_key.py
@@ -415,6 +413,22 @@ jobs:
             git reset -q --hard HEAD
           fi
 
+      # CI_POOL_FIRST: the superseded check's REST reads go out on a CI pool App first. On a spent github.token the
+      # cmux-next dispatch lookup answered HTTP 403 ("could not tell; keeping the run"), so a branch head built on
+      # request only, which nobody asked for, built its three targets anyway: 2026-11-24 23Z..11-25 01Z, about 1 in 9
+      # branch pushes built (about 100 runner-min each), and every gate log read showed that 403. push-gate holds no
+      # secret and keeps github.token; this step answers it. No pool, a refused mint: github.token, as before
+      # (scripts/ci/ci_pool_tokens.py).
+      - name: Mint the CI pool's tokens
+        if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'push'
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          CI_POOL_APPS: ${{ vars.CMUX_CI_POOL_APPS }}
+          CI_POOL_KEYS: ${{ secrets.CMUX_CI_POOL_KEYS }}
+          CI_POOL_PERMISSIONS: '{"actions":"read","contents":"read"}'
+        run: python3 scripts/ci/ci_pool_tokens.py
+
       # A queued run can be superseded before it gets a runner: on 2026-10-14
       # 37% of the queued runs of this workflow were cmux-tui-pin-* merge trees
       # of pull requests that had moved on, or lane-branch pushes whose branch
@@ -431,7 +445,8 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REF: ${{ github.ref }}
           SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ env.CI_POOL_GH_TOKEN || github.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN_SPARES }} ${{ github.token }}
           # Branch heads are read over git, which spends no REST budget.
           CMUX_TUI_REF_REMOTE: ${{ github.server_url }}/${{ github.repository }}.git
           # Build on request: a pull request head's push builds nothing (ci-min-per-pr-30); '0' undoes it.
@@ -1468,7 +1483,7 @@ jobs:
   # thin-LTO copy of the same two targets for the Cloud machine channel was dropped on 2026-11-22
   # (#49815: on 01:50-03:50Z its two legs spent 421 of the publisher's 1,462 re-run minutes).
   # LINUX_CALL_FOR_CHANNEL: the Linux legs are their own call, and `build` holds only the macOS
-  # legs, so the channel's point needed only build-linux. In one call it waited for the
+  # legs, so a point of build-linux's binaries needs only build-linux. In one call it waited for the
   # whole call: run 45077463540's Linux legs ended 6.4 min before its macOS leg, and run
   # 45135074927's Linux legs ended at 08:29:56Z while its aarch64-apple-darwin leg ran past 08:56Z,
   # and the channel waited the whole time (fix-running-cloud-channel). publish and
@@ -1516,9 +1531,10 @@ jobs:
       linux_runner: cmux-linux
 
 
-  # MACHINE_CHANNEL_THIN: the Cloud machine channel's thin copy of the two Linux musl targets is
-  # built and pointed by cmux-machine-channel.yml on every feat-cmux-next push that changes the tree,
-  # not here, where a coalesced push built nothing (cmux#54889 waited 75 of 97 min).
+  # MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST: the Cloud machine channel's thin copy of the two Linux musl
+  # targets is built and pointed by cmux-machine-channel.yml on every feat-cmux-next push that changes the
+  # tree, not here, where a coalesced push built nothing (cmux#54889 waited 75 of 97 min).
+
 
   build:
     if: >-
@@ -5302,17 +5318,18 @@ jobs:
   # older run never moves the channel back (web-ota-pointer.py newer).
   #
   # The thin machine-channel build and its point run in cmux-machine-channel.yml, on every
-  # feat-cmux-next push that changes the tree (MACHINE_CHANNEL_THIN): here they waited for the
+  # feat-cmux-next push that changes the tree (MACHINE_CHANNEL_THIN, LINUX_X86_64_FIRST: x86_64 first, then
+  # both targets): here they waited for the
   # coalesce window (cmux#54889: 75 of 97 merge-to-channel minutes). point-machine-channel below
   # is the fallback after publish.
 
-  # After publish and verify-publish, as the fallback for cmux-machine-channel.yml's point: it moves the channel when
+  # After publish and verify-publish, as the fallback for cmux-machine-channel.yml's points: it moves the channel when
   # the early job skipped or failed, and otherwise finds it current and keeps it.
   # A push that builds nothing (its tree already published, as a PR-first merge's tree is by the lane
   # head's run, or another run owns its key) has no build, publish or verify-publish, so it
   # moves the channel from the manifest adopt-commit-manifest wrote (or found) instead: the fat
   # cmux-tui/<sha>/ names, the first URL updater/channel.rs allowed_urls accepts. No machine/ copy of
-  # such a commit exists (only cmux-machine-channel.yml uploads one, from this run's build).
+  # such a commit exists (only cmux-machine-channel.yml uploads one, from its own build).
   # 93d73d7b (run 43479235288) adopted its manifest at 18:07:54Z and, before this, the channel waited
   # for the next built commit at 18:22Z. The channel still never moves back (web-ota-pointer.py newer).
   # It never moves for identical code either (cmux-machine-channel-point.sh --same-tree): a channel on
@@ -5802,7 +5819,7 @@ jobs:
   # 300 an hour, must not spend the 1,000-an-hour budget every workflow shares.
   drop-build-artifacts:
     name: drop this run's build artifacts
-    needs: [reject-untrusted-pin-ref, push-gate, coalesce, supersede-feat-runs, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
+    needs: [reject-untrusted-pin-ref, push-gate, coalesce, supersede-feat-runs, tree-preflight, tree-owner-wait, build-linux, build, build-windows, darwin-fallback-plan, build-darwin-fallback, cmux-next-daemon-tests, record-input-pass, publish-ref-notice, sentry-dsyms, publish, verify-publish, adopt-commit-manifest, rerun-deferred-commits, verify-cdn-publication, publish-windows, macos-cross-shadow, macos-cross-runtime-x86_64, publish-tree, publish-tree-windows, publish-tree-tested, point-feat-channel, point-windows-channel, mark-tree-commits, sweep-commit-manifests, sweep-pending-tree-notify, point-machine-channel, point-mac-live-channel, request-image-roll, request-nightly-next, request-team-signed-tree, notify-unpublished-tree]
     # Not after notify-unpublished-tree ran: it must stay the run's last job so the
     # deferred run it re-runs finds this owner ended (cx-urd.26). Those runs keep
     # their artifacts to the 1-day retention.

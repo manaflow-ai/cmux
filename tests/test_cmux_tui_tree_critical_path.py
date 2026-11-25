@@ -34,9 +34,9 @@ import stat
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import yaml
-from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -353,11 +353,16 @@ def main():
     _check(linux_calls == ["build-linux"], f"the shipped musl targets build once, in build-linux ({linux_calls})")
     _check(all_jobs["build-linux"]["with"]["lto"] == all_jobs["build"]["with"]["lto"],
            "build-linux builds the shipped (fat) profile")
-    # MACHINE_CHANNEL_THIN: the channel's thin legs and point are cmux-machine-channel.yml's, outside the
-    # coalesce window (cmux#54889 waited 75 of 97 min for it); its point waits for those legs only.
-    _check(not {"build-machine-channel", "point-machine-channel-early"} & set(all_jobs), "no thin machine-channel job waits in this workflow")
+    # MACHINE_CHANNEL_THIN: the channel's thin legs and points are cmux-machine-channel.yml's, outside the
+    # coalesce window (cmux#54889 waited 75 of 97 min for it); its points wait for those legs only.
+    _check(not {"build-machine-channel", "build-machine-channel-x86_64", "point-machine-channel-early",
+                "point-machine-channel-early-linux"} & set(all_jobs), "no thin machine-channel job waits in this workflow")
     channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())
-    _check(needs(channel["jobs"]["point"]) == ["build"], f"its point waits for the thin legs only ({needs(channel['jobs']['point'])})")
+    # LINUX_X86_64_FIRST: the x86_64 point waits for the x86_64 leg alone, not the aarch64 one.
+    _check(needs(channel["jobs"]["point-x86_64"]) == ["build-x86_64"],
+           f"its x86_64 point waits for the thin x86_64 leg only ({needs(channel['jobs']['point-x86_64'])})")
+    _check(needs(channel["jobs"]["point-linux"]) == ["build-x86_64", "build-aarch64", "point-x86_64"],
+           f"its Linux point waits for both thin legs ({needs(channel['jobs']['point-linux'])})")
     _check("coalesce" not in channel["jobs"] and channel["concurrency"]["cancel-in-progress"] is False,
            "one run builds and one waits per ref, with no coalesce window")
     for build_linux, expected in (("success", True), ("failure", False), ("cancelled", False)):
