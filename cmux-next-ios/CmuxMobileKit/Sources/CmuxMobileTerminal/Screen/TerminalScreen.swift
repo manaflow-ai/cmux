@@ -1,4 +1,5 @@
 #if os(iOS) && DEBUG
+import CmuxMobileDesign
 import SwiftUI
 
 /// DEBUG only (the terminal demo): workspace tabs host terminals through
@@ -32,6 +33,7 @@ public struct TerminalScreen: View {
                    !model.connectionState.keepsWarmFrame {
                     TerminalConnectingView(screenText: model.cardScreenText)
                         .transition(.opacity)
+                        .placeholderBound("terminal.connecting", .milliseconds(2000))
                 }
             }
             .navigationBarTitleDisplayMode(.inline)
@@ -91,6 +93,13 @@ public struct TerminalScreen: View {
             }
             Section {
                 Button("Scroll to bottom", systemImage: "arrow.down.to.line") { model.scrollToBottom() }
+            }
+            if let fits = model.session.fitsToPhone {
+                Section {
+                    Button(fits ? "Keep the Mac's Size" : "Fit to Phone", systemImage: fits ? "macbook" : "iphone") {
+                        model.session.toggleFitToPhone()
+                    }
+                }
             }
         } label: {
             Image(systemName: "ellipsis")
