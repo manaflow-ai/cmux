@@ -82,7 +82,10 @@ const PlanCard = memo(function PlanCard({
         {plan.source !== "harness" && (
           <span className="cv-chip cv-plan-source">{strings.t(`chiefViews.plans.source.${plan.source}`)}</span>
         )}
-        <span className="cv-plan-progress" aria-label={strings.format("chiefViews.plans.progress", `${plan.done}`, `${plan.total}`)}>
+        <span
+          className="cv-plan-progress"
+          aria-label={strings.format("chiefViews.plans.progress", `${plan.done}`, `${plan.total}`)}
+        >
           <span className="cv-plan-count">
             {plan.done}/{plan.total}
           </span>
