@@ -615,14 +615,12 @@ export function DeveloperTokensCard() {
   const run = useCallback<Run>(
     async (gesture) => {
       setBusy(true);
-      try {
-        const { state: next, created } = await store.runTokens(gesture);
-        setState(next);
-        setNow(Date.now());
-        return { ok: !next?.error, created };
-      } finally {
-        setBusy(false);
-      }
+      const reply = await store.runTokens(gesture).catch(() => null);
+      setBusy(false);
+      if (!reply) return { ok: false, created: null };
+      setState(reply.state);
+      setNow(Date.now());
+      return { ok: !reply.state?.error, created: reply.created };
     },
     [store],
   );
