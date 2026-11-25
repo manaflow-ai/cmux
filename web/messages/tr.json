@@ -380,6 +380,7 @@
     "typingCodingAgents": "kodlama ajanları",
     "typingMultitasking": "çoklu görev",
     "subtitle": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Dikey sekmeler, ajanlar ilgi gerektirdiğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için bir <cliLink>CLI</cliLink>.",
+    "nextCallout": "Yeni: Bir sonraki cmux'un önizlemesi olan <link>cmux NEXT</link>'i deneyin.",
     "features": "Özellikler",
     "faq": "SSS",
     "communitySection": "Topluluk",
@@ -984,7 +985,12 @@
         "deleteConfirmBody": "Bu işlem geri alınamaz ve hesabınızla ilişkili tüm verileri siler.",
         "deleteAcknowledge": "Hesabımın ve verilerinin kalıcı olarak silineceğini anlıyorum.",
         "deleteConfirm": "Hesabı sil",
-        "deleteError": "Hesap silinemedi. Tekrar deneyin."
+        "deleteError": "Hesap silinemedi. Tekrar deneyin.",
+        "deleteErrorPending": "Hesabınız zaten siliniyor. Biraz sonra tekrar deneyin.",
+        "deleteErrorRetryable": "Hesap silme işlemi tamamlanamadı. Bağlantınızı kontrol edip tekrar deneyin.",
+        "deleteAppStoreTitle": "App Store aboneliğiniz yenilenmeye devam edecek",
+        "deleteAppStoreBody": "cmux hesabınızı silmek App Store aboneliğinizi iptal etmez. Apple, App Store'da iptal edene kadar sizden ücret almaya devam eder.",
+        "deleteAppStoreManage": "Aboneliği App Store'da yönet"
       }
     },
     "teams": {
@@ -5768,5 +5774,13 @@
     "unavailableTitle": "Oturum açmanız doğrulanamadı",
     "unavailableBody": "Oturum açma sağlayıcımız yoğun. Birkaç saniye bekleyin, ardından daveti yeniden açın. Yeniden oturum açmanız gerekmez.",
     "retry": "Tekrar dene"
+  },
+  "analyticsConsent": {
+    "label": "Analiz",
+    "message": "Sitenin nasıl kullanıldığını görmek için analiz kullanabilir miyiz? İzin vermediğiniz sürece hiçbir şey toplanmaz ve analiz çerezi ayarlanmaz.",
+    "privacy": "Gizlilik politikası",
+    "accept": "İzin ver",
+    "decline": "Hayır, teşekkürler",
+    "settings": "Analiz ayarları"
   }
 }

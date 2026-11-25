@@ -28,7 +28,7 @@ import {
   resolveVmEntitlements,
 } from "../services/vms/entitlements";
 
-const NEXT_IDS = ["next_pro", "next_max"] as const;
+const NEXT_IDS = ["next_plus", "next_pro", "next_max"] as const;
 
 type MetadataUser = {
   id?: string;
@@ -123,6 +123,17 @@ describe("cmux NEXT plan ids in the classic app", () => {
     const classic = resolveVmEntitlements({ ...base, userBillingPlanId: both, billingPlanId: both }, {});
     expect(classic.planId).toBe("pro");
     expect(classic.maxActiveVms).toBeGreaterThan(0);
+  });
+
+  test("the NEXT grant slot (cmuxNextVmPlan) is invisible to classic readers and read by NEXT readers", () => {
+    expect(billingPlanIdFromMetadata({ cmuxNextVmPlan: "next_max" })).toBeNull();
+    expect(billingPlanIdFromMetadata({ cmuxNextVmPlan: "next_max", cmuxVmPlan: "pro" })).toBe("pro");
+    expect(billingPlanIdFromMetadata({ cmuxNextVmPlan: "free", cmuxPlan: "pro" })).toBe("pro");
+    expect(classicManualVmPlanOverride({ cmuxNextVmPlan: "next_pro" })).toBeNull();
+    expect(classicManualVmPlanOverride({ cmuxNextVmPlan: "next_pro", cmuxVmPlan: "founders" })).toBe("founders");
+    expect(nextPlanIdFromMetadata({ cmuxNextVmPlan: "next_max", cmuxVmPlan: "pro" })).toBe("next_max");
+    expect(nextPlanIdFromMetadata({ cmuxNextVmPlan: "free", cmuxVmPlan: "next_pro" })).toBe("next_pro");
+    expect(nextPlanIdFromMetadata({ cmuxNextVmPlan: "pro" })).toBeNull();
   });
 
   test("a NEXT grant is not a classic override, so classic plan status ignores it", async () => {

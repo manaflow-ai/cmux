@@ -1,0 +1,95 @@
+name: cmux-next web pieces switch
+
+# Swaps one web piece out of (or back into) every app that follows a web update channel, with no
+# app update (cmuxterm-hq docs/design/ship-without-update.md). It signs and uploads the channel's
+# switch file,
+#   cmux-next-web/ota/pieces-every-merge.json
+#   cmux-next-web/ota/pieces-nightly.json
+# which the app reads after each web update check (cmux-tui/crates/cmux-web-pieces: same envelope
+# and pinned key as the web update pointer, its own purpose, a serial that never goes back). A
+# piece named in it is served from the last good update on disk or from the app's own bundle; an
+# update key in `refuse` is never served and an app running it rolls back.
+#
+# Dispatch only, from feat-cmux-next: this workflow's file and scripts are the base branch's, and
+# only this checkout's scripts touch the signing key. Each run's summary is the record of who
+# switched what and why.
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: "The web update channel"
+        type: choice
+        options: [every-merge, nightly, drill-every-merge, drill-nightly]
+        default: every-merge
+      out_of:
+        description: "Pieces to swap out, space separated: PIECE=last-good or PIECE=bundled (agent-pane, pages, agent-activity, webviews-app, inspector, or PIECE/NAME)"
+        type: string
+        default: ""
+      reason:
+        description: "Why (kept in the file and shown by `cmux app web-pieces status`)"
+        type: string
+        default: ""
+      live:
+        description: "Pieces to serve live again, space separated"
+        type: string
+        default: ""
+      refuse:
+        description: "Update keys never to serve, space separated"
+        type: string
+        default: ""
+      allow:
+        description: "Refused update keys to serve again, space separated"
+        type: string
+        default: ""
+      all_live:
+        description: "Drop every switch (the refuse list stays)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cmux-next-web-pieces-${{ inputs.channel }}
+  cancel-in-progress: false
+
+jobs:
+  switch:
+    if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+    name: sign the web pieces switch file
+    environment:
+      name: artifacts
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Sign and upload the switch file
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          SIGNING_KEY: ${{ secrets.CMUX_WEB_OTA_SIGNING_KEY }}
+          CHANNEL: ${{ inputs.channel }}
+          OUT_OF: ${{ inputs.out_of }}
+          REASON: ${{ inputs.reason }}
+          LIVE: ${{ inputs.live }}
+          REFUSE: ${{ inputs.refuse }}
+          ALLOW: ${{ inputs.allow }}
+          ALL_LIVE: ${{ inputs.all_live }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SIGNING_KEY" ]]; then
+            echo "::error::CMUX_WEB_OTA_SIGNING_KEY is required for the web pieces switch file"
+            exit 1
+          fi
+          dir="$RUNNER_TEMP/web-pieces"
+          mkdir -p "$dir" && chmod 700 "$dir"
+          trap 'rm -f "$dir/key.pem"' EXIT
+          (umask 077; printf '%s\n' "$SIGNING_KEY" > "$dir/key.pem")
+          scripts/cmux-next/web-pieces-publish.sh "$dir" "$dir/key.pem" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "by $ACTOR, run $GITHUB_RUN_ID: ${REASON:-no reason given}" >> "$GITHUB_STEP_SUMMARY"

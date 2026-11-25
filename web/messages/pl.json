@@ -380,6 +380,7 @@
     "typingCodingAgents": "agentów kodowania",
     "typingMultitasking": "multitaskingu",
     "subtitle": "Darmowy i otwartoźródłowy natywny terminal dla macOS zbudowany na Ghostty. Pionowe karty, pierścienie powiadomień gdy agenci potrzebują uwagi, dzielone panele oraz <cliLink>CLI</cliLink> do programowania.",
+    "nextCallout": "Nowość: wypróbuj <link>cmux NEXT</link>, zapowiedź kolejnej wersji cmux.",
     "features": "Funkcje",
     "faq": "FAQ",
     "communitySection": "Społeczność",
@@ -984,7 +985,12 @@
         "deleteConfirmBody": "Tej operacji nie można cofnąć. Usunie ona wszystkie dane powiązane z Twoim kontem.",
         "deleteAcknowledge": "Rozumiem, że moje konto i jego dane zostaną trwale usunięte.",
         "deleteConfirm": "Usuń konto",
-        "deleteError": "Nie udało się usunąć konta. Spróbuj ponownie."
+        "deleteError": "Nie udało się usunąć konta. Spróbuj ponownie.",
+        "deleteErrorPending": "Twoje konto jest już usuwane. Spróbuj ponownie za chwilę.",
+        "deleteErrorRetryable": "Nie udało się dokończyć usuwania konta. Sprawdź połączenie i spróbuj ponownie.",
+        "deleteAppStoreTitle": "Twoja subskrypcja w App Store będzie nadal odnawiana",
+        "deleteAppStoreBody": "Usunięcie konta cmux nie anuluje subskrypcji w App Store. Apple będzie pobierać opłaty, dopóki nie anulujesz jej w App Store.",
+        "deleteAppStoreManage": "Zarządzaj subskrypcją w App Store"
       }
     },
     "teams": {
@@ -5770,5 +5776,13 @@
     "unavailableTitle": "Nie udało się potwierdzić logowania",
     "unavailableBody": "Nasz dostawca logowania jest przeciążony. Odczekaj kilka sekund i ponownie otwórz zaproszenie. Nie musisz logować się ponownie.",
     "retry": "Spróbuj ponownie"
+  },
+  "analyticsConsent": {
+    "label": "Analityka",
+    "message": "Czy możemy używać analityki, aby zobaczyć, jak korzystasz ze strony? Nic nie jest zbierane i żaden analityczny plik cookie nie jest zapisywany bez Twojej zgody.",
+    "privacy": "Polityka prywatności",
+    "accept": "Zezwól",
+    "decline": "Nie, dziękuję",
+    "settings": "Ustawienia analityki"
   }
 }

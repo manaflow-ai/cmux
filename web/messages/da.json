@@ -380,6 +380,7 @@
     "typingCodingAgents": "kodningsagenter",
     "typingMultitasking": "multitasking",
     "subtitle": "Gratis og open source nativ macOS-terminal bygget på Ghostty. Lodrette faner, notifikationsringe når agenter har brug for opmærksomhed, delte paneler og en <cliLink>CLI</cliLink> til programmerbarhed.",
+    "nextCallout": "Nyt: Prøv <link>cmux NEXT</link>, en forhåndsvisning af den næste cmux.",
     "features": "Funktioner",
     "faq": "FAQ",
     "communitySection": "Fællesskab",
@@ -984,7 +985,12 @@
         "deleteConfirmBody": "Dette kan ikke fortrydes og sletter alle data, der er knyttet til din konto.",
         "deleteAcknowledge": "Jeg forstår, at min konto og dens data bliver slettet permanent.",
         "deleteConfirm": "Slet konto",
-        "deleteError": "Kontoen kunne ikke slettes. Prøv igen."
+        "deleteError": "Kontoen kunne ikke slettes. Prøv igen.",
+        "deleteErrorPending": "Din konto er allerede ved at blive slettet. Prøv igen om et øjeblik.",
+        "deleteErrorRetryable": "Sletningen af kontoen kunne ikke gennemføres. Tjek din forbindelse, og prøv igen.",
+        "deleteAppStoreTitle": "Dit App Store-abonnement fortsætter med at blive fornyet",
+        "deleteAppStoreBody": "Sletning af din cmux-konto opsiger ikke dit App Store-abonnement. Apple bliver ved med at opkræve betaling, indtil du opsiger det i App Store.",
+        "deleteAppStoreManage": "Administrer abonnement i App Store"
       }
     },
     "teams": {
@@ -5767,5 +5773,13 @@
     "unavailableTitle": "Vi kunne ikke bekræfte dit login",
     "unavailableBody": "Vores login-tjeneste er optaget. Vent et par sekunder, og åbn invitationen igen. Du behøver ikke at logge ind igen.",
     "retry": "Prøv igen"
+  },
+  "analyticsConsent": {
+    "label": "Analyse",
+    "message": "Må vi bruge analyse til at se, hvordan siden bruges? Intet indsamles, og der sættes ingen analysecookie, medmindre du tillader det.",
+    "privacy": "Privatlivspolitik",
+    "accept": "Tillad",
+    "decline": "Nej tak",
+    "settings": "Analyseindstillinger"
   }
 }
