@@ -24,7 +24,6 @@ import { outputArtifacts, outputLinks, type OutputArtifact, type OutputLink } fr
 import { chatOutputs, type OutputFile } from "./chatOutputs";
 import { producedLinks, type ProducedLink } from "./producedLinks";
 import { type ProcessRegistry, type SessionInfoProcess } from "./processes";
-import { currentPlan, type SessionInfoPlan } from "./progressSectionModel";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import { useSameValue } from "./sameValue";
 import { sessionInfoFits, sessionInfoShown, paneRoom, SESSION_INFO_TOGGLE, toolCallIds } from "./sessionInfoModel";
@@ -492,7 +491,6 @@ export type SessionInfoLists = {
   /// The pull requests, issues and commits the chat produced (producedLinks.ts).
   readonly produced: readonly ProducedLink[];
   readonly outputFiles: OutputFile[];
-  readonly scopedPlan: SessionInfoPlan | undefined;
   readonly artifacts: number;
   readonly documents: readonly OutputArtifact[];
   readonly agents: readonly Subagent[];
@@ -546,13 +544,6 @@ function useSessionInfoLists({
   // same files, so the sections need not read the rows for it.
   const outputFiles = useSameValue(
     useMemo(() => (drawn ? chatOutputs(rows, summary?.cwd) : NO_OUTPUT_FILES), [drawn, rows, summary?.cwd]),
-  );
-  const scopedWorking = scopedAgent?.state === "running";
-  const scopedPlan = useSameValue(
-    useMemo(
-      () => (drawn && scopedAgent ? currentPlan(rows, scopedWorking) : undefined),
-      [drawn, scopedAgent, rows, scopedWorking],
-    ),
   );
   // The chat's gallery, kept while it holds the same items (sameValue: each item's kind, key, source and
   // render call), so a replaced image or render with the same count is a new gallery, and a streamed
@@ -621,7 +612,6 @@ function useSessionInfoLists({
       links,
       produced,
       outputFiles,
-      scopedPlan,
       artifacts,
       documents,
       agents,
@@ -637,7 +627,6 @@ function useSessionInfoLists({
       links,
       produced,
       outputFiles,
-      scopedPlan,
       artifacts,
       documents,
       agents,

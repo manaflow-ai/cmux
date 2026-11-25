@@ -22,7 +22,6 @@ import { SUBAGENT_HEADER } from "./subagentScopeHeaderModel";
 import { subagentBackLabel, type SubagentScope } from "./subagentScope";
 import { setSessionInfoSection, useSessionInfoState, type SessionInfoSectionId } from "./sessionInfoState";
 import { type ProcessRegistry } from "./processes";
-import { type SessionInfoPlan } from "./progressSectionModel";
 import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import { useUnderSessionInfo } from "./underSessionInfo";
 import { useNativeSessionInfoHost } from "./native/host";
@@ -489,7 +488,6 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
     links,
     produced,
     outputFiles,
-    scopedPlan,
     artifacts,
     documents,
     agents,
@@ -533,17 +531,6 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
   }, [shell, drawn, reading, wide, paneWidth, room, side, width, column, rowCount, push, overflow, native]);
   // After `summary`: read before its declaration, it threw on every render (a temporal dead zone).
   const usage = compactingUsage(summary?.usage, summary?.usageStats, summary?.contextBreakdown);
-  // The plan the transcript's todo list draws. The chat's is the one the client publishes beside its
-  // rows (snapshot.progress, liveProgress.ts): the same object until the checklist changes or its turn
-  // ends, so a streamed token neither rescans the rows nor recounts the steps (carried from #34933). A
-  // subagent's panel gets the parent's snapshot, so it never reads that one: its plan comes from its
-  // own live rows (useSessionInfoLists `scopedPlan`), so a step ticked in place shows here at once.
-  const live = snapshot.progress;
-  const livePlan = useMemo<SessionInfoPlan | undefined>(
-    () => (live ? { entries: live.plan, ended: Boolean(live.ended), done: live.completed } : undefined),
-    [live],
-  );
-  const plan = scope?.agent ? scopedPlan : drawn ? livePlan : undefined;
   const views = subagents?.views;
   const asks = subagents?.asks;
   // Environment's Changes: the folder's git changes, read as the panel shows and at each turn's end.
@@ -691,7 +678,6 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
           backLabel={scope ? subagentBackLabel(t, scope.parent) : undefined}
           summary={summary}
           usage={usage}
-          plan={plan}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
           place={place}
@@ -788,7 +774,6 @@ export const SessionInfoPresence = memo(function SessionInfoPresence({
         rows={sectionRows}
         outputFiles={outputFiles}
         produced={produced}
-        plan={plan}
         toolCalls={toolCalls}
         agents={agents}
         waiting={waiting}
