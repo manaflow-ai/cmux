@@ -1,5 +1,8 @@
 public import CMUXAuthCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// A ``HomeSource`` that speaks the hosted `cmux.wire/1` protocol directly
 /// (plans/cmux-next/dm-group-chat-DESIGN.md sections 4.3 and 4.5): the iOS

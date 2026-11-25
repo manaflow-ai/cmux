@@ -10,6 +10,7 @@ import { fromDetail, listCatalog, listInstalled, listUpdates, type WireDetail } 
 import {
   categories,
   filterApps,
+  keepUnchangedApps,
   listedInStore,
   parseRoute,
   type CardStyle,
@@ -256,7 +257,15 @@ export class AppsStore {
           .catch((error: unknown) => ({ result: undefined, error })),
       ]);
       if (generation !== this.generation) return;
-      const listed = catalog.apps.filter(listedInStore);
+      // The icons already loaded go on first, so a listing that did not change keeps its object
+      // (and its memoized card) across the reload.
+      const listed = keepUnchangedApps(
+        this.snapshot.catalog,
+        catalog.apps.filter(listedInStore).map((app) => {
+          const icon = this.withIcon(app.id, app.icon);
+          return icon === app.icon ? app : { ...app, icon };
+        }),
+      );
       // Installed rows carry no icon: they take their listing's.
       const iconOf = new Map(listed.map((app) => [app.id, app.icon]));
       const installedRows = installed.apps
@@ -552,9 +561,16 @@ export class AppsStore {
       return icon === app.icon ? app : { ...app, icon };
     };
     const { catalog, visible, installed, detail } = this.snapshot;
+    // A visible listing is its catalog object, patched once: the next reload keeps the same one.
+    const patched = new Map<CatalogApp, CatalogApp>();
+    const nextCatalog = catalog.map((app) => {
+      const next = patch(app);
+      if (next !== app) patched.set(app, next);
+      return next;
+    });
     this.set({
-      catalog: catalog.map(patch),
-      visible: visible.map(patch),
+      catalog: patched.size ? nextCatalog : catalog,
+      visible: patched.size ? visible.map((app) => patched.get(app) ?? patch(app)) : visible,
       installed: installed.map(patch),
       detail: detail ? patch(detail) : detail,
     });

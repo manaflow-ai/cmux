@@ -381,11 +381,172 @@ fn cmux_next_launch_snapshot_has_no_path_without_a_persistent_registry() {
     assert_eq!(identify["launch_snapshot_path"], Value::Null);
 }
 
+/// A quit's last save asks for the file at once (`flush-launch-snapshot`):
+/// with a settle, delay and byte budget far past the wait, only that request
+/// writes the moved window in time, and its answer says it landed. A quick
+/// relaunch then draws the move, not the write before it.
+#[test]
+fn cmux_next_launch_snapshot_flush_writes_at_once_without_waiting_to_settle() {
+    let root = temp_root("flush");
+    let mux =
+        Mux::open_persistent("launch-snapshot-flush", SurfaceOptions::default(), &root).unwrap();
+    let writer = start_launch_snapshot_writer_with(
+        &mux,
+        LaunchSnapshotTiming {
+            settle: Duration::from_secs(10),
+            max_delay: Duration::from_secs(30),
+            max_bytes_per_second: 1,
+        },
+    )
+    .unwrap()
+    .unwrap();
+    let identify = run_command(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identify["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|capability| capability == LAUNCH_SNAPSHOT_FLUSH_CAPABILITY)
+    );
+    // The start write: from here the byte budget alone holds the next one
+    // back for (its size / 1) seconds.
+    let start = run_command(&mux, json!({"cmd":"flush-launch-snapshot"}));
+    assert_eq!(start["flushed"], json!(true));
+    let started = read_snapshot(writer.path()).expect("the start write");
+    assert!(!workspace_names(&started).contains(&"moved".to_string()));
+
+    let save = |name: &str| {
+        run_command(
+            &mux,
+            json!({
+                "cmd":"put-frontend-projection",
+                "frontend":"cmux-next",
+                "scope":"personal",
+                "subject_key":"windows",
+                "schema_version":1,
+                "projection":{"windows":[{"id":"w1","frame":name}]},
+                "origin":"test",
+                "mutation_id":format!("launch-snapshot-flush-{name}"),
+            }),
+        );
+    };
+    let frame = |snapshot: &Value| {
+        snapshot["frontend_projections"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|projection| projection["subject_key"] == "windows")
+            .map(|projection| projection["projection"]["windows"][0]["frame"].clone())
+    };
+    mux.create_empty_workspace(Some("moved".into()), None, None).unwrap();
+    save("moved");
+    // The normal path waits out its 10 s settle.
+    std::thread::sleep(Duration::from_millis(300));
+    let lagging = read_snapshot(writer.path()).unwrap();
+    assert_eq!(frame(&lagging), frame(&started), "the settle holds the normal write back");
+
+    let asked = Instant::now();
+    let reply = run_command(&mux, json!({"cmd":"flush-launch-snapshot"}));
+    let took = asked.elapsed();
+    assert_eq!(reply["flushed"], json!(true));
+    assert!(took < Duration::from_secs(1), "the flush took {took:?}");
+    // The file holds the save when the answer comes, with no wait.
+    let flushed = read_snapshot(writer.path()).unwrap();
+    assert_eq!(frame(&flushed), Some(json!("moved")));
+    assert!(workspace_names(&flushed).contains(&"moved".to_string()));
+    // One write a request: a second one with nothing new writes no bytes.
+    let bytes = writer.bytes_written();
+    assert_eq!(run_command(&mux, json!({"cmd":"flush-launch-snapshot"}))["flushed"], json!(true));
+    assert_eq!(writer.bytes_written(), bytes);
+
+    drop(writer);
+    // With no writer, the request answers at once.
+    assert_eq!(run_command(&mux, json!({"cmd":"flush-launch-snapshot"}))["flushed"], json!(false));
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+/// The app quits, is force quit, crashes or is killed right after a window
+/// record save, and sends nothing more: its socket closes. That close
+/// writes the snapshot at once, so a relaunch draws the save. The close of
+/// a connection that wrote no native projection (a CLI call) waits as before.
+#[test]
+fn cmux_next_launch_snapshot_writes_at_once_when_the_app_connection_closes() {
+    let root = temp_root("app-close");
+    let mux = Mux::open_persistent("launch-snapshot-app-close", SurfaceOptions::default(), &root)
+        .unwrap();
+    let writer = start_launch_snapshot_writer_with(
+        &mux,
+        LaunchSnapshotTiming {
+            settle: Duration::from_secs(10),
+            max_delay: Duration::from_secs(30),
+            max_bytes_per_second: 1,
+        },
+    )
+    .unwrap()
+    .unwrap();
+    // The start write; the byte budget alone then holds the next one back.
+    assert_eq!(run_command(&mux, json!({"cmd":"flush-launch-snapshot"}))["flushed"], json!(true));
+    let frame = |snapshot: &Value| {
+        snapshot["frontend_projections"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|projection| projection["subject_key"] == "windows")
+            .map(|projection| projection["projection"]["windows"][0]["frame"].clone())
+    };
+    let started = frame(&read_snapshot(writer.path()).unwrap());
+    assert_eq!(started, None);
+
+    const APP: u64 = 41;
+    const CLI: u64 = 42;
+    run_command_as(
+        &mux,
+        APP,
+        json!({
+            "cmd":"put-frontend-projection",
+            "frontend":"cmux-next",
+            "scope":"personal",
+            "subject_key":"windows",
+            "schema_version":1,
+            "projection":{"windows":[{"id":"w1","frame":"moved"}]},
+            "origin":"test",
+            "mutation_id":"launch-snapshot-app-close",
+        }),
+    );
+    run_command_as(&mux, CLI, json!({"cmd":"ping"}));
+    // Another connection's close writes nothing early.
+    assert!(disconnect_client(&mux, CLI, false));
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(frame(&read_snapshot(writer.path()).unwrap()), started);
+
+    let closed = Instant::now();
+    assert!(disconnect_client(&mux, APP, false));
+    let deadline = closed + Duration::from_secs(1);
+    loop {
+        if frame(&read_snapshot(writer.path()).unwrap()) == Some(json!("moved")) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the app's close did not write the snapshot in 1 s");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    drop(writer);
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn run_command(mux: &Arc<Mux>, request: Value) -> Value {
+    run_command_as(mux, 0, request)
+}
+
+fn run_command_as(mux: &Arc<Mux>, client: u64, request: Value) -> Value {
     let command: Command = serde_json::from_value(request).unwrap();
     let writer = MessageWriter::new(QueuedSink {
         outbound: Arc::new(BoundedOutbound::default()),
         control: None,
     });
-    handle_command(mux, mux.local_test_client(0), command, &writer).unwrap()
+    handle_command(mux, mux.local_test_client(client), command, &writer).unwrap()
 }
