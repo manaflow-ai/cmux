@@ -207,6 +207,10 @@ function saysKey(props: ThinkingProps): string {
   ]);
 }
 
+function rollsNothing(says: Says): boolean {
+  return (says.starting ?? false) || says.retry !== undefined;
+}
+
 function pickSays(props: ThinkingProps): Says {
   const says: Partial<Record<keyof Says, unknown>> = {};
   for (const name of SAYS) says[name] = props[name];
@@ -224,6 +228,9 @@ function useLineDwell(props: ThinkingProps): ThinkingProps {
   const hold =
     held !== undefined &&
     held.key !== key &&
+    // Only words that roll into words wait: a start look or a retry, and the words back after one, show at once.
+    !rollsNothing(props) &&
+    !rollsNothing(held.says) &&
     at - held.at < LINE_DWELL_MS &&
     motionMode() === "full" &&
     // The line as it was before the dwell, for the gallery's before frames (agent-pane.status-swap `burst-before`).
@@ -238,7 +245,7 @@ function useLineDwell(props: ThinkingProps): ThinkingProps {
     if (shown.current?.key !== key) shown.current = { key, at, says: pickSays(props) };
     else shown.current.says = pickSays(props);
     return undefined;
-  });
+  }, [hold, key, at, props]);
   return hold ? { ...props, ...hold.says } : props;
 }
 
