@@ -139,7 +139,7 @@ import Testing
         panel.setFrameSize(NSSize(width: 600, height: 500))
         panel.needsLayout = true
         panel.layoutSubtreeIfNeeded()
-        #expect(panel.measurePasses == passes + 1, "a new height changes what fits")
+        #expect(panel.measurePasses == passes, "a new height changes what fits, not a part's size: no part is measured again")
         let fresh = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
         fresh.hero.setAvatar(picture: nil, text: nil, name: "Chief")
         fresh.applyScale(1.25)
