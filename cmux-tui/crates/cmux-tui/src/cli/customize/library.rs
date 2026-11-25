@@ -39,6 +39,9 @@ pub(in crate::cli) enum Request {
     OffAll,
     /// The entries that are on, in the one line a bug report carries.
     Status,
+    /// Every entry as one line to read out at standup: what it is, on or
+    /// off, the last word on it, its link.
+    Standup,
     Order {
         name: String,
         position: Position,
@@ -72,7 +75,7 @@ pub(in crate::cli) enum Request {
     Expire,
 }
 
-const USAGE: &str = "customize library takes list, status, refresh [--if-app-changed], expire, on NAME, off NAME [--reason TEXT], off --code [--reason TEXT], off --all, reset, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
+const USAGE: &str = "customize library takes list, status, standup, refresh [--if-app-changed], expire, on NAME, off NAME [--reason TEXT], off --code [--reason TEXT], off --all, reset, order NAME top|bottom|N, remove NAME, export [FILE] [--link] [--on] [--name NAME], import FILE|LINK|- [--on]";
 
 /// Parses the words after `library`.
 pub(super) fn parse(words: &[String]) -> Result<Request, String> {
@@ -91,6 +94,7 @@ pub(super) fn parse(words: &[String]) -> Result<Request, String> {
         },
         "expire" if rest.is_empty() => Ok(Request::Expire),
         "status" if rest.is_empty() => Ok(Request::Status),
+        "standup" if rest.is_empty() => Ok(Request::Standup),
         "reset" if rest.is_empty() => Ok(Request::OffAll),
         "on" | "enable" => Ok(Request::On { name: name(rest, "on")? }),
         "off" | "disable" => parse_off(rest),
@@ -185,7 +189,9 @@ pub(super) fn execute(
     // Every read first turns off what is past its bound, so a person or an
     // agent never reads a layer as on that should have expired.
     let expiring = match request {
-        Request::List | Request::Status => Some(expire_by_age(customize, origin, now_ms)),
+        Request::List | Request::Status | Request::Standup => {
+            Some(expire_by_age(customize, origin, now_ms))
+        }
         _ => None,
     };
     Ok(match request {
@@ -205,6 +211,11 @@ pub(super) fn execute(
             }
             human.push_str(&expired_lines(&customize.expired(now_ms), expiring.as_ref()));
             Answer::Library { json: json!({ "library": listing }), human }
+        }
+        Request::Standup => {
+            let standup = customize.library_standup(now_ms)?;
+            let human = standup.text.clone();
+            Answer::Library { json: json!({ "standup": standup }), human }
         }
         Request::RefreshWait => super::rebuild::wait(customize, origin, super::now_ms)?,
         Request::Refresh { if_app_changed } => {
