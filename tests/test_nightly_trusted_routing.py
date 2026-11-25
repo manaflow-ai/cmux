@@ -94,6 +94,7 @@ NIGHTLY_NEXT_ONLY_OWNED = ('republish-nightly-deltas',)
 OWNED_SECRET_JOBS = {
     'nightly-next-one': "builds, signs and publishes nightly-next in one job on cmux15's signer label (NIGHTLY_NEXT_ONE_JOB)",
     'sign-live-code-variant': "signs, notarizes and publishes nightly-next-one's live code variant on the same signer label",
+    'nightly-next-pkg': "builds, signs, notarizes and uploads nightly-next's pre-warming .pkg (#54859) on the same signer label",
     'decide': 'reads the routing App key (ci-routing-agent) to place early controls; a credentialed control',
     'pick-nightly-build-runner': 'reads the routing App key (ci-routing-agent) to pick the build mini; a credentialed control',
     'pick-nightly-sign-runner': 'reads the routing App key (ci-routing-agent) to pick the signer; a credentialed control',
