@@ -68,7 +68,9 @@ test("a quiet background turn whose only work is a thought draws its reply under
     line("bg", { quiet: true }),
     row("thought", "activity", {
       inBackground: "bg",
-      items: [{ kind: "thought", text: "Already known: the run passed and the PR merged.", startedAt: 0, endedAt: 3_000 }],
+      items: [
+        { kind: "thought", text: "Already known: the run passed and the PR merged.", startedAt: 0, endedAt: 3_000 },
+      ],
     }),
     row("note", "assistant", { text: "The suite passed and the PR merged.", inBackground: "bg" }),
   ];

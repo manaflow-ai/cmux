@@ -361,7 +361,9 @@ test("with explicit animation off the toggle does not schedule a Web Animation",
 // Leo, 2026-11-25: "this is extremely strange": a summarized thought's row read "I'm checking the
 // next thinking, and it reads 'Already known....'", a line about the thinking, not the thinking.
 test("a thought's line is never a meta line about the thinking: it reads what the thinking says", () => {
-  expect(thoughtHead("I'm checking the next thinking, and it reads 'Already known....'").line).toBe("Already known....");
+  expect(thoughtHead("I'm checking the next thinking, and it reads 'Already known....'").line).toBe(
+    "Already known....",
+  );
   expect(thoughtHead("I\u2019m reading the latest thinking, which says \u201cThe run passed.\u201d\nmore").line).toBe(
     "The run passed.",
   );
@@ -371,9 +373,13 @@ test("a thought's line is never a meta line about the thinking: it reads what th
     rest: "Body.",
     gap: true,
   });
-  expect(thoughtHead("Let me review the previous thinking. The tests pass on main.").line).toBe("The tests pass on main.");
+  expect(thoughtHead("Let me review the previous thinking. The tests pass on main.").line).toBe(
+    "The tests pass on main.",
+  );
   // A thought that only names its subject keeps its line.
-  expect(thoughtHead("Checking the thinking budget in the config.").line).toBe("Checking the thinking budget in the config.");
+  expect(thoughtHead("Checking the thinking budget in the config.").line).toBe(
+    "Checking the thinking budget in the config.",
+  );
   expect(thoughtHead("I'm checking the next thinking").line).toBe("I'm checking the next thinking");
 });
 

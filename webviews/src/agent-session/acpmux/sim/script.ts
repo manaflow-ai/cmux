@@ -195,7 +195,11 @@ export class SimBuilder {
       fromName: "acpmux",
       to: this.sessionId,
       display: "line",
-      notice: { sender: "acpmux", severity: "info", title: title ?? `Background task finished: ${description} (exit 0)` },
+      notice: {
+        sender: "acpmux",
+        severity: "info",
+        title: title ?? `Background task finished: ${description} (exit 0)`,
+      },
       bgTaskId: task,
       bgTaskDescription: description,
     };

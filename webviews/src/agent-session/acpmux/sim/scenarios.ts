@@ -139,6 +139,48 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-25: "there are situations in which i steer RIGHT before you finish a turn but your completed sent
+  // message goes above mine ... worked for above my message and then yours and then boom that's it". Running, rows
+  // draw as they came; ended: the prompt, Worked for, his steer, the answer, the footer.
+  "late-steer": () => {
+    const b = sim("late-steer", "The person steers while the agent streams its final answer; the turn ends right after.");
+    b.prompt("Fix the flaky test.");
+    b.think("The test races the timer.");
+    b.tool("bun test flaky.test.ts", { ms: 600 });
+    b.say("Fixed: the test now waits on the timer.", { chunks: 2 });
+    b.steer("also check the other timer test", { after: 50, readMs: 300 });
+    b.say(" It passes 50 runs in a row.", { chunks: 1, after: 60 });
+    return b.turnEnd("completed", 300).build();
+  },
+
+  "late-steer-mid-tool": () => {
+    const b = sim(
+      "late-steer-mid-tool",
+      "The person steers while the agent's last call runs; the call ends, the agent answers, the turn ends.",
+    );
+    b.prompt("Fix the flaky test.");
+    const call = b.nextCallId();
+    b.tool("bun test flaky.test.ts", { open: true });
+    b.steer("also check the other timer test", { after: 400, readMs: 300 });
+    b.toolEnd(call, { ms: 800 });
+    b.say("Fixed: the test now waits on the timer. It passes 50 runs in a row.", { chunks: 3 });
+    return b.turnEnd().build();
+  },
+
+  "late-steer-compaction": () => {
+    const b = sim(
+      "late-steer-compaction",
+      "The person steers while the agent compacts its context at the end of its work; the agent answers, the turn ends.",
+    );
+    b.prompt("Fix the flaky test.");
+    b.tool("bun test flaky.test.ts", { ms: 600 });
+    b.record("in", "compaction", compaction("started"), 300, "compaction started");
+    b.steer("also check the other timer test", { after: 400, readMs: 300 });
+    b.record("in", "compaction", compaction("completed"), 1_200, "compaction completed");
+    b.say("Fixed: the test now waits on the timer. It passes 50 runs in a row.", { chunks: 3 });
+    return b.turnEnd().build();
+  },
+
   // Leo, 2026-11-21: "the messages and whatever collapsing and stuff, sometimes it does so too soon in the midst of a turn".
   "long-turn-messages": () => {
     const b = sim(
