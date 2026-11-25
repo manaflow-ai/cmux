@@ -16161,6 +16161,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 		}
 		assertGeneratedFieldJSON(t, presentValue, "op", true, "{\"value\":true}")
 	})
+	t.Run("ConversationInboxOpRequest.OpID", func(t *testing.T) {
+		var missing ConversationInboxOpRequest
+		if err := json.Unmarshal([]byte("{\"conversation\":\"value\",\"op\":null}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.OpID.IsAbsent() {
+			t.Fatal("OpID did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "op_id", false, "")
+		var nullValue ConversationInboxOpRequest
+		if err := json.Unmarshal([]byte("{\"conversation\":\"value\",\"op\":null,\"op_id\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.OpID.IsNull() {
+			t.Fatal("OpID did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "op_id", true, "null")
+		var presentValue ConversationInboxOpRequest
+		if err := json.Unmarshal([]byte("{\"conversation\":\"value\",\"op\":null,\"op_id\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.OpID.Get(); !ok {
+			t.Fatal("OpID did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "op_id", true, "\"value\"")
+	})
 	t.Run("ConversationInboxOpResult.PinPosition", func(t *testing.T) {
 		var missing ConversationInboxOpResult
 		if err := json.Unmarshal([]byte("{\"conversation\":\"value\",\"marked_unread\":true,\"participant\":\"value\",\"pinned\":true}"), &missing); err != nil {
@@ -16182,6 +16208,32 @@ func TestGeneratedSchemaPresenceRoundTrips(t *testing.T) {
 			t.Fatal("PinPosition lost its value")
 		}
 		assertGeneratedFieldJSON(t, presentValue, "pin_position", true, "1")
+	})
+	t.Run("ConversationInboxOpOptions.OpID", func(t *testing.T) {
+		var missing ConversationInboxOpOptions
+		if err := json.Unmarshal([]byte("{}"), &missing); err != nil {
+			t.Fatal(err)
+		}
+		if !missing.OpID.IsAbsent() {
+			t.Fatal("OpID did not preserve absence")
+		}
+		assertGeneratedFieldJSON(t, missing, "op_id", false, "")
+		var nullValue ConversationInboxOpOptions
+		if err := json.Unmarshal([]byte("{\"op_id\":null}"), &nullValue); err != nil {
+			t.Fatal(err)
+		}
+		if !nullValue.OpID.IsNull() {
+			t.Fatal("OpID did not preserve null")
+		}
+		assertGeneratedFieldJSON(t, nullValue, "op_id", true, "null")
+		var presentValue ConversationInboxOpOptions
+		if err := json.Unmarshal([]byte("{\"op_id\":\"value\"}"), &presentValue); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := presentValue.OpID.Get(); !ok {
+			t.Fatal("OpID did not preserve a value")
+		}
+		assertGeneratedFieldJSON(t, presentValue, "op_id", true, "\"value\"")
 	})
 	t.Run("ConversationLinkResolveResult.Message", func(t *testing.T) {
 		var missing ConversationLinkResolveResult
@@ -67737,8 +67789,8 @@ func TestGeneratedConstrainedFieldsRejectUnknownValuesOnMarshal(t *testing.T) {
 }
 
 const (
-	generatedFieldShapeCount               = 1900
-	generatedOptionalNullableFieldCount    = 1327
+	generatedFieldShapeCount               = 1902
+	generatedOptionalNullableFieldCount    = 1329
 	generatedRequiredNullableFieldCount    = 174
 	generatedOptionalNonnullableFieldCount = 399
 	generatedRequiredFieldCount            = 1621
