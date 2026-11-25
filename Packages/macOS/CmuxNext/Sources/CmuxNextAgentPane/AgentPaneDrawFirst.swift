@@ -69,7 +69,7 @@ public struct AgentPaneDrawFirst {
 extension AgentPaneView {
     /// The page's composer takes `text` in the place of `replaces`: what the tab this chat replaces holds at its
     /// hand-off, when the page took other text with its seed (``AgentPaneSeedSource/addDraft``). The page's
-    /// `lateDraft` (App.tsx).
+    /// `lateDraft` (pane/paneSnapshot.ts).
     func addDraft(_ text: String, replaces: String) {
         let value = JSONValue.object(["text": .string(text), "replaces": .string(replaces)])
         deliver([AgentPageEvent(kind: "lateDraft", value: value)], scripts: ["window.cmuxAcpmuxBridge?.lateDraft?.(\(value.compactText));"])

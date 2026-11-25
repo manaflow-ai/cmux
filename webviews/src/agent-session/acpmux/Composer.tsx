@@ -1472,14 +1472,12 @@ function ComposerFrame({
         field.current?.focus();
       },
       lateDraft(late, replaces) {
-        const typed = field.current?.value() ?? textRef.current;
+        const typed = field.current?.value() ?? promptRef.current.text;
         const next = lateDraftText(typed, late, replaces);
         if (next === typed) return;
         notTyped();
-        field.current?.reset(next);
-        setText(next);
-        setCaret(next.length);
         pendingCaret.current = next.length;
+        writeText(next, next.length);
       },
       quoteReply(markdown) {
         notTyped();
