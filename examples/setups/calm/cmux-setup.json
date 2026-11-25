@@ -1,0 +1,21 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/calm-setup",
+  "name": "Calm",
+  "tagline": "Quiet cmux",
+  "description": "Quiet cmux: few interruptions, nothing flashes. Touches only how cmux gets your attention. The Dock bounce is yours to set in Settings; a setup may not change it.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/setups/calm",
+  "cmuxProfile": 1,
+  "settings": {
+    "notifications.desktop": "unlessFocused",
+    "notifications.attention.flash": false,
+    "notifications.attention.flashOnTyping": false,
+    "notifications.dockBadge": true,
+    "notifications.sounds.volume": 0.3,
+    "notifications.suppressWhileTypingSeconds": 5,
+    "appearance.agentGlow": false,
+    "agentPane.display.thinking.shimmer": "cadenced"
+  }
+}
