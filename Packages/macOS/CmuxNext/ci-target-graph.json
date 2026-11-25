@@ -231,6 +231,7 @@
         "schemas/agent-bridge/contract.json",
         "schemas/agent-pane/attach-params.json",
         "schemas/agent-pane/initialize-params.json",
+        "schemas/agent-pane/methods.json",
         "schemas/agent-pane/session-new-params.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "webviews/src/agent-session/acpmux/flickerLog.ts",
@@ -962,6 +963,7 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
       "targets": [
         "CmuxNextCloud",
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextWakeups",
         "CmuxNextWakeupsTestSupport"
