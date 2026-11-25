@@ -19,10 +19,10 @@ python3 build-fleet/fresh-home --nightly latest --cmux <cmux checkout> \
 
 | Step | Element | Result | Screenshot |
 | --- | --- | --- | --- |
-| Open the Clock listing (`appStore.show {"app":"cmux/clock"}`) | `cmux.appStore.install.cmux/clock` shows | ok | ![listing](MEDIA/appstore-native-listing-4551439305901.png) |
-| Click Install | `cmux.appStore.install.cmux/clock` | ok: the consent card "Install "Clock"?" opens | ![consent](MEDIA/appstore-native-consent-4551439305901.png) |
-| Click the card's Install | `cmux.dialog.button.confirm` | ok: the listing shows an Installed badge, Open and Remove | ![installed](MEDIA/appstore-native-installed-4551439305901.png) |
-| Click Open | `cmux.appStore.open.cmux/clock` | ok: a New Tab opens with the Clock widget, showing the worker's live date and time | ![opened](MEDIA/appstore-native-opened-4551439305901.png) |
+| Open the Clock listing (`appStore.show {"app":"cmux/clock"}`) | `cmux.appStore.install.cmux/clock` shows | ok | ![listing](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/55431/appstore-native-listing-4551439305901.png) |
+| Click Install | `cmux.appStore.install.cmux/clock` | ok: the consent card "Install "Clock"?" opens | ![consent](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/55431/appstore-native-consent-4551439305901.png) |
+| Click the card's Install | `cmux.dialog.button.confirm` | ok: the listing shows an Installed badge, Open and Remove | ![installed](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/55431/appstore-native-installed-4551439305901.png) |
+| Click Open | `cmux.appStore.open.cmux/clock` | ok: a New Tab opens with the Clock widget, showing the worker's live date and time | ![opened](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/55431/appstore-native-opened-4551439305901.png) |
 
 The app stayed up through all 23 steps, and no crash report was written.
 
