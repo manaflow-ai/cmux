@@ -703,8 +703,7 @@ impl Hub {
 
     pub fn connected_peers(&self) -> Vec<Arc<crate::peer::Peer>> {
         self.peers
-            .lock()
-            .unwrap()
+            .load()
             .values()
             .filter(|p| p.connected.load(std::sync::atomic::Ordering::SeqCst))
             .cloned()
@@ -1843,12 +1842,7 @@ impl Hub {
     /// Each peer's link state by its name: what a listed peer row says as `peerState`
     /// ([`listed_remote_row`]).
     pub(super) fn peer_link_states(&self) -> HashMap<String, &'static str> {
-        self.peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .map(|p| (p.name.clone(), p.state().as_str()))
-            .collect()
+        self.peers.load().values().map(|p| (p.name.clone(), p.state().as_str())).collect()
     }
 
     /// This daemon's own sessions' summaries, without retaining the JSON trees: each closed row

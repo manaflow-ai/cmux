@@ -199,8 +199,7 @@ impl Hub {
         }
         let dirty: Vec<_> = self
             .peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .load()
             .values()
             .filter(|p| p.cache_is_dirty())
             .map(|p| (p.name.clone(), p.generation))
