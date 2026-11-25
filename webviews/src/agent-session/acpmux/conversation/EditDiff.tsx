@@ -64,6 +64,8 @@ type EditDiffProps = {
   whole?: boolean;
   /** More corner actions after Wrap and copy (the edited-files card's Open in Changes). */
   actions?: ReactNode;
+  /** The name its header shows, when not the file's own (the edited-files card's repo-relative path). */
+  label?: string;
 };
 
 export function EditDiff(props: EditDiffProps) {
@@ -76,6 +78,7 @@ export function EditDiffFrame({
   reveal = 0,
   whole = false,
   actions,
+  label,
   hunks: Hunks,
 }: EditDiffProps & {
   hunks: ComponentType<{ file: TurnFile; patches: string[]; wrap: boolean }>;
@@ -83,7 +86,7 @@ export function EditDiffFrame({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const patches = useMemo(() => file.edits.map((edit) => editPatch(file, edit)), [file]);
-  const name = file.path.split("/").pop() || file.path;
+  const name = label || file.path.split("/").pop() || file.path;
   const kind = fileBlockKind(file.path);
   const [wrap] = useBlockWrap(kind);
   const found = useFindInFile(file);
@@ -100,7 +103,12 @@ export function EditDiffFrame({
   return (
     <div className="cv-edit-diff" data-wrap={wrap}>
       <div className="cv-edit-diff__header">
-        <span className="cv-edit-diff__name" data-path={file.path}>
+        <span
+          className="cv-edit-diff__name"
+          data-path={file.path}
+          // tooltip-allow: a long path is cut to the header; its whole path is the tooltip
+          title={label}
+        >
           {name}
         </span>
         <span className="cv-edit-diff__add">+{file.additions}</span>

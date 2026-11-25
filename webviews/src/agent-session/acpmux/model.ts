@@ -2429,12 +2429,13 @@ export function visibleRowRange(
 /// The room under the edited-files card (styles.css `.acpmux-edited` margin-bottom).
 const EDITED_CARD_BELOW = 6;
 /// The edited-files card's height for `files` changed files with diffs and `plain` edits listed
-/// without one (styles.css `.acpmux-edited`): its 64px head, and, while `open`, a 36px row for each
-/// of the first `maxRows` and for "Show N more". A lone file with a diff is named in the head.
-export function editedCardHeight(files: number, plain = 0, open = true, maxRows = 3): number {
-  const entries = files + plain;
-  if ((entries <= 1 && plain === 0) || !open) return 64;
-  return 64 + 36 * Math.min(entries, maxRows) + (entries > maxRows ? 36 : 0);
+/// without one (styles.css `.acpmux-edited`): its one 64px row, and, once the reader opened it, the
+/// stacked diffs under it (EditedFilesCard.css `.acpmux-edited-stack`): a file's 32px name and about
+/// six lines, a plain edit's 36px line, the box at most 60% of `viewport` tall. The drawn height
+/// replaces it once measured.
+export function editedCardHeight(files: number, plain = 0, open = false, viewport = 800): number {
+  if (!open || files + plain === 0) return 64;
+  return 64 + Math.min(files * (32 + 6 * 18) + plain * 36, Math.round(viewport * 0.6));
 }
 
 /// What edits without a diff list as in the edited-files card: each path they name, once
@@ -2788,11 +2789,11 @@ function fallbackRowHeight(
         ),
       );
       const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.canonical ?? entry.path));
-      // Its file rows show unless agentPane.editedFiles.show is collapsed and the reader has not
-      // opened it (EditedFilesCard.tsx `open`, turnChanges/openStore.ts), at most maxRows of them.
-      const settings = editedFilesSettings();
-      const open = settings.show !== "collapsed" || cardOpen(row.id);
-      return finish(EDITED_CARD_BELOW + editedCardHeight(files.size, plain.length, open, settings.maxRows));
+      // One row until the reader opens it (EditedFilesCard.tsx, turnChanges/openStore.ts); opened, its
+      // stacked diffs in a box at most 60% of the view tall.
+      const open = cardOpen(row.id);
+      const viewport = typeof window === "undefined" ? undefined : window.innerHeight || undefined;
+      return finish(EDITED_CARD_BELOW + editedCardHeight(files.size, plain.length, open, viewport));
     }
     // A folded run (the Codex-style runs) that keeps an entry in sight (a message to another agent)
     // draws its stretches; one with nothing kept in sight draws one summary line, or its one call.
@@ -4565,7 +4566,6 @@ import { groupDisclosureKey, runDisclosureKey, runLinks, thoughtIds } from "./co
 import { thoughtChoices } from "./conversation/thoughtChoices";
 import { PREVIEW_LINES } from "./conversation/blockPartsModel";
 import { cardOpen } from "./turnChanges/openStore";
-import { editedFilesSettings } from "./turnChanges/settings";
 import { runScroll } from "./conversation/runScroll.experiment";
 import { acpmuxSendCalls } from "./conversation/acpmuxSends";
 import { isFoldedRun } from "./conversation/toolRunSummary";

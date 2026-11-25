@@ -62,17 +62,50 @@ div.acpmux-edited {
 .acpmux-edited-head[data-interactive]:hover:not(:has(button:not(.acpmux-edited-toggle):hover)) .acpmux-edited-chevron {
   color: var(--agent-text);
 }
-/* A file row of a card for several files opens its diff under it, its chevron at the row's end. */
-.acpmux-edited .acpmux-edited-file-chevron {
-  flex: none;
-  color: var(--agent-muted);
+/* The opened card (Leo, 2026-11-25: "one row that expands out to the widest situation"): every file's
+   whole diff stacked in one box, at most 60% of the view tall, that scrolls once. Each file is the
+   diff viewer's section, not a card inside the card: no ring, no corner, no gap; its name stays at
+   the top of the box while its lines scroll under it. */
+.acpmux-edited .acpmux-edited-stack {
+  max-height: 60vh;
+  overflow: auto;
+  overscroll-behavior: contain;
 }
-/* The diff opened inside the card, drawn as an opened edit call's (EditDiff), inset from the card's edges. */
-.acpmux-edited .acpmux-edited-diff {
-  padding: 0 var(--ds-space-2) var(--ds-space-2);
+.acpmux-edited-stack .cv-edit-diff {
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  /* Not hidden: a hidden box would be the sticky name's scroller instead of the stack. */
+  overflow: clip;
 }
-.acpmux-edited .acpmux-edited-diff > .cv-edit-diff {
-  margin: var(--ds-space-2) 0 0;
+.acpmux-edited-stack .cv-edit-diff__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--cv-codeblock-bg);
+  box-shadow: inset 0 1px 0 var(--ds-surface-card-line);
+}
+.acpmux-edited-plain {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  min-height: calc(9 * var(--grid-base));
+  padding: 0 6px 0 12px;
+  box-shadow: inset 0 1px 0 var(--ds-surface-card-line);
+  color: var(--agent-text);
+  font-size: calc(var(--cv-font-size) * 13 / 14);
+}
+.acpmux-edited-plain > .acpmux-edited-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Opened, the card takes the transcript's width (the scroller is its container, conversation.css
+   .acpmux-scroll), past the message column on each side down to the page edge, where the pane has
+   that room; in a narrow pane the column already is that width. */
+.acpmux-edited[data-open] {
+  --acpmux-edited-outset: max(0px, calc((100cqw - 100%) / 2 - var(--cv-edge, 16px)));
+  margin-inline: calc(-1 * var(--acpmux-edited-outset));
 }
 
 /* A Markdown file's row: the row's own button (its diff) and, at its end, Open (its Markdown page),
@@ -98,3 +131,5 @@ div.acpmux-edited {
   max-width: 100%;
   min-width: 0;
 }
+/* The head's own bottom line already edges the first file: its name takes no second line. */
+.acpmux-edited-stack > .acpmux-edited-section:first-child .cv-edit-diff__header{box-shadow:none}
