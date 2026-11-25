@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// A presented page's input surface (``CEFHostedPageView/input`` set; ``InTreePages/Presentation/presented``). The page
@@ -57,24 +58,14 @@ extension CEFHostedPageView {
 
     /// Follows the window's key changes while this view presents a page.
     func observeWindowKey() {
-        let center = NotificationCenter.default
-        if let observedWindow {
-            center.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: observedWindow)
-            center.removeObserver(self, name: NSWindow.didResignKeyNotification, object: observedWindow)
-        }
-        observedWindow = nil
+        keyObservations = []
         guard input != nil, let window else {
             if input != nil { syncPageFocus(firstResponder: false) }
             return
         }
-        observedWindow = window
-        center.addObserver(self, selector: #selector(windowKeyChanged(_:)), name: NSWindow.didBecomeKeyNotification, object: window)
-        center.addObserver(self, selector: #selector(windowKeyChanged(_:)), name: NSWindow.didResignKeyNotification, object: window)
-        syncPageFocus()
-    }
-
-    /// AppKit posts a window's key changes on the main thread.
-    @objc func windowKeyChanged(_ note: Notification) {
+        keyObservations = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
+            MainActorObservation(name, object: window, center: notificationCenter) { [weak self] in self?.syncPageFocus() }
+        }
         syncPageFocus()
     }
 

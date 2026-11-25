@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextRemoteLayer
 import QuartzCore
 
@@ -49,8 +50,10 @@ final class CEFHostedPageView: NSView {
     var windowIsKey: (NSWindow) -> Bool = { $0.isKeyWindow }
     /// The page focus last given (``syncPageFocus(firstResponder:)``): this view is its key window's first responder.
     var givesPageFocus = false
-    /// The window whose key changes this view follows, while it presents a page.
-    weak var observedWindow: NSWindow?
+    /// This view's window's key changes, while it presents a page.
+    var keyObservations: [MainActorObservation] = []
+    /// Where those come from (`NotificationCenter.default`; tests pass their own).
+    var notificationCenter = NotificationCenter.default
     /// Chromium's cursor over a presented page (`CefDisplayHandler::OnCursorChange`), shown while the pointer is over
     /// this view; nil: the arrow.
     var pageCursor: NSCursor? {

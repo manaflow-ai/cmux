@@ -264,12 +264,15 @@ import Testing
     /// The page's focus is the embedder's key state: its window resigning key blurs the page, becoming key focuses it
     /// again, as a Chrome page in a window that loses and regains key.
     @Test func theWindowsKeyStateIsThePagesFocus() throws {
+        let center = NotificationCenter()
         let (_, page) = try presentedPage()
+        page.notificationCenter = center
+        page.observeWindowKey()
         #expect(window.makeFirstResponder(page))
         page.windowIsKey = { _ in false }
-        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        center.post(name: NSWindow.didResignKeyNotification, object: window)
         page.windowIsKey = { _ in true }
-        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        center.post(name: NSWindow.didBecomeKeyNotification, object: window)
         #expect(shim.focus.map(\.focused) == [true, false, true])
     }
 
