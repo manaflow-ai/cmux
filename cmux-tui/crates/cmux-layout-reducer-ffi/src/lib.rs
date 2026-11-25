@@ -361,6 +361,13 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 cmux_cloud_start_core::capability::forget();
                 b"{}".to_vec()
             }
+            b"cloud_one_pane" => {
+                use cmux_cloud_start_core::one_pane;
+                let request: one_pane::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&serde_json::json!({ "shown": one_pane::shown(&request) }))
+                    .map_err(|_| ERR_INVALID)?
+            }
             b"cloud_start_refusal" => {
                 #[derive(serde::Deserialize)]
                 #[serde(rename_all = "camelCase")]
