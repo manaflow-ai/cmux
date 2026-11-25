@@ -102,7 +102,7 @@ where
     })
 }
 
-/// Debug builds only: a panic at `point` once it is armed, where `text` holds the armed text:
+/// Debug builds and test harnesses: a panic at `point` once it is armed, where `text` holds the armed text:
 /// by a unit test ([`arm_panic`]) or by `ACPMUX_TEST_PANIC_AT=POINT[:TEXT]` for the daemon's
 /// integration tests. Each arming fires once, and counts every pass of its point after
 /// ([`armed_passes`]), so a test sees a supervised loop come back to it. Release builds have no
