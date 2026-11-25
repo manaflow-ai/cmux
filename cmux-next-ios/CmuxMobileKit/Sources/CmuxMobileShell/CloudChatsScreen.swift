@@ -47,8 +47,11 @@ struct CloudChatsScreen: View {
                     }
                 }
                 if loading {
-                    CmuxSpinner(label: Text("Loading Cloud chats…"))
-                        .placeholderBound("cloud.chats.loading", .milliseconds(2000))
+                    // A list that answers within the coming-up bound draws no spinner (Leo, 2026-11-14).
+                    CloudChatsComingUp {
+                        CmuxSpinner(label: Text("Loading Cloud chats…"))
+                            .placeholderBound("cloud.chats.loading", .milliseconds(2000))
+                    }
                 } else if needsMac {
                     CloudChatsConnectMac { openDevices() }
                 } else if let error {
@@ -150,6 +153,26 @@ struct CloudChatsConnectMac: View {
             PrimaryCapsule("Connect a Mac", size: .inline, action: connect)
                 .accessibilityIdentifier("cloudChats.connectMac")
         }
+    }
+}
+
+/// A Cloud list's or machine's wait, drawn only once it has lasted ``QuietStatusGate/threshold``
+/// (the shared 10 s `connectionQuietMs` of schemas/notice-timing): a connect that answers inside it
+/// goes straight from nothing to the list (Leo, 2026-11-14: "i also want all our connectivity stuff
+/// to shut up and load faster/percievably load faster"). A failure, which has Retry, never waits:
+/// it is its own view. One gate per wait, ended with the view. Only with Settings → Transport →
+/// Quiet Cloud Connections on (off by default); off draws the wait at once, as before.
+struct CloudChatsComingUp<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    @State private var gate = QuietStatusGate()
+    @AppStorage(CmuxMobilePreferences.Key.quietCloudConnect) private var quiet = CmuxMobilePreferences.defaultQuietCloudConnect
+
+    var body: some View {
+        Group {
+            if !quiet || gate.isShown { content() } else { Color.clear.frame(height: 1).accessibilityHidden(true) }
+        }
+        .onAppear { gate.update(down: true) }
+        .onDisappear { gate.update(down: false) }
     }
 }
 

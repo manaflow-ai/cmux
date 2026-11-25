@@ -201,6 +201,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TAILNET_LOGOUT, Request),
         untyped(method::MUX_TAILNET_START, Request),
         untyped(method::MUX_TAILNET_STATE, Request),
+        // Its params and answer are cmux_tailnet_front's versioned PlacementMessage and
+        // PlacementReply (their own lockstep tests).
+        untyped(method::MUX_TAILNET_PLACEMENT, Request),
         // Sessions.
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).

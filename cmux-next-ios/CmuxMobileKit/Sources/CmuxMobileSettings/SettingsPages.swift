@@ -633,6 +633,14 @@ struct TransportPage: View {
                 Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
             }
             Section {
+                Toggle(isOn: $settings.quietCloudConnect) {
+                    Text("Quiet Cloud Connections")
+                }
+                .accessibilityIdentifier("settings.transport.quietCloudConnect")
+            } footer: {
+                Text("Cloud chats and machines that answer within 10 seconds show no loading or connecting message, and a short outage behind Cloud lists you already see shows no alert. Longer waits and failures still show.")
+            }
+            Section {
                 Toggle(isOn: $settings.agentCLIHybrid) {
                     Text("Agent CLI Screen Changes")
                 }

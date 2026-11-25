@@ -20,6 +20,11 @@ cmux-next-ios/design/placeholders.json holds:
                other overstay, and on a listed one it saw stay within its bound (the list only shrinks:
                the fixing PR deletes its own entries). A bound of 0 is a placeholder being removed:
                drawn at all, it fails.
+  known_layout_shifts
+               the flows of the simulator half whose layout-shift count (frames after first paint in
+               which a drawn row or card moved or resized, CmuxMobileDesign/LayoutShift.swift) is not
+               yet zero, each with its item and pull request. Zero is the bound: the simulator half
+               fails on a shift in an unlisted flow and on a listed flow that reached zero.
 
 KNOWN_SWIFT (the simulator half's copy of known_over_bound) is written from the inventory by
 `--write-known`; the check fails when it differs.
@@ -48,6 +53,7 @@ LOOKAHEAD = 16
 SOURCE_DIRS = ("cmux-next-ios/App", "cmux-next-ios/CmuxMobileKit/Sources", "cmux-next-ios/NotificationContent")
 INVENTORY = "cmux-next-ios/design/placeholders.json"
 KNOWN_SWIFT = "cmux-next-ios/UITests/PlaceholderKnownOverBound.swift"
+SUITE_SWIFT = "cmux-next-ios/UITests/PlaceholderBoundUITests.swift"
 MARK = re.compile(r'\.placeholderBound\(\s*"([^"]+)"\s*,\s*\.(milliseconds|seconds)\((\d+(?:\.\d+)?)\)')
 
 
@@ -66,15 +72,21 @@ def sources(root: Path) -> list[Path]:
 
 def known_swift(inventory: dict) -> str:
     known = sorted(inventory.get("known_over_bound", []), key=lambda k: k["id"])
-    rows = [f'        "{k["id"]}": "{k["item"]}, {k["fix"]}",' for k in known] or ["        :"]
+    shifts = sorted(inventory.get("known_layout_shifts", []), key=lambda k: k["flow"])
+
+    def table(doc: str, name: str, pairs: list[tuple[str, str]]) -> list[str]:
+        if not pairs:
+            return [f"    /// {doc}", f"    static let {name}: [String: String] = [:]"]
+        body = [f'        "{key}": "{value}",' for key, value in pairs]
+        return [f"    /// {doc}", f"    static let {name}: [String: String] = [", *body, "    ]"]
     return "\n".join([
         "// Written by scripts/ci/ios_placeholder_bounds.py --write-known from",
         "// cmux-next-ios/design/placeholders.json (known_over_bound); do not edit by hand.",
         "enum PlaceholderKnownOverBound {",
-        "    /// Placeholder id -> the item and pull request that removes it.",
-        "    static let ids: [String: String] = [",
-        *rows,
-        "    ]",
+        *table("Placeholder id -> the item and pull request that removes it.", "ids",
+               [(k["id"], f'{k.get("item", "")}, {k.get("fix", "")}') for k in known]),
+        *table("Flow -> the item and pull request that brings its layout-shift count to zero.", "layoutShiftFlows",
+               [(k["flow"], f'{k.get("item", "")}, {k.get("fix", "")}') for k in shifts]),
         "}",
         "",
     ])
@@ -131,6 +143,14 @@ def check(root: Path) -> list[str]:
             problems.append(f"{INVENTORY}: known_over_bound {known.get('id')!r} is not a listed placeholder")
         if not known.get("item") or not known.get("fix"):
             problems.append(f"{INVENTORY}: known_over_bound {known.get('id')!r} needs the item and the pull request that removes it")
+    suite = root / SUITE_SWIFT
+    suite_text = suite.read_text() if suite.is_file() else None
+    for known in inventory.get("known_layout_shifts", []):
+        flow = known.get("flow")
+        if not known.get("item") or not known.get("fix"):
+            problems.append(f"{INVENTORY}: known_layout_shifts {flow!r} needs the item and the pull request that removes its shifts")
+        if suite_text is not None and f'"{flow}"' not in suite_text:
+            problems.append(f"{INVENTORY}: known_layout_shifts {flow!r} is not a flow {SUITE_SWIFT} drives")
     swift = root / KNOWN_SWIFT
     if (root / "cmux-next-ios/UITests").is_dir() and (not swift.is_file() or swift.read_text() != known_swift(inventory)):
         problems.append(f"{KNOWN_SWIFT}: differs from {INVENTORY} known_over_bound; run scripts/ci/ios_placeholder_bounds.py --write-known")
