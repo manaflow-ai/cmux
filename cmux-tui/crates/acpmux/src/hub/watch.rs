@@ -874,6 +874,7 @@ impl Hub {
         }
         if fork {
             *session.fork_from.lock().unwrap_or_else(|e| e.into_inner()) = Some(id.clone());
+            session.keep_fork_start(true);
         }
         self.save_meta(session);
         // No terminal drives a chat that runs its conversation itself.

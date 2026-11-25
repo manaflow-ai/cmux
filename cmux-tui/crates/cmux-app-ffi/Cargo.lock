@@ -183,6 +183,7 @@ dependencies = [
  "cmux-daemon-conn-core",
  "cmux-daemon-launch-core",
  "cmux-health-core",
+ "cmux-keymap",
  "cmux-launch-image",
  "cmux-launch-record",
  "cmux-launch-shell",
@@ -393,6 +394,14 @@ dependencies = [
 name = "cmux-json"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-keymap"
+version = "0.1.0"
+dependencies = [
+ "serde",
  "serde_json",
 ]
 

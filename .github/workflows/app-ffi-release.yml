@@ -70,6 +70,8 @@ on:
       - "cmux-tui/crates/cmux-pane-pictures/**"
       - "cmux-tui/crates/cmux-focus-core/**"
       - "cmux-tui/crates/cmux-imessage/**"
+      - "cmux-tui/crates/cmux-keymap/**"
+      - "schemas/keymap/key-styles.json"
       - "cmux-tui/crates/cmux-launch-record/**"
       - "cmux-tui/crates/cmux-launch-shell/**"
       - "cmux-tui/crates/cmux-layout-cache/**"
