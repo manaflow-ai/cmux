@@ -169,11 +169,14 @@ impl SubagentTree {
     /// The time of the updates that follow (epoch ms): a live one's arrival, a logged one's stamp.
     pub fn set_clock(&mut self, at: u64) {
         self.expiry.clock = at;
+        self.logged_at = None;
     }
 
-    /// When the update being read happened: its logged stamp when a log is folded, else now.
-    pub(super) fn update_time(&self) -> u64 {
-        if self.expiry.clock > 0 { self.expiry.clock } else { crate::store::now_ms() }
+    /// `set_clock` for an update read back from the chat's log at its stamp `at`: what the tree
+    /// records of it (`listed`'s start and end) is the log's time, not the time of the read.
+    pub fn set_log_clock(&mut self, at: u64) {
+        self.expiry.clock = at;
+        self.logged_at = Some(at);
     }
 
     /// One event of `id`: running, it is seen now; ended, it leaves expiry's tables. Any event

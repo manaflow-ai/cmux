@@ -238,13 +238,27 @@ fn terminal_reap_grace_runs_across_an_owner_restart() {
     close_workspace_of(&mux, &closed);
     let mut schedule = ReapSchedule::default();
     assert!(mux.reap_unplaced_terminals(&mut schedule, Instant::now()).is_empty());
-    // A restart: a new schedule; the terminal was closed a grace ago.
+    // A restart: a new schedule; the terminal was closed a grace ago. The new owner holds it
+    // once for the app to attach again (cold adoption), and ends it when that hold is over.
     mux.workspace_registry.lock().unwrap().backdate_terminal_unplaced(&closed_id, grace).unwrap();
     let mut restarted = ReapSchedule::default();
+    let start = Instant::now();
+    assert!(mux.reap_unplaced_terminals(&mut restarted, start).is_empty());
+    assert_eq!(restarted.deadline(&closed_id), Some(start + COLD_ADOPTION_HOLD));
+    // A second restart inside the hold does not give it again: the hold's start is durable.
     assert_eq!(
-        mux.reap_unplaced_terminals(&mut restarted, Instant::now()),
+        mux.workspace_registry
+            .lock()
+            .unwrap()
+            .backdate_terminal_adoptions(COLD_ADOPTION_HOLD)
+            .unwrap(),
+        1
+    );
+    let mut restarted_again = ReapSchedule::default();
+    assert_eq!(
+        mux.reap_unplaced_terminals(&mut restarted_again, Instant::now()),
         vec![closed_id.clone()],
-        "a restart must not count the grace again from zero"
+        "a restart must not count the grace, or the adoption hold, again from zero"
     );
     assert_eq!(lifecycle(&mux, &closed_id), TerminalLifecycle::Tombstoned);
     assert_eq!(lifecycle(&mux, &host_id(&mux, &placed)), TerminalLifecycle::Running);
@@ -577,6 +591,7 @@ fn terminal_reap_attached_terminal_survives_the_guarded_reap_close() {
     mux.close_surface(placed.id).unwrap();
 }
 
+mod cold_adoption;
 mod detach_cap;
 
 /// While the app this owner served is gone no closed terminal's grace runs out; each gets a whole

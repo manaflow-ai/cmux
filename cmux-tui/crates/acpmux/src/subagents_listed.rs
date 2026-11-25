@@ -93,9 +93,7 @@ impl SubagentTree {
     /// Follows every subagent through one update's events, live or replayed: its state, its kind
     /// and the call that started it; and, live, when it started and ended.
     pub(super) fn note_listed(&mut self, events: &[Value], live: bool) {
-        // The update's own time, not the read's: a log folded again (an adoption resumed from
-        // its checkpoint, or a whole read) gives each subagent the start it was logged with.
-        let now = live.then(|| self.update_time());
+        let now = live.then(|| self.logged_at.unwrap_or_else(crate::store::now_ms));
         for event in events {
             let (Some(id), Some(state)) =
                 (event.get("id").and_then(Value::as_str), listed_state(event))
@@ -165,7 +163,7 @@ impl SubagentTree {
             running_now.iter().map(|(id, _)| item(id, self.listed.get(*id), "running")).collect();
         let mut done: Vec<(&String, &Listed)> =
             self.listed.iter().filter(|(id, _)| !running_ids.contains(id.as_str())).collect();
-        done.sort_by(|a, b| b.1.seq.cmp(&a.1.seq));
+        done.sort_by_key(|a| std::cmp::Reverse(a.1.seq));
         let ended_omitted = done.len().saturating_sub(ended);
         let ended = done
             .into_iter()
