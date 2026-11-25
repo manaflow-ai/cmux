@@ -244,6 +244,7 @@ struct IntentLog {
     private static let replacedStandInLimit = 64
 
     func replacement(ofStandIn id: String) -> SurfaceID? { replacedStandIns.last { $0.standIn == id }?.surface }
+    func standIn(replacedBy surface: SurfaceID) -> String? { replacedStandIns.last { $0.surface == surface }?.standIn }
 
     /// The daemon tabs the person closed lately (bounded, newest last), still known after their close settled: a new
     /// tab's move that waits for its tab to be listed stops waiting for one already closed (``DaemonStore/closedLately(_:)``).
