@@ -31,6 +31,7 @@ mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
 mod read_store;
+mod relay_hold;
 mod row_layout;
 mod share_approval;
 mod tabs;
@@ -534,6 +535,13 @@ impl LinkHandle {
         Ok(u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX))
     }
 
+    /// Wake the radio before a keystroke (the terminal's keyboard took focus
+    /// or a finger touched it): one datagram ping on a link quiet for a
+    /// second. Free when the link is busy, parked or closed. `true` when sent.
+    pub fn prewake(&self) -> bool {
+        self.link.prewake()
+    }
+
     /// Whether the link is alive within `timeout_ms`: the round trip in
     /// milliseconds on the pong, `None` when other frames from the Mac came
     /// first (a slow relay's queue; the link is alive), an error only when
@@ -567,6 +575,17 @@ impl LinkHandle {
     /// it was parked and its hold has not passed. The tunnel then moves onto
     /// a fresh socket (as on a network change) and the caller probes; the
     /// first frame back ends the park on both sides.
+    /// This link's relay-held send route (RFD 0142 R8), or `None` while [`relay_hold::set_relay_hold_enabled`]
+    /// is off or the link is not a WireGuard session. One per link: keep it while the link lives.
+    pub fn relay_hold(&self) -> Option<Arc<relay_hold::RelayHoldRoute>> {
+        if !relay_hold::enabled() {
+            return None;
+        }
+        let _runtime = runtime().enter();
+        let ports = cmux_mobile_link::dial::wireguard::relay_hold_port(&self.session_id, true)?;
+        Some(Arc::new(relay_hold::RelayHoldRoute::new(cmux_mobile_link::hold_route::HoldRoute::start(ports))))
+    }
+
     pub fn resume(&self) -> bool {
         if !self.link.resume() {
             return false;
