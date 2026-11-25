@@ -13,8 +13,9 @@
 //! opts into stable ID ordering, so updates cannot move an unread session past
 //! the cursor (used by the quit census, which does not subscribe to changes).
 //!
-//! `peer`, `status`, `localOnly` and `excludeStatus` narrow the list before it
-//! is paged. A caller that only needs this daemon's live sessions can therefore
+//! `peer`, `status`, `localOnly`, `topLevelOnly` and `excludeStatus` narrow the list before it
+//! is paged (`topLevelOnly`: no side chat and no session another chat's agent started, the rows a
+//! chat list shows on their own, `session_order::top_level_summary`). A caller that only needs this daemon's live sessions can therefore
 //! avoid walking the peer mirror. Only
 //! `_acpmux/sessions` takes them: a watch streams every session's changes, so
 //! a filtered first page would promise a scope its events do not keep
@@ -79,6 +80,7 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
     let peer = text_filter(params, "peer")?;
     let status = text_filter(params, "status")?;
     let local_only = bool_filter(params, "localOnly")?;
+    let top_level_only = bool_filter(params, "topLevelOnly")?;
     if order.is_some() && !local_only {
         return Err(RpcError::invalid_params("orderBy sessionId requires localOnly"));
     }
@@ -89,6 +91,7 @@ pub(crate) fn pick_page<R: PageRow>(sorted: &[R], params: &Value) -> Result<Pick
         .filter(|(_, s)| peer.is_none_or(|p| s.peer() == Some(p)))
         .filter(|(_, s)| status.is_none_or(|st| s.status() == Some(st)))
         .filter(|(_, s)| !local_only || s.peer().is_none())
+        .filter(|(_, s)| !top_level_only || s.top_level())
         .filter(|(_, s)| s.status().is_none_or(|st| !excluded.contains(&st)))
         .map(|(at, _)| at)
         .collect();
@@ -269,8 +272,10 @@ fn status_filter<'a>(params: &'a Value, name: &str) -> Result<Vec<&'a str>, RpcE
 
 /// `_acpmux/watch` refuses `peer` and `status`: its events cover every session.
 pub(crate) fn refuse_watch_filters(params: &Value) -> Result<(), RpcError> {
-    for name in ["peer", "status", "localOnly", "pendingOnly", "excludeStatus", "orderBy"] {
-        if name == "localOnly" || name == "pendingOnly" {
+    for name in
+        ["peer", "status", "localOnly", "topLevelOnly", "pendingOnly", "excludeStatus", "orderBy"]
+    {
+        if matches!(name, "localOnly" | "topLevelOnly" | "pendingOnly") {
             if bool_filter(params, name)? {
                 return Err(RpcError::invalid_params(format!(
                     "{name} filters _acpmux/sessions only: a watch streams every session"
@@ -601,6 +606,63 @@ mod tests {
         assert!(refuse_watch_filters(&json!({"limit": 5, "peer": null, "status": ""})).is_ok());
         assert!(refuse_watch_filters(&json!({"localOnly": true})).is_err());
         assert!(refuse_watch_filters(&json!({"excludeStatus": ["closed"]})).is_err());
+        assert!(refuse_watch_filters(&json!({"topLevelOnly": true})).is_err());
+        assert!(refuse_watch_filters(&json!({"topLevelOnly": false})).is_ok());
+    }
+
+    /// `topLevelOnly` keeps the chats a list shows on their own: no side chat (a `side` tag) and
+    /// no session another chat's agent started (`spawnedBy`, `startedBy`), dropped before the
+    /// page is cut so `limit` counts only what the list draws and the cursor walks past them.
+    #[test]
+    fn top_level_only_drops_side_chats_and_children_before_paging() {
+        let mut rows = vec![
+            json!({"sessionId": "chat-new", "updatedAt": 9, "status": "idle"}),
+            json!({"sessionId": "side", "updatedAt": 8, "status": "idle", "tags": {"side": "1"}}),
+            json!({"sessionId": "child", "updatedAt": 7, "status": "idle", "spawnedBy": "chat-new"}),
+            json!({"sessionId": "sub", "updatedAt": 6, "status": "idle", "startedBy": "chat-new"}),
+            json!({"sessionId": "chat-mid", "updatedAt": 5, "status": "idle",
+                   "tags": {"side": null, "pin": "1"}, "spawnedBy": "", "startedBy": null}),
+            json!({"sessionId": "chat-old", "updatedAt": 1, "status": "closed", "tags": {}}),
+        ];
+        sort_session_summaries(&mut rows);
+        let top = ["chat-new", "chat-mid", "chat-old"];
+
+        assert_eq!(ids(&session_list_reply(rows.clone(), &json!({})).unwrap()).len(), 6);
+        assert_eq!(
+            ids(&session_list_reply(rows.clone(), &json!({"topLevelOnly": false})).unwrap()).len(),
+            6
+        );
+        assert_eq!(
+            ids(&session_list_reply(rows.clone(), &json!({"topLevelOnly": true})).unwrap()),
+            top
+        );
+        assert!(session_list_reply(rows.clone(), &json!({"topLevelOnly": "yes"})).is_err());
+
+        for limit in 1..=top.len() {
+            let (mut read, mut cursor) = (Vec::new(), Value::Null);
+            loop {
+                let reply = session_list_reply(
+                    rows.clone(),
+                    &json!({"topLevelOnly": true, "localOnly": true, "limit": limit, "cursor": cursor}),
+                )
+                .unwrap();
+                assert!(ids(&reply).len() <= limit);
+                read.extend(ids(&reply).into_iter().map(str::to_owned));
+                cursor = reply["nextCursor"].clone();
+                if cursor.is_null() {
+                    break;
+                }
+            }
+            assert_eq!(read, top, "limit {limit}");
+        }
+        assert_eq!(
+            ids(&session_list_reply(
+                rows,
+                &json!({"topLevelOnly": true, "excludeStatus": ["closed"]})
+            )
+            .unwrap()),
+            ["chat-new", "chat-mid"]
+        );
     }
 
     /// The Mac and the phone draw one list in one order: neither app sorts it. The phone's Cloud
