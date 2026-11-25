@@ -45,13 +45,18 @@ type QuietLook = "inline" | "stacked" | "hint" | "thinking";
 /// the stage, so the clock always counts (a host that sends no start time for a step still gets
 /// seconds on its line, never a bare label). A new stage starts its own count.
 export function useStageSince(stage: Pick<QuietStage, "id" | "since"> | undefined, now: number): number | undefined {
-  const seen = useRef<{ id: QuietStage["id"]; at: number } | undefined>(undefined);
-  if (!stage) {
-    seen.current = undefined;
-    return undefined;
+  // State, not a ref, so the React Compiler keeps compiling the line (check:compiler-bails): a new stage
+  // sets it during render, React's pattern for state that follows a prop.
+  const [seen, setSeen] = useState<{ id: QuietStage["id"]; at: number } | undefined>(
+    stage ? { id: stage.id, at: now } : undefined,
+  );
+  const id = stage?.id;
+  if (seen?.id !== id) {
+    const next = stage ? { id: stage.id, at: now } : undefined;
+    setSeen(next);
+    return stage ? (stage.since ?? now) : undefined;
   }
-  if (seen.current?.id !== stage.id) seen.current = { id: stage.id, at: now };
-  return stage.since ?? seen.current.at;
+  return stage ? (stage.since ?? seen?.at) : undefined;
 }
 
 /// The quiet view's one line while a start is on its way: the stage's words in the live line's look
