@@ -49,6 +49,7 @@ pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
@@ -270,6 +271,8 @@ pub mod person_tokens;
 pub mod fleet_elastic;
 pub mod place_mode;
 pub mod placement;
+// `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
