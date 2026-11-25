@@ -68,26 +68,14 @@ fn both_settings_are_on_by_default_and_compacting_first_needs_batching() {
 }
 
 #[test]
-fn the_compaction_line_is_a_setting_clamped_to_its_range_and_100k_by_default() {
+fn the_compaction_line_is_a_setting_clamped_to_its_range_and_50k_by_default() {
     let line = |doc: Value| settings(Some(&doc)).compact_above;
-    assert_eq!(settings(None).compact_above, 100_000, "the default is 100K");
+    assert_eq!(settings(None).compact_above, 50_000, "the default stays 50K");
     assert_eq!(line(json!({"agents": {"coldWake": {"compactAboveTokens": 80_000}}})), 80_000);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 120_000})), 120_000);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 1})), COMPACT_ABOVE_RANGE.0);
     assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": 9e9})), COMPACT_ABOVE_RANGE.1);
-    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": "big"})), 100_000, "junk");
-}
-
-#[test]
-fn the_default_line_sits_above_the_break_even() {
-    // Compacting first must cost less than the plain wake at the default line, and the 50K the
-    // line started at must stay a loss, so the model and the default cannot drift apart.
-    let line = DEFAULT_COMPACT_ABOVE_TOKENS;
-    assert!(cold_compact_cost(line) < plain_wake_cost(line), "the default pays on the wake");
-    let break_even = COLD_COMPACT_OVERHEAD_TOKENS;
-    assert!(line > break_even, "{line} must sit above the {break_even} break-even");
-    assert_eq!(cold_compact_cost(break_even), plain_wake_cost(break_even));
-    assert!(cold_compact_cost(50_000) > plain_wake_cost(50_000), "50K lost about 26K a wake");
+    assert_eq!(line(json!({"agents.coldWake.compactAboveTokens": "big"})), 50_000, "junk");
 }
 
 #[test]

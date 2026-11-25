@@ -6,9 +6,8 @@
 //! `claude_stdio/prompt_cache.rs`). With Settings > General > Prompt Cache's "Compact Before the
 //! Cache Expires" on (`agents.cacheCompact.enabled`, on by default since 2026-11-24; only an
 //! explicit `false` turns it off), each such update arms one timer for the session, [`lead_ms`] before
-//! that expiry, while the context is at least `agents.cacheCompact.minContextTokens` tokens or
-//! `agents.cacheCompact.minContextPercent` of its window, whichever trips first ([`Threshold`]).
-//! When it fires, the chat runs Claude Code's `/compact` as acpmux's own prompt
+//! that expiry, while the context is at least `agents.cacheCompact.minContextPercent` of its
+//! window. When it fires, the chat runs Claude Code's `/compact` as acpmux's own prompt
 //! ([`KIND`]), which reads the still-warm cache.
 //!
 //! Why on, at 30% (Leo, 2026-11-24: "we need to be compacting arguably BEFORE cache expires...",
@@ -18,13 +17,6 @@
 //! tokens before), one read about 12K from cache and wrote about 23K: about 40% of the cold
 //! rewrite it saves, so it pays once more than ~40% of idle chats are woken again. Most contexts
 //! there were 60-100K, which a 50% threshold on a 200K window misses and 30% catches.
-//!
-//! Why also an absolute bar, 60K tokens (2026-11-25): the percent alone is of the window the
-//! chat reports, and every chat measured then reported a 1M window, so 30% meant 300K: above the
-//! 178.5K autocompact cap, so it never fired. Warm compaction saved 70% of the wake at 99K and
-//! 82% at 218K; it pays when a chat comes back more than 30% of the time at 50K, 15% at 100K.
-//! Of 20 post-idle wakes, 13 were at 60K or more and 7 at 100K or more. The test
-//! `the_default_trigger_fires_under_the_autocompact_cap_whatever_the_window` keeps it reachable.
 //!
 //! It fires only when the chat is idle as the idle reaper judges it (no turn running or
 //! starting, nothing queued, no permission, question, secret or continuation waiting, no
@@ -85,37 +77,23 @@ pub const SETTING_MIN_CONTEXT: &str = "agents.cacheCompact.minContextPercent";
 pub const ENV_ENABLED: &str = "ACPMUX_CACHE_COMPACT";
 /// A percent: [`SETTING_MIN_CONTEXT`], whatever the settings file says.
 pub const ENV_MIN_CONTEXT: &str = "ACPMUX_CACHE_COMPACT_MIN_CONTEXT_PERCENT";
-/// The context (tokens) from which the timer compacts, whatever the window.
-pub const SETTING_MIN_TOKENS: &str = "agents.cacheCompact.minContextTokens";
-/// A token count: [`SETTING_MIN_TOKENS`], whatever the settings file says.
-pub const ENV_MIN_TOKENS: &str = "ACPMUX_CACHE_COMPACT_MIN_CONTEXT_TOKENS";
 const DEFAULT_MIN_CONTEXT: f64 = 30.0;
 const MIN_CONTEXT_RANGE: (f64, f64) = (10.0, 95.0);
-pub(crate) const DEFAULT_MIN_TOKENS: u64 = 60_000;
-pub(crate) const MIN_TOKENS_RANGE: (u64, u64) = (10_000, 500_000);
-
-/// What arms the timer: a context of at least `tokens`, or at least `share` (0-1) of its window,
-/// whichever trips first.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct Threshold {
-    pub share: f64,
-    pub tokens: u64,
-}
 
 /// The Settings keys as the daemon reads them, the settings file alone.
 #[cfg(test)]
-pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<Threshold> {
+pub(crate) fn settings_threshold(doc: Option<&Value>) -> Option<f64> {
     settings_threshold_with(doc, |_| None)
 }
 
 /// The Settings keys and their environment overrides (`env`, which wins) as the daemon reads
 /// them: None when off (only an explicit `agents.cacheCompact.enabled: false` or
-/// `ACPMUX_CACHE_COMPACT=0`), else what a chat must reach. No document (no settings file) is
-/// the defaults: on, at [`DEFAULT_MIN_TOKENS`] or [`DEFAULT_MIN_CONTEXT`] percent.
+/// `ACPMUX_CACHE_COMPACT=0`), else the context share (0-1) a chat must reach. No document (no
+/// settings file) is the defaults: on, at [`DEFAULT_MIN_CONTEXT`].
 pub(crate) fn settings_threshold_with(
     doc: Option<&Value>,
     env: impl Fn(&str) -> Option<String>,
-) -> Option<Threshold> {
+) -> Option<f64> {
     let get = |key: &str| doc.and_then(|doc| crate::user_settings::value(doc, key));
     let enabled = super::super::cold_wake::env_flag(env(ENV_ENABLED).as_deref())
         .or_else(|| get(SETTING_ENABLED).and_then(|v| v.as_bool()));
@@ -127,17 +105,10 @@ pub(crate) fn settings_threshold_with(
         .or_else(|| get(SETTING_MIN_CONTEXT).and_then(|v| v.as_f64()))
         .filter(|n| n.is_finite())
         .map_or(DEFAULT_MIN_CONTEXT, |n| n.clamp(MIN_CONTEXT_RANGE.0, MIN_CONTEXT_RANGE.1));
-    let tokens = env(ENV_MIN_TOKENS)
-        .and_then(|v| v.trim().parse::<f64>().ok())
-        .or_else(|| get(SETTING_MIN_TOKENS).and_then(|v| v.as_f64()))
-        .filter(|n| n.is_finite())
-        .map_or(DEFAULT_MIN_TOKENS, |n| {
-            n.clamp(MIN_TOKENS_RANGE.0 as f64, MIN_TOKENS_RANGE.1 as f64) as u64
-        });
-    Some(Threshold { share: percent / 100.0, tokens })
+    Some(percent / 100.0)
 }
 
-fn read_threshold() -> Option<Threshold> {
+fn read_threshold() -> Option<f64> {
     let env = |var: &str| std::env::var(var).ok();
     match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => settings_threshold_with(Some(&doc), env),
@@ -155,27 +126,27 @@ fn read_threshold() -> Option<Threshold> {
 }
 
 /// How long from `now_ms` until the compaction runs for a `usage_update` (`used` of `size`
-/// tokens, the cache lapsing at `expires_ms`), with `threshold` what it needs. None: no
+/// tokens, the cache lapsing at `expires_ms`), with `threshold` the share it needs. None: no
 /// timer (no expiry, under the threshold, or too close to the expiry to run in time).
-pub(crate) fn wait_ms(update: &Value, threshold: Threshold, now_ms: u64) -> Option<u64> {
+pub(crate) fn wait_ms(update: &Value, threshold: f64, now_ms: u64) -> Option<u64> {
     let expires = update.pointer("/_meta/acpmux/cacheExpiresAt").and_then(Value::as_u64)?;
-    if !over(context(update)?, threshold) {
+    if !over(share(update)?, threshold) {
         return None;
     }
     let fire = expires.checked_sub(lead_ms(expires.saturating_sub(now_ms)))?;
     fire.checked_sub(now_ms).filter(|wait| *wait > 0)
 }
 
-/// The context a `usage_update` reports: (tokens used, the window, 0 when it names none).
-fn context(update: &Value) -> Option<(u64, u64)> {
+/// The share (0-1) of its context window a `usage_update` reports used.
+fn share(update: &Value) -> Option<f64> {
     let used = update.get("used").and_then(Value::as_u64)?;
-    Some((used, update.get("size").and_then(Value::as_u64).unwrap_or(0)))
+    let size = update.get("size").and_then(Value::as_u64).filter(|s| *s > 0)?;
+    Some(used as f64 / size as f64)
 }
 
-/// Whether a context of `used` tokens in a window of `size` is compacted at `threshold`: at its
-/// token bar, or at its share of a known window.
-pub(crate) fn over((used, size): (u64, u64), threshold: Threshold) -> bool {
-    used >= threshold.tokens || (size > 0 && used as f64 / size as f64 >= threshold.share)
+/// Whether a context at `share` of its window is compacted at `threshold`.
+pub(crate) fn over(share: f64, threshold: f64) -> bool {
+    share >= threshold
 }
 
 /// Whether a prompt's provenance is this timer's compaction.
@@ -224,7 +195,7 @@ impl Hub {
         }
         let Some(threshold) = read_threshold() else { return };
         let Some(wait) = wait_ms(update, threshold, now_ms()) else { return };
-        let Some(used) = context(update) else { return };
+        let Some(used) = share(update) else { return };
         let Some(expires) = update.pointer("/_meta/acpmux/cacheExpiresAt").and_then(Value::as_u64)
         else {
             return;
@@ -276,7 +247,7 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         expires_ms: u64,
-        used: (u64, u64),
+        used: f64,
     ) {
         // Sent only while the chat still ends on the turn it ends on now (`after_turn`, checked
         // with no await before the turn is taken and again after). Read before the checks below:
