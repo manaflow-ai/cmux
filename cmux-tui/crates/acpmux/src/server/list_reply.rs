@@ -59,7 +59,7 @@ fn list_method(method: &str) -> Option<&'static str> {
 /// List filters absent, null or empty: the whole list.
 fn whole(params: &Value) -> bool {
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
-    ["limit", "cursor", "peer", "status", "localOnly", "excludeStatus", "orderBy"]
+    ["limit", "cursor", "peer", "status", "localOnly", "topLevelOnly", "excludeStatus", "orderBy"]
         .into_iter()
         .all(unset)
 }
@@ -197,8 +197,16 @@ async fn list(
 /// `_acpmux/sessions {pendingOnly: true}`: the sessions with a pending ask
 /// (`Hub::pending_session_summaries`): it summarizes only those chats. It takes no other filter.
 fn pending(hub: &Hub, raw: bool, params: &Value) -> Result<Value, RpcError> {
-    const OTHERS: [&str; 7] =
-        ["limit", "peer", "status", "localOnly", "excludeStatus", "orderBy", "withTools"];
+    const OTHERS: [&str; 8] = [
+        "limit",
+        "peer",
+        "status",
+        "localOnly",
+        "topLevelOnly",
+        "excludeStatus",
+        "orderBy",
+        "withTools",
+    ];
     if let Some(name) = OTHERS.into_iter().find(|k| params.get(*k).is_some_and(|v| !v.is_null())) {
         return Err(RpcError::invalid_params(format!("pendingOnly takes no {name}")));
     }

@@ -392,6 +392,13 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine broker-forward",
+        &[(
+            "Reach huge-blue's lane-gh broker over the carrier for lane-gh here",
+            "acpmux machine broker-forward huge-blue --socket ~/.cache/lane-gh/carrier.sock",
+        )],
+    ),
+    (
         "machine agents",
         &[
             (
@@ -441,6 +448,46 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             (
                 "Print the keys for another folder as JSON",
                 "acpmux machine deps key ~/src/app --json",
+            ),
+        ],
+    ),
+    (
+        "channel",
+        &[
+            (
+                "Ask an agent on another machine and print its answer",
+                "acpmux channel open box review --text 'pr 42?' --reply",
+            ),
+            (
+                "Answer every channel to a service by echoing it",
+                "acpmux channel listen review --echo",
+            ),
+        ],
+    ),
+    (
+        "channel listen",
+        &[
+            ("Print each channel to SERVICE as JSON lines", "acpmux channel listen review"),
+            (
+                "Echo the first channel back, then exit",
+                "acpmux channel listen review --echo --once",
+            ),
+        ],
+    ),
+    (
+        "channel open",
+        &[
+            (
+                "Send stdin to a service on a peer, print what comes back",
+                "acpmux channel open box review",
+            ),
+            (
+                "Send one message with the open and time the answer",
+                "acpmux --json channel open box review --text hi --reply",
+            ),
+            (
+                "Open a channel to a service on this machine",
+                "acpmux channel open review --text hi --reply",
             ),
         ],
     ),

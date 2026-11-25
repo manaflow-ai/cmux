@@ -33,12 +33,7 @@ struct CloudStartChat {
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, AgentPaneCloudStart) async -> [String: Any] {
         { [weak tabs, weak services] view, start in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
-            // Only a tab of this Mac's daemon: the folder it names is copied from this Mac.
-            guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key,
-                  let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine),
-                  services.machines.daemon(forTab: tab).isLocal else {
-                return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
-            }
+            guard let view, let tab = localTab(view, tabs, services) else { return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat) }
             let timeline = CloudSendTimeline() // from the Send's arrival here (cmux#45953)
             let titles = services.cloudStartTitles, workspace = services.workspaceID(ofTab: tab.id); titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab); titles.endWorkspace(workspace) } // the page reads as its chat from the Send
             return await CloudStartChat(services: services, asker: .card(view, start: start.key), timeline: timeline).reply(start, tab: tab) { [weak view] step in
@@ -47,6 +42,11 @@ struct CloudStartChat {
         }
     }
 
+    static func localTab(_ view: AgentPaneView?, _ tabs: AgentTabStore?, _ services: AppServices) -> TabModel? { // the Mac tab whose page is `view`: only this Mac's, whose folder a start copies from here
+        guard let view, let scoped = tabs?.views.entries.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(scoped.key, onMachine: scoped.machine) else { return nil }; return services.machines.daemon(forTab: tab).isLocal ? tab : nil
+    }
+    // The page's Send with Cloud picked (its gesture, cmux#51000): its tab wears the cloud at once, not when the start reaches the runner.
+    static func sendGesture(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?) -> Void { { [weak tabs, weak services] view in if let services, let tab = localTab(view, tabs, services) { services.cloudStartTitles.sending(tab) } } }
     /// The page's reply: the machine's name, or a refusal the card says (no toast), with Retry when another try can help.
     /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:folder:machine:size:to:)``).
     func reply(_ start: AgentPaneCloudStart, tab: TabModel, report: @MainActor (AgentPaneCloudStart.Step) -> Void = { _ in }) async -> [String: Any] {
@@ -273,7 +273,7 @@ struct CloudStartChat {
                    permissionMode: services.agentTabs.startPermissionMode(), credentials: { (try? await credentials?.launchCredential(chat: opened.key, machine: machineID, harness: start.harness, model: start.model))?.env }) { outcome in
                 logger.info("cloud start prewarm: \(outcome, privacy: .public) in \(CloudStartSteps.milliseconds(prewarmBegan.duration(to: .now)), privacy: .public) ms")
             }
-        if let shown = services.agentTabs.existingView(origin.tab.id), let window = shown.window { let tabs = services.agentTabs, key = AgentTabKey(machine: machine.machineID, key: opened.key); let drawn = await AgentPaneDrawFirst.draw({ tabs.view(for: key.key, machine: key.machine) }, makeable: { [weak tabs] in tabs.map { $0.existingView(key.key, machine: key.machine) != nil || ($0.record(for: key) != nil && $0.host(for: key) != nil) } ?? true }, in: window, size: shown.frame.size); timeline?.mark(drawn.rawValue); if drawn != .painted { services.cloud.logger.notice("cloud start: chat shows before its page painted (\(drawn.rawValue, privacy: .public))") } }; if let inPlace { services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID); handOff(true); Self.front(inPlace, with: .init(machine: machine.machineID, key: opened.key, workspace: anchor.id), services: services); return machine.machine.title }; if let slot = origin.workspace, let window = Self.placementWindow(of: slot, services: services) { services.windows.place(newWorkspace: anchor.id, in: window, at: Self.placementSlot(besides: slot)) } // the machine's page draws out of sight first (no blink, AgentPaneView+PaintParked), then its workspace takes the row this Mac's tab started in (cmux#45947), else the top of its machine's rows, never the end (cmux#47677)
+        if let shown = services.agentTabs.existingView(origin.tab.id), let window = shown.window { let tabs = services.agentTabs, key = AgentTabKey(machine: machine.machineID, key: opened.key); let drawn = await AgentPaneDrawFirst.draw({ tabs.view(for: key.key, machine: key.machine) }, makeable: { [weak tabs] in tabs.map { $0.existingView(key.key, machine: key.machine) != nil || ($0.record(for: key) != nil && $0.host(for: key) != nil) } ?? true }, in: window, size: shown.frame.size); timeline?.mark(drawn.rawValue); if drawn != .painted { services.cloud.logger.notice("cloud start: chat shows before its page painted (\(drawn.rawValue, privacy: .public))") } }; if let inPlace { services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID); handOff(true); services.cloudStartTitles.opened(origin.tab); Self.front(inPlace, with: .init(machine: machine.machineID, key: opened.key, workspace: anchor.id), services: services); return machine.machine.title }; if let slot = origin.workspace, let window = Self.placementWindow(of: slot, services: services) { services.windows.place(newWorkspace: anchor.id, in: window, at: Self.placementSlot(besides: slot)) } // the machine's page draws out of sight first (no blink, AgentPaneView+PaintParked), then its workspace takes the row this Mac's tab started in (cmux#45947), else the top of its machine's rows, never the end (cmux#47677)
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }
         services.agentTabs.pageChats.cloudStarted[AgentTabKey(machine: machine.machineID, key: opened.key)] = AgentPaneCloudStarted(start: original ?? start, chat: origin.chat, workspace: origin.workspace, account: origin.account, machineID: machine.machineID)
