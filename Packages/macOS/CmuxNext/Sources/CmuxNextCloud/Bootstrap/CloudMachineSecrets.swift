@@ -46,6 +46,19 @@ public struct CloudMachineSecrets: Equatable, Sendable {
         return (items, missing)
     }
 
+    /// Names every Cloud machine of this person gets whenever this Mac holds a global value
+    /// (`cmux cloud secret set NAME`, account `*/NAME`), whether or not its machine config declares them.
+    /// The Claude setup token (`claude setup-token`) is one: a subscription login, which cmux keeps only
+    /// in this Mac's Keychain and never on its servers (cmux-platform docs/cloud-secrets.md), and which
+    /// signs Claude Code in on the machine (acpmux `claude_auth` reads `machine-secrets.env`).
+    public static let alwaysDelivered = ["CLAUDE_CODE_OAUTH_TOKEN"]
+
+    /// `declared`, then each ``alwaysDelivered`` name the index holds globally and `declared` lacks.
+    /// One the Mac doesn't hold is never `missing`: the person may not use it.
+    public static func withAlwaysDelivered(_ declared: [String], index: [String: Int64]) -> [String] {
+        declared + alwaysDelivered.filter { !declared.contains($0) && index["*/\($0)"] != nil }
+    }
+
     /// The secret names the machine's last finished apply declared (``CloudMachineConfig/statusPath``);
     /// nil while none has finished, or for a status that does not say (never read as "no secrets").
     public static func declared(status data: Data?) -> [String]? {
