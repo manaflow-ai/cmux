@@ -18,7 +18,7 @@ extension WebKitTab {
 }
 
 /// What a link click with modifiers does in a WebKit tab.
-enum WebKitLinkClick: Equatable {
+enum WebKitLinkClick: Equatable, Decodable {
     /// A plain click: the page's own behavior (a link loads here, a
     /// `target=_blank` link opens a selected tab).
     case pageDefault
@@ -33,20 +33,12 @@ enum WebKitLinkClick: Equatable {
         self.init(flags: action.modifierFlags, button: action.buttonNumber, mapping: tab.engine?.linkClicks ?? .chrome)
     }
 
-    /// Pure: the modifiers of a link click (`button` 2 is the middle button)
-    /// through `mapping`.
+    /// The modifiers of a link click (`button` 2 is the middle button) through `mapping`
+    /// (cmux-browser-rules `webkit_link_click`).
     init(flags: NSEvent.ModifierFlags, button: Int, mapping: BrowserLinkClickMapping) {
-        let gesture = BrowserLinkGesture(flags: flags, button: button)
-        guard gesture != .plain else {
-            self = .pageDefault
-            return
-        }
-        let action = mapping.action(for: gesture)
-        if let disposition = action.newTabDisposition {
-            self = .open(disposition)
-        } else {
-            self = action == .download ? .download : .navigate
-        }
+        self = BrowserRules.call("browser_rules_webkit_link_click",
+                                 BrowserLinkClickFacts(flags: flags, button: button, mapping: mapping),
+                                 as: Self.self) ?? .pageDefault
     }
 
     /// A modified click mapped to the current tab or to a download, on a

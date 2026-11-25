@@ -1,7 +1,7 @@
 public import Foundation
 
 /// Where a page-requested tab should open.
-public nonisolated enum BrowserNewTabDisposition: Hashable, Sendable {
+public nonisolated enum BrowserNewTabDisposition: String, Hashable, Sendable, Codable {
     /// A new selected tab next to the opener (plain `target=_blank`).
     case foregroundTab
     /// A new unselected tab (middle click; Cmd-click with Chrome's mapping).

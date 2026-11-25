@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 /// Where a tab Chromium wants to open goes.
-nonisolated enum CEFLinkPlacement: Equatable, Sendable {
+nonisolated enum CEFLinkPlacement: Equatable, Sendable, Decodable {
     /// A cmux tab (or window) with this disposition.
     case tab(BrowserNewTabDisposition)
     /// No new tab: the opener loads the URL (a modified click mapped to
@@ -19,60 +19,24 @@ nonisolated enum CEFLinkPlacement: Equatable, Sendable {
 /// The one decision for Chromium link dispositions, through the same
 /// `BrowserLinkClickMapping` WebKit uses.
 nonisolated enum CEFLinkClicks {
-    /// A click older than this did not cause the request.
-    static let clickLifetime: TimeInterval = 1
-
-    /// Pure. Chromium reports how it wants to open a link
-    /// (`ui::DispositionFromClick`): NEW_BACKGROUND_TAB for Cmd-click and
-    /// middle click, NEW_WINDOW for Shift-click, SAVE_TO_DISK for
-    /// Option-click, and NEW_FOREGROUND_TAB for both Shift-Cmd-click and a
-    /// plain `target=_blank` link. `click`, the last mouse-up on the
-    /// requesting page when it is at most `clickLifetime` old at `now`, is
-    /// read only to tell those two apart; a stale or missing click falls back
-    /// to `cmdClick` for compatibility. Every other disposition keeps
-    /// Chromium's meaning, so NEW_BACKGROUND_TAB is `cmdClick` when the
-    /// click record cannot identify a middle click (Chromium does not tell a
-    /// middle click from Cmd-click). A request without a user gesture (a
-    /// script) never follows a modified-click setting: it gets Chrome's
-    /// default for its disposition.
+    /// Chromium reports how it wants to open a link (`ui::DispositionFromClick`): NEW_BACKGROUND_TAB
+    /// for Cmd-click and middle click, NEW_WINDOW for Shift-click, SAVE_TO_DISK for Option-click,
+    /// and NEW_FOREGROUND_TAB for both Shift-Cmd-click and a plain `target=_blank` link. `click`,
+    /// the last mouse-up on the requesting page when it is at most a second old at `now`, tells
+    /// those apart. A request without a user gesture (a script) never follows a modified-click
+    /// setting. The rule is cmux-browser-rules' (`cef_placement`, with its tests).
     static func placement(for disposition: CEFDisposition, userGesture: Bool, click: CEFLinkClickRecord?,
                           now: TimeInterval, mapping: BrowserLinkClickMapping) -> CEFLinkPlacement {
-        let mapping = userGesture ? mapping : .chrome
-        let click = userGesture ? click : nil
-        let recent: BrowserLinkGesture? = click.flatMap { record in
-            now >= record.timestamp && now - record.timestamp <= clickLifetime ? record.gesture : nil
+        struct Request: Encodable {
+            let disposition: CEFDisposition
+            let userGesture: Bool
+            let click: CEFLinkClickRecord?
+            let now: TimeInterval
+            let mapping: BrowserLinkClickMapping
         }
-        let gesture: BrowserLinkGesture?
-        switch disposition {
-        case .newBackgroundTab:
-            // CEF reports Cmd-click and middle-click with the same disposition.
-            // The app's recent mouse-up is the only way to preserve their
-            // separate settings (`cmdClick` versus `middleClick`). A missing
-            // or stale click falls back to `cmdClick`.
-            gesture = recent == .middle ? .middle : .cmd
-        case .newForegroundTab:
-            // Plain target=_blank is not configurable: a selected tab.
-            gesture = recent == .cmdShift || recent == .middleShift ? recent : nil
-        case .newWindow:
-            gesture = .shift
-        case .saveToDisk:
-            gesture = .option
-        case .newPopup:
-            return .tab(.popup)
-        case .singletonTab, .switchToTab, .newSplitView, .unknown, .offTheRecord:
-            return .tab(.foregroundTab)
-        case .currentTab, .ignoreAction, .newPictureInPicture:
-            return .chromium
-        }
-        guard let gesture else { return .tab(.foregroundTab) }
-        switch mapping.action(for: gesture) {
-        case .currentTab:
-            return .opener
-        case .download:
-            return .download
-        case let action:
-            return action.newTabDisposition.map(CEFLinkPlacement.tab) ?? .tab(.foregroundTab)
-        }
+        let request = Request(disposition: disposition, userGesture: userGesture, click: click, now: now, mapping: mapping)
+        return BrowserRules.call("browser_rules_cef_link_placement", request, as: CEFLinkPlacement.self)
+            ?? .tab(.foregroundTab)
     }
 
     /// Pure: the page a mouse-up landed on. Only a click in a page window
@@ -101,5 +65,16 @@ nonisolated struct CEFLinkContext: Equatable, Sendable {
     func placement(for disposition: CEFDisposition, source: Int32, userGesture: Bool) -> CEFLinkPlacement {
         CEFLinkClicks.placement(for: disposition, userGesture: userGesture, click: source != 0 ? clicks[source] : nil,
                                 now: now, mapping: mapping)
+    }
+
+    /// What the window rules read of this context for a request from page `source`.
+    struct Facts: Encodable {
+        let mapping: BrowserLinkClickMapping
+        let click: CEFLinkClickRecord?
+        let now: TimeInterval
+    }
+
+    func facts(source: Int32) -> Facts {
+        Facts(mapping: mapping, click: source != 0 ? clicks[source] : nil, now: now)
     }
 }

@@ -3,7 +3,7 @@ import CmuxNextCompat
 
 /// The last mouse-up on a Chromium page, recorded by the app (the shim
 /// reports a disposition but not the click's modifiers).
-nonisolated struct CEFLinkClickRecord: Equatable, Sendable {
+nonisolated struct CEFLinkClickRecord: Equatable, Sendable, Encodable {
     var gesture: BrowserLinkGesture
     /// `NSEvent.timestamp` (seconds since boot).
     var timestamp: TimeInterval

@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the runtime does with a request.
-nonisolated enum CEFWindowDecision: Equatable, Sendable {
+nonisolated enum CEFWindowDecision: Equatable, Sendable, Decodable {
     /// Chromium adds the tab to the window of `anchor`; the runtime adopts
     /// it as a cmux tab when it arrives there.
     case insert(anchor: Int32, disposition: BrowserNewTabDisposition)
@@ -23,58 +23,34 @@ nonisolated enum CEFWindowDecision: Equatable, Sendable {
     case refuse(CEFWindowRefusal)
 }
 
-nonisolated enum CEFWindowRefusal: Equatable, Sendable {
+nonisolated enum CEFWindowRefusal: String, Equatable, Sendable, Decodable {
     /// The request's store has no Chromium window, and cmux cannot open a
     /// tab of it by itself: an off-the-record store (an incognito window's
     /// pages) must never spill into a normal tab.
     case noWindow
 }
 
+/// The one decision for every window Chromium wants to open, asked of cmux-browser-rules
+/// (`decide_window`, `window_placement`, with their tests). Incognito requests go off the record. A
+/// popup keeps `.popup`; a page's link request follows the link mapping (`CEFLinkClicks`);
+/// everything else is a selected tab. The tab goes to the same store's window that holds the
+/// source, else the one shown last, else a visible one, else the first; with none, a persistent
+/// store opens a cmux tab and an off-the-record one is refused.
 nonisolated enum CEFWindowPolicy {
-    static func decide(_ request: CEFWindowRequest, candidates: [CEFWindowCandidate],
-                       links: CEFLinkContext = CEFLinkContext()) -> CEFWindowDecision {
-        if request.kind == .offTheRecord || request.disposition == .offTheRecord {
-            return .openOffTheRecord(url: request.url)
-        }
-        let disposition: BrowserNewTabDisposition
-        switch placement(for: request, links: links) {
-        case .tab(let tab): disposition = tab
-        case .opener: return .loadInSource(url: request.url)
-        case .download: return .downloadInSource(url: request.url)
-        case .chromium: disposition = .foregroundTab
-        }
-        let sameProfile = candidates.filter { $0.profilePath == request.profilePath }
-        let chosen = sameProfile.first(where: \.holdsSource)
-            ?? sameProfile.first(where: \.lastShown)
-            ?? sameProfile.first(where: \.visible)
-            ?? sameProfile.first
-        guard let chosen else {
-            guard request.persistentProfile else { return .refuse(.noWindow) }
-            return .openInNewTab(url: request.url, disposition: disposition)
-        }
-        return .insert(anchor: chosen.anchor, disposition: disposition)
+    private struct Request: Encodable {
+        let request: CEFWindowRequest
+        let candidates: [CEFWindowCandidate]
+        let links: CEFLinkContext.Facts
     }
 
-    /// Popups (window features, popup windows) keep `.popup`, so a host that
-    /// shows them in a small floating pane can. A page's link request (a
-    /// tab, or a window with a source tab, such as Shift-click) goes
-    /// through the link mapping (`CEFLinkClicks`); everything else (Chromium's
-    /// own UI, `chrome.windows.create` from an extension background) is a
-    /// selected tab. `.opener` and `.download` need the source tab.
+    static func decide(_ request: CEFWindowRequest, candidates: [CEFWindowCandidate],
+                       links: CEFLinkContext = CEFLinkContext()) -> CEFWindowDecision {
+        let facts = Request(request: request, candidates: candidates, links: links.facts(source: request.sourceBrowser))
+        return BrowserRules.call("browser_rules_window_decide", facts, as: CEFWindowDecision.self) ?? .refuse(.noWindow)
+    }
+
     static func placement(for request: CEFWindowRequest, links: CEFLinkContext) -> CEFLinkPlacement {
-        let placement: CEFLinkPlacement
-        switch request.kind {
-        case .popup: return .tab(.popup)
-        case .offTheRecord: return .tab(.foregroundTab)
-        case .window, .app:
-            guard request.sourceBrowser != 0, request.disposition.isLinkClick else { return .tab(.foregroundTab) }
-            placement = links.placement(for: request.disposition, source: request.sourceBrowser, userGesture: request.userGesture)
-        case .tab:
-            placement = links.placement(for: request.disposition, source: request.sourceBrowser, userGesture: request.userGesture)
-        }
-        if placement == .opener || placement == .download, request.sourceBrowser == 0 || request.url.isEmpty {
-            return .tab(.foregroundTab)
-        }
-        return placement
+        let facts = Request(request: request, candidates: [], links: links.facts(source: request.sourceBrowser))
+        return BrowserRules.call("browser_rules_window_placement", facts, as: CEFLinkPlacement.self) ?? .tab(.foregroundTab)
     }
 }
