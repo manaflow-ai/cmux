@@ -305,6 +305,31 @@
           ]
         },
         {
+          "key": "experiments.terminalHistory",
+          "note": "A local Claude Code or Codex terminal pane with a known session ID shows an \"Earlier history — open as chat\" button that opens the agent's whole transcript as a read-only, paginated chat tab (TerminalHistoryButton, PaneController.showTerminalHistoryLink, DesignSettings.experiment(\"terminalHistory\")). Off by default (Leo's UI merge hold, 2026-11-24); off draws no button, so the terminal pane is unchanged. Applies from the next tab switch.",
+          "title": {
+            "key": "settings.experiments.terminalHistory",
+            "text": "Terminal Agent History"
+          },
+          "help": {
+            "key": "settings.experiments.terminalHistory.help",
+            "text": "Claude Code and Codex terminals get a button that opens their earlier history as a read-only chat."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "terminal",
+            "history",
+            "transcript",
+            "scrollback",
+            "pagination",
+            "chat"
+          ]
+        },
+        {
           "key": "experiments.attachmentTypeIcons",
           "note": "Taste prototype: while the App looks up a dropped or pasted file's local path, its composer chip shows a file or image icon instead of the loading mark, and an image keeps its image icon until its thumbnail arrives (webviews experimentSwitchOn(\"attachmentTypeIcons\"), composer/attachmentIntakeModel.ts resolvingPath). Off by default; off keeps the loading mark. The path-first attach itself is not behind this switch.",
           "title": {

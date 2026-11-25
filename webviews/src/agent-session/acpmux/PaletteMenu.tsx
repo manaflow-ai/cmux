@@ -4,6 +4,7 @@ import { focusWithRing } from "../../ui/focusWithRing";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
+import { usePopupSettle } from "../../ui/popupSettle";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { registerPicker } from "./pickerOpeners";
@@ -13,10 +14,10 @@ import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
 import { Keycap } from "./Keycap";
 import {
-  type PaletteReturnLook,
   type PaletteSection,
-  descriptionRestatesName,
   filterPaletteSections,
+  type PaletteReturnLook,
+  descriptionRestatesName,
 } from "./paletteMenuModel";
 type Props = {
   label: string;
@@ -66,13 +67,14 @@ export function PaletteMenu({
   const edges = useScrollEdges();
   const host = usePopupHost();
   const [shown, setShown] = useState<HTMLDivElement | null>(null);
-  const attach = useCallback(
+  const attachNode = useCallback(
     (node: HTMLDivElement | null) => {
       menu.current = node;
       if (host) setShown(node);
     },
     [host],
   );
+  const attach = usePopupSettle<HTMLDivElement>(attachNode);
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align });
   useEscapingPopup(host, shown, () => trigger.current, {
     side: "top",

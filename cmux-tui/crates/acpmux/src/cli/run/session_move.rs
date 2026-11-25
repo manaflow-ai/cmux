@@ -262,19 +262,19 @@ async fn await_arrival(
         }
         // A chat whose peer link is offline is not coming within the bound: name it now.
         let mut gone = Vec::new();
-        if late.iter().any(|(key, _, _)| key.contains('/')) {
-            if let Ok(peers) = observer.request("_acpmux/peers", json!({})).await {
-                late.retain(|(key, id, _)| {
-                    let peer = key.split_once('/').map(|(peer, _)| peer);
-                    match peer.and_then(|peer| link_gone(&peers, peer)) {
-                        Some(why) => {
-                            gone.push((id.clone(), why));
-                            false
-                        }
-                        None => true,
+        if late.iter().any(|(key, _, _)| key.contains('/'))
+            && let Ok(peers) = observer.request("_acpmux/peers", json!({})).await
+        {
+            late.retain(|(key, id, _)| {
+                let peer = key.split_once('/').map(|(peer, _)| peer);
+                match peer.and_then(|peer| link_gone(&peers, peer)) {
+                    Some(why) => {
+                        gone.push((id.clone(), why));
+                        false
                     }
-                });
-            }
+                    None => true,
+                }
+            });
         }
         done.extend(gone);
         if late.is_empty() {
