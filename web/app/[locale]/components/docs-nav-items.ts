@@ -7,6 +7,7 @@ import {
   cloudSecurityDocsLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
+  mainThreadDocsLocales,
   managedPoliciesDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../../i18n/locale-availability";
@@ -217,6 +218,17 @@ export const navItems: NavEntry[] = [
       { titleKey: "nextMcp", href: "/docs/next/mcp", locales: baseDocsLocales },
       { titleKey: "nextSettings", href: "/docs/next/settings", locales: baseDocsLocales },
       { titleKey: "nextArchitecture", href: "/docs/next/architecture", locales: baseDocsLocales },
+    ],
+  },
+  {
+    sectionKey: "engineeringSection",
+    children: [
+      {
+        titleKey: "mainThread",
+        href: "/docs/main-thread",
+        locales: mainThreadDocsLocales,
+        contentLocales: mainThreadDocsLocales,
+      },
     ],
   },
   { titleKey: "changelog", href: "/docs/changelog" },

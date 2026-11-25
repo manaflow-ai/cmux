@@ -12,6 +12,7 @@ import {
   fallbackContentLocales,
   jobsContentLocales,
   featureWorkflowContentLocales,
+  mainThreadDocsLocales,
   managedPoliciesDocsLocales,
   cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
@@ -238,6 +239,11 @@ export const agentReadablePages = [
     path: "/docs/managed-policies",
     title: "Managed Policies (MDM)",
     locales: managedPoliciesDocsLocales,
+  },
+  {
+    path: "/docs/main-thread",
+    title: "How cmux Stays Responsive",
+    locales: mainThreadDocsLocales,
   },
   {
     path: "/docs/cloud-security",

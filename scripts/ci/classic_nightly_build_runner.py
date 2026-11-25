@@ -10,8 +10,11 @@ This reads the pinned runner live once, before the build is queued:
 - online and idle: `trusted=true`, and the build asks for the same pinned tuple as before;
 - online and busy: look again every LOOK_SECONDS for up to WAIT_SECONDS, then Blacksmith;
 - offline, or no runner carries both labels: Blacksmith now;
-- the runner list could not be read: keep the pinned tuple (the behaviour before this script;
-  the rescue still watches it), with a warning.
+- the runner list could not be read: count the nightly builds already queued or running on the
+  pinned runner label (BACKLOG, read with SNAPSHOT_TOKEN's actions: read); any, Blacksmith now;
+  none, keep the pinned tuple (the rescue still watches it); that count unreadable too, keep the
+  pinned tuple, with a warning. On 2026-11-25 the list was refused, a stale census left it unread,
+  and every pick kept the pin: nine build-nightly-app jobs queued behind one mini, the oldest 124 min.
 
 `blacksmith` is the Blacksmith macOS 26 label whose queue moves, by simple_pool_picker's one stall
 rule over the queue janitor's snapshot: FIRST's label first, else 12 vCPU, then the other; with
@@ -72,6 +75,10 @@ WAIT_SECONDS = 5 * 60
 LOOK_SECONDS = 30
 TRUSTED_POOL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 TRUSTED_RUNNER = re.compile(r"glaeda-runner-[a-z0-9][a-z0-9-]*")
+# The nightly's own runs read for the pinned runner's backlog when the runner list is unread.
+NIGHTLY_WORKFLOW = "nightly.yml"
+BACKLOG_RUNS = 10
+BACKLOG_STATUSES = ("queued", "in_progress", "waiting", "pending", "requested")
 # RUNNER_POOLS' dead marks (label -> when last seen dead) and the pool the candidates form. A mark older than
 # runner_pools.DEAD_TTL is one its writer would drop (it re-marks a still-dead label every pass), so it proves nothing.
 DEAD_KEY = picker.DEAD_MARKS_KEY
@@ -124,7 +131,8 @@ def census_runners(raw: str | None, now: dt.datetime) -> list[Mapping[str, Any]]
 def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[str, Any]] | None],
                   enabled: bool, attempt: str, *, wait_seconds: float = WAIT_SECONDS,
                   look_seconds: float = LOOK_SECONDS, sleep: Callable[[float], None] = time.sleep,
-                  clock: Callable[[], float] = time.monotonic, unread_keeps: bool = True) -> tuple[bool, str]:
+                  clock: Callable[[], float] = time.monotonic, unread_keeps: bool = True,
+                  backlog: Callable[[], int | None] | None = None) -> tuple[bool, str]:
     """(whether the build asks for the pinned trusted tuple, why).
 
     `unread_keeps` False (the prepare pick) takes Blacksmith when the runner list cannot be read."""
@@ -142,6 +150,13 @@ def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[st
         if state == "unread":
             if not unread_keeps:
                 return False, "the runner list could not be read"
+            waiting = backlog() if backlog is not None else None
+            if waiting:
+                return False, (f"the runner list could not be read and {waiting} nightly build(s) already queue or "
+                               f"run on `{runner}`")
+            if waiting == 0:
+                return True, (f"the runner list could not be read and no other nightly build queues on `{runner}`, "
+                              "so it keeps the build (the rescue watches it)")
             return True, f"the runner list could not be read, so `{runner}` keeps the build (the rescue watches it)"
         if state == "offline":
             return False, f"`{runner}` is offline"
@@ -255,9 +270,31 @@ def alternate(label: str, snapshot: Mapping[str, Any] | None = None, now: dt.dat
     return other
 
 
+def pinned_backlog(get: Callable[[str], Any], runner: str, own_run: str) -> int:
+    """Jobs of the nightly's other unfinished runs that queue or run on the pinned runner label `runner`.
+
+    `get` is a GET under the repository. At most 1 + BACKLOG_RUNS requests, newest runs first."""
+    runs: list[Mapping[str, Any]] = []
+    for status in ("in_progress", "queued"):
+        page = get(f"/actions/workflows/{NIGHTLY_WORKFLOW}/runs?status={status}&per_page={BACKLOG_RUNS}")
+        runs += [run for run in (page.get("workflow_runs") or []) if isinstance(run, Mapping)]
+    count = 0
+    seen: set[str] = set()
+    for run in runs[:BACKLOG_RUNS]:
+        run_id = str(run.get("id") or "")
+        if not run_id or run_id == own_run or run_id in seen:
+            continue
+        seen.add(run_id)
+        jobs = get(f"/actions/runs/{run_id}/jobs?filter=latest&per_page=100").get("jobs") or []
+        count += sum(1 for job in jobs if isinstance(job, Mapping) and job.get("status") in BACKLOG_STATUSES
+                     and runner in (job.get("labels") or ()))
+    return count
+
+
 def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
+         read_backlog: Callable[[str, str, str, str], int] | None = None,
          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
          wall: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.timezone.utc)) -> int:
     repo = env.get("GITHUB_REPOSITORY", "")
@@ -279,6 +316,23 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
                 print("classic nightly build runner: judged the pinned runner from vars.CI_RUNNER_STATE")
             return rows
 
+    def backlog() -> int | None:
+        token = env.get("SNAPSHOT_TOKEN", "")
+        if not (token and repo):
+            return None
+        try:
+            if read_backlog is not None:
+                return read_backlog(token, repo, (env.get("TRUSTED_RUNNER") or "").strip(),
+                                    env.get("GITHUB_RUN_ID", ""))
+            import pr_runner_pool  # noqa: PLC0415 - only for the live read
+
+            return pinned_backlog(pr_runner_pool.GitHub(token, repo).get, (env.get("TRUSTED_RUNNER") or "").strip(),
+                                  env.get("GITHUB_RUN_ID", ""))
+        except Exception as error:  # noqa: BLE001 - never fail the job
+            print(f"::warning title=classic nightly build runner::could not count the pinned runner's backlog "
+                  f"({str(error)[:200]})")
+            return None
+
     # Wall time before the wait: the snapshot's queue ages are read against it plus the wait.
     now = now or wall()
     started = clock()
@@ -287,7 +341,8 @@ def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
                                          (env.get("TRUSTED_RUNNER") or "").strip(), read,
                                          (env.get("ENABLED") or "").strip() == "1",
                                          (env.get("GITHUB_RUN_ATTEMPT") or "").strip(), sleep=sleep, clock=clock,
-                                         wait_seconds=0 if prepare else WAIT_SECONDS, unread_keeps=not prepare)
+                                         wait_seconds=0 if prepare else WAIT_SECONDS, unread_keeps=not prepare,
+                                         backlog=backlog)
     if prepare:
         line = f"prepare: {'trusted' if trusted else 'blacksmith'} ({trusted_why})"
         print(f"classic nightly build runner: {line}")
