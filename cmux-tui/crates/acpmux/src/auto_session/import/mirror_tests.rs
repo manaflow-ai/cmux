@@ -86,14 +86,14 @@ fn a_start_borrows_the_warm_mirror_and_is_a_whole_checkout() {
     assert_eq!(git(&chat, &["rev-parse", "--abbrev-ref", "@{upstream}"]), "origin/feature");
     assert_eq!(git(&chat, &["rev-parse", "origin/main"]), git(&rig.work, &["rev-parse", "main"]));
     assert_eq!(git(&chat, &["status", "--porcelain"]), "");
-    git(&chat, &["fsck", "-q"]);
+    git(&chat, &["fsck", "--no-progress"]);
     // History reads, an old file comes from the remote on demand.
     assert_eq!(git(&chat, &["show", "HEAD~1:a.txt"]), "one");
     // A commit made in the chat is the chat's own.
     std::fs::write(chat.join("c.txt"), "c\n").unwrap();
     git(&chat, &["add", "."]);
     git(&chat, &["commit", "-q", "-m", "chat"]);
-    git(&chat, &["fsck", "-q"]);
+    git(&chat, &["fsck", "--no-progress"]);
 }
 
 #[test]
@@ -127,7 +127,7 @@ fn a_remote_without_partial_clone_still_starts() {
     clone(&chat, &rig.remote, "main").unwrap();
     assert_eq!(std::fs::read_to_string(chat.join("a.txt")).unwrap(), "two\n");
     assert_eq!(git(&chat, &["rev-parse", "--abbrev-ref", "@{upstream}"]), "origin/main");
-    git(&chat, &["fsck", "-q"]);
+    git(&chat, &["fsck", "--no-progress"]);
 }
 
 #[test]
@@ -158,5 +158,5 @@ fn a_snapshot_into_a_new_folder_gets_its_base_from_the_mirror() {
     assert_eq!(git(&chat, &["rev-parse", "HEAD"]), base);
     assert_eq!(std::fs::read_to_string(chat.join("a.txt")).unwrap(), "one\n");
     assert_eq!(git(&chat, &["rev-parse", super::folder::BASE_REF]), base);
-    git(&chat, &["fsck", "-q"]);
+    git(&chat, &["fsck", "--no-progress"]);
 }
