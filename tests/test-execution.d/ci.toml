@@ -44,6 +44,11 @@ path = "tests/test_ci_base_red_skip.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_bg_step.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_bg_step.py"
+
+[[test]]
 path = "tests/test_ci_billing_lane.py"
 lane = "linux-guard"
 
