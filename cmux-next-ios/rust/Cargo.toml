@@ -33,6 +33,8 @@ cmux-output-paint = { path = "../../cmux-tui/crates/cmux-output-paint" }
 cmux-remote-protocol = { path = "../../cmux-tui/crates/cmux-remote-protocol" }
 cmux-wg = { path = "../../cmux-tui/crates/cmux-wg" }
 cmux-fault = { path = "../../cmux-tui/crates/cmux-fault" }
+# Sealed relay-cache deltas (RFD 0142 R9): the phone opens what the Mac sealed.
+cmux-relay-snapshot = { path = "../../cmux-tui/crates/cmux-relay-snapshot" }
 # Deadlines counted from the last progress, not the start (cmux-mobile-host: cloud prompts, mailbox round trips).
 cmux-deadline = { path = "../../cmux-tui/crates/cmux-deadline", features = ["tokio"] }
 # The terminal composer's Send: one keyed request, kept across a reconnect.

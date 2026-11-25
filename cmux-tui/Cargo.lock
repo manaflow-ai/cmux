@@ -2398,8 +2398,12 @@ dependencies = [
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-cloud-wire",
+ "cmux-relay-snapshot",
  "cmux-terminal-sizing",
+ "p256",
+ "rand_core 0.6.4",
  "serde_json",
 ]
 

@@ -604,8 +604,11 @@ dependencies = [
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "cmux-cloud-wire",
+ "cmux-relay-snapshot",
  "cmux-terminal-sizing",
+ "p256",
  "serde_json",
 ]
 
@@ -621,11 +624,13 @@ dependencies = [
  "cmux-deadline",
  "cmux-fault",
  "cmux-message-preview",
+ "cmux-mobile-core",
  "cmux-mobile-link",
  "cmux-output-paint",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
+ "cmux-relay-snapshot",
  "cmux-tab-snapshots",
  "cmux-terminal-projection",
  "cmux-transport",
@@ -636,6 +641,7 @@ dependencies = [
  "libc",
  "mdns-sd",
  "p256",
+ "rand_core 0.6.4",
  "reqwest",
  "ring",
  "serde",
@@ -724,12 +730,15 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-rd-link",
  "cmux-rd-proto",
+ "cmux-relay-snapshot",
  "cmux-share-approval",
  "cmux-tab-snapshots",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
  "cmux-window-rules",
  "libc",
+ "p256",
+ "rand_core 0.6.4",
  "ring",
  "serde",
  "serde_json",
@@ -801,6 +810,17 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-relay-snapshot"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "hkdf",
+ "p256",
+ "rand_core 0.6.4",
+ "sha2",
 ]
 
 [[package]]
