@@ -576,9 +576,12 @@ pub(super) fn check_cut(
     session: &Session,
     after: Option<&str>,
     waiting: bool,
+    provenance: Option<&Value>,
 ) -> Result<(), RpcError> {
-    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided.
-    let rate_held = rate_compaction_runs(session);
+    // A rate limit's compaction runs ahead of what the hold queued, as `compact_first` decided;
+    // a cold batch's compaction ahead of the batch (`cold_wake.rs`).
+    let rate_held = rate_compaction_runs(session)
+        || (after.is_some() && super::cold_wake::goes_ahead_of_batch(session, provenance));
     match after {
         Some(cut) if waiting || !still_cut_by(session, cut, rate_held) => Err(superseded()),
         _ => Ok(()),
@@ -939,6 +942,9 @@ impl Hub {
                 return;
             };
             if set {
+                // Its wait may shorten the chat's idle period (`idle_governor.rs`): the reaper
+                // takes the new deadline.
+                hub.idle_wake.notify_one();
                 hub.wait_retry(&session, &turn_id, reason, next_at, &wake).await;
             }
             let cut = CutTurn {
@@ -992,6 +998,25 @@ impl Hub {
     /// turn held, so a held agent message's own retry waits for it (`digest.rs`).
     pub(super) fn continuation_pending(&self, session: &Session) -> bool {
         is_pending(session.auto_resume.lock().as_ref())
+    }
+
+    /// Whether the chat's continuation waits for a deadline later than `beyond` from now, for a
+    /// reason its prompt alone answers (not the rate-limit hold, `rate_hold.rs` owns that, nor a
+    /// context compaction, which needs the harness): the chat may sleep meanwhile, its
+    /// continuation's prompt starts it again when due (`idle_governor.rs`).
+    pub(super) fn continuation_waits_far(
+        &self,
+        session: &Session,
+        beyond: std::time::Duration,
+    ) -> bool {
+        match session.auto_resume.lock().as_ref() {
+            Some(Mark::Waiting { retry: Some(r), .. }) => {
+                !matches!(r.reason, RetryReason::RateLimit | RetryReason::Context)
+                    && r.next_at != u64::MAX
+                    && r.next_at > super::now_ms().saturating_add(beyond.as_millis() as u64)
+            }
+            _ => false,
+        }
     }
 
     /// Whether no continuation is pending but one whose wait is the chat's rate-limit hold
