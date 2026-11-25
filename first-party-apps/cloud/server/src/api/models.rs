@@ -128,10 +128,15 @@ fn disk_health_state(value: &Value) -> &'static str {
 /// reads those and the guest's own names.
 fn annotate_disk_health(mut value: Value, allocated_mb: Option<i64>) -> Value {
     let state = disk_health_state(&value);
-    let report = match state {
-        "unknown" => DiskReport::default(),
-        _ => DiskReport::from_health(&value).unwrap_or_default(),
-    };
+    // The bar needs only the sizes: a report without the health fields (`floor_mb`,
+    // `top_users`) still draws, its health `unknown`; sizes that contradict (used and free over
+    // the total) draw the allocation alone.
+    let report = DiskReport::from_health(&value)
+        .filter(|r| match (r.total_bytes, r.used_bytes, r.free_bytes) {
+            (Some(total), Some(used), free) => used.saturating_add(free.unwrap_or(0)) <= total,
+            _ => true,
+        })
+        .unwrap_or_default();
     if let Value::Object(object) = &mut value {
         let allocated = allocated_mb.and_then(|mb| disk::mib(Some(mb as f64)));
         if let Some(bar) =

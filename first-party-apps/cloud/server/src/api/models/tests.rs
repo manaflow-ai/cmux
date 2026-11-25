@@ -212,6 +212,17 @@ fn disk_bar_is_computed_by_the_relay() {
         json!({ "disk_health": health(json!({ "free_mb": 12000, "used_mb": 8000, "total_mb": 16384 })) }),
     ));
     let bar = &encode(&invalid)["disk_health"]["bar"];
+    // What cmux-platform writes from the guest's sample (cmux-platform#2027): sizes and split,
+    // no `floor_mb` or `top_users`; the health is unknown but the bar draws.
+    let sampled = decode(with(
+        record("vm-sampled", "1"),
+        json!({ "disk_health": { "total_mb": 20480, "used_mb": 10240, "free_mb": 10240,
+            "system_mb": 4096, "project_mb": 5120, "caches_mb": 1024, "observed_at": 1 } }),
+    ));
+    let sampled = &encode(&sampled)["disk_health"];
+    assert_eq!(sampled["state"], "unknown");
+    assert_eq!(sampled["bar"]["label"], "10 / 20 GB");
+    assert_eq!(sampled["bar"]["segments"][2]["kind"], "caches");
     assert_eq!(bar["state"], "allocated");
     assert_eq!(bar["label"], "16 GB");
     assert_eq!(bar["segments"], json!([]));
