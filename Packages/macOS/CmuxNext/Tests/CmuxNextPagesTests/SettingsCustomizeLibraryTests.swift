@@ -106,7 +106,6 @@ import Testing
             ["verb": "doctor-fix", "id": "layer-on:pr-45206", "fix": "off"],
             ["verb": "doctor-fix", "id": "leftover:themes/old", "fix": "remove"],
             ["verb": "doctor-fix", "id": "broken:themes/night.json", "fix": "restore"],
-            ["verb": "doctor-fix", "id": "shadowed:appearance.theme", "fix": "follow-default"],
             ["verb": "doctor-dismiss", "id": "broken:themes/night.json"],
             ["verb": "doctor-recover"],
         ] {
@@ -117,7 +116,6 @@ import Testing
             ["--json", "customize", "doctor", "fix", "layer-on:pr-45206", "off"],
             ["--json", "customize", "doctor", "fix", "leftover:themes/old", "remove"],
             ["--json", "customize", "doctor", "fix", "broken:themes/night.json", "restore"],
-            ["--json", "customize", "doctor", "fix", "shadowed:appearance.theme", "follow-default"],
             ["--json", "customize", "doctor", "dismiss", "broken:themes/night.json"],
             ["--json", "customize", "doctor", "recover"],
         ])

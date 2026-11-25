@@ -78,6 +78,11 @@ const requests: ReadonlyArray<readonly [string, () => Request]> = [
   ["cloud apps list", () => new Request(`${ORIGIN}/v1/cloud/apps`)],
   ["cloud app create", () => post("/v1/cloud/apps", '{"name":"demo","slug":"demo"}')],
   ["cloud app version promote", () => post("/v1/cloud/apps/demo/versions", '{"commit":"abc","command":"x","machine":"vm","port":1}', { "idempotency-key": "demo:abc:1" })],
+  // A send's trace (cmux-platform StartTraceRoute.ts): an empty 404 here before it was listed, so no client read one.
+  ["start traces list", () => new Request(`${ORIGIN}/v1/cloud/start-traces?limit=200`)],
+  ["start trace read", () => new Request(`${ORIGIN}/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c`)],
+  ["start trace chrome", () => new Request(`${ORIGIN}/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c/chrome`)],
+  ["start trace spans", () => post("/v1/cloud/start-traces/0af7651916cd43dd8448eb211c80319c/spans", '{"spans":[]}')],
   ["Native network target", () => new Request(`${ORIGIN}/v1/host/network/target`)],
   ["login copy switch", () => new Request(`${ORIGIN}/v1/cloud/harness-login-copy`)],
   // The platform's client config: the app's origins and the backend's capabilities (machine_create.bootstrap).
