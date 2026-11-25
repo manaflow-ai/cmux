@@ -35,7 +35,7 @@ pub(super) fn command(
 }
 
 /// A running registration command, waited for by [`Started::finish`].
-pub(super) struct Started(Option<(std::process::Child, Instant)>);
+pub(super) struct Started(Option<(cmux_process::Child, Instant)>);
 
 /// Starts the command for this hook, when one applies.
 pub(super) fn start(source: &str, native_event: &str, session_id: Option<&str>) -> Started {
@@ -47,13 +47,18 @@ pub(super) fn start(source: &str, native_event: &str, session_id: Option<&str>) 
     let Some((cli, args)) = command(getenv, session_id, &host, &acpmux::config::home()) else {
         return Started(None);
     };
-    let child = std::process::Command::new(cli)
+    let child = cmux_process::Command::new(cli)
         .args(args)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
         .spawn()
-        .ok();
+        .ok()
+        .map(|mut child| {
+            // Past WAIT the hook exits and the command finishes its one bounded request alone.
+            child.detach("acpmux register finishes its bounded request after the hook returns");
+            child
+        });
     Started(child.map(|child| (child, Instant::now())))
 }
 
@@ -61,7 +66,6 @@ impl Started {
     /// Waits what is left of [`WAIT`], then lets the command finish on its own.
     pub(super) fn finish(self) {
         let Some((mut child, at)) = self.0 else { return };
-        use wait_timeout::ChildExt as _;
         let _ = child.wait_timeout(WAIT.saturating_sub(at.elapsed()));
     }
 }
