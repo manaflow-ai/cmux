@@ -39,6 +39,7 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
+  type CloudCredentialsState,
   type SharesState,
   type KeysState,
   type TailnetState,
@@ -739,6 +740,7 @@ export class MockSettingsProvider {
       "cmux.settings.shares.revoke": (params) =>
         this.revokeShare(String((params as { share_id?: unknown }).share_id ?? "")),
       "cmux.settings.environments.state": () => this.environments,
+      "cmux.settings.cloudCredentials.state": () => this.cloudCredentials,
       "cmux.settings.environments.run": (params) => this.runEnvironments(params as unknown as CloudEnvironmentsRun),
       // Settings > Extensions: the daemon's apps.settings.list / apps.settings.set.
       "cmux.settings.extensions.list": () => {
@@ -1122,6 +1124,7 @@ export class MockSettingsProvider {
       "cmux.settings.devices.run",
       "cmux.settings.environments.state",
       "cmux.settings.environments.run",
+      "cmux.settings.cloudCredentials.state",
       "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
@@ -1555,6 +1558,22 @@ export class MockSettingsProvider {
     this.tailnet = { state: "needs_login", browse_to_url: "https://login.tailscale.com/a/1a2b3c4d5e" };
     return { state: "starting" };
   }
+
+  /** Settings > Cloud > Cloud Credentials: a development team's issuer (cmux-platform /v1/cloud/oidc/info). */
+  cloudCredentials: CloudCredentialsState = {
+    available: true,
+    info: {
+      team: "team_0123456789abcdef0123",
+      issuer: "https://cloud-api.example.test/oidc/teams/team_0123456789abcdef0123",
+      discovery_url:
+        "https://cloud-api.example.test/oidc/teams/team_0123456789abcdef0123/.well-known/openid-configuration",
+      jwks_url: "https://cloud-api.example.test/oidc/teams/team_0123456789abcdef0123/.well-known/jwks.json",
+      signing_alg: "RS256",
+      subject_format: "team:team_0123456789abcdef0123:machine:<machine>",
+      default_ttl_seconds: 600,
+      max_ttl_seconds: 3600,
+    },
+  };
 
   /** Settings > Accounts > Cloud Environments as the app's model serves it. */
   environments: CloudEnvironmentsState = {

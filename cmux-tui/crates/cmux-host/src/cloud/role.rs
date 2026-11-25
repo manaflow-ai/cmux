@@ -590,6 +590,8 @@ struct Worker {
     /// (`additions.rs`), and the thread that lists and sends their additions at that edge.
     additions_gate: super::additions::Gate,
     additions: Option<super::additions_thread::Additions>,
+    /// This machine's OIDC token file, while the person named an audience (oidc_token.rs).
+    oidc_token: Option<super::oidc_token::OidcToken>,
     bind_retry_at: Option<u64>,
     bind_backoff: Backoff,
     /// A carrier bind waiting for the session host's Noise key (its
@@ -681,6 +683,7 @@ impl Worker {
             gateway_token: None,
             additions_gate: super::additions::Gate::default(),
             additions: None,
+            oidc_token: None,
             bind_retry_at: None,
             bind_backoff: Backoff::new(2_000, 600_000),
             noise_key_wait: None,
@@ -1166,6 +1169,15 @@ impl Worker {
                 .ok();
             }
             Err(e) => log(&format!("additions: {e}")),
+        }
+        self.oidc_token = None;
+        match github_client(&bound, &key) {
+            Ok(client) => {
+                self.oidc_token = super::oidc_token::OidcToken::spawn(client, wall_ms, log)
+                    .map_err(|e| log(&format!("cloud credentials token: {e}")))
+                    .ok();
+            }
+            Err(e) => log(&format!("cloud credentials token: {e}")),
         }
         // The first report carries the updater's block: after an update's restart, its swap.
         // After a flip's or a rollback's restart, degraded until the restarted session host

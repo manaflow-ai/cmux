@@ -1096,6 +1096,23 @@ export type CloudEnvironmentsRun =
   | { action: "build"; id: string }
   | { action: "delete"; id: string };
 
+/** Settings > Cloud > Cloud Credentials (`cmux.settings.cloudCredentials.state`,
+ * https://github.com/manaflow-ai/cmux/issues/48427): the team's cmux OIDC issuer as cmux-platform's
+ * GET /v1/cloud/oidc/info answers it. Never a token. */
+export type CloudCredentialsInfo = {
+  team: string;
+  issuer: string;
+  discovery_url: string;
+  jwks_url: string;
+  signing_alg: string;
+  /** `team:<team>:machine:<machine>`. */
+  subject_format: string;
+  default_ttl_seconds: number;
+  max_ttl_seconds: number;
+};
+/** `available` is false while signed out (the card explains); `error` is the API's code when it refused. */
+export type CloudCredentialsState = { available: boolean; info?: CloudCredentialsInfo; error?: string };
+
 /** Settings > Server > This Mac on Your Tailnet: acpmux's embedded tailnet node as `_acpmux/tailnet/*`
  * answers it (cmux-tui acpmux tailnet/embedded.rs `Snapshot::to_json`), relayed unchanged by the app on
  * its person connection. */
@@ -2402,6 +2419,8 @@ export type SettingsOps = {
   "cmux.settings.environments.state": [Record<string, never>, CloudEnvironmentsState];
   /** Native: one Cloud Environments gesture; Build and Delete ask natively first; a failure answers `error`. */
   "cmux.settings.environments.run": [CloudEnvironmentsRun, { error?: string | null }];
+  /** Native: Settings > Cloud > Cloud Credentials, the team's OIDC issuer (cmux-platform /v1/cloud/oidc/info). */
+  "cmux.settings.cloudCredentials.state": [Record<string, never>, CloudCredentialsState];
   /** Native: this Mac's tailnet node; null when acpmux has no tailnet or did not take the person's proof. */
   "cmux.settings.tailnet.state": [Record<string, never>, TailnetState | null];
   /** Native, the person's click: starts the node; a saved login resumes, else it reports `needs_login`. */

@@ -173,6 +173,13 @@ public struct CloudOwnerAPIClient: Sendable {
         return try CloudMachineRules().answer(reply, as: T.self, context: path)
     }
 
+    /// `GET /v1/cloud/oidc/info` (cmux-platform src/server/cloud/OidcRoute.ts; keyless cloud credentials,
+    /// https://github.com/manaflow-ai/cmux/issues/48427): the selected team's (`x-cmux-team`) OIDC issuer,
+    /// discovery and JWKS URLs and its token claims, as the route sends them. Public data; no key or token.
+    public func cloudCredentialsInfo() async throws -> Data {
+        try await get("/v1/cloud/oidc/info", query: [], timeout: .seconds(15))
+    }
+
     /// `GET path?name=value…` with integer query values and a list cursor (base64url) only: answers the 2xx
     /// body as sent. Any other answer throws ``CloudAPIError/http(status:code:message:action:traceId:)``
     /// with the route's `{error: {code, message}}`.
