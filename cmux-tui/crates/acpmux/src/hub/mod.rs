@@ -10,6 +10,8 @@ mod claim_check;
 mod closed_tmp;
 mod control_asks;
 mod verify;
+// Files a prompt names, read into it as the turn starts (harness magic).
+mod prefetch;
 
 mod account_usage;
 mod activity;
@@ -37,7 +39,6 @@ mod prompt_coach;
 mod person_hold;
 pub use person_hold::PromptTriager;
 pub(crate) mod restricted;
-mod rolling_summary;
 pub(crate) mod stop_condition;
 mod surge_triage;
 pub use prompt_coach::CoachRewriter;
@@ -187,6 +188,7 @@ mod live_ages;
 mod live_ages_tests;
 mod live_models;
 mod locate;
+pub(crate) mod lock_bridge;
 pub mod media_handles;
 pub mod media_read;
 mod mesh_book;
@@ -318,6 +320,7 @@ mod elevation;
 mod git_watch;
 mod github_owner;
 mod harness_sandbox;
+mod key_store;
 mod lane_report_reads;
 mod lane_report_subagents;
 mod lane_report_text;
@@ -333,8 +336,11 @@ mod offer_results;
 mod offers;
 mod question_replies;
 mod resume;
+pub use key_store::{CliKeyStore, KeepAsk, KeyStore};
 mod secrets;
 mod seen;
+// Mask old tool output instead of summarizing it (harness magic).
+pub(crate) mod surgery;
 pub(crate) use seen::{Look, reader_of};
 mod session;
 pub(crate) mod session_pages;
@@ -460,7 +466,7 @@ mod hunk_summary;
 pub mod person;
 pub mod presence;
 mod processes;
-mod pull_requests;
+pub(crate) mod pull_requests;
 pub(crate) mod purge_tombstones;
 pub(crate) use crate::questions;
 mod remote_cwd;
@@ -540,6 +546,7 @@ pub(crate) mod views;
 mod warm;
 mod watch_events;
 pub(crate) mod watches;
+mod wip_ref;
 
 /// The longest `match` a durable watch takes (`_acpmux/watch_add`): a stubbed reply chunk keeps
 /// that much of its text's end (`paging.rs` `stub_msg`), so a match across chunks is never lost.
@@ -1167,6 +1174,8 @@ pub struct Hub {
     pub(super) usage_limits: StdMutex<crate::config::UsageLimits>,
     /// The links of Macs that lend this machine their GitHub login (`github_owner.rs`).
     pub(super) github_owners: github_owner::Owners,
+    /// Agent byte channels: listeners and open channels (`server/channels.rs`).
+    pub(crate) channels: crate::server::channels::Channels,
     /// The cmux sign-in the app lends for App tokens (`github_app_token.rs`).
     pub(crate) github_app: Arc<crate::github_app_token::AppLease>,
     /// Each peer session's events as this daemon saw them, kept on disk
@@ -1512,6 +1521,9 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    /// Per host, how long no ssh carry goes to it after one was not taken
+    /// (`server/ssh_carry.rs`): this daemon's alone, so two hubs (or two tests) never share it.
+    pub(crate) ssh_carry_cooldown: std::sync::Mutex<crate::server::ssh_carry::Cooldown>,
     /// The team hub a send to a name nobody here resolves goes through, while a mesh relay
     /// runs (`server/mesh_relay.rs`); unset without one, or in a hub a test builds. A sign-out's
     /// leave clears it and a later enroll sets the new hub's (`server/machine_enroll.rs`).
@@ -1727,6 +1739,7 @@ impl Hub {
             peer_notice_projection_hook: StdMutex::new(None),
             peer_config_gen: std::sync::atomic::AtomicU64::new(0),
             github_owners: Default::default(),
+            channels: Default::default(),
             github_app: Default::default(),
             peer_snapshots,
             peer_notices,
@@ -1898,6 +1911,7 @@ impl Hub {
             mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
             join_transition: Default::default(),
@@ -2296,7 +2310,6 @@ impl Hub {
         // Hibernated before a restart: marked again, so it draws no row; it wakes on its next
         // turn or typing, never on an open alone (`idle.rs` `wake_for`).
         let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
-        let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
@@ -2357,8 +2370,7 @@ impl Hub {
             sent_seam: Default::default(),
             turn: StdMutex::new(None),
             away: StdMutex::new(Default::default()),
-            rolling: StdMutex::new(Default::default()),
-            coach: StdMutex::new(Default::default()),
+            coach: Default::default(),
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             prepared: StdMutex::new(std::collections::VecDeque::new()),
@@ -2378,8 +2390,8 @@ impl Hub {
             restored: StdMutex::new(Vec::new()),
             inbox_digests: StdMutex::new(HashMap::new()),
             digest_bytes: AtomicU64::new(0),
-            stream: StdMutex::new(StreamState::default()),
-            permissions: StdMutex::new(permission_groups::PermissionState::default()),
+            stream: Default::default(),
+            permissions: Default::default(),
             permission_epoch: AtomicU64::new(0),
             input_since: AtomicU64::new(0),
             wait_reason: StdMutex::new(None),
@@ -2406,8 +2418,7 @@ impl Hub {
             respawn_when_quiet: AtomicBool::new(false),
             ending: StdMutex::new(None),
             detaching: AtomicBool::new(false),
-            inbound_tx,
-            inbound_rx: Mutex::new(Some(inbound_rx)),
+            inbound: std::sync::OnceLock::new(),
             closed: tokio::sync::watch::channel(false).0,
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
@@ -2416,7 +2427,7 @@ impl Hub {
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
-            applied: StdMutex::new(session::Applied::default()),
+            applied: Default::default(),
             purged: Arc::new(AtomicBool::new(false)),
             replaced: AtomicBool::new(false),
             purging: AtomicBool::new(false),
@@ -2424,6 +2435,7 @@ impl Hub {
             stops: AtomicU64::new(0),
             cancels: AtomicU64::new(0),
             claim_runs: StdMutex::new(Default::default()),
+            prefetch: StdMutex::new(None),
             start_retry_wake: Notify::new(),
             start_retry_waits: AtomicBool::new(false),
             start_retry_cancels: AtomicU64::new(start_retry::NO_RETRY),
@@ -2465,7 +2477,7 @@ impl Hub {
             stalled_recheck: AtomicU64::new(0),
             open_tools: StdMutex::new(Default::default()),
             unclosed_tools: StdMutex::new(Default::default()),
-            loop_detector: StdMutex::new(Default::default()),
+            loop_detector: Default::default(),
             harness_sandbox_calls: StdMutex::new(Default::default()),
             stalled_counted: StdMutex::new(None),
             stalled_gen: AtomicU64::new(0),
@@ -2473,7 +2485,7 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             turn_cap_timer: StdMutex::new(None),
-            inbox_state: StdMutex::new(inbox::Inbox::default()),
+            inbox_state: Default::default(),
             inbox_loaded: AtomicBool::new(false),
             inbox_load: StdMutex::new(()),
             hub_ref: std::sync::OnceLock::new(),
@@ -2485,13 +2497,13 @@ impl Hub {
             agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
-            subagents: StdMutex::new(Default::default()),
+            subagents: Default::default(),
             fork_replay: Default::default(),
             harness_turn: AtomicBool::new(false),
             logged_init: StdMutex::new(Default::default()),
             update_repeats: StdMutex::new(Default::default()),
-            background_turns: StdMutex::new(Default::default()),
-            processes: StdMutex::new(Default::default()),
+            background_turns: Default::default(),
+            processes: Default::default(),
             pr_creates: StdMutex::new(Default::default()),
             pr_closes: StdMutex::new(Default::default()),
             touch_queue: StdMutex::new(Default::default()),
@@ -3598,6 +3610,7 @@ impl Hub {
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
             self.care_status(status);
+            self.lock_bridge_wake();
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
             // One that starts or stops waiting on the person changes its parent's asks below.
