@@ -337,7 +337,12 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             // One machine's transient states for every caller that needs it running (ask-259986a6c4).
             let mut look: settle::SettleLook = read(request)?;
             look.killed |= settle::killed(std::env::var(settle::KILL_SWITCH).ok().as_deref());
-            to_value(settle::settle(look))?
+            let act = settle::settle(look);
+            let mut answer = to_value(act)?;
+            if let Value::Object(fields) = &mut answer {
+                fields.insert("waking".to_owned(), Value::Bool(act.waking()));
+            }
+            answer
         }
         b"cloud_move_link_look" => {
             let look: wait::LinkLook = read(request)?;
