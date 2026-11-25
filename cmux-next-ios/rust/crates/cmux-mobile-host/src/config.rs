@@ -53,6 +53,11 @@ pub struct ServiceConfig {
     pub browser: crate::browser::BrowserConfig,
     /// The `surface` service: who starts simulator surface sources, and the running hosts.
     pub surface: crate::surface::SurfaceConfig,
+    /// Viewport sync on `daemon` channels that ask for it (`"viewport_sync": 1`) over a WireGuard
+    /// overlay: the path selector's numbers, `None` for off. Default: on with the default
+    /// selector when `CMUX_MOBILE_VIEWPORT_SYNC=1` ([`crate::viewport_sync::enabled`]);
+    /// [`crate::viewport_sync::SelectorConfig::datagram_first`] forces the datagram path.
+    pub viewport_sync: Option<crate::viewport_sync::SelectorConfig>,
 }
 
 impl ServiceConfig {
@@ -394,6 +399,9 @@ impl HostConfig {
             .with_spent_replies(std::sync::Arc::new(crate::mailbox::SpentReplies::load(
                 default_state_dir().join("mailbox-spent.json"),
             )))
+            .with_mailbox_cursor(std::sync::Arc::new(crate::mailbox::MailboxCursor::load(
+                default_state_dir().join("mailbox-cursor.json"),
+            )))
             .with_activity(std::sync::Arc::new(crate::activity::Activity::file(
                 default_state_dir().join("machine-activity.jsonl"),
             )))
@@ -477,6 +485,8 @@ impl HostConfig {
                     .unwrap_or_else(|| default_state_dir().join("uploads")),
                 browser,
                 surface,
+                viewport_sync: crate::viewport_sync::enabled()
+                    .then(crate::viewport_sync::SelectorConfig::default),
             },
         })
     }

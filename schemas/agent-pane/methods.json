@@ -31,7 +31,7 @@
     "_acpmux/peer_snapshot": {"params": ["sessionId"]},
     "_acpmux/peer_reconnect": {"params": ["name", "wait"]},
     "_acpmux/retry": {"params": ["sessionId", "subagentId"]},
-    "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], "frames": "attach-params.json"},
+    "_acpmux/attach": {"params": ["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "quietHidden", "waitLogs", "settled", "hold", "afterSeq"], "frames": "attach-params.json"},
     "_acpmux/detach": {"params": ["sessionId"]},
     "_acpmux/view": {"params": ["sessionId", "visible", "attending", "seenSeq", "cutoverSeq"]},
     "_acpmux/typing": {"params": ["sessionId", "on"]},
