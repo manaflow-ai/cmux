@@ -3100,9 +3100,41 @@ export const hopTimes = (out: string, n: number): { ttfb_p50: number; ttfb_p90: 
 export const JOURNEY_STUB_SCRIPT = {
   version: 1,
   steps: [{ shell: "printf '%s-%s\\n' {{nonce}} tool" }, { text: "Stub reply {{nonce}}. The tool printed {{result.0}}." }],
-  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker.
-  turns: [countingTurnScript(), feltTurnScript()],
+  // The chaos leg's counting turn of file reads (cloud-chaos.ts), played only for a prompt that carries its marker,
+  // and the reserved home chat's read (journeyReadTurnScript).
+  turns: [countingTurnScript(), feltTurnScript(), journeyReadTurnScript()],
 };
+
+/**
+ * The reserved home chat's stub turn (`--home-chat reserved`): one Read of the file its prompt names
+ * (journeyReadPrompt), in the chat's own folder, whose text is `<nonce>-tool`; then the reply that repeats it, as the
+ * default turn's shell call does. A Read, not a shell call: the app's start (`agent-session-start`) runs the chat under
+ * policy `ask`, where acpmux's tool gate holds every shell call for the person (acpmux hub/policy_gate.rs) and only the
+ * person's app may answer it (hub/person.rs), so the default turn waited on a permission (prod run 45585084079). A Read
+ * in the chat's own folder asks nobody, so the turn runs as a person's would.
+ */
+export function journeyReadTurnScript(): { match: string; steps: Array<Record<string, unknown>> } {
+  return {
+    match: "\\[journey-read /\\S+\\]",
+    steps: [
+      { tool: { name: "Read", input: { file_path: "{{prompt~\\[journey-read (/\\S+)\\]}}" } } },
+      // Claude Code's Read numbers its lines: only the file's text is repeated.
+      { text: "Stub reply {{nonce}}. The tool printed {{result.0~([0-9a-f]+-tool)}}." },
+    ],
+  };
+}
+
+/** The reserved home chat's prompt: the person's words, then the file the stub's turn reads (journeyReadTurnScript). */
+export const journeyReadPrompt = (prompt: string, file: string) => `${prompt} [journey-read ${file}]`;
+
+/**
+ * The guest command that writes `<cwd>/.journey-<nonce>.txt` holding `<nonce>-tool` in the chat's own folder (`cwd`,
+ * from `acp session info`) and prints `@@file <path>`.
+ */
+export function journeyReadFileCommand(cwd: string, nonce: string): string {
+  const file = `${cwd}/.journey-${nonce}.txt`;
+  return `f=${shq(file)}; printf '%s-tool\\n' ${shq(nonce)} > "$f" && echo "@@file $f"`;
+}
 
 /**
  * The journey's own test-login installer, next to this script. The app copies no login to a Cloud machine (its agents
@@ -5504,14 +5536,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       } else {
         firstTextObserver = observeFirstText(exec, session, chatBudget, J.firstText, (s) => J.record(s));
         try {
+          // The stub's turn reads a file in the chat's own folder (journeyReadTurnScript): the chat runs under policy
+          // `ask`, where a shell call waits for the person.
+          let sendText = prompt;
+          if (modelStub || gatewayStub) {
+            sendText = await J.step("stub file in the chat's folder", async () => {
+              const info = await exec(`${GUEST}"$c" acp session info ${shq(session)} --fields cwd 2>&1`, 45_000);
+              const cwd = /^cwd\t(\/\S*)$/m.exec(info.stdout)?.[1] ?? "";
+              if (!cwd) throw new Error(`no cwd for ${session}: ${info.stdout.trim().slice(-200)}`);
+              const w = await exec(journeyReadFileCommand(cwd, nonce), 45_000);
+              const file = /@@file (\S+)/.exec(w.stdout)?.[1];
+              if (!file) throw new Error(`exit ${w.code} ${w.stdout.slice(-200)} ${w.stderr.slice(-200)}`);
+              return { value: journeyReadPrompt(prompt, file), detail: `${file} (a Read asks nobody under policy ask)` };
+            });
+          }
           await J.step("send chat", async () => {
             J.firstText.mark("send");
-            await reservedChat!.prompt(prompt, undefined, Date.now() + chatBudget);
+            await reservedChat!.prompt(sendText, undefined, Date.now() + chatBudget);
             J.firstText.mark("sent");
             return { value: null, detail: `${prompt.slice(0, 80)} (sent over the app's carrier chat)` };
           });
           await J.step("reply", async () => {
             const last = await awaitReply();
+            if ((modelStub || gatewayStub) && !last.includes(`Stub reply ${nonce}. The tool printed ${nonce}-tool`)) {
+              throw new Error(`the reply does not carry the stub's read of ${nonce}-tool: ${last.slice(-200)}`);
+            }
             return { value: last, detail: last.slice(0, 280) };
           });
         } finally {
