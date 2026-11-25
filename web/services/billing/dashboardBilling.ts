@@ -4,7 +4,16 @@ import { cloudDb } from "../../db/client";
 import { stripeSubscriptions } from "../../db/schema";
 import { isVaultEnabled } from "../vault/config";
 import { isWebPlusPlanEnabled as isGoPlanEnabled } from "./goPlanFlag";
-import { isCloudIntroEnabled } from "./cloudIntro";
+import { isCloudIntroEnabled, isCloudIntroRenewChargeEnabled } from "./cloudIntro";
+import {
+  cloudIntroRenewalView,
+  cloudIntroStatementNotice,
+  latestCloudIntroStatement,
+  withCurrentRenewal,
+  type CloudIntroStatementNotice,
+} from "./cloudIntroStatements";
+import { createDrizzleCloudIntroStatementStore } from "./cloudIntroStatementStore";
+import en from "../../messages/en.json";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PERSONAL_PLAN_IDS,
@@ -58,6 +67,8 @@ export type PersonalBillingJson = {
   readonly vaultEnabled: boolean;
   /** The $1 pass's checkout is on (isCloudIntroEnabled); its `?welcome=intro` means nothing otherwise. */
   readonly cloudIntroEnabled?: boolean;
+  /** The latest $1 pass statement, while the pass runs and for the kept days after; only with the pass flag on. */
+  readonly cloudIntroStatement?: CloudIntroStatementNotice | null;
 };
 
 export type TeamBillingSubscriptionJson = {
@@ -135,10 +146,12 @@ export async function loadDashboardBilling(
 }
 
 async function loadPersonalBilling(user: DashboardBillingUser): Promise<PersonalBillingJson> {
-  const [status, { subscription, foundersEdition }, goPlanEnabled] = await Promise.all([
+  const cloudIntroEnabled = isCloudIntroEnabled();
+  const [status, { subscription, foundersEdition }, goPlanEnabled, cloudIntroStatement] = await Promise.all([
     resolveProPlanStatus(user),
     activePersonalSubscriptions(user.id),
     isGoPlanEnabled(user.id),
+    cloudIntroEnabled ? loadCloudIntroStatementNotice(user.id) : Promise.resolve(null),
   ]);
   return {
     planStatus: {
@@ -153,8 +166,33 @@ async function loadPersonalBilling(user: DashboardBillingUser): Promise<Personal
     goPlanEnabled,
     hasPaidManualGrant: isPaidPlanId(manualVmPlanOverride(user.clientReadOnlyMetadata)),
     vaultEnabled: isVaultEnabled(),
-    cloudIntroEnabled: isCloudIntroEnabled(),
+    cloudIntroEnabled,
+    cloudIntroStatement,
   };
+}
+
+/** The pass statement notice; a failed read shows no notice rather than failing Plan & billing. */
+async function loadCloudIntroStatementNotice(stackUserId: string): Promise<CloudIntroStatementNotice | null> {
+  try {
+    const pass = await createDrizzleCloudIntroStatementStore().latestForUser(stackUserId);
+    const now = new Date();
+    const stored = pass ? latestCloudIntroStatement(pass, now) : null;
+    if (!pass || !stored) return null;
+    // The stored statement, with the Plus choice as it is now (turned off, charged, or failed since).
+    const statement = withCurrentRenewal(
+      stored,
+      cloudIntroRenewalView(pass, isCloudIntroRenewChargeEnabled(), now),
+      pass.startedAt,
+    );
+    return cloudIntroStatementNotice(statement, en.emails.cloudPassStatement);
+  } catch (error) {
+    if (!(error instanceof Error && /DATABASE_URL is required/.test(error.message))) {
+      console.warn("[billing] cmux Cloud pass statement notice unavailable", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+    return null;
+  }
 }
 
 /**

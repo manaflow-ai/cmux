@@ -155,12 +155,13 @@ function fulfillmentHarness(env: Record<string, string | undefined> = ON) {
   const retrieve = mock(async (id: string) => sessions.get(id));
   const refundCreate = mock(async (_params: unknown, _options: unknown) => ({ id: `re_${refundCreate.mock.calls.length}` }));
   const writeGrant = mock(async (_userId: string, _term: unknown) => true);
+  const detach = mock(async (id: string) => ({ id }));
   let account = noHistory;
   let now = NOW;
   const dependencies: CloudIntroFulfillmentDependencies = {
     env,
     now: () => now,
-    stripe: () => ({ checkout: { sessions: { retrieve } }, refunds: { create: refundCreate } }) as never,
+    stripe: () => ({ checkout: { sessions: { retrieve } }, refunds: { create: refundCreate }, paymentMethods: { detach } }) as never,
     store: memory.store,
     loadUser: async (id) => ({ id }),
     accountFacts: async () => account,
@@ -172,6 +173,7 @@ function fulfillmentHarness(env: Record<string, string | undefined> = ON) {
     retrieve,
     refundCreate,
     writeGrant,
+    detach,
     dependencies,
     setAccount(next: CloudIntroAccountFacts) { account = next; },
     setNow(next: Date) { now = next; },
@@ -221,6 +223,31 @@ describe("cmux Cloud $1 pass fulfillment", () => {
     await fulfillCloudIntroCheckout("cs_1", h.dependencies);
     expect(h.refundCreate).toHaveBeenCalledTimes(1);
     expect(h.writeGrant).not.toHaveBeenCalled();
+  });
+
+  test("a refused renew buyer is refunded and the saved card detached, once", async () => {
+    const h = fulfillmentHarness();
+    h.sessions.set("cs_1", paidSession("cs_1", { funding: "prepaid", renewOnPlus: true }));
+    expect((await fulfillCloudIntroCheckout("cs_1", h.dependencies)).status).toBe("refused");
+    expect(h.refundCreate).toHaveBeenCalledTimes(1);
+    expect(h.detach.mock.calls).toEqual([["pm_1"]]);
+    await fulfillCloudIntroCheckout("cs_1", h.dependencies);
+    expect(h.detach).toHaveBeenCalledTimes(1);
+  });
+
+  test("a refused buyer who did not tick renew has no card to detach", async () => {
+    const h = fulfillmentHarness();
+    h.sessions.set("cs_1", paidSession("cs_1", { funding: "prepaid" }));
+    await fulfillCloudIntroCheckout("cs_1", h.dependencies);
+    expect(h.detach).not.toHaveBeenCalled();
+  });
+
+  test("a failed detach still records the refund", async () => {
+    const h = fulfillmentHarness();
+    h.detach.mockImplementation((async () => { throw new Error("already detached"); }) as never);
+    h.sessions.set("cs_1", paidSession("cs_1", { funding: "prepaid", renewOnPlus: true }));
+    expect((await fulfillCloudIntroCheckout("cs_1", h.dependencies)).status).toBe("refused");
+    expect(h.rows.get("cs_1")).toMatchObject({ refundId: "re_1" });
   });
 
   test("refunds a second account paying with a card fingerprint already used", async () => {

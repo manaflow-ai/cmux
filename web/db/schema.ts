@@ -1897,6 +1897,18 @@ export const cloudIntroPasses = pgTable(
     refundId: text("refund_id"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endsAt: timestamp("ends_at", { withTimezone: true }),
+    /** Usage statements sent for this pass, keyed by pass day (21, 27, 30); see services/billing/cloudIntroStatements.ts. */
+    statements: jsonb("statements").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    /**
+     * The day-30 Plus charge on the saved card, at most once per pass:
+     * started, succeeded, failed, requires_action, unknown or skipped_has_plan.
+     */
+    renewalStatus: text("renewal_status"),
+    renewalSubscriptionId: text("renewal_subscription_id"),
+    renewalErrorCode: text("renewal_error_code"),
+    renewalAttemptedAt: timestamp("renewal_attempted_at", { withTimezone: true }),
+    /** The buyer turned the later Plus charge off; the saved card was detached. */
+    renewTurnedOffAt: timestamp("renew_turned_off_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -953,6 +953,13 @@
         "tasteTitle": "Your free Chief week is on",
         "tasteBody": "It runs for {days} days: one Chief with {hours} awake hours ({minutes} machine-minutes). No card is on file and nothing renews."
       },
+      "passStatement": {
+        "label": "cmux Cloud pass statement",
+        "notNowTitle": "Not now, noted",
+        "notNowBody": "Nothing will be charged. When the pass ends your machines pause and messages are held. Everything is kept for {keepDays} days, and we will write before anything is deleted. You can pick Plus or Pro here any time.",
+        "turnedOff": "Turned off. You will not be charged, and the saved card was removed.",
+        "tooLate": "The Plus charge has already been made. Manage or cancel Plus here on Plan & billing."
+      },
       "appStore": {
         "title": "Billed through the App Store",
         "body": "Your plan was purchased in the cmux iPhone app and is billed by Apple. Change or cancel it in your App Store subscriptions.",
@@ -7113,6 +7120,32 @@
       "testflightLink": "Sign up for TestFlight: {url}",
       "testflightLinkLabel": "Sign up for TestFlight",
       "signoff": "Glad to have you here!\nThe cmux team"
+    },
+    "cloudPassStatement": {
+      "subject": "Your cmux Cloud pass: {days} days left",
+      "subjectLastDay": "Last day of your cmux Cloud pass: Plus, Pro, or not now",
+      "title": "cmux Cloud pass, day {day} of {days}",
+      "asOf": "Usage through {date} (UTC).",
+      "daysLeft": "{days} days left. The pass ends on {date}.",
+      "lastDay": "This is the last day. The pass ends on {date}.",
+      "ended": "The pass ended on {date}.",
+      "chiefUsed": "Chief: {used} of {included} awake hours used.",
+      "chiefNotMeasured": "Chief: {included} awake hours included. Chief hours are not measured on their own yet.",
+      "machinesUsed": "Machines: {used} of {included} machine-minutes used.",
+      "machinesNotMeasured": "Machines: {included} machine-minutes included. Usage could not be read for this statement.",
+      "machinesStarted": "Machines started: {count}.",
+      "notCharged": "You will not be charged.",
+      "renewSaved": "You chose to continue on Plus. That choice is saved, and we will ask you before charging anything.",
+      "willCharge": "On {date} your card will be charged ${amount} for Plus, monthly. Turn this off: {url}",
+      "turnOff": "Turn this off",
+      "onPlus": "You are on Plus now, ${amount} a month, on the card you saved.",
+      "chargeFailed": "The Plus charge on your saved card did not go through. Nothing was charged and Plus did not start.",
+      "askTitle": "What next?",
+      "choosePlus": "Plus, ${amount}/month",
+      "choosePro": "Pro, ${amount}/month",
+      "chooseNotNow": "Not now",
+      "after": "If you choose not now, or nothing, your machines pause when the pass ends and messages are held. Everything is kept for {keepDays} days, and we will write before anything is deleted.",
+      "signoff": "The cmux team"
     }
   },
   "tui": {
