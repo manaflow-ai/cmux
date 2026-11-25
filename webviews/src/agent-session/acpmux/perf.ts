@@ -170,6 +170,23 @@ export type TypingSample = {
   /** Shared rAF timestamp identifies keys delivered in the same display-frame callback batch. */
   frame_timestamp_ms?: number;
 } & Partial<KeyPresentation>;
+/// Where a chat runs, as the page knows it: this Mac, Cloud, or another machine (a peer, remote acpmux).
+export type PerfTransport = "local" | "cloud" | "remote";
+/// One send as direct.ts starts it (its optimistic row), for the perf watch's per-send span (perfReporter.ts).
+export type PerfSendMark = {
+  /** `performance.now()` of the send: its composer Enter keydown when one came within SEND_KEY_WINDOW_MS, else the send call. */
+  start: number;
+  /** Whether `start` is the Enter keydown's event time. */
+  fromKey: boolean;
+  /** The optimistic row's id (`local-<promptId>`), its `data-row-id`. */
+  rowId: string;
+  transport: PerfTransport;
+  freshChat: boolean;
+  rows: number;
+};
+/// A composer Enter this recent before a send, with no key after it, is the send's start: a new chat's send
+/// draws its row only once its session exists, and that wait is the person's too.
+export const SEND_KEY_WINDOW_MS = 30_000;
 /// `promptSent`: the first prompt the page sent since its handshake (direct.ts, as `session/prompt` goes out).
 export type AgentMark =
   | "handshakeStart"
@@ -260,6 +277,14 @@ export class AcpmuxPerf {
   private keyTarget: Pick<Document, "addEventListener" | "removeEventListener"> | undefined;
   /// Told each agent mark as it is kept (the perf watch's new-chat span, perfReporter.ts); unset while it is off.
   markListener: ((stage: AgentMark, at: number) => void) | undefined;
+  /// Told each launch mark as it is kept (ms since 1970; the action trace, actionTrace.ts); unset while it is off.
+  launchListener: ((stage: LaunchMark, at: number) => void) | undefined;
+  /// The perf watch's per-send, token and chat-switch hooks (perfReporter.ts); unset while it is off.
+  sendListener: ((send: PerfSendMark) => void) | undefined;
+  tokenListener: ((at: number) => void) | undefined;
+  switchListener: ((sessionId: string, at: number, transport: () => PerfTransport) => void) | undefined;
+  /// The last composer Enter's keydown time (`event.timeStamp`), while measuring.
+  private lastEnterAt: number | undefined;
 
   /** Turns measurement on; installs the composer key listener once (the chat's and New Tab's). */
   enable(
@@ -278,6 +303,8 @@ export class AcpmuxPerf {
       // The chat's composer and the New Tab page's (its omnibar's keys, Lawrence 2026-11-13).
       if (!element?.closest?.(".acpmux-composer, .nt-composer")) return;
       const start = event.timeStamp;
+      // Any other composer key clears it: an Enter is a send's start only when nothing was typed after it.
+      this.lastEnterAt = event.key === "Enter" && !event.shiftKey && !event.isComposing ? start : undefined;
       const sample: TypingSample = {
         frame: 0,
         paint: 0,
@@ -373,6 +400,7 @@ export class AcpmuxPerf {
     if (stage === "handshakeStart") this.handshakeAttempts += 1;
     if (this.launchMarks[stage] !== undefined) return;
     this.launchMarks[stage] = now;
+    this.launchListener?.(stage, now);
     // The same stage as a user-timing mark, so a trace (DevTools, bench/chat-floor.bench.ts) shows it.
     if (typeof performance !== "undefined" && typeof performance.mark === "function")
       performance.mark(`acpmux:${stage}`);
@@ -400,6 +428,31 @@ export class AcpmuxPerf {
       value.layout_shift_sum = Math.round(layoutShifts.sum * 10_000) / 10_000;
     }
     return value;
+  }
+
+  /**
+   * A send started (direct.ts, as its optimistic row is drawn): the perf watch's per-send span. One boolean
+   * check while off; `info` is only asked while measuring.
+   */
+  markSend(info: () => Omit<PerfSendMark, "start" | "fromKey">): void {
+    if (!this.enabled || !this.sendListener) return;
+    const now = performance.now();
+    const key = this.lastEnterAt;
+    this.lastEnterAt = undefined;
+    const fromKey = key !== undefined && key <= now && now - key <= SEND_KEY_WINDOW_MS;
+    this.sendListener({ ...info(), start: fromKey ? key : now, fromKey });
+  }
+
+  /** Agent text arrived (every chunk; direct.ts): the per-send span's first token. */
+  markToken(): void {
+    if (!this.enabled || !this.tokenListener) return;
+    this.tokenListener(performance.now());
+  }
+
+  /** Another chat was selected in this page (direct.ts `selectOnce`): the chat-switch span. */
+  markChatSwitch(sessionId: string, transport: () => PerfTransport): void {
+    if (!this.enabled || !this.switchListener) return;
+    this.switchListener(sessionId, performance.now(), transport);
   }
 
   /** The agent marks since the last handshake, on `performance.now()`'s clock. */

@@ -41,6 +41,12 @@ on:
         description: no coalescing; every push runs (the caller passes its vars switch)
         type: boolean
         default: false
+      runner:
+        description: >-
+          the runner label for this job ('' keeps cmux-linux). A caller on the nightly's critical path passes its own
+          pool: on 2026-11-25 cmux-tui-artifacts' gate queued 44 min on a backed-up cmux-linux for a 5 s cache read
+        type: string
+        default: ''
     outputs:
       run:
         description: "'true' when this run's checks run, 'false' when a newer window's run covers this push"
@@ -61,7 +67,7 @@ jobs:
     # Only pushes to feat-cmux-next decide anything: a pull request (and a workflow_call from one), a dispatch and any
     # other ref skip this job, so its outputs are empty and the caller's jobs run as before.
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || inputs.runner || 'cmux-linux' }}
     timeout-minutes: 5
     outputs:
       run: ${{ steps.decide.outputs.run }}
