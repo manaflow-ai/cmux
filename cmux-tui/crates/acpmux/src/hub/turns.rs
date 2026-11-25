@@ -1284,6 +1284,10 @@ impl Hub {
             .resume_cut_ask
             .store(super::auto_resume::silent(provenance.as_ref()), Ordering::SeqCst);
         session.resumed_cut.store(false, Ordering::SeqCst);
+        // Whether this prompt's agent starts for it, for its start trace (`send_trace.rs`); read
+        // only when the session has one.
+        let trace_cold =
+            crate::send_trace::waiting(&session.id) && session.child.lock().await.is_none();
         let mut started = Box::pin(self.child_for_since(session, stops)).await;
         // A failover left the chat on a profile that cannot start: back to the profile it came
         // from, which starts this turn (`fallback_start.rs`).
@@ -1575,6 +1579,7 @@ impl Hub {
             confirm_team_write || delivers_context,
             None,
             || {
+                crate::send_trace::handed(&session.id, trace_cold);
                 if delivers_context {
                     let mut m =
                         session.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
