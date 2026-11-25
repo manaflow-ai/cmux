@@ -9,7 +9,7 @@
     "ios-only",
     "no-app"
   ],
-  "noapp_path": "(^|/)(docs?|plans|research|\\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood)/|^Native/.+/evals/|^\\.gitattributes$|(^|/)ci-target-graph\\.json$|-gallery\\.html$|(^|/)CHANGELOG|LICENSE|\\.gitignore$|\\.test\\.(ts|tsx)$|\\.gallery\\.(ts|tsx|css)$|/gallery/",
+  "noapp_path": "(^|/)(docs?|plans|research|\\.github|tests?|Tests|UITests|scripts|skills|release-notes|schemas|fixtures|bench|benchmarks|tools|build-fleet)(/|$)|^(web|backend|workers|services|images|examples|cmux-tui/relays|evals|dogfood|design|vault|capture-scratch)/|^Native/.+/evals/|^\\.gitattributes$|(^|/)ci-target-graph\\.json$|-gallery\\.html$|(^|/)CHANGELOG|LICENSE|\\.gitignore$|\\.test\\.(ts|tsx)$|\\.gallery\\.(ts|tsx|css)$|/gallery/",
   "noapp_ext": "\\.(md|txt|yml|yaml|toml|lock|sh|py|mjs)$",
   "web": "^(webviews|cmux-tui/frontends/web|clients/ts|config/vite-plus)/",
   "strings": "\\.xcstrings$",

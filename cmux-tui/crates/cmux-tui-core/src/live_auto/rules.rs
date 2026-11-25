@@ -294,6 +294,11 @@ impl Rules {
             return plain(Kind::NoApp);
         }
         if !path.ends_with(".swift") {
+            // A deleted file of no known kind: the running app keeps what it
+            // had, and nothing that ships reads it any more.
+            if status == Status::Deleted {
+                return plain(Kind::NoApp);
+            }
             return Verdict { kind: Kind::Rebuild, reasons: vec!["other app file".into()] };
         }
         // A deleted file's code stays in the running binary, and nothing calls it any more.

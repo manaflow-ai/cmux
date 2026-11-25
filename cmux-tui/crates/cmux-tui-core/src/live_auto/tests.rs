@@ -76,6 +76,10 @@ fn classify_matches_live_apply_paths() {
     assert_eq!(kind("App/Info.plist"), Kind::Rebuild);
     assert_eq!(kind("README.txt"), Kind::NoApp);
     assert_eq!(kind("App/Thing.json"), Kind::Rebuild);
+    assert_eq!(kind("design/icons/cmux.svg"), Kind::NoApp);
+    assert_eq!(kind("vault/main.go"), Kind::NoApp);
+    // A deleted file of no known kind is no-app, as live_apply.py says.
+    assert_eq!(rules().classify(Status::Deleted, "OUTPUT", &[]).kind, Kind::NoApp);
 }
 
 #[test]
