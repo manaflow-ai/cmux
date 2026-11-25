@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "2582ead72d78273f086fa65ebecdb4dab6dda9c96954ef0023a08f18ac20e4d5",
+  "catalog_sha256": "c857fba36e23bd9032891cb7e7f407e49e69043ce1c55da6365067e239e94c65",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -796,6 +796,9 @@
     "settings.get": {
       "class": "read"
     },
+    "settings.history": {
+      "class": "read"
+    },
     "settings.list": {
       "class": "read"
     },
@@ -803,6 +806,12 @@
       "class": "mutation"
     },
     "settings.reset_all": {
+      "class": "mutation"
+    },
+    "settings.reset_group": {
+      "class": "mutation"
+    },
+    "settings.restore": {
       "class": "mutation"
     },
     "settings.schema": {
@@ -813,6 +822,9 @@
     },
     "settings.snapshot": {
       "class": "read"
+    },
+    "settings.undo": {
+      "class": "mutation"
     },
     "sidebar.adopt": {
       "class": "mutation"
@@ -1046,6 +1058,9 @@
       "class": "read"
     },
     "theme.scheme.from_image": {
+      "class": "read"
+    },
+    "theme.slots.resolve": {
       "class": "read"
     },
     "window_record.delete": {
