@@ -2519,8 +2519,10 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
     let hook = MeshControlHook::new(
         vec![MeshControlFrom {
             daemon_id: String::new(),
+            max_policy: None,
             same_user: true,
             ops: vec!["move".into()],
+            max_policy: None,
         }],
         Some(ledger.path().join("mesh-controls.json")),
     )
@@ -3304,6 +3306,82 @@ async fn hub_carrier_kept_circuit_numbers() {
         ms(warm_wall),
         ms(percentile(&mut warm_each, 0.95)),
     );
+}
+
+/// The lane-gh broker as a carrier service (RFD 0127 cut 2): B's gate names its broker socket
+/// for A's proven key only, so a broker stream from A reaches that socket on B's kept circuit.
+/// B with no gate (no `laneGhBroker`) refuses `service.off`, and a stranger's key is refused.
+struct TestBrokerGate {
+    admits: String,
+    socket: std::path::PathBuf,
+}
+
+#[async_trait::async_trait]
+impl acpmux::hub_carrier::broker::LaneGhBrokerGate for TestBrokerGate {
+    async fn admit(
+        &self,
+        from: &str,
+    ) -> Result<std::path::PathBuf, acpmux::hub_carrier::ServiceRefusal> {
+        if from != self.admits {
+            return Err(acpmux::hub_carrier::ServiceRefusal::new(
+                "service.unknown_machine",
+                "not this test's machine",
+            ));
+        }
+        Ok(self.socket.clone())
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_lane_gh_broker_stream_reaches_the_owners_broker_socket() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let broker = CircuitService::LaneGhBroker;
+    assert_eq!(CircuitLane::of(broker), CircuitLane::Cheap);
+    let refused = within("an ungated dial", fixture.a.dial_service(&fixture.b_key, broker))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("service.off"), "{refused}");
+
+    // B's broker: a line in, `broker:` and the line back, as a stand-in for lane-gh-broker.
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("client-a.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    tokio::spawn(async move {
+        while let Ok((conn, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (read, mut write) = conn.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if write.write_all(format!("broker:{line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: fixture.a.public_key(),
+        socket: socket.clone(),
+    }));
+    let mut stream =
+        within("a broker dial", fixture.a.dial_service(&fixture.b_key, broker)).await.unwrap();
+    stream.write_all(b"{\"tool\":\"get\"}\n").await.unwrap();
+    let mut back = vec![0u8; "broker:{\"tool\":\"get\"}\n".len()];
+    within("the broker's answer", stream.read_exact(&mut back)).await.unwrap();
+    assert_eq!(back, b"broker:{\"tool\":\"get\"}\n");
+    assert_eq!(fixture.plain_dials(), 0, "the broker stream rode the kept circuit");
+
+    // A gate that admits another key refuses A.
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: "someone else".to_owned(),
+        socket,
+    }));
+    let refused = within("a stranger's dial", fixture.a.dial_service(&fixture.b_key, broker))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("service.unknown_machine"), "{refused}");
 }
 
 #[path = "hub_carrier_cases/held_ssh.rs"]

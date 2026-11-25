@@ -41,6 +41,8 @@ pub mod harness_secret;
 pub(crate) mod help_examples;
 pub mod host_agents;
 pub mod host_approvals;
+#[cfg(unix)]
+pub mod host_broker_forward;
 pub mod host_budget;
 pub mod host_candidates;
 pub mod host_enroll;

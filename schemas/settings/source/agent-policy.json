@@ -379,6 +379,7 @@
         "focusRing.showWhenSinglePane",
         "appearance.statusIndicator.style",
         "appearance.statusIndicator.animation",
+        "appearance.statusIndicator.iconSet",
         "appearance.statusIndicator.size",
         "appearance.statusIndicator.thickness",
         "appearance.statusIndicator.color",
@@ -530,7 +531,8 @@
         "experiments.agentBadgesBeam",
         "experiments.menuStyleV2",
         "experiments.menuRowStates",
-        "experiments.toastsV2"
+        "experiments.toastsV2",
+        "experiments.terminalHistoryFind"
       ]
     },
     {
@@ -730,6 +732,7 @@
         "sidebar.workspaceRow.log",
         "sidebar.workspaceRow.notification",
         "sidebar.workspaceRow.secondLineOrder",
+        "sidebar.workspaceRow.statusPlacement",
         "sidebar.workspaceRow.lines",
         "sidebar.workspaceRow.linesByKind",
         "sidebar.workspaceRow.linesByAgent",
@@ -1594,6 +1597,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether acpmux edits Claude Code's own config to add its inbox relay: a person's agent config changes only when the person says so, and an agent must not decide which of its messages Claude Code runs.",
+      "keys": [
+        "agents.claudeCodeInboxRelay"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "Computer Use: what agents may do with the person's apps. An agent must never widen (or even change) its own access, so every computerUse.* key is the person's alone.",
       "keys": [
         "computerUse.mode",
@@ -1629,6 +1639,13 @@
       "keys": [
         "sessions.keepAwake",
         "sessions.keepAwakeForCommands"
+      ]
+    },
+    {
+      "agent": "userOnly",
+      "why": "Whether a locked Mac stays up on battery for agents is the person's call too.",
+      "keys": [
+        "sessions.keepAwakeWhenLocked"
       ]
     },
     {

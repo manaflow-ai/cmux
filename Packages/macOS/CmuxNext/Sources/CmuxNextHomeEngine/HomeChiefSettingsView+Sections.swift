@@ -70,9 +70,10 @@ extension HomeChiefSettingsView {
 
     static var sectionGap: CGFloat { Metrics.space5 }
 
-    /// A footer action of a tab (Edit Chief…, All Chief Settings…): a push button at the column's edge.
+    /// A footer action of a tab (Edit Chief…, All Chief Settings…): a push button at the column's edge, on the
+    /// theme's bezel as the card's pickers are (``ThemedBezelButton``).
     static func footerButton(_ title: String, target: AnyObject, action: Selector) -> NSButton {
-        let button = NSButton(title: title, target: target, action: action)
+        let button = ThemedBezelButton(title: title, target: target, action: action)
         button.bezelStyle = .rounded
         button.font = Typography.body
         return button
