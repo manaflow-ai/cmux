@@ -1163,48 +1163,27 @@ async fn connection(gateway: Arc<Gateway>, mut stream: TcpStream) {
     }
 }
 
-/// A request's body: one JSON-RPC message, or a batch of them (a JSON array, MCP 2025-03-26).
-enum Body {
-    One(Value),
-    Batch(Vec<Value>),
-}
-
-/// The request's message or batch, or None once it answered that there is neither.
-async fn body_of(request: &Request, stream: &mut TcpStream) -> Option<Body> {
-    let (code, text) = match serde_json::from_slice(&request.body) {
-        Ok(v @ Value::Object(_)) => return Some(Body::One(v)),
-        Ok(Value::Array(batch)) if !batch.is_empty() && batch.iter().all(Value::is_object) => {
-            return Some(Body::Batch(batch));
+/// The request's one JSON-RPC message, or None once it answered that there is none.
+async fn message_of(request: &Request, stream: &mut TcpStream) -> Option<Value> {
+    match serde_json::from_slice(&request.body) {
+        Ok(v @ Value::Object(_)) => Some(v),
+        _ => {
+            let error = json!({"jsonrpc": "2.0", "id": null, "error": {"code": -32700, "message": "one JSON-RPC message per request"}});
+            let _ = respond(
+                stream,
+                "400 Bad Request",
+                "application/json",
+                error.to_string().as_bytes(),
+            )
+            .await;
+            None
         }
-        Ok(Value::Array(_)) => (-32600, "a batch is a non-empty array of JSON-RPC messages"),
-        _ => (-32700, "one JSON-RPC message, or a batch of them, per request"),
-    };
-    let error = json!({"jsonrpc": "2.0", "id": null, "error": {"code": code, "message": text}});
-    let _ =
-        respond(stream, "400 Bad Request", "application/json", error.to_string().as_bytes()).await;
-    None
-}
-
-/// One message's answer: a JSON body, or 202 for a notification.
-async fn respond_one(stream: &mut TcpStream, answer: Option<Value>) {
-    let _ = match answer {
-        Some(answer) => {
-            respond(stream, "200 OK", "application/json", answer.to_string().as_bytes()).await
-        }
-        None => respond(stream, "202 Accepted", "text/plain", b"").await,
-    };
-}
-
-/// A batch's answers as one array, in the batch's order, none for its notifications; 202 when
-/// it held only notifications.
-async fn respond_batch(stream: &mut TcpStream, answers: Vec<Option<Value>>) {
-    let answers: Vec<Value> = answers.into_iter().flatten().collect();
-    respond_one(stream, (!answers.is_empty()).then_some(Value::Array(answers))).await;
+    }
 }
 
 /// A request to acpmux's own tool servers of the chat, answered here (`tools_mcp::answer`) in
 /// the chat's tool env. A call runs in this request's own task, so a card that waits on the
-/// person for up to an hour holds no other request; a batch's calls run at once.
+/// person for up to an hour holds no other request.
 async fn post_tools(
     gateway: &Gateway,
     chat: &Arc<Chat>,
@@ -1212,35 +1191,15 @@ async fn post_tools(
     server: Option<&'static str>,
     stream: &mut TcpStream,
 ) {
-    match body_of(request, stream).await {
-        None => {}
-        Some(Body::One(message)) => {
-            respond_one(stream, tool_answer(gateway, chat, message, server).await).await;
-        }
-        Some(Body::Batch(batch)) => {
-            let answers = futures::future::join_all(
-                batch.into_iter().map(|message| tool_answer(gateway, chat, message, server)),
-            )
-            .await;
-            respond_batch(stream, answers).await;
-        }
-    }
-}
-
-/// `message`'s answer from the chat's own tool servers; none for a notification.
-async fn tool_answer(
-    gateway: &Gateway,
-    chat: &Arc<Chat>,
-    mut message: Value,
-    server: Option<&'static str>,
-) -> Option<Value> {
+    let Some(mut message) = message_of(request, stream).await else { return };
     if let Some(name) = server {
         for_server(&mut message, name);
     }
     chat.touch();
     if message.get("id").is_none() {
         // `initialized` and the like: the servers here keep no state for them.
-        return None;
+        let _ = respond(stream, "202 Accepted", "text/plain", b"").await;
+        return;
     }
     let launch = chat.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
     let env = gateway.tools_env(&chat.id, &launch);
@@ -1256,7 +1215,12 @@ async fn tool_answer(
     .await;
     chat.inflight.fetch_sub(1, Ordering::SeqCst);
     chat.touch();
-    answer
+    let _ = match answer {
+        Some(answer) => {
+            respond(stream, "200 OK", "application/json", answer.to_string().as_bytes()).await
+        }
+        None => respond(stream, "202 Accepted", "text/plain", b"").await,
+    };
 }
 
 /// `message` for server `name` of a chat's tool servers: its params' `_meta` names it
@@ -1278,49 +1242,8 @@ fn for_server(message: &mut Value, name: &str) {
     }
 }
 
-/// What one relayed message gets back.
-enum Reply {
-    /// Nothing: a notification.
-    None,
-    /// This answer, as the response's body.
-    Json(Value),
-    /// This answer, as the last event of the SSE stream already under way.
-    Event(Value),
-}
-
-/// A request to the chat's own MCP server. A batch's messages are relayed at once: the server's
-/// answers come back by id ([`read_answers`]), so none waits on another.
 async fn post(chat: &Arc<Chat>, request: &Request, stream: &mut TcpStream) {
-    match body_of(request, stream).await {
-        None => {}
-        Some(Body::One(message)) => {
-            let sse = request.header("accept").is_some_and(|a| a.contains("text/event-stream"));
-            match relay_answer(chat, message, sse.then_some(&mut *stream)).await {
-                Reply::Event(answer) => {
-                    let _ = stream.write_all(&sse_event(&answer)).await;
-                    let _ = stream.shutdown().await;
-                }
-                Reply::Json(answer) => respond_one(stream, Some(answer)).await,
-                Reply::None => respond_one(stream, None).await,
-            }
-        }
-        Some(Body::Batch(batch)) => {
-            // No progress stream for a batch: its answers go back as one array.
-            let answers = futures::future::join_all(batch.into_iter().map(|message| async move {
-                match relay_answer(chat, message, None).await {
-                    Reply::Json(answer) | Reply::Event(answer) => Some(answer),
-                    Reply::None => None,
-                }
-            }))
-            .await;
-            respond_batch(stream, answers).await;
-        }
-    }
-}
-
-/// `message` relayed to the chat's server, or answered from what the chat kept. With `sse`, a
-/// call that carries a progress token streams its progress there as it comes.
-async fn relay_answer(chat: &Arc<Chat>, message: Value, sse: Option<&mut TcpStream>) -> Reply {
+    let Some(message) = message_of(request, stream).await else { return };
     chat.touch();
     let method = message.get("method").and_then(Value::as_str).unwrap_or("").to_owned();
     let Some(id) = message.get("id").cloned() else {
@@ -1332,7 +1255,8 @@ async fn relay_answer(chat: &Arc<Chat>, message: Value, sse: Option<&mut TcpStre
                 let _ = server.write(&message).await;
             }
         }
-        return Reply::None;
+        let _ = respond(stream, "202 Accepted", "text/plain", b"").await;
+        return;
     };
     if method == "initialize" {
         let mut kept = chat.kept.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1346,13 +1270,16 @@ async fn relay_answer(chat: &Arc<Chat>, message: Value, sse: Option<&mut TcpStre
         let kept =
             if method == "ping" { Some(json!({})) } else { chat.kept_answer(&method, &params) };
         if let Some(result) = kept {
-            return Reply::Json(json!({"jsonrpc": "2.0", "id": id, "result": result}));
+            let answer = json!({"jsonrpc": "2.0", "id": id, "result": result});
+            let _ =
+                respond(stream, "200 OK", "application/json", answer.to_string().as_bytes()).await;
+            return;
         }
     }
     chat.inflight.fetch_add(1, Ordering::SeqCst);
-    let sse = sse.filter(|_| message.pointer("/params/_meta/progressToken").is_some());
-    let mut streamed = false;
-    let answer = relay(chat, &message, &method, sse, &mut streamed).await;
+    let streams = request.header("accept").is_some_and(|a| a.contains("text/event-stream"))
+        && message.pointer("/params/_meta/progressToken").is_some();
+    let answer = relay(chat, &message, &method, streams, stream).await;
     chat.inflight.fetch_sub(1, Ordering::SeqCst);
     chat.touch();
     if let (true, Ok(result)) =
@@ -1364,21 +1291,24 @@ async fn relay_answer(chat: &Arc<Chat>, message: Value, sse: Option<&mut TcpStre
     let answer = answer.unwrap_or_else(|e| {
         json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": format!("cmux MCP server: {e:#}")}})
     });
-    // A server that failed to start before the stream's head went out answers as plain JSON.
-    if streamed { Reply::Event(answer) } else { Reply::Json(answer) }
+    if streams {
+        let _ = stream.write_all(&sse_event(&answer)).await;
+        let _ = stream.shutdown().await;
+    } else {
+        let _ = respond(stream, "200 OK", "application/json", answer.to_string().as_bytes()).await;
+    }
 }
 
 /// Sends the request to the chat's server (started if need be, once more if the running one
-/// died before it took the request) and waits for its answer. With `stream`, the SSE head goes
-/// out first (`streamed` is set then) and each progress notification is written as it comes.
+/// died before it took the request) and waits for its answer. With `streams`, the SSE head goes
+/// out first and each progress notification is written as it comes.
 async fn relay(
     chat: &Arc<Chat>,
     message: &Value,
     method: &str,
-    stream: Option<&mut TcpStream>,
-    streamed: &mut bool,
+    streams: bool,
+    stream: &mut TcpStream,
 ) -> Result<Value> {
-    let streams = stream.is_some();
     let (progress_tx, mut progress_rx) = watch::channel((0, None));
     let mut seen = 0;
     let progress = streams.then_some(progress_tx);
@@ -1393,11 +1323,10 @@ async fn relay(
         }
     };
     drop(progress);
-    let Some(stream) = stream else {
+    if !streams {
         return reply.await.map_err(|_| anyhow!("the server ended before it answered"));
-    };
+    }
     let head = "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-store\r\nconnection: close\r\n\r\n";
-    *streamed = true;
     stream.write_all(head.as_bytes()).await?;
     tokio::pin!(reply);
     loop {
