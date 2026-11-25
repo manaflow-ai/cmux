@@ -109,6 +109,11 @@ on:
         required: false
         default: false
         type: boolean
+      matrix_only:
+        description: "With matrix: a comma list of its cells, or kinds (RFD 0007's ten folder kinds); empty runs every cell"
+        required: false
+        default: ""
+        type: string
       projection_kinds:
         description: "With matrix: run the seven projected-folder kinds used by RFD 0007, including agent file actions"
         required: false
@@ -918,6 +923,7 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          MATRIX_ONLY: ${{ inputs.matrix_only }}
           PROJECTION_KINDS: ${{ inputs.projection_kinds }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -927,7 +933,7 @@ jobs:
           status=0
           projection=()
           [ "$PROJECTION_KINDS" = true ] && projection+=(--projection-kinds)
-          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" \
+          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-staging" --only "$MATRIX_ONLY" \
             --agents "$PROOF_AGENT" --cloud-backend staging --expected-api-origin https://cloud-api-staging.cmux.dev \
             --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" "${projection[@]}" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"
@@ -1160,6 +1166,7 @@ jobs:
         timeout-minutes: 90
         env:
           PROOF_AGENT: ${{ inputs.agent }}
+          MATRIX_ONLY: ${{ inputs.matrix_only }}
           PROJECTION_KINDS: ${{ inputs.projection_kinds }}
           # The agent test account's Claude login, cached for the run's own app only (--cache-claude-login).
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -1169,7 +1176,7 @@ jobs:
           status=0
           projection=()
           [ "$PROJECTION_KINDS" = true ] && projection+=(--projection-kinds)
-          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" \
+          python3 -I scripts/cmux-next/cloud-chat-matrix.py --app "$CMUX_PROOF_APP" --tag "cwm-$GITHUB_RUN_ID-prod" --only "$MATRIX_ONLY" \
             --agents "$PROOF_AGENT" --cloud-backend prod --expected-api-origin https://cloud-api.cmux.dev \
             --credentials-file "$CMUX_PROOF_CREDENTIALS" --grant-claude-login --cache-claude-login --login pass --out "$out" "${projection[@]}" || status=$?
           [ -s "$out/matrix.md" ] && cat "$out/matrix.md" >> "$GITHUB_STEP_SUMMARY"

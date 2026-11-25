@@ -1630,9 +1630,16 @@ class BunInstallLockTest(unittest.TestCase):
         # Parallel steps share bun's global cache; two installs at once failed copying from it (ENOENT).
         for name, step in ci_steps.load().steps.items():
             for line in step.run.splitlines():
-                if re.search(r"\bbun (install|i)\b", line) and not line.lstrip().startswith("#"):
+                if line.lstrip().startswith("#"):
+                    continue
+                if re.search(r"\bbun (install|i)\b", line):
                     with self.subTest(step=name, line=line.strip()):
                         self.assertIn('flock "$CI_TOOLS/bun-install.lock" bun install', line)
+                # The bounded wrapper runs `bun install` too; unlocked, web-complexity's install raced
+                # web-typecheck's in the same web/node_modules (#55938).
+                if "bun-install.sh" in line:
+                    with self.subTest(step=name, line=line.strip()):
+                        self.assertIn('flock "$CI_TOOLS/bun-install.lock" bash ', line)
 
 
 class WebBrowserStepsTest(unittest.TestCase):

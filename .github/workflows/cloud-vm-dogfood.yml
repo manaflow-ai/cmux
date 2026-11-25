@@ -27,6 +27,11 @@ on:
         required: false
         default: false
         type: boolean
+      egress_allowlist:
+        description: Also run the egress allowlist red team (an allowlisted VM reaches api.anthropic.com, cannot POST to an outside host or raw IP)
+        required: false
+        default: false
+        type: boolean
       confirm_production:
         description: Required when target is production (creates one paid VM for a few minutes)
         required: false
@@ -218,6 +223,7 @@ jobs:
         env:
           SKIP_SLEEP: ${{ inputs.skip_sleep }}
           LIFECYCLE: ${{ inputs.lifecycle }}
+          EGRESS_ALLOWLIST: ${{ inputs.egress_allowlist }}
           CMUX_VM_SMOKE_API_KEY: ${{ secrets.CMUX_VM_SMOKE_API_KEY }}
           CMUX_VM_SMOKE_SERVICE_KEY: ${{ secrets.CMUX_VM_SMOKE_SERVICE_KEY }}
           CMUX_VM_SMOKE_SERVICE_TEAM: ${{ vars.CMUX_VM_SMOKE_SERVICE_TEAM }}
@@ -226,6 +232,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/dogfood"
           args=(--result-file "$RUNNER_TEMP/dogfood/result.json")
           if [ "$SKIP_SLEEP" = "true" ]; then args+=(--skip-sleep); fi
+          if [ "$EGRESS_ALLOWLIST" = "true" ]; then args+=(--egress-allowlist); fi
           if [ "$LIFECYCLE" = "true" ]; then
             args+=(--lifecycle --cmux "$RUNNER_TEMP/trusted-cmux/cmux")
             # The public cmux is built from main and has no `cmux vm` yet: the CLI legs run the headless VM CLI
