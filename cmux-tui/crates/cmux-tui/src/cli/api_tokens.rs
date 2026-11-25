@@ -243,6 +243,10 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
             _ => return Err(UsageError::new(format!("{verb} does not take {name}\n{USAGE}"))),
         }
     }
+    // `--name=N` and `--repository=R` are the named forms of the positional word.
+    for value in [named, repository].into_iter().flatten() {
+        positional.push(value);
+    }
     let one = |what: &str| -> Result<String, UsageError> {
         match positional.as_slice() {
             [only] => Ok(only.clone()),
@@ -258,10 +262,6 @@ pub(super) fn parse(args: &[String]) -> Result<Command, UsageError> {
         }
     };
     let scopes = scopes.unwrap_or_else(|| SCOPES.map(str::to_owned).to_vec());
-    // `--name=N` and `--repository=R` are the named forms of the positional word.
-    for value in [named, repository].into_iter().flatten() {
-        positional.push(value);
-    }
     command.verb = match verb {
         "create" => {
             let name = one("a NAME")?;
