@@ -25,19 +25,23 @@ struct CloudMachineSecretsTests {
         #expect(twice.missing.isEmpty)
     }
 
-    @Test func theClaudeSetupTokenGoesToEveryMachineWhenTheMacHoldsOneGlobally() {
+    @Test func theClaudeSetupTokenGoesToEveryMachineWhenTheMacHoldsOne() {
         let held: [String: Int64] = ["*/API_KEY": 1, "*/CLAUDE_CODE_OAUTH_TOKEN": 5]
-        let wanted = CloudMachineSecrets.withAlwaysDelivered(["API_KEY"], index: held)
+        let wanted = CloudMachineSecrets.withAlwaysDelivered(["API_KEY"], repo: nil, index: held)
         #expect(wanted == ["API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"])
         let (items, missing) = CloudMachineSecrets.plan(declared: wanted, repo: nil, index: held)
         #expect(items.map(\.account) == ["*/API_KEY", "*/CLAUDE_CODE_OAUTH_TOKEN"])
         #expect(missing.isEmpty)
-        #expect(CloudMachineSecrets.withAlwaysDelivered(["API_KEY"], index: ["*/API_KEY": 1]) == ["API_KEY"],
+        #expect(CloudMachineSecrets.withAlwaysDelivered(["API_KEY"], repo: nil, index: ["*/API_KEY": 1]) == ["API_KEY"],
                 "no token on this Mac: nothing added, and never reported missing")
-        #expect(CloudMachineSecrets.withAlwaysDelivered(["CLAUDE_CODE_OAUTH_TOKEN"], index: held) == ["CLAUDE_CODE_OAUTH_TOKEN"],
+        #expect(CloudMachineSecrets.withAlwaysDelivered(["CLAUDE_CODE_OAUTH_TOKEN"], repo: nil, index: held) == ["CLAUDE_CODE_OAUTH_TOKEN"],
                 "declared already: not added twice")
-        #expect(CloudMachineSecrets.withAlwaysDelivered([], index: ["acme/app/CLAUDE_CODE_OAUTH_TOKEN": 1]).isEmpty,
-                "only a global token goes to every machine; a repo-scoped one waits for its machine config and --repo")
+        let scoped: [String: Int64] = ["acme/app/CLAUDE_CODE_OAUTH_TOKEN": 1]
+        #expect(CloudMachineSecrets.withAlwaysDelivered([], repo: nil, index: scoped).isEmpty,
+                "a repo-scoped token goes only to a delivery for that repo")
+        #expect(CloudMachineSecrets.withAlwaysDelivered([], repo: "Acme/App", index: scoped) == ["CLAUDE_CODE_OAUTH_TOKEN"])
+        #expect(CloudMachineSecrets.hasRepoValues(for: [] + CloudMachineSecrets.alwaysDelivered, repo: "acme/app", index: scoped),
+                "a machine claiming acme/app asks for --repo before the global token goes instead")
     }
 
     @Test func onlyAOneLineValueOfEightCharactersTo16KiBIsDelivered() {

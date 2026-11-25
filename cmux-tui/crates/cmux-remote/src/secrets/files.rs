@@ -12,6 +12,14 @@ pub const MACHINE_SECRETS_FILE: &str = ".config/cmux/machine-secrets.env";
 pub const MACHINE_CONFIG_STATUS_FILE: &str = ".cmux/machine-config/status.json";
 /// The largest machine-secrets.env the applier reads: 4 MiB.
 pub const MAX_ENV_FILE_BYTES: usize = 4 << 20;
+/// Names a machine takes without its machine config declaring them, once a
+/// config has applied: the Mac sends each one it holds globally to every
+/// machine (`CloudMachineSecrets.alwaysDelivered`, the same list). The
+/// Claude setup token signs Claude Code in; cmux keeps it only in the Mac's
+/// Keychain, never on its servers. The applier keeps them too (applier.py
+/// `ALWAYS_DELIVERED`).
+pub const ALWAYS_DELIVERED: &[&str] = &["CLAUDE_CODE_OAUTH_TOKEN"];
+
 /// The largest single value: 16 KiB.
 pub const MAX_VALUE_BYTES: usize = 16 * 1024;
 

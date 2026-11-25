@@ -16,6 +16,9 @@ HOOK = 'if [ -f "$HOME/.config/cmux/machine.env" ] && [ ! -L "$HOME/.config/cmux
 NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
 ROLE = re.compile(r"[a-z][a-z0-9-]{0,31}\Z")
 # The lane role's window (machine_config/idle.rs LANE_IDLE_SECONDS): 5 minutes after the last activity, then pause.
+# Names the machine keeps without a declaration (cmux-remote secrets/files.rs ALWAYS_DELIVERED): the Mac sends
+# the Claude setup token it holds to every machine, so a config that does not declare it never unsets it.
+ALWAYS_DELIVERED = frozenset({"CLAUDE_CODE_OAUTH_TOKEN"})
 LANE_IDLE_SECONDS = 300
 # Names the shell owns or evaluates (bash expands arithmetic variables such as OPTIND, and prompts,
 # when it reads them: `OPTIND='a[$(cmd)]'` runs cmd even single-quoted), and names cmux owns.
@@ -282,6 +285,12 @@ def delivered():
         if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
             return set()
         return {m.group(1) for m in re.finditer(r"^export ([A-Za-z_][A-Za-z0-9_]*)=", f.read(), re.M)}
+
+
+def stale_secrets(have, declared):
+    """The delivered names machine.env unsets after sourcing machine-secrets.env: what the config no longer
+    declares, never an ALWAYS_DELIVERED name."""
+    return sorted(set(have) - set(declared) - ALWAYS_DELIVERED)
 
 
 def previous_env_names():
@@ -700,13 +709,13 @@ def apply_once(request):
         if config["secrets"]:
             lines += ["unset " + " ".join(config["secrets"])]
         lines += ['if [ -z "${CMUX_MACHINE_SETUP:-}" ] && [ -f "$HOME/.config/cmux/machine-secrets.env" ] && [ ! -L "$HOME/.config/cmux/machine-secrets.env" ]; then . "$HOME/.config/cmux/machine-secrets.env"; fi']
-        stale = sorted(delivered() - set(config["secrets"]))
+        stale = stale_secrets(delivered(), config["secrets"])
         if stale:
             lines += ["unset " + " ".join(stale)]
         # Names an earlier apply exported (or already unset) and this config no longer declares: a shell
         # that loaded the old file keeps them otherwise.
         # All of them, every time (never a newest one dropped): previous_env_names reads them back.
-        gone = sorted(previous_env_names() - set(config["env"]) - set(config["secrets"]))
+        gone = sorted(previous_env_names() - set(config["env"]) - set(config["secrets"]) - ALWAYS_DELIVERED)
         if gone:
             lines += ["unset " + " ".join(gone)]
         lines += [f"export {k}={quoted(v)}" for k, v in config["env"].items()]

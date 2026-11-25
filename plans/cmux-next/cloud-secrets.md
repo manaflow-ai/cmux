@@ -25,7 +25,7 @@ behind a provider interface with Azure Key Vault as the production KMS. Referenc
 | Encrypted at rest | envelope per value; data key wrapped by a `KeyEncryptionProvider`: keyring, dev stub, Azure Key Vault (new) |
 | Agent sees names only | values are write-only on every route; names and times only; person tokens only |
 | Protected file sourced by shells | `~/.config/cmux/machine.env` (0600), written over exec stdin; digest skips unchanged writes |
-| Setup tokens | `CLAUDE_CODE_OAUTH_TOKEN` stays in the Mac Keychain and goes to every Cloud machine (new); the server refuses it |
+| Setup tokens | `CLAUDE_CODE_OAUTH_TOKEN` stays in the Mac Keychain and goes to every Cloud machine whose config has applied (new); the server refuses it |
 
 Precedence, low to high: environment variables, the machine creator's personal values, the chat's values.
 
@@ -37,9 +37,11 @@ Precedence, low to high: environment variables, the machine creator's personal v
    `/v1/cloud-environments/{id}/personal-values` and `/v1/workspaces/{workspace}/machine/values`, inject() layering,
    chat values dropped with the machine, `docs/cloud-secrets.md` with the Azure resources and credentials.
    Done; tests pass; not merged.
-2. cmux (this branch): the Claude setup token is always delivered to the person's Cloud machines when the Mac
-   holds a global `CLAUDE_CODE_OAUTH_TOKEN` (`CloudMachineSecrets.alwaysDelivered`), CLI help, and
-   `docs/cmux-next/cloud-secrets.md`. Done; not merged.
+2. cmux (https://github.com/manaflow-ai/cmux/pull/46960): `cmux cloud deliver-secrets` sends the Claude setup
+   token this Mac holds to every machine whose config has applied, declared or not
+   (`CloudMachineSecrets.alwaysDelivered`); the machine's daemon accepts it and the applier keeps it in shells
+   (cmux-remote `ALWAYS_DELIVERED`, applier.py `ALWAYS_DELIVERED`). CLI help and
+   `docs/cmux-next/cloud-secrets.md`. Not merged.
 3. After (1) lands and `cmux-cloud-client/openapi.json` is synced (`scripts/update-spec.sh`): `cmux cloud values
    personal|chat set|ls|rm` on the generated client (a hand-written route fails `hand_written_routes.rs`), the
    Settings page's Personal tab per environment, and the composer's "Environment variables" dialog for chat values.

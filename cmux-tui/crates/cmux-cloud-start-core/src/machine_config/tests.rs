@@ -283,3 +283,32 @@ fn a_secrets_file_of_any_size_is_masked_and_named() {
     let said = String::from_utf8_lossy(&out.stdout).trim().to_owned();
     assert_eq!(said, "300 300", "{}", String::from_utf8_lossy(&out.stderr));
 }
+
+/// The Claude setup token the Mac delivers to every machine stays set in shells when the config
+/// does not declare it; any other undeclared delivered name is still unset.
+#[cfg(unix)]
+#[test]
+fn an_undeclared_claude_setup_token_is_never_unset() {
+    let dir = std::env::temp_dir().join(format!("cmux-apply-always-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let applier_path = dir.join("apply");
+    std::fs::write(&applier_path, applier()).unwrap();
+    let call = "import importlib.machinery, importlib.util, sys, types\n\
+                try:\n    import tomllib\n\
+                except ImportError:\n    sys.modules['tomllib'] = types.ModuleType('tomllib')\n\
+                l = importlib.machinery.SourceFileLoader('applier', sys.argv[1])\n\
+                m = importlib.util.module_from_spec(importlib.util.spec_from_loader('applier', l))\n\
+                l.exec_module(m)\n\
+                print(' '.join(m.stale_secrets({'CLAUDE_CODE_OAUTH_TOKEN', 'OLD_KEY', 'API_KEY'}, ['API_KEY'])))\n";
+    let Ok(out) = std::process::Command::new("python3")
+        .args(["-I", "-c", call])
+        .arg(&applier_path)
+        .env("HOME", &dir)
+        .output()
+    else {
+        return;
+    };
+    let _ = std::fs::remove_dir_all(&dir);
+    let said = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+    assert_eq!(said, "OLD_KEY", "{}", String::from_utf8_lossy(&out.stderr));
+}

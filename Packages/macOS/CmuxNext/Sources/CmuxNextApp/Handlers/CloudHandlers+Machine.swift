@@ -496,10 +496,10 @@ extension CloudHandlers {
             // The person picks the scope. When the machine says it holds a repo that has its own values
             // here, delivering global ones without a word would be the wrong values: ask for --repo.
             if repo == nil, let claimed = CloudMachineSecrets.claimedRepo(record: await read(CloudMachineBootstrap.directory + "/repo.json")),
-               CloudMachineSecrets.hasRepoValues(for: declared, repo: claimed, index: stored) {
+               CloudMachineSecrets.hasRepoValues(for: declared + CloudMachineSecrets.alwaysDelivered, repo: claimed, index: stored) {
                 throw ActionFailure(message: CloudStrings.secretRepoNeeded(claimed))
             }
-            let (items, missing) = CloudMachineSecrets.plan(declared: CloudMachineSecrets.withAlwaysDelivered(declared, index: stored), repo: repo, index: stored)
+            let (items, missing) = CloudMachineSecrets.plan(declared: CloudMachineSecrets.withAlwaysDelivered(declared, repo: repo, index: stored), repo: repo, index: stored)
             let ledger = CloudMachineSecrets.Ledger(file: ledgerFile)
             var answer: [String: ActionResultValue] = ["machine_id": .string(machineID), "declared": .array(declared.map(ActionResultValue.string)),
                                                        "missing": .array(missing.map(ActionResultValue.string))]

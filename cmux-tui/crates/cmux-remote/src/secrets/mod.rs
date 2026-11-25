@@ -223,7 +223,10 @@ impl MachineSecrets {
         let mut taken = Vec::with_capacity(items.len());
         for item in items {
             if !files::is_secret_name(&item.name)
-                || !declared.as_ref().is_some_and(|declared| declared.contains(&item.name))
+                || !declared.as_ref().is_some_and(|declared| {
+                    declared.contains(&item.name)
+                        || files::ALWAYS_DELIVERED.contains(&item.name.as_str())
+                })
             {
                 return Err(refused("bad-name", &item.name));
             }
