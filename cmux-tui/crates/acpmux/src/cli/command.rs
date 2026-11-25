@@ -154,7 +154,7 @@ mod agent_front_door_tests {
 pub(super) mod aliases {
     macro_rules! root_aliases {
         ($($command:ident => [$($alias:literal),+]),+ $(,)?) => {
-            $(pub(super) const $command: &[&str] = &[$($alias),+];)+
+            $(pub(in crate::cli) const $command: &[&str] = &[$($alias),+];)+
 
             pub(in crate::cli) const GROUPS: &[&[&str]] = &[$($command),+];
         };
@@ -182,6 +182,7 @@ pub(super) mod aliases {
         RENAME => ["rename-session"],
         SHUTDOWN => ["kill-server"],
         SEARCH => ["grep"],
+        TAIL => ["events", "log", "logs"],
     }
 }
 
@@ -253,6 +254,10 @@ pub enum Command {
     /// files, what the session this shell runs in edited lately.
     #[command(name = "who-else", aliases = aliases::WHO_ELSE)]
     WhoElse(crate::cli::who_else::WhoElseArgs),
+    /// Byte channels between agents, here or on a peer: `listen SERVICE` prints each channel's
+    /// bytes, `open [HOST] SERVICE` sends stdin and prints what comes back, like netcat.
+    #[command(subcommand)]
+    Channel(crate::cli::channel::ChannelCommand),
     /// What turns on this machine cost, whatever harness ran them: totals, then one line per
     /// repository, pull request, day, person, workspace, vendor, model or account.
     #[command(aliases = aliases::LEDGER)]
@@ -793,11 +798,13 @@ pub enum Command {
     /// (tools_mcp.rs; not for people).
     #[command(hide = true)]
     ToolsMcp,
-    // Old spellings, kept working but hidden from help.
-    #[command(hide = true)]
+    // Old spellings, kept working but hidden from help. `events`, `log` and `logs` are what an
+    // agent guesses for a session's events (Leo, 2026-11-21: "your thing should also be
+    // acceptable input"): they run this, and say it is `session tail`.
+    #[command(hide = true, aliases = aliases::TAIL)]
     Tail {
         session: String,
-        #[arg(long, default_value_t = 50)]
+        #[arg(long, short = 'n', visible_alias = "tail", default_value_t = 50)]
         last: u64,
         #[arg(long, short)]
         follow: bool,
@@ -886,7 +893,9 @@ pub enum Command {
     PauseAgent { session: String },
     #[command(hide = true)]
     WakeAgent { session: String },
-    #[command(hide = true)]
+    // Built only by flattening `session hold` / `session release`; its fields carry no #[arg], so it
+    // is no subcommand of its own (clap's debug build refused the positional `held` switch).
+    #[command(skip)]
     SessionHold {
         session: Option<String>,
         held: bool,
@@ -1064,6 +1073,9 @@ pub enum Command {
     /// `daemon felt`: the felt-latency histograms (the net graph).
     #[command(hide = true)]
     DaemonFelt,
+    /// `daemon placement`: one tailnet placement update.
+    #[command(hide = true)]
+    DaemonPlacement { message: String },
     /// `daemon prune`: clear dead daemons' records (a dry run unless `apply`).
     #[command(hide = true)]
     DaemonPrune {
@@ -1575,7 +1587,7 @@ pub enum SessionCmd {
     /// Print the last raw events as JSON lines; -f keeps following.
     Tail {
         session: String,
-        #[arg(long, default_value_t = 50)]
+        #[arg(long, short = 'n', visible_alias = "tail", default_value_t = 50)]
         last: u64,
         #[arg(long, short)]
         follow: bool,
@@ -1880,6 +1892,13 @@ pub enum DaemonCmd {
     /// person feels (a prompt's send to ack, a typed key's echo) over the last minute and since
     /// start. Numbers and names only.
     Felt,
+    /// Tell the stable tailnet node's front where a workspace runs now: one placement message as
+    /// JSON (`{"kind":"moved","workspace":"default","placement":{"ssh":"10.0.0.5:22"}}`; kinds
+    /// set, moved, removed). Open connections keep their target; new ones go to the new place.
+    Placement {
+        /// The placement message (JSON).
+        message: String,
+    },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
@@ -2126,6 +2145,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Restart => Command::DaemonRestart,
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Felt => Command::DaemonFelt,
+            DaemonCmd::Placement { message } => Command::DaemonPlacement { message },
             DaemonCmd::Prune { apply } => Command::DaemonPrune { apply },
             DaemonCmd::Service { action } => Command::DaemonService { action },
             DaemonCmd::Config { show_token, set } => Command::Config { show_token, set },
