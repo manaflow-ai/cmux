@@ -220,7 +220,9 @@ await requireBrowserLane("agent-pane-edited-calm.test.ts", async () => {
     ).toContain("tabular-nums");
     expect((await style(page, ".acpmux-edited-file")).height).toBe(36);
     expect((await style(page, ".acpmux-edited-head")).height).toBe(64);
-    expect((await style(page, ".acpmux-review-changes")).height).toBe(28);
+    // Undo is the head's one button (no View changes beside it), a control row high.
+    expect(await page.locator(".acpmux-edited .acpmux-review-changes:not(.acpmux-edited-open)").count()).toBe(0);
+    expect((await style(page, ".acpmux-edited-head .acpmux-edited-undo")).height).toBe(28);
     // The head's glyph sits in a 40px tile, as the Codex app's.
     expect(await page.locator(".acpmux-edited-icon").evaluate((node) => node.getBoundingClientRect().width)).toBe(40);
     await page.close();
