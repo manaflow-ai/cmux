@@ -66,17 +66,26 @@ public final class DaemonCommandScope: Sendable {
         if let handle = state.load().handle { cmux_daemon_scope_free(handle) }
     }
 
+    /// One scope op's reply.
     private func call(_ op: String, _ request: [String: Any] = [:]) -> [String: Any] {
-        state.withLock { call(op, request, on: $0.handle) }
+        let request = encoded(request)
+        return decoded(state.withLock { Self.call(op, request, on: $0.handle) })
     }
 
-    /// One scope op's reply; `at_ms` stamps the stage log.
-    private func call(_ op: String, _ request: [String: Any], on handle: OpaquePointer?) -> [String: Any] {
-        guard let handle else { return [:] }
+    /// `request` as JSON; `at_ms` stamps the stage log.
+    private func encoded(_ request: [String: Any]) -> Data {
         let ms = (ContinuousClock.now - createdAt).components
         var request = request
         request["at_ms"] = ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000
-        guard let data = try? JSONSerialization.data(withJSONObject: request) else { return [:] }
+        return (try? JSONSerialization.data(withJSONObject: request)) ?? Data()
+    }
+
+    private func decoded(_ reply: Data?) -> [String: Any] {
+        reply.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
+    }
+
+    private static func call(_ op: String, _ data: Data, on handle: OpaquePointer?) -> Data? {
+        guard let handle else { return nil }
         var out = CmuxDaemonConnBytes(ptr: nil, len: 0)
         let code: Int32 = data.withUnsafeBytes { raw in
             op.withCString { name in
@@ -84,8 +93,8 @@ public final class DaemonCommandScope: Sendable {
             }
         }
         defer { cmux_daemon_conn_bytes_free(out) }
-        guard code == 0, let bytes = out.ptr, out.len > 0 else { return [:] }
-        return (try? JSONSerialization.jsonObject(with: Data(bytes: bytes, count: out.len))) as? [String: Any] ?? [:]
+        guard code == 0, let bytes = out.ptr, out.len > 0 else { return nil }
+        return Data(bytes: bytes, count: out.len)
     }
 
     private func field(_ name: String) -> Any? { call("state")[name] }
@@ -143,8 +152,9 @@ public final class DaemonCommandScope: Sendable {
                 "may_have_applied": failure.mayHaveApplied, "terminal_may_appear": failure.terminalMayAppear,
             ]
         }
+        let data = encoded(request)
         let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
-            guard call("end", request, on: state.handle)["became_idle"] as? Bool == true else { return [] }
+            guard decoded(Self.call("end", data, on: state.handle))["became_idle"] as? Bool == true else { return [] }
             defer { state.idleWaiters.removeAll() }
             return state.idleWaiters
         }
@@ -171,8 +181,9 @@ public final class DaemonCommandScope: Sendable {
     /// after closing one.
     public func waitUntilIdle() async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let data = encoded([:])
             let idle = state.withLock { state -> Bool in
-                if call("state", [:], on: state.handle)["idle"] as? Bool ?? true { return true }
+                if decoded(Self.call("state", data, on: state.handle))["idle"] as? Bool ?? true { return true }
                 state.idleWaiters.append(continuation)
                 return false
             }
