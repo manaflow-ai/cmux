@@ -142,13 +142,13 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
 
         // The positive control: a tap in the middle of a key does reach it, so the probe counts.
         let escape = app.buttons["terminal.key.escape"]
-        if escape.exists, escape.frame.maxX <= width {
-            let before = probe.value as? String ?? ""
-            origin.withOffset(CGVector(dx: escape.frame.midX, dy: escape.frame.midY)).tap()
-            let after = probe.value as? String ?? ""
-            XCTAssertTrue(after != before && after.contains("escape"),
-                          "a tap on Esc \(escape.frame) did not reach it: \(before) -> \(after)")
-        }
+        XCTAssertTrue(escape.waitForExistence(timeout: 2), "the Esc positive-control key is missing")
+        XCTAssertLessThanOrEqual(escape.frame.maxX, width, "the Esc positive-control key is off screen")
+        let before = probe.value as? String ?? ""
+        origin.withOffset(CGVector(dx: escape.frame.midX, dy: escape.frame.midY)).tap()
+        let after = probe.value as? String ?? ""
+        XCTAssertTrue(after != before && after.contains("escape"),
+                      "a tap on Esc \(escape.frame) did not reach it: \(before) -> \(after)")
     }
 
     /// The 8 pt gap between the key row and the composer is the composer's: a tap there, at the
