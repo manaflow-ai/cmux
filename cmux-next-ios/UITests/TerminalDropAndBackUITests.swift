@@ -26,9 +26,9 @@ final class TerminalDropAndBackUITests: XCTestCase {
         RunLoop.current.run(until: Date().addingTimeInterval(4))
         keep(app, "1-attached")
 
-        // Past the quiet bound of the drop the title pill names the Mac as offline.
+        // Past the quiet bound of the drop the title pill says the Mac is offline ("Mac offline").
         let offline = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label CONTAINS %@", "is offline")).firstMatch
+            .matching(NSPredicate(format: "label CONTAINS %@", "offline")).firstMatch
         XCTAssertTrue(offline.waitForExistence(timeout: 20), "the offline subtitle\n\(app.debugDescription)")
         keep(app, "2-offline-rows-kept")
         XCTAssertTrue(field.exists, "the composer stays while offline")
