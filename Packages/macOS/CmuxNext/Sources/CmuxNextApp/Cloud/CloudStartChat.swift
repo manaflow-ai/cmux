@@ -151,7 +151,7 @@ struct CloudStartChat {
             // The account may have changed while the machine connected: copy nothing then.
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             let size = AgentPaneCloudStart.sizeText(machine.machine.size) // Remote approvals run beside the copy, awaited before the chat opens.
-            let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account }; _ = await services.cloud.machineAPI.daemon.carryGitHubLogin(machine.machineID, if: CloudNewWorkspaceSetting().useMyGitHubLogin(in: services.settings?.snapshot.root ?? .object([:]))) }) {
+            let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in _ = await services.cloud.machineAPI.daemon.carryGitHubLogin(machine.machineID, if: CloudNewWorkspaceSetting().useMyGitHubLogin(in: services.settings?.snapshot.root ?? .object([:]))); return await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
                 report(.init(name: "folder", folder: folderName, machine: name, size: size))
                 guard await CloudMoveFolder.isFolder(folder.root) else { throw CloudMoveFolder.Gone() } // removed while the machine came up
                 // Each copy goes to a new folder of the send's own, under its account as its pin; a retry whose
