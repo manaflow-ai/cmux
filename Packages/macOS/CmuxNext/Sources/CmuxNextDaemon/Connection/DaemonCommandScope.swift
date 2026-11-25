@@ -48,6 +48,7 @@ public final class DaemonCommandScope: Sendable {
 
     public let idempotencyKey: String?
     /// The Rust scope (cmux-daemon-conn-core src/scope.rs); its calls are thread-safe.
+    // crash-allow: an immutable pointer to a Rust scope that locks its own Mutex on every call (ffi.rs cmux_daemon_scope_call)
     private struct Handle: @unchecked Sendable {
         let raw: OpaquePointer
     }
