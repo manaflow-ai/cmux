@@ -810,6 +810,13 @@ while True:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": refusal}})
             continue
+        # FAKE_CLAUDE_HOLD_FORK_IF=<path>: a `--fork-session` start answers initialize only once
+        # that file is gone (a fork whose agent a daemon restart cuts off as it starts).
+        hold_fork = os.environ.get("FAKE_CLAUDE_HOLD_FORK_IF")
+        if request.get("subtype") == "initialize" and hold_fork and "--fork-session" in sys.argv:
+            import time
+            while os.path.exists(hold_fork):
+                time.sleep(0.05)
         # FAKE_CLAUDE_INIT_DELAY_MS: the initialize answer takes that long (a slow start).
         if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_DELAY_MS"):
             import time

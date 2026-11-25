@@ -11,6 +11,7 @@
 
 pub mod auth;
 pub mod events;
+pub mod here;
 pub mod inventory;
 pub mod mailbox;
 pub mod params;
@@ -19,6 +20,7 @@ pub mod permission;
 pub mod presence;
 pub mod process;
 pub mod session;
+pub mod sync;
 #[cfg(test)]
 mod tests;
 
@@ -232,11 +234,17 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
+        request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
+        request::<here::HereParams, here::HereResult>(method::MUX_HERE),
+        request::<sync::SyncPullParams, sync::SyncPullResult>(method::MUX_SYNC_PULL),
+        request::<sync::SyncPushParams, sync::SyncPushDone>(method::MUX_SYNC_PUSH),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
         request::<events::WatchParams, session::SessionsResult>(method::MUX_WATCH),
         untyped(method::MUX_RENAME, Request),
+        untyped(method::MUX_SUCCEED, Request),
+        untyped(method::MUX_ROLE, Request),
         untyped(method::MUX_REGISTER, Request),
         untyped(method::MUX_INBOX_RELAY, Request),
         untyped(method::MUX_OFFER_SESSION, Request),
@@ -259,7 +267,10 @@ pub fn registry() -> Vec<MethodDecl> {
         // Forum announcements (`server/forum.rs`).
         untyped(method::MUX_FORUM_ACK, Request),
         untyped(method::MUX_FORUM_ANNOUNCE, Request),
+        untyped(method::MUX_FORUM_POST, Request),
+        untyped(method::MUX_FORUM_REPLY, Request),
         keyed::<params::ForumRulesParams>(method::MUX_FORUM_RULES, Request),
+        untyped(method::MUX_FORUM_SEARCH, Request),
         keyed::<params::SetToolsParams>(method::MUX_SET_TOOLS, Request),
         untyped(method::MUX_SET_DIRECTORIES, Request),
         untyped(method::MUX_PROJECT_NEW, Request),
@@ -336,6 +347,10 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WORKTREE_RESTORE, Request),
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
+        untyped(method::MUX_AUTO_SESSION_SET, Request),
+        untyped(method::MUX_AUTO_SESSION_LEFTOVER, Request),
+        untyped(method::MUX_AUTO_SESSION_WAKE, Request),
+        untyped(method::MUX_AUTO_SESSION_TRANSCRIPT, Request),
         untyped(method::MUX_PROCESS_UPDATE, Notification),
         keyed::<params::KillParams>(method::MUX_KILL, Request),
         untyped(method::MUX_PAUSE, Request),
@@ -359,6 +374,8 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
         keyed::<params::AttachmentParams>(method::MUX_ATTACHMENT, Request),
         keyed::<params::TurnShotsParams>(method::MUX_TURN_SHOTS, Request),
+        keyed::<params::TurnFramesParams>(method::MUX_TURN_FRAMES, Request),
+        keyed::<params::CustomizeRunParams>(method::MUX_CUSTOMIZE_RUN, Request),
         request::<MailSendParams, MailSendResult>(method::MUX_MAIL_SEND),
         request::<MailReadParams, MailPageResult>(method::MUX_MAIL_READ),
         request::<MailWaitParams, MailPageResult>(method::MUX_MAIL_WAIT),
@@ -642,11 +659,13 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONTROL, Notification),
         untyped(method::MUX_HARNESS_INVENTORY, Notification),
         untyped(method::MUX_START_MODE_CHANGED, Notification),
+        untyped(method::MUX_FILL, Notification),
         untyped(method::MUX_PROMPT_ACCEPTED, Notification),
         untyped(method::MUX_CANCEL_REFUSED, Notification),
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
+        untyped(method::MUX_ADMISSION_WAITING, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
 }

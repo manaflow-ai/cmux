@@ -20,4 +20,12 @@ import Testing
         #expect(FeedEmptyBody.resolve(isEmpty: true, sync: .live, filter: .all) == .noEvents)
         #expect(FeedEmptyBody.resolve(isEmpty: false, sync: .live, filter: .all) == nil, "rows on screen: no empty state")
     }
+
+    /// The account's cached snapshot already said what the Feed holds: a filter with no rows says
+    /// so while the Mac reconnects, instead of a blank screen.
+    @Test func aKnownFeedSaysEmptyWhileReconnecting() {
+        #expect(FeedEmptyBody.resolve(isEmpty: true, sync: .connecting, filter: .needsYou, known: true) == .caughtUp)
+        #expect(FeedEmptyBody.resolve(isEmpty: true, sync: .connecting, filter: .all, known: true) == .noEvents)
+        #expect(FeedEmptyBody.resolve(isEmpty: false, sync: .connecting, filter: .all, known: true) == nil)
+    }
 }

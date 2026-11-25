@@ -156,7 +156,11 @@ extension SidebarDocProjection {
                 guard case .group(var group) = node, let placed = byGroup[group.id.rawValue] else { return node }
                 var shown: [String: WorkspaceID] = [:]
                 for workspace in group.workspaces { if let item = drag.item(.workspace(workspace.id)) { shown[item] = workspace.id } }
-                group.items = placed.listed.map { listed in
+                group.items = placed.listed.compactMap { listed in
+                    // A link, tab or app nested in a Pinned group keeps the group's room filter. The reducer's
+                    // projection carries its record room, but dropping that field here leaked it into every space.
+                    if placed.pinned, let room = listed.item.room, let windowRoom = drag.room,
+                       SidebarDocItem.owningRoom(room, spaces: drag.spaces) != windowRoom { return nil }
                     var anchor: WorkspaceID?
                     if let after = listed.after, let index = placed.memberItems.firstIndex(of: after) {
                         anchor = placed.memberItems[...index].reversed().lazy.compactMap { shown[$0] }.first

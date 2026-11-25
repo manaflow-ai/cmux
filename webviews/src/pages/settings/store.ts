@@ -49,8 +49,7 @@ import {
   newIdempotencyKey,
   wireError,
   type AccountsRun,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
   type AccountsState,
   type AgentsRun,
   type AgentsState,
@@ -62,7 +61,6 @@ import {
   type LibraryRun,
   type SharesState,
   type TailnetState,
-  type TailnetVMReply,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -93,8 +91,6 @@ import {
   type AgentToolsCardState,
   type McpServersRun,
   type McpServersState,
-  type HubRun,
-  type HubState,
   type RowNoteData,
   type AgentSkillsRun,
   type AgentSkillsState,
@@ -104,16 +100,22 @@ import {
   type AgentHooksState,
   type AgentConfigAnswer,
   type AgentConfigRun,
-  type AccountsRunReply,
+  type AllotmentSet,
+  type AllotmentView,
+  type ArchivedRun,
+  type ArchivedState,
   type DoctorReport,
   type DoctorRun,
+  type HubRun,
+  type HubState,
+  type ConnectionsRun,
+  type ConnectionsState,
+  type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
-  type ConnectionsRun,
-  type ConnectionsState,
-  type ArchivedRun,
-  type ArchivedState,
+  type Checklist,
+  type ChecklistFact,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -198,7 +200,7 @@ export type NativeTarget = "cmuxJSON";
 /** `appearance.background`, which the picker's host ops set. */
 const BACKGROUND = "appearance.background";
 
-const emptyDomains: Domains = { themes: [], font_families: [], sounds: [], recent_fonts: [] };
+const emptyDomains: Domains = { themes: [], font_families: [], ui_font_families: [], sounds: [], recent_fonts: [] };
 
 /** The page's state from the cache and the UI state (one function for hooks and getSnapshot). */
 export function composeState(ui: UiState, cache: CacheView): SettingsState {
@@ -1128,6 +1130,13 @@ export class SettingsStore {
     return { library: answer.library ?? null, refusal };
   }
 
+  /** Settings > General > Customize cmux: the checklist and progress, with `has` the connections the
+   * page knows of; null when the host has no CLI or did not answer. */
+  async customizeChecklist(has: ChecklistFact[]): Promise<Checklist | null> {
+    const reply = await this.request("cmux.settings.customize.checklist", { has });
+    return reply.ok ? (reply.value?.checklist ?? null) : null;
+  }
+
   /** Personalization > Customization Problems: one `cmux customize doctor` verb (or `doctor-open`,
    * which the host runs). Answers the report after it (null when the host has no CLI, did not answer
    * one, or for `doctor-open`), the CLI's refusal in its own words (an unknown id, a fix it does not
@@ -1526,6 +1535,14 @@ export class SettingsStore {
 
   playSound(name: string): void {
     void this.request("cmux.settings.sound.play", { name });
+  }
+
+  /** Custom Sound…: the host asks for an audio file, keeps a copy in cmux's sounds folder and sets
+   * it as `key`'s sound. */
+  async importSound(key: string): Promise<void> {
+    const reply = await this.request("cmux.settings.sound.import", { key });
+    if (!reply.ok) this.setError(key, rowError(reply.error));
+    else if (reply.value.name !== null) await this.refresh();
   }
 
   /**
