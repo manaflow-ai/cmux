@@ -381,7 +381,8 @@ final class AgentTabStore {
     /// Where a started chat's tab can move (the composer's and the title menu's Move to…). The page
     /// receives only the current live list; it never invents or persists machine ids.
     /// The chat's place for the header (`place`), as JSON bytes (``CloudPlaceFlows/placeJSON(session:onCloud:cloudName:)``); set by the app.
-    var placeState: @MainActor (_ record: AgentSessionRef?) -> Data? = { _ in nil }
+    /// Nil for a chat the place actions cannot move (``AppServices/placeEligible(_:session:on:)``), so no control offers what does nothing.
+    var placeState: @MainActor (_ tab: AgentTabKey) -> Data? = { _ in nil }
     /// The running Evacuate or Bring Back All, for the header's `evacuate`.
     var evacuateState: @MainActor () -> Data? = { nil }
     var machineTargets: @MainActor (_ tab: AgentTabKey) -> [AgentPaneMoveTarget] = { _ in [] }

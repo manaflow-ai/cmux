@@ -91,7 +91,7 @@ public final class TerminalSession {
         }
     }
     /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
-    nonisolated let frameChanges = TerminalFrameChanges()
+    public nonisolated let frameChanges = TerminalFrameChanges()
     /// ``close()`` ran: the launch frame keeper forgets this terminal.
     private(set) var isClosed = false
 
@@ -443,7 +443,11 @@ public final class TerminalSession {
     public func shownFrameInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         switch frameHold.heldFrame {
         case nil:
-            return await snapshotInBackground(maxPixelSize: maxPixelSize)
+            if let image = await snapshotInBackground(maxPixelSize: maxPixelSize) { return image }
+            // Its frame was purged while it was hidden: the picture taken as it paused.
+            guard let picture = surfaceView.pausedPicture else { return nil }
+            guard CGFloat(max(picture.width, picture.height)) > maxPixelSize else { return picture }
+            return await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(picture, maxPixelSize: maxPixelSize) }.value
         case .image(let image)?:
             guard CGFloat(max(image.width, image.height)) > maxPixelSize else { return image }
             return await Task.detached(priority: .utility) {
