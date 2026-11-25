@@ -18,6 +18,7 @@
     "CmuxNextRemoteLayer": {"layer": "core"},
     "CmuxNextMallocZone": {"layer": "core"},
     "CmuxNextWorkspaceNaming": {"layer": "core"},
+    "CmuxNextAgentPanePlacement": {"layer": "core", "note": "the right-column placement rule and subagent pane tracker, out of AgentPane"},
 
     "CmuxNextDaemon": {"layer": "service"},
     "CmuxNextDaemonService": {"layer": "service", "plan": "drop AgentPane, Apps, Bridge, Layout: lift the shared types to Core or a protocol seam"},
@@ -172,6 +173,8 @@
     "cmux-vnc-host": {"layer": "service", "package": "Packages/Shared/CmuxVNCWebRTC", "note": "headless VNC over WebRTC host program"},
     "CmuxMobileTunnel": {"layer": "service", "package": "Packages/iOS/CmuxMobileTunnel", "note": "NIO tunnel"},
     "CmuxMobileSSH": {"layer": "service", "package": "Packages/iOS/CmuxMobileSSH", "note": "SSH client (test-only link)"},
+    "CmuxUpdaterCore": {"layer": "service", "package": "Packages/macOS/CmuxUpdater", "note": "update policy with Foundation download, preferences and file services"},
+    "CmuxUpdaterTestSupport": {"layer": "service", "package": "Packages/macOS/CmuxUpdater", "note": "shared updater fixtures and preference cleanup for tests"},
     "CmuxUpdater": {"layer": "service", "package": "Packages/macOS/CmuxUpdater", "note": "Sparkle driver; imports AppKit for Sparkle's user driver, kept service so CmuxNextDaemonService gets no hard edge"},
 
     "CmuxHomeCore": {"layer": "domain", "package": "Packages/Shared/CmuxHomeCore", "note": "shared @Observable HomeStore"},

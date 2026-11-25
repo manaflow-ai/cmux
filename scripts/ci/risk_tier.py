@@ -250,7 +250,7 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # normal (Leo, 2026-10-21, after #22781). UpdateTrack is not here: it decides whether Sparkle runs
     # at all. Parsing, probing, installing and verifying an update stay high below.
     ("normal", "update channel or preference setting", (
-        "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+        "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
         NEXT + "CmuxNextUpdater/UpdatePreferences.swift",
     )),
     # Shipping. A broken updater also breaks the safety net every other tier relies on: nightly
@@ -904,14 +904,56 @@ def reflowed(pr_patch: str, keep_out: set[str]) -> set[str]:
     return kept
 
 
+def lower_words(line: str) -> list[str]:
+    return [word.lower() for word in WORD.findall(line)]
+
+
+def reworded(pr_patch: str, keep_out: set[str]) -> set[str]:
+    """The removed lines of three or more words the same edit replaces with a reworded line: one sharing its
+    first three words, or at least half of its words. A skills index row rewritten in place (PR #54943 rewording #53846's
+    row) is an edit of the line, not a takeback of it. Added lines in `keep_out` (lines the commit replaced,
+    now restored) do not count, so putting back the old wording is still a revert."""
+    kept = set()
+    for removed, added in change_blocks(pr_patch):
+        candidates = [lower_words(line) for line in added if line not in keep_out]
+        for line in removed:
+            words = lower_words(line)
+            if len(words) < 3:
+                continue
+            for other in candidates:
+                shared = len(set(words) & set(other))
+                if words[:3] == other[:3] or shared * 2 >= len(words):
+                    kept.add(line)
+                    break
+    return kept
+
+
+def still_said(pr_patch: str, keep_out: set[str]) -> set[str]:
+    """The removed lines of three or more words whose words all still appear, in order, in a line the file
+    keeps or gains anywhere in the patch: a duplicate dropped beside the entry that stays, or a comment
+    folded into another one (PR #50003 dropping `cmux-deadline.workspace = true` under
+    `cmux-deadline = { workspace = true, features = ["tokio"] }`). Added lines in `keep_out` do not count."""
+    lines = [l[1:] for l in pr_patch.splitlines()
+             if (l.startswith(" ") or (l.startswith("+") and not l.startswith("+++"))) and l[1:].strip() not in keep_out]
+    streams = [lower_words(line) for line in lines]
+    kept = set()
+    for line in diff_lines(pr_patch)[0]:
+        words = lower_words(line)
+        if len(words) >= 3 and any(in_order(words, stream) for stream in streams):
+            kept.add(line)
+    return kept
+
+
 def undoes(pr_patch: str, commit_patch: str, added_elsewhere: frozenset[str] = frozenset()) -> bool:
     """Whether a pull request's change to a file takes back a commit's change to it: it deletes
     most of what the commit added, and, when the commit replaced lines, puts most of them back."""
     pr_removed, pr_added = map(set, diff_lines(pr_patch))
     commit_removed, commit_added = map(set, diff_lines(commit_patch))
     # A line the pull request removes and adds back, here or in another file, moved; a line whose words
-    # come back in order in the same edit was rewrapped. Neither was taken back.
-    gone = pr_removed - pr_added - added_elsewhere - reflowed(pr_patch, commit_removed)
+    # come back in order in the same edit was rewrapped; a line the same edit rewords was edited; a line
+    # whose words the file still says elsewhere was a duplicate or was folded in. None was taken back.
+    gone = (pr_removed - pr_added - added_elsewhere - reflowed(pr_patch, commit_removed)
+            - reworded(pr_patch, commit_removed) - still_said(pr_patch, commit_removed))
     back = pr_added - pr_removed
     if not commit_added:
         return False
