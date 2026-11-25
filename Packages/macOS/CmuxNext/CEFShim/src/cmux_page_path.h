@@ -133,23 +133,15 @@ inline bool RealPath(const std::string& path, std::string* out) {
   return true;
 }
 
-}  // namespace page_detail
-
-// Resolves the URL path of a cmux-page:// request below `root`. On success
-// writes the real path of a regular file below the real root and its MIME
-// type and returns true. Everything else is a 404 (returns false, leaves
-// both outputs empty): a path that is not absolute, a bad escape, a NUL, a
-// backslash, a "." or ".." component (also percent-encoded), a missing
-// file or a directory, a real path outside the root (symlink escapes;
-// compared component-wise, so /root2 is not below /root), or a type
-// outside the MIME table. "/" and paths ending in "/" serve index.html.
-inline bool ResolvePagePath(const std::string& root, const std::string& url_path, std::string* file,
-                            std::string* mime) {
+// The real path of the regular file `url_path` names below `root`, with `suffix` added to its last
+// component (empty for the file itself; ResolvePackedPagePath, cmux_page_packed.h, asks for its
+// packed copy), by ResolvePagePath's rules except the MIME table. False for anything else.
+inline bool ResolvePageFile(const std::string& root, const std::string& url_path, const std::string& suffix,
+                            std::string* file) {
   file->clear();
-  mime->clear();
   if (url_path.empty() || url_path[0] != '/') return false;
   std::string decoded;
-  if (!page_detail::PercentDecode(url_path, &decoded)) return false;
+  if (!PercentDecode(url_path, &decoded)) return false;
   if (decoded.find('\\') != std::string::npos) return false;
   std::string relative;
   size_t start = 1;
@@ -165,6 +157,7 @@ inline bool ResolvePagePath(const std::string& root, const std::string& url_path
     start = slash + 1;
   }
   if (decoded.back() == '/') relative += relative.empty() ? "index.html" : "/index.html";
+  relative += suffix;
   std::string real_root;
   if (!page_detail::RealPath(root, &real_root)) return false;
   struct stat root_info;
@@ -176,6 +169,26 @@ inline bool ResolvePagePath(const std::string& root, const std::string& url_path
   if (real_file.size() <= prefix.size() || real_file.compare(0, prefix.size(), prefix) != 0) return false;
   struct stat info;
   if (stat(real_file.c_str(), &info) != 0 || !S_ISREG(info.st_mode)) return false;
+  *file = real_file;
+  return true;
+}
+
+}  // namespace page_detail
+
+// Resolves the URL path of a cmux-page:// request below `root`. On success
+// writes the real path of a regular file below the real root and its MIME
+// type and returns true. Everything else is a 404 (returns false, leaves
+// both outputs empty): a path that is not absolute, a bad escape, a NUL, a
+// backslash, a "." or ".." component (also percent-encoded), a missing
+// file or a directory, a real path outside the root (symlink escapes;
+// compared component-wise, so /root2 is not below /root), or a type
+// outside the MIME table. "/" and paths ending in "/" serve index.html.
+inline bool ResolvePagePath(const std::string& root, const std::string& url_path, std::string* file,
+                            std::string* mime) {
+  file->clear();
+  mime->clear();
+  std::string real_file;
+  if (!page_detail::ResolvePageFile(root, url_path, "", &real_file)) return false;
   const char* type = PageMimeType(real_file);
   if (!type) return false;
   *file = real_file;

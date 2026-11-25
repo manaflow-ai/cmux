@@ -61,6 +61,10 @@ final class CEFDownloads {
     /// `AutomaticDownloadGate`); calls `decide` once. Downloads cmux starts
     /// itself (`download`, `save`) never ask.
     var admit: (_ browser: Int32, _ decide: @escaping (AutomaticDownloadGate.Outcome, _ site: String?) -> Void) -> Void = { _, decide in decide(.allowed, nil) }
+    /// Whether tab `browser` is on a restored page's own first load, which starts no download
+    /// (`CEFTab.refusesDownloadsUntilGesture`): a restored tab whose address is a file downloaded it again at every
+    /// relaunch. Downloads cmux starts itself never ask.
+    var refusesWithoutGesture: (_ browser: Int32) -> Bool = { _ in false }
     /// Hands a started download to the App through tab `browser`.
     var deliver: (_ browser: Int32, _ download: BrowserDownload) -> Void = { _, _ in }
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef.downloads")
@@ -154,6 +158,11 @@ final class CEFDownloads {
         if pick != nil || takeStarted(browser: browser, url: url) {
             return start(id: id, browser: browser, url: url, suggestedName: suggestedName, total: total, pick: pick)
         }
+        if refusesWithoutGesture(browser) {
+            shim()?.answer(id, "")
+            logger.notice("download \(id) not started for tab \(browser): a restored page's own load, no gesture")
+            return
+        }
         admitting.insert(id)
         admit(browser) { [weak self] outcome, site in
             guard let self, admitting.remove(id) != nil else { return }
@@ -218,6 +227,7 @@ extension CEFRuntime {
 }
 
 extension CEFDownloads {
+    // lint:allow singleton - CefInitialize runs once per process, so CEFRuntime.shared is process-wide and so are its downloads
     static let shared = forRuntime(.shared)
 
     /// The runtime's downloads: the loaded shim, delivered through the tab.
@@ -238,6 +248,7 @@ extension CEFDownloads {
             let site = tab.committedURL.flatMap(PageInfoSite.origin(of:))
             tab.automaticDownloads.request(site: site) { decide($0, site) }
         }
+        downloads.refusesWithoutGesture = { [weak runtime] browser in runtime?.tabsByBrowser[browser]?.refusesDownloadsUntilGesture == true }
         downloads.deliver = { [weak runtime] (browser: Int32, item: BrowserDownload) in
             guard let tab = runtime?.tabsByBrowser[browser] else {
                 logger.error("download for tab \(browser) without a cmux tab: not in the downloads list")
