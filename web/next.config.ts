@@ -8,6 +8,7 @@ import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
 import { isPlatformDownloadAvailable } from "./app/lib/download";
 import {
+  docsZoneSelfRewrites,
   isDocsZoneDeployment,
   nightlyDocsOrigin as configuredNightlyDocsOrigin,
   releaseDocsOrigin as configuredReleaseDocsOrigin,
@@ -58,6 +59,12 @@ const baseNightlyMoves = ["", ".md", ".txt"].flatMap((ext) => [
     permanent: false,
   },
 ]);
+const nextDocsNightlyMoves = [
+  { source: "/docs/next", destination: "/docs/nightly/next", permanent: false },
+  { source: "/en/docs/next", destination: "/docs/nightly/next", permanent: false },
+  { source: "/docs/next/:slug", destination: "/docs/nightly/next/:slug", permanent: false },
+  { source: "/en/docs/next/:slug", destination: "/docs/nightly/next/:slug", permanent: false },
+];
 const tuiInstallerHeaderRules = [
   {
     source: "/tui/install.sh",
@@ -117,6 +124,7 @@ const nextConfig: NextConfig = {
             source: `/_docs-assets/${docsChannel}/_next/:path*`,
             destination: "/_next/:path*",
           },
+          ...docsZoneSelfRewrites(docsChannel === "nightly" ? "nightly" : "release"),
         ],
       };
     }
@@ -220,7 +228,7 @@ const nextConfig: NextConfig = {
           },
         ]);
     return [
-      ...(isDocsZone ? [] : baseNightlyMoves),
+      ...(isDocsZone ? [] : [...baseNightlyMoves, ...nextDocsNightlyMoves]),
       ...agentRedirects,
       ...(isDocsZone ? [] : linuxWaitlistRedirects),
     ];
