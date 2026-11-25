@@ -1763,6 +1763,7 @@
       "keys": [
         "agents.cacheCompact.enabled",
         "agents.cacheCompact.minContextPercent",
+        "agents.cacheCompact.minContextTokens",
         "agents.coldWake.enabled",
         "agents.coldWake.compact",
         "agents.coldWake.compactAboveTokens"
