@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "f28171520eaafd3e7d9d42abfe4514e640828512469fe273412204f4c2a10572";
+inline constexpr std::string_view kProtocolIrSha256 = "5324584ea032c93f9cf509fe27b99053987affca7fe899931d72e34d9cba3bf7";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -430,6 +430,8 @@ struct FeedLocalHandoffDoneRequest;
 struct FeedLocalListRequest;
 struct FeedLocalReadRequest;
 struct FloatPaneRequest;
+struct FlushLaunchSnapshotRequest;
+struct FlushLaunchSnapshotResult;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
@@ -3147,6 +3149,15 @@ struct FloatPaneRequest {
     Field<double> x{};
     Field<double> y{};
     friend bool operator==(const FloatPaneRequest&, const FloatPaneRequest&) = default;
+};
+
+struct FlushLaunchSnapshotRequest {
+    friend bool operator==(const FlushLaunchSnapshotRequest&, const FlushLaunchSnapshotRequest&) = default;
+};
+
+struct FlushLaunchSnapshotResult {
+    bool flushed{};
+    friend bool operator==(const FlushLaunchSnapshotResult&, const FlushLaunchSnapshotResult&) = default;
 };
 
 enum class PaneDirection {
@@ -9331,6 +9342,18 @@ template <>
 struct Codec<FloatPaneRequest> {
     static Result<Json> encode(const FloatPaneRequest& value);
     static Result<FloatPaneRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FlushLaunchSnapshotRequest> {
+    static Result<Json> encode(const FlushLaunchSnapshotRequest& value);
+    static Result<FlushLaunchSnapshotRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<FlushLaunchSnapshotResult> {
+    static Result<Json> encode(const FlushLaunchSnapshotResult& value);
+    static Result<FlushLaunchSnapshotResult> decode(const Json& value);
 };
 
 template <>

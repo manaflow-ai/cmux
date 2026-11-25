@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR f28171520eaafd3e7d9d42abfe4514e640828512469fe273412204f4c2a10572. */
+/* cmux-tui mux protocol 12, IR 5324584ea032c93f9cf509fe27b99053987affca7fe899931d72e34d9cba3bf7. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "f28171520eaafd3e7d9d42abfe4514e640828512469fe273412204f4c2a10572" as const;
+export const SDK_IR_SHA256 = "5324584ea032c93f9cf509fe27b99053987affca7fe899931d72e34d9cba3bf7" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1519,6 +1519,17 @@ export const COMMAND_METADATA = {
       "mode is \"toggle\", \"on\" or \"off\" (default \"toggle\"). x, y, w and h are the frame as fractions of the screen's pane area: all four or none.",
       "A screen keeps at least one tiled pane. A pane of a stack, of a docked column or of a column with rows does not float.",
       "Requests of one client with one transaction are one layout-undo entry. See spec/commands.md for the result object and error codes."
+    ]
+  },
+  "flush-launch-snapshot": {
+    "authority": "control",
+    "since": 12,
+    "capability": "launch-snapshot-flush-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Writes the launch snapshot (launch-snapshot-v1) now, with no settle, max delay or byte-budget wait, and answers once it landed or after 1 s: flushed is true when the file holds the session's state as of the request (written now, or already the same), false when the session has no launch snapshot writer, the write failed or the wait passed (the write still happens).",
+      "The daemon writes the same way on its own when a connection that wrote a native frontend projection closes (a quit, force quit, crash or kill of the app); a client sends this when it wants the answer. Other changes keep the settled timing."
     ]
   },
   "focus-direction": {
@@ -23123,6 +23134,27 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "flush-launch-snapshot": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "flushed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "focus-direction": {
