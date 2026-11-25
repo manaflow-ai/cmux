@@ -5,6 +5,10 @@ summary.md with each number's change against an earlier run's results.json.
   eval.py target NAME DIR OUT.json      DIR holds what the harness and the target wrote
   eval.py empty ERROR...                a schema-complete target that measured nothing
   eval.py summary RESULTS.json OUT.md [--previous EARLIER.json]
+  eval.py external NAME OUT.json --host-cmd CMD --viewer-cmd CMD [--host-stop-cmd CMD] [--takes 3]
+                                        an external contender's host and viewer, measured from the
+                                        viewer's marker readback (EXTERNAL below; README.md)
+  eval.py readback READBACK.jsonl OUT.json   one readback file into a target
 
 Schema (SCHEMA below; README.md): results.json is
   {"schema", "run": {...}, "scenarios": [...], "targets": {NAME: TARGET}}
@@ -16,7 +20,7 @@ and each TARGET is
    "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method",
                                 [rd: "input_to_capture_parts": {"render_ms"|"sck_ms"|"pickup_ms"|"gate_ms"|"encode_ms": {"n", "p50", "p95"}}]},
              "typing": {"encode_ms", "decode_ms"}},
-   "extra": {..., "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
+   "extra": {..., "first_frame_ms", "cpu_pct", "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
 The window and OCR scenarios run several times (the harness's repeats=, 3 by default): each of
 their numbers is the median of the repeats that measured it, and extra.repeats keeps every repeat's
 own. Latency runs once: its p50 and p95 are already over SAMPLES inputs.
@@ -27,6 +31,7 @@ New fields may be added; a field is never renamed or given another meaning witho
 from __future__ import annotations
 
 import json
+import math
 import statistics
 import sys
 from pathlib import Path
@@ -46,21 +51,36 @@ def load(path: Path):
         return None
 
 
-def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, dict, dict, dict]:
-    kbps, fps, encode, decode = {}, {}, {}, {}
+def phase_numbers(series: list[dict], phases: dict[str, dict]) -> tuple[dict, dict, dict, dict, dict]:
+    kbps, fps, sampled_fps, encode, decode = {}, {}, {}, {}, {}
     for name in WINDOW_PHASES:
         span = phases.get(name)
-        rows = [] if not span else [s for s in series if span["start_unix_ms"] + PHASE_GUARD_MS < s["unix_ms"] <= span["end_unix_ms"]]
+        rows = []
+        if span:
+            for sample in series:
+                duration = sample.get("duration_ms", 1000)
+                if type(duration) not in (int, float) or not math.isfinite(duration) or duration <= 0:
+                    continue
+                if (span["start_unix_ms"] + PHASE_GUARD_MS <= sample["unix_ms"] - duration
+                        and sample["unix_ms"] <= span["end_unix_ms"]):
+                    rows.append(sample)
         if not rows:
-            kbps[name] = fps[name] = encode[name] = decode[name] = None
+            kbps[name] = fps[name] = sampled_fps[name] = encode[name] = decode[name] = None
             continue
-        kbps[name] = round(sum(s["bytes"] for s in rows) * 8 / 1000 / len(rows), 1)
-        fps[name] = round(sum(s["frames"] for s in rows) / len(rows), 1)
+        # Missing counts remain unmeasured; valid counts are weighted by actual duration.
+        elapsed_s = sum(s.get("duration_ms", 1000) for s in rows) / 1000
+        byte_rows = [s.get("bytes") for s in rows]
+        frame_rows = [s.get("frames") for s in rows]
+        sampled_rows = [s.get("sampled_changes") for s in rows]
+        measured = lambda values: all(type(v) in (int, float) and math.isfinite(v) and v >= 0 for v in values)
+        kbps[name] = round(sum(byte_rows) * 8 / 1000 / elapsed_s, 1) if measured(byte_rows) else None
+        fps[name] = round(sum(frame_rows) / elapsed_s, 1) if measured(frame_rows) else None
+        sampled_fps[name] = round(sum(sampled_rows) / elapsed_s, 1) if measured(sampled_rows) else None
         enc = [s["encode_ms"] for s in rows if isinstance(s.get("encode_ms"), (int, float))]
         dec = [s["decode_ms"] for s in rows if isinstance(s.get("decode_ms"), (int, float))]
         encode[name] = round(statistics.median(enc), 2) if enc else None
         decode[name] = round(statistics.median(dec), 2) if dec else None
-    return kbps, fps, encode, decode
+    return kbps, fps, sampled_fps, encode, decode
 
 
 OCR_FIELDS = ["cer", "host_cer_vs_truth", "viewer_cer_vs_truth", "host_chars", "viewer_chars", "truth_chars", "host_image", "viewer_image"]
@@ -72,10 +92,11 @@ def empty_target(errors: list[str]) -> dict:
         "ok": False, "errors": errors,
         "latency": {k: {"p50_ms": None, "p95_ms": None, "n": None, "lost": None} for k in ("key", "pointer")},
         "kbps": dict.fromkeys(WINDOW_PHASES), "fps": dict.fromkeys(WINDOW_PHASES),
+        "sampled_fps": dict.fromkeys(WINDOW_PHASES),
         "ocr": dict.fromkeys(OCR_FIELDS),
         "split": {**{k: {"input_to_capture_ms": None, "encode_ms": None, "transport_ms": None, "decode_ms": None, "method": None}
                      for k in ("key", "pointer")}, "typing": {"encode_ms": None, "decode_ms": None}},
-        "extra": {},
+        "extra": {"first_frame_ms": None, "cpu_pct": None},
     }
 
 
@@ -90,7 +111,10 @@ def target(name: str, folder: Path, out: Path) -> None:
         result["split"][kind] = {k: split.get(k) for k in ("input_to_capture_ms", "encode_ms", "transport_ms", "decode_ms", "method")}
         if split.get("input_to_capture_parts"):
             result["split"][kind]["input_to_capture_parts"] = split["input_to_capture_parts"]
-        if g2g.get("p50") is None:
+        # A window-only target (its `caps` verb; screen-stream-eval.sh) has no latency stage, and
+        # Screen Sharing.app's latency is unavailable unless the presented observer measured it.
+        unavailable = (split.get("method") or "").startswith("apple-screen-sharing-app:")
+        if g2g.get("p50") is None and not unavailable and not (folder / "window-only").exists():
             errors.append(f"latency {kind}: no samples")
     # Repeats (window-N.json, phases-N.jsonl, ocr-N.json): every number is the median of the repeats
     # that measured it, and extra.repeats keeps each repeat's own numbers.
@@ -105,16 +129,23 @@ def target(name: str, folder: Path, out: Path) -> None:
                 if line.strip():
                     row = json.loads(line)
                     phases[row["phase"]] = row
-        kbps, fps, encode, decode = phase_numbers(window.get("series") or [], phases)
+        kbps, fps, sampled_fps, encode, decode = phase_numbers(window.get("series") or [], phases)
         ocr = load(folder / f"ocr-{rep}.json")
-        if None in kbps.values():
-            errors.append(f"window {rep}: no numbers for {[k for k, v in kbps.items() if v is None]} (phases logged: {sorted(phases)})")
+        # Bytes are required, except from a viewer that marks them unavailable (Screen Sharing.app
+        # when nettop read none, `bytes_unavailable: true`); that one needs frame or sampled-change counts instead. A
+        # `bytes_method` alone (gui-viewer.sh's nettop) still owes bytes.
+        if (window.get("extra") or {}).get("bytes_unavailable") is True:
+            missing = [k for k in WINDOW_PHASES if fps[k] is None and sampled_fps[k] is None]
+        else:
+            missing = [k for k in WINDOW_PHASES if kbps[k] is None]
+        if missing:
+            errors.append(f"window {rep}: no numbers for {missing} (phases logged: {sorted(phases)})")
         if ocr is None:
             errors.append(f"ocr {rep}: no result")
         else:
             ocrs.append(ocr)
         extras.append(window.get("extra") or {})
-        per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "typing_encode_ms": encode.get("typing"),
+        per_rep.append({"repeat": rep, "kbps": kbps, "fps": fps, "sampled_fps": sampled_fps, "typing_encode_ms": encode.get("typing"),
                         "typing_decode_ms": decode.get("typing"), "ocr_cer": (ocr or {}).get("cer"),
                         "ocr": {k: (ocr or {}).get(k) for k in OCR_FIELDS},
                         **{f"window_{k}": v for k, v in (window.get("extra") or {}).items()}})
@@ -144,9 +175,186 @@ def target(name: str, folder: Path, out: Path) -> None:
                 result["ocr"][k] = middle.get(k)
     else:
         errors.append("ocr: no result")
-    result["extra"] = {**(extras[0] if extras else {}), "repeats": per_rep}
+    # Codec observations are per-repeat evidence, not first-repeat metadata: missing quality or
+    # timing in one repeat stays visible in extra.repeats rather than becoming an aggregate taken
+    # from another repeat. First frame and CPU are each the median of the repeats that measured it.
+    metadata = {k: v for k, v in (extras[0] if extras else {}).items()
+                if k not in {"netem_metrics", "first_frame_ms", "cpu_pct", "process_cpu_pct"}}
+    result["extra"] = {**metadata,
+                        "first_frame_ms": median_of(e.get("first_frame_ms") for e in extras),
+                        "cpu_pct": median_of(e.get("cpu_pct") for e in extras),
+                        "process_cpu_pct": median_of(e.get("process_cpu_pct") for e in extras),
+                        "repeats": per_rep}
+    result["sampled_fps"] = {k: median_of(r["sampled_fps"][k] for r in per_rep) for k in WINDOW_PHASES}
     result["ok"] = not errors
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+
+
+# ---------------------------------------------------------------- external contenders
+
+READBACK_SCHEMA = "cmux.screen-stream-eval.readback/1"
+EXTERNAL = """An external contender is a host and viewer this checkout did not write. The harness knows
+neither: `--host-cmd` starts the host (in the foreground until the harness stops its process
+group, or it returns after starting a remote host) and creates $EVAL_STATE/host-ready once it
+serves; `--viewer-cmd` connects, drives the marker, writes the readback (one JSON object a line)
+to $EVAL_READBACK, and exits. `--host-stop-cmd` runs after each take (a remote host's cleanup).
+Every take gets a fresh host and a fresh EVAL_STATE (0700). The readback records:
+
+  {"type": "first_frame", "ms": N}       connect start -> first decoded frame with the marker
+  {"type": "key", "g2g_ms": N}           key sent on the viewer -> decoded frame whose marker
+  {"type": "key", "lost": true}            counter shows it (none within 1 s: lost)
+  {"type": "second", "bytes": B, "frames": F, "duration_ms": D}
+                                         one bucket of the motion window: bytes received, frames decoded
+  {"type": "cpu", "side": "host" | "viewer", "pct": P}
+                                         each end's process CPU over the motion window (100 = one core)
+  {"type": "meta", ...}                  kept in the take
+
+A missing record leaves its number null. extra.takes keeps each take's numbers; each number of
+the target is the median of the takes that measured it. Any viewer that decodes the stream and
+reads the marker (cmux-tui/crates/cmux-rd-host/src/marker.rs) from its decoded frames can write
+this, so a contender is measured with the same counter as `cmux-rd bench`."""
+
+
+def _rank(values: list[float], q: float):
+    """The nearest-rank percentile."""
+    if not values:
+        return None
+    values = sorted(values)
+    return round(values[min(len(values) - 1, max(0, math.ceil(q / 100 * len(values)) - 1))], 2)
+
+
+def readback_numbers(records: list[dict]) -> dict:
+    """One take's numbers from its readback records (EXTERNAL)."""
+    num = lambda v: type(v) in (int, float) and math.isfinite(v)
+    keys = [r for r in records if r.get("type") == "key"]
+    g2g = [float(r["g2g_ms"]) for r in keys if not r.get("lost") and num(r.get("g2g_ms"))]
+    seconds = [r for r in records if r.get("type") == "second"]
+    elapsed_s = sum(r.get("duration_ms", 1000) for r in seconds if num(r.get("duration_ms", 1000))) / 1000
+
+    def rate(field: str, scale: float):
+        if not seconds or elapsed_s <= 0 or not all(num(r.get(field)) and r[field] >= 0 for r in seconds):
+            return None
+        return round(sum(r[field] for r in seconds) * scale / elapsed_s, 1)
+
+    cpu = {r.get("side"): r.get("pct") for r in records if r.get("type") == "cpu" and num(r.get("pct"))}
+    first = [r["ms"] for r in records if r.get("type") == "first_frame" and num(r.get("ms"))]
+    meta = {}
+    for r in records:
+        if r.get("type") == "meta":
+            meta.update({k: v for k, v in r.items() if k != "type"})
+    return {
+        "key": {"p50_ms": _rank(g2g, 50), "p95_ms": _rank(g2g, 95), "n": len(g2g) if keys else None,
+                "lost": sum(1 for r in keys if r.get("lost")) if keys else None},
+        "motion_kbps": rate("bytes", 8 / 1000),
+        "motion_fps": rate("frames", 1),
+        "first_frame_ms": round(first[0], 1) if first else None,
+        "viewer_cpu_pct": cpu.get("viewer"),
+        "host_cpu_pct": cpu.get("host"),
+        "meta": meta,
+    }
+
+
+def read_records(path: Path) -> list[dict]:
+    records = []
+    if path.exists():
+        for line in path.read_text(errors="replace").splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict):
+                records.append(row)
+    return records
+
+
+def external_target(takes: list[dict], errors: list[str]) -> dict:
+    """The schema's target from external takes: each number the median of the takes that measured it."""
+    def med(values):
+        values = [v for v in values if type(v) in (int, float)]
+        return round(statistics.median(values), 2) if values else None
+
+    result = empty_target(list(errors))
+    result["latency"]["key"] = {f: med(t["key"][f] for t in takes) for f in ("p50_ms", "p95_ms", "n", "lost")}
+    result["motion"] = {"kbps": med(t["motion_kbps"] for t in takes), "fps": med(t["motion_fps"] for t in takes)}
+    result["extra"].update({"first_frame_ms": med(t["first_frame_ms"] for t in takes),
+                            "cpu_pct": med(t["viewer_cpu_pct"] for t in takes),
+                            "process_cpu_pct": med(t["host_cpu_pct"] for t in takes),
+                            "readback_schema": READBACK_SCHEMA, "takes": takes})
+    if result["latency"]["key"]["p50_ms"] is None:
+        result["errors"].append("latency key: no samples")
+    if result["motion"]["fps"] is None:
+        result["errors"].append("motion: no frame counts")
+    result["ok"] = bool(takes) and not result["errors"]
+    return result
+
+
+def _stop_group(proc) -> None:
+    """SIGTERM, then SIGKILL, to the process group this harness started for a host."""
+    import os
+    import signal
+    import subprocess
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        if proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, sig)
+        except ProcessLookupError:
+            return
+        try:
+            proc.wait(5)
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def external(name: str, out: Path, host_cmd: str, viewer_cmd: str, host_stop_cmd: str | None,
+             takes: int, ready_timeout_s: float, viewer_timeout_s: float, keep: Path | None) -> dict:
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+    import time
+    rows, errors = [], []
+    for take in range(1, takes + 1):
+        state = Path(tempfile.mkdtemp(prefix=f"eval-external-{take}-"))
+        state.chmod(0o700)
+        readback = state / "readback.jsonl"
+        env = {**os.environ, "EVAL_STATE": str(state), "EVAL_READBACK": str(readback),
+               "EVAL_TAKE": str(take), "EVAL_TARGET": name}
+        with open(state / "host.log", "wb") as host_log:
+            host = subprocess.Popen(["bash", "-c", host_cmd], env=env, stdout=host_log,
+                                    stderr=subprocess.STDOUT, start_new_session=True)
+            try:
+                deadline = time.monotonic() + ready_timeout_s
+                while not (state / "host-ready").exists() and time.monotonic() < deadline:
+                    if host.poll() not in (None, 0):
+                        break
+                    time.sleep(0.1)
+                if not (state / "host-ready").exists():
+                    errors.append(f"take {take}: host not ready within {ready_timeout_s:.0f} s (exit {host.poll()})")
+                    continue
+                try:
+                    viewer = subprocess.run(["bash", "-c", viewer_cmd], env=env, timeout=viewer_timeout_s,
+                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                    (state / "viewer.log").write_bytes(viewer.stdout or b"")
+                    if viewer.returncode != 0:
+                        errors.append(f"take {take}: viewer exited {viewer.returncode}")
+                except subprocess.TimeoutExpired:
+                    errors.append(f"take {take}: viewer timed out after {viewer_timeout_s:.0f} s")
+                rows.append({"take": take, **readback_numbers(read_records(readback))})
+            finally:
+                _stop_group(host)
+                if host_stop_cmd:
+                    subprocess.run(["bash", "-c", host_stop_cmd], env=env, timeout=120, check=False)
+                if keep:
+                    dest = keep / f"take-{take}"
+                    dest.mkdir(parents=True, exist_ok=True)
+                    for f in ("readback.jsonl", "host.log", "viewer.log"):
+                        if (state / f).exists():
+                            shutil.copy2(state / f, dest / f)
+                shutil.rmtree(state, ignore_errors=True)
+    result = external_target(rows, errors)
+    out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    return result
 
 
 def fmt(value, unit: str = "", digits: int = 1) -> str:
@@ -183,6 +391,24 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
         lines.append("No earlier run to compare against.")
     if run.get("blocked"):
         lines += ["", f"**Not measured:** {run['blocked']}"]
+    targets = results.get("targets", {})
+    if len(targets) > 1:
+        # One row per contender, so latency, bandwidth and frame rate read across targets at once.
+        lines += ["", "## Side by side", "",
+                  "| Target | Key / click p50 | kbps idle / typing / scroll | fps idle / typing / scroll |",
+                  "| --- | --- | --- | --- |"]
+        sampled_only = False
+        for name, t in targets.items():
+            latency = " / ".join(fmt(((t.get("latency") or {}).get(kind) or {}).get("p50_ms"), " ms")
+                                 for kind in ("key", "pointer"))
+            kbps = " / ".join(fmt((t.get("kbps") or {}).get(phase), "", 0) for phase in WINDOW_PHASES)
+            fps, mark = t.get("fps") or {}, ""
+            if all(v is None for v in fps.values()) and any(v is not None for v in (t.get("sampled_fps") or {}).values()):
+                fps, mark, sampled_only = t["sampled_fps"], "*", True
+            rate = " / ".join(fmt(fps.get(phase), mark) for phase in WINDOW_PHASES)
+            lines.append(f"| {name} | {latency} | {kbps} | {rate} |")
+        if sampled_only:
+            lines += ["", "\\* sampled screenshot changes a second (at most 10 captures a second), not decoded FPS."]
     for name, t in results.get("targets", {}).items():
         p = ((previous or {}).get("targets") or {}).get(name) or {}
 
@@ -204,6 +430,10 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             lines.append(f"| kbps, {label} | {cell('kbps', phase, unit='', digits=0)} at {cell('fps', phase, unit=' fps')} |")
         lines.append(f"| Text OCR error (13 pt code, viewer vs host screenshot) | {cell('ocr', 'cer', unit='%', digits=2)}"
                      f" (host OCR vs drawn text {fmt(get(t, 'ocr', 'host_cer_vs_truth'), '%', 2)}) |")
+        lines.append(f"| First decoded frame / viewer CPU / capture CPU | {cell('extra', 'first_frame_ms')} / {cell('extra', 'cpu_pct', unit=' %', digits=1)} / {cell('extra', 'process_cpu_pct', unit=' %', digits=1)} |")
+        if any(v is not None for v in (t.get('sampled_fps') or {}).values()):
+            lines.append(f"| Apple sampled screenshot changes (not decoded FPS) | "
+                         + " / ".join(cell('sampled_fps', phase, unit=' changes/s', digits=1) for phase in WINDOW_PHASES) + " |")
         for kind in ("key", "pointer"):
             lines.append(f"| {kind.capitalize()} split: input→capture / encode / transport / decode | "
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "
@@ -239,6 +469,28 @@ def main(argv: list[str]) -> int:
         previous = Path(argv[4]) if len(argv) == 5 and argv[3] == "--previous" else None
         summary(Path(argv[1]), Path(argv[2]), previous)
         return 0
+    if len(argv) == 3 and argv[0] == "readback":
+        take = {"take": 1, **readback_numbers(read_records(Path(argv[1])))}
+        Path(argv[2]).write_text(json.dumps(external_target([take], []), indent=2, sort_keys=True) + "\n")
+        return 0
+    if len(argv) >= 3 and argv[0] == "external":
+        import argparse
+        ap = argparse.ArgumentParser(prog="eval.py external", description=EXTERNAL,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+        ap.add_argument("name")
+        ap.add_argument("out", type=Path)
+        ap.add_argument("--host-cmd", required=True)
+        ap.add_argument("--viewer-cmd", required=True)
+        ap.add_argument("--host-stop-cmd")
+        ap.add_argument("--takes", type=int, default=3)
+        ap.add_argument("--ready-timeout", type=float, default=120)
+        ap.add_argument("--viewer-timeout", type=float, default=600)
+        ap.add_argument("--keep", type=Path, help="copy each take's readback and logs here")
+        a = ap.parse_args(argv[1:])
+        result = external(a.name, a.out, a.host_cmd, a.viewer_cmd, a.host_stop_cmd, a.takes,
+                          a.ready_timeout, a.viewer_timeout, a.keep)
+        print(f"eval.py external {a.name}: ok {result['ok']}, errors {result['errors']}", file=sys.stderr)
+        return 0 if result["ok"] else 1
     print(__doc__, file=sys.stderr)
     return 2
 

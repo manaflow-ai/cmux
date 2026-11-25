@@ -1,13 +1,13 @@
-//! One app host process: spawn with fd 3, write [`ToHost`] lines, read
-//! [`FromHost`] lines on a reader thread that blocks on the socket, and
-//! report the exit once the socket closes and the child is reaped.
+//! One app host process: started with fd 3 on its own thread (never under
+//! the caller's lock), write [`ToHost`] lines, read [`FromHost`] lines on
+//! that thread, which blocks on the socket, and report the exit once the
+//! socket closes and the child is reaped.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::fd::AsRawFd;
+use std::os::fd::AsFd;
 use std::os::unix::net::UnixStream;
-use std::os::unix::process::{CommandExt, ExitStatusExt};
+use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
 
 use cmux_app_host::protocol::MAX_LINE_BYTES;
@@ -72,42 +72,45 @@ pub fn resolve_server_dir() -> Option<PathBuf> {
 }
 
 impl HostProcess {
-    /// Spawns the host with a clean environment and only fd 3 open beyond
-    /// the null stdio. `on_message` runs on the reader thread for every line;
-    /// `on_exit` runs once after the socket closed and the child was reaped.
+    /// Starts the host with a clean environment and only fd 3 open beyond
+    /// the null stdio, and returns at once: the process starts on the
+    /// host's own thread. A process start is fork or spawn, exec and the
+    /// dynamic loader, which a loaded machine stretches to seconds, and
+    /// callers hold the supervisor lock; lines sent meanwhile wait in the
+    /// socket. `on_message` runs on that thread for every line; `on_exit`
+    /// runs once after the socket closed and the child was reaped, or with
+    /// the error when the process did not start.
     pub fn spawn(
         binary: &Path,
         args: &[String],
         name: &str,
         on_message: impl Fn(FromHost) + Send + 'static,
-        on_exit: impl FnOnce(Exit) + Send + 'static,
+        on_exit: impl FnOnce(std::io::Result<Exit>) + Send + 'static,
     ) -> std::io::Result<Self> {
         let (ours, theirs) = UnixStream::pair()?;
-        let fd = theirs.as_raw_fd();
-        let mut command = Command::new(binary);
-        command
-            .args(args)
-            .env_clear()
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
-        // SAFETY: sysconf before the fork; only async-signal-safe calls in pre_exec.
-        let max_fd = match unsafe { libc::sysconf(libc::_SC_OPEN_MAX) } {
-            n if n > 0 => n.min(65_536) as libc::c_int,
-            _ => 4096,
-        };
-        // SAFETY: only async-signal-safe calls between fork and exec.
-        unsafe { command.pre_exec(move || child_fds(fd, max_fd)) };
-        let mut child = command.spawn()?;
-        drop(theirs);
-        let pid = child.id();
         let reader = ours.try_clone()?;
         let writer = ours.try_clone()?;
         let (queue, outgoing) = sync_channel(QUEUE);
         std::thread::Builder::new()
             .name(format!("cmux-app-host-w:{name}"))
             .spawn(move || write_loop(writer, outgoing))?;
+        let (binary, args) = (binary.to_path_buf(), args.to_vec());
+        #[cfg(test)]
+        let name_for_pause = name.to_string();
         std::thread::Builder::new().name(format!("cmux-app-host:{name}")).spawn(move || {
+            #[cfg(test)]
+            test_seams::spawn_pause(&name_for_pause);
+            let started = start_process(&binary, &args, &theirs);
+            // The child holds its own copy now (or never will).
+            drop(theirs);
+            let mut child = match started {
+                Ok(child) => child,
+                Err(error) => {
+                    let _ = reader.shutdown(std::net::Shutdown::Both);
+                    on_exit(Err(error));
+                    return;
+                }
+            };
             let mut lines = BufReader::new(reader);
             let mut line = Vec::new();
             loop {
@@ -122,14 +125,12 @@ impl HostProcess {
                 }
             }
             // A malformed or oversized line, or the socket closed: end the process.
-            // SAFETY: signalling our own child by pid; it is not reaped yet, so the pid is still ours.
-            unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
-            let status = child.wait();
-            let exit = match status {
+            let _ = child.kill();
+            let exit = match child.wait() {
                 Ok(status) => Exit { code: status.code(), signal: status.signal() },
                 Err(_) => Exit { code: None, signal: None },
             };
-            on_exit(exit);
+            on_exit(Ok(exit));
         })?;
         Ok(Self { queue, socket: ours })
     }
@@ -181,39 +182,126 @@ fn write_loop(mut socket: UnixStream, outgoing: Receiver<Outgoing>) {
     }
 }
 
-/// In the child before exec: the channel on fd 3 without close-on-exec, and
-/// every other inherited descriptor above 3 close-on-exec.
-fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
-    // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
-    unsafe {
-        if fd == 3 {
-            if libc::fcntl(3, libc::F_SETFD, 0) != 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-        } else if libc::dup2(fd, 3) != 3 {
-            return Err(std::io::Error::last_os_error());
-        }
-        // Close-on-exec, not closed: `Command::spawn` reports a failed exec
-        // over a private pipe, and closing it aborts the child instead.
-        for other in 4..max_fd {
-            libc::fcntl(other, libc::F_SETFD, libc::FD_CLOEXEC);
+/// Starts `binary` with an empty environment, null stdio and `channel` on
+/// fd 3, and no other descriptor of this process. Through `cmux_process`:
+/// on macOS one `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT`, so no fork
+/// of this large multithreaded process and no descriptor loop in a child (it
+/// was up to 65,536 `fcntl` calls at the daemon's open-file limit); a
+/// missing or unusable binary is its error.
+fn start_process(
+    binary: &Path,
+    args: &[String],
+    channel: &UnixStream,
+) -> std::io::Result<cmux_process::Child> {
+    let mut command = cmux_process::Command::new(binary);
+    command
+        .args(args)
+        .env_clear()
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::null())
+        .stderr(cmux_process::Stdio::null())
+        .inherit_fd(channel.as_fd(), 3)?;
+    command.spawn()
+}
+
+/// A slow process start on demand: a loaded machine stretches fork, exec
+/// and the dynamic loader to seconds, which a test cannot rely on.
+#[cfg(test)]
+pub(super) mod test_seams {
+    use std::sync::{Mutex, PoisonError};
+    use std::time::Duration;
+
+    static PAUSES: Mutex<Vec<(String, Duration)>> = Mutex::new(Vec::new());
+
+    /// The next start of a host named `name` takes `pause` longer.
+    pub(in crate::apps) fn pause_next_spawn(name: &str, pause: Duration) {
+        PAUSES.lock().unwrap_or_else(PoisonError::into_inner).push((name.into(), pause));
+    }
+
+    pub(super) fn spawn_pause(name: &str) {
+        let pause = {
+            let mut pauses = PAUSES.lock().unwrap_or_else(PoisonError::into_inner);
+            let index = pauses.iter().position(|(n, _)| n == name);
+            index.map(|i| pauses.remove(i).1)
+        };
+        if let Some(pause) = pause {
+            std::thread::sleep(pause);
         }
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod spawn_tests {
+    use std::os::fd::AsRawFd;
+    use std::sync::mpsc::channel;
+    use std::time::Duration;
+
+    use cmux_app_host::FromHost;
+
     use super::HostProcess;
 
-    /// A host binary that cannot run is a spawn error. The descriptor step
-    /// used to close `Command::spawn`'s exec-error pipe: the child aborted
-    /// and the spawn looked successful.
+    /// A host binary that cannot run is reported as an exit that never
+    /// started. The descriptor step used to close `Command::spawn`'s
+    /// exec-error pipe: the child aborted and the spawn looked successful.
     #[test]
     fn a_host_binary_that_cannot_run_is_a_spawn_error() {
         let missing = std::path::Path::new("/nonexistent/cmux-app-host");
-        let result = HostProcess::spawn(missing, &[], "missing", |_| {}, |_| {});
-        let error = result.err().expect("a missing binary does not start");
+        let (tx, rx) = channel();
+        let started = HostProcess::spawn(
+            missing,
+            &[],
+            "missing",
+            |_| {},
+            move |exit| {
+                let _ = tx.send(exit);
+            },
+        );
+        assert!(started.is_ok(), "the start happens on the host's thread");
+        let exit = rx.recv_timeout(Duration::from_secs(30)).expect("an exit");
+        let error = exit.expect_err("a missing binary does not start");
         assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "{error}");
+    }
+
+    /// A host gets null stdio and its channel on fd 3, nothing else of the
+    /// daemon: not a descriptor some library opened without close-on-exec.
+    #[test]
+    fn a_host_inherits_only_its_channel_and_null_stdio() {
+        let file = std::fs::File::open("/dev/null").unwrap();
+        // SAFETY: duplicating our own open descriptor; F_DUPFD leaves the copy inheritable.
+        let leaked = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD, 200) };
+        assert!(leaked >= 200, "an inheritable descriptor at 200 or above");
+        let template =
+            serde_json::to_string(&FromHost::Log { level: "info".into(), message: "FDS".into() })
+                .unwrap()
+                .replace('"', "\\\"");
+        let line = template.replace("FDS", "$(ls /dev/fd | tr '\\n' ' ')");
+        let script = format!("printf '%s\\n' \"{line}\" >&3; read -r _ <&3");
+        let (tx, rx) = channel();
+        let process = HostProcess::spawn(
+            std::path::Path::new("/bin/sh"),
+            &["-c".into(), script],
+            "fds",
+            move |message| {
+                if let FromHost::Log { message, .. } = message {
+                    let _ = tx.send(message);
+                }
+            },
+            |_| {},
+        )
+        .unwrap();
+        let listing = rx.recv_timeout(Duration::from_secs(30)).expect("the host's descriptors");
+        process.kill();
+        // SAFETY: closing the descriptor this test made.
+        unsafe { libc::close(leaked) };
+        let fds: Vec<i32> = listing.split_whitespace().filter_map(|f| f.parse().ok()).collect();
+        for fd in [0, 1, 2, 3] {
+            assert!(fds.contains(&fd), "fd {fd} is open in the host: {listing}");
+        }
+        // macOS: CLOEXEC_DEFAULT keeps even an inheritable descriptor out.
+        // Linux runs std's spawn, where descriptors are close-on-exec from
+        // birth (pipe2, SOCK_CLOEXEC, MSG_CMSG_CLOEXEC), as `cmux_process`
+        // documents, so only one made inheritable on purpose would pass.
+        #[cfg(target_vendor = "apple")]
+        assert!(!fds.contains(&leaked), "fd {leaked} reached the host: {listing}");
     }
 }

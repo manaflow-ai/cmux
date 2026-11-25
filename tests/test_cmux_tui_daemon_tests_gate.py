@@ -11,8 +11,9 @@ required it too; now the tree-commit marker follows the publish (Leo,
 owned Macs (the promote pool the Release compile also needs, then the side
 lane) and queued there for 20+ minutes while nightly-next waited. None of
 the cmux_next_ tests is gated to macOS, and cmux-tui.yml's Linux job runs the
-whole workspace, so the gate takes Blacksmith (8 vCPU since 2026-11-01: 5.5 min mean on 32) on every event and
-attempt, and its pass writes the marker.
+whole workspace, so the gate takes Linux: Blacksmith (8 vCPU since 2026-11-01: 5.5 min mean on 32), except
+attempt 1 of the nightly path, which queues on the owned GCP label first (2026-11-19, Leo: "why would it move OFF
+of gcp and into blacksmith if it was already linux 16!?"), and its pass writes the marker.
 
 Leo, 2026-10-27: "ok do NOT label stuff as os=linux...". The job name, its
 steps and the marker name no runner OS. Markers written before that carry an
@@ -38,6 +39,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 from blacksmith_linux_sizes import size_label  # noqa: E402
 
 from test_ci_tui_routes_avoid_nightly_label import (  # noqa: E402
@@ -54,6 +56,8 @@ WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
 SHADOW_WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next-daemon-macos-shadow.yml"
 GATE_LABEL = size_label("cmux-tui-artifacts.yml", "cmux-next-daemon-tests")
 JOB_NAME = "cmux_next_ daemon tests"
+# The owned GCP labels the nightly path's attempt 1 takes when the runner census found no idle fleet member.
+OWNED_FIRST = ("cmux-gcp-lane-build-x64", "cmux-gcp-nightly-x64")
 SHADOW = "cmux-next-daemon-macos-shadow"
 MAC_ONLY_TESTS = ("no_keychain", "router_no_keychain", "remote_sandbox", "remote_sandbox_canary", "idle_wakeups")
 
@@ -66,6 +70,13 @@ def shadow_workflow() -> dict:
     return yaml.load(SHADOW_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
 
+def sole_runs_on(job: dict) -> str:
+    """The one runs-on a job without a matrix writes, as written (workflow_jobs.runs_on_cells)."""
+    cells = workflow_jobs.runs_on_cells(job)
+    assert cells is not None and len(cells) == 1, cells
+    return cells[0]
+
+
 def step(job: dict, name: str) -> dict:
     return next(s for s in job["steps"] if s.get("name") == name)
 
@@ -76,14 +87,21 @@ def flat(text: str) -> str:
 
 class DaemonTestsGateTests(unittest.TestCase):
     def test_the_gate_runs_on_its_blacksmith_size_whatever_the_pool_variables_say(self) -> None:
-        runs_on = jobs()["cmux-next-daemon-tests"]["runs-on"]
+        runs_on = sole_runs_on(jobs()["cmux-next-daemon-tests"])
         for overrides in ({}, {"CI_NEXT_DAEMON_POOL": DAEMON_LABEL}, {"CI_PIN_DAEMON_POOL": PIN_LABEL},
                           {"CI_PR_POOL_OWNED": ""}, {"CI_NEXT_PROMOTE_POOL": ""}):
             for context in contexts(**overrides):
                 context["inputs.macos_runner"] = "blacksmith-6vcpu-macos-26"
                 label = route(runs_on, context)
+                nightly_path = context["github.run_attempt"] == 1 and (
+                    context["github.event_name"] == "workflow_dispatch"
+                    or context["github.ref"] in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next"))
                 if context["github.repository_owner"] != "manaflow-ai":
                     self.assertEqual(label, "ubuntu-24.04", context)
+                elif nightly_path:
+                    # Attempt 1 of the nightly path queues on the owned GCP label when the census answered
+                    # nothing (tests/test_ci_owned_first_not_census_frozen.py); Blacksmith is attempt 2+.
+                    self.assertIn(label, OWNED_FIRST, (overrides, context))
                 else:
                     self.assertEqual(label, GATE_LABEL, (overrides, context))
 
@@ -135,7 +153,7 @@ class DaemonTestsGateTests(unittest.TestCase):
             self.assertIn(f"--test {test}", run)
 
     def test_the_shadow_never_takes_an_owned_pool(self) -> None:
-        runs_on = shadow_workflow()["jobs"][SHADOW]["runs-on"]
+        runs_on = sole_runs_on(shadow_workflow()["jobs"][SHADOW])
         self.assertNotIn("vars.MACOS_RUNNER", runs_on)
         self.assertIn("fromJSON(vars.RUNNER_POOLS).macos_15", runs_on)
         self.assertNotIn("inputs.", runs_on)

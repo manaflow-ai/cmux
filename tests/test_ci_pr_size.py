@@ -28,6 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 from test_ci_quota_hold_gate import DRAFT, DRAFT_SKIPPED, GATE, HOLD_GATED  # noqa: E402
 from test_ci_required_checks_are_bounded import context_of, load  # noqa: E402
@@ -97,6 +98,7 @@ class ExclusionAllowlistTests(unittest.TestCase):
         for path in (
             "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/CloudSessions.xcstrings",
             "plans/cmux-next/action-surfaces.json",
+            "plans/cmux-next/action-catalog.json",
             "schemas/settings/settings-schema.json",
             "web/data/next-docs/cli-reference.generated.json",
             "cmux-tui/Cargo.lock",
@@ -228,7 +230,8 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_pull_request_only_into_feat_cmux_next(self) -> None:
         on = self.workflow.get("on", self.workflow.get(True))
-        self.assertEqual(list(on), ["pull_request"])
+        # workflow_call: docs-only-fallback.yml calls it in a pull request's own context (scripts/ci/docs_only_paths.py).
+        self.assertEqual(list(on), ["pull_request", "workflow_call"])
         self.assertEqual(on["pull_request"]["branches"], ["feat-cmux-next"])
         self.assertIn("ready_for_review", on["pull_request"]["types"])
         self.assertNotIn("pull_request_target", self.text)
@@ -237,10 +240,16 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertEqual(self.workflow["permissions"], {})
         job = self.job
         self.assertEqual(job["permissions"], {"contents": "read", "pull-requests": "read"})
-        self.assertNotIn("environment", job)
-        self.assertNotIn("macos", str(job["runs-on"]).lower())
-        self.assertNotIn("self-hosted", str(job["runs-on"]).lower())
-        self.assertNotIn("secrets.", self.text)
+        resolved = workflow_jobs.resolve(job, JOB)
+        self.assertIsNone(resolved.environment)
+        self.assertIsNotNone(resolved.runs_on_cells, "a runs-on matrix nothing resolves")
+        self.assertTrue(resolved.runs_on_cells, "the job has no runs-on")
+        for cell in resolved.runs_on_cells:
+            self.assertNotIn("macos", cell.lower())
+            self.assertNotIn("self-hosted", cell.lower())
+        self.assertEqual(workflow_jobs.secret_names(self.text), set())
+        for name, each in workflow_jobs.jobs(self.workflow).items():
+            self.assertEqual(workflow_jobs.secret_names(each), set(), name)
 
     def test_not_ruleset_required_gated_and_draft_skipping(self) -> None:
         job = self.job
@@ -258,13 +267,15 @@ class WorkflowShapeTests(unittest.TestCase):
         self.assertIn(JOB, HOLD_GATED[WORKFLOW.name])
         self.assertIn(JOB, DRAFT_SKIPPED[WORKFLOW.name])
 
-    def test_every_edit_runs_it(self) -> None:
-        # Edited runs share one cancel-in-progress group: a title edit that skipped the job could cancel
-        # the run of a body edit and leave no measured answer.
+    def test_an_edit_runs_it_only_when_it_moves_a_size_line(self) -> None:
+        # The `Size:` line is all it reads from the description. Any other edit starts no runner and takes a
+        # concurrency group of its own, so it never cancels a body edit's measuring run
+        # (tests/test_ci_edit_events_start_no_runner.py simulates the events).
         condition = str(self.job["if"])
         self.assertIn('"edited"', condition)
-        self.assertNotIn("changes.body", condition)
-        self.assertNotIn("changes.title", condition)
+        self.assertIn("contains(github.event.changes.body.from, 'Size:')", condition)
+        group = str(self.workflow["concurrency"]["group"])
+        self.assertIn("format('edit-{0}', github.run_id)", group)
 
     def run_step(self, script_exit: int | None, gh_exit: int = 0, checkout: str = "success",
                  live_body: str | None = None, event_body: str = "", lines: int = 10) -> int:

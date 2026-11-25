@@ -64,7 +64,7 @@ import Testing
         try Data("{}".utf8).write(to: url)
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         services.settings = settings
         await settings.reload()
@@ -176,7 +176,7 @@ import Testing
     @Test func importOpensTheImportWindowWithCookiesChecked() async throws {
         let h = try await make()
         defer { h.tearDown() }
-        #expect(!h.services.onboarding.isShowing, "the banner opens nothing by itself")
+        #expect(!(h.services.onboarding.controller != nil), "the banner opens nothing by itself")
         h.services.onboarding.browserImportOffer.answer(.importCookies, profile: nil)
         let model = try #require(h.services.onboarding.controller?.model)
         #expect(model.importer.kinds == [.cookies], "Import checks cookies only: \(model.importer.kinds)")
@@ -229,7 +229,7 @@ import Testing
         try await h.until { try h.storedBannerValue() == nil && h.settings.snapshot.browserImportCookieBanner }
         #expect(try h.storedBannerValue() == nil, "on is the default: cmux.json drops the dismissal and keeps no copy")
         #expect(h.settings.snapshot.browserImportCookieBanner, "the banner is on again")
-        #expect(!h.services.onboarding.isShowing, "showing the banner opens no import")
+        #expect(!(h.services.onboarding.controller != nil), "showing the banner opens no import")
     }
 
     /// Leo, 2026-11-07: "If someone's, like, successfully imported it" it should not ask again. After
@@ -284,5 +284,13 @@ import Testing
         defaults.set(try JSONEncoder().encode(["dismissed": true, "imported": false]), forKey: "browserImportOffer.state")
         let offer = BrowserImportOfferService(services: nil, defaults: defaults, locate: { [] })
         #expect(offer.state.offers(Self.personalPage))
+    }
+
+    /// Lawrence 2026-11-09 (msg 26162): the banner shows less often. Only a page that asks the person to
+    /// sign in (a password or username field) offers it; an ordinary page never does.
+    @Test func onlyAPageThatAsksToSignInOffersTheBanner() {
+        let state = BrowserImportOfferState()
+        #expect(state.offers(BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, asksSignIn: true)))
+        #expect(!state.offers(BrowserImportOfferPage(isPersonal: true, showsOtherNotice: false, asksSignIn: false)))
     }
 }

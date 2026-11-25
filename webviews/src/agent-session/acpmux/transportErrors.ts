@@ -42,12 +42,54 @@ export function isHostRefusal(error: unknown): boolean {
 const DAEMON_REASON_TEXT: Record<string, StringKey> = {
   "trust.pending": "error.trustPending",
   "trust.untrusted": "error.trustUntrusted",
+  // A Stop from a link that is not the chat's owner (remote_guard/cancel_owner.rs).
+  "remote.session_cancel_ownership": "error.stopOwnerOnly",
+  // A sub-session start (a plan build's worktree) refused at the chat's open sub-session limit
+  // (hub/subsessions.rs): acpmux's message is written for the agent, the person reads this.
+  "subsessions.width_limit": "error.subsessionsFull",
+  // A remote link's folder outside the machine's webRoots and known projects
+  // (server/remote_guard.rs `outside_roots`): a save that can never pass reads as one.
+  "remote.cwd_outside_roots": "error.cwdOutsideRoots",
 };
+
+// What a malformed-request refusal blocked, by the method the host names (`data.method`): the
+// line says that much ("cmux blocked opening this chat"), not just "Something went wrong" (#42460:
+// every chat typed on New Tab failed with the generic line, and nothing said the chat's open was
+// what the app refused). Any other method keeps the generic text.
+const INTENT_INVALID_TEXT: Record<string, StringKey> = {
+  // Only the chat's own open: `_acpmux/watch` (the session list) and `_acpmux/events` (an older
+  // page) are no chat the person opened, and keep the generic line.
+  "_acpmux/attach": "transport.intentInvalidOpen",
+  "session/new": "transport.intentInvalidStart",
+  "session/load": "transport.intentInvalidStart",
+  "session/resume": "transport.intentInvalidStart",
+  "session/prompt": "transport.intentInvalidSend",
+  "session/set_mode": "transport.intentInvalidSetting",
+  "session/set_config_option": "transport.intentInvalidSetting",
+  "session/set_model": "transport.intentInvalidSetting",
+};
+
+function intentInvalidKey(error: unknown, fallback: StringKey): StringKey {
+  const method = typeof error === "object" && error !== null ? (error as { method?: unknown }).method : undefined;
+  return typeof method === "string" && Object.hasOwn(INTENT_INVALID_TEXT, method)
+    ? INTENT_INVALID_TEXT[method]!
+    : fallback;
+}
 
 /// The text to show for `error`: a transport refusal's own text (a code without one reads as the
 /// generic refusal, never the host's English message), acpmux's worded reasons, else the error's
 /// message.
 export function errorMessage(error: unknown): string {
+  return knownRefusalText(error) ?? (error instanceof Error ? error.message : typeof error === "string" ? error : "");
+}
+
+/// The pane's own words for a refusal it knows (a transport code, an acpmux reason it words), else
+/// undefined: the text a notice may say after "Couldn't …". Any other failure's message is the
+/// daemon's, the bridge's or the browser's ("Failed to fetch"), for the log or Details, never the line.
+export function knownRefusalText(
+  error: unknown,
+  intentInvalid: StringKey = "transport.intentInvalid",
+): string | undefined {
   const reason = typeof error === "object" && error !== null ? (error as { reason?: unknown }).reason : undefined;
   const reasonKey = typeof reason === "string" ? DAEMON_REASON_TEXT[reason] : undefined;
   if (reasonKey) return translate(reasonKey);
@@ -58,11 +100,38 @@ export function errorMessage(error: unknown): string {
       : undefined;
   if (key) {
     // A malformed request is the pane's bug, not the user's: log it, show the generic text.
-    if (code === "transport.intent_invalid") console.error("agent pane: the host refused a request", error);
+    if (code === "transport.intent_invalid") {
+      console.error("agent pane: the host refused a request", error);
+      return translate(intentInvalidKey(error, intentInvalid));
+    }
     return translate(key);
   }
-  if (error instanceof Error) return error.message;
-  return typeof error === "string" ? error : "";
+  return undefined;
+}
+
+/// The text for a failed chat start (harnessSwitch.ts): as `errorMessage`, but a malformed-request
+/// refusal of a method the line does not name (a gesture ticket, a request with no `method`) still
+/// says the start was blocked, never "Something went wrong, so that didn't go through." (#44964).
+export function startErrorMessage(error: unknown): string {
+  return (
+    knownRefusalText(error, "transport.intentInvalidStart") ??
+    (error instanceof Error ? error.message : typeof error === "string" ? error : "")
+  );
+}
+
+/// "Couldn't switch to {mode}." (or model) for a pick the agent or acpmux refused, with the pane's
+/// own reason when it knows one. The agent's own words go to the log: a transcript line has no
+/// Details to keep them behind, and a bare "?" once stood where they were missing.
+export function switchFailedText(kind: "mode" | "model", name: string, error: unknown): string {
+  const reason = knownRefusalText(error);
+  if (!reason) console.warn(`agent pane: switching to ${name} was refused`, error);
+  if (kind === "mode")
+    return reason
+      ? translate("switch.modeFailed", { mode: name, reason })
+      : translate("switch.modeFailedPlain", { mode: name });
+  return reason
+    ? translate("switch.modelFailed", { model: name, reason })
+    : translate("switch.modelFailedPlain", { model: name });
 }
 
 /// A New Tab start that ended because it was cancelled, not because it failed: Not now on the

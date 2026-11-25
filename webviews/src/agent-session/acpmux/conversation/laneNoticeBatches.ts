@@ -336,6 +336,11 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
   let hasInbox = false;
   const collect = (members: readonly AcpmuxRow[]) => {
     for (const row of members) {
+      // A closed message-run line holds its received lines (messageRuns.ts): their ids count as drawn.
+      if (row.messageRun?.messages) {
+        for (const id of row.messageRun.messages) deliveredIds.add(id);
+        continue;
+      }
       if (row.laneNoticeBatch) {
         if (row.laneNoticeBatch.kind === "inbox") hasInbox = true;
         collect(row.laneNoticeBatch.rows);
@@ -392,7 +397,14 @@ function projectAllInboxRows(rows: readonly AcpmuxRow[], foldNotices: boolean): 
       }
       const notice = noticeOf(row);
       if (notice?.kind === "inbox") {
-        const children = attachQueueSource(row, inboxChildren(row, notice).filter(keepDelivery));
+        const parsed = inboxChildren(row, notice);
+        // A notice whose text named no thread this page can read keeps its own line, its text whole
+        // behind the chevron: never no row at all (router-review on cmux#34320).
+        if (!parsed.length) {
+          out.push(row);
+          return;
+        }
+        const children = attachQueueSource(row, parsed.filter(keepDelivery));
         if (foldNotices && !insideInbox && children.length > 1) out.push(projectedBatch(row, children));
         else out.push(...children);
       } else if (row.inboxDelivery) {
@@ -473,8 +485,12 @@ export function projectInboxRows(
   if (cached) return cached.rows;
   const held = previous && deliveredInboxCache.get(previous);
   if (!previous || !held || reusedRows > Math.min(rows.length, previous.length)) return projectAllInboxRows(rows, true);
+  // A message-run line that holds received messages counts too (`collect`): a new one rebuilds.
   const relevant = (row: AcpmuxRow) =>
-    row.laneNoticeBatch !== undefined || row.incoming?.kind === "message" || row.incoming?.kind === "inbox";
+    row.laneNoticeBatch !== undefined ||
+    row.incoming?.kind === "message" ||
+    row.incoming?.kind === "inbox" ||
+    Boolean(row.messageRun?.messages?.length);
   // A message right after another (`next`) draws in one "Received N messages" row with it
   // (`receivedRun`): the same messages next to the same neighbours reuse their rows.
   const oldMessages: { row: AcpmuxRow; index: number; next: boolean }[] = [];

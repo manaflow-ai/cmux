@@ -13,6 +13,9 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { setPaneLanguage, translatorFor } from "../src/agent-session/acpmux/i18n";
+import { SubsessionCallCard } from "../src/agent-session/acpmux/conversation/SubsessionCallCard";
+import { TaskLines } from "../src/agent-session/acpmux/conversation/TaskLine";
+import { SubsessionContext, SubsessionStore } from "../src/agent-session/acpmux/subagents/subsessions";
 import { AgentCard } from "../src/agent-session/acpmux/subagents/AgentCard";
 import { resetTranscriptDisclosure } from "../src/agent-session/acpmux/conversation/transcriptDisclosureModel";
 
@@ -135,4 +138,67 @@ test("the row family is regular weight on the tool rows' line, with no outer mar
   expect(conversation).toMatch(/--cv-disclosure-line-height:\s*var\(--cv-tool-row-height\);/);
   expect(rule(".cv-disclosure__label")).toMatch(/font-weight:\s*400;/);
   expect(css).not.toMatch(/font-weight:\s*(500|600|bold)/);
+});
+
+test("a started agent keeps its icon and name link, with visible status controlling prompt details", async () => {
+  const opened: string[] = [];
+  const container = await render(
+    <SubsessionContext.Provider value={{ store: new SubsessionStore(), open: (id) => void opened.push(id) }}>
+      <SubsessionCallCard
+        call={{ tool: "start", running: true, sessionId: "review-id", name: "Review", prompt: "Review spacing." }}
+        tool={{ id: "start-review", title: "Start agent", status: "running" }}
+      />
+    </SubsessionContext.Provider>,
+  );
+  const line = container.querySelector(".cv-disclosure__line")!;
+  expect(line.querySelector(".cv-disclosure__icon svg")).not.toBeNull();
+  expect(line.querySelector(".cv-rotor")).toBeNull();
+  expect(line.querySelector(".is-chevron")).toBeNull();
+  const name = line.querySelector<HTMLButtonElement>("button.cv-agent-tag")!;
+  const status = line.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle.is-status")!;
+  expect(status.textContent).toBe("Working");
+  expect(status.hasAttribute("aria-label")).toBe(false);
+  expect(status.getAttribute("aria-expanded")).toBe("false");
+  expect(status.tabIndex).toBe(0);
+  await act(async () => name.click());
+  expect(opened).toEqual(["review-id"]);
+  expect(container.querySelector(".cv-subsession__markdown")).toBeNull();
+  status.focus();
+  expect(dom!.window.document.activeElement).toBe(status);
+  await act(async () => status.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true, detail: 0 })));
+  expect(status.getAttribute("aria-expanded")).toBe("true");
+  const panel = container.querySelector(".cv-disclosure__panel")!;
+  expect(panel.textContent).toContain("Review spacing.");
+  expect(panel.querySelector(".cv-card-copy")).not.toBeNull();
+  expect(panel.querySelector(".cv-subsession__raw")).not.toBeNull();
+  expect(opened).toEqual(["review-id"]);
+});
+
+test("a folded started task keeps only its icon, state and name navigation", async () => {
+  const opened: string[] = [];
+  const container = await render(
+    <SubsessionContext.Provider value={{ store: new SubsessionStore(), open: (id) => void opened.push(id) }}>
+      <TaskLines tasks={[{ sessionId: "review-id", name: "Review", harness: "codex" }]} />
+    </SubsessionContext.Provider>,
+  );
+  const line = container.querySelector('[data-task-line="done"]')!;
+  expect(line.querySelector(".cv-tool__icon svg")).not.toBeNull();
+  expect(line.querySelector(".cv-task-line__state svg")).not.toBeNull();
+  expect(line.querySelector(".cv-tool__chevron")).toBeNull();
+  await act(async () => line.querySelector<HTMLButtonElement>("button.cv-agent-tag")!.click());
+  expect(opened).toEqual(["review-id"]);
+});
+
+test("a chevron-free Done button takes its accessible name from its visible status", async () => {
+  const container = await render(
+    <AgentCard name="Review" state="done" disclosure disclosureChevron={false} onOpen={() => {}}>
+      <p>Review complete.</p>
+    </AgentCard>,
+  );
+  const status = container.querySelector<HTMLButtonElement>("button.cv-disclosure__toggle.is-status")!;
+  expect(status.textContent).toBe("Done");
+  expect(status.hasAttribute("aria-label")).toBe(false);
+  expect(status.querySelector(".cv-rotor")).toBeNull();
+  await act(async () => status.click());
+  expect(container.querySelector(".cv-disclosure__panel")?.textContent).toBe("Review complete.");
 });

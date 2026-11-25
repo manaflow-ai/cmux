@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Lucas 2026-11-10: "for the density make sure that they are all relatively proportional in terms of
@@ -11,9 +12,8 @@ import Testing
 /// - the lights sit as far from the window's left edge as from its top edge;
 /// - the toggle's glyph sits that same distance right of the lights;
 /// - every top-row button has one size, the +'s;
-/// - Back and Forward's glyphs are as far apart as the toggle's and Back's (the pair is not looser than
-///   the gap before it).
-@MainActor @Suite(.serialized) struct TopRowSpacingDensityTests {
+/// - the lights, the toggle, Back and Forward sit one gap apart, glyph to glyph (Lawrence 2026-11-11).
+@MainActor @Suite(.serialized, .closesItsWindows) struct TopRowSpacingDensityTests {
     /// The glyph's drawn extent (alpha > 0.3) in window x, from the button's image centered in its frame.
     private func ink(_ button: NSButton) throws -> ClosedRange<CGFloat> {
         let image = try #require(button.image), size = image.size, s: CGFloat = 4
@@ -65,11 +65,12 @@ import Testing
         let group = back.lowerBound - toggle.upperBound, pair = forward.lowerBound - back.upperBound
         print("SPACING|\(density.rawValue)|top \(top) left \(left)|after lights \(afterLights)|group \(group)|pair \(pair)")
         #expect(abs(left - top) <= 0.5, "\(density): the lights are \(left) from the left edge, \(top) from the top")
-        #expect(abs(afterLights - left) <= 0.75, "\(density): the toggle's glyph is \(afterLights) right of the lights, which sit \(left) in")
         for button in [band.sidebarToggle, band.backButton, band.forwardButton] as [NSView] {
             #expect(button.frame.size == plus.frame.size, "\(density): a band button is \(button.frame.size), the + is \(plus.frame.size)")
         }
-        #expect(pair <= group + 1.5, "\(density): Back and Forward are \(pair) apart, more than the \(group) before Back")
-        #expect(pair >= group * 0.75, "\(density): Back and Forward are \(pair) apart, far tighter than the \(group) before Back")
+        // Lawrence 2026-11-11 (msg 29542): "spacing between traffic lights/sidebar and back/forth needs to be perfectly
+        // even at all density sizes": lights to toggle, toggle to Back and Back to Forward are one gap, glyph to glyph.
+        #expect(abs(group - afterLights) <= 0.5, "\(density): toggle to Back is \(group), lights to toggle \(afterLights)")
+        #expect(abs(pair - afterLights) <= 0.5, "\(density): Back to Forward is \(pair), lights to toggle \(afterLights)")
     }
 }

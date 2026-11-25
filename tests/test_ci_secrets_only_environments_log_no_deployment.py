@@ -20,6 +20,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github/workflows"
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 
 SECRETS_ONLY = {
     "ci-attribution-agent",
@@ -45,13 +47,15 @@ def mints_oidc(workflow: dict, job: dict) -> bool:
 
 
 def records_deployment(workflow: dict, job: object) -> str | None:
-    """The secrets-only environment a job enters while still recording a deployment, plain or as a mapping."""
-    environment = job.get("environment") if isinstance(job, dict) else None
-    name = environment.get("name") if isinstance(environment, dict) else environment
-    if not isinstance(name, str) or name not in SECRETS_ONLY | BASE_ONLY:
+    """The secrets-only environment a job enters while still recording a deployment, plain or as a mapping. GitHub
+    matches environment names without case, so `CI-Bot` is ci-bot."""
+    # workflow_jobs.environment_spec's one shape: None, or {"name": ..., "deployment": ...} as written.
+    environment = workflow_jobs.resolve(job).environment if isinstance(job, dict) else None
+    name = environment.get("name") if environment is not None else None
+    if not isinstance(name, str) or name.casefold() not in SECRETS_ONLY | BASE_ONLY:
         return None
-    want = False if name in SECRETS_ONLY else BASE_ONLY_DEPLOYMENT
-    if isinstance(environment, dict) and environment.get("deployment") == want:
+    want = False if name.casefold() in SECRETS_ONLY else BASE_ONLY_DEPLOYMENT
+    if environment.get("deployment") == want:
         return None
     return name
 
@@ -63,7 +67,7 @@ def offenders() -> list[str]:
         for name, job in (workflow.get("jobs") or {}).items():
             environment = records_deployment(workflow, job)
             if environment:
-                want = "false" if environment in SECRETS_ONLY else BASE_ONLY_DEPLOYMENT
+                want = "false" if environment.casefold() in SECRETS_ONLY else BASE_ONLY_DEPLOYMENT
                 found.append(f"{path.name} {name}: environment {environment!r} needs "
                              f"`environment: {{name: ..., deployment: {want}}}`")
     return found
@@ -77,8 +81,8 @@ class SecretsOnlyEnvironmentsLogNoDeployment(unittest.TestCase):
         for path in sorted(WORKFLOWS.glob("*.y*ml")):
             workflow = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
             for name, job in (workflow.get("jobs") or {}).items():
-                environment = job.get("environment") if isinstance(job, dict) else None
-                if isinstance(environment, dict) and environment.get("deployment") is False:
+                environment = workflow_jobs.resolve(job).environment if isinstance(job, dict) else None
+                if environment is not None and environment.get("deployment") is False:
                     self.assertIn(environment.get("name"), SECRETS_ONLY, f"{path.name} {name}")
 
     def test_each_form_that_still_records_a_deployment_is_caught(self) -> None:

@@ -71,6 +71,8 @@ To run a prompt in a new agent chat on this Mac and read the reply, use one comm
 
 To run a prompt on a Cloud machine and read the reply, use one command, `cmux cloud start-chat --prompt TEXT --wait --json` (the [cmux-cloud-vm](../cmux-cloud-vm/SKILL.md) skill): it starts the chat on a new small machine (or `--name NAME`, `--target machine:vm-…`), opens it as a tab in the app and answers the reply with its `machine_id`, `session_id` and `tab_id`.
 
+A Cloud workspace chat takes everything the composer's Cloud start picks: `cmux chat --on cloud --harness claude|codex --model MODEL --effort low|medium|high|xhigh|max --mode MODE` with a folder (`--from-folder DIR`, a copy of a folder on this Mac; `--cwd DIR`, a folder on the machine) or No folder (`--no-folder`, a fresh folder of its own; also what no folder flag means), `--prompt TEXT --wait --json`. `cmux agents chat new --on cloud …` is the same start. The chat opens in its machine's workspace in the sidebar; `--effort` and `--mode` are set on it before its first prompt, and one the harness refuses fails the start with `chat.settings_refused` (nothing sent).
+
 To start another agent on a task and show it, use one command, `acpmux new -n NAME --worktree REPO@BASE --prompt-file BRIEF.md --report-to ME --group G -d` (the `acpmux` skill): it makes the worktree, starts the session, sends the brief and opens its chat in group G; running it again changes nothing.
 
 To give a new chat on this Mac files (a screenshot, a log), add `--attach FILE` once per file to `cmux chat TEXT` or `cmux agents chat new -- TEXT` (MCP `agents_chat_new` with `attachments`, absolute paths): the first prompt carries them as `acpmux send --attach` does, any type and size. A missing or unreadable file starts nothing (`attach.not_found`, `attach.not_a_file`, `attach.unreadable`). A message to a running chat (`cmux agents chat send`) carries text only and refuses `--attach` (`chat.attach_send_unsupported`); a Cloud chat refuses it too.
@@ -127,7 +129,7 @@ Terminal rendering (cursor style, scrollback) belongs in Ghostty config; font fa
 | [references/windows-workspaces.md](references/windows-workspaces.md) | Window and workspace lifecycle, order, and context-menu actions |
 | [references/panes-surfaces.md](references/panes-surfaces.md) | Splits, tabs, moves, focus |
 | [references/trigger-flash-and-health.md](references/trigger-flash-and-health.md) | Flash cue; surface health was removed |
-| [references/automations.md](references/automations.md) | Automations: timers, `--if` conditions, `--watch` triggers, `test` before you say it works |
+| [references/automations.md](references/automations.md) | Automations: `--when pr-opened\|agent-idle` events, timers, `--if` conditions, `--watch` triggers, `test` before you say it works |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Current caller workspace rules and non-disruptive automation |
 | [../cmux-settings/SKILL.md](../cmux-settings/SKILL.md) | Safe settings edits |
 | [../cmux-browser/SKILL.md](../cmux-browser/SKILL.md) | Browser tabs |

@@ -4,15 +4,15 @@
 // strange."). It is the chat's own composer (Composer.tsx, ComposerBox.tsx): the same glass card,
 // spacing and quiet row as a started chat, and the folder and computer are the location strip's chips
 // (ComposerContext.tsx) a few px over the card, as the New Tab draws them. The card keeps its own
-// four corners and whole rim. A chat in the workspace's private folder says so in the folder chip's
-// menu, whose Add folder… is the host's workspace folder sheet; no sentence stands over the card.
+// four corners and whole rim. For a chat in the workspace's private folder the folder chip's menu
+// offers Add folder…, the host's workspace folder sheet; no sentence stands over the card, and no
+// note line sits under the menu's actions.
 // `started` and `started-codex` are chats after their first send, to set beside; the `alt-*`
 // variants are the strip's Debug styles (agentPane.debug.topStripStyle) over the same component.
 // test/new-chat-composer.test.ts measures it.
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, CWD, manySessions, noChat, user } from "../../gallery/fixtures/acpmux";
 import type { PlayContext } from "../../gallery/play";
-import { setComposerLook } from "./composerLook";
 import type { AcpmuxSnapshot } from "./model";
 
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
@@ -40,11 +40,6 @@ function fresh(fields: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {}, ext
 /// workspace (`workspaceContext`), in its private folder, whose host offers Choose Folder…
 /// (`workspace.chooseFolder`).
 const PRIVATE = { newSession: true, cwd: AGENT_HOME, chooseFolder: true, workspaceContext: true };
-
-const codexLook = async (ctx: PlayContext) => {
-  setComposerLook("codex", { remember: false });
-  await ctx.waitFor(() => ctx.document.querySelector('[data-composer-look="codex"]'));
-};
 
 const openFolderMenu = async (ctx: PlayContext) => {
   await ctx.click({ selector: '.acpmux-composer-strip [aria-label="Folder"]' });
@@ -74,15 +69,16 @@ export default agentPaneEntry({
   covers: ["agent-session/acpmux/FolderPopover.tsx#FolderPopover"],
   variants: {
     claude: {
+      composerLook: "claude",
       note: "Cmd-I's new chat in the workspace's private folder, Claude's look: the chat's own card, the folder and computer chips over it, no sentence above.",
       ready: PRIVATE,
       snapshot: fresh(),
     },
     codex: {
+      composerLook: "codex",
       note: "The same new chat on Codex, in Codex's look: the folder and computer tray tucked under the same card.",
       ready: PRIVATE,
       snapshot: fresh({ harness: "codex", model: "gpt-6-astra" }),
-      play: codexLook,
     },
     project: {
       note: "A new chat in a project on this Mac: the folder chip names it, the branch at the strip's end.",
@@ -98,7 +94,7 @@ export default agentPaneEntry({
       ),
     },
     "folder-menu": {
-      note: "Play: open the folder chip: the private-folder note and Add folder… are in its menu.",
+      note: "Play: open the folder chip: Add folder… heads the actions fixed under its folders, and nothing sits under them.",
       ready: PRIVATE,
       snapshot: fresh(),
       play: openFolderMenu,
@@ -147,13 +143,14 @@ export default agentPaneEntry({
       },
     },
     started: {
+      composerLook: "claude",
       note: "The same composer after a chat's first send, to set beside the new chat: the same card.",
       snapshot: startedChat(),
     },
     "started-codex": {
+      composerLook: "codex",
       note: "A started Codex chat in Codex's look, to set beside `codex`: the same card.",
       snapshot: startedChat("codex"),
-      play: codexLook,
     },
     "alt-bump": {
       note: "Alternative (Debug: Composer top strip style Bump): the chips in a closed rim of their own over the card.",

@@ -13,13 +13,17 @@
 //   requests         the JSON-RPC requests the page sent;
 //   script_ms, layout_ms, style_ms, task_ms (Chromium only, CDP Performance.getMetrics);
 //   heap_mb          the JS heap in use once interactive (Chromium only);
+//   composer_shown_ms  (--composer-key) the first animation frame with the composer's editable prompt;
+//   composer_key_ms    (--composer-key) the first frame whose prompt shows a key typed (a trusted key
+//                      event from the browser) as soon as the prompt existed: the page takes input;
+//   composer_key_kept  (--composer-key) the key is still in the prompt once the chat settled;
 //   dom_nodes        DOM nodes once interactive;
 //   daemon_cpu_ms    the acpmux daemon's CPU time during the open (from /proc).
 // Then (--scroll) it scrolls to the first message and reports the time and bytes it took.
 //
 //   node browser_bench.mjs --pane DIR --fixture FIXTURE_JSON --endpoint ws://127.0.0.1:P --token T
 //        --daemon-pid PID --out OUT_JSON [--engine chromium|webkit] [--repeat 3] [--scroll]
-//        [--mock-turns 100,1000,10000] [--port 4319]
+//        [--mock-turns 100,1000,10000] [--port 4319] [--composer-key]
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -65,6 +69,7 @@ const daemonCpu = () => {
 // Before any pane script: the native host shim (the dev host's replies) and the probes.
 function shim(config) {
   const probe = (window.__chatLoad = { marker: config.marker, firstPaint: undefined, longTasks: [], start: 0 });
+  const PROMPT = ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
   probe.bytesIn = 0;
   probe.requests = 0;
   probe.sentEvents = [];
@@ -102,6 +107,11 @@ function shim(config) {
     if (probe.marker && probe.firstPaint === undefined) {
       const scroller = document.querySelector(".acpmux-scroll");
       if (scroller && scroller.textContent.includes(probe.marker)) probe.firstPaint = now;
+    }
+    if (probe.composerShown === undefined || (probe.composerKey && probe.composerEcho === undefined)) {
+      const prompt = document.querySelector(PROMPT);
+      if (prompt && probe.composerShown === undefined) probe.composerShown = now;
+      if (prompt && probe.composerKey && prompt.textContent.includes(probe.composerKey)) probe.composerEcho = now;
     }
     requestAnimationFrame(watch);
   };
@@ -241,6 +251,27 @@ async function scrollToFirst(page, firstMarker, timeoutMs) {
   };
 }
 
+const COMPOSER_KEY = "~";
+const COMPOSER_PROMPT =
+  ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']";
+
+/// Types one key into the composer's prompt as soon as the prompt exists, and returns when the page
+/// first drew the prompt and when its prompt first showed the key (page clock, from navigation).
+async function composerKey(page) {
+  await page.waitForSelector(COMPOSER_PROMPT, { state: "attached", timeout: 60_000 });
+  await page.evaluate(
+    ([selector, key]) => {
+      window.__chatLoad.composerKey = key;
+      document.querySelector(selector)?.focus();
+    },
+    [COMPOSER_PROMPT, COMPOSER_KEY],
+  );
+  await page.keyboard.type(COMPOSER_KEY);
+  await page.waitForFunction(() => window.__chatLoad.composerEcho !== undefined, null, { timeout: 60_000 });
+  const at = await page.evaluate(() => [window.__chatLoad.composerShown, window.__chatLoad.composerEcho]);
+  return { composer_shown_ms: Math.round(at[0]), composer_key_ms: Math.round(at[1]) };
+}
+
 async function coldOpen(config, label) {
   const context = await browser.newContext({ bypassCSP: true, viewport: { width: 1100, height: 900 } });
   const page = await context.newPage();
@@ -249,7 +280,14 @@ async function coldOpen(config, label) {
   await page.addInitScript(shim, config);
   const cpu0 = daemonCpu();
   await page.goto(`${origin}/index.html`);
+  const composer = has("composer-key") ? await composerKey(page) : {};
   const s = await settle(page, 120_000);
+  // The key typed early is still in the prompt once the chat settled: nothing redrew the composer over it.
+  if (has("composer-key"))
+    composer.composer_key_kept = await page.evaluate(
+      ([selector, key]) => (document.querySelector(selector)?.textContent ?? "").includes(key),
+      [COMPOSER_PROMPT, COMPOSER_KEY],
+    );
   const probe = await page.evaluate(() => ({
     bytesIn: window.__chatLoad.bytesIn,
     requests: window.__chatLoad.requests,
@@ -262,6 +300,7 @@ async function coldOpen(config, label) {
     first_paint_ms: s.firstPaint === undefined ? null : Math.round(s.firstPaint),
     interactive_ms: s.interactive === undefined ? null : Math.round(s.interactive),
     pane_painted_ms: probe.panePainted === undefined ? null : Math.round(probe.panePainted),
+    ...composer,
     timed_out: !!s.timedOut,
     bytes_in: probe.bytesIn,
     requests: probe.requests,

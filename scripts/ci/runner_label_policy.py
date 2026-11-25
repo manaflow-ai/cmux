@@ -166,6 +166,42 @@ def side_lane_reason(label: str) -> str | None:
     return forbidden_reason(label)
 
 
+# The side lane as what a job needs, not one pool: a JSON label array that every runs-on reading
+# vars.CI_SIDE_LANE_RUNNER takes first, when set (tests/test_ci_side_lane_capability_labels.py keeps every
+# reader on it). It holds one side pool label (glaeda-side-<class>-xcode-<v>, or glaeda-side-xcode-<v>: every
+# side runner with that Xcode, whatever its class) and the capability tiers the job needs. GitHub gives a job
+# a runner carrying every label, so `["glaeda-side-xcode-26.6", "glaeda-ram-48"]` reaches any 48 GiB+ side
+# runner with Xcode 26.6. The tiers are the ones cmuxterm-hq build-fleet/mini-ops/runner_labels.py
+# CAPABILITY_LABELS gives every root, side, gui and session runner from its host's measured shape.
+SIDE_LANE_LABELS_VARIABLE = "CI_SIDE_LANE_LABELS"
+SHARED_SIDE_LABEL = re.compile(r"glaeda-side-xcode-[0-9]+(?:\.[0-9]+)*")
+CAPABILITY_LABEL = re.compile(r"glaeda-(?:ram-(?:16|48|96)|cores-(?:10|12|14|30)|display)")
+
+
+def side_lane_labels_reason(value: str) -> str | None:
+    """Why a CI_SIDE_LANE_LABELS value is not allowed, or None when it is fine (empty is off)."""
+    if not value.strip():
+        return None
+    try:
+        labels = json.loads(value)
+    except (TypeError, ValueError):
+        return "is not valid JSON; it must be a JSON array of runner labels"
+    if not isinstance(labels, list) or not labels or not all(isinstance(label, str) for label in labels):
+        return "must be a non-empty JSON array of runner label strings"
+    if len(set(labels)) != len(labels):
+        return "names a label twice"
+    pools = [label for label in labels if SHARED_SIDE_LABEL.fullmatch(label) or (
+        label.startswith(SIDE_LANE_PREFIX) and side_lane_reason(label) is None)]
+    if len(pools) != 1:
+        return ("must name exactly one side pool label (glaeda-side-<class>-xcode-<version> or "
+                f"glaeda-side-xcode-<version>), not {len(pools)}")
+    for label in labels:
+        if label not in pools and not CAPABILITY_LABEL.fullmatch(label):
+            return (f"`{label}` is not a capability label every host of a tier carries "
+                    "(glaeda-ram-16|48|96, glaeda-cores-10|12|14|30, glaeda-display)")
+    return None
+
+
 NIGHTLY_NEXT_BUILD_VARIABLE = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
 
 
@@ -353,6 +389,22 @@ NO_HOSTED_MAC_VARIABLES = frozenset({
     "MACOS_RUNNER_15", "MACOS_RUNNER_26", "NIGHTLY_NEXT_TRAIN_RUNNER",
 })
 HOSTED_MAC_LABEL = re.compile(r"macos-(?:latest|\d+)(?:-[a-z0-9]+)*")
+# Any GitHub-hosted image label. On 2026-11-18/19 GitHub-hosted Ubuntu started no manaflow-ai/cmux job for hours:
+# the jobs a RUNNER_POOLS value of `ubuntu-24.04` had routed sat queued 444 min, holding the webview verdict on
+# PRs and three nightly jobs (Leo: "just dont use github for private"). Only a pool .github/runners.json declares
+# `"hosted": true` (with its `hosted_why`) may name one; every runner variable and every other pool takes owned
+# labels, then Blacksmith.
+HOSTED_LABEL = re.compile(r"(?:ubuntu|windows|macos)-(?:latest|\d+(?:\.\d+)?)(?:-[a-z0-9]+)*")
+
+
+@cache
+def declared_hosted_pools() -> frozenset[str]:
+    """Pools .github/runners.json marks `"hosted": true`: the only ones that may hold a GitHub-hosted label."""
+    try:
+        pools = json.loads((ROOT / ".github" / "runners.json").read_text(encoding="utf-8")).get("pools") or {}
+    except (OSError, ValueError):
+        return frozenset()
+    return frozenset(name for name, pool in pools.items() if isinstance(pool, dict) and pool.get("hosted") is True)
 
 
 def runner_pools_reason(value: str) -> str | None:
@@ -377,8 +429,13 @@ def runner_pools_reason(value: str) -> str | None:
             if not value.strip():
                 return None
             original = value.strip()
+            if pool in declared_hosted_pools():
+                return None  # declared hosted in .github/runners.json, with its reason
             if HOSTED_MAC_LABEL.fullmatch(original.lower()):
                 return f"pool `{pool}` names a GitHub-hosted Mac `{original}`"
+            if HOSTED_LABEL.fullmatch(original.lower()):
+                return (f"pool `{pool}` names the GitHub-hosted runner `{original}`; only a pool .github/runners.json "
+                        "declares hosted may, the rest take owned labels, then Blacksmith")
             reason = forbidden_reason(original)
             return f"pool `{pool}` {reason}" if reason is not None else None
         if isinstance(value, dict):
@@ -426,6 +483,11 @@ def drifted_runner_variables(
         if name in NO_HOSTED_MAC_VARIABLES and HOSTED_MAC_LABEL.fullmatch(value.strip().lower()):
             drifted.append((name, value.strip(), "names a GitHub-hosted Mac; the nightly path takes the fleet, then Blacksmith"))
             continue
+        if HOSTED_LABEL.fullmatch(value.strip().lower()):
+            drifted.append((name, value.strip(), "names a GitHub-hosted runner, which can sit queued for hours; "
+                            f"set an owned label or Blacksmith (gh variable set {name} --body blacksmith-2vcpu-ubuntu-2404 "
+                            "for a Linux one)"))
+            continue
         if name == POOL_ORDER_VARIABLE:
             reason = pool_order_reason(value.strip())
         elif name == "CI_NIGHTLY_ONLY_RUNNER":
@@ -443,6 +505,8 @@ def drifted_runner_variables(
                       "must name the one nightly mini's warm builder label (glaeda-nightly-mini-builder) or be unset")
         elif name in SIDE_LANE_VARIABLES:
             reason = side_lane_reason(value.strip())
+        elif name == SIDE_LANE_LABELS_VARIABLE:
+            reason = side_lane_labels_reason(value)
         elif name == NIGHTLY_NEXT_BUILD_VARIABLE:
             reason = nightly_next_build_reason(value.strip())
         elif name in (NIGHTLY_SIGNING_POOL_VARIABLE, "CI_NIGHTLY_SIGN_RUNNER"):

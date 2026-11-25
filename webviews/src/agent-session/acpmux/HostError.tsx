@@ -1,5 +1,6 @@
 import { type ReactNode, useId, useState } from "react";
 import { Notice } from "../../ui/Notice";
+import { Clock } from "../../ui/Typography";
 import { HOST_ERROR_DEADLINE_MS, type HostRestoring, hostRecoveryLine } from "./hostRetry";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
@@ -50,11 +51,12 @@ export function HostError({
 /// holds this app's socket (`onRestart`, in flight while `restarting`), else Retry, which asks again
 /// now (`retrying` while it waits on the attempt in flight).
 ///
-/// Under it, one muted line answers what the person wonders first (Leo, 2026-11-06: "has my app
-/// completely crashed? Should I be restarting it?"): cmux is running and the chats are kept, and,
-/// while the pane asks again by itself (`selfRetrying`, every failure but one asking again cannot
-/// change), that it keeps retrying. The waiting line has the same two rows at the same heights, so
-/// one turning into the other moves nothing.
+/// While the pane asks again by itself (`selfRetrying`: every failure but one asking again cannot
+/// change, such as a machine that is rebooting or an agent service that is starting), the line is
+/// only "Reconnecting…": no Retry, no Details, no reassurance under it, since nothing waits on the
+/// person and the chat comes back by itself (Leo, 2026-11-12: "the recovery needs to be a lot better
+/// and it shouldn't talk so much bullshit"; "try what? no, it should just automatically do stuff").
+/// Only a failure asking again cannot clear keeps its message and its one action.
 export function HostUnavailableLine({
   message,
   detail,
@@ -75,6 +77,7 @@ export function HostUnavailableLine({
   const t = useT();
   const [open, setOpen] = useState(false);
   const detailId = useId();
+  if (selfRetrying && !onRestart) return <ReconnectingLine />;
   return (
     <div className="acpmux-host-line-group" role="alert">
       <div className="acpmux-host-line">
@@ -109,7 +112,6 @@ export function HostUnavailableLine({
           </button>
         )}
       </div>
-      <HostReassurance selfRetrying={selfRetrying} />
       {detail && open && (
         <p id={detailId} className="acpmux-host-line-detail selectable">
           {detail}
@@ -119,22 +121,21 @@ export function HostUnavailableLine({
   );
 }
 
-/// The host line's second row: cmux is running and the chats are kept, and whether the pane keeps
-/// asking by itself. It holds no button in either line, so its height is its text's in both, and
-/// the waiting line turning into the failure line moves nothing.
-function HostReassurance({ selfRetrying }: { selfRetrying: boolean }) {
+/// The one quiet line while the pane gets its agent back by itself: "Reconnecting…", the same line
+/// HostRecoveringLine shows for a short reconnect, so a long one changes nothing on screen.
+function ReconnectingLine() {
   const t = useT();
   return (
-    <div className="acpmux-host-line acpmux-host-line-reassure">
-      <p className="acpmux-host-line-note">{t(selfRetrying ? "host.keptRetrying" : "host.kept")}</p>
-    </div>
+    <output className="acpmux-host-line" data-host-recovering="reconnecting">
+      <p className="acpmux-host-line-message">{t("host.reconnecting")}</p>
+    </output>
   );
 }
 
 /// The pane's handshake waits for this app's acpmux, which has not answered yet. The app never
 /// restarts a slow acpmux on its own (rule R5: a late answer is not a crash, and under load a
-/// restart reloads every chat), so the person sees how long the pane has waited, that cmux is
-/// running, the chats are kept and the pane keeps asking, and may decide: Restart agent service, a
+/// restart reloads every chat), so the person sees how long the pane has waited, and may decide:
+/// Restart agent service, a
 /// quiet text button after the time (optional, never a filled button), stops that daemon (its
 /// chats are kept) and the pane asks again, which starts a new one. Nothing shows while a wait is short (`HOST_ERROR_DEADLINE_MS`, the pane's
 /// one rule for saying a recovery: "STOP SHOWING BULLSHIT ON LOAD"); that only decides what is
@@ -163,14 +164,15 @@ export function HostWaitingLine({
   return (
     <output className="acpmux-host-line-group" data-host-waiting>
       <div className="acpmux-host-line">
-        <p className="acpmux-host-line-message">{t("host.waitingService", { time: waitedText(waited) })}</p>
+        <p className="acpmux-host-line-message">
+          <ClockedWords text={t("host.waitingService", { time: SLOT })} time={waitedText(waited)} />
+        </p>
         {onRestart && (
           <button type="button" className="acpmux-host-line-quiet" onClick={onRestart} disabled={restarting}>
             {t(restarting ? "host.restartingService" : "host.restartService")}
           </button>
         )}
       </div>
-      <HostReassurance selfRetrying />
     </output>
   );
 }
@@ -182,26 +184,52 @@ export function HostWaitingLine({
 export function HostRecoveringLine({
   relinkingSince,
   restoring,
+  failureShown,
+  waitingSince,
   otherwise = null,
   now: fixedNow,
 }: {
   relinkingSince?: number;
   restoring?: HostRestoring;
+  /// The pane already says a failure (`hostErrorSaid`): "Reconnecting…" leaves the line to it.
+  failureShown?: boolean;
+  /// When the waiting line's wait began (its `since`): "Reconnecting…" stays until that line shows.
+  waitingSince?: number;
   otherwise?: ReactNode;
   /// A fixed clock for the gallery and tests; the pane passes none and the line counts each second.
   now?: number;
 }) {
   const t = useT();
   const ticking = useNow(fixedNow === undefined && (relinkingSince !== undefined || restoring !== undefined));
-  const line = hostRecoveryLine({ relinkingSince, restoring, now: fixedNow ?? ticking });
+  const line = hostRecoveryLine({ relinkingSince, restoring, failureShown, waitingSince, now: fixedNow ?? ticking });
   if (!line) return otherwise;
   return (
     <output className="acpmux-host-line" data-host-recovering={line.kind}>
       <p className="acpmux-host-line-message">
-        {line.kind === "restoring"
-          ? t("host.restoringSessions", { time: waitedText(line.waitedMs) })
-          : t("host.reconnecting")}
+        {line.kind === "restoring" ? (
+          <ClockedWords text={t("host.restoringSessions", { time: SLOT })} time={waitedText(line.waitedMs)} />
+        ) : (
+          t("host.reconnecting")
+        )}
       </p>
     </output>
+  );
+}
+
+/// The translation's time slot, filled with the ticking time.
+const SLOT = "\u0000";
+
+/// A line's words with its ticking `m:ss` in the shared clock (ui/Typography.tsx `Clock`): tabular
+/// figures in a box as wide as the widest time of its shape, so a tick never moves what follows the
+/// time (the waiting line's Restart agent service jiggled sideways each second). `text` is the
+/// translation with `SLOT` where the time goes.
+function ClockedWords({ text, time }: { text: string; time: string }) {
+  const [before, after = ""] = text.split(SLOT);
+  return (
+    <>
+      {before}
+      <Clock text={time} />
+      {after}
+    </>
   );
 }

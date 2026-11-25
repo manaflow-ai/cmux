@@ -1,5 +1,5 @@
-//! The NEXT app's follower of the cloud tasks it handed off (sandboxed Runs, `GET
-//! /api/runs/:id/wait`; hand-offs, `GET /v1/handoffs/:id/wait`), in Rust so the macOS app keeps
+//! The NEXT app's follower of the cloud tasks it handed off (sandboxed Runs, the cmux
+//! daemon's `cloud.runs.wait`; hand-offs, `GET /v1/handoffs/:id/wait`), in Rust so the macOS app keeps
 //! only its poll tasks, waiters and storage (Leo, 2026-11-02: Cloud logic and its tests belong in
 //! Rust, not Swift). Pure: no I/O. Served to the app over the app FFI's JSON channel
 //! (`cmux-layout-reducer-ffi`, ops `cloud_task_*`).

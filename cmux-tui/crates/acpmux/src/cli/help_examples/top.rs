@@ -19,6 +19,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "machine-auth",
+        &[
+            (
+                "Check how this Cloud machine's agents reach models (the edge, the placeholder key, no login)",
+                "acpmux machine-auth",
+            ),
+            ("The same report as JSON", "acpmux --json machine-auth"),
+        ],
+    ),
+    (
         "who-else",
         &[
             (
@@ -275,6 +285,16 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         ],
     ),
     (
+        "resume-here",
+        &[
+            (
+                "Run a Claude Code or Codex chat in this terminal once its turn ends",
+                "acpmux resume-here review-27310",
+            ),
+            ("Print the resume command instead of running it", "acpmux resume-here coord --print"),
+        ],
+    ),
+    (
         "stdio",
         &[
             ("Serve an editor ACP sessions on Claude", "acpmux stdio -m claude"),
@@ -301,6 +321,7 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
         "uniichat-agent",
         &[
             ("Serve ACP backed by uniichat.com", "acpmux uniichat-agent"),
+            ("Sign in to uniichat.com (no `unii` program needed)", "acpmux uniichat-agent login"),
             (
                 "Serve ACP backed by your own `unii serve`",
                 "acpmux uniichat-agent --url http://127.0.0.1:8787",

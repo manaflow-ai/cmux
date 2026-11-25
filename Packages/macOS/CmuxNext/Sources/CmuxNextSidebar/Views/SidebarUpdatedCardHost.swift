@@ -292,12 +292,11 @@ final class SidebarUpdatedCardHost: NSView {
     /// The card's sizes at the sidebar's density (Lawrence 2026-11-01: "the card must reflect my
     /// compactness level"): the page reads the same ones (`--cmux-sidebar-card-*`, WebTheme).
     static var metrics: SidebarCardMetrics { SidebarRowTokens.current.card }
-    /// The x's side and its inset from the card's top right: on the title line, inside the padding.
+    /// The x's side.
     static var closeSide: CGFloat { metrics.closeSide }
-    static var closeInset: NSSize {
-        let m = metrics
-        return NSSize(width: max(m.paddingX - 2, 0), height: max(m.paddingY - 2, 0))
-    }
+    /// The x's inset from the card's top and trailing side: in the card's corner, concentric with the glass
+    /// (Lawrence 2026-11-15: the x was not concentric with the card's corner).
+    var closeInset: CGFloat { Metrics.cornerControl(outerRadius: glass.cornerRadius, side: Self.closeSide).padding }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -425,16 +424,13 @@ final class SidebarUpdatedCardHost: NSView {
     /// The hover preview is open: the page asked for room past the card's own height.
     var previewIsOpen: Bool { overlayHeight > height + 0.5 }
 
-    /// The x's top: centered on the card's title line (the first of its two centered lines), inside
-    /// the card's own height. The title line leads the card's lines at the view's top for a card
-    /// resting at the top, and while the hover preview is open (the page lays its header first,
-    /// Lawrence 2026-11-07: "a header (Updated to <version>, What's New link, close), then the
-    /// items"); else it is at the bottom of the view.
-    var closeTop: CGFloat {
-        let m = Self.metrics, card = height > 0 ? height : bounds.height
-        let titleCenter = card / 2 - (m.gap + m.noteSize * 1.3) / 2
+    /// The card's own rect in the view: the header leads the view for a card resting at the top and while the
+    /// hover preview is open (the page lays its header first, Lawrence 2026-11-07: "a header (Updated to
+    /// <version>, What's New link, close), then the items"); else the card is at the bottom of the view.
+    var cardRect: NSRect {
+        let card = height > 0 ? height : bounds.height
         let headerOnTop = anchor == .top || previewIsOpen
-        return (headerOnTop ? 0 : bounds.height - card) + max(Self.closeInset.height, (titleCenter - Self.closeSide / 2).rounded())
+        return NSRect(x: 0, y: headerOnTop ? 0 : bounds.height - card, width: bounds.width, height: card)
     }
 
     /// Whether the x shows now (proofs).
@@ -448,10 +444,11 @@ final class SidebarUpdatedCardHost: NSView {
 
     override func layout() {
         super.layout()
-        let side = Self.closeSide
-        closeButton.frame = NSRect(x: bounds.width - Self.closeInset.width - side, y: closeTop,
-                                   width: side, height: side).integral
         layoutGlass()
+        // In the card's top trailing corner, concentric with the glass (laid out first: its corner follows the zoom).
+        let corner = Metrics.cornerControl(outerRadius: glass.cornerRadius, side: Self.closeSide), side = Self.closeSide
+        closeButton.frame = corner.topTrailingFrame(side: side, in: cardRect, flipped: true)
+        closeButton.concentricRadius = corner.childRadius
     }
 
     /// The glass behind the card and its open preview, on the card's resting edge. A preview that opens

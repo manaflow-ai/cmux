@@ -1,10 +1,14 @@
-import { memo } from "react";
+import { memo, useContext } from "react";
 import { Thinking } from "../conversation/Thinking";
+import { LiveLinePulseContext } from "../conversation/liveLinePulse";
+import { LIVE_THINKING } from "../conversation/turns";
 import { type RowProps } from "./rowProps";
 
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 export const ThinkingRow = memo(
   function ThinkingRow({ row }: RowProps) {
+    // The transcript's live line hears its chunks without a draw (liveLinePulse.ts).
+    const pulse = useContext(LiveLinePulseContext);
     return (
       <Thinking
         starting={row.queued !== undefined}
@@ -21,7 +25,9 @@ export const ThinkingRow = memo(
         liveState={row.liveState}
         liveAgents={row.liveAgents}
         liveCompaction={row.liveCompaction}
-        thoughtMs={row.thoughtMs}
+        phaseAt={row.phaseAt}
+        heardAt={row.heardAt}
+        heardKey={row.heardKey}
         turnTotal={row.turnTotal}
         untimed={row.untimed}
         verbKey={row.verbKey}
@@ -30,6 +36,7 @@ export const ThinkingRow = memo(
         below={row.below}
         command={row.doingCommand}
         retry={row.retry}
+        pulse={row.id === LIVE_THINKING ? (pulse ?? undefined) : undefined}
       />
     );
   },
@@ -50,7 +57,9 @@ export const ThinkingRow = memo(
     a.row.liveState === b.row.liveState &&
     a.row.liveAgents === b.row.liveAgents &&
     a.row.liveCompaction === b.row.liveCompaction &&
-    a.row.thoughtMs === b.row.thoughtMs &&
+    a.row.phaseAt === b.row.phaseAt &&
+    a.row.heardAt === b.row.heardAt &&
+    a.row.heardKey === b.row.heardKey &&
     a.row.turnTotal === b.row.turnTotal &&
     a.row.untimed === b.row.untimed &&
     a.row.verbKey === b.row.verbKey &&

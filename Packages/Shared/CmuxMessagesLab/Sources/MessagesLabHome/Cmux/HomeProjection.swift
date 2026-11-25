@@ -54,6 +54,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var shownNotice: String? { sendNotice ?? notice }
     /// The Chief's activity line under the transcript (`chief-live-v1`).
     let liveLine = HomeLiveLine()
+    /// The wait for the next minute a working agent's pill time changes (HomeProjection+AgentClock); nil: none waits.
+    var agentClock: Task<Void, Never>?
+    /// When ``agentClock`` wakes; a refresh with the same next minute keeps the wait it has.
+    var agentClockDue: Date?
     /// The status line's details, made on the first click.
     private(set) var turnPopover: HomeTurnStatusPopover?
     /// The window is key and visible: the read cursor may advance.
@@ -127,8 +131,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var olderRequested = false
     private var reportedRead: Seq = 0
     private(set) var stopped = false
-    /// The watch of the widget host's changes (HomeProjection+Widgets.swift).
-    var widgetWatch: Task<Void, Never>?
     /// Return was pressed while only the cache knew this conversation: the
     /// send goes once the owner confirms it (`refresh`), in the thread that
     /// was open at the Return (`deferredThread`, nil root: the conversation), answering the
@@ -200,9 +202,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
         approvalWrites.forEach { $0.cancel() }
         approvalWrites.removeAll()
         stopped = true
-        stopWidgets()
         homeStore.stopTyping(in: conversation)
         liveLine.stop()
+        agentClock?.cancel()
+        agentClock = nil
         turnPopover?.close()
         controller.intents = nil
         controller.approvalDecision = nil
@@ -237,6 +240,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
         passStep("liveLine", &mark)
         revealIfLoaded()
         passStep("reveal", &mark)
+        scheduleAgentClock()
     }
 
     /// The whole current value; unchanged values return before any work.
@@ -245,7 +249,6 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // MessagesLab hides a sender's typing dots while its stream has text (ask 11). Whole
         // messages: each running reply is its author's typing dots until its messages post.
         var mark = CACurrentMediaTime()
-        syncWidgets(items)
         let typing = wantedTyping.union(core.replyTypists(streams))
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)

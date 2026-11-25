@@ -8,7 +8,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// DevTools session, so the per-renderer reuse switch applies.
     var rendererPaths = false
     /// Development builds share one ad hoc identity per tag; the real
-    /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
+    /// keychain would prompt on every rebuild. Every other build keeps
+    /// Chromium's key in cmux's own item (`CEFKeychainItem`), and falls back to
+    /// this when the fork does not take that item (`CEFRuntime.applyKeychainItem`).
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
@@ -38,6 +40,26 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// size only up to a deadline the app sets (the same version as `CEFLayerHosting.resizeSyncForkAPI`,
     /// which is main-actor isolated; this value is read where the switches are worked out, off it).
     static let resizeSyncForkAPI: Int32 = 27
+
+    /// Pages draw overlay scrollbars whatever the system's scroller style. Chromium's default
+    /// (`OverlayScrollbar` mode `device`) follows `NSScroller.preferredScrollerStyle`, which flips
+    /// whenever a mouse comes or goes, Universal Control's shared mouse included: a classic scrollbar
+    /// took its width from every scrolling page and the page reflowed on each flip (Leo 2026-11-15:
+    /// "our chromium browser also has a bt of layout shif tfor some reason idk why"). Mode `overlay`
+    /// forces them (ui/native_theme/features/native_theme_features.cc, `ShouldUseOverlayScrollbar`),
+    /// the native views' SCROLLBARS-THIN rule (SystemScrollers.nativeStyle). The shim merges it
+    /// into CEF's feature list.
+    static let overlayScrollbars = "enable-features=OverlayScrollbar:mode/overlay"
+
+    /// Renderers start V8's young generation at 32 MB a semi-space instead of growing it from 1 MB. A streaming
+    /// chat makes short-lived garbage on every token, and a long chat's renderer scavenged far more often than a
+    /// short one's (309 against 92 over one replay, median 30 ms against 14). On the paired transcript replay
+    /// (god chat, 34,641 rows, against a small one; 8 rounds on the build fleet, CPU clock) the god / small p95
+    /// went from 1.41 to 1.07 for thought updates and from 1.49 to 1.37 for tokens, and the god chat's thought
+    /// p95 from 8.37 to 5.64 ms. The renderer's memory did not grow: 153 MB with one chat and 472 MB with ten,
+    /// against 154 and 478 MB without it (chat-pages-memory, 3 runs a side). Leo, 2026-11-12: a god chat shows
+    /// "no perceivable difference" from a small one (within 1.2x).
+    static let youngGeneration = "js-flags=--min-semi-space-size=32"
 
     var arguments: [String] {
         var result: [String] = []
@@ -72,6 +94,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // to UMA, which cmux does not upload; in some idle sessions it raised the
         // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
         result.append("disable-stack-profiler")
+        result.append(Self.youngGeneration)
+        result.append(Self.overlayScrollbars)
         // Chromium's UI thread is the app's main thread (external message pump): one
         // `CefDoMessageLoopWork` pass ran ready work for up to CEF's 10 ms slice, longer than a
         // 120 Hz frame, so a pass during a split or a divider drag dropped the frame. The fork
@@ -206,6 +230,12 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
+        #if DEBUG
+        // Verification of the real keychain path (cmux's own item) in a development bundle.
+        let realKeychain = environment["CMUX_NEXT_REAL_KEYCHAIN"] == "1"
+        #else
+        let realKeychain = false
+        #endif
         let extensions = (environment["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] ?? "")
             .split(separator: ":")
             .map(String.init)
@@ -218,7 +248,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
-            useMockKeychain: dev,
+            useMockKeychain: dev && !realKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             keepsUnpackedEnabled: keepsUnpackedEnabled,

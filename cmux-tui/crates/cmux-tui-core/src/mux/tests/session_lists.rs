@@ -1,4 +1,4 @@
-//! DAEMON LISTS STOP 800 (2026-11-10): at the person's session size (826 workspaces, 798
+//! DAEMON LISTS STOP 800 (2026-11-10): at a large session's size (826 workspaces, 798
 //! terminals) the CLI's `terminal list` took 223.8 ms and `pane list` 74.7 ms (13.1 ms and 11.7 ms
 //! at 60 workspaces; SESSION 800, headless daemon). A list with no scope built the whole session
 //! snapshot (each workspace, screen, pane, tab, terminal, browser, notification, agent and
@@ -25,7 +25,9 @@ use serde_json::{Value, json};
 use super::read_paths::{resource, touched};
 use super::*;
 
+mod parked_terminals;
 mod tab_state_fields;
+mod workspace_state_fields;
 
 /// A session in the shape of the person's: each workspace has one screen with one pane and one
 /// terminal; each eighth workspace has a second terminal tab. No terminal has a process.

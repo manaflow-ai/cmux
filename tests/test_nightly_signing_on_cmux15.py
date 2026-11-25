@@ -40,7 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_ci_fork_runner_routing import parse_expression  # noqa: E402
-from test_nightly_trusted_routing import evaluate  # noqa: E402
+from test_nightly_trusted_routing import JIT_ARM, evaluate  # noqa: E402
 import test_nightly_never_blacksmith as never_blacksmith  # noqa: E402
 from test_nightly_never_blacksmith import manaflow_route  # noqa: E402
 from test_nightly_owned_minis_only import NIGHTLY_NEXT_ONLY_OWNED  # noqa: E402
@@ -67,7 +67,7 @@ def route(name: str, context: dict) -> object:
 
 class SigningOnCmux15Test(unittest.TestCase):
     def test_a_nightly_next_push_takes_the_pick_then_the_signer(self) -> None:
-        self.assertEqual(len(JOBS), 6)
+        self.assertEqual(len(JOBS), 7)
         rng = random.Random(15)
         for name in JOBS:
             source = manaflow_route(name)
@@ -123,7 +123,8 @@ class SigningOnCmux15Test(unittest.TestCase):
             source = manaflow_route(name)
             with self.subTest(job=name):
                 self.assertNotIn(name, SIGNING_JOBS["nightly.yml"])
-                self.assertEqual(source.strip(), "${{  'ubuntu-24.04' }}")
+                # Attempt 1 takes the ephemeral JIT nightly label first (test_nightly_trusted_routing.JIT_ARM_JOBS).
+                self.assertEqual(source.strip(), "${{  " + JIT_ARM + "'ubuntu-24.04' }}")
                 self.assertNotIn(LABEL, source)
                 self.assertNotIn("CI_NIGHTLY_MINI", source)
 

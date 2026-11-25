@@ -38,7 +38,7 @@ public struct MemorySource: Decodable, Equatable, Sendable {
     }
 
     /// The file name of an export zip.
-    public var fileName: String { URL(fileURLWithPath: path).lastPathComponent }
+    public var fileName: String { (path as NSString).lastPathComponent }
 
     /// The product the source belongs to, for the first-run offer ("Claude Code", "ChatGPT").
     public var product: String {

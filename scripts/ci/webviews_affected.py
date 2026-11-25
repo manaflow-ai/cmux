@@ -20,7 +20,8 @@ it from missing a test:
     name found in a non-code file (a fixture, a config) selects everything;
   - a test always runs when it, or any module it imports, does what no import graph follows:
     reads files (sync or async, a glob, Bun.file), imports a computed path or an alias, starts
-    Vite or a browser, or spawns a process;
+    Vite or a browser, or spawns a process. The content-pinned generated frame-table reader
+    is exempt only when all changed files are isolated tests that cannot feed its bundle;
   - a build or runner input (webviews/package.json, bun.lock, bunfig, tsconfig, vite configs,
     webviews/scripts/, the test support dir, the preload bunfig loads before every file and
     what it imports, the runner scripts, this file, ci-web.yml) selects everything, as does
@@ -30,6 +31,7 @@ Docs (.md) no test imports and files no webviews source names select nothing.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import re
 import subprocess
 import sys
@@ -47,16 +49,40 @@ EVERYTHING = re.compile(
 # What a module does that the import graph cannot follow: read files, import a computed path or
 # an alias, run Vite or a browser (which load the app themselves), or spawn a process. App code
 # under src/ names things like readFile as data, so there it counts only by the import it needs.
+JS_GAP = r"(?:\s|/\*[\s\S]*?\*/|//[^\n]*\n)*"
+JS_COMMENT = r"(?:/\*[\s\S]*?\*/|//[^\n]*\n)"
 UNTRACKED = re.compile(
-    r"[\"'](node:)?fs(/promises)?[\"']|Bun\.Glob|new Glob|import\.meta\.glob|globSync|Bun\.file\("
-    r"|import\(\s*(?![\"'`])|import\(\s*`[^`]*\$\{|(from\s+|import\(\s*)[\"']cmux:|[\"']vite[\"']"
-    r"|[\"'](playwright|child_process|node:child_process)[\"']|Bun\.spawn")
+    rf"(?:\bfrom{JS_GAP}|\bimport{JS_GAP}(?:\({JS_GAP})?|\brequire{JS_GAP}\({JS_GAP})[\"']"
+    r"(?:(?:node:)?fs(?:/promises)?|vite|playwright|(?:node:)?child_process)[\"']"
+    r"|Bun\.Glob|new Glob|import\.meta\.glob|globSync|Bun\.file\("
+    # Look ahead BEFORE consuming spaces: otherwise regex backtracking treats the
+    # space in import( './module' ) as a computed expression. An empty import()
+    # example in prose is not an expression either.
+    # The graph does not parse comments inside imports. Keep those unresolved,
+    # including static relative imports, until its parser can follow them.
+    r"|\bfrom\s*" + JS_COMMENT + JS_GAP + r"[\"']"
+    r"|\bimport\s*" + JS_COMMENT + JS_GAP + r"(?=[({*\"'`])"
+    # Plain require("./module") is already an edge. Only grammar the graph
+    # cannot read (a gap before the paren, comments, or a computed path) taints it.
+    r"|\brequire(?=\s|/)" + JS_GAP + r"\("
+    r"|\brequire\((?!\s*[\"'])\s*(?=[\w$({\[/`])"
+    r"|import" + JS_GAP + r"\((?!\s*[\"'`])\s*(?=[\w$({\[/])"
+    r"|import" + JS_GAP + r"\(" + JS_GAP + r"`[^`]*\$\{"
+    r"|(from\s+|import\(\s*)[\"']cmux:|Bun\.spawn")
 UNTRACKED_OUTSIDE_SRC = re.compile(r"readFile|readdir|createServer\(|requireBrowserLane|spawnSync|execSync|execFile")
 TEMPLATE_IMPORT = re.compile(r"import\(\s*`(\.{1,2}/[^`$?]+)")
 # An asset imported with a query (`./fixture.md?raw`, `./clip.webp?url`): an edge to the asset itself.
 QUERY_IMPORT = re.compile(r"""(?:from\s+|import\(\s*)["'](\.{1,2}/[^"'?]+)\?[\w&=-]+["']""")
 PRELOAD = WEB + "test/preload.ts"
 NAME_MIN = 10
+# This reader loads only the generated bundle's site table. A standalone test
+# file cannot change that table. Pin the reviewed reader: any edit restores the
+# unresolved fallback until its inputs have been reviewed again. Production
+# changes still select every consumer, as do tests imported by production code.
+GENERATED_READERS = {
+    WEB + "src/agent-session/acpmux/frameOwners.ts":
+        "99c31528e5b7e676cb9aee8e069cd77f8cee5feb8af52119801287a48cd6c37e",
+}
 
 
 class Selector:
@@ -76,8 +102,30 @@ class Selector:
                 self.imports.setdefault(source, set()).add(target)
         untracked = {f for f, text in self.text.items() if UNTRACKED.search(text)
                      or (not f.startswith(WEB + "src/") or f in self.graph.tests) and UNTRACKED_OUTSIDE_SRC.search(text)}
-        self.always = {t for t in self.graph.tests if self.closure(t) & untracked}
+        generated = {f for f, digest in GENERATED_READERS.items() if f in self.text
+                     and hashlib.sha256((root / f).read_bytes()).hexdigest() == digest}
+        self.generated = set().union(*(self.reaching(f) for f in generated)) if generated else set()
+        self.always = {t for t in self.graph.tests if self.closure(t) & (untracked - generated)}
         self.preload = self.closure(PRELOAD)
+
+    def isolated_test(self, path: str) -> bool:
+        """A test cannot feed a bundle if every reverse edge stays in test files.
+
+        Helpers, fixtures, deleted files and unresolved inputs are not exempt.
+        Follow all reverse edges, including test -> helper -> production.
+        """
+        if path not in self.graph.tests:
+            return False
+        seen, frontier = set(), [path]
+        while frontier:
+            source = frontier.pop()
+            if source in seen:
+                continue
+            seen.add(source)
+            if source not in self.graph.tests:
+                return False
+            frontier.extend(self.graph.importers.get(source, ()))
+        return True
 
     def closure(self, path: str) -> set[str]:
         """`path` and every module it imports, transitively."""
@@ -130,7 +178,8 @@ class Selector:
             if f.startswith(WEB) and not named and not f.endswith(ft.EXTENSIONS):
                 return None, f"no rule maps {f}"
             out |= named
-        return out | self.always, ""
+        generated = self.generated if any(not self.isolated_test(f) for f in files) else set()
+        return out | self.always | generated, ""
 
 
 def changed(root: Path, base: str, head: str) -> list[str]:

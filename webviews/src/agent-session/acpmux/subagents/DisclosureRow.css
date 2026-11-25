@@ -63,9 +63,15 @@
   border-radius: 5px;
   color: var(--cv-text-muted);
 }
+.cv-disclosure__line > .cv-disclosure__toggle.is-status {
+  flex: 0 1 auto;
+}
+.cv-disclosure__toggle.is-status > .cv-disclosure__status {
+  max-width: none;
+}
 .cv-disclosure__toggle:hover,
 .cv-disclosure__toggle:focus-visible {
-  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+  background: var(--ds-surface-hover);
 }
 .cv-disclosure__icon {
   display: inline-flex;
@@ -129,7 +135,7 @@
   flex-direction: column;
   gap: var(--grid-gap-inner);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--cv-text) 5%, transparent);
+  background: var(--ds-surface-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--cv-text) 12%, transparent);
 }
 .cv-disclosure__panel > .cv-subsession__raw {

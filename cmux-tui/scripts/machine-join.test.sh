@@ -90,7 +90,16 @@ case "\$1" in -s) echo "\$JT_OS" ;; -m) echo "\$JT_ARCH" ;; *) echo fake ;; esac
 EOF
 chmod 755 "$shims/uname"
 
+# sleep records its argv and returns at once: a retry's wait costs the suite nothing.
+cat >"$shims/sleep" <<EOF
+#!/bin/sh
+. "$fakes/record.sh"
+EOF
+chmod 755 "$shims/sleep"
+
 # The fake curl: serves \$JT_SERVE/<kind> by the URL's shape, honours -o.
+# \$JT_LOG/curl-fails, one curl exit code per line: the acpmux download
+# fails with each in turn (a reset is 56, an HTTP status 22), then succeeds.
 cat >"$shims/curl" <<EOF
 #!/bin/sh
 . "$fakes/record.sh"
@@ -111,6 +120,15 @@ case "\$url" in
   https://files.cmux.com/cmux-tui/*/cmux-tui-*) src="\$JT_SERVE/cmux" ;;
   https://claude.ai/install.sh) src="\$JT_SERVE/claude-install.sh" ;;
   *) exit 6 ;;
+esac
+case "\$url" in
+  */tree/*)
+    if [ -s "\$JT_LOG/curl-fails" ]; then
+      code="\$("$(command -v head)" -n 1 "\$JT_LOG/curl-fails")"
+      "$(command -v sed)" 1d "\$JT_LOG/curl-fails" >"\$JT_LOG/curl-fails.next"
+      "$(command -v mv)" "\$JT_LOG/curl-fails.next" "\$JT_LOG/curl-fails"
+      exit "\$code"
+    fi ;;
 esac
 [ -f "\$src" ] || exit 22
 if [ -n "\$out" ]; then "$(command -v cat)" "\$src" >"\$out"; else "$(command -v cat)" "\$src"; fi
@@ -322,7 +340,8 @@ suite() {
   check "acpmux installed" installed
   check "joins with --hub and --name" grep -q -- "--hub $origin --name" "$d/log/joins"
   check "the cmux CLI installed" test -x "$d/home/.cmux/bin/cmux"
-  check "the consent line" out_has "Screen sharing and control are off on this machine."
+  check "linux without cmux-rd: says the screen is not shared and why" out_has "This machine's screen is not shared: cmux-rd is not installed at $d/home/.local/bin/cmux-rd."
+  check "linux: no consent line (cmux-rd's host serves your own account)" eval '! out_has "Screen sharing and control are off"'
   check "no token in output" no_token_in_output
   check "no printf binary was exec'd (it is a builtin)" eval '! grep -q "^printf" "$d/log/argv"'
 
@@ -425,11 +444,45 @@ suite() {
   check "the temp dir was kept for the disk check" eval 'ls "$d/tmp"/cmux-join.*/join.err >/dev/null 2>&1'
   check "acpmux's stderr is redacted before it reaches disk" no_token_on_disk
 
+  # A transport reset is retried (run 44192875334: a 23 s blip reset every
+  # connection); an HTTP status the server sent is not.
+  new_case fetch-reset
+  printf '56\n56\n' >"$d/log/curl-fails"
+  run_join env
+  check "two resets, then the download: exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "one line per retry" test "$(grep -c 'retrying in' "$d/out")" = 2
+  check "the retry line names the curl exit" out_has "(curl exit 56); retrying in 2 s"
+  check "waits 2 s, then 8 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 "
+  check "three tries of the download" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 3
+  check "acpmux installed" installed
+  check "the token reaches acpmux on stdin, once" token_on_stdin_once
+  check "no token in output" no_token_in_output
+
+  new_case fetch-reset-gives-up
+  printf '56\n7\n28\n35\n' >"$d/log/curl-fails"
+  run_join env
+  check "four transport failures: exit 1 (got $rc)" rc_is 1
+  check "it stops after four tries" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 4
+  check "waits 2, 8 and 20 s" test "$(grep '^sleep' "$d/log/argv" | tr '\n' ' ')" = "sleep 2 sleep 8 sleep 20 "
+  check "it says the download failed" out_has "cannot download acpmux for x86_64-unknown-linux-musl"
+  check "nothing installed" eval '! installed'
+  check "nothing redeemed" no_redeem
+
+  new_case fetch-http-status
+  printf '22\n' >"$d/log/curl-fails"
+  run_join env
+  check "an HTTP status: exit 1 (got $rc)" rc_is 1
+  check "an HTTP status is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
+  check "no wait" eval '! grep -q "^sleep" "$d/log/argv"'
+  check "no retry line" eval '! out_has "retrying in"'
+  check "nothing redeemed" no_redeem
+
   new_case sha-mismatch
   serve_dir "$d/serve" "0000000000000000000000000000000000000000000000000000000000000000"
   run_join env
   check "mismatch fails (got $rc)" rc_is 1
   check "mismatch says so" out_has "checksum verification failed for acpmux"
+  check "a mismatch is not retried" test "$(grep -c '^curl .*tree/' "$d/log/argv")" = 1
   check "nothing installed" eval '! installed'
   check "nothing redeemed" no_redeem
 
@@ -483,11 +536,17 @@ suite() {
   check "bad token downloads nothing" eval '! grep -q "^curl" "$d/log/argv"'
 
   new_case no-token
+  # cmux-rd is installed, but nothing joined this machine: its screen is not shared.
+  mkdir -p "$d/home/.local/bin"
+  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
+  chmod 755 "$d/home/.local/bin/cmux-rd"
   run_join none
   check "no token: exit 0 (got $rc)" rc_is 0
   check "no token: installed" installed
   check "no token: service and daemon" grep -q "^acpmux daemon start" "$d/log/argv"
   check "no token: nothing redeemed" no_redeem
+  check "no token, not joined: the screen is not shared" out_has "This machine is not joined, so its screen is not shared."
+  check "no token, not joined: never says it is shared" eval '! out_has "Your own account can view this machine'"'"'s screen"'
 
   new_case doctor
   JT_DOCTOR=1
@@ -528,6 +587,20 @@ suite() {
   run_join env
   check "macos exit 0 (got $rc): $(cat "$d/out")" rc_is 0
   check "macos fetches the darwin build" grep -q "cmux-tui-acpmux-aarch64-apple-darwin" "$d/log/argv"
+  check "macos: the consent line" out_has "Screen sharing and control are off on this machine."
+
+  # Linux with cmux-rd where the screen host unit runs it: the daemon shares the
+  # screen with the joining account by itself, after the join's restart.
+  new_case linux-cmux-rd
+  mkdir -p "$d/home/.local/bin"
+  printf '#!/bin/sh\n. "%s/record.sh"\nexit 0\n' "$fakes" >"$d/home/.local/bin/cmux-rd"
+  chmod 755 "$d/home/.local/bin/cmux-rd"
+  run_join env
+  check "linux-cmux-rd exit 0 (got $rc): $(cat "$d/out")" rc_is 0
+  check "linux-cmux-rd: your own account, nothing to do here" out_has "Your own account can view this machine's screen from your other devices, with nothing to do here. Other accounts can't reach it."
+  check "linux-cmux-rd: no consent line" eval '! out_has "Screen sharing and control are off"'
+  check "linux-cmux-rd: the daemon restarts onto the join" grep -q "^acpmux daemon restart" "$d/log/argv"
+  check "linux-cmux-rd: the script never runs cmux-rd itself" eval '! grep -q "^cmux-rd" "$d/log/argv"'
 
   # A join cut off after redeem (joinIncomplete) wins over a present
   # credential: the rerun resumes through acpmux, never "already joined".
@@ -661,7 +734,8 @@ suite() {
   check "signed in: nothing of claude's status is shown" eval '! out_has "x@example.com"'
 
   new_case harnesses-none
-  run_join env CMUX_JOIN_HARNESSES=none
+  # A fixed name: the host name (gcp-codex-lane-11) would put "codex" in the join's argv.
+  run_join env CMUX_JOIN_HARNESSES=none CMUX_JOIN_NAME=box
   check "none: exit 0 (got $rc)" rc_is 0
   check "none: no installer" eval '! grep -q "claude.ai" "$d/log/argv"'
   check "none: no codex" eval '! grep -q "codex" "$d/log/argv"'

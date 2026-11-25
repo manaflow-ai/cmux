@@ -65,6 +65,7 @@ export function planCopy(root: string, devSnapshot: string): CopyPlan {
     !flags && `its bake ${JSON.stringify(entry.bake)} is not a CI bake record`,
     flags?.includes("--dev-tree") && "it is a dev tree bake (dev snapshots only)",
     flags?.some((f) => !(COPYABLE as readonly string[]).includes(f)) && `its bake flags ${flags.join(" ")} are not all copyable (${COPYABLE.join(", ")})`,
+    flags && !flags.includes("--agent-tools") && "its image does not carry the required Cloud desktop closure (--agent-tools)",
     v !== "CLOUD_FREESTYLE_SNAPSHOT" && v !== "TEAM_VM_SNAPSHOT" && `its var ${JSON.stringify(v)} is not CLOUD_FREESTYLE_SNAPSHOT or TEAM_VM_SNAPSHOT`,
     flags && (v === "TEAM_VM_SNAPSHOT") !== flags.includes("--team-vm") && `its var ${String(v)} and its bake flags disagree about --team-vm`,
     entry.lock_sha256 !== lock && `its lock_sha256 ${JSON.stringify(entry.lock_sha256)} is not this checkout's ${LOCK} (${lock}): the copy would bake other inputs`,

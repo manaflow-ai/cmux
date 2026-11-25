@@ -7,6 +7,8 @@ use cmux_json::JsonSet as _;
 
 mod auxiliary;
 mod browser_engine;
+pub(crate) mod browser_import;
+mod chats;
 mod close_value;
 mod config;
 mod content;
@@ -18,6 +20,7 @@ mod owner;
 pub(crate) mod palette_rank;
 mod revision_conflict;
 mod session;
+pub(crate) mod theme_scheme;
 mod topology;
 mod wait_text;
 pub(crate) use wait_text::WaitText;
@@ -52,8 +55,6 @@ use mouse::{validate_browser_mouse, validate_terminal_mouse};
 mod catalog_validation;
 use catalog_validation::*;
 pub(crate) use catalog_validation::{validate_operation_error, validate_operation_outcome};
-
-const CATALOG_JSON: &str = include_str!("../../../spec/resource-operations-v2.json");
 
 /// Resolve a live terminal path or an unscoped durable terminal receipt.
 /// Nested selectors keep normal topology containment, so a detached receipt
@@ -147,6 +148,8 @@ pub(crate) fn handle_parsed_resource_request(
 ) -> Result<Value, ResourceError> {
     let id = request.envelope.id.clone();
     let operation = request.envelope.operation;
+    // Opt-in usage patterns: the operation's wire name (a catalog constant), one atomic load when off.
+    cmux_usage_patterns::count("operation", operation.wire_name());
     let result = validate_operation_outcome(operation, dispatch_resource_request(mux, request));
     match result {
         Ok(result) => ResponseEnvelope::success(id, result),
@@ -289,6 +292,9 @@ fn dispatch_resource_request(
             crate::state::conductor_import_router::dispatch(mux, request)
         }
         OperationOwner::PaletteRank => palette_rank::dispatch(mux, request),
+        OperationOwner::Chat => chats::dispatch(mux, request),
+        OperationOwner::ThemeScheme => theme_scheme::dispatch(mux, request),
+        OperationOwner::BrowserImport => browser_import::dispatch(mux, request),
         OperationOwner::Machine => {
             mux.resource_machine_service().dispatch(&ResourceMachineRequest {
                 operation,
@@ -428,10 +434,10 @@ fn resolve_list_scope(
 /// projection lock that every command of the session waits on, so a large
 /// session's commands slowed with its size (a classic migration of 512
 /// workspaces went O(n²)).
+/// The selector resolves as `terminal.wait_exit`'s does, so the get also reads
+/// an ended terminal with no tab, which `terminal.list` gives until a close.
 fn get_terminal(mux: &Mux, selectors: &ResourceSelectors) -> Result<Value, ResourceError> {
-    let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
-    let terminal_id =
-        path.terminal.ok_or_else(|| ResourceError::not_found("terminals", "<resolved>"))?;
+    let terminal_id = resolve_terminal_wait_exit_id(mux, selectors)?;
     // The snapshot publishes every terminal's pending directory before it
     // reads; this one's is enough. Outside the projection lock, as there:
     // publishing takes the state lock itself.
@@ -1151,6 +1157,8 @@ mod frontend_browser_effect_tests;
 mod pane_move_tests;
 #[cfg(test)]
 mod partial_create_tests;
+#[cfg(test)]
+mod split_fit_tests;
 #[cfg(test)]
 mod split_focus_tests;
 #[cfg(test)]

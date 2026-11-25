@@ -79,6 +79,7 @@ struct ChatRowView: View {
             .environment(\.attachmentLoader, context.attachmentLoader)
             .environment(\.openURL, context.openURL)
             .environment(\.chatDisclosures, context.surface.disclosures)
+            .environment(\.loadFullToolOutput, LoadFullToolOutputAction { [store = context.store] call in await store.loadFullOutput(of: call) })
             .environment(\.transcriptFoldHold, context.foldHold)
     }
 
@@ -100,11 +101,13 @@ struct ChatRowView: View {
                        editEarlier: context.canEditEarlier(turnID: turnID) ? { context.editEarlier(turnID: turnID) } : nil,
                        polish: ChatPolishMenuButtons(store: context.store, turnID: turnID, prompt: text))
                 .frame(maxWidth: .infinity, alignment: .trailing)
+        case .chiefContext(let text, let lines):
+            ChiefContextRow(context: text, lines: lines, id: row.id)
         case .incoming(let incoming, let attachments, let at):
-            AgentIncomingCard(incoming: incoming, attachments: attachments, at: at)
+            AgentIncomingCard(incoming: incoming, attachments: attachments, at: at, disclosureKey: AgentIncomingCard.key(row.id))
         case .steer(let message):
             if let incoming = message.incoming {
-                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at)
+                AgentIncomingCard(incoming: incoming, attachments: message.attachments, at: message.at, disclosureKey: AgentIncomingCard.key(row.id))
             } else {
                 UserBubble(prompt: message.text, attachments: message.attachments, promptAt: message.at, isLast: false,
                            editAndResend: {})
@@ -170,6 +173,8 @@ struct ChatRowView: View {
             }
         case .whoElse(let id, let call):
             WhoElseCard(id: id, call: call, open: openWhoElse)
+        case .worked(let fold):
+            WorkedForRow(fold: fold, context: context)
         case .actions(let turn, let isLast):
             AnswerActionRow(turn: turn, isLast: isLast, insetsTargets: false, retryWith: RetryModelChoice(store: store, turn: turn),
                             polish: ChatPolishMenuButtons(store: store, turnID: turn.id, prompt: nil)) {

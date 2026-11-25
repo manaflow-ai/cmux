@@ -152,6 +152,10 @@ def hits_in(path: str, text: str) -> list[Hit]:
                 # A floor (`x.max(1 ms)`) or a comparison (`pause < 1 s`) is not a gate.
                 if before.endswith(("max(", "<", ">", "<=", ">=")):
                     continue
+                # A retry's pause (`Pace { pause: 2 s, deadline }`) spaces the tries inside the deadline beside it;
+                # it ends no call, however many gate words share its line.
+                if re.search(r"\b(?:pause|interval|spacing)\s*[:=]\s*$", before, re.IGNORECASE):
+                    continue
                 if 0 < ms < FLOOR_MS and gate_line:
                     out.append(Hit(path, number, line, f"a fixed {ms} ms gate (under {FLOOR_MS} ms)"))
         for match in TRIES.finditer(code):
@@ -219,6 +223,8 @@ def self_test() -> None:
     assert not hits_in(gate, "const UNBOUNDED_READ_TRIES: u32 = 30;\n")
     assert not hits_in(gate, "attempt_timeout: HANDSHAKE_TIMEOUT.min(remaining.max(Duration::from_millis(1))),\n")
     assert not hits_in(gate, "if pause < Duration::from_secs(1) || past_deadline() {\n")
+    assert not hits_in(gate, "Pace { pause: Duration::from_secs(2), deadline }\n")
+    assert hits_in(gate, "Pace { pause: Duration::from_secs(2), deadline: Duration::from_secs(3) }\n")
     assert not hits_in(gate, "static func lateReplyBackoff() -> Backoff { .fullJitter(initial: .seconds(1), maximum: .seconds(30)) }\n")
     assert not hits_in(gate, "const WRITER_TIMEOUT: Duration = Duration::from_secs(9);\nconst RATE_WINDOW: Duration = Duration::from_secs(1);\n")
     assert not hits_in("Packages/macOS/CmuxNext/Sources/CmuxNextCloud/A.swift", "request.timeoutInterval = 15\n")

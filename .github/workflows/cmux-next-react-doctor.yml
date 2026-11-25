@@ -8,8 +8,12 @@ name: cmux-next React Doctor
 # Every pull request (no paths): feat-cmux-next requires `React Doctor (changed
 # React projects)`, and a required check must report. The gate scans only the
 # projects the change touches and exits green at once when it touches none.
-# Pushes to feat-cmux-next check what the push brought, so a direct push that
-# adds an error shows red within minutes.
+# Pushes to feat-cmux-next scan every project, the whole tree as it now is: base
+# stays red for as long as any project is over its baseline, whatever the push
+# touched. A push run that scanned only what the push changed let one red push
+# (the gate's own direct push, da29cd0af55, over its branch-made baseline) be
+# followed by green runs on base while every PR touching webviews failed on rows
+# it never changed, and base_red_excuse.py saw a green base and excused nothing.
 #
 # Not the official millionco/react-doctor action: it blocks on findings that
 # changed lines introduce (no per-project baseline for this monorepo), posts PR
@@ -47,34 +51,67 @@ jobs:
       - name: Gate tests
         run: python3 tests/test_react_doctor_gate.py
 
+      # A pull request scans what it changes; a push or a dispatch scans every project (see the top).
       - name: Pick the base
         id: base
-        env:
-          PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
           set -euo pipefail
           base=""
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             base="$(git rev-parse HEAD^1)"
-          elif [ -n "$PUSH_BASE" ] && [ "$PUSH_BASE" != "0000000000000000000000000000000000000000" ] \
-              && git fetch --no-tags --depth=1 origin "$PUSH_BASE"; then
-            base="$PUSH_BASE"
           fi
           echo "base=$base" >> "$GITHUB_OUTPUT"
           if [ -n "$base" ]; then
             projects="$(git diff --name-only "$base" HEAD | python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import react_doctor_gate as g; print(" ".join(g.select_projects(sys.stdin.read().split())))')"
           else
-            echo "::notice title=React Doctor::base unknown; scanning every project"
+            echo "::notice title=React Doctor::$GITHUB_EVENT_NAME: scanning every project"
             projects="all"
           fi
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
           echo "projects: ${projects:-none}"
+
+      # Content-addressed result, in shadow (scripts/ci/receipt_input_key.py; cmuxterm-hq RFD 0016 "Borg without
+      # Bazel"): the input key hashes what the scan reads for the selected projects. A green run records its
+      # unsigned ci-receipt/v1 under that key; a later run with the same key reports would_skip=true and still runs
+      # in full. Nothing is skipped until the controller signs receipts (RFD 0019). The cache entry is a shadow
+      # measurement, never skip evidence.
+      - name: Input key (shadow receipt)
+        id: key
+        if: steps.base.outputs.projects != ''
+        continue-on-error: true
+        env:
+          PROJECTS: ${{ steps.base.outputs.projects }}
+          BASE: ${{ steps.base.outputs.base }}
+        run: python3 scripts/ci/receipt_input_key.py key react-doctor --units "$PROJECTS" --base "$BASE" --output "$GITHUB_OUTPUT"
+
+      - name: Look up a receipt (shadow)
+        id: receipt
+        if: steps.key.outputs.input_key != ''
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
+          lookup-only: true
+
+      - name: Would skip (shadow)
+        if: steps.key.outputs.input_key != ''
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.key.outputs.input_key }}
+          # A change to a pinned file (the gate's own scripts, tool or workflow; a check-paths.txt line) never skips.
+          HIT: ${{ steps.receipt.outputs.cache-hit == 'true' && steps.key.outputs.pinned != 'true' }}
+          PINNED: ${{ steps.key.outputs.pinned }}
+        run: |
+          echo "::notice title=ci-receipt shadow::react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY"
+          echo "ci-receipt shadow: react-doctor would_skip=$HIT pinned=$PINNED input_key=$INPUT_KEY" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Bun
         if: steps.base.outputs.projects != ''
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
 
       - name: Setup Node
         if: steps.base.outputs.projects != ''
@@ -102,11 +139,27 @@ jobs:
             python3 scripts/ci/react_doctor_gate.py --out-dir "$RUNNER_TEMP/react-doctor"
           fi
 
+      - name: Record the receipt (shadow)
+        if: success() && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true'
+        continue-on-error: true
+        env:
+          INPUT_KEY: ${{ steps.key.outputs.input_key }}
+          BASE: ${{ steps.base.outputs.base }}
+        run: python3 scripts/ci/receipt_input_key.py record react-doctor --input-key "$INPUT_KEY" --base "$BASE" --out "$RUNNER_TEMP/ci-receipt/receipt.json"
+
+      - name: Save the receipt (shadow)
+        if: success() && steps.key.outputs.input_key != '' && steps.receipt.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ runner.temp }}/ci-receipt
+          key: ci-receipt-v1-react-doctor-${{ steps.key.outputs.input_key }}
+
       - name: Upload reports
         if: always() && steps.base.outputs.projects != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: react-doctor-reports
           path: ${{ runner.temp }}/react-doctor
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: ignore

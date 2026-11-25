@@ -2,6 +2,7 @@
 // transcript's layout. A draw is bounded by the canvas's height, not by the number of rows: rows that
 // land on the same device pixel line merge, and each kind is one path and one fill.
 import { expect, test } from "bun:test";
+import { fileURLToPath } from "node:url";
 import type { AcpmuxRow, ConversationLayout } from "../src/agent-session/acpmux/model";
 import {
   firstChangedRow,
@@ -253,7 +254,8 @@ test("with its room kept at the column's end, the strip is its full width in eve
     return parts;
   };
   const startOnly: string[] = [];
-  const root = new URL("../src/agent-session/acpmux/", import.meta.url).pathname;
+  // A file path, not the URL's: a checkout under a folder with a space reads "%20" in `pathname`.
+  const root = fileURLToPath(new URL("../src/agent-session/acpmux/", import.meta.url));
   for (const file of new Bun.Glob("**/*.css").scanSync(root)) {
     if (file.endsWith(".gallery.css")) continue;
     const text = await Bun.file(root + file).text();

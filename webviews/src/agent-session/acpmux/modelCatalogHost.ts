@@ -39,11 +39,38 @@ export function receiveModelCatalog(value: unknown): void {
   for (const listener of listeners) listener();
 }
 
-/** Asks the host for its catalog; one request at a time. `refresh` makes the host fetch first. */
+/** How long the page waits for acpmux's catalog, and for a refresh (two catalog URLs and the
+ *  public feed, each up to 30 s, but usually a 304 in well under a second). A daemon that never
+ *  answers must not hold `pending`, which every later load waits on. */
+const ACPMUX_WAIT_MS = 15_000;
+const ACPMUX_REFRESH_WAIT_MS = 45_000;
+
+function withinTime<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`no model catalog from acpmux in ${ms / 1000} s`)), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+}
+
+/** Asks the host for its catalog; one request at a time. `refresh` makes the host fetch first. A
+ *  host that does not serve `models.catalog` (the app today) leaves it to acpmux's own catalog,
+ *  through the pane's direct client: its copy with the public feed's newer models over it, so a
+ *  model released today reaches the picker without a page or app update (user 2026-11-19: "gemini
+ *  neon didn't automatically appear in model picker for us"). */
 export function loadModelCatalog(refresh = false): Promise<void> {
   if (pending) return refresh ? pending.then(() => loadModelCatalog(true)) : pending;
   pending ??= postNative<ModelCatalogDelivery>("models.catalog", refresh ? { refresh: true } : {})
-    .then(receiveModelCatalog)
+    .then(receiveModelCatalog, (error: unknown) => {
+      const acpmux = window.cmuxAcpmuxActions?.["models.catalog"];
+      // Any host refusal (unserved, not connected) still has acpmux's copy, which beats the bundle.
+      if (!acpmux) throw error;
+      return withinTime(acpmux({ refresh }), refresh ? ACPMUX_REFRESH_WAIT_MS : ACPMUX_WAIT_MS).then((reply) => {
+        const catalog = (reply as { catalog?: unknown } | undefined)?.catalog;
+        // No catalog in the reply (an older acpmux) keeps the bundled one, still provisional.
+        if (readModelCatalog(catalog)) receiveModelCatalog({ catalog, delivery: "network" });
+      });
+    })
     .finally(() => {
       pending = undefined;
     });
@@ -68,6 +95,11 @@ export function useModelCatalogState(): State {
     () => state,
     () => state,
   );
+}
+
+/** Test seam: the catalog the page holds now. */
+export function modelCatalogStateForTests(): State {
+  return state;
 }
 
 /** Test seam: back to the bundled catalog. */

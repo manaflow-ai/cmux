@@ -167,6 +167,7 @@ fn a_sessions_lease_terminal_is_the_callers() {
             label: "task".into(),
             profile: crate::host::AGENT_PROFILE.into(),
             terminal: terminal.map(str::to_owned),
+            workspace: None,
         };
         engines.driver("webkit", crate::driver::discard_events(), &context).unwrap()
     };
@@ -182,4 +183,49 @@ fn a_sessions_lease_terminal_is_the_callers() {
     });
     let wire = serde_json::to_value(leases(&app, "X").last().cloned().flatten().unwrap()).unwrap();
     assert!(wire.get("terminal").is_none(), "{wire}");
+}
+
+/// A session's new tab opens in its caller's own workspace (`browser.repl.open
+/// {workspace, terminal}`), never the one the person looks at (user,
+/// 2026-11-18: an agent's REPL tabs opened in Home). The app gets the place;
+/// the agent still picks no profile, workspace or focus of its own (D12).
+#[test]
+fn a_sessions_new_tab_names_its_callers_workspace_and_terminal() {
+    use crate::host::Engines as _;
+    for engine in ["webkit", "cef"] {
+        let (app, provider) = FakeApp::start(vec![tab("W", "webkit"), tab("new", engine)]);
+        let engines = crate::engines::HostEngines::new(crate::host::agent_bundle());
+        *engines.provider_slot().lock().unwrap() = Some(provider);
+        let context = crate::host::SessionContext {
+            name: "s1".into(),
+            caller: crate::host::Caller {
+                actor: "uid:501".into(),
+                on_behalf_of: None,
+                origin: "mcp".into(),
+                locality: Default::default(),
+            },
+            label: "task".into(),
+            profile: crate::host::AGENT_PROFILE.into(),
+            terminal: Some("term_7".into()),
+            workspace: Some("FBC6C273-1E11-4696-A320-1B29E00E73C7".into()),
+        };
+        let session = engines.driver(engine, crate::driver::discard_events(), &context).unwrap();
+        session.call("tabs.open", &json!({"workspace": "w2", "focus": true})).unwrap();
+        let open = app
+            .frames
+            .lock()
+            .unwrap()
+            .iter()
+            .find_map(|f| match f {
+                Frame::Call { method, params, .. } if method == "tabs.open" => Some(params.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            open,
+            json!({"engine": engine, "callerWorkspace": "FBC6C273-1E11-4696-A320-1B29E00E73C7",
+                   "callerTerminal": "term_7"}),
+            "{engine}"
+        );
+    }
 }

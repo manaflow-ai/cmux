@@ -17,6 +17,7 @@ test("events go out in one batch with their time, and mounts count", () => {
   const sent: FlickerEvent[][] = [];
   let clock = 1_000;
   const timers: (() => void)[] = [];
+  const ends: (() => void)[] = [];
   const log = new FlickerLog(
     (events) => sent.push(events),
     () => clock,
@@ -24,14 +25,18 @@ test("events go out in one batch with their time, and mounts count", () => {
       timers.push(run);
       return 0 as unknown as ReturnType<typeof setTimeout>;
     },
+    // The end of the recording task, run when the test says.
+    (run) => ends.push(run),
   );
   log.record("visibility", { state: "hidden" });
   clock = 1_200;
   log.transcriptMounted();
   log.transcriptMounted();
-  expect(timers).toHaveLength(1);
+  // One batch at the end of the task, and no timer: nothing went out in the second before.
+  expect(timers).toHaveLength(0);
+  expect(ends).toHaveLength(1);
   expect(sent).toHaveLength(0);
-  timers[0]!();
+  ends[0]!();
   expect(sent).toEqual([
     [
       { kind: "visibility", at: 1_000, state: "hidden" },
@@ -99,7 +104,7 @@ test("frames are timed only while the page changes, and only while visible", () 
 });
 
 /// A watch on a hand-driven clock: `frame(t)` runs the pending frame at t.
-function drivenWatch() {
+function drivenWatch(stopWhenStill = false) {
   const reported: number[] = [];
   const summaries: FrameStats[] = [];
   let now = 0;
@@ -112,6 +117,7 @@ function drivenWatch() {
     },
     () => now,
     (stats) => summaries.push(stats),
+    stopWhenStill,
   );
   const frame = (time: number) => {
     now = time;
@@ -193,10 +199,40 @@ test("a change counts one interval, however many changes one frame draws", () =>
   expect(summaries[0]!.max).toBe(16);
 });
 
+// A page at rest asks for no frame: with the engine's long-frame entries, a change costs the frame that draws it and the
+// one after (its interval), not a second of frames (chat_switch.*.idle_wakeups read 43 with nothing on screen moving).
+test("with the engine's long frames, a change at rest costs two frames, and summaries still come once a second", () => {
+  const { watch, frame, at, summaries, pending } = drivenWatch(true);
+  let frames = 0;
+  const run = (time: number) => {
+    frames += 1;
+    frame(time);
+  };
+  at(0);
+  watch.arm();
+  run(8); // draws the change
+  run(16); // the interval after it: counted, and nothing changed since
+  expect(pending()).toBeUndefined();
+  expect(frames).toBe(2);
+  // Changes a few frames apart (a streaming reply) keep one window: one summary a second, not one a change.
+  let time = 16;
+  while (time < 2_100) {
+    time += 50;
+    at(time);
+    watch.arm();
+    run((time += 8));
+    run((time += 8));
+  }
+  expect(summaries.length).toBeGreaterThanOrEqual(1);
+  expect(summaries.length).toBeLessThanOrEqual(2);
+  expect(summaries.every((stats) => stats.p50 === 8)).toBe(true);
+  expect(pending()).toBeUndefined();
+});
+
 // Chromium refuses a `setTimeout` called with another receiver ("Illegal invocation"). The log's
 // default timer is called as its own method, so it must not be the bare function: in Chromium the
 // first record threw, and the transcript's mount record then broke the pane's first draw.
-test("the default timer runs with the global receiver, as Chromium requires", () => {
+test("the default timer runs with the global receiver, as Chromium requires", async () => {
   const real = globalThis.setTimeout;
   const receivers: unknown[] = [];
   const strict = function (this: unknown, run: () => void, ms?: number) {
@@ -208,9 +244,14 @@ test("the default timer runs with the global receiver, as Chromium requires", ()
   try {
     const sent: FlickerEvent[][] = [];
     const log = new FlickerLog((events) => sent.push(events));
+    log.transcriptMounted();
+    log.flush();
+    // The batch at the end of that task has run.
+    await Promise.resolve();
+    // A record within a second of that batch waits on the default timer.
     expect(() => log.transcriptMounted()).not.toThrow();
     log.flush();
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
     expect(receivers).toHaveLength(1);
   } finally {
     globalThis.setTimeout = real;

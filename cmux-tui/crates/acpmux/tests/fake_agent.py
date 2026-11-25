@@ -24,6 +24,8 @@ Behaviour per prompt text:
   "goal: <objective>" -> a Codex goal as session_info_update _meta.goal (running 32 min), then a short reply
   "/goal pause|resume|clear|<text>" -> that goal paused, running again, gone, or set to <text>
   "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
+  "elapsed-tour:" -> a finished shell, a shell gone on in the background, then a shell
+                 held running in the foreground (until session/cancel, else 300 s)
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
 
@@ -37,6 +39,9 @@ advertises steering; a prompt while a turn runs is read into that turn and
 answered at once with stopReason "steered"; the turn runs on and its own
 prompt is answered when it ends. With FAKE_STEER_STEP=<fifo> a steer is
 answered only once the test writes to that FIFO (the agent's next tool step).
+With FAKE_STEER_NO_TURN_AT_END=1 a steer is never read: the turn ends first, and the
+steer is answered "steer: no turn is running" after the turn's own answer, as
+Claude Code's translator answers a message it held for a tool step that never came.
 
 FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
 long as a real agent's, for checks that refuse short ones).
@@ -75,11 +80,24 @@ start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` en
 call through the ACP permission flow: announced, asked, run only after an allow.
 
 CPU class (macOS, tests/cpu_class.rs; `ps -o pri=` is 4 at background class):
-FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri"} (its own, as it starts) to <path>.
+FAKE_CLASS_LOG=<path>: on session/new, append {"pid", "pri", "nice"} (its own, as it starts) to <path>.
 "class-probe: <path>": start `sleep 120` (a tool its turn runs) and write {"sleeper": pid} to <path>.
 FAKE_BG_ONCE=<path>: the first agent to get `initialize` (<path> does not exist yet) creates <path>,
 has another process put it in background class (an outside cause, not its own call), answers that
 `initialize` with an error and stays alive, as a harness that fails its start at background class.
+
+Start under load (tests/start_under_load_bench.rs):
+FAKE_BOOT_CPU_MS=<ms>: before it reads its first line, the agent spends that much CPU time (not
+wall time), as a real harness spends CPU loading its code: on a busy machine a harness that gets
+little of the CPU takes much longer to start.
+
+Exactly-once across restarts (tests/durable_agents/restart_exactly_once.rs):
+FAKE_WIRE_LOG=<path>: append one JSON line {"pid", "id", "method", "session"} for every line the
+agent reads (a response has "method": null), so a test counts what reached the agent itself.
+
+A rate-limit storm (tests/hub_integration/auto_resume_429_storm.rs):
+FAKE_RATE_LIMIT_FILE=<path>: while <path> exists, every prompt fails with the account's 429, naming
+no reset, as a model endpoint that refuses every request on a spent account limit.
 """
 import base64
 import hashlib
@@ -98,6 +116,9 @@ cap_failures = {}
 failed_digest = set()
 # Sessions whose "net-down" prompt cut the connection for good (auto-resume tests).
 net_down = set()
+# "rate-fail-n:N:ERROR" fails the session's turns with ERROR until N of them failed, whatever
+# their text (acpmux's continuations included); the next one runs.
+rate_failures = {}
 # Sessions whose "net-flaky" prompt left one more prompt to fail (auto-resume tests).
 net_flaky = set()
 next_id = 100
@@ -115,6 +136,17 @@ RUNNING_MCP = []
 # schema strips the draft `subagents` field, so that one does not count).
 NATIVE_SUBAGENTS = False
 SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
+
+
+def boot_work():
+    """FAKE_BOOT_CPU_MS: this process's CPU time, spent before it reads anything."""
+    budget = int(os.environ.get("FAKE_BOOT_CPU_MS", "0")) / 1000
+    until = time.process_time() + budget
+    while time.process_time() < until:
+        pass
+
+
+boot_work()
 
 
 def send(obj):
@@ -332,6 +364,8 @@ claude_turns = set()
 # taken back (`_acpmux/steer_withdraw`, as Claude Code's cancel_async_message drops one).
 claude_unread = set()
 claude_withdrawn = set()
+# FAKE_STEER_NO_TURN_AT_END: the steers each session's running turn holds unread, by request id.
+claude_held = {}
 
 
 def claude_prompt(rid, params):
@@ -342,6 +376,10 @@ def claude_prompt(rid, params):
         steer = sid in claude_turns
         if not steer:
             claude_turns.add(sid)
+    if steer and os.environ.get("FAKE_STEER_NO_TURN_AT_END") == "1":
+        with lock:
+            claude_held.setdefault(sid, []).append(rid)
+        return
     if steer:
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "steer: " + text}})
         # FAKE_STEER_STEP=<fifo>: the steer is read at the agent's next tool step, which the
@@ -365,6 +403,9 @@ def claude_prompt(rid, params):
     finally:
         with lock:
             claude_turns.discard(sid)
+            held = claude_held.pop(sid, [])
+        for steer_id in held:
+            send({"jsonrpc": "2.0", "id": steer_id, "error": {"code": -32602, "message": "steer: no turn is running"}})
 
 
 def run_hostname(rid, sid):
@@ -612,8 +653,19 @@ def handle_prompt(rid, params):
         net_flaky.discard(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "stream disconnected before completion: error sending request for url (https://relay.invalid/responses)"}})
         return
+    limit_file = os.environ.get("FAKE_RATE_LIMIT_FILE")
+    if limit_file and os.path.exists(limit_file):
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "API Error: Request rejected (429) · This request would exceed your account's rate limit"}})
+        return
     # Recovery fixtures: preserve the session, fail the first turn with the supplied
     # provider error, then answer the continuation normally.
+    if text.startswith("rate-fail-n:") and sid not in rate_failures:
+        _, n, error = text.split(":", 2)
+        rate_failures[sid] = [int(n), error]
+    if sid in rate_failures and rate_failures[sid][0] > 0:
+        rate_failures[sid][0] -= 1
+        send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": rate_failures[sid][1]}})
+        return
     if text.startswith("recover-once: ") and sid not in failed_once:
         failed_once.add(sid)
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": text.removeprefix("recover-once: ")}})
@@ -690,6 +742,42 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
         send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
         return
+    # "elapsed-tour:" (a capture of how long tool calls run, the agent pane's RunningTime.tsx): a
+    # shell that finishes after 1.4 s, a shell that goes on in the background as Claude Code reports
+    # one (its result names the task, then `background_task_update` running), a short reply, then a
+    # shell held running in the foreground until session/cancel or 300 s.
+    if text.startswith("elapsed-tour:"):
+        def shell(call_id, command):
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": call_id, "title": command, "kind": "execute",
+                         "status": "in_progress", "rawInput": {"command": command}})
+        def done(call_id, out):
+            update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": call_id, "status": "completed",
+                         "content": [{"type": "content", "content": {"type": "text", "text": out}}]})
+        shell("et-status", "git status --short")
+        time.sleep(1.4)
+        done("et-status", " M webviews/src/agent-session/acpmux/conversation/RunningTime.tsx")
+        waited = "glaeda-gh wait pid 13341 --timeout 1750"
+        shell("et-bg", waited)
+        done("et-bg", "Command running in background with ID: et-bg-task.")
+        update(sid, {"sessionUpdate": "background_task_update", "taskId": "et-bg-task", "toolCallId": "et-bg",
+                     "command": waited, "state": "running"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+            "type": "text", "text": "The wait runs in the background; the tests run now."}})
+        time.sleep(0.5)
+        shell("et-fg", "cargo test --workspace")
+        deadline = time.monotonic() + 300
+        while time.monotonic() < deadline:
+            with lock:
+                was_cancelled = sid in cancelled
+                cancelled.discard(sid)
+            if was_cancelled:
+                update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "et-fg", "status": "failed"})
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            time.sleep(0.1)
+        done("et-fg", "test result: ok. 412 passed")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "work-gate: PATH [| TITLE]" reports a plan step in progress and a running
     # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
     # (as "gate:") and ends: "worked" and end_turn, or cancelled when a
@@ -736,6 +824,15 @@ def handle_prompt(rid, params):
             gate.read()
         update("child-1", {"sessionUpdate": "tool_call_update", "toolCallId": "cg-1", "status": "completed"})
         update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "notice-gate: PATH" anywhere in the prompt (an inbox notice carries another agent's message
+    # after its own lines) works as "gate: PATH".
+    if "notice-gate:" in text:
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "before-gate"}})
+        with open(text.split("notice-gate:", 1)[1].split()[0].rstrip("\"'`).,;")) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "after-gate"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
@@ -1221,6 +1318,27 @@ def handle_prompt(rid, params):
         sys.stderr.flush()
         os._exit(3)
     # "overloaded: X": the provider's overload with no HTTP status in the text.
+    # "surfaces-tour": one turn that draws every content surface of the chat (design/chat-surfaces.md,
+    # scripts/cmux-next/chat-surfaces-shots.py): a plan, a shell call with its output, a new 55-line
+    # PROPOSAL.md (the edited-files card) and a reply with inline code, a code block and a table.
+    if text.startswith("surfaces-tour"):
+        update(sid, {"sessionUpdate": "plan", "entries": [
+            {"content": "Audit the chat's surfaces", "status": "completed", "priority": "high"},
+            {"content": "Write the proposal", "status": "completed", "priority": "high"},
+            {"content": "Land on the branch", "status": "pending", "priority": "medium"}]})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tour-run", "title": "bun test test/chat-surfaces.test.ts",
+                     "kind": "execute", "status": "completed", "rawInput": {"command": "bun test test/chat-surfaces.test.ts"},
+                     "content": [{"type": "content", "content": {"type": "text", "text": " 4 pass\n 0 fail\nRan 4 tests across 1 file. [80.00ms]"}}]})
+        body = "\n".join(f"- point {k}: one surface level for every card" for k in range(1, 56))
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tour-edit", "title": "Write PROPOSAL.md", "kind": "edit",
+                     "status": "completed", "locations": [{"path": os.path.join(os.getcwd(), "PROPOSAL.md")}],
+                     "content": [{"type": "diff", "path": os.path.join(os.getcwd(), "PROPOSAL.md"), "oldText": None, "newText": body + "\n"}]})
+        reply = ("Platform has a red `ci` check. The levels are `--ds-surface-card` and `--ds-surface-inset`.\n\n"
+                 "```ts\nconst card = \"color-mix(in srgb, var(--ds-surface-ink) 4%, transparent)\";\n```\n\n"
+                 "| Level | Fill | Line |\n|---|---|---|\n| card | 4% | 10% |\n| inset | 8% | none |\n")
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("overloaded:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}"}})
         return
@@ -1268,6 +1386,85 @@ def handle_prompt(rid, params):
     if text.startswith("meta:"):
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text[5:].strip()}}, "_meta": {"fake": {"n": 1}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "_meta": {"fake": {"done": True}}}})
+        return
+    # "reply-segments" streams one message (m1) across what the pane keeps it whole over: a
+    # background task's note, a subagent's spawn and update, a plumbing call (ToolSearch) and a
+    # usage tick; then a chunk with no messageId, a thought and a tool call the person sees,
+    # and another chunk with none. acpmux stamps one segment per message, ended also where the pane
+    # cuts the row (hub/stream.rs `cuts_reply`).
+    # "reply-checklist" streams one message (m1) across the turn's first TodoWrite call and first
+    # plan, where the pane cuts the row, then across a second TodoWrite and plan update, which the
+    # pane hides behind the checklist; a cleared list and a new plan cut again.
+    if text == "reply-checklist":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        todo = lambda n: update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"todo-{n}", "title": "TodoWrite", "kind": "other", "status": "completed", "_meta": {"claude": {"tool": "TodoWrite"}}})
+        plan = lambda entries: update(sid, {"sessionUpdate": "plan", "entries": entries})
+        step = [{"content": "step", "status": "pending", "priority": "medium"}]
+        chunk("a")
+        todo(1)
+        chunk("b")
+        plan(step)
+        chunk("c")
+        todo(2)
+        chunk("d")
+        plan(step)
+        chunk("e")
+        plan([])
+        chunk("f")
+        plan(step)
+        chunk("g")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "reply-checklist-ticks" draws the turn's checklist, then streams one message (m1) across a
+    # usage tick, a call's update and the checklist's update: none is a new turn, so the pane keeps
+    # the message one row and acpmux one segment (#41540 review F1).
+    if text == "reply-checklist-ticks":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        step = [{"content": "step", "status": "pending", "priority": "medium"}]
+        update(sid, {"sessionUpdate": "plan", "entries": step})
+        chunk("a")
+        update(sid, {"sessionUpdate": "usage_update", "used": 10, "size": 1000})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tick-ts", "status": "completed"})
+        update(sid, {"sessionUpdate": "plan", "entries": [{**step[0], "status": "in_progress"}]})
+        chunk("b")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "reply-dsh-todo" streams one message (m1) across DeepSeek Harness todo_write calls, which
+    # acpmux hides and turns into the plan (acp_todo_plan.rs): a | call 1 | b | its result, the
+    # turn's first plan | c | call 2 | d | its result, a plan update | e (#41540 review F2).
+    if text == "reply-dsh-todo":
+        chunk = lambda t: update(sid, {"sessionUpdate": "agent_message_chunk", "messageId": "m1", "content": {"type": "text", "text": t}})
+        todos = lambda status: {"todos": [{"content": "step", "status": status}]}
+        call = lambda n, status: update(sid, {"sessionUpdate": "tool_call", "toolCallId": f"dsh-todo-{n}", "title": "todo_write", "kind": "other", "status": "pending", "rawInput": todos(status)})
+        done = lambda n: update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": f"dsh-todo-{n}", "status": "completed"})
+        chunk("a")
+        call(1, "pending")
+        chunk("b")
+        done(1)
+        chunk("c")
+        call(2, "in_progress")
+        chunk("d")
+        done(2)
+        chunk("e")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    if text == "reply-segments":
+        chunk = lambda t, mid=None: update(sid, {"sessionUpdate": "agent_message_chunk", **({"messageId": mid} if mid else {}), "content": {"type": "text", "text": t}})
+        chunk("a", "m1")
+        update(sid, {"sessionUpdate": "background_task_update", "taskId": "bg-1", "status": "completed"})
+        chunk("b", "m1")
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "seg-child", "name": "Look", "task": "Look", "capabilities": {}})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "seg-child", "state": "completed"})
+        chunk("c", "m1")
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "seg-ts", "title": "ToolSearch", "kind": "other", "status": "completed", "_meta": {"claudeCode": {"toolName": "ToolSearch"}}})
+        chunk("d", "m1")
+        update(sid, {"sessionUpdate": "usage_update", "used": 10, "size": 1000})
+        chunk("e", "m1")
+        chunk("f")
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hm"}})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "seg-tc", "title": "ls", "kind": "read", "status": "completed"})
+        chunk("g")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "codex-retry" streams a partial message, reports a Codex stream retry,
     # then redelivers the answer under a new messageId. "codex-retry-after-tool"
@@ -1607,6 +1804,17 @@ CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("clau
                  ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
 
 
+HELD = []
+HELD_CANCELS = []
+
+
+def write_atomic(path, text):
+    """`text` to `path`, whole or not at all: a reader never sees half of it."""
+    with open(path + ".tmp", "w") as f:
+        f.write(text)
+    os.replace(path + ".tmp", path)
+
+
 def stdin_lines(early):
     """stdin's lines, starting with the bytes read while waiting at the start gate."""
     if early:
@@ -1623,6 +1831,21 @@ def own_pri():
     import subprocess
     out = subprocess.run(["ps", "-o", "pri=", "-p", str(os.getpid())], capture_output=True, text=True)
     return int(out.stdout.strip() or "0")
+
+
+def wire_log(msg):
+    """FAKE_WIRE_LOG: record a line this agent read, one O_APPEND write per line."""
+    path = os.environ.get("FAKE_WIRE_LOG")
+    if not path:
+        return
+    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+    line = json.dumps({"pid": os.getpid(), "id": msg.get("id"), "method": msg.get("method"),
+                       "session": params.get("sessionId")}) + "\n"
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, line.encode())
+    finally:
+        os.close(fd)
 
 
 def main():
@@ -1655,6 +1878,7 @@ def main():
         if not line:
             continue
         msg = json.loads(line)
+        wire_log(msg)
         if "method" not in msg:
             p = pending.get(msg.get("id"))
             if p:
@@ -1664,6 +1888,23 @@ def main():
         m = msg["method"]
         rid = msg.get("id")
         params = msg.get("params") or {}
+        # FAKE_SET_MODE_HOLD=<dir>: hold every session/set_mode unanswered, writing how many wait
+        # to <dir>/held and the ids each `$/cancel_request` names to <dir>/cancels. Once all but one
+        # are cancelled, answer every held one, the cancelled ones too: their answers come late
+        # and the daemon drops them (tests/cancel_request.rs).
+        hold = os.environ.get("FAKE_SET_MODE_HOLD")
+        if hold and m == "$/cancel_request":
+            HELD_CANCELS.append(params.get("requestId"))
+            write_atomic(os.path.join(hold, "cancels"), json.dumps(HELD_CANCELS))
+            if len(HELD) > 1 and len(set(map(str, HELD_CANCELS))) >= len(HELD) - 1:
+                for held in HELD:
+                    send({"jsonrpc": "2.0", "id": held, "result": {}})
+                HELD.clear()
+            continue
+        if hold and m == "session/set_mode":
+            HELD.append(rid)
+            write_atomic(os.path.join(hold, "held"), str(len(HELD)))
+            continue
         # FAKE_SET_MODE_SILENT=1: never answer session/set_mode, while staying alive.
         if m == "session/set_mode" and os.environ.get("FAKE_SET_MODE_SILENT") == "1":
             continue
@@ -1685,7 +1926,8 @@ def main():
             LAST_DIRS = params.get("additionalDirectories")
         if m == "session/new" and os.environ.get("FAKE_CLASS_LOG"):
             with open(os.environ["FAKE_CLASS_LOG"], "a") as log:
-                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri()}) + "\n")
+                nice = os.getpriority(os.PRIO_PROCESS, 0)
+                log.write(json.dumps({"pid": os.getpid(), "pri": own_pri(), "nice": nice}) + "\n")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
         # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
         # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.
@@ -1830,6 +2072,15 @@ def main():
             }
             if os.environ.get("FAKE_MODE_OPTION") == "1":
                 result["configOptions"] = mode_options(new_sid)
+            # FAKE_PI_MODES=1: pi-acp 0.0.33's answer: its thinking levels as its `thought_level`
+            # option and, for clients older than config options, again as ACP `modes`.
+            if os.environ.get("FAKE_PI_MODES") == "1":
+                levels = ["off", "minimal", "low", "medium", "high", "xhigh"]
+                result["modes"] = {"currentModeId": "medium", "availableModes": [
+                    {"id": v, "name": f"Thinking: {v}", "description": None} for v in levels]}
+                result["configOptions"].append({"id": "thought_level", "name": "Thinking", "type": "select",
+                                                "category": "thought_level", "currentValue": "medium",
+                                                "options": [{"value": v, "name": v} for v in levels]})
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
@@ -2028,6 +2279,13 @@ def main():
                 import time as clock  # main() binds `time` locally
                 while not os.path.exists(hold):
                     clock.sleep(0.02)
+        elif m == "_session/goal":
+            # codex-acp's goal control. FAKE_GOAL_LOG=<path>: append its params as one JSON line.
+            # Unanswered, as codex-acp answers a `set` only once the goal's turns are over.
+            path = os.environ.get("FAKE_GOAL_LOG")
+            if path:
+                with open(path, "a") as f:
+                    f.write(json.dumps(params) + "\n")
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
         elif m == "_acpmux/steer_withdraw" and os.environ.get("FAKE_CLAUDE_STEER") == "1":

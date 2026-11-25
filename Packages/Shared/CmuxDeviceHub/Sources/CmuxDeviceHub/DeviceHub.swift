@@ -100,9 +100,10 @@ public final class DeviceHub {
     /// The user's other devices.
     public var otherDevices: [HubDevice] { devices.filter { $0.id != identity.id } }
 
-    /// What `viewer` may do on `host`'s screen; `ask` when no permission is stored.
+    /// What `viewer` may do on `host`'s screen; `full` when no permission is stored (the hub's default
+    /// for the account's own devices, PROTOCOL.md).
     public func scope(host: String, viewer: String) -> DeviceScope {
-        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .ask
+        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .full
     }
 
     // MARK: Lifecycle
@@ -332,6 +333,10 @@ public final class DeviceHub {
     /// From this device as viewer: asks `host` for a session.
     public func requestSession(host: String, scope: SessionScope) async throws -> HubSession {
         try await perform { try await $0.requestSession(host: host, scope: scope) }
+    }
+
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        try await perform { try await $0.reattachSession(id) }
     }
 
     /// From this device as host: answers a request.

@@ -77,6 +77,11 @@ public struct QuitSteps {
                 failures = await endLocalAgents() + endLocalSessions()
             }
         }
+        // Restart to Update does not stop acpmux here: the new build's first lookup hands the
+        // daemon off once its own binary is in place (`AcpmuxVersionHandoff`), one stop per update.
+        // A stop at the quit ran before the swap, so clients started the old binary again and the
+        // new build stopped that one too: two stops (cosmic-gray 2026-11-12, 3 of 6 updates), and
+        // the 1.5 s exit wait never held (6 of 6).
         // A save past its limit gets what the deadline leaves less the engines' close wait, so
         // Chromium still closes its pages and CefShutdown flushes cookies and storage. A save
         // still late then runs on beside the engine stop; a closed page has no session to save,

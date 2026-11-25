@@ -3,17 +3,27 @@
 # that app with its own data, socket, daemon, settings and web overlay, never touching the original's.
 # try-pr.sh opens pull requests in one by default (docs/cmux-next/hot-reload.md, "Try a pull request").
 #
-#   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code]
-#                                   copy APP (default /Applications/cmux NEXT.app) as NAME; remade
+#   side-instance.sh make NAME [--from APP] [--label TEXT] [--live-code] [--neutral-shell] [--swap BUILD]
+#                                   copy APP (default /Applications/cmux NEXT.app, refused when built
+#                                   over 7 days ago; --from takes any build) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
+#                                   --neutral-shell: its terminals show a `$ ` prompt, never the
+#                                   account's `user@host` (hot-verify.py's looks, whose shots and
+#                                   video a privacy check reads)
+#                                   --swap BUILD: the copy runs BUILD's executable and resource bundles
+#                                   (swap-binary.sh build REF BUILD: a commit's Swift built as the
+#                                   nightly builds it), sealed like any copy, so it launches cold
 #   side-instance.sh launch NAME [--front] [-- ARGS...]
 #                                   open it (behind the front app unless --front); records its pid
 #   side-instance.sh stop NAME      quit it: the pid launch recorded, then what still runs from the copy
 #                                   (its terminal daemon and helpers outlive the app otherwise)
 #   side-instance.sh env NAME       the exports that point web-overlay.sh at it (eval "$(... env NAME)")
 #   side-instance.sh path NAME      the copy's .app
+#   side-instance.sh socket NAME    the copy's control socket (CMUX_NEXT_SOCKET_PATH in its LSEnvironment), for
+#                                   `cmux --app-socket` and hot-verify.py: NAME/control.sock, or
+#                                   cmux-side-<hash>.sock in the per-user TMPDIR when that is too long for a Unix socket
 #   side-instance.sh list           the side instances and whether each runs
 #   side-instance.sh remove NAME    stop it, then delete the folder make wrote and the state the copy
 #                                   kept under its build key (App Support, ~/.acpmux, ~/.cmux/chief:
@@ -56,6 +66,8 @@ done
 mkdir -p "$root"; root="$(cd "$root" && pwd -P)"
 # SIDE_INSTANCE_PLISTBUDDY: a stand-in for tests (tests/test_side_instance_remake_clears_old_identity.py).
 buddy="${SIDE_INSTANCE_PLISTBUDDY:-/usr/libexec/PlistBuddy}"
+# shellcheck source=lib/adhoc-seal.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/adhoc-seal.sh"
 
 cmd="${1:-}"; [[ -n "$cmd" ]] || usage 1; shift
 [[ "$cmd" == -h || "$cmd" == --help ]] && usage
@@ -105,16 +117,28 @@ clear_state() {
 
 case "$cmd" in
   make)
-    from="/Applications/cmux NEXT.app" label="cmux $name" live=""
+    # SIDE_INSTANCE_DEFAULT_APP: a stand-in for tests (tests/test_side_instance_stale_default.py).
+    from="${SIDE_INSTANCE_DEFAULT_APP:-/Applications/cmux NEXT.app}" label="cmux $name" live="" neutral="" swap=""
+    chosen=""
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; shift 2 ;;
+        --from) [[ $# -ge 2 ]] || usage 1; from="${2%/}"; chosen=1; shift 2 ;;
         --label) [[ $# -ge 2 ]] || usage 1; label="$2"; shift 2 ;;
         --live-code) live=1; shift ;;
+        --neutral-shell) neutral=1; shift ;;
+        --swap) [[ $# -ge 2 ]] || usage 1; swap="$2"; shift 2 ;;
         *) usage 1 ;;
       esac
     done
     [[ -f "$from/Contents/Info.plist" ]] || die "no app at $from"
+    # The default app is whatever someone once installed: a fleet Mac's /Applications/cmux NEXT.app was a Safari
+    # download of a 2026-10-28 build that nothing updates, and each copy of it read inside ~/Downloads at launch
+    # (before the LAUNCH-NO-TCC-PROMPTS fixes of 2026-10-30, #28820), so every new side instance put macOS's
+    # Downloads prompt on an unattended screen (cmux20, 2026-11-18). Named with --from, any build is copied (an
+    # older one is how a before look is taken).
+    if [[ -z "$chosen" && -n "$(find "$from/Contents/Info.plist" -mtime +7 2>/dev/null)" ]]; then
+      die "$from was built over 7 days ago, and a copy runs that old code; install a current build there, or name the app with --from (/Applications/cmux NIGHTLY.app, or an older one on purpose)"
+    fi
     [[ "$label" =~ ^[A-Za-z0-9\ \#._-]+$ ]] || die "the label takes letters, digits, spaces and # . _ -"
     old_bundle="" old_key=""
     if [[ -f "$marker" ]]; then
@@ -155,6 +179,22 @@ case "$cmd" in
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
     plist_set "$plist" LSEnvironment:CMUX_AUTH_CALLBACK_SCHEME "$scheme"
+    # A control socket at a path this script names (LaunchIdentity reads CMUX_NEXT_SOCKET_PATH), so a driver
+    # (hot-verify.py, `cmux --app-socket`) finds the copy without reading its process's open files.
+    # A Unix socket path is at most 104 bytes on macOS (LC_ALL=C: ${#} counts bytes). Past that, the user's own
+    # temp folder (launchd's per-user TMPDIR, mode 0700), never shared /tmp where another user could plant it.
+    sock="$dir/control.sock"
+    if (( $(LC_ALL=C; printf %s "$sock" | wc -c) > 100 )); then
+      private="${TMPDIR:-$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)}"
+      [[ -n "$private" && -d "$private" ]] || die "no per-user temp folder (TMPDIR) for $name's control socket"
+      sock="${private%/}/cmux-side-$(printf %s "$dir" | shasum | cut -c1-12).sock"
+      (( $(printf %s "$sock" | wc -c) <= 103 )) || die "$name's control socket path is too long: $sock"
+    fi
+    plist_set "$plist" LSEnvironment:CMUX_NEXT_SOCKET_PATH "$sock"
+    # Chromium's mock keychain (CEFSwitches): the copy has no Keychain group, so the real one only asks for the
+    # login keychain's password ("cmux NAME wants to use the ... keychain") on a host where it is locked, a fleet
+    # mini's, and the dialog covers every shot.
+    plist_set "$plist" LSEnvironment:CMUX_MOCK_KEYCHAIN 1
     # Live web reload (Debug Settings, webDev.override) on in its own tunables file, kept with any
     # other tunable set there; without it the app ignores web-dev.json and shows the bundled pages.
     python3 - "$dir/config/debug-tunables.json" <<'PY'
@@ -173,21 +213,28 @@ PY
       mkdir -p "$dir/live-code"
       plist_set "$plist" LSEnvironment:CMUX_LIVE_CODE_DIR "$dir/live-code"
     fi
-    # The seal covers Info.plist: re-sign the outer bundle ad hoc (nested code keeps its own
-    # signatures), and check it. An ad hoc signature may carry only unrestricted entitlements: one
-    # that needs the team's provisioning profile (the Keychain group, application-identifier, any
-    # com.apple.developer key) gets the copy killed at launch, so those go, with the profile. The
-    # copy then has no Keychain items of the original's group: it starts signed out.
-    xattr -cr "$app" 2>/dev/null || true
-    rm -f "$app/Contents/embedded.provisionprofile"
+    # A neutral shell: zsh's default prompt `%n@%m %1~ %#` reads "cmux@cmux23 ~ %" on a fleet mini, and a
+    # look's privacy check withholds every shot and the video that shows it. The app points its terminals'
+    # zsh at the folder CMUX_CAPTURE_SHELL_HOME names (ZDOTDIR, AppEnvironment.terminalEnvironment), the same
+    # hook PR capture slots use (cmuxterm-hq build-fleet/capture-host); the files read no other file.
+    rm -rf "$dir/shell-home"
+    if [[ -n "$neutral" ]]; then
+      mkdir -p "$dir/shell-home"
+      printf '%s\n' "# side-instance.sh --neutral-shell: present so zsh never reads the account's ~/.zshenv." \
+        >"$dir/shell-home/.zshenv"
+      printf '%s\n' "# side-instance.sh --neutral-shell: a prompt with no account or host name." \
+        "PROMPT='\$ '" "PS1='\$ '" "RPROMPT=''" "RPS1=''" >"$dir/shell-home/.zshrc"
+      plist_set "$plist" LSEnvironment:CMUX_CAPTURE_SHELL_HOME "$dir/shell-home"
+    fi
+    # --swap: another build's executable and resource bundles in place of the copy's (swap-binary.sh place), before
+    # the seal, which covers them too.
+    if [[ -n "$swap" ]]; then
+      "$(dirname "${BASH_SOURCE[0]}")/swap-binary.sh" place "$app" "$swap" || die "the swap into $name failed"
+    fi
+    # The seal covers Info.plist (and a swapped binary): re-signed ad hoc, as every copy that has to launch is
+    # (lib/adhoc-seal.sh), with the original's unrestricted entitlements only: the copy starts signed out.
     entitlements="$dir/entitlements.plist"
-    codesign -d --entitlements :- "$from" 2>/dev/null | python3 -c '
-import plistlib, sys
-data = sys.stdin.buffer.read()
-kept = {k: v for k, v in (plistlib.loads(data) if data.strip() else {}).items() if k.startswith("com.apple.security.")}
-sys.stdout.buffer.write(plistlib.dumps(kept))' >"$entitlements"
-    codesign --force --sign - --timestamp=none --entitlements "$entitlements" "$app" 2>&1 | grep -v 'replacing existing signature' >&2 || true
-    codesign --verify --strict "$app" || die "the re-sealed copy does not verify"
+    cmux_adhoc_seal "$app" "$from" "$entitlements" || die "the re-sealed copy does not verify"
     # Launch Services learns the new bundle id now, so the first open finds it.
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app" 2>/dev/null || true
     version="$("$buddy" -c "Print :CFBundleVersion" "$from/Contents/Info.plist" 2>/dev/null || true)"
@@ -209,7 +256,7 @@ tag, own = slug(shipped), suffix and slug(suffix)
 print(bundle + ("--" + tag if tag and tag != own else ""))
 PY
 )"
-    printf 'app=%s\nbundle=%s\nkey=%s\nfrom=%s\nversion=%s\nlive=%s\n' "$app" "$bundle" "$key" "$from" "$version" "$live" >"$marker"
+    printf 'app=%s\nbundle=%s\nkey=%s\nfrom=%s\nversion=%s\nlive=%s\nsocket=%s\n' "$app" "$bundle" "$key" "$from" "$version" "$live" "$sock" >"$marker"
     # The replaced identity's state goes once the new copy is in place (none of its processes run:
     # make refuses while the copy runs, and stop ends what ran from it).
     if [[ -n "$old_bundle" && ( "$old_bundle" != "$bundle" || "${old_key:-$old_bundle}" != "$key" ) ]]; then
@@ -269,6 +316,12 @@ PY
     app_of >/dev/null
     printf 'export CMUX_NEXT_CONFIG_FILE=%q CMUX_WEB_OVERLAY_DIR=%q CMUX_WEB_SLOT_STATE_DIR=%q\n' \
       "$dir/config/cmux-next.json" "$dir/web-overlay" "$dir/web-slot"
+    ;;
+  socket)
+    app_of >/dev/null
+    sock="$(sed -n 's/^socket=//p' "$marker")"
+    [[ -n "$sock" ]] || die "$name was made before side instances named their socket: side-instance.sh make $name again"
+    echo "$sock"
     ;;
   path)
     app_of

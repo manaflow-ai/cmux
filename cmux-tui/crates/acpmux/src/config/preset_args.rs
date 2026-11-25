@@ -11,8 +11,9 @@
 //! local files, their allowed and denied tools included, stay; both sit in
 //! the same folder; Claude Code takes an MCP tool's allow rule only from
 //! the local file, so a session that can write its folder could allow
-//! itself the tools of MCP servers it already loads, never a new server) and `--disable-slash-commands` (no skills or slash
-//! commands); on any other harness none. Every other word is refused, `=` forms and short aliases
+//! itself the tools of MCP servers it already loads, never a new server), `--disable-slash-commands` (no skills or slash
+//! commands) and `--disallowedTools <names>` (a comma list of tool names, an MCP tool prefix with a
+//! trailing `*` included: those tools are never offered); on any other harness none. Every other word is refused, `=` forms and short aliases
 //! included, so a preset can only take capabilities away, never widen the
 //! permission policy or reach outside the session.
 //!
@@ -138,12 +139,13 @@ impl Preset {
 }
 
 /// The Claude Code flags a preset may pass.
-const CLAUDE_ALLOWED: [&str; 5] = [
+const CLAUDE_ALLOWED: [&str; 6] = [
     "--tools",
     "--strict-mcp-config",
     "--no-session-persistence",
     "--setting-sources",
     "--disable-slash-commands",
+    "--disallowedTools",
 ];
 
 /// The system prompt file's name in a preset's directory.
@@ -199,6 +201,18 @@ pub fn check_preset_args(kind: HarnessKind, args: &[String]) -> Result<(), Strin
                     );
                 }
             },
+            // Only takes tools away. A Chief subagent's preset denies Claude Code's own subagents,
+            // the tools that wait for a person and the app's menu tools (`mcp__cmux__app_*`);
+            // refused here until 2026-11-18, every Chief subagent was offered them anyway.
+            "--disallowedTools" => match words.next().map(String::as_str) {
+                Some(list) if is_deny_list(list) => {}
+                _ => {
+                    return Err(
+                        "args: --disallowedTools takes a comma list of tool names (\"Agent,Workflow,mcp__cmux__app_*\"): letters, digits, '_' and '-', an optional trailing '*'"
+                            .to_owned(),
+                    );
+                }
+            },
             "--strict-mcp-config" | "--no-session-persistence" | "--disable-slash-commands" => {}
             other => {
                 return Err(format!(
@@ -220,6 +234,17 @@ fn is_builtin_list(list: &str) -> bool {
         name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
             && name.bytes().all(|b| b.is_ascii_alphanumeric())
             && !name.eq_ignore_ascii_case("default")
+    })
+}
+
+/// A comma list of tool names to deny (`Agent,mcp__cmux__app_*`): each starts with a letter, then
+/// letters, digits, `_` and `-`, with at most a trailing `*`. No rule (`Bash(rm:*)`), no space, no
+/// word that Claude Code could read as a flag.
+fn is_deny_list(list: &str) -> bool {
+    list.split(',').all(|name| {
+        let stem = name.strip_suffix('*').unwrap_or(name);
+        stem.bytes().next().is_some_and(|b| b.is_ascii_alphabetic())
+            && stem.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
     })
 }
 
@@ -249,21 +274,25 @@ pub fn preset_dir(presets: &Path, name: &str) -> PathBuf {
 #[cfg(unix)]
 pub fn write_system_prompt(presets: &Path, name: &str, text: &str) -> io::Result<String> {
     use std::io::Write;
-    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
+    // Through the folder this daemon holds (`home_fs`): a home replaced after the check never
+    // gets the file.
     crate::config::refuse_lost_home(presets).map_err(io::Error::other)?;
     let dir = preset_dir(presets, name);
-    std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
-    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    crate::home_fs::create_dir_all(&dir, 0o700)?;
+    crate::home_fs::set_mode(&dir, 0o700)?;
     let tmp = dir.join(format!(".{SYSTEM_PROMPT_FILE}.{}", uuid::Uuid::now_v7()));
     let written = (|| {
-        let mut file =
-            std::fs::OpenOptions::new().write(true).create_new(true).mode(0o400).open(&tmp)?;
+        let mut file = crate::home_fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o400)
+            .open(&tmp)?;
         file.write_all(text.as_bytes())?;
         file.sync_all()?;
-        std::fs::rename(&tmp, dir.join(SYSTEM_PROMPT_FILE))
+        crate::home_fs::rename(&tmp, dir.join(SYSTEM_PROMPT_FILE))
     })();
     if written.is_err() {
-        let _ = std::fs::remove_file(&tmp);
+        let _ = crate::home_fs::remove_file(&tmp);
     }
     written?;
     Ok(crate::sha256::sha256_hex(text.as_bytes()))
@@ -287,7 +316,8 @@ pub fn remove_preset_dir(presets: &Path, name: &str) -> io::Result<()> {
     if check_preset_dir_name(name).is_err() {
         return Ok(());
     }
-    match std::fs::remove_dir_all(preset_dir(presets, name)) {
+    // From the folder this daemon holds (`home_fs`), never the new home's.
+    match crate::home_fs::remove_dir_all(preset_dir(presets, name)) {
         Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
         _ => Ok(()),
     }

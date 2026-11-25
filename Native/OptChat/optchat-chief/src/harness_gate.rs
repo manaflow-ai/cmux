@@ -178,11 +178,32 @@ fn admitted(requested: &str, a: cmux_chief::policy::harness::Admission) -> Admit
     }
 }
 
-/// The text the Chief posts for a refused turn.
+/// The text the Chief posts for a refused turn: one plain sentence a person can act on, never the
+/// parts it is built from (first-run findings row 1: a fresh Mac's first reply named acpmux,
+/// claude-stdio, the CodeRouter CLI and `sr claude proxy`). `reason` stays in the host log and the
+/// trace's `harness.refused` (``trace_refusal``), where the person debugging it reads it. It starts
+/// with `refused: ` (the chat shows `(turn refused: …)`, which the apps recognize).
 pub fn refusal(reason: &str) -> String {
-    format!(
-        "refused: {reason}. Fix the acpmux harness (`acpmux daemon harnesses` lists them; the CodeRouter CLI must have the configured route for claude-cr, `sr claude proxy --version` must succeed for claude-sr) and send the message again."
-    )
+    let lower = reason.to_ascii_lowercase();
+    // The agent the refused harness runs: Codex, else Claude Code for the Claude routes.
+    let agent = if lower.contains("codex") {
+        Some("Codex")
+    } else if lower.contains("claude") {
+        Some("Claude Code")
+    } else {
+        None
+    };
+    let missing = lower.contains("has no harness named") || lower.contains("acpmux has none");
+    let text = match (agent, missing) {
+        (Some(agent), true) => format!(
+            "Chief answers through {agent}, and this Mac doesn't have it yet. Install {agent} from the Set Up card above (or Set Up cmux… in the command palette), then send your message again."
+        ),
+        (Some(agent), false) => format!(
+            "Chief can't run {agent} on this Mac right now. Check it in Set Up cmux… (command palette), then send your message again."
+        ),
+        (None, _) => "Chief couldn't start this reply. Send your message again; if it keeps happening, check your agents in Set Up cmux… (command palette).".to_owned(),
+    };
+    format!("refused: {text}")
 }
 
 /// Admits `requested` against the daemon's current harnesses (asked at each
@@ -266,5 +287,66 @@ pub fn plan(answer: &Value, requested: &str) -> Plan {
             profile: requested.to_owned(),
             admitted,
         },
+    }
+}
+
+#[cfg(test)]
+mod refusal_text_tests {
+    use super::refusal;
+
+    /// Words a person must never see in Chief's reply: the parts it is built from.
+    const INTERNAL: [&str; 9] = [
+        "acpmux",
+        "claude-stdio",
+        "CodeRouter",
+        "coderouter",
+        "`sr ",
+        "claude-sr",
+        "claude-cr",
+        "adapter",
+        "harness",
+    ];
+
+    fn plain(shown: &str) {
+        assert!(shown.starts_with("refused: "), "{shown}");
+        for word in INTERNAL {
+            assert!(!shown.contains(word), "{word:?} in {shown}");
+        }
+    }
+
+    /// A fresh Mac with no Claude Code (first-run findings row 1): Chief's first reply named
+    /// acpmux, claude-stdio, the CodeRouter CLI and `sr claude proxy`. It says what is missing
+    /// and where to fix it, in plain words.
+    #[test]
+    fn a_mac_without_claude_code_gets_a_plain_install_line() {
+        let shown = refusal(
+            "the Chief runs Claude only through acpmux's own Claude Code adapter (kind claude-stdio), and claude asks for one running `claude`; acpmux has none: acpmux has no harness named claude",
+        );
+        plain(&shown);
+        assert!(shown.contains("Claude Code"), "{shown}");
+        assert!(shown.contains("Install"), "{shown}");
+        assert!(shown.contains("Set Up"), "{shown}");
+    }
+
+    /// Every other refusal is plain too: an unavailable route, a Codex Chief with no Codex, a
+    /// permission mode that did not apply.
+    #[test]
+    fn every_other_refusal_names_no_internal_part() {
+        for (reason, agent) in [
+            (
+                "acpmux's claude-cr is unavailable: `cr team-route --version` failed: unknown command",
+                "Claude Code",
+            ),
+            ("acpmux has no harness named codex", "Codex"),
+            (
+                "the turn's permission mode default did not apply: no such mode",
+                "",
+            ),
+            ("acpmux did not say what its harnesses are (timed out)", ""),
+        ] {
+            let shown = refusal(reason);
+            plain(&shown);
+            assert!(shown.contains(agent), "{agent} in {shown}");
+        }
     }
 }

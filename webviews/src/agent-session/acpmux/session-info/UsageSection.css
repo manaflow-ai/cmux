@@ -49,7 +49,7 @@
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__sort-option[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
+  background: var(--ds-color-selection);
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__sort-option:focus-visible {
@@ -69,7 +69,7 @@
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-session-info-usage__action:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  background: var(--ds-surface-hover);
   color: var(--agent-text);
 }
 .acpmux-session-info-usage__action:disabled {

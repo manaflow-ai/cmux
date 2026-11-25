@@ -76,8 +76,9 @@ async fn a_day_down_runs_the_whole_reconnect_ladder_in_milliseconds() {
     // At the cap a gap is 30 to 60 s, so a day holds 1,440 to 2,880 of them.
     assert!((1_440..=2_880).contains(&laddered), "{laddered} attempts in the first day");
     assert!((1..=2).contains(&parked), "{parked} parked attempts in the 2 h after the day");
-    // The gaps are ticked time and replay exactly; the wall clock under them also moves with
-    // the real milliseconds the run takes, so it is not compared.
+    // The gaps are ticked time and replay exactly: the followed wall clock is ticked time too
+    // (`test_clock::followed_now_ms`), so the day is reached on the same attempt in each run,
+    // however long the run takes on a loaded host.
     let schedule = |gaps: &[(Duration, Duration)]| gaps.iter().map(|g| g.0).collect::<Vec<_>>();
     let replay = ladder(7, outage).await;
     assert_eq!(schedule(&gaps), schedule(&replay), "a seed replays its schedule exactly");
@@ -122,4 +123,52 @@ async fn a_sleep_in_a_backoff_wait_redials_at_the_wake_and_starts_the_ladder_ove
     );
     let next = attempts[before + 1].0 - woke;
     assert!(next <= Backoff::BASE + TICK, "the ladder starts over at the wake: {next:?}");
+}
+
+/// A peer down for `minutes` of ticked time while a chat stays open on it and asks every second
+/// (a person typing, a pane retrying its read): the dials it made in that time.
+async fn dials_while_asked(seed: u64, minutes: u64, login_refused: bool) -> usize {
+    test_clock::follow_tokio();
+    test_jitter::seed(seed);
+    if login_refused {
+        test_dial::refuse_login_all()
+    } else {
+        test_dial::refuse_all()
+    }
+    let peer = unreachable();
+    // The loop runs beside the asks on this task, so it ends with them (`Peer::stop`).
+    let asking = async {
+        for _ in 0..minutes * 60 {
+            peer.want();
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        peer.stop();
+    };
+    tokio::join!(peer.clone().run(), asking);
+    let dials = test_dial::attempts().len();
+    test_dial::clear();
+    test_jitter::clear();
+    test_clock::reset();
+    dials
+}
+
+/// A remote that refuses this computer's key or password is not dialed again in a loop, however
+/// often a chat on it asks: each refused login counts against the remote's own limit
+/// (a ban tool blocks an address after a few in 10 minutes), and a redial each
+/// second got a computer's address blocked. A wrong key does not fix itself in a second; the
+/// attempts space out to minutes, and an explicit reconnect still tries at once.
+#[tokio::test(start_paused = true)]
+async fn a_refused_ssh_login_is_not_redialed_in_a_loop_while_a_chat_asks() {
+    let ten_minutes = dials_while_asked(5, 10, true).await;
+    assert!(ten_minutes <= 3, "{ten_minutes} refused logins in 10 minutes");
+    let hour = dials_while_asked(5, 60, true).await;
+    assert!(hour <= 6, "{hour} refused logins in an hour");
+}
+
+/// A link that is down for any other reason (a host that is off, a dead network) still redials
+/// within a second while a chat asks: only a refused login waits.
+#[tokio::test(start_paused = true)]
+async fn an_unreachable_peer_a_chat_asks_for_still_redials_each_second() {
+    let dials = dials_while_asked(5, 10, false).await;
+    assert!(dials >= 300, "{dials} dials in 10 minutes while asked");
 }

@@ -7,8 +7,5 @@ enum RightSidebarStrings {
     }
 
     static var untitledPane: String { t("rightSidebar.dock.untitledPane", "Pane") }
-    static var dockEmpty: String { t("rightSidebar.dock.empty", "No docked columns on this screen. A docked column stays at the edge while the others scroll.") }
-    static var undock: String { t("rightSidebar.dock.undock", "Undock") }
-    static var dockFocused: String { t("rightSidebar.dock.dockFocused", "Dock Focused Column") }
     static var thisMac: String { t("rightSidebar.machines.thisMac", "This Mac") }
 }

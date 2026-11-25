@@ -15,10 +15,22 @@ enum PaletteLayout {
     static var footerHeight: CGFloat { rowHeight }
     static var listInset: CGFloat { Metrics.space2 }
     static var listHeight: CGFloat { rowHeight * visibleRows + listInset * 2 }
-    static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
-    static var rowCornerRadius: CGFloat { Metrics.itemCornerRadius }
+    /// A row highlight's corner (the selected row, a hovered one): a tab's shape, as a tab pill and a
+    /// sidebar workspace row (Lawrence 2026-11-13, msg 31442: "make cmd shift p roundness same
+    /// roundness as tabs").
+    static var rowCornerRadius: CGFloat { Metrics.tabCornerRadius }
+    /// The panel's corner: concentric with the rows it holds, the row corner plus ``listInset``, the
+    /// one gap at the rows' sides and above the first and below the last (Lawrence 2026-11-13, msg
+    /// 31478: "density of selected cmd shift p row needs to be concentric"). The panel holds its rows
+    /// as a card holds its tabs, at every density.
+    static var cornerRadius: CGFloat { Metrics.corners.nested(in: rowCornerRadius, inset: -listInset) }
     static var height: CGFloat { searchHeight + listHeight + footerHeight + 2 * Metrics.dividerThickness }
     static var horizontalPadding: CGFloat { Metrics.space5 }
+    /// Where everything at a row's or the field's right ends (a key, a kind label, the field's
+    /// "Search Workspaces ⇥" hint), from the panel's right edge: the rows' side inset plus the room an
+    /// icon box leaves around its glyph, so the right column mirrors the icons' ink on the left
+    /// (Lawrence 2026-11-15: "search workspaces looks bad", three right edges in one panel).
+    static var trailingInset: CGFloat { listInset + Metrics.space4 + (iconBox - Metrics.iconSize) / 2 }
 
     /// Transparent margin around the panel so the shadow and the open
     /// animation are never clipped by the window.
@@ -31,7 +43,7 @@ enum PaletteLayout {
     static var actionsMenuWidth: CGFloat { width / 2 - Metrics.space6 }
     static var actionsMenuRowHeight: CGFloat { rowHeight - Metrics.space2 }
     static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 + textGrowth(Typography.shortcut) }
-    static var keycapCornerRadius: CGFloat { Metrics.cornerRadius(nestedIn: Metrics.itemCornerRadius, inset: Metrics.space1) }
+    static var keycapCornerRadius: CGFloat { Metrics.buttonCornerRadius(nestedIn: rowCornerRadius, inset: Metrics.space1) }
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
 
     /// How much larger the palette's text draws than the size its density's heights are made for:
@@ -108,6 +120,14 @@ enum PaletteText {
         let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
         let cell = ceil(field.cell?.cellSize(forBounds: unbounded).width ?? 0)
         return max(cell, ceil(field.attributedStringValue.size().width) + Metrics.space2)
+    }
+
+    /// How far a label's cell draws its text in from the frame's side: the frame of a right-aligned
+    /// label ends that far past the text's right end.
+    static func textInset(_ field: NSTextField) -> CGFloat {
+        let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let cell = field.cell?.cellSize(forBounds: unbounded).width ?? 0
+        return max(0, (cell - field.attributedStringValue.size().width) / 2)
     }
 
     /// Configured SF Symbol images, made once per name and size: rows are

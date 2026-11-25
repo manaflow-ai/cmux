@@ -81,7 +81,7 @@ public final class ResolveTerminalResult implements WireValue {
         Object rawGeneration = Wire.required(object, "generation");
         builder.generation(Wire.string(rawGeneration, "ResolveTerminalResult.generation"));
         Object rawLaunchSpec = Wire.required(object, "launch_spec");
-        builder.launchSpec(Wire.immutableJson(rawLaunchSpec));
+        builder.launchSpec(Wire.immutableJson(ProtocolSupport.nonNull(rawLaunchSpec, "ResolveTerminalResult.launch_spec")));
         Object rawLifecycle = Wire.required(object, "lifecycle");
         builder.lifecycle(TerminalLifecycle.fromWire(rawLifecycle));
         Object rawPaneId = Wire.optional(object, "pane_id");

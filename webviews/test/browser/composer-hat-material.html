@@ -9,13 +9,32 @@
     <section class="acpmux-shell">
       <!-- Something runs: the hat draws a card and joins the card under it (bottomStack.css). -->
       <div class="acpmux-dock">
-        <section class="acpmux-running-tray" data-card="" id="hat">
+        <section class="ui-glass ui-glass-floats acpmux-stack-material acpmux-running-tray" data-card="" id="hat">
           <div class="acpmux-running-tray__head">mkdir +2 more 15m 21s</div>
         </section>
         <div class="acpmux-composer">
           <div class="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box" id="hatted">
             <div class="acpmux-md" contenteditable="true"></div>
           </div>
+        </div>
+      </div>
+      <div class="acpmux-dock">
+        <section class="ui-glass ui-glass-floats acpmux-stack-material acpmux-goal" data-look="above" id="goal">
+          Goal running
+        </section>
+        <div class="acpmux-hat-questions" data-settled="" style="height: 64px">
+          <div class="acpmux-hat-questions__room">
+            <fieldset class="ui-glass ui-glass-floats acpmux-stack-material acpmux-hat-questions__body" id="question">
+              Have you restarted?
+            </fieldset>
+          </div>
+        </div>
+        <div class="acpmux-asks-stack">
+          <section class="acpmux-pending-ask">
+            <fieldset class="ui-glass ui-glass-floats acpmux-stack-material acpmux-next-step" id="pinned">
+              Have you restarted?
+            </fieldset>
+          </section>
         </div>
       </div>
       <!-- No hat: the card keeps its own top light. -->

@@ -2,6 +2,14 @@
 (webviews/test/support/prScope.ts): a finding already on the base branch is
 printed as a warning, but only the PR that adds it, touches its file or
 changes its list line goes red."""
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
+# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), '..', '..', 'tests', "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 import os
 import shutil
 import subprocess
@@ -20,6 +28,13 @@ ORPHAN = 'export function Orphan() {\n  return <div />;\n}\n'
 CLEAN = 'export const clean = 1;\n'
 
 
+def tracked_webviews_folders():
+    """webviews' top-level folders git tracks (src, test, scripts, dev-server, ...), never node_modules or build output."""
+    listed = subprocess.run(['git', 'ls-files', '-z', '--', 'webviews/'], cwd=ROOT, check=True,
+                            capture_output=True).stdout.decode().split('\0')
+    return sorted({parts[1] for parts in (p.split('/') for p in listed) if len(parts) > 2})
+
+
 class Checkout:
     """A copy of webviews (and the Swift page descriptors) whose HEAD is the merge commit GitHub builds."""
 
@@ -27,7 +42,9 @@ class Checkout:
         self.temporary = tempfile.TemporaryDirectory()
         self.path = Path(self.temporary.name)
         web = self.path / 'webviews'
-        for name in ('src', 'test', 'scripts'):
+        # Every tracked folder, not a hand-kept list: webviews/scripts/gallery/entries.ts imports
+        # ../../dev-server/galleryHost (#46869), and a fixture without dev-server failed every test here.
+        for name in tracked_webviews_folders():
             shutil.copytree(WEBVIEWS / name, web / name, ignore=shutil.ignore_patterns('node_modules'))
         for name in ('package.json', 'tsconfig.json'):
             if (WEBVIEWS / name).exists():

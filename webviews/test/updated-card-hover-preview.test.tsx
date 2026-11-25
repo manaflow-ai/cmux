@@ -16,9 +16,11 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PageClient } from "../src/pages/shared/pageClient";
+import { MOTION_SETTLE, MOTION_SETTLE_MS } from "../src/motion/scale.generated";
 import type { ReleaseNotes } from "../src/pages/changelog/types";
 import type { UpdateHighlights } from "../src/pages/changelog/updateHighlights";
 import { PreviewIntent, previewEntries, type IntentTimers } from "../src/pages/changelog/updatedPreview";
+import { settleReact, teardownDom } from "./support/domTeardown";
 
 /** Yields macrotasks until `done` holds, at most `capMs`. */
 async function until(done: () => boolean, capMs = 2000) {
@@ -460,13 +462,9 @@ describe("the card", () => {
     });
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     act(() => root?.unmount());
-    dom.window.close();
-    for (const [key, had, value] of saved) {
-      if (had) scope[key] = value;
-      else delete scope[key];
-    }
+    await teardownDom(saved, { window: dom.window, scope });
   });
 
   async function render(props: Record<string, unknown>) {
@@ -549,6 +547,7 @@ describe("the card", () => {
           strings={createStrings(table)}
           actions={{ openChangelog: (target) => opened.push(target ?? "open"), dismiss: () => undefined }}
           mode="beside"
+          look="sections"
         />,
       ),
     );
@@ -812,6 +811,7 @@ async function withSurface(
     const state = () => host.querySelector(".wn-card")?.getAttribute("data-preview");
     await body({ dom, host, sizes, ops, pointer: (event) => pointer!(event), state });
   } finally {
+    await settleReact();
     dom.window.close();
     for (const [key, had, value] of saved) {
       if (had) scope[key] = value;
@@ -858,10 +858,10 @@ test("the sidebar's surface says the open preview's height for the host's glass 
 // Leo 2026-11-08: "the animation also seems like it's a little bit slow". The preview opens on the
 // card's own curve, a fast start that settles long, the native glass's twin (Motion+AppKit.swift
 // cardCurve and cardDuration), and the room goes back once that motion has run.
-test("the preview opens on the card's curve, 180ms, the native glass's twin", () => {
+test(`the preview opens on the card's curve, ${MOTION_SETTLE_MS}ms, the native glass's twin`, () => {
   const css = readFileSync(new URL("../src/pages/changelog/updateSurfaces.css", import.meta.url), "utf8");
-  expect(css).toContain("--wn-preview-motion: 180ms;");
-  expect(css).toContain("--wn-preview-ease: cubic-bezier(0.16, 1, 0.3, 1);");
+  expect(css).toContain(`--wn-preview-motion: ${MOTION_SETTLE_MS}ms;`);
+  expect(css).toContain(`--wn-preview-ease: ${MOTION_SETTLE};`);
   expect(css).toMatch(/\.wn-preview \{\s*transition: height var\(--wn-preview-motion\) var\(--wn-preview-ease\);/);
   const tsx = readFileSync(new URL("../src/pages/changelog/updatedPreview.ts", import.meta.url), "utf8");
   expect(tsx).toContain("export const PREVIEW_CLOSE_MS = 180;");

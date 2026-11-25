@@ -289,7 +289,25 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
-          path: bootstrap-dist
+          path: ${{ runner.temp }}/bootstrap-dist
+
+      # The PyPI publisher runs in a container that mounts the workspace but not the runner's temp
+      # directory, so the distributions it uploads are staged into a workspace directory emptied first
+      # (this persistent runner may hold an earlier job's files there), and the staged copy is the one
+      # verified. The self-hosted downloads guard's ContainerActions check keeps runner.temp out of
+      # every container action's inputs.
+      - name: Stage the bootstrap distributions for the publisher
+        run: |
+          set -euo pipefail
+          rm -rf -- "$GITHUB_WORKSPACE/bootstrap-dist"
+          mkdir -- "$GITHUB_WORKSPACE/bootstrap-dist"
+          shopt -s nullglob
+          staged=("$RUNNER_TEMP"/bootstrap-dist/*.whl "$RUNNER_TEMP"/bootstrap-dist/*.tar.gz)
+          [[ "${#staged[@]}" -gt 0 ]] || {
+            echo "the downloaded artifact holds no distributions" >&2
+            exit 1
+          }
+          cp -- "${staged[@]}" "$GITHUB_WORKSPACE/bootstrap-dist/"
 
       - name: Verify the immutable bootstrap distributions
         env:
@@ -297,8 +315,13 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$EXPECTED_ARTIFACT_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          # Exactly the staged distributions, nothing beside them, are what the digest covers.
+          [[ -z "$(find "$GITHUB_WORKSPACE/bootstrap-dist" -mindepth 1 ! \( -type f \( -name '*.whl' -o -name '*.tar.gz' \) \) -print -quit)" ]] || {
+            echo "the staged publisher directory holds something other than distributions" >&2
+            exit 1
+          }
           actual_sha256="$(
-            cd bootstrap-dist
+            cd "$GITHUB_WORKSPACE/bootstrap-dist"
             sha256sum *.whl *.tar.gz | sort -k2 | sha256sum | cut -d ' ' -f 1
           )"
           [[ "$actual_sha256" == "$EXPECTED_ARTIFACT_SHA256" ]] || {

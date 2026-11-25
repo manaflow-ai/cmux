@@ -163,7 +163,8 @@ public nonisolated struct KeyBindingDefaults {
     public static let focusHistoryAliases: [KeyBinding] = RustActionCatalog.shared.bindings["focus_history_aliases"] ?? []
     /// Cmd-Shift-= (Cmd-+ on a US layout) is the markdown viewer's Zoom In too, as Cmd-= is: the
     /// key a person reads as "Command plus". The action needs `markdownFocused`, so a terminal or a
-    /// browser page never loses the key to it.
+    /// browser page never loses the key to it. The diff viewer's Zoom In takes it too, only in a focused
+    /// diff tab (`diffViewerFocused`).
     public static let zoomAliases: [KeyBinding] = RustActionCatalog.shared.bindings["zoom_aliases"] ?? []
 
     /// Not in a web page, and not in the code editor, whose Cmd-[ / Cmd-] are outdent / indent.
@@ -208,9 +209,14 @@ public nonisolated struct KeyBindingDefaults {
     /// on many sites; the checklist toggle took it first and refused "no todo items".
     public static let yieldsToWebContent: Set<ActionID> = Set(RustActionCatalog.shared.idLists["yields_to_web_content"] ?? [])
 
-    /// Not an agent chat (`agent`, the acpmux page) and not a web page (`page`).
+    /// Not an agent chat (`agent`, the acpmux page; `home` and `home-dock`, Home's chat, its
+    /// conversation view and the docked Home, ``onHome``'s surfaces) and not a web page (`page`).
+    /// Home's composer is the same chat composer: without it, Cmd-Return there ran the checklist
+    /// toggle and toasted "the workspace checklist has no item to do" (Leo, 2026-11-12: "the
+    /// bottom pill is weird and probably unnecessary").
     public static let notWebContent = WhenClause.and([
-        .notEquals(KeyContext.surfaceKind, .string("agent")), .notEquals(KeyContext.surfaceKind, .string("page")),
+        .notEquals(KeyContext.surfaceKind, .string("agent")), .notEquals(KeyContext.surfaceKind, .string("home")),
+        .notEquals(KeyContext.surfaceKind, .string("home-dock")), .notEquals(KeyContext.surfaceKind, .string("page")),
     ])
 
     /// The keys a focused text field or composer uses itself (Leo, 2026-10-20): Return sends and

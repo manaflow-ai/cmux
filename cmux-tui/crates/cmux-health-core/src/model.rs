@@ -17,7 +17,8 @@
 //! the part's deadline at `nowMs`, so the host's timer fires at once.
 //!
 //! The repair episode of a stuck part: attempt 1 at once, then attempt `n+1`
-//! when the backoff after attempt `n` passes without the part's signal
+//! when the wait after attempt `n` (its backoff; at least `PAGE_BOOT_MS` after a
+//! repair that loads a page again) passes without the part's signal
 //! coming back (a `repairResult` with `ok: false` makes it due at once).
 //! Past [`policy::MAX_REPAIRS`] attempts in [`policy::REPAIR_WINDOW_MS`] the
 //! part is `failed` and waits for the user's click, which clears the cap and
@@ -80,6 +81,10 @@ impl Cond {
 struct Signals {
     /// The last beat (or `loaded`, `connected`, a show).
     last_beat: Option<u64>,
+    /// A page said it is at rest (its last beat was `rest`): nothing happened in it for a while,
+    /// so it sends no beats and its silence is not timed. Input sent to it is (`input_since`),
+    /// and its next beat, a show or a load ends the rest.
+    resting: bool,
     sent: u64,
     handled: u64,
     /// Since when input is sent but not handled.
@@ -93,6 +98,9 @@ struct Signals {
     host_broken: bool,
     /// `started` times since the last `ready`.
     starts: VecDeque<u64>,
+    /// A `started` with no `ready` or `exited` after it: only then is a
+    /// progress line a restore (a late line of an ensure that ended is not).
+    starting: bool,
     restoring: bool,
     restore_bytes: u64,
     last_progress: u64,
@@ -179,7 +187,8 @@ fn evaluate(part: &mut Part, now: u64) -> Cond {
             if s.crashed {
                 return stuck(Cause::PageCrashed, ladder);
             }
-            let silence = s.last_beat.map_or(healthy, |beat| {
+            // A resting page beats no more until something happens in it: silence is its normal state.
+            let silence = s.last_beat.filter(|_| !s.resting).map_or(healthy, |beat| {
                 let ms = now.saturating_sub(beat);
                 if ms >= policy::PAGE_STUCK_MS {
                     stuck(Cause::PageSilent { ms }, ladder)
@@ -376,9 +385,21 @@ impl Health {
     }
 
     pub fn beat(&mut self, id: &str, now: u64) {
+        self.answered(id, now, false);
+    }
+
+    /// A page's last beat before it rests (`policy::PAGE_REST_AFTER_MS` with nothing happening in
+    /// it): it answers like a beat, then its silence is not timed until it beats again, is shown
+    /// or loads. Input sent to it in the meantime still is.
+    pub fn rest(&mut self, id: &str, now: u64) {
+        self.answered(id, now, true);
+    }
+
+    fn answered(&mut self, id: &str, now: u64, resting: bool) {
         self.signal(id, now, |part| {
             let s = &mut part.signals;
             s.last_beat = Some(now);
+            s.resting = resting;
             s.crashed = false;
             s.disconnected = false;
         });
@@ -411,6 +432,8 @@ impl Health {
             if visible {
                 let s = &mut part.signals;
                 s.last_beat = Some(now);
+                // A page shown again beats at once (pageHealth.ts): it is timed from the show.
+                s.resting = false;
                 s.input_since = s.input_since.map(|_| now);
                 s.unresponsive_since = s.unresponsive_since.map(|_| now);
             }
@@ -427,6 +450,7 @@ impl Health {
                     // A page that loaded answers; its old input died with it.
                     s.crashed = false;
                     s.last_beat = Some(now);
+                    s.resting = false;
                     s.handled = s.sent;
                     s.input_since = None;
                     s.listener_missing = false;
@@ -460,18 +484,21 @@ impl Health {
                         s.starts.pop_front();
                     }
                     (s.restoring, s.restore_bytes) = (false, 0);
+                    s.starting = true;
                     // A new process: tell the launcher again if it loops.
                     part.repair.held = false;
                 }
                 "ready" => {
                     s.starts.clear();
-                    s.restoring = false;
+                    (s.starting, s.restoring) = (false, false);
                 }
-                "exited" => s.restoring = false,
+                "exited" => (s.starting, s.restoring) = (false, false),
                 // With bytes read, only more bytes is progress. Without (a daemon whose progress
                 // line has no work counters yet), each line says the owner is still restoring;
                 // its own no-work bound ends a stuck one.
                 "restoreProgress" => match value {
+                    // No owner is starting: the line came after its ensure ended.
+                    _ if !s.starting => {}
                     Some(bytes) if s.restoring && bytes <= s.restore_bytes => {}
                     Some(bytes) => {
                         s.restoring = true;
@@ -661,7 +688,7 @@ impl Health {
                         r.attempt += 1;
                         r.history.push_back(now);
                         r.action = policy::step(ladder, r.attempt);
-                        r.next_at = Some(now + policy::backoff(r.attempt));
+                        r.next_at = Some(now + policy::wait_after(r.action, r.attempt));
                         r.sent += 1;
                         let (action, attempt, token) = (r.action, r.attempt, r.sent);
                         out.push(Action { id: part.id.clone(), kind, action, attempt, token });

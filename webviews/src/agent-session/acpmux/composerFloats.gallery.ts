@@ -2,10 +2,10 @@
 // The composer floats over the transcript (Leo 2026-10-19, as the Claude and Codex apps lay theirs):
 // a long chat opened at its latest message, its scrollbar's track running the pane's height to the
 // bottom corner, the composer lying over the transcript's foot and the last answer whole above it.
-// The play checks that geometry and then grows the composer by a few lines. The grown card covers the
-// transcript's foot and moves no row (the overlay dock, Leo, 2026-11-11: "do we even want stuff to push
-// up vs just simple... covering stuff?"); a wheel past the end reaches the covered rows
-// (composer/dockMotion.gallery.tsx `grown-reached`).
+// The play checks that geometry and then grows the composer by a few lines: at the latest message the
+// rows rise with the card in the same frame, so the last row stays above it (the overlay dock reflows
+// nothing; composer/dockMotion.experiment.ts). Scrolled up, the card grows over still rows
+// (test/agent-pane-composer-dock-motion.test.ts).
 import { agentPaneEntry } from "../../gallery/format";
 import { assistant, chat, summary, user } from "../../gallery/fixtures/acpmux";
 import type { Play, PlayContext } from "../../gallery/play";
@@ -49,14 +49,12 @@ const scrolledToEnd: Play = async (ctx) => {
 const composerGrows: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-md"));
   underComposer(ctx);
-  const before = trackToBottom(ctx).getBoundingClientRect().top;
   await ctx.type("Then document the cap", { selector: ".acpmux-md" });
   for (let line = 0; line < 3; line++) {
     await ctx.press("Shift+Enter");
     await ctx.type(`and line ${line + 2} of the note`);
   }
-  const moved = trackToBottom(ctx).getBoundingClientRect().top - before;
-  if (Math.abs(moved) > 1) throw new Error(`The last row moved ${moved.toFixed(1)}px as the composer grew`);
+  underComposer(ctx);
 };
 
 export default agentPaneEntry({
@@ -73,7 +71,7 @@ export default agentPaneEntry({
       play: scrolledToEnd,
     },
     "composer-grown": {
-      note: "The same chat with a four-line prompt typed: the card grew over the transcript's foot and no row moved.",
+      note: "The same chat with a four-line prompt typed: the rows rose with the card, the last answer still whole above it.",
       snapshot: chat(rows),
       play: composerGrows,
       checks: {

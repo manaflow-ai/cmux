@@ -5,12 +5,12 @@ public import Observation
 /// window ... just drop user into main screen asap"). A first run starts it in place of the first-run windows:
 /// the Agents window and the CLI toast at launch mark themselves shown, so their rows on the card are the one
 /// place they are offered. Bring your history keeps its own once flag: the card's chat history row sets it
-/// only once that page showed or the row (or the card) was dismissed. Hide or every row done ends it for good, per
-/// channel (`defaults`). Settings keeps every row.
+/// only once that page showed or the row (or the card) was dismissed. Hide or every row done ends first-run setup,
+/// per channel (`defaults`). An explicit reopen keeps the card visible until Hide.
 @MainActor
 @Observable
 public final class FirstRunSetup {
-    /// UserDefaults: "pending" while the card shows, "ended" once hidden or done.
+    /// UserDefaults: "pending" for first run, "reopened" for an explicit visit, "ended" once hidden or done.
     public static let stateKey = "home.firstRun.setupCard"
     /// Whether Home shows the card now.
     public private(set) var shows: Bool
@@ -23,12 +23,54 @@ public final class FirstRunSetup {
     public init(defaults: UserDefaults = .standard, skipsOnboarding: Bool = false) {
         self.defaults = defaults
         self.skipsOnboarding = skipsOnboarding
-        shows = !skipsOnboarding && defaults.string(forKey: Self.stateKey) == "pending"
+        shows = !skipsOnboarding && ["pending", "reopened"].contains(defaults.string(forKey: Self.stateKey) ?? "")
         historyDone = defaults.bool(forKey: OnboardingWindowPresenter.historyShownKey)
     }
 
     @ObservationIgnored private let skipsOnboarding: Bool
-    @ObservationIgnored private var agentsModel: AgentsStepModel?
+    /// Observed (not ignored): ``needsChiefAgent`` reads it, so a model made after a reader subscribed wakes it.
+    private var agentsModel: AgentsStepModel?
+
+    /// The agent Chief answers through when no route is configured: the person's own Claude Code.
+    public static let chiefAgentID = "claude"
+
+    /// Hide on the Chief card: it stays away until the next launch.
+    private var chiefAgentHidden = false
+
+    /// Whether Home's Chief chat shows the card's Chief form (first-run findings rows 1 and 4: with onboarding off,
+    /// a fresh Mac opened straight into Home and Chief refused every message). True only on evidence that Chief
+    /// cannot answer: acpmux answered and Claude Code is not installed, or its sign-in check says signed out or
+    /// expired, or its login opened here waits to be confirmed. A read not made yet, a list acpmux did not answer
+    /// (Claude Code not listed at all), an unknown sign-in (a Keychain login) and a configured Claude route never
+    /// show it. Independent of the onboarding switch.
+    public var needsChiefAgent: Bool {
+        guard !chiefAgentHidden, let model = agentsModel, model.loaded, model.source?.chiefUsesRoute != true else { return false }
+        if model.installable.contains(where: { $0.id == Self.chiefAgentID }) { return true }
+        guard let agent = model.agents.first(where: { $0.id == Self.chiefAgentID }) else { return false }
+        return agent.auth == .signedOut || agent.auth == .expired || model.awaitsConfirmation(agent)
+    }
+
+    /// Which Set Up card Chief's chat shows (``SetupCardHost``).
+    public enum CardForm: Sendable, Equatable {
+        /// The whole Set Up cmux card, while ``FirstRunSetup/shows``.
+        case full
+        /// Only the agent Chief answers through, while ``FirstRunSetup/needsChiefAgent``.
+        case chief
+    }
+
+    /// The card Chief's chat shows now, or `nil` for none: the whole card while ``shows``, else its Chief form while
+    /// ``needsChiefAgent``.
+    public var cardForm: CardForm? { shows ? .full : needsChiefAgent ? .chief : nil }
+
+    /// Reads the agents once (the shared model's first read), so ``needsChiefAgent`` can answer.
+    public func checkChiefAgent(source: (any AgentSignInSource)?) {
+        agents(source: source).start()
+    }
+
+    /// Hide on the Chief card: away for this launch; Chief's own reply still says what is missing.
+    public func hideChiefAgent() {
+        chiefAgentHidden = true
+    }
 
     /// The card's agent installs and sign-ins, one for every card this launch: a card made again (another Home
     /// conversation, a new window) shows an install already running, starts no second one, and the install's
@@ -72,11 +114,26 @@ public final class FirstRunSetup {
         return defaults.string(forKey: Self.stateKey) == nil ? .windows : .cardOwns
     }
 
-    /// Hide, or every row done: the card leaves for good, and its chat history row with it.
+    /// Hide, or first-run completion: the card leaves until explicitly reopened, and its chat history row with it.
     public func end() {
         guard defaults.string(forKey: Self.stateKey) != "ended" else { return }
         historyAnswered()
         defaults.set("ended", forKey: Self.stateKey)
         shows = false
+    }
+
+    /// Shows the card again from a release action, preserving rows that were already answered.
+    /// This explicit request works even when automatic onboarding is skipped. It never changes first-run
+    /// markers or reopens the first-run windows, and refreshes the shared agent model without restarting installs.
+    public func reopen() {
+        defaults.set("reopened", forKey: Self.stateKey)
+        agentsModel?.refresh(recheck: true)
+        shows = true
+    }
+
+    /// Automatically dismisses first-run setup; a requested visit stays so completed rows can be reviewed.
+    func complete() {
+        guard defaults.string(forKey: Self.stateKey) != "reopened" else { return }
+        end()
     }
 }

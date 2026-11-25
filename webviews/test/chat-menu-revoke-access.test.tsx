@@ -14,6 +14,8 @@ import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { configureQuickActions } from "../src/agent-session/acpmux/header/quickActions";
 import { translate } from "../src/agent-session/acpmux/i18n";
 import { resetSessionInfoState } from "../src/agent-session/acpmux/session-info/sessionInfoState";
+import { settleReact } from "./support/domTeardown";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -62,6 +64,7 @@ afterEach(async () => {
   resetSessionInfoState();
   configureQuickActions({});
   setHeaderState({ inspector: false });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -109,7 +112,7 @@ test("with Session Info off and a decided trust grant, the chat menu revokes it"
   });
   const document = container.ownerDocument;
   // Session Info is off: nothing else on screen lists the grant.
-  expect(document.querySelector("aside.acpmux-session-info")).toBeNull();
+  expect(document.querySelector(SESSION_INFO)).toBeNull();
   expect(document.querySelector("[data-grant]")).toBeNull();
 
   const menuButton = [...container.querySelectorAll<HTMLElement>("button")].find(

@@ -5,6 +5,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -38,11 +39,8 @@ beforeAll(() => {
   view = window as unknown as Window & typeof globalThis;
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });
 
 const { mountSidebarChats } = await import("../src/pages/sidebar-chats/mount");
@@ -56,15 +54,16 @@ async function mount() {
   host = view.document.createElement("div");
   view.document.body.replaceChildren(host);
   const calls: Call[] = [];
-  let emit!: (block: unknown) => void;
+  const streams = new Map<string, (data: unknown) => void>();
+  const emit = (block: unknown) => streams.get(SidebarChatsOps.block)?.(block);
   const frames: Array<() => void> = [];
   const client = {
     call: (op: string, params: Record<string, unknown>) => {
       calls.push({ op, params });
       return Promise.resolve(undefined);
     },
-    subscribe: async (_stream: string, onEvent: (data: unknown) => void) => {
-      emit = onEvent;
+    subscribe: async (stream: string, onEvent: (data: unknown) => void) => {
+      streams.set(stream, onEvent);
       return () => {};
     },
     handle: () => () => {},

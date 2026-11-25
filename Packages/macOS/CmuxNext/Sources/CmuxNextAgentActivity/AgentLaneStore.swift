@@ -24,10 +24,12 @@ public final class AgentLaneStore {
             return storage
         }
         set {
+            if storage != newValue { revision &+= 1 }
             withMutation(keyPath: \.lanes) { storage = newValue }
             waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
             if waitingSessions != waiting { waitingSessions = waiting }
             working = Set(newValue.compactMap { $0.value.state == .working ? $0.key : nil })
+            if workingSessions != working { workingSessions = working }
             unread = Set(newValue.compactMap { $0.value.unread ? $0.key : nil })
             syncCells()
             syncChiefParticipants()
@@ -46,6 +48,9 @@ public final class AgentLaneStore {
     /// The sessions whose lane runs a turn (`.working`), kept as ``waiting`` is: the menu bar's
     /// Running list reads these few lanes, never every one.
     @ObservationIgnored public private(set) var working: Set<String> = []
+    /// ``working``, observed: written only when a session starts or stops a turn, as ``waitingSessions``
+    /// is, so a reader of who works (the backdrop's agent glow) is not told of every agent step.
+    public private(set) var workingSessions: Set<String> = []
     /// The sessions whose lane has a result nobody has seen (`unread`), kept as ``waiting`` is: the
     /// menu bar's Unread list. The person's read marks (`AgentPriorityMarks`) still apply on top.
     @ObservationIgnored public private(set) var unread: Set<String> = []
@@ -57,11 +62,14 @@ public final class AgentLaneStore {
     public func set(_ session: String, _ lane: AgentActivityLane?) {
         let ownedBefore = Self.chiefOwnership(storage[session])
         let nameBefore = storage[session]?.name
+        if storage[session] != lane { revision &+= 1 }
         withMutation(keyPath: \.lanes) { storage[session] = lane }
         let wasWaiting = waiting.contains(session)
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
         if waiting.contains(session) != wasWaiting { waitingSessions = waiting }
+        let wasWorking = working.contains(session)
         if lane?.state == .working { working.insert(session) } else { working.remove(session) }
+        if working.contains(session) != wasWorking { workingSessions = working }
         if lane?.unread == true { unread.insert(session) } else { unread.remove(session) }
         // Only this session's cell can change: the others' lanes are as they were.
         syncCell(session)
@@ -89,6 +97,11 @@ public final class AgentLaneStore {
         if chiefParticipants != identities { chiefParticipants = identities }
     }
     @ObservationIgnored private var storage: [String: AgentActivityLane] = [:]
+    /// Counts the writes that changed a lane (``set(_:_:)``, ``lanes``' setter), observed: a reader that only needs to
+    /// know that some lane changed (`agent_chat.changed`, AppProviderChangeFeed.agentChats) reads this one number
+    /// instead of every lane. Reading ``lanes`` there mapped and compared every lane on the main thread at each agent
+    /// step (a 2.0 s hang in NIGHTLY 23c9f5a, 2026-11-11 01:11:27Z, `agentChats` under the feed's observation).
+    public private(set) var revision: UInt64 = 0
     /// One observable cell per session a reader asked for (``lane(_:)``, ``links(_:)``).
     @ObservationIgnored private var cells: [String: AgentLaneCell] = [:]
     /// The acpmux socket whose watch fills the store (set by `AgentTurnStateFeed`), for requests

@@ -85,7 +85,7 @@ fn read(
     extras: &mut Extras,
     mut add: impl FnMut(&Row<'_>, &mut Map<String, Value>) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let mut statement = connection.prepare(sql)?;
+    let mut statement = connection.prepare_cached(sql)?;
     let mut rows = statement.query([ids])?;
     while let Some(row) = rows.next()? {
         let id = row.get::<_, String>(0)?;

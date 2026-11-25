@@ -7,7 +7,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/release-notes.py"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 git -C "$tmp" init -q
 commit() { GIT_AUTHOR_NAME="$1" GIT_COMMITTER_NAME="$1" GIT_AUTHOR_EMAIL=a@example.com GIT_COMMITTER_EMAIL=a@example.com \
   git -C "$tmp" commit -q --allow-empty -m "$2"; }

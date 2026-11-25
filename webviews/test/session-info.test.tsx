@@ -26,6 +26,7 @@ import { resetPullRequestStore } from "../src/agent-session/acpmux/chips/pullReq
 import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
 import { resetChangesStatuses } from "../src/agent-session/acpmux/session-info/changesStatus";
 import { SessionInfo } from "../src/agent-session/acpmux/session-info/SessionInfo";
+import { SESSION_INFO } from "../src/agent-session/acpmux/session-info/sessionInfoSelectors";
 import {
   sessionInfoTopOffset,
   sessionInfoOverChat,
@@ -62,6 +63,7 @@ import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSumma
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 import { withCloudMachineSummary } from "../src/agent-session/acpmux/cloudSummary";
 import { SummaryCard } from "../src/agent-session/acpmux/summary/SummaryCard";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -122,6 +124,7 @@ afterEach(async () => {
   resetSessionInfoState();
   setSessionInfoMore(true);
   setHeaderState({ inspector: false, pullRequest: null });
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -222,7 +225,7 @@ async function render(container: HTMLElement, snapshot: AcpmuxSnapshot, opened: 
 
 const toggle = (container: HTMLElement) =>
   container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Session Info"]');
-const panel = (container: HTMLElement) => container.querySelector<HTMLElement>("aside.acpmux-session-info");
+const panel = (container: HTMLElement) => container.querySelector<HTMLElement>(SESSION_INFO);
 const section = (container: HTMLElement, id: string) =>
   container.querySelector<HTMLElement>(`section.acpmux-session-info-section[data-section="${id}"]`);
 const sectionIds = (container: HTMLElement) =>
@@ -368,8 +371,11 @@ test("Session Info opens with a first chat: its environment, its context on one 
   expect(rows[0]!.querySelector(".acpmux-session-info-row__name")?.textContent).toBe("Studio");
   expect(rows[0]!.querySelector("[data-machine-kind]")?.textContent).toBe(translate("composer.envLocal"));
   expect(rows[0]!.dataset.machine).toBe("local");
-  expect(rows[1]!.textContent).toBe("atlas-web");
-  expect(rows[1]!.getAttribute("title")).toBe(CWD);
+  expect(rows[1]!.textContent).toBe(translate("sessionInfo.environment.shareScreen"));
+  const project = rows.find((row) => row.getAttribute("title") === CWD)!;
+  expect(project.textContent).toBe("atlas-web");
+  // This pane fixture has no folder callback, so its project stays noninteractive.
+  expect(project.tagName).toBe("LI");
   expect(rows.map((row) => row.textContent)).toContain("main");
 
   // Context: one line, 48K of 200K on a meter at 24% (Lucas, 2026-11-05, Session Info lab), folded; a

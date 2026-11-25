@@ -14,6 +14,7 @@ final class InternalPageTabStore {
     private var providers: [InternalPageID: any InternalPageProvider] = [:]
     private let tabsByPane = ObservedMap<String, [String]>()
     @ObservationIgnored private var views: [String: InternalPageView] = [:]
+    @ObservationIgnored let pictures = PageTabPictures()  // the tabs' hover-card pictures
     /// The main window each tab opened in, for its provider's theme scope.
     @ObservationIgnored private var windows: [String: WindowController] = [:]
     /// The daemon tree each pane with page tabs belongs to; watched so the
@@ -25,11 +26,12 @@ final class InternalPageTabStore {
     /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) on its
     /// route (`page-tab-route-v1`) in a pane: the created tab and the event
     /// sequence its reply follows. Sends it on the pane's daemon; tests hold it.
-    @ObservationIgnored var createStoreTab: @MainActor (PaneID, DaemonService, String, String?, ClientTransactionID) async throws
-        -> (created: PageTabCreated, sequence: UInt64?) = { pane, daemon, page, route, transaction in
+    @ObservationIgnored var createStoreTab: @MainActor (PaneID, DaemonService, String, String?, ClientTransactionID, ConversationTabSplit?) async throws
+        -> (created: PageTabCreated, sequence: UInt64?) = { pane, daemon, page, route, transaction, split in
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
-        let request = NewConversationTabRequest(page: page, route: route, pane: pane, origin: InternalPageTabStore.createOrigin,
+        var request = NewConversationTabRequest(page: page, route: route, pane: pane, origin: InternalPageTabStore.createOrigin,
                                                 mutationID: UUID().uuidString.lowercased(), transaction: transaction)
+        request.split = split // in a new pane right of `pane`, one daemon commit (`conversation-tab-split-v1`)
         let response = try await connection.request(request)
         let created = PageTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
                                      surface: response.surface)
@@ -43,15 +45,6 @@ final class InternalPageTabStore {
     @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
-
-    /// The pages only Labs (`labs.previewFeatures`) shows: the App Store. What's New
-    /// (`.changelog`) is not one: an update's "See What's New" opens it with Labs off
-    /// (user 13935, Leo 2026-10-29: "why does See What's New not open the What's New tab").
-    static func isPreviewPage(_ page: String?) -> Bool {
-        page == InternalPageID.appStore.rawValue
-    }
-
-    static func isPreviewPage(_ page: InternalPageID) -> Bool { isPreviewPage(page.rawValue) }
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -135,8 +128,6 @@ final class InternalPageTabStore {
 
     /// The tab's view, made on first show.
     func view(for key: String) -> InternalPageView? {
-        if let page = LocalPageTab.page(of: key), Self.isPreviewPage(page),
-           windows[key]?.services.settings?.snapshot.previewFeatures != true { return nil }
         if let view = views[key] { return view }
         guard tabsByPane.entries.contains(where: { $0.value.contains(key) }), let page = LocalPageTab.page(of: key),
               let provider = providers[page] else { return nil }
@@ -150,6 +141,13 @@ final class InternalPageTabStore {
     /// `key`'s view: an app-only page tab's, or a store page tab's by its id.
     /// The provider key of store page tab `id`, nil for any other tab.
     func storeKey(of id: String) -> String? { storeKeys[id] }
+
+    /// A machine-qualified action must name the store that owns this provider, not a
+    /// different store which happens to contain the same daemon tab id.
+    func storeKey(of id: String, in store: DaemonStore) -> String? {
+        guard storeTabStores[id] === store else { return nil }
+        return storeKeys[id]
+    }
 
     func existingView(_ key: String) -> InternalPageView? { views[key] ?? storeKeys[key].flatMap { views[$0] } }
 
@@ -175,24 +173,21 @@ final class InternalPageTabStore {
     /// app tab, `app-screens-v1`), made on first show under a provider key of
     /// its own. A tab this app did not open shows its route
     /// (`page-tab-route-v1`) only from this Mac's daemon (`local`): another
-    /// machine's daemon never names a file or folder for this Mac to read.
+    /// machine's daemon never names a file or folder for this Mac to read. A closed tab (a strip may ask in the frame after) gets none: it would hold its page and pool host for good.
     func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
               window: WindowController?) -> InternalPageView? {
         guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)) else { return nil }
-        if Self.isPreviewPage(page),
-           window?.services.settings?.snapshot.previewFeatures != true { return nil }
         if let key = storeKeys[tab.id], let view = views[key] {
             // The tab moved to another window: the same view shows there, and its window follows.
             if let window { windows[key] = window }
             return view
         }
-        guard let provider = providers[page] else { return nil }
+        guard let provider = providers[page], storeKeys[tab.id] != nil || store.liveTreeLists(tab: tab.id) != false else { return nil }
         let key = storeKeys[tab.id] ?? LocalPageTab.makeKey(page)
         // A tab this app did not open (Reopen Closed, relaunch, another app): its route says what it shows.
         if local, storeKeys[tab.id] == nil, let route = tab.pageRoute { provider.restore(route, for: key) }
         track(tab.id, key: key, in: store, window: window)
-        // A pane lists it: the tree has it.
-        seenLive.insert(tab.id)
+        seenLive.insert(tab.id) // A pane lists it: the tree has it.
         let content = provider.makeView(for: key, in: windows[key])
         let view = InternalPageView(key: key, page: page, content: content, topBar: provider.makeTopBar(for: key))
         view.navigate = navigate
@@ -226,14 +221,17 @@ final class InternalPageTabStore {
                       failed onFailed: (@MainActor ((any Error)?) -> Void)? = nil, requiresSurface: Bool = false) -> InternalPageView? {
         let store = daemon.store
         let homePlacement = HomeDockOpens.opensBeside(model, services: services)
+        // Home's dock alone (taking tabs or not), no caller's placement: made in its new column right of it in one commit, shown in this turn (as a link, #33548).
+        let splits = onCreated == nil && pane != nil && ActionRunScope.viewChangeAllowed() && store.isLonePinnedDock(model.handle)
+            && [DaemonCapability.conversationTabSplit, .pinnedDockAlone, .splitClientKeys].allSatisfy { daemon.supports($0.rawValue) }
         // A foreground page in Home is selected by its destination placement, never while its
         // provisional tab still belongs to the dock: that would release OutboundTab too early.
         let selectHere = focus && !homePlacement
         // Nothing opens in Home's dock (an app page, a file): without a placement of the caller's, the tab moves beside it.
-        let onCreated = onCreated ?? HomeDockOpens.placing(model, services: services, focus: focus, then: nil)
+        let onCreated = onCreated ?? (splits ? nil : HomeDockOpens.placing(model, services: services, focus: focus, then: nil))
         guard let provider = providers[page], daemon.supports(DaemonCapability.pageTabs.rawValue),
               case .connected = store.connectionState else {
-            if homePlacement { HomeDockOpens.cancel(model, services: services) }
+            if homePlacement, !splits { HomeDockOpens.cancel(model, services: services) }
             onFailed?(daemon.supports(DaemonCapability.pageTabs.rawValue)
                 ? DaemonError.notConnected : DaemonError.missingCapabilities([DaemonCapability.pageTabs.rawValue]))
             return nil
@@ -251,9 +249,12 @@ final class InternalPageTabStore {
         store.onPageTabCreated = { [weak self] provisional, tab in
             self?.storeTabCreated(provisional, as: tab.id, surface: tab.surface)
         }
-        let transaction = ClientTransactionID.generate()
-        store.intend(.createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
-        if let pane {
+        let transaction = ClientTransactionID.generate(), column = splits ? ProvisionalPane(holding: snapshot) : nil
+        let split = column.map { ConversationTabSplit(direction: .right, paneID: $0.paneID, splitID: daemon.supports(DaemonCapability.splitClientSplitID.rawValue) ? $0.splitID : nil) }
+        store.intend(column.map { Intent.splitPane(pane: model.handle, direction: .right, ratio: 0.5, provisional: $0) } ?? .createTab(pane: model.handle, provisional: snapshot), transaction: transaction)
+        let content = split != nil && focus ? pane?.workspace : nil, focusIntent = content?.beginFocusIntent()
+        content?.focus.expect(.tab(provisional.id), generation: focusIntent) // the new column's tab takes the focus now, then the store's
+        if split != nil { pane?.workspace?.applyCurrent() } else if let pane {
             if selectHere {
                 pane.selectWhenReported(surface: provisional.surface)
                 pane.focusContent()
@@ -263,11 +264,12 @@ final class InternalPageTabStore {
         }
         // Home kept the provisional tab unselected for placement. If creation fails, its local
         // fallback must still honor a foreground open, unless the person chose something else.
-        let fallbackIntent = focus && !selectHere ? pane?.workspace?.beginFocusIntent() : nil
+        let fallbackIntent = split != nil ? focusIntent : focus && !selectHere ? pane?.workspace?.beginFocusIntent() : nil
         let create = createStoreTab, handle = model.handle, paneKey = model.id
         services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
-                let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction)
+                let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction, split)
+                content?.expectFocus(on: created.surface, generation: focusIntent)
                 // Closed first (CancelledCreation): nothing moves to the store's tab, nothing is reported.
                 if !store.creations.wasCancelled(transaction) { self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface) }
                 // The store's tab replaces the provisional one in one step, never beside it.
@@ -275,7 +277,7 @@ final class InternalPageTabStore {
                 if let sequence { store.noteSettled(transaction, at: sequence) } else { store.noteSettledAtNextSnapshot(transaction) }
                 if !store.creations.wasCancelled(transaction) { onCreated?(created.surface) } else { onFailed?(nil) }
             } catch {
-                if homePlacement { HomeDockOpens.cancel(model, services: services) }
+                if homePlacement, !splits { HomeDockOpens.cancel(model, services: services) }
                 daemon.logger.error("new-conversation-tab (page) failed: \(String(describing: error), privacy: .public)")
                 onFailed?(store.creations.wasCancelled(transaction) ? nil : error)
                 if requiresSurface {
@@ -378,6 +380,7 @@ final class InternalPageTabStore {
     private func forget(_ key: String) {
         views.removeValue(forKey: key)?.removeFromSuperviewDetachingSubviews() // never a page leaving its hierarchy in a dealloc
         windows[key] = nil
+        pictures.forget(key)
         if let page = LocalPageTab.page(of: key) { providers[page]?.tabClosed(key) }
     }
 

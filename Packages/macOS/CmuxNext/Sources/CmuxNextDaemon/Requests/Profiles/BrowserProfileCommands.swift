@@ -60,16 +60,20 @@ public struct UpdateBrowserProfileRequest: DaemonRequest {
     public var name: String?
     public var color: FieldUpdate<String>
     public var icon: FieldUpdate<String>
+    /// The profile's own proxy (#24432), as `cmux browser profile proxy set|clear` sends it; the daemon validates it.
+    public var proxy: FieldUpdate<BrowserProfileSnapshot.Proxy>
 
-    public init(id: String, name: String? = nil, color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged) {
+    public init(id: String, name: String? = nil, color: FieldUpdate<String> = .unchanged, icon: FieldUpdate<String> = .unchanged,
+                proxy: FieldUpdate<BrowserProfileSnapshot.Proxy> = .unchanged) {
         self.id = id
         self.name = name
         self.color = color
         self.icon = icon
+        self.proxy = proxy
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, color, icon
+        case name, color, icon, proxy
         case id = "browser_profile"
     }
 
@@ -79,5 +83,6 @@ public struct UpdateBrowserProfileRequest: DaemonRequest {
         try c.encodeIfPresent(name, forKey: .name)
         try c.encode(color, forKey: .color)
         try c.encode(icon, forKey: .icon)
+        try c.encode(proxy, forKey: .proxy)
     }
 }

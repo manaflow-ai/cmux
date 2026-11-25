@@ -18,6 +18,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 
 await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -274,7 +275,10 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
       try {
         const page = await openChat(MAIN);
         await type(page, `/side ${PROMPT}`);
-        await page.locator(".acpmux-attachment-note").getByText("the agent is busy compacting").waitFor();
+        // acpmux's raw JSON-RPC text goes to the log; the note says it plainly (Leo, 2026-11-12: "we want
+        // good error states. We don't want busted errors.").
+        await page.locator(".acpmux-attachment-note").getByText("Couldn't fork this chat").waitFor();
+        expect(await page.locator(".acpmux-attachment-note").textContent()).not.toContain("busy compacting");
         expect(await composerText(page)).toBe(`/side ${PROMPT}`);
         expect(sides).toEqual([]);
         expect(await sideChats(page)).toEqual([]);
@@ -292,19 +296,22 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
       const page = await openChat(MAIN);
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type(`/side ${PROMPT} `);
-      await page.evaluate(async () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = 64;
-        canvas.height = 48;
-        const context = canvas.getContext("2d")!;
-        context.fillStyle = "#e33";
-        context.fillRect(0, 0, 64, 48);
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-        const data = new DataTransfer();
-        data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
-        const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
-        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-      });
+      await page.evaluate(
+        async ({ COMPOSER_EDITOR }) => {
+          const canvas = document.createElement("canvas");
+          canvas.width = 64;
+          canvas.height = 48;
+          const context = canvas.getContext("2d")!;
+          context.fillStyle = "#e33";
+          context.fillRect(0, 0, 64, 48);
+          const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+          const data = new DataTransfer();
+          data.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
+          const target = document.querySelector(COMPOSER_EDITOR)!;
+          target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+        },
+        { COMPOSER_EDITOR },
+      );
       const chip = page.locator(".acpmux-composer img[alt*='Screenshot']");
       await chip.first().waitFor();
       await page.keyboard.press("Enter");
@@ -332,32 +339,35 @@ await requireBrowserLane("agent-pane-side-command.test.ts", async () => {
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type(`/side ${PROMPT} `);
       // A big screenshot: its read outlasts the Return pressed once its tile shows loading.
-      await page.evaluate(async () => {
-        const canvas = document.createElement("canvas");
-        canvas.width = 5120;
-        canvas.height = 2880;
-        const context = canvas.getContext("2d")!;
-        const noise = context.createImageData(canvas.width, canvas.height);
-        for (let i = 0; i < noise.data.length; i++) noise.data[i] = (i * 2654435761) >>> 24;
-        context.putImageData(noise, 0, 0);
-        const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
-        const data = new DataTransfer();
-        data.items.add(new File([blob], "Big screenshot.png", { type: "image/png" }));
-        const target = document.querySelector(".acpmux-composer-prompt [contenteditable='true']")!;
-        const loading = new Promise<void>((resolve) => {
-          const seen = () =>
-            document.querySelector(".acpmux-attachment[aria-busy='true'], .acpmux-md-inline-chip[aria-busy='true']");
-          const observer = new MutationObserver(() => {
-            if (seen()) {
-              observer.disconnect();
-              resolve();
-            }
+      await page.evaluate(
+        async ({ COMPOSER_EDITOR }) => {
+          const canvas = document.createElement("canvas");
+          canvas.width = 5120;
+          canvas.height = 2880;
+          const context = canvas.getContext("2d")!;
+          const noise = context.createImageData(canvas.width, canvas.height);
+          for (let i = 0; i < noise.data.length; i++) noise.data[i] = (i * 2654435761) >>> 24;
+          context.putImageData(noise, 0, 0);
+          const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+          const data = new DataTransfer();
+          data.items.add(new File([blob], "Big screenshot.png", { type: "image/png" }));
+          const target = document.querySelector(COMPOSER_EDITOR)!;
+          const loading = new Promise<void>((resolve) => {
+            const seen = () =>
+              document.querySelector(".acpmux-attachment[aria-busy='true'], .acpmux-md-inline-chip[aria-busy='true']");
+            const observer = new MutationObserver(() => {
+              if (seen()) {
+                observer.disconnect();
+                resolve();
+              }
+            });
+            observer.observe(document.body, { subtree: true, childList: true, attributes: true });
           });
-          observer.observe(document.body, { subtree: true, childList: true, attributes: true });
-        });
-        target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
-        await loading;
-      });
+          target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+          await loading;
+        },
+        { COMPOSER_EDITOR },
+      );
       await page.keyboard.press("Enter");
       await firstPrompt();
       const gestures = await page.evaluate(

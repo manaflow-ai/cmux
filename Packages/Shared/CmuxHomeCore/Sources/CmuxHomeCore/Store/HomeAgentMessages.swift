@@ -203,11 +203,19 @@ struct HomeAgentMessages {
         var peers: [String] = [], seenPeers: Set<String> = []
         var states: [String: HomeAgentMessageRow.PeerState] = [:], latest: String?, titles: [String: String] = [:]
         var reportedAt: [String: Date] = [:]
+        // Each agent's current task: from the Chief's first message since its last report or stop, to that end.
+        var begun: [String: Date] = [:], ended: [String: Date] = [:]
         for member in members {
             let peer: String
             switch member.agentMessage?.kind {
             case let .message(from, to, outgoing, text)?:
                 peer = outgoing ? to : from
+                if outgoing, begun[peer] == nil || ended[peer] != nil {
+                    begun[peer] = member.createdAt
+                    ended[peer] = nil
+                } else if !outgoing {
+                    ended[peer] = member.createdAt
+                }
                 states[peer] = !outgoing ? .reported
                     : member.agentMessage?.queued == true && !started.contains(peer) ? .queued : .told
                 if outgoing, titles[peer] == nil { titles[peer] = HomeAgentMessageRow.title(of: text) }
@@ -216,6 +224,7 @@ struct HomeAgentMessages {
             case let .note(notePeer, _, text)?:
                 peer = notePeer
                 states[peer] = .stopped
+                ended[peer] = member.createdAt
                 latest = text
             default:
                 continue
@@ -234,6 +243,8 @@ struct HomeAgentMessages {
         fold.agentMessage?.peerStates = peers.map { states[$0] ?? .told }
         fold.agentMessage?.latest = latest
         fold.agentMessage?.peerTitles = peers.map { known[$0] ?? titles[$0] ?? $0 }
+        fold.agentMessage?.peerStarted = peers.map { begun[$0] }
+        fold.agentMessage?.peerEnded = peers.map { states[$0] == .reported || states[$0] == .stopped ? ended[$0] : nil }
         fold.agentMessage?.peerUnread = peers.map { peer in
             guard states[peer] == .reported, let at = reportedAt[peer] else { return false }
             return seen[peer].map { $0 < at } ?? true

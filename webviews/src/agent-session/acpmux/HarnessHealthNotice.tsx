@@ -90,7 +90,7 @@ export function HarnessHealthNotice({
   // The offer (an outdated CLI nobody started updating) goes to the model chip, never this line.
   const offering = ours && kind === "outdated" && !state && key !== dismissed;
   const offerKey = offering ? key : undefined;
-  const actions = useRef({ start: () => {}, skip: () => {} });
+  const actions = useRef<{ start(reply?: Promise<unknown>): void; skip(): void }>({ start: () => {}, skip: () => {} });
   const offerOut = useRef(onOffer);
   offerOut.current = onOffer;
   const offerId = health?.id;
@@ -107,6 +107,7 @@ export function HarnessHealthNotice({
       version: offerVersion,
       latest: offerLatest,
       update: () => actions.current.start(),
+      updateWith: (reply) => actions.current.start(reply),
       skip: () => actions.current.skip(),
     });
   }, [offerKey, offerId, offerVersion, offerLatest, name]);
@@ -125,9 +126,10 @@ export function HarnessHealthNotice({
   const latest = health.latest ?? "";
   // The updater's own words are Details; none is no Details, never a stand-in sentence there.
   const failed = (error: string) => setProgress({ key, phase: "failed", error });
-  const startUpdate = () => {
+  // `reply`: an update the model menus' Update all already asked of the host, for this agent.
+  const startUpdate = (reply?: Promise<unknown>) => {
     setProgress({ key, phase: "updating" });
-    native("harness.update", { id }).then(
+    (reply ?? native("harness.update", { id })).then(
       (value) => {
         const reply = record(value);
         if (reply.ok === true)
@@ -182,10 +184,11 @@ export function HarnessHealthNotice({
   // What failed, in the updater's or the host's own words, for Details.
   let detail: string | undefined;
   if (kind === "signedOut") {
-    text = health.auth === "expired" ? t("turn.authExpired") : t("harness.signedOut", { agent: name });
+    // Names whose sign-in it is and the one fix, as the composer's notice does (sessionAuth.ts).
+    text = t(health.auth === "expired" ? "auth.login.expired" : "auth.login.signedOut", { agent: name });
     buttons = (
       <button type="button" data-notice-action="login" onClick={() => run(signedOut!)}>
-        {t("harness.logIn")}
+        {t("auth.fix.signInTo", { name })}
       </button>
     );
   } else if (state?.phase === "updated") {
@@ -218,7 +221,7 @@ export function HarnessHealthNotice({
             {t("harness.updateInTerminal")}
           </button>
         )}
-        <button type="button" data-notice-action="retry" onClick={startUpdate}>
+        <button type="button" data-notice-action="retry" onClick={() => startUpdate()}>
           {t("harness.tryAgain")}
         </button>
       </>

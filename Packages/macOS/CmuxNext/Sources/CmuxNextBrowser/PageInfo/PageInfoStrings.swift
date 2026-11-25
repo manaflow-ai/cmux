@@ -74,7 +74,6 @@ nonisolated enum PageInfoStrings {
 
     // Cookies
     static var cookiesHeader: String { String(localized: "pageInfo.cookies.header", defaultValue: "Cookies and site data", table: "PageInfo", bundle: .module) }
-    static var cookiesDescription: String { String(localized: "pageInfo.cookies.description", defaultValue: "Cookies and other site data are used to remember you, for example to sign you in or to personalize ads.", table: "PageInfo", bundle: .module) }
     static var thirdPartyCookies: String { String(localized: "pageInfo.cookies.thirdParty", defaultValue: "Third-party cookies", table: "PageInfo", bundle: .module) }
     static var thirdPartyBlocked: String { String(localized: "pageInfo.cookies.thirdPartyBlocked", defaultValue: "Blocked by this browser engine", table: "PageInfo", bundle: .module) }
     static var manageSiteData: String { String(localized: "pageInfo.cookies.manage", defaultValue: "Manage on-device site data", table: "PageInfo", bundle: .module) }
@@ -85,6 +84,10 @@ nonisolated enum PageInfoStrings {
         String(localized: "pageInfo.cookies.sites", defaultValue: "Sites with data: \(count)", table: "PageInfo", bundle: .module)
     }
     static var deleteSiteData: String { String(localized: "pageInfo.cookies.delete", defaultValue: "Delete site data", table: "PageInfo", bundle: .module) }
+    /// The cookies page and the tab notice after "Delete site data" failed; `reason` is the engine's.
+    static func deleteSiteDataFailed(_ reason: String) -> String {
+        String(localized: "pageInfo.cookies.deleteFailed", defaultValue: "Couldn't delete site data: \(reason)", table: "PageInfo", bundle: .module)
+    }
     static var loading: String { String(localized: "pageInfo.loading", defaultValue: "Loading…", table: "PageInfo", bundle: .module) }
 
     // Rows

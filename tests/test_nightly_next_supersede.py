@@ -300,6 +300,45 @@ class SweepTests(unittest.TestCase):
         self.tick(gh, settle=True, sleep=slept.append)
         self.assertEqual(slept, [sup.SETTLE_NO_WAITER.total_seconds() + 5])
 
+    def test_a_holder_still_inside_its_ready_wait_dispatches_the_next_link(self):
+        # The settle ends (here the clock stands still) and the holder still lacks a minute: rather than wait for
+        # the next promotion, the run dispatches the next link of the chain on nightly-next.
+        gh = tonight(queued(last_moved=4))
+        done, log = self.tick(gh, settle=True, sleep=lambda s: None, chain=0)
+        self.assertEqual(done, [])
+        self.assertEqual(gh.writes, [["workflow", "run", "nightly-next-supersede.yml", "-R", "o/r", "--ref",
+                                      "nightly-next", "-f", "chain=1"]])
+        self.assertTrue(any("dispatched link 1 of at most 12" in line for line in log), log)
+        gh = tonight(queued(last_moved=4))
+        self.tick(gh, sleep=lambda s: None, chain=5)
+        self.assertEqual(gh.writes[-1][-1], "chain=6")
+
+    def test_the_chain_stops_at_its_cap_on_a_dry_run_once_cancelled_and_without_a_holder(self):
+        gh = tonight(queued(last_moved=4))
+        _, log = self.tick(gh, sleep=lambda s: None, chain=sup.CHAIN_MAX)
+        self.assertEqual(gh.writes, [])
+        self.assertTrue(any("::warning" in line and "re-dispatches" in line for line in log), log)
+        gh = tonight(queued(last_moved=4))
+        _, log = self.tick(gh, sleep=lambda s: None, chain=0, dry_run=True)
+        self.assertEqual(gh.writes, [])
+        self.assertTrue(any("would dispatch link 1" in line for line in log), log)
+        gh = tonight()  # droppable now: cancelled, nothing left to wait for
+        self.tick(gh, chain=0)
+        self.assertEqual([w[0] for w in gh.writes], ["api"])
+        gh = FakeGh([run(1, OLD, "in_progress")], {1: queued()})  # no waiter listed yet: not a holder's wait
+        self.tick(gh, settle=True, sleep=lambda s: None, chain=0)
+        self.assertEqual(gh.writes, [])
+        gh = tonight(queued(last_moved=4))  # without --chain (by hand) it never re-dispatches
+        self.tick(gh, sleep=lambda s: None)
+        self.assertEqual(gh.writes, [])
+
+    def test_a_refused_dispatch_is_a_warning(self):
+        gh = tonight(queued(last_moved=4))
+        gh.refuse = True
+        done, log = self.tick(gh, sleep=lambda s: None, chain=0)
+        self.assertEqual(done, [])
+        self.assertTrue(any("re-dispatch was refused" in line for line in log), log)
+
     def test_a_missing_gh_is_unread(self):
         old = os.environ.get("PATH")
         os.environ["PATH"] = "/nonexistent"
@@ -314,7 +353,7 @@ class SweepTests(unittest.TestCase):
         doc = yaml.safe_load((ROOT / ".github/workflows/nightly-next-supersede.yml").read_text(encoding="utf-8"))
         triggers = doc.get("on", doc.get(True))
         self.assertEqual(triggers["push"], {"branches": ["nightly-next"]})
-        self.assertIn("workflow_dispatch", triggers)
+        self.assertEqual(triggers["workflow_dispatch"]["inputs"]["chain"]["default"], "0")
         job = doc["jobs"]["supersede"]
         self.assertEqual(job["concurrency"], {"group": "nightly-next-supersede", "cancel-in-progress": False})
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
@@ -323,7 +362,8 @@ class SweepTests(unittest.TestCase):
         self.assertEqual((rules["ref"], rules["sparse-checkout"].strip()), ("main", "scripts/ci/delivery_workflows.py"))
         step = job["steps"][-1]
         self.assertTrue(step.get("continue-on-error"))
-        self.assertIn("--rules .main-rules/scripts/ci/delivery_workflows.py --settle", step["run"])
+        self.assertIn("--rules .main-rules/scripts/ci/delivery_workflows.py --settle --chain \"$CHAIN\"", step["run"])
+        self.assertEqual(step["env"]["CHAIN"], "${{ inputs.chain || '0' }}")
 
 
 class NightlyNowTests(unittest.TestCase):

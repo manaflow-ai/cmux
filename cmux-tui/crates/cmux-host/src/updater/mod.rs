@@ -2,11 +2,12 @@
 //! acpmux, the Cloud receiver and `cmux host` itself, plus cmux-tui-hook)
 //! on the newest feat-cmux-next build by itself, with no image bake in the
 //! way (plans/cmux-next/vm-image.md 4.5). The image is a cache: a machine
-//! from a stale image only boots one update later.
+//! from a stale image takes the channel's build before it first reports ready
+//! ([`first_ready`]), within a bound; past it, one update later.
 //!
 //! The `updater` role ([`role`]) checks the signed channel ([`channel`]) 30 s
 //! after `cmux host run` starts (a boot, or the restart of an update), on
-//! every resume, and every minute. When the channel names another
+//! every resume, and every 15 s. When the channel names another
 //! build than the current profile links, it:
 //!
 //! 1. waits until no acpmux session runs a turn or waits on a permission,
@@ -45,8 +46,15 @@
 
 pub mod carrier;
 pub mod channel;
+#[cfg(target_os = "linux")]
+pub mod first_ready;
 #[cfg(unix)]
 pub mod gate;
+pub mod look;
+#[cfg(target_os = "linux")]
+mod resolve;
+#[cfg(all(test, target_os = "linux"))]
+mod resolve_tests;
 #[cfg(target_os = "linux")]
 pub mod role;
 pub mod store;
@@ -60,7 +68,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Paths;
-use channel::{Binary, CMUX_TUI, CMUX_TUI_HOOK, Payload};
+use channel::{Binary, CMUX_TUI, CMUX_TUI_HOOK, Payload, lower_hex};
 
 /// While this file exists the machine does not update itself.
 pub const OFF_FILE: &str = "/etc/cmux/no-self-update";
@@ -95,6 +103,13 @@ pub struct State {
     pub last: Option<String>,
     #[serde(default)]
     pub last_at: u64,
+    /// The last check and update run as codes, for the Cloud status report
+    /// ([`look`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<look::Look>,
+    /// The pre-ready check survives the exec into the channel build. Absent on older images.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_ready: Option<look::FirstReady>,
 }
 
 /// An update whose new build has not proved itself yet.
@@ -190,6 +205,63 @@ pub fn decide(
         committed_at: payload.committed_at,
         cmux_tui: tui.clone(),
         cmux_tui_hook: hook.clone(),
+        old_cmux_tui: old_tui,
+        old_cmux_tui_hook: old_hook,
+        from,
+        to,
+    })))
+}
+
+/// A build a client hands the machine itself (`cmux host update install`, the cmux NEXT
+/// app's own pinned build): its cmux-tui SHA-256 and size, the commit that built it and
+/// that commit's time (the order the channel keeps too).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pinned {
+    pub sha256: String,
+    pub size: u64,
+    pub commit: String,
+    pub committed_at: u64,
+}
+
+/// What `cmux host update install` does with `pinned`, the profile's cmux-tui being
+/// `old_tui`: nothing when the profile already links it, nothing when it is older than
+/// the last build applied here (an app never moves a machine back), nothing for a
+/// build rolled back here; otherwise an update. Reads no file.
+pub fn pinned_decision(old_tui: &str, state: &State, pinned: &Pinned) -> Option<Decision> {
+    if old_tui == pinned.sha256 {
+        return Some(Decision::Current);
+    }
+    if pinned.committed_at < state.applied_committed_at {
+        return Some(Decision::Older);
+    }
+    if state.rolled_back.contains(&pinned.sha256) {
+        return Some(Decision::RolledBack);
+    }
+    None
+}
+
+/// [`decide`] for a pinned build instead of the channel's: only cmux-tui changes, the
+/// profile keeps its cmux-tui-hook (the app pins no hook build).
+pub fn decide_pinned(paths: &Paths, state: &State, pinned: &Pinned) -> Result<Decision, String> {
+    if !lower_hex(&pinned.sha256, 64) || !lower_hex(&pinned.commit, 40) {
+        return Err("the pinned build names no sha256 or commit".to_owned());
+    }
+    let from = store::current_generation(paths).map_err(|e| e.to_string())?;
+    let old_tui = store::linked_package(paths, from, CMUX_TUI)
+        .map_err(|e| format!("current profile: {e}"))?;
+    let old_hook = store::linked_package(paths, from, CMUX_TUI_HOOK)
+        .map_err(|e| format!("current profile: {e}"))?;
+    if let Some(decision) = pinned_decision(&old_tui, state, pinned) {
+        return Ok(decision);
+    }
+    let to = store::generations(paths).last().copied().unwrap_or(from).max(from) + 1;
+    let binary =
+        |sha256: &str, size: u64| Binary { url: String::new(), sha256: sha256.to_owned(), size };
+    Ok(Decision::Update(Box::new(Plan {
+        commit: pinned.commit.clone(),
+        committed_at: pinned.committed_at,
+        cmux_tui: binary(&pinned.sha256, pinned.size),
+        cmux_tui_hook: binary(&old_hook, 0),
         old_cmux_tui: old_tui,
         old_cmux_tui_hook: old_hook,
         from,

@@ -108,6 +108,30 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: u32) -> Result<()> {
     result.ctx(path.display())
 }
 
+/// Copies `source` to `path` like [`atomic_write`]: a new temporary file
+/// (`O_EXCL`, a random name, so a planted file or symlink there is never
+/// written through), created with `mode`, fsync, one rename over `path`.
+pub fn atomic_copy(source: &Path, path: &Path, mode: u32) -> Result<()> {
+    let tmp = temp_sibling(path, "tmp");
+    let result = (|| -> io::Result<()> {
+        let mut from = File::open(source)?;
+        let mut file = open_new(&tmp, mode)?;
+        io::copy(&mut from, &mut file)?;
+        file.sync_all()?;
+        drop(file);
+        set_mode(&tmp, mode)?;
+        fs::rename(&tmp, path)?;
+        if let Some(dir) = path.parent() {
+            sys::fsync_dir(dir)?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result.ctx(path.display())
+}
+
 /// Like [`atomic_write`], but only when the content differs. Returns
 /// whether it wrote.
 pub fn write_if_changed(path: &Path, bytes: &[u8], mode: u32) -> Result<bool> {

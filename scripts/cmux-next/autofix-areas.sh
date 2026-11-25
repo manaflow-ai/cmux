@@ -30,7 +30,7 @@ area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/'
 # through the pinned CCmuxAppFFI, so a re-pin is an input too: the pseudo path
 # Package.swift#CCmuxAppFFI, which base-autofix-ffi-pin.sh adds when the pin
 # moved (the rest of Package.swift is not an input).
-area actions 'Packages/macOS/CmuxNext/Package\.swift#CCmuxAppFFI|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
+area actions 'Packages/macOS/CmuxNext/Package\.swift#CCmuxAppFFI|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Config/|Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/|Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LinkExportTests\.swift|plans/cmux-next/(action-surfaces\.json|action-catalog\.json|actions\.md|links\.json)|scripts/cmux-next/regenerate-action-exports\.sh'
 # The settings exports (regenerated on a Mac: regenerate-settings-exports.sh) read
 # CmuxNextSettings and the two export tests. Their source stamp is derived
 # (defaults_guard.py source-stamp), never committed.
@@ -43,7 +43,8 @@ area apphost 'cmux-tui/spec/resource-operations-v2\.json|backend/catalog/cloud-o
 # The namespace lint reads the package and iOS app sources.
 area ratchets 'Packages/|ios/cmux/|scripts/lint-ios-package-conventions\.sh|scripts/lint_swift_namespaces\.py|scripts/lint-namespace-types-ratchet\.txt|scripts/lint-namespace-types-baseline\.txt|scripts/lint-ios-package-conventions-baseline\.txt'
 area cloud 'backend/catalog/cloud-operations\.json|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)|clients/ts/cloud/|cmux-tui/crates/cmux-cloud-wire/src/generated/'
-area webviews 'webviews/'
+# webviews formatting, and the acpmux protocol types its codegen writes from the spec.
+area webviews 'webviews/|cmux-tui/crates/acpmux/spec/'
 area ghostty 'ghostty$|scripts/ghosttykit-checksums\.txt'
 area fmt 'cmux-tui/|Native/OptChat/'
 # Every tracked Cargo.lock against its manifests (cargo-locks.py): any Cargo.toml or Cargo.lock anywhere, since a

@@ -61,6 +61,7 @@ impl Fixture {
             reexec_guard: None,
             env: env_for(self.home.path()),
             now_ms: NOW_MS,
+            self_exe: None,
         };
         dispatch(&context, &parse(&args)?).map(|output| output.json)
     }

@@ -11,6 +11,7 @@
 // header on every start (Leo, 2026-11-11: "the animation system is so borked and unintegrated").
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -58,12 +59,8 @@ const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subage
 type BackgroundCommand = import("../src/agent-session/acpmux/session-info/processes").BackgroundCommand;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -97,6 +94,18 @@ async function head(agents: Subagent[], commands: BackgroundCommand[]) {
     button,
     title: () => button.querySelector(".acpmux-running-tray__title")?.textContent,
     more: () => button.querySelector(".acpmux-running-tray__more")?.textContent ?? "",
+    time: () => host.querySelector(".acpmux-running-tray__head .acpmux-running-tray__time")?.textContent ?? "",
+    rerender: async (agents: Subagent[], commands: BackgroundCommand[]) =>
+      act(async () =>
+        root.render(
+          createElement(SubagentTray, {
+            items: trayItems(agents, commands, [], true),
+            working: true,
+            waiting: new Set<string>(),
+            onOpen: () => {},
+          }),
+        ),
+      ),
     done: async () => act(async () => root.unmount()),
   };
 }
@@ -158,6 +167,24 @@ describe("the folded running bar names what runs", () => {
     try {
       expect(bar.title()).toBe("Review the tray");
       expect(bar.more()).toBe("+4 more");
+    } finally {
+      await bar.done();
+    }
+  });
+});
+
+describe("the folded running bar's clock is the run's", () => {
+  // Review of cmux#41078: a lone item's header showed its own time, so the 100-minute lead ending
+  // left a 10-minute one, and the clock went back by 90 minutes.
+  test("the longest-running item ends and one is left: the clock keeps the run's start", async () => {
+    const long = agent("a1", "Review the tray", 100 * 60_000);
+    const short = command("c1", "bun run dev", 10 * 60_000, "Run the dev server");
+    const bar = await head([long], [short]);
+    try {
+      const before = bar.time();
+      expect(before).toContain("1h 40m");
+      await bar.rerender([], [short]);
+      expect(bar.time()).toContain("1h 40m");
     } finally {
       await bar.done();
     }

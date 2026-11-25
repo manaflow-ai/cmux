@@ -10,6 +10,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "cmux-agent://pane/index.html",
@@ -52,12 +53,9 @@ Object.assign(scope, replacements);
 const host = dom.window.document.getElementById("root")!;
 let root: Root | undefined;
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const PANE = new URL("cmux-agent://pane/index.html");
@@ -71,6 +69,7 @@ const {
   inlinePreviewHtml,
   inlinePreviewKind,
   nativePassiveHtml,
+  svgPreviewHeight,
 } = await import("../src/agent-session/acpmux/conversation/previewDocument");
 
 async function show(source: string, streaming = false, page = PANE) {
@@ -127,6 +126,23 @@ test("in the app a closed svg fence draws in the native artifact frame, sandboxe
   expect(sent[0]!.html).toBe(nativePassiveHtml(inlinePreviewHtml("svg", SVG)));
   expect(sent[0]!.html).toStartWith(`<meta http-equiv="Content-Security-Policy" content="script-src 'none'">`);
   expect(sent[0]!.html).toContain(SVG);
+});
+
+test("an svg preview holds its image's height before its frame reports one", () => {
+  // A viewBox alone fills the frame's width, less the body's 14 px margins; a px width draws at most
+  // that wide; the body's 12 px margins add to the height; the card's floor and cap clamp it.
+  expect(svgPreviewHeight(SVG, 48, 480)).toBe("clamp(48px, round((100cqw - 28px) * 1 + 24px, 1px), 480px)");
+  expect(svgPreviewHeight('<svg width="360" height="200" viewBox="0 0 360 200">', 48, 480)).toBe(
+    "clamp(48px, round(min(360px, 100cqw - 28px) * 0.5555555555555556 + 24px, 1px), 480px)",
+  );
+  // Width and height with no viewBox give the aspect too, in px or bare numbers.
+  expect(svgPreviewHeight("<svg width='200px' height='100px'>", 48, 480)).toBe(
+    "clamp(48px, round(min(200px, 100cqw - 28px) * 0.5 + 24px, 1px), 480px)",
+  );
+  // A size the card cannot resolve, or no aspect at all, holds nothing: the report sizes it.
+  expect(svgPreviewHeight('<svg width="10em" viewBox="0 0 10 10">', 48, 480)).toBeUndefined();
+  expect(svgPreviewHeight('<svg width="200">', 48, 480)).toBeUndefined();
+  expect(svgPreviewHeight("<p>no image</p>", 48, 480)).toBeUndefined();
 });
 
 test("the frame follows only its own height report, capped, and Expand lifts the cap", async () => {

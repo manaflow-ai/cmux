@@ -9,6 +9,7 @@ import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
 
 /// The `_meta.acpmux` keys the cmux host's pane policy lets through on `session/prompt`.
 const policyPath = path.resolve(import.meta.dir, "../../../../cmux-tui/crates/cmux-agent-pane-policy/policy.json");
@@ -26,7 +27,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];
@@ -132,7 +134,7 @@ test("a slow acknowledgement stays pending past the former failure deadline and 
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const timing = { ...deliveryTiming };
-  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 });
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 }); // motion-allow: delivery timeouts, not motion
   const prompts: any[] = [];
   let hooks: Hooks | undefined;
   class SilentHost extends MockAcpmuxSocket {
@@ -189,7 +191,7 @@ test("a remote-origin send with no answer still fails after the deadline, for Re
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const timing = { ...deliveryTiming };
-  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 });
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 }); // motion-allow: delivery timeouts, not motion
   const prompts: any[] = [];
   class SilentRemoteHost extends MockAcpmuxSocket {
     constructor() {
@@ -233,7 +235,7 @@ test("a local send nobody answers stays sending past the remote deadline, then f
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const timing = { ...deliveryTiming };
-  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80, localFailMs: 240 });
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80, localFailMs: 240 }); // motion-allow: delivery timeouts, not motion
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
   const hooks = socket as unknown as Hooks;
   const answer = hooks.answer.bind(socket);
@@ -270,7 +272,7 @@ test("a busy session keeps an unacknowledged eight-image prompt queued with prev
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const timing = { ...deliveryTiming };
-  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 });
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 }); // motion-allow: delivery timeouts, not motion
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
   const hooks = socket as unknown as Hooks & { emit(target: string, step: unknown): void };
   const answer = hooks.answer.bind(socket);

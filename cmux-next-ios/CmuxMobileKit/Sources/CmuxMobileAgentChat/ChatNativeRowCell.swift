@@ -196,6 +196,11 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         for index in usedLabels..<labels.count { labels[index].isHidden = true }
         for index in usedSymbols..<symbols.count { symbols[index].isHidden = true }
         for index in usedBars..<bars.count { bars[index].isHidden = true }
+        // The app's accessibility tree walks the content view's children, not the cell's own
+        // list: without this a closed disclosure read as its bare text and a chevron "Forward",
+        // no button (fleet simulator step 6e3909152bd42115b3975c3c). The cell keeps the list too,
+        // for its readers (`setFindMarked`).
+        contentView.accessibilityElements = accessibilityElements
     }
 
     override func layoutSubviews() {
@@ -278,7 +283,7 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
         if let table, !table.isHidden, let url = table.link(at: contentView.convert(location, to: table)) { return url }
         for label in labels where !label.isHidden {
             let point = contentView.convert(location, to: label)
-            if label.bounds.contains(point), let url = NativeMarkdownView.link(in: label, at: point) { return url }
+            if label.bounds.contains(point), let url = NativeMarkdownView.link(in: label, at: point, asDrawn: true) { return url }
         }
         return nil
     }
@@ -332,13 +337,19 @@ final class ChatNativeRowCell: UICollectionViewCell, UIContextMenuInteractionDel
             if !covered { items.append((label.frame, label)) }
         }
         for (index, area) in hits.enumerated() {
-            let element = ChatHitElement(accessibilityContainer: self)
+            // Hit frames are in the content view's space (offset by the margin, as the labels are).
+            let element = ChatHitElement(accessibilityContainer: contentView)
             element.accessibilityFrameInContainerSpace = area.frame
             var label = area.label
             if let file = area.file, actions.viewed.contains(file) { label += ", viewed" }
             element.accessibilityLabel = label
             element.accessibilityTraits = .button
-            if area.isDisclosure { element.accessibilityHint = "Shows details" }
+            // A drawn disclosure is always a closed one; open, its row is SwiftUI, which says "Expanded".
+            if area.isDisclosure {
+                element.accessibilityHint = "Shows details"
+                element.accessibilityValue = "Collapsed"
+            }
+            element.accessibilityIdentifier = area.identifier
             element.activate = { [weak self] in
                 guard let self, index < self.hits.count else { return }
                 self.perform(self.hits[index].hit)

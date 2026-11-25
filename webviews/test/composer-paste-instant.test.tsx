@@ -17,6 +17,7 @@ import {
   setComposerSettings,
   type AttachmentView,
 } from "../src/agent-session/acpmux/composerSettings";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -77,12 +78,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -146,6 +143,9 @@ function imageEngine() {
 
 /// A screenshot whose bytes come only when `release()` is called: a large image the composer is
 /// still reading and scaling.
+/// A screenshot whose read waits for `release`; each its own size, as two screenshots are (one of a
+/// type and size is read for its twin first: attachments.ts filesOnce).
+let slowScreenshots = 0;
 function slowScreenshot() {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
@@ -155,7 +155,10 @@ function slowScreenshot() {
       return super.arrayBuffer();
     }
   }
-  return { file: new Slow([PNG], "image.png", { type: "image/png" }), release };
+  return {
+    file: new Slow([PNG, new Uint8Array(++slowScreenshots)], "image.png", { type: "image/png" }),
+    release,
+  };
 }
 
 /// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
@@ -609,8 +612,9 @@ test("a recording the host makes for the chat loads at the caret and stays there
     const id = node()!.getAttribute("data-inline-attachment");
     // It fails: the tile says so where it is, with Retry.
     await act(async () => makes[0]!(undefined));
-    await until(() => node()?.querySelector(".acpmux-md-inline-retry") != null, "Retry on the tile");
-    act(() => node()!.querySelector<HTMLElement>(".acpmux-md-inline-retry")!.click());
+    const retry = () => node()?.querySelector<HTMLElement>(".acpmux-attachment-retry");
+    await until(() => retry() != null, "Retry on the tile");
+    act(() => retry()!.click());
     await until(() => makes.length === 2, "the second make");
     expect(node()!.getAttribute("data-inline-attachment")).toBe(id);
     // Made: the chip is the tile's, at the tile's place.

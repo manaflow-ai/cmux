@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
 import next_batch_groups as groups  # noqa: E402
+nb.log = lambda message: None  # fixture verdicts stay out of the CI log (see tests/test_next_batch.py)
 
 NEW_TAB = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabPageView.swift"
 AGENT_PANE = "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneView.swift"

@@ -1165,6 +1165,139 @@
       ]
     },
     {
+      "name": "smallest never gives a counting phone a grid narrower than itself",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 120,
+              "rows": 40
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 54,
+              "rows": 40
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 40,
+          "owners": [
+            "mac",
+            "phone"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "report",
+          "id": "mac",
+          "cols": 39,
+          "rows": 26
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 26,
+          "owners": [
+            "mac",
+            "phone"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "tablet",
+            "user_id": "u2",
+            "device_kind": "ipad",
+            "viewport": {
+              "cols": 50,
+              "rows": 30
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 50,
+          "rows": 26,
+          "owners": [
+            "mac",
+            "tablet"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "detach",
+          "id": "tablet"
+        },
+        {
+          "op": "set_counts",
+          "id": "phone",
+          "counts_override": false
+        },
+        {
+          "op": "expect",
+          "cols": 39,
+          "rows": 26,
+          "owners": [
+            "mac"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "set_counts",
+          "id": "phone",
+          "counts_override": null
+        },
+        {
+          "op": "expect",
+          "cols": 54,
+          "rows": 26,
+          "owners": [
+            "mac",
+            "phone"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "clear_viewport",
+          "id": "phone"
+        },
+        {
+          "op": "expect",
+          "cols": 39,
+          "rows": 26,
+          "owners": [
+            "mac"
+          ],
+          "reason": "smallest"
+        }
+      ]
+    },
+    {
       "name": "attach clamps a zero viewport to the smallest grid",
       "initial": {
         "cols": 80,
@@ -2022,6 +2155,149 @@
             "win": true,
             "phone": false
           }
+        }
+      ]
+    },
+    {
+      "name": "fit everyone never goes narrower than an iphone while a wider desktop view counts",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "mac",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 150,
+              "rows": 42
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "narrow",
+            "user_id": "u1",
+            "device_kind": "unknown",
+            "viewport": {
+              "cols": 39,
+              "rows": 26
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 40,
+          "rows": 26,
+          "owners": [
+            "narrow"
+          ],
+          "reason": "smallest"
+        },
+        {
+          "op": "detach",
+          "id": "narrow"
+        },
+        {
+          "op": "expect",
+          "cols": 150,
+          "rows": 42,
+          "reason": "smallest"
+        }
+      ]
+    },
+    {
+      "name": "last active never goes narrower than an iphone while a wider view counts",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "attach",
+          "participant": {
+            "id": "phone",
+            "user_id": "u1",
+            "device_kind": "iphone",
+            "viewport": {
+              "cols": 54,
+              "rows": 44
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "narrow",
+            "user_id": "u1",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 39,
+              "rows": 26
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 40,
+          "rows": 26,
+          "owners": [
+            "narrow"
+          ],
+          "reason": "latest"
+        }
+      ]
+    },
+    {
+      "name": "a view narrower than an iphone keeps its width when no counting view is wider",
+      "initial": {
+        "cols": 80,
+        "rows": 24
+      },
+      "steps": [
+        {
+          "op": "set_policy",
+          "policy": {
+            "mode": "smallest"
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "a",
+            "device_kind": "mac",
+            "viewport": {
+              "cols": 30,
+              "rows": 20
+            }
+          }
+        },
+        {
+          "op": "attach",
+          "participant": {
+            "id": "b",
+            "device_kind": "tui",
+            "viewport": {
+              "cols": 36,
+              "rows": 24
+            }
+          }
+        },
+        {
+          "op": "expect",
+          "cols": 30,
+          "rows": 20,
+          "reason": "smallest"
         }
       ]
     }

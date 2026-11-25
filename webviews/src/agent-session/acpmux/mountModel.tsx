@@ -76,15 +76,17 @@ export function mountAcpmux(initialChat?: InitialChat): void {
   // its call with the page client; the legacy bridge answers `contextMenu.show`.
   if (!pageHostClient() && window.webkit?.messageHandlers?.agentSession)
     installNativeMenu((request) => postNative("contextMenu.show", { ...request }));
-  // Floating glass the page marks (data-host-glass: Session Info first) is the App's own glass under
-  // the page, as its native menus are (ui/glass/hostGlass.ts).
+  // Floating glass the page marks (data-host-glass) is the App's own glass under the page, as its
+  // native menus are (ui/glass/hostGlass.ts). Each report carries the zoom its boxes were measured at,
+  // so a zoom never leaves the App's glass apart from the page's content (cmux#42413 had it off for that).
   if (pageHostClient() || window.webkit?.messageHandlers?.agentSession)
-    reportHostGlass(document, (surfaces) => postNative("pane.glass", { surfaces }), {
+    reportHostGlass(document, (surfaces, zoom) => postNative("pane.glass", { surfaces, zoom }), {
       candidates: chatUnderHoverCard,
       options: hostGlassCover,
     });
-  // The always-on flicker detector (flickerLog.ts): on the shared page host its batches are the
-  // `diag.flicker` op, on the old host the pane's own WebKit handler takes them.
+  // The always-on flicker detector (flickerLog.ts; its frame watch only behind a debug flag): on the
+  // shared page host its batches are the `diag.flicker` op, on the old host the pane's own WebKit
+  // handler takes them.
   startFlickerLog(window, pageHostClient() ? pageHostFlickerSend() : undefined);
   createRoot(root).render(
     <UiProvider container={root} popupHost={popupHost}>

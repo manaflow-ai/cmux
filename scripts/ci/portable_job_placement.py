@@ -48,6 +48,15 @@ take a mini. NIGHTLY_WAIT_FOR_FLEET=1 retries placement for at most three minute
 (NIGHTLY_WAIT_SECONDS shortens that)
 before returning unplaced jobs to overflow. The process-wide deadline bounds
 reads too, and main always clears its alarm and restores the previous handler.
+LINUX_ALL_OR_NONE=1 places every fleet-Linux job or none: the cmux-tui tree's musl legs take one
+label from one runs-on, so fewer idle fleet runners than legs would queue the rest behind them.
+LINUX_GROUPS="a,b c,d" places each comma-joined group whole or not at all, in order, as far as the
+free fleet runners reach (it replaces LINUX_ALL_OR_NONE's one group of every job). The wait below
+waits for the first group only: a later group takes the fleet when it is free at once, so it never
+holds the first one's start.
+FLEET_WAIT_NEEDS_MEMBER=1 waits for fleet capacity only while an online Linux runner carries
+FLEET_LINUX (busy is fine: it frees, or the floor refills): a fleet with no online member (its
+VMs cannot boot) cannot place anything in the window, so the jobs take Blacksmith at once.
 REQUIRE_LIVE_CAPACITY=1 never emits an owned-mini label without a fresh
 capacity observation, including after the admission wait expires. The trusted
 runner-state document supplies that observation when its source timestamp is at
@@ -108,6 +117,17 @@ def fleet_linux(label: str) -> str:
     if not label or label.startswith(NOT_FLEET_LINUX) or "${{" in label:
         return ""
     return label
+
+
+def linux_runner(runner: Mapping[str, Any], label: str, vouched: bool) -> bool:
+    """Whether `runner` is a Linux member of `label`: it says Linux, or (FLEET_LINUX_VOUCHED=1) it says no OS and
+    carries `label` alone. GitHub reports the owned GCP build lane's runners (cmux-gcp-lane-build-x64, registered
+    with that one label) as os "unknown"; the workflow vouches for a label a repository variable already routes
+    Linux builds to (vars.LINUX_RUNNER_DARWIN_CROSS). A runner with any other label, a Mac's included, never counts."""
+    os_name = str(runner.get("os", "")).lower()
+    if os_name == "linux":
+        return True
+    return vouched and os_name in {"", "unknown"} and pool.runner_labels(runner) == {label}
 
 
 def family(label: str) -> str:
@@ -197,14 +217,26 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         matching = [runner for runner in runners or [] if linux in pool.runner_labels(runner)]
         # A custom label alone is not proof of Linux: never let a shared Mac
         # carrying the same label receive a credentialed Linux-only control.
-        linux_members = bool(matching) and all(
-            str(runner.get("os", "")).lower() == "linux" for runner in matching)
+        vouched = env.get("FLEET_LINUX_VOUCHED") == "1"
+        linux_members = bool(matching) and all(linux_runner(runner, linux, vouched) for runner in matching)
         idle = sum(runner.get("status") == "online" and runner.get("busy") is False
                    for runner in matching)
         linux_free = max(0, idle - queued_on(snapshot, linux))
-        if problem or not linux_members or linux_free == 0:
+        wanted = [job for job in jobs if job not in mac_first]
+        short = (env.get("LINUX_ALL_OR_NONE") == "1" and not env.get("LINUX_GROUPS")
+                 and linux_free < len(wanted))
+        if problem or not linux_members or linux_free == 0 or short:
             linux = ""
     linux_jobs = tuple(job for job in jobs if linux and job not in mac_first)[:linux_free]
+    if linux and env.get("LINUX_GROUPS"):
+        chosen: list[str] = []
+        for group in env["LINUX_GROUPS"].split():
+            members = [job for job in group.split(",") if job in jobs and job not in mac_first]
+            if members and len(chosen) + len(members) <= linux_free:
+                chosen += members
+        linux_jobs = tuple(job for job in jobs if job in chosen)
+        if not linux_jobs:
+            linux = ""
     rest = tuple(job for job in jobs if job not in linux_jobs and job not in linux_only)
     notes = [f"{', '.join(linux_jobs)} take fleet Linux `{linux}`"] if linux_jobs else []
     if not linux:
@@ -260,6 +292,14 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
     if not placed:
         return done(f"`{route}` has no idle runner beyond its queue ({idle} idle, {queued_on(snapshot, route)} queued)")
     return done(f"{', '.join(placed)} take free mini(s) on `{route}`", route, placed)
+
+
+def fleet_member_online(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> bool:
+    """Whether an online Linux runner carries FLEET_LINUX, idle or busy."""
+    linux = fleet_linux(env.get("FLEET_LINUX", ""))
+    return bool(linux) and any(
+        runner.get("status") == "online" and str(runner.get("os", "")).lower() == "linux"
+        and linux in pool.runner_labels(runner) for runner in runners or [])
 
 
 def delimited(jobs: Sequence[str]) -> str:
@@ -363,11 +403,16 @@ def main(env: Mapping[str, str] = os.environ) -> int:
         # overflow immediately; it must never queue every job on an owned label.
         if wait_seconds and (runners is None or pool.snapshot_problem(snapshot, now)):
             wait_seconds = 0
+        needs_member = env.get("FLEET_WAIT_NEEDS_MEMBER") == "1"
+        if wait_seconds and needs_member and not fleet_member_online(env, runners):
+            wait_seconds = 0
         stop = time.monotonic() + wait_seconds
         placed = decide(env, runners, snapshot, now)
         wanted = set((env.get("JOBS") or "").split())
         if env.get("REQUIRE_LIVE_CAPACITY") != "1":
             wanted -= set((env.get("LINUX_ONLY") or "").split())
+        if env.get("LINUX_GROUPS"):
+            wanted &= set(env["LINUX_GROUPS"].split()[0].split(","))
         while wait_seconds and not wanted.issubset(set(placed.linux_jobs + placed.mini_jobs)):
             remaining = stop - time.monotonic()
             if remaining <= 0:
@@ -380,6 +425,8 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             # API, a stale snapshot) ends the wait, as an unread first read does:
             # waiting out the rest of the three minutes cannot place anything.
             if runners is None or pool.snapshot_problem(snapshot, now):
+                break
+            if needs_member and not fleet_member_online(env, runners):
                 break
         signal.setitimer(signal.ITIMER_REAL, 0)
         write(placed, env)

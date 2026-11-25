@@ -294,9 +294,10 @@ async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
 }
 
 /// New side chat (cx-jlzsf): the pane tags the fork it made as a side chat
-/// of its chat with `_acpmux/side`, which sets only the `side` tag.
+/// of its chat with `_acpmux/side`, which sets only the `side` tag, and only on a fork of that
+/// chat or a session the same connection created (the repo tour's task).
 #[tokio::test(flavor = "multi_thread")]
-async fn the_pane_marks_a_fork_as_its_chats_side_chat() {
+async fn the_pane_marks_only_a_fork_or_its_own_new_session_as_its_chats_side_chat() {
     let d = Daemon::start("side-chat");
     let token = d.local_token();
     let (mut app, init) = hello(&d, Some(PANE), Some(&token)).await;
@@ -310,9 +311,14 @@ async fn the_pane_marks_a_fork_as_its_chats_side_chat() {
         ids.push(new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned());
     }
     let (chat, fork) = (&ids[0], &ids[1]);
+    // A session someone else created is not this connection's to hide (`Hub::mark_side`, whose
+    // unit test tags a real fork): another pane's connection is refused and it stays untagged.
+    let (mut other, _) = hello(&d, Some(PANE), Some(&token)).await;
+    let side = call(&mut other, 5, "_acpmux/side", json!({"sessionId": fork, "chat": chat})).await;
+    assert_eq!(side["error"]["data"]["reason"], json!("side.not_fork"), "{side}");
+    // The repo tour's task: the connection that created the session with `session/new` tags it.
     let side = call(&mut app, 5, "_acpmux/side", json!({"sessionId": fork, "chat": chat})).await;
     assert_eq!(side["result"]["tags"]["side"], json!(chat), "{side}");
-    assert!(side["result"]["tags"].as_object().is_some_and(|t| t.len() == 1), "{side}");
     // Never its own side chat, never of an unknown chat, and the chat is required.
     for (id, params) in [
         (6, json!({"sessionId": chat, "chat": chat})),
@@ -361,6 +367,51 @@ async fn a_relaunch_after_a_stop_is_not_held_off_by_a_forked_child() {
     d.env.clear();
     d.launch();
     assert!(d.home.join("run/localapp.token").exists(), "the relaunched daemon serves");
+}
+
+/// The app's pane after a daemon restart or a second app launch (Leo, 2026-11-12: his own
+/// Claude chat on his own Mac refused with "This chat runs with your Mac's Claude
+/// permissions"). The app asks `_acpmux/status` on the unix socket for the WebSocket
+/// endpoint, then reads `run/localapp.token` and sends it in its first frame
+/// (`AcpmuxConnection(endpoint:home:)`). A reconnecting pane asks the moment the new daemon's
+/// socket serves. The daemon served the socket before it wrote this launch's token, so the
+/// pane read no token (the old daemon removed its own) or the old one, and its connection was
+/// remote-origin for its whole life. The debug-only seam widens that window.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_endpoint_is_never_served_before_this_launchs_token() {
+    let tag = "token-first";
+    let home = std::env::temp_dir().join(format!("ala-{tag}-{}", std::process::id()));
+    let socket = home.join("s.sock");
+    let token_file = home.join("run/localapp.token");
+    // As the app does: the first status answer, then the token file, read at once.
+    let pane = std::thread::spawn(move || {
+        use std::io::Write;
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            assert!(std::time::Instant::now() < deadline, "no status answer in time");
+            let Ok(mut s) = std::os::unix::net::UnixStream::connect(&socket) else {
+                std::thread::sleep(Duration::from_millis(2));
+                continue;
+            };
+            s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+            let request =
+                json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/status", "params": {}});
+            if writeln!(s, "{request}").is_err() {
+                continue;
+            }
+            let mut line = String::new();
+            if BufReader::new(s).read_line(&mut line).is_err() || line.is_empty() {
+                continue;
+            }
+            return std::fs::read_to_string(&token_file).ok();
+        }
+    });
+    let d = Daemon::start_with(tag, &[("ACPMUX_TEST_DELAY_LOCAL_APP_MS", "1500")]);
+    let read = pane.join().unwrap();
+    let read = read.expect("the token file was missing when the status answered");
+    assert_eq!(read, d.local_token(), "the pane read another launch's token");
+    let (_, init) = hello(&d, Some(PANE), Some(&read)).await;
+    assert_eq!(origin_of(&init), "local", "{init}");
 }
 
 fn unix_status(home: &Path) -> String {

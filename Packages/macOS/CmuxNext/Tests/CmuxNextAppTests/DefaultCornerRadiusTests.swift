@@ -36,14 +36,18 @@ import Testing
     static let omnibarRadius: CGFloat = 8
 
     /// Unset, in every density, the one corner radius is the omnibar's, and the omnibar draws it.
-    @Test(arguments: Density.allCases)
-    func theDefaultRadiusIsTheOmnibars(density: Density) {
+    @Test(arguments: DensityPreset.allCases)
+    func theDefaultRadiusIsTheOmnibars(density: DensityPreset) {
         defer { reset() }
-        load(radius: nil, padding: nil, density: density)
-        #expect(Metrics.cornerRadius == Self.omnibarRadius, "\(density): the default radius is \(Metrics.cornerRadius) pt")
-        #expect(OmnibarStyle.barCornerRadius == Metrics.cornerRadius,
-                "\(density): the omnibar is \(OmnibarStyle.barCornerRadius) pt, the default radius \(Metrics.cornerRadius) pt")
-        #expect(OmnibarGlassLook.standard.resolvedCornerRadius(barHeight: OmnibarStyle.barHeight) == Self.omnibarRadius)
+        load(radius: nil, padding: nil)
+        DesignSettings.shared.densityTokens = density.tokens
+        let corner = (Self.omnibarRadius * CGFloat(density.scaleFactor) * 2).rounded() / 2
+        #expect(Metrics.cornerRadius == corner, "\(density): the default radius is \(Metrics.cornerRadius) pt")
+        // Lawrence 2026-11-11, "same roundness as chrome": the bar takes the tab's radius, or at a browser density Helium's
+        // 8 on 28 on its own bar, the same roundness at every density (Lucas 2026-11-14).
+        #expect(OmnibarStyle.barCornerRadius == corner,
+                "\(density): the omnibar is \(OmnibarStyle.barCornerRadius) pt, want \(corner) pt")
+        #expect(OmnibarGlassLook.standard.resolvedCornerRadius(barHeight: OmnibarStyle.barHeight) == corner)
     }
 
     /// A set radius moves the omnibar with it.

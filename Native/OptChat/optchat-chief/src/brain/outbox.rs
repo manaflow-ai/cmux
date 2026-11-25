@@ -225,16 +225,13 @@ impl Brain {
 
 /// Whether `op` sends link cards (a reply the preview thread filled).
 /// Whether a send carries parts an owner may refuse where text would pass:
-/// link cards, an approval card (a `question` part) or a widget.
+/// link cards, or an approval card (a `question` part).
 fn has_cards(op: &Op) -> bool {
     use cmux_conversation::Part;
     let Op::MessageSend { parts, .. } = op else {
         return false;
     };
-    parts.iter().any(|p| {
-        matches!(
-            p,
-            Part::LinkPreview { .. } | Part::Question(_) | Part::Widget(_)
-        )
-    })
+    parts
+        .iter()
+        .any(|p| matches!(p, Part::LinkPreview { .. } | Part::Question(_)))
 }

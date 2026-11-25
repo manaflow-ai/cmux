@@ -132,97 +132,883 @@
         }
       }
     },
+    "screenshots.rename.failed" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn’t rename the screenshot"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعذّرت إعادة تسمية لقطة الشاشة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije moguće preimenovati snimak ekrana"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke omdøbe skærmbilledet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Das Bildschirmfoto konnte nicht umbenannt werden"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se pudo cambiar el nombre de la captura"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossible de renommer la capture d’écran"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile rinominare lo screenshot"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "スクリーンショットの名前を変更できませんでした"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចប្ដូរឈ្មោះរូបថតអេក្រង់បានទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "스크린샷 이름을 바꾸지 못했습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke gi skjermbildet nytt navn"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie można zmienić nazwy zrzutu ekranu"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não foi possível renomear a captura de tela"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не удалось переименовать снимок экрана"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เปลี่ยนชื่อภาพหน้าจอไม่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ekran görüntüsü yeniden adlandırılamadı"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не вдалося перейменувати знімок екрана"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể đổi tên ảnh chụp màn hình"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法重命名截屏"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法重新命名螢幕截圖"
+          }
+        }
+      }
+    },
+    "screenshots.error.noSpace" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The disk is full. Free some space, then try again."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "القرص ممتلئ. أفرغ بعض المساحة، ثم حاول مرة أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disk je pun. Oslobodite malo prostora, pa pokušajte ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disken er fuld. Frigør noget plads, og prøv igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Datenträger ist voll. Gib Speicherplatz frei und versuche es erneut."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El disco está lleno. Libera espacio e inténtalo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le disque est plein. Libérez de l’espace, puis réessayez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il disco è pieno. Libera spazio, poi riprova."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ディスクがいっぱいです。空き容量を確保してから、もう一度お試しください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ថាសពេញហើយ។ សម្អាតទំហំខ្លះ រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "디스크가 가득 찼습니다. 공간을 확보한 뒤 다시 시도하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disken er full. Frigjør litt plass, og prøv igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dysk jest pełny. Zwolnij miejsce i spróbuj ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O disco está cheio. Libere espaço e tente novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Диск заполнен. Освободите место и попробуйте снова."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ดิสก์เต็ม ลบไฟล์เพื่อเพิ่มพื้นที่ แล้วลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Disk dolu. Biraz yer açıp tekrar deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Диск заповнений. Звільніть місце й спробуйте ще раз."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ổ đĩa đã đầy. Hãy giải phóng dung lượng rồi thử lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "磁盘已满。请释放一些空间，然后重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "磁碟已滿。請釋出一些空間，然後再試一次。"
+          }
+        }
+      }
+    },
+    "screenshots.error.permission" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux doesn’t have permission to change that folder."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ليس لدى cmux إذن لتغيير هذا المجلد."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux nema dozvolu da mijenja tu mapu."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux har ikke tilladelse til at ændre den mappe."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux darf diesen Ordner nicht ändern."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux no tiene permiso para cambiar esa carpeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux n’a pas l’autorisation de modifier ce dossier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux non ha il permesso di modificare quella cartella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux にはそのフォルダを変更する権限がありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux មិនមានការអនុញ្ញាតឱ្យផ្លាស់ប្ដូរថតនោះទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux에 그 폴더를 변경할 권한이 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux har ikke tillatelse til å endre den mappen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux nie ma uprawnień do zmiany tego folderu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O cmux não tem permissão para alterar essa pasta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У cmux нет разрешения изменять эту папку."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux ไม่มีสิทธิ์เปลี่ยนแปลงโฟลเดอร์นั้น"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux'un bu klasörü değiştirme izni yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux не має дозволу змінювати цю папку."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux không có quyền thay đổi thư mục đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 没有更改该文件夹的权限。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux 沒有更改該資料夾的權限。"
+          }
+        }
+      }
+    },
+    "screenshots.error.readOnly" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "That folder is on a read-only disk."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "هذا المجلد على قرص للقراءة فقط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ta mapa je na disku samo za čitanje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den mappe ligger på en skrivebeskyttet disk."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Ordner liegt auf einem schreibgeschützten Datenträger."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Esa carpeta está en un disco de solo lectura."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ce dossier se trouve sur un disque en lecture seule."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Quella cartella si trova su un disco di sola lettura."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "そのフォルダは読み出し専用のディスク上にあります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ថតនោះស្ថិតនៅលើថាសដែលអាចអានបានតែប៉ុណ្ណោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "그 폴더는 읽기 전용 디스크에 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Den mappen ligger på en skrivebeskyttet disk."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten folder jest na dysku tylko do odczytu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Essa pasta está em um disco somente leitura."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Эта папка находится на диске только для чтения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "โฟลเดอร์นั้นอยู่บนดิสก์แบบอ่านอย่างเดียว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu klasör salt okunur bir diskte."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ця папка на диску лише для читання."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thư mục đó nằm trên ổ đĩa chỉ đọc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "该文件夹位于只读磁盘上。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "該資料夾位於唯讀磁碟上。"
+          }
+        }
+      }
+    },
+    "screenshots.error.missing" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The file isn’t there anymore."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لم يعد الملف موجودًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Datoteka više nije tamo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Filen findes ikke længere."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Die Datei ist nicht mehr da."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "El archivo ya no está."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Le fichier n’existe plus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Il file non c’è più."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "そのファイルはもうありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឯកសារលែងមានទៀតហើយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "파일이 더 이상 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Filen finnes ikke lenger."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tego pliku już nie ma."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O arquivo não existe mais."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Этого файла больше нет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีไฟล์นั้นแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dosya artık orada değil."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цього файлу вже немає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tệp không còn ở đó nữa."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "该文件已不存在。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "該檔案已不存在。"
+          }
+        }
+      }
+    },
+    "screenshots.error.generic" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Something went wrong. Try again."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "حدث خطأ ما. حاول مرة أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nešto nije u redu. Pokušajte ponovo."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Noget gik galt. Prøv igen."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Etwas ist schiefgelaufen. Versuche es erneut."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Algo salió mal. Inténtalo de nuevo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Une erreur s’est produite. Réessayez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Qualcosa è andato storto. Riprova."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "問題が発生しました。もう一度お試しください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មានបញ្ហាអ្វីមួយ។ សូមព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "문제가 발생했습니다. 다시 시도하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Noe gikk galt. Prøv igjen."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Coś poszło nie tak. Spróbuj ponownie."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Algo deu errado. Tente novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Что-то пошло не так. Попробуйте снова."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เกิดข้อผิดพลาด ลองอีกครั้ง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bir sorun oluştu. Tekrar deneyin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Щось пішло не так. Спробуйте ще раз."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đã xảy ra lỗi. Hãy thử lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "出了点问题。请重试。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "發生問題。請再試一次。"
+          }
+        }
+      }
+    },
     "screenshots.empty" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No screenshots yet. New ones show here as soon as they are saved."
+            "value" : "No screenshots yet."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا توجد لقطات شاشة بعد. تظهر اللقطات الجديدة هنا فور حفظها."
+            "value" : "لا توجد لقطات شاشة بعد."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Još nema snimaka ekrana. Novi se pojavljuju ovdje čim se sačuvaju."
+            "value" : "Još nema snimaka ekrana."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ingen skærmbilleder endnu. Nye vises her, så snart de er gemt."
+            "value" : "Ingen skærmbilleder endnu."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Noch keine Bildschirmfotos. Neue erscheinen hier, sobald sie gesichert sind."
+            "value" : "Noch keine Bildschirmfotos."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aún no hay capturas de pantalla. Las nuevas aparecen aquí en cuanto se guardan."
+            "value" : "Aún no hay capturas de pantalla."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Aucune capture d’écran pour l’instant. Les nouvelles apparaissent ici dès leur enregistrement."
+            "value" : "Aucune capture d’écran pour l’instant."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ancora nessuna istantanea. Le nuove compaiono qui appena vengono salvate."
+            "value" : "Ancora nessuna istantanea."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "スクリーンショットはまだありません。保存されるとすぐにここに表示されます。"
+            "value" : "スクリーンショットはまだありません。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "មិនទាន់មានរូបថតអេក្រង់ទេ។ រូបថ្មីៗបង្ហាញនៅទីនេះភ្លាមៗនៅពេលរក្សាទុក។"
+            "value" : "មិនទាន់មានរូបថតអេក្រង់ទេ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "아직 스크린샷이 없습니다. 새 스크린샷은 저장되는 즉시 여기에 표시됩니다."
+            "value" : "아직 스크린샷이 없습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Ingen skjermbilder ennå. Nye vises her så snart de er lagret."
+            "value" : "Ingen skjermbilder ennå."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Brak zrzutów ekranu. Nowe pojawią się tutaj zaraz po zapisaniu."
+            "value" : "Brak zrzutów ekranu."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Nenhuma captura de tela ainda. As novas aparecem aqui assim que são salvas."
+            "value" : "Nenhuma captura de tela ainda."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Снимков экрана пока нет. Новые появятся здесь сразу после сохранения."
+            "value" : "Снимков экрана пока нет."
           }
         },
         "th" : {
@@ -234,31 +1020,31 @@
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Henüz ekran görüntüsü yok. Yenileri kaydedilir kaydedilmez burada görünür."
+            "value" : "Henüz ekran görüntüsü yok."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Знімків екрана ще немає. Нові з’являться тут одразу після збереження."
+            "value" : "Знімків екрана ще немає."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chưa có ảnh chụp màn hình. Ảnh mới hiển thị ở đây ngay khi được lưu."
+            "value" : "Chưa có ảnh chụp màn hình."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "还没有截屏。新的截屏一旦存储就会显示在这里。"
+            "value" : "还没有截屏。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "尚無截圖。新的截圖一儲存就會顯示在這裡。"
+            "value" : "尚無截圖。"
           }
         }
       }
@@ -783,137 +1569,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "截圖已經開啟。只有在其中按一下「顯示截圖」後，才會顯示你的截圖。"
-          }
-        }
-      }
-    },
-    "screenshots.prompt.body" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your screenshots are saved on your Desktop or in another folder that macOS protects. cmux reads them only after you click."
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "تُحفظ لقطات الشاشة على سطح المكتب أو في مجلد آخر يحميه macOS. لا يقرأها cmux إلا بعد أن تنقر."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vaši snimci ekrana se čuvaju na radnoj površini ili u drugom folderu koji macOS štiti. cmux ih čita tek kada kliknete."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dine skærmbilleder gemmes på dit skrivebord eller i en anden mappe, som macOS beskytter. cmux læser dem først, når du klikker."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Deine Bildschirmfotos liegen auf deinem Schreibtisch oder in einem anderen Ordner, den macOS schützt. cmux liest sie erst, nachdem du klickst."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tus capturas de pantalla se guardan en el escritorio o en otra carpeta que macOS protege. cmux solo las lee después de que hagas clic."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vos captures d’écran sont enregistrées sur votre bureau ou dans un autre dossier que macOS protège. cmux ne les lit qu’après votre clic."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Le tue istantanee schermo sono salvate sulla scrivania o in un’altra cartella protetta da macOS. cmux le legge solo dopo il tuo clic."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "スクリーンショットはデスクトップ、またはmacOSが保護する別のフォルダに保存されています。cmuxはクリックした後でのみそれらを読み込みます。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "រូបថតអេក្រង់របស់អ្នកត្រូវបានរក្សាទុកនៅលើផ្ទៃតុ ឬក្នុងថតផ្សេងទៀតដែល macOS ការពារ។ cmux អានវាតែបន្ទាប់ពីអ្នកចុចប៉ុណ្ណោះ។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "스크린샷은 데스크탑 또는 macOS가 보호하는 다른 폴더에 저장되어 있습니다. cmux는 클릭한 후에만 스크린샷을 읽습니다."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Skjermbildene dine lagres på skrivebordet eller i en annen mappe som macOS beskytter. cmux leser dem først når du klikker."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Twoje zrzuty ekranu są zapisane na biurku lub w innym folderze chronionym przez macOS. cmux odczytuje je dopiero po Twoim kliknięciu."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Suas capturas de tela ficam na Mesa ou em outra pasta que o macOS protege. O cmux só as lê depois que você clica."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ваши снимки экрана хранятся на рабочем столе или в другой папке, которую защищает macOS. cmux читает их только после вашего нажатия."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ภาพหน้าจอของคุณบันทึกอยู่บนเดสก์ท็อปหรือในโฟลเดอร์อื่นที่ macOS ปกป้อง cmux จะอ่านภาพเหล่านั้นหลังจากที่คุณคลิกเท่านั้น"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ekran görüntüleriniz masaüstünüzde veya macOS’in koruduğu başka bir klasörde kayıtlı. cmux bunları yalnızca siz tıkladıktan sonra okur."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ваші знімки екрана зберігаються на робочому столі або в іншій папці, яку захищає macOS. cmux читає їх лише після вашого натискання."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ảnh chụp màn hình của bạn được lưu trên màn hình nền hoặc trong một thư mục khác mà macOS bảo vệ. cmux chỉ đọc chúng sau khi bạn bấm."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你的截屏存储在桌面或 macOS 保护的其他文件夹中。只有在你点按后，cmux 才会读取它们。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "你的截圖儲存在桌面或 macOS 保護的其他檔案夾中。只有在你按一下後，cmux 才會讀取它們。"
           }
         }
       }

@@ -65,7 +65,7 @@ final class SidebarNoticeCardView: NSView {
     /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
          motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
-        surface = CardSurfaceView(cornerRadius: Metrics.surfaceCornerRadius, reduceTransparency: reduceTransparency)
+        surface = CardSurfaceView(cornerRadius: Self.cardCornerRadius, reduceTransparency: reduceTransparency)
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
         wantsLayer = true
@@ -278,7 +278,10 @@ final class SidebarNoticeCardView: NSView {
 
     // MARK: Geometry
 
-    private static var padding: CGFloat { Metrics.space3 }
+    /// The card's padding (``Metrics/cardPadding``): every row and button starts it in from the edges.
+    private static var padding: CGFloat { Metrics.cardPadding }
+    /// The card's corner, concentric with its buttons: the button corner plus ``padding``, the gap from its edges to them.
+    static var cardCornerRadius: CGFloat { Metrics.buttonContainer(padding: padding).outerRadius }
     private static var lineHeight: (caption: CGFloat, body: CGFloat) {
         (ceil(Typography.caption.boundingRectForFont.height), ceil(Typography.bodyEmphasized.boundingRectForFont.height))
     }
@@ -375,7 +378,7 @@ final class SidebarNoticeCardView: NSView {
         let dismissWidth = notice.dismissTitle == nil ? 0 : dismissButton.fittingWidth
         let trailingWidth = notice.trailing == nil ? 0 : trailingButton.fittingWidth
         let key = FramesKey(notice: notice, width: width, dismissWidth: dismissWidth, trailingWidth: trailingWidth, placement: glyphPlacement,
-                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.space4, Typography.caption.pointSize,
+                            scale: [Self.padding, Metrics.space1, Metrics.space2, Metrics.cardRowGap, Metrics.space4, Typography.caption.pointSize,
                                     Typography.bodyEmphasized.pointSize, SidebarUpdateButton.font.pointSize, SidebarUpdateButton.height],
                             faces: [Typography.caption.fontName, Typography.bodyEmphasized.fontName, SidebarUpdateButton.font.fontName])
         if let measured, measured.key == key { return measured.frames }
@@ -455,7 +458,7 @@ final class SidebarNoticeCardView: NSView {
             y += barHeight
         }
         if !notice.actions.isEmpty {
-            y += Metrics.space2
+            y += Metrics.cardRowGap
             let rowEnd = width - pad, row = max(0, rowEnd - bodyX)
             var x = bodyX
             for action in notice.actions.filter({ !$0.isSwitch }).prefix(2) {
@@ -471,7 +474,9 @@ final class SidebarNoticeCardView: NSView {
             frames.lastRow = (y, x)
             y += SidebarUpdateButton.height
         }
-        frames.height = ceil(y + pad)
+        // On the half-point grid (the 2x pixel), not a whole point: a whole-point ceil left the last row up to a point
+        // more than the padding from the bottom at a density whose spacing is a half point (Compact, Comfortable).
+        frames.height = (2 * (y + pad)).rounded(.up) / 2
         return frames
     }
 
@@ -482,8 +487,9 @@ final class SidebarNoticeCardView: NSView {
         super.layout()
         let b = bounds, pad = Self.padding, line = Self.lineHeight, close = Self.closeSide
         surface.frame = b
-        surface.cornerRadius = Metrics.surfaceCornerRadius
-        content.layer?.cornerRadius = Metrics.surfaceCornerRadius
+        // Concentric with its buttons (Lawrence 2026-11-15: "all dialogs needs concentric padding with buttons inside").
+        surface.cornerRadius = Self.cardCornerRadius
+        content.layer?.cornerRadius = Self.cardCornerRadius
         content.layer?.cornerCurve = .continuous
         content.frame = b
         eyebrowLabel.font = Typography.caption
@@ -503,16 +509,14 @@ final class SidebarNoticeCardView: NSView {
             label.font = Typography.caption
             label.frame = frame
         }
-        // The x and the text button sit on the first row: the glyph's own, else the heading's or the title's. The x
-        // centers on that row's capitals (live-qa 2026-10-21: centered in the padding corner it sat a point above the heading).
-        let first = eyebrowLabel.isHidden ? titleLabel : eyebrowLabel
-        let rowMid = rows.glyphRow ? icon.frame.midY
-            : first.frame.minY + first.firstBaselineOffsetFromTop - (first.font?.capHeight ?? 0) / 2
+        // The text button sits on the first row: the glyph's own, else the title's.
         let dismissMid = rows.glyphRow ? icon.frame.midY : titleLabel.frame.minY + line.body / 2
         dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: dismissMid - dismissHeight / 2, width: dismissWidth, height: dismissHeight)
-        let scale = window?.backingScaleFactor ?? 2
-        closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: ((rowMid - close / 2) * scale).rounded() / scale,
-                                   width: close, height: close)
+        // The x in the card's top trailing corner, concentric with the card (Lawrence 2026-11-15: a card's x must be
+        // concentric with its corner): the same inset from the top and the side, its hover the corner less it.
+        let corner = Metrics.cornerControl(outerRadius: Self.cardCornerRadius, side: close)
+        closeButton.frame = corner.topTrailingFrame(side: close, in: b, flipped: true)
+        closeButton.concentricRadius = corner.childRadius
         // The card's Cancel: a text button on the first row at the top right, left of the x when the card has one.
         let trailingWidth = trailingButton.fittingWidth
         let trailingEnd = closeButton.isHidden ? b.width - pad / 2 : closeButton.frame.minX - Metrics.space1

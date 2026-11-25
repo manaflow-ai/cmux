@@ -39,9 +39,7 @@ use crate::provider::socks::{
     REPLY_CONNECTION_REFUSED, REPLY_GENERAL_FAILURE, REPLY_NETWORK_UNREACHABLE, REPLY_NOT_ALLOWED,
     REPLY_SUCCEEDED, Target,
 };
-use crate::unix_socket::{
-    OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup, UnixSocketError,
-};
+use crate::unix_socket::{OwnedUnixListener, UnixSocketCleanup, UnixSocketError};
 
 /// Concurrent tunneled connections the hub serves. Each VM link uses at most
 /// four lanes; this leaves room for many links plus reconnect overlap.
@@ -154,7 +152,7 @@ pub async fn serve_wireguard_hub(
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_HUB_CONNECTIONS));
     let task = tokio::spawn(async move {
-        let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut accept_backoff = crate::unix_socket::accept_backoff();
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -170,7 +168,7 @@ pub async fn serve_wireguard_hub(
                             accepted
                         }
                         Err(error) => {
-                            let Some(delay) = accept_backoff.retry_delay(&error) else {
+                            let Some(delay) = cmux_tui_core::backoff::accept_retry_delay(&mut accept_backoff, &error) else {
                                 return Err(HubError::Io(io::Error::new(
                                     error.kind(),
                                     format!("hub Unix listener accept failed: {error}"),

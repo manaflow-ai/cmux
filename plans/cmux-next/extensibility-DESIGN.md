@@ -329,6 +329,8 @@ of switches.
 | 7 | Store trim (section 7) | app platform | can start now |
 | 8 | Perf-gate scenarios (section 8) | a436 owner | with 4 to 6 |
 
+Steps 9 to 14 continue in section 12.4.
+
 ## 10. First example: Priority View
 
 **Today.**
@@ -398,7 +400,7 @@ in another form), **rejected**.
 
 | # | Proposal | Verdict | Where, or why |
 | --- | --- | --- | --- |
-| 1 | **Generations.** Every theme, settings or app change is a numbered, atomic setup you can go back to, from the launcher too. | take | Step 9. A generation is the content hash of the resolved `cmux.json`, the theme file, the `local/customize` tree digest, and each installed app's approval (the module store already records digest and commit per install, `module-store-threat-model.md` T16, T17) with its on or off state and granted scopes. Going back restores that install state too. An app's own storage is data, not setup: it stays as it is, so a rollback never loses what an app saved. `cmux generations list`, `switch N`, `rollback`. The last 20 are kept. |
+| 1 | **Generations.** Every theme, settings or app change is a numbered, atomic setup you can go back to, from the launcher too. | take | Step 9. A generation is the content hash of the resolved `cmux.json`, the theme file, the `local/customize` tree digest, and each installed app's approval (the module store already records digest and commit per install, `module-store-threat-model.md` T16, T17) with its on or off state and granted scopes. Going back restores that install state too. An app's own storage is data, not setup: it stays as it is, so a rollback never loses what an app saved. `cmux customize generations`, `show N`, `rollback [N]` (cmux#40533). The last 100 are kept: a generation is content-addressed, so one that changes a single file stores only that file. |
 | 2 | **Safe mode and bisect.** A held key, or two crashes in a row, starts with no apps and the stock theme; bisect finds the bad app by halving. | take | Step 10. Today the fallback is per mount (R5 and the section 3 budgets; the section 6 ladder is step 4). Safe mode is the same rule for the whole launch: Option held at launch, or two crashes within 10 minutes, starts with every app and `local/customize` off and the stock theme. A banner offers Turn Back On, Go Back One Generation, and Find the Problem (bisect over installed apps, one relaunch per half). |
 | 3 | **Validate before apply.** A setup that fails its schema or its load is never applied; the last good one keeps running and the error names the line. | changed | Settings already refuse bad values (`settings.invalid`, `settings-react.md`) and app manifests are schema-checked. Step 11 makes it one rule for every file a person edits by hand: a `cmux.json`, theme file or customize manifest that fails to parse leaves the last good generation running, and the error names file and line. |
 | 4 | **One declarative profile, shared as a link** that previews on the real window first. | take | Step 12. A profile is a generation exported: theme, layout, settings, pinned app ids and versions. It holds data only; apps in it install through the normal consent sheet. Opening a link previews on the real window, then applies as a new generation. |
@@ -460,13 +462,28 @@ These continue section 9's table.
 
 | # | Step | Owner | State |
 | --- | --- | --- | --- |
-| 9 | Generations: hash, keep 20, `cmux generations list / switch / rollback`, a generation before every install, update and removal | app platform | next |
+| 9 | Generations: hash, keep 100, `cmux customize generations / show / rollback`, in the CLI, MCP (`customize_*`) and `/customize` | app platform | landed for the customize tree (settings, shortcuts, themes, views, stylesheets, automations; cmux#40533). Follow-ups: each installed app's approval, on or off state and scopes in the generation, and a generation before every App Store install, update and removal ("Before installing X") |
 | 10 | Safe mode at launch (Option held, or two crashes in 10 minutes), bisect over installed apps, per-app cost in the Installed list | app platform | after 9 |
-| 11 | One validate-before-apply rule for `cmux.json`, theme files and customize manifests, naming file and line; refuse bidi and invisible characters in app code and manifests | settings lead, app platform | next |
-| 12 | Profiles: export a generation as data, portable (no absolute paths or secrets, per-machine layer), share as a link that previews before applying | app platform | after 9 |
+| 11 | One validate-before-apply rule for `cmux.json`, theme files and customize manifests, naming file and line; refuse bidi and invisible characters in app code and manifests | settings lead, app platform | landed (cmux#40533): apply refuses an invalid tree with file, line and column; `cmux_app_manifest::hidden` refuses direction controls and invisible characters in every manifest string and in `runtime.main` at app load, install and `cmux ext dev`, and in every customize file. Follow-up: a git module's offline page files |
+| 12 | Profiles: export a generation as data, portable (no absolute paths or secrets, per-machine layer), share as a link that previews before applying | app platform | landed as a file (cmux#40533): `cmux customize save NAME` / `use NAME|FILE`, secret scan, no absolute or dot paths, previews on the real window before apply. Follow-ups: pinned app ids in a profile, opening one from a link |
 | 13 | Import and export of the common 16-color scheme format; palette from the background image through `ThemeTokens.derive` | theme owner | can start now |
 | 14 | Registry listed tier: build from the tagged commit, publish from CI with 2FA, check listed apps against each nightly | registry owner | after the store trim (step 7) |
 
 Generations, safe mode and profiles each need an iPhone row in `cmux-next-ios/verify/parity-mac.md`
 when they ship: the phone lists generations and can go back one. Safe mode itself is "not from a
 phone" (it is how the Mac app starts).
+
+## 13. One capability manifest
+
+Leo (2026-11-11): "how about that extensibility and, like, the capabilities of stuff, like the SDK thing I was thinking about?" The store keeps the name App Store.
+
+What an App Store app can read and do is one table, typed in Rust: `cmux_app_manifest::capabilities`. It reads `generated/scopes.json` (the scope and class of each op, and the ops apps never reach) and `schema/v2/scope-classes.json` (each scope's risk class and consent text) once. It also holds the rules that used to live only in the daemon: which ops need a user gesture, and which ops need `workspace:execute` when they are given a command. The daemon's per-call check (`apps/grants.rs`) and the install-time check (`rules.rs`) both read it. A Rust test checks the two tables against each other: every op scope must be decided by one rule, not by which of two generic rules comes first, and every rule must classify an op scope or name what else it gates (`gates`). The daemon serves the table as `apps-capabilities`, together with the live `cmux-app.d.ts`, its digest and the API version. `cmux ext capabilities [--op NAME] [--json]` prints it. `cmux ext dev` writes the running cmux's `cmux-app.d.ts` into the project whenever it differs, at start and whenever the daemon's digest changes, so the editor's types match the API being served.
+
+What is still left, in order:
+
+1. The SDKs (python and the 6 others under `bindings/`) are built from `spec/sdk-schema.json` (protocol-12), a different catalog from `resource-operations-v2.json`, and no op name appears in both. Generate the SDK op surface from the capability manifest, so an SDK call and a JS extension call name the same op and need the same scope.
+2. The catalog is still assembled, and scopes are still derived, in TS: `gen-cmux-global.ts` merges 4 catalogs plus a hand-written `hostOps` list, and works out scopes with `SCOPE_FAMILY`, `NEVER_FAMILIES`, `EXECUTE`, `NEVER`, `NEVER_OPS` and `scopeFor`. Move both into Rust, leaving the TS to emit `.d.ts` text only, and have Rust produce scopes.json.
+3. The provider families the Mac app answers in Swift (`coderouter.*` keys, `fs.pick` and others) are typed nowhere. Their scopes are known only from `gates` notes and hand lists (`PANEL_OPS`). Declare each one in the catalog with params, result and scope.
+4. No test checks that every op has a handler. Add one: every op in the manifest is answered by the daemon, a provider family, or a first-party app server, and every handler names an op in the manifest.
+5. App catalog fragments use JSON Schema for input and output, while the core catalogs use the `kind` IR. Pick one, convert the other, and give the d.ts and the SDKs a single type path.
+6. Cloud ops are authored in TS (`backend/catalog/cloud-operations.json`, which the backend writes). Generate that catalog from the same typed source, or check it against the Rust manifest in CI.

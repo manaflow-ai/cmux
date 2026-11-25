@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use serde_json::json;
 
-use super::{Cursor, Poll, parse};
+use super::{ChatRows, Cursor, Poll, chat_states, parse};
 
 #[test]
 fn a_reset_does_not_fill_a_wait_before_its_match() {
@@ -136,4 +136,44 @@ fn the_live_position_of_the_daemon_cursor_goes_back_whole() {
     assert_eq!(poll.cursor.daemon_param(), whole("epoch.9", "4"));
     let Some(daemon) = poll.cursor.daemon.as_ref() else { panic!("a daemon cursor") };
     assert_eq!(daemon.skip, 2);
+}
+
+/// A GUI chat's tab names its chat (`agent_session`, else its conversation's,
+/// `acp:` or not) and has no `agent_state`: its state is the chat index's,
+/// this machine's row before a peer's of the same id. A tab whose chat is not
+/// listed has no state this time; a tab that is no chat is left out.
+#[test]
+fn a_chat_tab_takes_its_state_from_the_chat_index() {
+    let snapshot = json!({"tabs": [
+        {"id": "tab_a", "content_kind": "conversation", "agent_session": "acp:chat-a"},
+        {"id": "tab_b", "content_kind": "conversation",
+         "extra": {"conversation": {"agent_session": {"session": "chat-b", "host_name": "h"}}}},
+        {"id": "tab_c", "content_kind": "conversation", "agent_session": "chat-c"},
+        {"id": "tab_page", "kind": "page", "agent_state": "working"},
+        {"id": "tab_term", "content_kind": "terminal"},
+    ]});
+    let rows = ChatRows::new(&json!([
+        {"id": "chat-a", "state": "working", "machine": "peer"},
+        {"id": "chat-a", "state": "idle", "machine": null},
+        {"id": "chat-b", "state": "input", "machine": null},
+        {"id": "chat-b", "state": "failed", "machine": "peer"},
+    ]));
+    let states = chat_states(&snapshot, Some(&rows));
+    let got = states
+        .iter()
+        .map(|(tab, state, session)| (tab.as_str(), state.as_deref(), session.clone()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        got,
+        [
+            ("tab_a", Some("idle"), json!("acp:chat-a")),
+            ("tab_b", Some("input"), json!("chat-b")),
+            ("tab_c", None, json!("chat-c")),
+            ("tab_page", Some("working"), json!(null)),
+        ]
+    );
+    // No chat.list answer: the chats' states are unknown, not idle.
+    let unknown = chat_states(&snapshot, None);
+    assert_eq!(unknown[0].1, None);
+    assert_eq!(unknown[3].1.as_deref(), Some("working"));
 }

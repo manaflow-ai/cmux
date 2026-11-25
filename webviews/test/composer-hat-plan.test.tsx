@@ -1,6 +1,8 @@
 // l10n-allow-file: test fixture todo items and commands, not shipped UI.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,12 +56,8 @@ type AcpmuxPlanEntry = import("../src/agent-session/acpmux/model").AcpmuxPlanEnt
 // composer hat is kinda ok?"): folded, "2 of 5 · <the step at work>" before what runs; opened, the
 // checklist over the lines. Settings > Agent Chat > Pin Task List in Chat pins it in the transcript
 // instead (App.tsx `planInHat`).
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -131,7 +129,7 @@ describe("the composer hat shows the running turn's plan", () => {
       expect(bar.title()?.startsWith("2 of 5 · Run the tray tests · Start the dev server")).toBe(true);
       await act(async () => bar.button()!.click());
       expect(bar.host.querySelectorAll(".acpmux-running-tray .cv-plan__item").length).toBe(5);
-      expect(bar.host.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length).toBe(3);
+      expect(bar.host.querySelectorAll(RUNNING_TRAY_LINE).length).toBe(3);
     } finally {
       await bar.done();
     }

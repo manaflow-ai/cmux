@@ -18,7 +18,12 @@ import Testing
                                         accessToken: { _ in "t" })
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://api.example")!, teamID: "team-1", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "mac-42", name: "Mac", isOnline: true)))
-        for _ in 0..<200 { if case .waiting = controller.phase { break }; await Task.yield() }
+        // A count of yields is no deadline: on a busy runner 200 reschedules can pass before the dial fails.
+        var deadline = AwakeDeadline(.seconds(10))
+        while deadline.hasTimeLeft() {
+            if case .waiting = controller.phase { break }
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls the phase until a deadline
+        }
         await telemetry.flush()
         return journal.records()
     }

@@ -1,0 +1,28 @@
+// Studio: graphite chrome, a hairline between the sidebar and the chat, a rose
+// accent, an arc while work runs, small radii and a tight strip.
+// Edit and save, the window repaints at once.
+{
+  "name": "Studio",
+  "description": "Graphite chrome, a hairline sidebar edge, a rose accent, small radii, compact density.",
+
+  "appearance.theme": "Builtin Dark",
+  "colors": { "background": "#111113", "foreground": "#e6e6e9", "selection": "#2a2a30", "cursor": "#e6e6e9", "accent": "#e0679a" },
+  "appearance.accent": "theme",
+
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.borders": "default",
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#0d0d0f",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#111113",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "arc",
+
+
+  "appearance.density": "compact",
+  "ui.animationSpeed": "fast"
+}

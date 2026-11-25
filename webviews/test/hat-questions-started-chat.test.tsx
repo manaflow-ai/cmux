@@ -7,7 +7,9 @@
 // - Its choices are buttons, the recommended one marked; a click sends that choice.
 // - A typed answer goes with Send, and a refused one keeps the text and says so.
 // - Open Chat stays.
+// - Escape in the reply field holding a typed answer keeps the question; an empty one puts it away.
 import { afterAll, expect, test } from "bun:test";
+import { settleReact } from "./support/domTeardown";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { HatQuestion } from "../src/agent-session/acpmux/question/hatModel";
 
@@ -49,7 +51,8 @@ const domClasses = Object.getOwnPropertyNames(dom.window).filter(
   (key) => /^(HTML|SVG|CSS|Document|Event|KeyboardEvent|InputEvent)/.test(key) && !(key in globals),
 );
 for (const key of domClasses) globals[key] = (dom.window as unknown as Record<string, unknown>)[key];
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, had, value] of saved) {
     if (had) globals[key] = value;
     else delete globals[key];
@@ -71,6 +74,7 @@ async function mount(question: HatQuestion = CHILD_QUESTION, refuse = false) {
   const answered: string[] = [];
   const replied: string[] = [];
   const opened: string[] = [];
+  const dismissed: string[] = [];
   await act(async () =>
     root.render(
       <HatQuestions
@@ -88,6 +92,7 @@ async function mount(question: HatQuestion = CHILD_QUESTION, refuse = false) {
           type: () => undefined,
           showCard: () => undefined,
           open: (shown) => void opened.push(shown.sessionId ?? ""),
+          dismiss: (shown) => void dismissed.push(shown.id),
         }}
       />,
     ),
@@ -105,7 +110,7 @@ async function mount(question: HatQuestion = CHILD_QUESTION, refuse = false) {
       setter.call(field, text);
       field.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
-  return { host, $, click, type, answered, replied, opened, unmount: () => act(async () => root.unmount()) };
+  return { host, $, click, type, answered, replied, opened, dismissed, unmount: () => act(async () => root.unmount()) };
 }
 
 test("the first line names who asks and what about; the choices are buttons, the recommended one marked", async () => {
@@ -156,5 +161,22 @@ test("Open Chat stays, and a question needing its card offers no field", async (
   );
   await hat.click(open!);
   expect(hat.opened).toEqual(["coord-deputy"]);
+  await hat.unmount();
+});
+
+test("Escape in the reply field keeps a typed answer's question, and puts an empty one's away", async () => {
+  const hat = await mount();
+  const escape = () =>
+    act(async () => {
+      hat
+        .$(".acpmux-hat-questions__field")!
+        .dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    });
+  await hat.type("Remove the older one only");
+  await escape();
+  expect(hat.dismissed).toEqual([]);
+  await hat.type("");
+  await escape();
+  expect(hat.dismissed).toEqual([CHILD_QUESTION.id]);
   await hat.unmount();
 });

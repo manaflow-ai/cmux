@@ -158,6 +158,8 @@ test("Claude Code's line before an envelope is no part of the message", () => {
   for (const preface of [
     "Another Claude session sent a message:\n",
     "Another Claude session sent a message while you were working:\n",
+    "A peer session sent a message:\n",
+    "A peer session sent a message while you were working:\n",
   ]) {
     const raw = `${preface}<cross-session-message from="uds:/tmp/a.sock" from-name="leoli-fb" from-mode="bypass">\nhi\n</cross-session-message>${NOTE}`;
     expect(incomingPrompt(raw, adopted)).toEqual({ kind: "message", message: { name: "leoli-fb", text: "hi", raw } });
@@ -1164,4 +1166,18 @@ test("a relayed sender's chat is asked for by its whole relay address, not the c
   };
   const prompt = incomingPrompt("Merged the fix.", { _meta: { provenance: forged } });
   expect(prompt?.kind === "message" && prompt.message.lookup).toBeFalsy();
+});
+
+// acpmux's own prompts (hub/inbox.rs `persons_prompt`) name no sender and are never the person's
+// (Leo, 2026-11-12: "i didnt send it myself"): the turn cap's notice and an inbox digest draw as
+// acpmux's message, with their words; the person's own prompt, even the same words, stays theirs.
+test("acpmux's turn cap notice and inbox digest draw as acpmux's message, never the person's", () => {
+  for (const [kind, text] of [
+    ["turn_cap", "This turn has run 30 minutes. Wrap up and end the turn."],
+    ["inbox_digest", "3 messages waited: 1 block, 2 FYIs"],
+  ] as const) {
+    const prompt = incomingPrompt(text, { _meta: { provenance: { kind } } });
+    expect(prompt).toEqual({ kind: "message", message: { name: "acpmux", text, raw: text } });
+    expect(incomingPrompt(text, {})).toBeUndefined();
+  }
 });

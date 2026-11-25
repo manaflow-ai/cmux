@@ -16,6 +16,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use cmux_json::JsonGet as _;
 use serde_json::{Map, Value, json};
 
 use super::super::GlobalArgs;
@@ -38,6 +39,28 @@ pub(super) struct Inputs {
     pub components: Map<String, Value>,
     /// `{name, version, build}` of the operating system.
     pub os: Value,
+    /// The customize layers that are on (`cmux customize library status
+    /// --json`'s `layers`), `null` with no home.
+    pub customize: Value,
+}
+
+/// The customize layers that are on, read from the library's files: no app
+/// needed, so a report from a cmux that a layer broke still says which. An
+/// overlay web-dev.json names is judged against `bundle`'s web ABI.
+fn customize_facts(bundle: Option<&Path>) -> Value {
+    let app_abi = super::super::customize::app_web_abi(bundle);
+    let now_ms = super::super::customize::now_ms();
+    cmux_customize::Customize::from_env()
+        .ok()
+        .and_then(|customize| {
+            // A layer past its bound is turned off before it is reported,
+            // so the report says it expired, not that it is on.
+            let expiry =
+                cmux_customize::library::expire::Expiry { now_ms, app_abi, ..Default::default() };
+            customize.expire_stale(&expiry, "cli");
+            serde_json::to_value(customize.layers_at(app_abi, now_ms)).ok()
+        })
+        .unwrap_or(Value::Null)
 }
 
 /// `cmux version`: gathers [`Inputs`] and prints the report.
@@ -64,7 +87,7 @@ pub(super) fn run(global: &GlobalArgs) -> i32 {
     let bundle = identify
         .as_ref()
         .ok()
-        .and_then(|value| text(value, "app_bundle_path"))
+        .and_then(|value| value.get_nonempty_str("app_bundle_path"))
         .map(PathBuf::from)
         .or_else(|| cli_path.as_deref().and_then(bundle_of));
     let components = bundle.as_deref().map(read_components).unwrap_or_default();
@@ -75,6 +98,7 @@ pub(super) fn run(global: &GlobalArgs) -> i32 {
         updates,
         components,
         os: os_facts(),
+        customize: customize_facts(bundle.as_deref()),
     };
     let value = report(&inputs);
     match global.output {
@@ -100,8 +124,8 @@ pub(super) fn report(inputs: &Inputs) -> Value {
         Err(error) => (Value::Null, error_facts(error)),
     };
     let cli_matches_app = match (&inputs.identify, &inputs.cli_path) {
-        (Ok(identify), Some(exe)) => match text(identify, "app_cli_path") {
-            Some(cli) => Value::Bool(same_file(Path::new(&cli), exe)),
+        (Ok(identify), Some(exe)) => match identify.get_nonempty_str("app_cli_path") {
+            Some(cli) => Value::Bool(same_file(Path::new(cli), exe)),
             None => Value::Null,
         },
         _ => Value::Null,
@@ -114,33 +138,33 @@ pub(super) fn report(inputs: &Inputs) -> Value {
         "updates": inputs.updates.as_ref().map(update_facts),
         "components": inputs.components,
         "os": inputs.os,
+        "customize": inputs.customize,
     })
 }
 
 fn app_facts(identify: &Value, updates: Option<&Value>) -> Value {
-    let name = text(identify, "app").unwrap_or_else(|| "cmux".to_owned());
-    let bundle_id = text(identify, "bundle_id");
-    let track = updates.and_then(|status| text(status, "track"));
+    let name = identify.get_nonempty_str("app").unwrap_or("cmux");
+    let bundle_id = identify.get_nonempty_str("bundle_id");
+    let track = updates.and_then(|status| status.get_nonempty_str("track"));
     // `updates.status.track` keeps the updater's internal feed identity. The
     // public app channel retains the established NIGHTLY name for NEXT's
     // `nightly-next` track; the raw value remains in `updates.track`.
     let channel = track
-        .as_deref()
         .map(public_channel)
         .map(str::to_owned)
-        .unwrap_or_else(|| channel_of(&name, bundle_id.as_deref()).to_owned());
+        .unwrap_or_else(|| channel_of(name, bundle_id).to_owned());
     json!({
         "name": name,
         "classic": name == "cmux",
-        "version": text(identify, "version"),
-        "build": text(identify, "build"),
+        "version": identify.get_nonempty_str("version"),
+        "build": identify.get_nonempty_str("build"),
         "channel": channel,
         "bundle_id": bundle_id,
-        "bundle_path": text(identify, "app_bundle_path"),
-        "cli_path": text(identify, "app_cli_path"),
-        "socket": text(identify, "socket_path"),
+        "bundle_path": identify.get_nonempty_str("app_bundle_path"),
+        "cli_path": identify.get_nonempty_str("app_cli_path"),
+        "socket": identify.get_nonempty_str("socket_path"),
         "pid": identify.get("pid").cloned().unwrap_or(Value::Null),
-        "tag": text(identify, "tag"),
+        "tag": identify.get_nonempty_str("tag"),
         "protocol_version": identify.get("protocol_version").cloned().unwrap_or(Value::Null),
     })
 }
@@ -183,19 +207,19 @@ fn update_facts(status: &Value) -> Value {
     let probe = status.get("last_probe").filter(|probe| !probe.is_null());
     let card = status.get("card").filter(|card| !card.is_null());
     json!({
-        "track": text(status, "track"),
-        "phase": text(status, "phase"),
-        "detected_version": text(status, "detected_version"),
+        "track": status.get_nonempty_str("track"),
+        "phase": status.get_nonempty_str("phase"),
+        "detected_version": status.get_nonempty_str("detected_version"),
         "probing": status.get("probing").cloned().unwrap_or(Value::Null),
         "automatic_checks": status.get("automatic_checks").cloned().unwrap_or(Value::Null),
         "automatic_downloads": status.get("automatic_downloads").cloned().unwrap_or(Value::Null),
         "sparkle_enabled": status.get("sparkle_enabled").cloned().unwrap_or(Value::Null),
-        "last_check": probe.and_then(|probe| text(probe, "checked_at")),
-        "last_check_result": probe.and_then(|probe| text(probe, "result")),
-        "last_check_error": text(status, "last_probe_error"),
-        "ready": card.and_then(|card| text(card, "kind")),
-        "badge": text(status, "badge"),
-        "feed_url": text(status, "feed_url"),
+        "last_check": probe.and_then(|probe| probe.get_nonempty_str("checked_at")),
+        "last_check_result": probe.and_then(|probe| probe.get_nonempty_str("result")),
+        "last_check_error": status.get_nonempty_str("last_probe_error"),
+        "ready": card.and_then(|card| card.get_nonempty_str("kind")),
+        "badge": status.get_nonempty_str("badge"),
+        "feed_url": status.get_nonempty_str("feed_url"),
     })
 }
 
@@ -267,10 +291,6 @@ fn os_facts() -> Value {
     }
 }
 
-fn text(value: &Value, key: &str) -> Option<String> {
-    value.get(key).and_then(Value::as_str).filter(|value| !value.is_empty()).map(str::to_owned)
-}
-
 fn same_file(left: &Path, right: &Path) -> bool {
     match (left.canonicalize(), right.canonicalize()) {
         (Ok(left), Ok(right)) => left == right,
@@ -280,19 +300,19 @@ fn same_file(left: &Path, right: &Path) -> bool {
 
 /// The plain-text report, one fact per line.
 pub(super) fn human(report: &Value, labels: &crate::localization::VersionLabels) -> String {
-    let field = |value: &Value, key: &str| text(value, key).unwrap_or_else(|| "-".to_owned());
+    let field = |value: &Value, key: &str| value.get_nonempty_str(key).unwrap_or("-").to_owned();
     let mut out = String::new();
     let mut line = |label: &str, value: String| {
         out.push_str(&format!("{label:<16} {value}\n"));
     };
     let cli = &report["cli"];
-    let short = |commit: String| commit.chars().take(11).collect::<String>();
+    let short = |commit: &str| commit.chars().take(11).collect::<String>();
     line(
         labels.cli,
         format!(
             "{} ({}) {}",
             field(cli, "version"),
-            short(field(cli, "build_commit")),
+            short(&field(cli, "build_commit")),
             field(cli, "path")
         ),
     );
@@ -318,10 +338,10 @@ pub(super) fn human(report: &Value, labels: &crate::localization::VersionLabels)
     let updates = &report["updates"];
     if !updates.is_null() {
         let mut state = field(updates, "phase");
-        if let Some(ready) = text(updates, "ready") {
+        if let Some(ready) = updates.get_nonempty_str("ready") {
             state.push_str(&format!(", {ready}"));
         }
-        if let Some(version) = text(updates, "detected_version") {
+        if let Some(version) = updates.get_nonempty_str("detected_version") {
             state.push_str(&format!(", {version}"));
         }
         line(labels.updates, state);
@@ -329,14 +349,20 @@ pub(super) fn human(report: &Value, labels: &crate::localization::VersionLabels)
     }
     if let Some(components) = report["components"].as_object() {
         for (name, stamp) in components {
-            let value = text(stamp, "version")
-                .or_else(|| text(stamp, "commit").map(short))
+            let value = stamp
+                .get_nonempty_str("version")
+                .map(str::to_owned)
+                .or_else(|| stamp.get_nonempty_str("commit").map(short))
                 .unwrap_or_else(|| "-".to_owned());
             line(name, value);
         }
     }
     let os = &report["os"];
     line(&field(os, "name"), format!("{} ({})", field(os, "version"), field(os, "build")));
+    // `customize: 2 on: pr-43496 @dbb1e3e (web), theme-dusk`, label aligned.
+    if let Some(summary) = report["customize"].get_nonempty_str("line") {
+        line("customize", summary.strip_prefix("customize: ").unwrap_or(summary).to_owned());
+    }
     out
 }
 

@@ -176,18 +176,29 @@ const RETURN_HINT = "(?:host|name|message)=[A-Za-z0-9._:%-]{1,128}"
  * `session/<id>[?machine=][#turn-<id>]`, `agent/<harness>/<session>[?host=&name=&message=]`). Schemes: `cmux`,
  * `cmux-nightly`, `cmux-rc`, and `cmux-dev[-<tag>]` (development builds; dropped on production). Nothing else:
  * no web origin, no other scheme, no other query key.
+ *
+ * One more form, `<scheme>://integration/complete` (#46018): the app that started the connect finishes it. The
+ * provider's redirect page hands the provider's `code`, `installation_id` and this `state` to that link, and the app
+ * sends `integration.complete` with its own sign-in, so the person needs no web session. The API still finishes only
+ * a state signed for that same user and team.
  */
 export const CONNECT_RETURN_TO = new RegExp(
   `^(?:cmux|cmux-nightly|cmux-rc|cmux-dev(?:-[a-z0-9-]{1,40})?)://(?:` +
     `(?:workspace/ws_|pane/pane_|tab/tab_)${RETURN_HEX}(?:\\?machine=machine_${RETURN_HEX})?` +
     `|session/${RETURN_SESSION}(?:\\?machine=machine_${RETURN_HEX})?(?:#turn-${RETURN_SESSION})?` +
     `|agent/[a-z0-9-]{1,64}/[A-Za-z0-9._:-]{1,256}(?:\\?${RETURN_HINT}(?:&${RETURN_HINT}){0,2})?` +
+    `|integration/complete` +
     `)$`
 )
 /** Is `s` a return link a connect may carry (the dashboard checks it again before it redirects)? */
 export const isConnectReturnTo = (s: unknown): s is string => typeof s === "string" && s.length <= CONNECT_RETURN_TO_MAX && CONNECT_RETURN_TO.test(s)
 /** A development build's link (`cmux-dev`, `cmux-dev-<tag>`): never followed on production. */
 export const isDevReturnTo = (s: string): boolean => s.startsWith("cmux-dev")
+/**
+ * Is `s` the app's own completion link (`<scheme>://integration/complete`)? It carries no chat and is never a page
+ * to show: it only hands the redirect back to the app that holds the person's session, a development build's too.
+ */
+export const isIntegrationCompleteReturnTo = (s: string): boolean => isConnectReturnTo(s) && s.endsWith("://integration/complete")
 
 export const IntegrationConnect = def({
   name: "integration.connect",

@@ -145,7 +145,7 @@ import Testing
         let store = AgentChatStore(source: Silent())
         store.apply(.batch((0..<5).flatMap { Self.turn($0, edit: $0 == 4) }))
         let builder = ChatTranscriptBuilder(diffs: ChatDiffCache())
-        let ids = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).flatMap { $0.rows.map(\.id) }
+        let ids = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).flatMap { $0.rows.unfolded.map(\.id) }
         #expect(Set(ids).count == ids.count)
         #expect(ids.first == "session-start")
         #expect(ids.contains("u-t0") && ids.contains("a-t4") && ids.contains("e-c4"))
@@ -199,7 +199,7 @@ import Testing
             _ = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false)
         }
         #expect(cache.computations == 2)
-        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows ?? []
+        let rows = builder.build(turns: store.turns, pendingPermission: nil, askOpen: false, permissionBarHidden: false).last?.rows.unfolded ?? []
         let card = rows.first { $0.id == "f-t2" }
         let snippet = rows.first { $0.id == "e-c2" }
         guard case .editedFiles(let changes)? = card?.kind, case .edit(_, let files)? = snippet?.kind else {
@@ -343,6 +343,32 @@ import UIKit
         let id = try #require(items.first { !$0.exact && list.canLayOut($0.id) }?.id, "rows: \(items.prefix(16).map(\.id))")
         list.layOutNow(id)
         #expect(list.layout.items.first { $0.id == id }?.exact == true)
+    }
+}
+
+/// An older page landing above the rows shown, while its turns wait for their native rows'
+/// layout (held, #41982), takes the chat's `session-start` row with it: that row is the first
+/// turn's, so it was shown, changed and left out of the new snapshot together. Reconfiguring it
+/// trapped (`NSDiffableDataSourceSnapshot` refuses an id it does not hold); the list now
+/// reconfigures only rows in both snapshots. Found by `chat_scroll_fill_ui`.
+@MainActor
+@Suite struct HeldOlderPageTests {
+    @Test func anOlderPageHeldForLayoutTakesSessionStartWithoutATrap() {
+        let store = AgentChatStore(source: SmoothChatTests.Silent())
+        store.nextFrame = nil
+        store.apply(.earlierHistory(true))
+        store.apply(.batch((30..<40).flatMap { SmoothChatTests.turn($0) }))
+        let list = ChatTranscriptList(store: store, surface: AgentChatSurface())
+        list.collectionView.frame = CGRect(x: 0, y: 0, width: 390, height: 800)
+        list.boundsMayHaveChanged()
+        list.collectionView.layoutIfNeeded()
+        #expect(list.layout.items.first?.id == "session-start")
+        // The page's rows have no off-main layout yet: its turns are held, `session-start` with them.
+        store.apply(.earlierPage((0..<30).flatMap { SmoothChatTests.turn($0) }, hasEarlier: true))
+        list.reload()
+        list.collectionView.layoutIfNeeded()
+        #expect(store.turns.first?.id == "t0")
+        #expect(!list.layout.items.isEmpty)
     }
 }
 

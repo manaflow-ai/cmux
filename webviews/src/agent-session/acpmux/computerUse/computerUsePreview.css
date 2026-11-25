@@ -77,7 +77,7 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
+  cursor: zoom-in;
 }
 .acpmux-cu-preview__open:focus-visible {
   outline: 1.5px solid var(--agent-text);
@@ -99,6 +99,18 @@
 }
 .acpmux-cu-preview[data-done] .acpmux-cu-preview__frame > img {
   opacity: 0.4;
+}
+/* Enlarged (a click on the card, as the Codex app enlarges its preview): up to 560px wide or 60% of
+   the pane, over the chat's top right (a choice the person made; the column keeps only the small
+   card's room). A second click shrinks it back. */
+.acpmux-cu-preview[data-expanded] {
+  max-width: min(560px, 60vw);
+}
+.acpmux-cu-preview[data-expanded] .acpmux-cu-preview__frame > img {
+  max-height: min(420px, 60vh);
+}
+.acpmux-cu-preview[data-expanded] .acpmux-cu-preview__open {
+  cursor: zoom-out;
 }
 
 /* The agent's cursor where the helper draws it (the frame's fractions: the frame box is the image's
@@ -244,11 +256,9 @@
 }
 .acpmux-cu-preview__close:hover {
   background: var(--cu-preview-close-hover);
-  transform: scale(1.08);
 }
 .acpmux-cu-preview__close:active {
   background: var(--cu-preview-close-press);
-  transform: scale(0.94);
 }
 /* A light ring on a dark one: it shows over a light or a dark window. */
 .acpmux-cu-preview__close:focus-visible {
@@ -322,8 +332,6 @@
     }
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-cu-preview__close {
-    transition:
-      background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out),
-      transform var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
+    transition: background-color var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
   }
 }

@@ -62,12 +62,6 @@ const MAX_NODES = 4096;
 const MAX_DEPTH = 64;
 type Listener = () => void;
 
-/** A contribution's own scene limits (an interface's `nodes` and `maxNodes`, such as
- * `cmux.newtab.widget/1`): a create past them is dropped and recorded as the scene's violation. */
-export type SceneLimits = { maxNodes?: number; types?: ReadonlySet<string> };
-/** Why a scene stopped drawing: more nodes than its interface allows, or a node type it does not. */
-export type SceneViolation = { kind: "nodes"; limit: number } | { kind: "type"; type: string };
-
 /** One mount's scene mirror. Snapshots are immutable; a prop update notifies only that node.
  * Children ops visit only the changed branches, and batches publish their final state once. */
 export class SceneStore {
@@ -77,24 +71,43 @@ export class SceneStore {
   // Height frequencies let one changed child update its ancestors without scanning their siblings.
   private readonly childHeights = new Map<string, Map<number, number>>();
   private root: string | undefined;
+  // Counts resets: a reset scene is a new tree, so the renderer draws it fresh (no enter or leave
+  // animation carried over from the old one).
+  private generation = 0;
+  // The generation whose first frame has committed (`SceneAppeared`): nodes created after it enter.
+  private drawn = -1;
+  // Removed nodes that leave with a `transition` (and their subtrees), as they last were: the
+  // renderer draws them from here until they have left (sceneMotion.tsx).
+  private readonly departed = new Map<string, SceneNode>();
   private readonly listeners = new Map<string, Set<Listener>>();
   private readonly rootListeners = new Set<Listener>();
   private status: SceneStatus = SCENE_LOADING;
   private readonly statusListeners = new Set<Listener>();
-  private readonly maxNodes: number;
-  private readonly types: ReadonlySet<string> | undefined;
-  /** The first limit a batch broke since the last reset; the scene keeps what it drew before. */
-  violation: SceneViolation | undefined;
-
-  constructor(limits: SceneLimits = {}) {
-    this.maxNodes = Math.min(MAX_NODES, limits.maxNodes ?? MAX_NODES);
-    this.types = limits.types;
-  }
 
   getNode(id: string): SceneNode | undefined {
     return this.nodes.get(id);
   }
   getRoot = (): string | undefined => this.root;
+  getGeneration = (): number => this.generation;
+  markDrawn(generation: number): void {
+    this.drawn = generation;
+  }
+  hasDrawn(): boolean {
+    return this.drawn === this.generation;
+  }
+  getDeparted(id: string): SceneNode | undefined {
+    return this.departed.get(id);
+  }
+  /** Drops a departed node and its departed subtree once it has left. */
+  forgetDeparted(id: string): void {
+    const stack = [id];
+    while (stack.length) {
+      const next = this.departed.get(stack.pop()!);
+      if (!next) continue;
+      this.departed.delete(next.id);
+      stack.push(...next.children);
+    }
+  }
 
   subscribeNode(id: string, listener: Listener): () => void {
     let listeners = this.listeners.get(id);
@@ -142,13 +155,14 @@ export class SceneStore {
       this.heights.clear();
       this.childHeights.clear();
       this.root = undefined;
-      this.violation = undefined;
+      this.departed.clear();
+      this.generation += 1;
     }
     for (const op of ops) this.applyOne(op, changed);
     for (const id of changed) {
       for (const listener of this.listeners.get(id) ?? []) listener();
     }
-    if (previousRoot !== this.root) for (const listener of this.rootListeners) listener();
+    if (reset || previousRoot !== this.root) for (const listener of this.rootListeners) listener();
     // After the scene's own listeners, as the host model sets its status after applying the batch.
     // A reset and its first root publish once: a failed mount whose new scene draws goes straight to ready.
     const status = reset ? sceneStatusReducer(this.status, { type: "reset" }) : this.status;
@@ -163,15 +177,8 @@ export class SceneStore {
   private applyOne(op: SceneOp, changed: Set<string>): void {
     switch (op.op) {
       case "create": {
-        if (!op.id || this.nodes.has(op.id)) return;
-        if (this.types && !this.types.has(op.type)) {
-          this.violation ??= { kind: "type", type: op.type };
-          return;
-        }
-        if (this.nodes.size >= this.maxNodes) {
-          if (this.maxNodes < MAX_NODES) this.violation ??= { kind: "nodes", limit: this.maxNodes };
-          return;
-        }
+        if (!op.id || this.nodes.has(op.id) || this.nodes.size >= MAX_NODES) return;
+        this.departed.delete(op.id);
         const props = Object.fromEntries(Object.entries(op.props ?? {}).filter(([, value]) => value !== null));
         this.write({ id: op.id, type: op.type, props, children: [] }, changed);
         this.heights.set(op.id, 1);
@@ -228,12 +235,14 @@ export class SceneStore {
       case "remove": {
         const previous = this.parents.get(op.id);
         if (previous) this.detach(op.id, previous, changed);
+        const leaves = typeof this.nodes.get(op.id)?.props.transition === "string";
         const stack = [op.id];
         while (stack.length) {
           const id = stack.pop()!;
           const node = this.nodes.get(id);
           if (!node) continue;
           stack.push(...node.children);
+          if (leaves) this.keepDeparted(node);
           this.nodes.delete(id);
           this.parents.delete(id);
           this.heights.delete(id);
@@ -245,6 +254,17 @@ export class SceneStore {
       }
       case "root":
         if (this.nodes.has(op.id)) this.root = op.id;
+    }
+  }
+
+  private keepDeparted(node: SceneNode): void {
+    this.departed.delete(node.id);
+    this.departed.set(node.id, node);
+    // Bounded: the oldest go first (a leave lasts a fraction of a second).
+    while (this.departed.size > MAX_NODES) {
+      const oldest = this.departed.keys().next().value;
+      if (oldest === undefined) break;
+      this.departed.delete(oldest);
     }
   }
 

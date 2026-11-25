@@ -65,6 +65,34 @@ fn unregistered_upstream_streams_are_ignored() {
 }
 
 #[test]
+fn upstream_missing_shards_wake_after_the_reorder_grace() {
+    let mut host = MediaEngine::new(EngineConfig::default(), 0);
+    host.add_upstream(MIC).expect("upstream stream");
+    let mut p = Packetizer::new(MIC, MAX_DATAGRAM_VPC);
+    p.set_upstream(true);
+    for d in frames(&mut p, 1, 500, 0) {
+        host.on_datagram(&d, false, 0);
+    }
+    assert!(host.upstream_feedback(0).is_some());
+    let second = frames(&mut p, 2, 4_000, 0);
+    for d in second.iter().skip(1) {
+        host.on_datagram(d, false, 25_000);
+    }
+    assert_eq!(host.next_deadline_us(), Some(30_000));
+    assert!(host.upstream_feedback(29_999).is_none());
+    let nack = host.upstream_feedback(30_000).expect("repair request after reorder grace");
+    let (_, payload) = DatagramHeader::decode(&nack).expect("header");
+    let feedback = Feedback::decode(payload).expect("feedback");
+    assert_eq!(feedback.nacks.len(), 1);
+    assert_eq!(feedback.nacks[0].indexes, vec![0]);
+    assert!(host.upstream_feedback(30_000).is_none());
+    assert_eq!(host.next_deadline_us(), Some(80_000));
+    let repaired = host.on_datagram(&second[0], false, 80_000).upstream;
+    assert_eq!(repaired.len(), 1);
+    assert_eq!(repaired[0].1.frame, 2);
+}
+
+#[test]
 fn the_viewer_sender_recovers_a_lost_shard_through_the_hosts_nack() {
     use cmux_rd_core::cc::{CcConfig, PathKind};
     use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # cmux-tui's Rust checks on a fleet host, as a cmux-ci step:
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
-#     --os linux|macos --arg MODE [--arg TEST_FILTER]
+#     --os linux|macos --arg MODE [--arg TEST_FILTER [--arg SCOPE]]
 # --os: fmt, clippy, test, all, terminal, api-compat and panic go to Blacksmith Linux first (as
 # cmux-tui.yml gates them) unless the step asks for macOS; a test behind cfg(target_os = "macos")
 # needs --os macos, or it runs nothing on Linux. The other modes run on macOS only.
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER] (cargo nextest, a
 # failed test reruns once alone: see workspace_tests), or all [FILTER];
+# test FILTER SCOPE: SCOPE names where the filter's tests are, so cargo builds only those test
+# binaries: crate names with commas (cmux-tui-core,cmux-git) or one CRATE:TARGET (see crate_scope);
 # panic: the "Rust panic ratchet" step of cmux-tui.yml's Linux lint job, the same two commands
 # (cargo clippy --lib --bins with rust_panic_ratchet.py --flags, then rust_panic_ratchet.py
 # --clippy-json; plans/cmux-next/rust-panic-free.md), so a merge batch or train can judge its tree
@@ -24,6 +26,8 @@
 # modes above never build it) on macOS, including its VideoToolbox path, without x264
 # (no libx264 on the fleet) and with the bench feature (OpenH264 from source).
 # rd-bench: a release build of cmux-rd-host's bench client (no x264, OpenH264 from source)
+# with the secure link (`serve` and `bench --link`, the Mac Screen session path that
+# cmux-rd-host/scripts/screen-share-vs.py measures between two Macs)
 # at .build/artifacts/cmux-rd (macOS arm64; fetch it with --artifact), so a developer
 # Mac can measure a remote host (the cloud browser VM) without building cargo locally.
 # rb-testhost: fmt, clippy and tests of cmux-tui/crates/cmux-remote-browser-testhost
@@ -127,6 +131,36 @@ if [[ -n "$shard" ]]; then
   # A partition of a filtered run can hold no test, which --no-tests=fail makes red.
   [[ -z "$filter" ]] || { echo "error: CMUX_RUST_TEST_SHARD does not take a TEST_FILTER" >&2; exit 2; }
   echo "gate-notice: shard $shard (nextest --partition count:$shard)"
+fi
+# test FILTER SCOPE (a third argument) names where the filter's tests are: crate names with commas
+# (-p for each), or one CRATE:TARGET for one integration test target (cmux-tui:startup_timings is
+# cmux-tui/crates/cmux-tui/tests/startup_timings.rs: -p cmux-tui --test startup_timings). cargo
+# then builds the test binaries of that scope only; a filtered run of the whole workspace builds
+# every test binary of every crate to run a few tests. A filter that matches no test of the scope
+# is red (--no-tests=fail). No third argument: the whole workspace, as before. (2026-11-16)
+crate_scope="${3:-}"
+if [[ -n "$crate_scope" ]]; then
+  # 2 crates as 2 arguments would test the first crate only, with no word on the second one.
+  if [[ $# -gt 3 ]]; then
+    echo "error: the crate scope is one argument (2 crates are CRATE,CRATE), not $(( $# - 2 )) arguments" >&2
+    exit 2
+  fi
+  if [[ "$mode" != test || -z "$filter" || -n "$shard" ]]; then
+    echo "error: a crate scope takes the test mode with a TEST_FILTER (no @affected scope, no shard)" >&2
+    exit 2
+  fi
+  scope_name='[A-Za-z0-9][A-Za-z0-9_-]{0,63}'
+  if [[ "$crate_scope" =~ ^($scope_name):($scope_name)$ ]]; then
+    test_scope=(-p "${BASH_REMATCH[1]}" --test "${BASH_REMATCH[2]}")
+  elif [[ "$crate_scope" =~ ^$scope_name(,$scope_name){0,7}$ ]]; then
+    test_scope=()
+    IFS=, read -r -a scope_crates <<<"$crate_scope"
+    for crate in "${scope_crates[@]}"; do test_scope+=(-p "$crate"); done
+  else
+    echo "error: the crate scope must be crate names (letters, digits, - _) with commas, at most 8, or one CRATE:TARGET" >&2
+    exit 2
+  fi
+  echo "gate-notice: crate scope: ${test_scope[*]}"
 fi
 umask 022
 root="$(pwd -P)"
@@ -271,6 +305,50 @@ go_caches() {
   export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
 }
 go_caches
+# Go for libtailscale (cmux-tui/crates/cmux-tailnet/build.rs), which every
+# whole-workspace build of cmux-tui (clippy, test, all, panic) and of
+# cmux-screen compiles: the host's go with GOTOOLCHAIN=auto (Go 1.21 or later)
+# when it has one, else the pinned release for this OS and arch
+# (cmux-tui/crates/cmux-tailnet/go-version, which cmux-tui.yml's macOS job
+# installs too; sums from https://go.dev/dl/?mode=json&include=all),
+# checksummed, in the step's own .build. Before it only screen mode fetched Go,
+# and only the darwin tarball, so Linux fleet clippy failed in cmux-tailnet's
+# build script ("`go` was not found", 2026-11-19). Go's caches stay in .build
+# (go_caches), and toolchain downloads go only through the default proxy with
+# the checksum database on: nothing is installed on the host.
+ensure_go() {
+  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
+  go_caches
+  local version platform sum dir tmp have
+  version="$(tr -d '[:space:]' <"$root/cmux-tui/crates/cmux-tailnet/go-version")" || return 3
+  dir="$root/.build/go-$version"
+  if ! command -v go >/dev/null 2>&1; then
+    case "$version-$(uname -s)-$(uname -m)" in
+      1.27.1-Darwin-arm64) platform=darwin-arm64 sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
+      1.27.1-Darwin-x86_64) platform=darwin-amd64 sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
+      1.27.1-Linux-x86_64) platform=linux-amd64 sum=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445 ;;
+      1.27.1-Linux-aarch64) platform=linux-arm64 sum=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec ;;
+      *) echo "error: no pinned sha256 for Go $version on $(uname -sm); add it here" >&2; return 3 ;;
+    esac
+    if [[ ! -x "$dir/go/bin/go" ]]; then
+      # Extract beside the target and rename, so a cut-off extract never looks complete.
+      tmp="$dir.partial"
+      rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
+      curl --fail --silent --show-error --location --retry 3 --connect-timeout 10 --max-time 300 \
+        --output "$tmp/go.tgz" "https://go.dev/dl/go$version.$platform.tar.gz" || return 3
+      if command -v sha256sum >/dev/null; then have="$(sha256sum "$tmp/go.tgz")"; else have="$(shasum -a 256 "$tmp/go.tgz")"; fi
+      if [[ "${have%% *}" != "$sum" ]]; then
+        rm -rf "$tmp"
+        echo "error: go$version.$platform.tar.gz sha256 ${have%% *} is not the pinned $sum" >&2
+        return 3
+      fi
+      tar -xzf "$tmp/go.tgz" -C "$tmp" && rm -f "$tmp/go.tgz" && mv "$tmp" "$dir" || return 3
+    fi
+    export PATH="$dir/go/bin:$PATH"
+  fi
+  # libtailscale's go.mod selects the Go of go-version; GOTOOLCHAIN=auto switches to it inside that folder.
+  go version || return 3
+}
 # Every mode runs all of its steps, even after a red one (no fail-fast), and
 # prints a summary table at the end; the step exits with the first red step's
 # exit code. CMUX_RUST_CHECK_FAIL_FAST=1 restores stop-at-first-red (and cargo
@@ -379,6 +457,8 @@ ensure_nextest() {
     case "$(uname -s)-$(uname -m)" in
       Darwin-*) asset=universal-apple-darwin sha=6c23b7fb4ca82c571fc8dfedbab45bfa773d45918f933170c85d21cd7f4b852b ;;
       Linux-x86_64) asset=x86_64-unknown-linux-gnu sha=223ba936714cc861a9cdedad5a8eb664dfdd69d6fbdf6cea6aa8184f523290dc ;;
+      # The arm64 Linux VMs on the fleet Macs (Lima, cmux-ci workers) take Linux steps too.
+      Linux-aarch64) asset=aarch64-unknown-linux-gnu sha=81469eb963ef883fd590e60189e77d6aba3d91b418591d3391f50fe3e9480d2b ;;
       *) echo "error: no pinned cargo-nextest for $(uname -sm)" >&2; return 3 ;;
     esac
     dir="$root/.build/tools/cargo-nextest-$nextest_version"
@@ -860,7 +940,7 @@ if [[ "$mode" == rd-bench ]]; then
   export CARGO_TARGET_DIR="$root/.build/cmux-rd-host-target"
   cd "$root/cmux-tui/crates/cmux-rd-host"
   warm_target_guard
-  step "rd-bench release build" cargo build --locked --release --no-default-features --features bench
+  step "rd-bench release build" cargo build --locked --release --no-default-features --features bench,link
   step "rd-bench artifact" copy_rd_bench
   finish
 fi
@@ -870,37 +950,6 @@ if [[ "$mode" == acpmux-hot ]]; then
   step "acpmux-hot bench" bash "$root/cmux-tui/crates/acpmux-hot/bench.sh"
   finish
 fi
-# Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
-# with GOTOOLCHAIN=auto (Go 1.21 or later) when it has one, else the pinned
-# release (cmux-tui/crates/cmux-tailnet/go-version, which cmux-tui.yml's macOS
-# job installs too), checksummed, in the step's own .build. Go's caches stay in
-# .build (go_caches), and toolchain downloads go only through the default
-# proxy with the checksum database on: nothing is installed on the host.
-ensure_screen_go() {
-  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
-  go_caches
-  local version arch sum dir tmp
-  version="$(tr -d '[:space:]' <"$root/cmux-tui/crates/cmux-tailnet/go-version")" || return 3
-  dir="$root/.build/go-$version"
-  if ! command -v go >/dev/null 2>&1; then
-    case "$version-$(uname -m)" in
-      1.27.1-arm64) arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
-      1.27.1-x86_64) arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
-      *) echo "error: no pinned sha256 for Go $version on $(uname -m); add it here" >&2; return 3 ;;
-    esac
-    if [[ ! -x "$dir/go/bin/go" ]]; then
-      # Extract beside the target and rename, so a cut-off extract never looks complete.
-      tmp="$dir.partial"
-      rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
-      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go$version.darwin-$arch.tar.gz" || return 3
-      echo "$sum  $tmp/go.tgz" | shasum -a 256 -c - || return 3
-      tar -xzf "$tmp/go.tgz" -C "$tmp" && rm -f "$tmp/go.tgz" && mv "$tmp" "$dir" || return 3
-    fi
-    export PATH="$dir/go/bin:$PATH"
-  fi
-  # libtailscale's go.mod selects the Go of go-version; GOTOOLCHAIN=auto switches to it inside that folder.
-  go version || return 3
-}
 if [[ "$mode" == screen ]]; then
   if [[ ! -f "$root/cmux-screen/Cargo.toml" ]]; then
     echo "error: screen mode: no cmux-screen workspace at this commit" >&2
@@ -910,7 +959,7 @@ if [[ "$mode" == screen ]]; then
   cd "$root/cmux-screen"
   use_pinned_toolchain
   warm_target_guard
-  step "screen go" ensure_screen_go
+  step "screen go" ensure_go
   step "screen clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
   step "screen test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "screen release build" cargo build --locked --release -p cmux-screen-host
@@ -1000,8 +1049,14 @@ for line in open(sys.argv[1], errors="replace"):
   python3 ../scripts/cmux-next/rust_panic_ratchet.py --clippy-json "$json"
 }
 if [[ "$mode" == panic ]]; then
+  step go ensure_go
   step "panic ratchet" panic_ratchet
   finish
+fi
+# clippy, test and all build the whole cmux-tui workspace, cmux-tailnet with it (fmt only
+# formats; the terminal crates, api-compat and acpmux-hot do not depend on cmux-tailnet).
+if [[ "$mode" == clippy || "$mode" == test || "$mode" == all ]]; then
+  step go ensure_go
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then
   step fmt cargo fmt --all --check
@@ -1020,8 +1075,14 @@ if [[ "$mode" == test || "$mode" == all ]]; then
   fi
   # A Testbox or another host without a step reaper keeps what the run left.
   reap_leaked "at the end of the step"
-  # Only after a build that cargo finished: a failed build lists no artifacts.
-  step "prune target" prune_target
+  # Only after a build that cargo finished: a failed build lists no artifacts. Not after a run
+  # with a crate scope: the prune keeps only the units that its own build lists, so it would
+  # delete the units of every crate out of the scope from a target that other steps use.
+  if [[ -z "$crate_scope" ]]; then
+    step "prune target" prune_target
+  else
+    echo "prune: skipped (a crate scope builds a part of the workspace)"
+  fi
 fi
 if [[ "$mode" == terminal ]]; then
   step "base-red list" load_base_red

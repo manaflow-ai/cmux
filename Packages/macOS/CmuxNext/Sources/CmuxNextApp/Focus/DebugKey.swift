@@ -273,14 +273,14 @@ enum DebugKey {
         }
     }
 
-    /// `debug.window.focus {window}`: orders that cmux window front and makes it the app's key window, without
-    /// activating the app, so window actions (Zoom, Select Next Window) can be proven on a chosen window. An app that
+    /// `debug.window.focus {window, activate?}`: orders that cmux window front and makes it the app's key window, without
+    /// activating the app unless `activate` (a bench's typed keys, as a person's app is active), so window actions can be proven on a chosen window. An app that
     /// is not active has no key window: the window still becomes the active one (`WindowManager.active`), as a real
     /// focus makes it, so a no-activate check acts in it (#38063). Returns the key and frontmost cmux window ids afterwards.
     static func focusWindow(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         guard let id = params["window"]?.stringValue, let controller = services.windows.controllers.first(where: { $0.state.id == id }),
               let window = controller.window else { return .object(["error": .string("no window with that id")]) }
-        window.orderFrontRegardless()
+        if params["activate"]?.boolValue == true { NSApp.activate() }; window.orderFrontRegardless() // focus-route: debug.window.focus is an explicit focus command
         window.makeKey()
         if !window.isKeyWindow { services.windows.didActivate(controller) }
         let windowID = { (window: NSWindow?) -> JSONValue in

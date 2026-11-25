@@ -6,11 +6,12 @@
 // fades it in and every time and count keeps its box, with no two drawn over each other.
 //
 // Real Chromium from Playwright on the gallery scene `agent-pane.background-hint`, variant
-// "long-hovered" (a long command, its own time, the turn's time and its tokens).
+// "long-hovered" (a long command, its own time and the turn's time).
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { CLOCK_ON_LINE, pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("background-hint-hover-still.test.ts", async () => {
@@ -51,10 +52,14 @@ await requireBrowserLane("background-hint-hover-still.test.ts", async () => {
     test(`at ${width}px, hovering a running command's live line moves and overlaps none of its counts`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;
       const page = await browser!.newPage({ viewport: { width, height: 360 } });
+      // The line keeps the turn's clock, which this file checks for motion and for overlap with the
+      // hint. Since #42247 the live line draws no token count (Thinking.tsx), and a running command
+      // has no own time yet, so the clock may be the line's only count.
+      await pinArms(page, CLOCK_ON_LINE);
       await page.addInitScript(() => localStorage.clear());
       await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant: VARIANT })}`);
       await page.locator(`${LINE} .cv-command__bg`).waitFor({ state: "attached", timeout: 30_000 });
-      await page.locator(`${LINE} .cv-worked__count`).last().waitFor({ timeout: 30_000 });
+      await page.locator(`${LINE} .cv-worked__time`).last().waitFor({ timeout: 30_000 });
       const read = () =>
         page.evaluate((line) => {
           const node = document.querySelector<HTMLElement>(line)!;
@@ -67,11 +72,12 @@ await requireBrowserLane("background-hint-hover-still.test.ts", async () => {
             const words = range.getBoundingClientRect();
             return { text: each.textContent, left: Math.round(words.left), right: Math.round(words.right) };
           });
-          return { boxes, hint: getComputedStyle(node.querySelector(".cv-command__bg")!).opacity };
+          const bg = node.querySelector<HTMLElement>(".cv-command__bg")!;
+          return { boxes, hint: getComputedStyle(bg).opacity, hintLeft: Math.round(bg.getBoundingClientRect().left) };
         }, LINE);
       const before = await read();
       expect(before.hint).toBe("0");
-      expect(before.boxes.length).toBeGreaterThanOrEqual(2);
+      expect(before.boxes.length).toBeGreaterThanOrEqual(1);
       // At the line's right edge, where Leo pointed.
       const box = (await page.locator(LINE).boundingBox())!;
       await page.mouse.move(box.x + box.width - 4, box.y + box.height / 2);
@@ -81,6 +87,8 @@ await requireBrowserLane("background-hint-hover-still.test.ts", async () => {
       );
       const after = await read();
       expect(after.boxes).toEqual(before.boxes);
+      // The hint, faded in, draws clear of the last count, never over it.
+      expect({ hintOverlaps: after.hintLeft < after.boxes.at(-1)!.right }).toEqual({ hintOverlaps: false });
       for (let index = 1; index < after.boxes.length; index++)
         expect({
           at: after.boxes[index]!.text,

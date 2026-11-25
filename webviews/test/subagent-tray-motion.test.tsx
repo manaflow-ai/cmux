@@ -8,6 +8,8 @@
 // - with no motion (no Web Animations, Reduce Motion) every change applies at once.
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=host><div id=root></div></div>", {
   url: "http://localhost/",
@@ -83,7 +85,7 @@ Object.defineProperty(proto, "clientHeight", { configurable: true, get: () => 30
 const computed = dom.window.getComputedStyle.bind(dom.window);
 dom.window.getComputedStyle = ((node: Element) =>
   node.classList.contains("acpmux-running-tray--ghost")
-    ? ({ animationName: "acpmux-tray-leave", animationDuration: "0.18s" } as CSSStyleDeclaration)
+    ? ({ animationName: "acpmux-tray-leave", animationDuration: `${MOTION_SETTLE_MS / 1000}s` } as CSSStyleDeclaration)
     : computed(node)) as typeof dom.window.getComputedStyle;
 
 const { act, createElement } = await import("react");
@@ -530,9 +532,6 @@ describe("subagent tray motion edges", () => {
   });
 });
 
-afterAll(() => {
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { scope });
 });

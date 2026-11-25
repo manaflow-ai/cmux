@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextFloating
+import CmuxNextKeys
 import CmuxNextMobileHost
 import CmuxNextNotifications
 import CmuxNextSettings
@@ -24,15 +25,13 @@ final class NotificationCenterService {
     /// `notifications.*` from cmux.json (the mute action updates it at once).
     var preferences = NotificationPreferences()
     /// A dismissal belongs to one daemon session, never another machine with the same IDs.
-    struct HighlightKey: Hashable {
-        let machine: String
-        let session: String?
-        let id: String
-    }
+    typealias HighlightKey = NotificationOwnerKey
 
     /// Newest notification / manual-mark generation dismissed for each owning resource.
     var dismissedHighlights: [HighlightKey: UInt64] = [:]
     var dismissedMarks: [HighlightKey: UInt64] = [:]
+    /// The agent requests whose ring the person hid (going in, Dismiss Highlight), kept by request, not tab model.
+    let ringHides = AttentionRingHides()
     /// The Needs you banners of tabs an agent marked (`AttentionBanners`; this service is its host).
     @ObservationIgnored private(set) lazy var attention = AttentionBanners(host: self)
     @ObservationIgnored weak var services: AppServices?
@@ -165,11 +164,13 @@ final class NotificationCenterService {
         desktop.onOpen = { [weak self] id, surface in
             if id == IPhonePairNotices.id { try? self?.services?.settingsWindow.show(section: nil, route: IPhonePairNotices.settingsRoute); return }
             if let request = AppBrowserPasskeyHost.requestID(banner: id) { self?.onPasskeyBanner?(request); return }
+            if KeyRequests.isBanner(id) { try? self?.services?.settingsWindow.show(section: nil, route: KeyRequests.settingsRoute); return }
             if self?.services?.agentTabs.pageChats.openNotice(banner: id) == true { return }
             if self?.attention.show(banner: id) == true { return }
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
+        desktop.onOpenTab = { [weak self] _, surface in self?.open(surface: surface.map(SurfaceID.init(rawValue:))) }
         desktop.onReply = { [weak self] id, surface, text in
             self?.reply(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), text: text)
         }
@@ -292,10 +293,8 @@ final class NotificationCenterService {
         return (tab, onStrip)
     }
 
-    /// A window's settled focus changed (window key, app active, workspace or
-    /// keyboard target): the viewed tab counts as focused while the window is
-    /// key and cmux is active. The viewed-tab rules read it (one path for a
-    /// focus and for an unread mark that lands on a viewed tab).
+    /// A window's settled focus or key holder changed: the viewed-tab rules read it (one path for a focus and for an
+    /// unread mark that lands on a viewed tab); a tab is viewed while its window holds the keys and cmux is active.
     func focusDidSettle(_ state: FocusState, in controller: WindowController) {
         viewedRevision &+= 1
     }
@@ -418,14 +417,14 @@ final class NotificationCenterService {
         acknowledge(tab, owner: owner)
     }
 
-    /// The person went into a tab an agent marked (a click, a key or opening it): its ring has done its job,
+    /// The person went into a tab an agent marked (a click, a key, opening it, or focus under the `focus` dismissal): its ring has done its job,
     /// the mark stays until the agent clears it or the page changes.
     func dismissAttention(_ trigger: NotificationTrigger, tab: TabModel) {
         // Hiding the ring is this client's view state, so a mark without a request id (an older
         // daemon's) hides it too, by its generation; only the owner's clear needs the id.
         // Opening it (jump to unread, a banner) goes into the tab as a click does.
-        guard tab.attention != nil, [.click, .keystroke, .open].contains(trigger) else { return }
-        tab.attentionRingHiddenThrough = tab.attentionGeneration
+        guard tab.attention != nil, [.click, .keystroke, .open].contains(trigger) || trigger == .focus && NotificationPolicy(prefs: preferences).clears(.focus, for: .agent) else { return }
+        hideAttentionRing(of: tab)
     }
 
     /// Going into a pane (a click or a key) reads its tab's Mark as Unread, as it reads an unread
@@ -481,29 +480,29 @@ final class NotificationCenterService {
     /// acpmux reads a turn that ends in a shown chat at once, as before #22678, and a turn that
     /// ends unseen rings through its unread notification like any tab (cmux#34447). A chat the person is looking at
     /// (the focused content of the key window) never rings, and a burst pulses once: a finish
-    /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959).
+    /// within `burstWindow` of the last pulse rings at rest (cmuxterm-hq#2959). Only the chat's own tabs are read, from
+    /// the store's index by session id: a turn end of any chat on any machine never walks every tab of every workspace
+    /// (design audit 2026-11-18 finding 7).
     func agentTurnEnded(session: String) {
         guard let services else { return }
-        agentTurnEnded(session: session, in: services.daemon.store.workspaces)
+        agentTurnEnded(session: session, in: services.daemon.store)
     }
 
-    func agentTurnEnded(session: String, in workspaces: [WorkspaceModel],
+    func agentTurnEnded(session: String, in store: DaemonStore,
                         rings: Bool = DesignSettings.shared.attention.rings(agentChat: true),
                         viewed: ((String) -> Bool)? = nil, now: ContinuousClock.Instant = .now) {
         guard rings else { return }
-        for workspace in workspaces {
-            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs)
-            where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
-                agentFinishGeneration &+= 1
-                agentFinished[tab.id] = agentFinishGeneration
-                if let last = lastAgentPulse, now - last < Self.burstWindow {
-                    quietAgentFinishes.insert(tab.id)
-                } else {
-                    quietAgentFinishes.remove(tab.id)
-                    lastAgentPulse = now
-                }
-                note("agent turn ended \(tab.id)")
+        for tab in store.tabs(agentSession: session)
+        where tab.agentSession?.session == session && !(viewed?(tab.id) ?? isViewed(tab.id)) {
+            agentFinishGeneration &+= 1
+            agentFinished[tab.id] = agentFinishGeneration
+            if let last = lastAgentPulse, now - last < Self.burstWindow {
+                quietAgentFinishes.insert(tab.id)
+            } else {
+                quietAgentFinishes.remove(tab.id)
+                lastAgentPulse = now
             }
+            note("agent turn ended \(tab.id)")
         }
     }
 
@@ -663,7 +662,7 @@ final class NotificationCenterService {
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, workspaceName: String? = nil,
                       sound: String?, volume: Double = 1, program: ProgramStatusNotification? = nil, headline: String? = nil,
                       owner: TabModel? = nil) {
-        let id = "cmux-notification-\(notification.notification.rawValue)"
+        let id = "\(DesktopNotifier.tabBannerPrefix)\(notification.notification.rawValue)"
         let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
         let headline = headline ?? program?.title(localizations: localizations) ?? notification.title
@@ -719,9 +718,6 @@ extension NotificationCenterService: AttentionBannerHost {
     /// active (``isViewed(_:)`` on that machine only).
     func isViewed(_ tabID: String, onMachine machine: String) -> Bool {
         guard let services, NSApp.isActive else { return false }
-        return services.windows.controllers.contains { controller in
-            controller.focus.state.windowKey && Self.contentTab(controller.focus.state.resolved) == tabID
-                && controller.content?.daemon.machineID == machine
-        }
+        return services.windows.controllers.contains { ownsKey($0) && viewedTab($0) == tabID && $0.content?.daemon.machineID == machine }
     }
 }

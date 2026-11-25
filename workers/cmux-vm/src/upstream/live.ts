@@ -28,6 +28,7 @@ import {
   type UpstreamClientService,
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
+import { timedUpstream, timedUpstreamBody } from "./timing.ts";
 
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
@@ -141,6 +142,7 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       },
       catch: () => new UpstreamError({ operation, status: null }),
     }).pipe(
+      timedUpstream,
       Effect.flatMap((result) =>
         result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status })),
       ),
@@ -157,6 +159,8 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       },
       catch: () => new UpstreamError({ operation, status: response.status }),
     }).pipe(
+      // `send` timed the call to its answer headers; the body comes after, still the provider's time.
+      timedUpstreamBody,
       Effect.flatMap(Schema.decodeUnknown(schema)),
       Effect.mapError((error) => (error instanceof UpstreamError ? error : new UpstreamError({ operation, status: response.status }))),
       Effect.tapError(() =>
@@ -236,10 +240,21 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     shutdownVm: (_vm, { owns }) =>
       Effect.flatMap(idOf(owns), (id) => send("stopVm", vmPath(id, "/exec-await"), {
         method: "POST",
-        json: { command: "poweroff", timeoutMs: 10_000 },
+        // As root: the image's default user (ubuntu) is refused the poweroff, and the VM would run on.
+        json: { command: "poweroff", timeoutMs: 10_000, linuxUser: "root" },
         timeoutMs: SLOW_TIMEOUT_MS,
       }).pipe(
-        Effect.flatMap(drain),
+        // A poweroff the guest answered with a failure did not stop it: never report that as a stop.
+        Effect.flatMap((response) =>
+          Effect.promise(() => response.json().catch(() => null)).pipe(
+            Effect.flatMap((body: unknown) => {
+              const status = typeof body === "object" && body !== null ? Reflect.get(body, "statusCode") : undefined;
+              return typeof status === "number" && status !== 0
+                ? Effect.fail(new UpstreamError({ operation: "stopVm", status: null }))
+                : Effect.void;
+            }),
+          ),
+        ),
         // The guest can go away before it answers; the provider reports that as a 409.
         Effect.catchIf(
           (error) => error.status === 409,

@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// Vertical: each child fills the width, or keeps its natural width at the stack's `alignment`; the
 /// height is the sum plus `spacing`. Horizontal: children keep their natural widths, filling children
 /// share what is left (spacers last), text shrinks when the row is too narrow (lowest `layoutPriority` first,
-/// never a `fixedSize` text), and each child centers
+/// never a `fixedSize` text), and each child sits at the row's `alignment` (`top`, `bottom`; centered by default)
 /// on the row's height. A section is a short list (budget 4096 nodes), so every child is laid out:
 /// `LazyVStack` draws as a `VStack`.
 final class AppSceneStackNSView: AppSceneNodeNSView {
@@ -35,13 +35,30 @@ final class AppSceneStackNSView: AppSceneNodeNSView {
             var x = rect.minX
             for (child, width) in zip(childViews, widths(for: rect.width)) {
                 let height = child.height(width: width)
-                child.frame = CGRect(x: x, y: rect.minY + (rect.height - height) / 2, width: width, height: height).integral
+                // `alignment` top, center (the default) or bottom, as SwiftUI's HStack (the view is flipped).
+                let y: CGFloat = switch node.string("alignment") {
+                case "top": rect.minY
+                case "bottom": rect.maxY - height
+                default: rect.minY + (rect.height - height) / 2
+                }
+                child.frame = CGRect(x: x, y: y, width: width, height: height).integral
                 x += width + spacing
             }
             return
         }
         var y = rect.minY
+        // In a widget tile a stack taller than its content (its frame filling the tile) gives the room
+        // left to its spacers, as SwiftUI does: a widget's Spacer pushes its big number to the bottom.
+        // Elsewhere a vertical stack lays its children from the top, as before widgets.
+        let spacers = childViews.filter(\.isSpacer).count
+        let slack = spacers > 0 && drawsInWidgetTile ? max(0, rect.height - contentHeight(width: rect.width)) / CGFloat(spacers) : 0
         for child in childViews {
+            if child.isSpacer, slack > 0 {
+                let height = child.height(width: rect.width) + slack
+                child.frame = CGRect(x: rect.minX, y: y, width: rect.width, height: height)
+                y += height + spacing
+                continue
+            }
             let width = min(child.naturalWidth ?? rect.width, rect.width)
             let x: CGFloat = switch node.string("alignment") {
             case "center": rect.minX + (rect.width - width) / 2

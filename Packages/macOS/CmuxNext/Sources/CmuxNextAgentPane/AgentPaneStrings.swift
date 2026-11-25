@@ -261,6 +261,14 @@ extension AgentPaneView {
                bundle: .module)
     }
 
+    /// Shown while the pane's connection did not prove the person to its acpmux: what the person
+    /// types would reach the agent as an unverified sender's until the identity reconnects.
+    static var personUnprovenMessage: String {
+        String(localized: "agentPane.personUnproven.message",
+               defaultValue: "Not verified as you. Reconnecting your identity to the agent service…",
+               bundle: .module)
+    }
+
     static var reloadTitle: String {
         String(localized: "agentPane.crashed.reload", defaultValue: "Reload", bundle: .module)
     }
@@ -333,5 +341,61 @@ extension AgentPaneLoadingView {
     /// The pane's loading state, read by VoiceOver while the page loads and acpmux starts.
     static var label: String {
         String(localized: "agentPane.loading", defaultValue: "Loading agent chat", bundle: .module)
+    }
+}
+
+extension AgentPaneModel {
+    /// `github.repos.list` for a team with no cmux GitHub App installation (`github.not_connected`).
+    static var gitHubNotConnectedMessage: String {
+        String(localized: "agentPane.github.notConnected", defaultValue: "Connect GitHub to see your repositories.", bundle: .module)
+    }
+
+    /// A GitHub method that could not be answered (signed out, offline, or no App here).
+    static var gitHubUnavailableMessage: String {
+        String(localized: "agentPane.github.unavailable", defaultValue: "GitHub is unavailable. Try again.", bundle: .module)
+    }
+
+    /// Connect GitHub while a connection it can't resume is pending (started in Settings or in another launch).
+    static var gitHubConnectPendingMessage: String {
+        String(localized: "agentPane.github.connectPending", defaultValue: "Finish connecting GitHub in your browser.", bundle: .module)
+    }
+
+    /// Connect GitHub with no cmux account signed in and no sign-in to start (`github.signed_out`).
+    static var gitHubSignedOutMessage: String {
+        String(localized: "agentPane.github.signedOut", defaultValue: "Sign in to cmux to connect GitHub.", bundle: .module)
+    }
+
+    /// Connect GitHub where this Cloud service has no cmux GitHub App (`github.not_configured`).
+    static var gitHubNotConfiguredMessage: String {
+        String(localized: "agentPane.github.notConfigured", defaultValue: "GitHub isn't set up for this Cloud service yet.", bundle: .module)
+    }
+
+    /// `github.repos.checkout` could not clone `repo` on this Mac (`github.clone_failed`).
+    static func gitHubCloneFailedMessage(_ repo: String) -> String {
+        String(format: String(localized: "agentPane.github.localCloneFailed",
+                              defaultValue: "Couldn't clone %@ on this Mac. Check that GitHub can reach it, then try again.", bundle: .module), repo)
+    }
+
+    /// `github.repos.checkout` found every clone folder for `repo` taken by something else (`github.clone_no_folder`).
+    static func gitHubCloneNoFolderMessage(_ repo: String) -> String {
+        String(format: String(localized: "agentPane.github.localCloneNoFolder",
+                              defaultValue: "Couldn't find a free folder for %@ in ~/cmux/repos.", bundle: .module), repo)
+    }
+
+    /// A chat here asked for a GitHub repository (`github:owner/name`) as its folder: only Cloud clones one.
+    static var gitHubFolderCloudOnlyMessage: String {
+        String(localized: "agentPane.github.cloudOnly", defaultValue: "Choose Cloud to start a chat in a GitHub repository.", bundle: .module)
+    }
+}
+
+extension AgentPaneCloudRepositoryRefusal {
+    /// A Cloud start's machine could not read the GitHub repository the chat starts in (`seed.needs_github`).
+    nonisolated static func needsAccessMessage(_ repository: String) -> String {
+        String(format: String(localized: "agentPane.github.cloneNeedsAccess", defaultValue: "Connect GitHub so Cloud can clone %@, then retry.", bundle: .module), repository)
+    }
+
+    /// A Cloud start's clone of the GitHub repository the chat starts in did not finish.
+    nonisolated static func failedMessage(_ repository: String) -> String {
+        String(format: String(localized: "agentPane.github.cloneFailed", defaultValue: "Cloud could not clone %@. Retry.", bundle: .module), repository)
     }
 }

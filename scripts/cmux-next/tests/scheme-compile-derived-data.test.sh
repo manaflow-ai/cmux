@@ -14,7 +14,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's ba
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 # Under /tmp: clear-stale-scheme-build-state.sh accepts only /tmp paths and the
 # glaeda cache, so the kept-path retry case needs one.
-TMP=$(mktemp -d /tmp/cmux-scheme-dd-test.XXXXXX); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d /tmp/cmux-scheme-dd-test.XXXXXX); git_fixture_trap_exit 'rm -rf "$TMP"'
 mkdir -p "$TMP/bin" "$TMP/steptmp" "$TMP/dev"
 cat > "$TMP/bin/xcodebuild" <<EOF
 #!/bin/bash
@@ -90,7 +90,7 @@ SC_ARG="$TMP/kept-dd" run STUB_STALE_ONCE=1 || fail "kept-path retry run exited 
 #    outside /tmp and the glaeda cache.)
 reset
 outside="$ROOT/.scheme-dd-test.$$"
-trap 'rm -rf "$TMP" "$outside"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP" "$outside"'
 SC_ARG="$outside" run || fail "a new kept path outside /tmp exited $?"
 [[ $(sort -u "$TMP/paths") == "$outside" ]] || fail "the new kept DerivedData was not used"
 [[ -s "$outside/.cmux-binary-module-inputs" ]] || fail "the guard wrote no header digest"

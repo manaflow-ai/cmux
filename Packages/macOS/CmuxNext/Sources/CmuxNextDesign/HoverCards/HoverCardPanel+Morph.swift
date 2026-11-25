@@ -1,17 +1,85 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesignTokens
+import CmuxNextWakeups
 
-/// A resize in flight: the card laid out at the larger of its two sizes, shown through a mask
-/// that grows or shrinks from the last card's size to the next one's.
+/// A body whose layout can stay as it was while the card folds to a smaller size: the workspace
+/// card's Hide details keeps its detail rows drawn (fading out) under the folding edge, instead of
+/// dropping them at once and folding an empty card after them.
 @MainActor
-struct HoverCardMorph {
-    /// The mask over the card's surface (rounded like the card).
-    let mask: CALayer
-    /// The corner that stays on the target while the size changes (unit coordinates, y up).
+public protocol HoverCardFoldingBody: AnyObject {
+    /// The card folds now from the size this body had: keep that layout until ``endFoldHold()``.
+    /// Returns false when nothing is held (the body lays out at its new size at once).
+    func holdLayoutWhileFolding() -> Bool
+    /// The fold ended (settled, or replaced): the body takes its new layout.
+    func endFoldHold()
+}
+
+/// A resize in flight: the card's surface (the glass, its rim and its shadow) at the size the spring
+/// is at now, about the corner that stays on the target, inside a window that holds the larger of the
+/// two sizes. It steps on the panel window's ``MotionClock`` and sets the real frame each frame, so the
+/// rim, the corners and the shadow are drawn at the card's size on every frame (a mask over a card laid
+/// out at the larger size cut the rim and the rounded corners off the moving edge, and the shadow ran
+/// on separate springs that the rest layout redrew at the end: msg 38370's recording).
+@MainActor
+final class HoverCardMorph: MotionAnimating {
+    /// The corner of the card that stays on the target while the size changes (unit coordinates, y up).
     let corner: CGPoint
     /// Bumped per morph, so a finished morph's completion leaves a newer one alone.
     let generation: Int
+    /// The size the card is drawn at when the morph starts, and the size it goes to.
+    let from: CGSize
+    let to: CGSize
+    /// The body keeps its last layout while the card folds (``HoverCardFoldingBody``).
+    let holdsLayout: Bool
+    private let spring: MotionSpring
+    private var width: SpringValue
+    private var height: SpringValue
+    private weak var panel: HoverCardPanel?
+    /// The size reached and shown, finish on the next frame (the last frame is on screen first).
+    private var landed = false
+    /// Inside this morph's own `motionStep` (its finish must not stop it on the clock mid-step).
+    private(set) var isStepping = false
+
+    init(panel: HoverCardPanel, corner: CGPoint, generation: Int, from: CGSize, to: CGSize, spring: MotionSpring, holdsLayout: Bool) {
+        self.panel = panel
+        self.corner = corner
+        self.generation = generation
+        self.from = from
+        self.to = to
+        self.spring = spring
+        self.holdsLayout = holdsLayout
+        width = SpringValue(to.width)
+        width.value = from.width
+        height = SpringValue(to.height)
+        height.value = from.height
+    }
+
+    /// The size shown now.
+    var size: CGSize { CGSize(width: width.value, height: height.value) }
+
+    func motionStep(_ dt: Double) -> Bool {
+        isStepping = true
+        defer { isStepping = false }
+        guard let panel, panel.activeMorph === self else { return false }
+        if landed {
+            panel.finishMorph(generation)
+            return false
+        }
+        let parameters = Motion.hoverCards.spring(spring)
+        let wide = width.advance(dt, parameters: parameters, epsilon: 0.1)
+        let tall = height.advance(dt, parameters: parameters, epsilon: 0.1)
+        panel.applyMorphFrame()
+        if !wide, !tall { landed = true }
+        return true
+    }
+
+    func motionSettle() {
+        width.snap()
+        height.snap()
+        guard let panel, panel.activeMorph === self else { return }
+        panel.finishMorph(generation)
+    }
 }
 
 // One card that morphs (Lawrence 2026-10-20: "Ideally it's the same card and we animate the
@@ -23,16 +91,17 @@ struct HoverCardMorph {
 // about the corner that stays on the target. The content crossfades inside. Reduce Motion (or
 // speed off, or a sleeping display) changes the size at once.
 //
-// How: the card is laid out at the larger of the two sizes, the body pinned to the fixed corner
-// at its own size, and a rounded mask shows the part the animation is at; the shadow's path and
-// its cutout follow the same spring. When the spring settles the card is laid out at rest again.
+// How: the window holds the larger of the two sizes; the body stays pinned to the fixed corner at its
+// own size (or, folding, at the size it had: `HoverCardFoldingBody`), clipped by the card's content
+// view; and the card's real frame, rim and shadow take the spring's size on each frame of the window's
+// clock (`HoverCardMorph`). When the spring settles the card is laid out at rest again.
 extension HoverCardPanel {
-    private static var morphGeneration = 0
+    private(set) static var morphGeneration = 0
 
     /// The card's rest frame at the size a morph in flight shows now.
     var presentedSize: CGRect {
         guard let activeMorph else { return cardFrame }
-        let shown = (activeMorph.mask.presentation() ?? activeMorph.mask).bounds.size
+        let shown = activeMorph.size
         let rest = restCardFrame
         let x = activeMorph.corner.x == 0 ? rest.minX : rest.maxX - shown.width
         let y = activeMorph.corner.y == 0 ? rest.minY : rest.maxY - shown.height
@@ -40,7 +109,7 @@ extension HoverCardPanel {
     }
 
     /// The corner of the card that stays on its target while it resizes (unit, y up).
-    private var fixedCorner: CGPoint {
+    var fixedCorner: CGPoint {
         switch restingPlacement {
         case .above: CGPoint(x: isLeading ? 1 : 0, y: 0)
         case .below, .beside: CGPoint(x: isLeading ? 1 : 0, y: 1)
@@ -52,16 +121,19 @@ extension HoverCardPanel {
 
     /// Morphs the card from `previous` (screen, as drawn before this show) to its rest frame:
     /// a translation and a resize on one spring. Returns false (nothing done) when the sizes
-    /// match, or when motion is off; the caller then slides or places it at once.
+    /// match (unless `always`: a tab card's glide, which needs the window to hold the whole way),
+    /// or when motion is off; the caller then slides or places it at once. `folds`: the same body
+    /// changed size in place (a refit), so a smaller card may keep its last layout while it folds.
     @discardableResult
-    func morph(from previous: CGRect, spring: MotionSpring = .panel) -> Bool {
-        let rest = cardFrame
-        guard abs(previous.width - rest.width) > 0.5 || abs(previous.height - rest.height) > 0.5 else { return false }
+    func morph(from previous: CGRect, spring: MotionSpring = .panel, always: Bool = false, folds: Bool = false) -> Bool {
+        // Where `place()` put the card (the window may still be at the last card's: a glide sets it here).
+        let rest = restCardFrame
+        guard always || abs(previous.width - rest.width) > 0.5 || abs(previous.height - rest.height) > 0.5 else { return false }
         // The same gate as the slide it runs with (`Motion.set`): Reduce Motion, speed off, or a live resize of the
         // window this card is a child of, resize at once.
-        guard Motion.hoverCards.animatesMovement(in: self), let host, let body, let glassLayer = glass.layer else { return false }
+        guard Motion.hoverCards.animatesMovement(in: self), let host, let body else { return false }
         let corner = fixedCorner
-        // The larger card the mask shows a part of, about the fixed corner.
+        // The larger card the window holds, about the fixed corner.
         let big = CGSize(width: max(previous.width, rest.width), height: max(previous.height, rest.height))
         let bigFrame = CGRect(x: corner.x == 0 ? rest.minX : rest.maxX - big.width,
                               y: corner.y == 0 ? rest.minY : rest.maxY - big.height, width: big.width, height: big.height)
@@ -70,9 +142,16 @@ extension HoverCardPanel {
         let to = CGPoint(x: corner.x == 0 ? rest.minX : rest.maxX, y: corner.y == 0 ? rest.minY : rest.maxY)
         let offset = CGVector(dx: from.x - to.x, dy: from.y - to.y)
 
-        // The body keeps its own size, pinned to the fixed corner, while the card is larger.
-        sizeConstraints[0].constant = rest.width
-        sizeConstraints[1].constant = rest.height
+        // A fold of the same content (Hide details): the body keeps the layout it had, drawn under the folding
+        // edge, and takes its new one when the fold ends. Otherwise it is at its own new size from the start.
+        let grows = previous.width < rest.width - 0.5 || previous.height < rest.height - 0.5
+        let shrinks = !grows && (previous.width > rest.width + 0.5 || previous.height > rest.height + 0.5)
+        let holds = folds && shrinks && leavingBody == nil && (body as? HoverCardFoldingBody)?.holdLayoutWhileFolding() == true
+        let bodySize = holds ? previous.size : rest.size
+
+        // The body keeps its size, pinned to the fixed corner, while the card is another size.
+        sizeConstraints[0].constant = bodySize.width
+        sizeConstraints[1].constant = bodySize.height
         let loose = corner.x == 0 ? edgeConstraints[3] : edgeConstraints[2]
         let looseY = corner.y == 0 ? edgeConstraints[0] : edgeConstraints[1]
         NSLayoutConstraint.deactivate([loose, looseY])
@@ -80,52 +159,44 @@ extension HoverCardPanel {
 
         // The window holds the larger card wherever the slide carries it.
         let travel = max(Self.travel, abs(offset.dx), abs(offset.dy))
-        host.travelMargin = travel
         let margin = PopupStyle.standard.shadowMargin + travel
         restCardFrame = rest
-        setFrame(bigFrame.insetBy(dx: -margin, dy: -margin), display: false)
-        host.layoutSubtreeIfNeeded()
-
         Self.morphGeneration += 1
-        let generation = Self.morphGeneration
-        let mask = CALayer()
-        mask.backgroundColor = NSColor.black.cgColor
-        mask.cornerRadius = host.cornerRadius
-        mask.cornerCurve = .continuous
-        mask.anchorPoint = corner
+        let morph = HoverCardMorph(panel: self, corner: corner, generation: Self.morphGeneration, from: previous.size, to: rest.size,
+                                   spring: spring, holdsLayout: holds)
+        activeMorph = morph
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        mask.bounds = CGRect(origin: .zero, size: rest.size)
-        mask.position = CGPoint(x: corner.x * big.width, y: corner.y * big.height)
-        glassLayer.mask = mask
+        // The card's first frame, in the host the window is about to be, before the window takes that frame: its one
+        // layout is then at the size it shows (not first at the whole larger card, then again at the morph's size).
+        host.cardRect = morphCardRect(in: CGRect(x: margin, y: margin, width: big.width, height: big.height))
+        host.travelMargin = travel
+        setFrame(bigFrame.insetBy(dx: -margin, dy: -margin), display: false)
+        applyMorphFrame()
         CATransaction.commit()
-        activeMorph = HoverCardMorph(mask: mask, corner: corner, generation: generation)
-
-        let shownFrom = CGRect(origin: .zero, size: previous.size)
-        CATransaction.begin()
-        CATransaction.setMainCompletion { [weak self] in self?.finishMorph(generation) }
-        Motion.hoverCards.set(mask, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: rest.size)), spring: spring, from: NSValue(rect: shownFrom))
-        // The shadow and its cutout follow the visible card (host coordinates, before the slide).
-        let cardInHost = glass.frame
-        func rounded(_ size: CGSize) -> CGPath {
-            let rect = CGRect(x: cardInHost.minX + corner.x * (cardInHost.width - size.width),
-                              y: cardInHost.minY + corner.y * (cardInHost.height - size.height), width: size.width, height: size.height)
-            let radius = host.cornerRadius
-            return CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
-        }
-        func cutout(_ size: CGSize) -> CGPath {
-            let path = CGMutablePath()
-            path.addRect(host.bounds)
-            path.addPath(rounded(size))
-            return path
-        }
-        Motion.hoverCards.set(host.shadowLayer, "shadowPath", to: rounded(rest.size), spring: spring, from: rounded(previous.size))
-        if let cutoutLayer = host.shadowLayer.mask as? CAShapeLayer {
-            Motion.hoverCards.set(cutoutLayer, "path", to: cutout(rest.size), spring: spring, from: cutout(previous.size))
-        }
         slide(from: offset)
-        CATransaction.commit()
+        MotionClock.forWindow(self).run(morph, trace: "hoverCard.morph")
         return true
+    }
+
+    /// The card's surface, rim and shadow at the size the morph in flight is at now (whole device
+    /// pixels, so its edge stays crisp), about the fixed corner of the larger card the window holds.
+    func applyMorphFrame() {
+        guard activeMorph != nil, let host else { return }
+        host.cardRect = morphCardRect(in: host.restingCardRect)
+        // The body moves with the corner it is pinned to in this same commit (its size does not change).
+        host.layoutSubtreeIfNeeded()
+    }
+
+    /// The card's frame at the morph's size now, about its fixed corner of `full` (the larger card's rect in the host).
+    private func morphCardRect(in full: CGRect) -> CGRect? {
+        guard let activeMorph else { return nil }
+        let scale = max(backingScaleFactor, 1)
+        func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        let size = CGSize(width: min(pixel(activeMorph.size.width), full.width), height: min(pixel(activeMorph.size.height), full.height))
+        let corner = activeMorph.corner
+        return CGRect(x: full.minX + corner.x * (full.width - size.width), y: full.minY + corner.y * (full.height - size.height),
+                      width: size.width, height: size.height)
     }
 
     /// A first show that grows out of its target (`HoverCardEntrance.morph`): the same resize as a
@@ -146,22 +217,39 @@ extension HoverCardPanel {
     }
 
     /// Ends the morph in flight (or only `generation`'s): the card is laid out at rest at once,
-    /// where the morph was going.
+    /// where the morph was going. What waited for it (a refit, a glide's leaving content) runs now.
     func finishMorph(_ generation: Int? = nil) {
-        guard let activeMorph, generation == nil || generation == activeMorph.generation else { return }
-        self.activeMorph = nil
-        glass.layer?.mask = nil
-        // The shadow's springs ran in the larger layout's coordinates: the rest layout redraws it.
-        host?.shadowLayer.removeAnimation(forKey: "shadowPath")
-        host?.shadowLayer.mask?.removeAnimation(forKey: "path")
+        guard let morph = activeMorph, generation == nil || generation == morph.generation else { return }
+        activeMorph = nil
+        if !morph.isStepping { MotionClock.forWindow(self).stop(morph) }
+        if morph.holdsLayout { (body as? HoverCardFoldingBody)?.endFoldHold() }
         NSLayoutConstraint.deactivate(sizeConstraints)
         NSLayoutConstraint.activate(edgeConstraints)
-        host?.travelMargin = Self.travel
         let margin = Self.windowMargin
         CATransaction.begin()
         CATransaction.setDisableActions(true)
+        host?.cardRect = nil
+        host?.travelMargin = Self.travel
         setFrame(restCardFrame.insetBy(dx: -margin, dy: -margin), display: true)
         host?.layoutSubtreeIfNeeded()
         CATransaction.commit()
+        // A settled morph (not one a newer show or a hide ended): what changed while it ran takes its place now.
+        guard generation != nil else { return }
+        endLeaving()
+        if let animated = pendingRefit {
+            pendingRefit = nil
+            refit(animated: animated)
+        }
+        bodyRests()
+    }
+
+    /// The card rests at its size: once this frame committed, a body that reports its own size measures what its next
+    /// change asks for (not while a morph runs: the morph's frames keep the main thread for themselves).
+    func bodyRests() {
+        guard body is HoverCardSizeReporting else { return }
+        AfterFrameCommit().run { [weak self] in
+            guard let self, self.activeMorph == nil, self.isShowingCard, let body = self.body as? HoverCardSizeReporting else { return }
+            body.prepareSizes()
+        }
     }
 }

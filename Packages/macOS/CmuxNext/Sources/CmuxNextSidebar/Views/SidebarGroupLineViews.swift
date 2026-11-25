@@ -11,8 +11,9 @@ import Observation
 @MainActor
 final class SidebarGroupLineViews {
     /// One update's motion (`update`): the AppKit changes (fades, or every change without motion), the views
-    /// to remove when the move ends, and the frames to move on the render server's spring.
-    typealias LineMotion = (changes: () -> Void, leaving: [NSView], springs: [(NSView, NSRect)])
+    /// to remove when the move ends, the frames to move on the render server's spring, and the fades (`changes`'
+    /// opacities) a row move runs on the render server with its rows' (`RowMotion.fade`).
+    typealias LineMotion = (changes: () -> Void, leaving: [NSView], springs: [(NSView, NSRect)], fades: [(NSView, CGFloat)])
 
     private var views: [GroupID: GroupLineView] = [:]
     /// The lines the last `update` showed (a group's fold moves them without a pass over every row).
@@ -58,6 +59,7 @@ final class SidebarGroupLineViews {
                 view.isBlock = line.isBlock
                 Self.place(view, in: list, decorations)
             }
+            view.rail = line.localRail
             view.color = line.color
             view.background = line.background
             view.strength = SidebarGroupLine.opacity(level: line.level)
@@ -72,15 +74,15 @@ final class SidebarGroupLineViews {
         leavingViews += leaving.map(\.0)
         if animated {
             // The frames go to the caller's render-server springs (`springs`), every line's, an unmoved one's too
-            // (with movement off that one's earlier spring comes off); only the fades run in the AppKit block.
-            let changes = {
-                for (view, _) in moves where view.alphaValue != 1 { view.animator().alphaValue = 1 }
-                for (view, _) in leaving { view.animator().alphaValue = 0 }
-            }
-            return (changes, leaving.map(\.0), (moves + leaving).map { ($0.0 as NSView, $0.1) })
+            // (with movement off that one's earlier spring comes off). The fades: a row move runs them with its rows'
+            // (`fades`), a drag in the AppKit block (`changes`).
+            let fades = moves.filter { $0.0.alphaValue != 1 }.map { ($0.0 as NSView, CGFloat(1)) } + leaving.map { ($0.0 as NSView, CGFloat(0)) }
+            let changes = { for (view, alpha) in fades { view.animator().alphaValue = alpha } }
+            return (changes, leaving.map(\.0), (moves + leaving).map { ($0.0 as NSView, $0.1) }, fades)
         }
-        // Without motion the lines take their frames in one step: a spring an earlier move left on one comes off.
+        // Without motion the lines take their frames in one step: a spring (or an open's clip) an earlier move left on one comes off.
         SidebarDragSpring.stop(moves.map(\.0) + leaving.map(\.0))
+        moves.forEach { $0.0.clearFoldClip() }
         let changes = {
             for (view, frame) in moves {
                 view.animator().frame = frame
@@ -91,8 +93,11 @@ final class SidebarGroupLineViews {
                 view.animator().alphaValue = 0
             }
         }
-        return (changes, leaving.map(\.0), [])
+        return (changes, leaving.map(\.0), [], [])
     }
+
+    /// Group `group`'s shown line (a fold clips it with its members, `clipFold`).
+    func view(for group: GroupID) -> NSView? { views[group] }
 
     /// Shows at once, at its frame, the line of each group in `lines` that has
     /// none (a group whose rows a drag hid: the last apply left its line out),
@@ -110,6 +115,7 @@ final class SidebarGroupLineViews {
                 view.frame = line.frame
                 view.alphaValue = 1
             }
+            view.rail = line.localRail
             view.color = line.color
             view.background = line.background
             view.strength = SidebarGroupLine.opacity(level: line.level)
@@ -133,6 +139,7 @@ final class SidebarGroupLineViews {
     /// Puts each shown line exactly on its frame (`RowMotion.land`: the spring stops near it, not on it).
     func land() {
         for line in lines { views[line.group]?.frame = line.frame }
+        views.values.forEach { $0.clearFoldClip() } // an open's clip (`clipFold`) ends with the last move
     }
 
     /// A rail sits among the rows, left of their fills. A block goes under every row, below `decorations` (the list's
@@ -148,8 +155,8 @@ final class SidebarGroupLineViews {
 }
 
 /// One members' line, the sidebar's left bar: Chrome's (Leo 2026-10-19), a 2 pt bar in its header bar's exact color,
-/// one capsule with the same round cap at the top and the bottom (Lawrence msg 19775, `SidebarGroupLineShape`).
-/// The layer's corner clip draws the caps, so the line keeps its shape in every frame of the rows' spring.
+/// the katana's tip at the top (Leo 2026-11-08) and a round cap at the bottom (Lawrence msg 19775, `SidebarGroupLineShape`).
+/// The layer's corner clip draws the cap, so the line keeps its shape in every frame of the rows' spring.
 final class GroupLineView: NSView {
     /// The view's bounds spring can keep presenting the old rail height after its model height reaches zero.
     /// Keep the shape taller than any sidebar line so the view, not the shape, clips the shrinking rail.
@@ -171,6 +178,15 @@ final class GroupLineView: NSView {
     var isBlock = false {
         didSet { if isBlock != oldValue { needsDisplay = true; needsLayout = true } }
     }
+    /// A block's members' rail in the view's own coordinates (`SidebarGroupLine.rail`): the same rail a colored group
+    /// draws, in a neutral color (`GroupTint.railTint`). The block's corner clip holds it, so it follows the block's
+    /// presentation bounds through a fold as a colored rail follows its own.
+    var rail: CGRect? {
+        didSet { if rail != oldValue { needsDisplay = true; needsLayout = true } }
+    }
+    /// `rail`'s clip (its bottom cap) and its body (the katana's tip), as a colored rail's own layer and shape.
+    let blockRail = CALayer()
+    let blockRailShape = CAShapeLayer()
     /// The lit block's light (`SidebarNoColorGroupLook.lit`).
     private let light = CAGradientLayer()
     /// The block's specular rim (`SurfaceRole.group`, `SidebarNoColorGroupLook.glass`).
@@ -181,10 +197,18 @@ final class GroupLineView: NSView {
         wantsLayer = true
         layer?.masksToBounds = true // the corner clip draws the capsule's caps (`updateShape`)
         railShape.fillColor = NSColor.black.cgColor
+        // A new color shows at once, with its header's: an implicit fade lagged it a quarter second behind the bar.
+        railShape.actions = ["fillColor": NSNull()]
         layer?.addSublayer(railShape)
         light.isHidden = true
         light.actions = ["bounds": NSNull(), "position": NSNull(), "colors": NSNull(), "locations": NSNull(), "hidden": NSNull()]
         layer?.addSublayer(light)
+        blockRail.masksToBounds = true
+        blockRail.isHidden = true
+        blockRail.actions = ["bounds": NSNull(), "position": NSNull(), "hidden": NSNull()]
+        blockRailShape.actions = ["fillColor": NSNull(), "path": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        blockRail.addSublayer(blockRailShape)
+        layer?.addSublayer(blockRail)
         rim.isHidden = true
         rim.autoresizingMask = [.width, .height]
         addSubview(rim)
@@ -216,18 +240,37 @@ final class GroupLineView: NSView {
         light.isHidden = true
         rim.isHidden = true
         layer?.borderWidth = 0
+        blockRail.isHidden = true
         performWithTheme {
-            // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
-            // the quieter looks keep the dot's color.
-            // Under a glass band, the pane's vivid color (`GroupTint.glassRGB`), so rail and rim read as one group;
-            // under the solid band (`sidebar.groupHeader.background` solid), the band's rest color.
-            let glassy = !color.isNone && background.drawsGlass(appLooksGlassy: look.glass != .solid)
-            let line = look.style != .band ? color.lineColor(palette: look.palette)
-                : glassy ? color.glassRGB(palette: look.palette).nsColor : color.lineFill(palette: look.palette)
             layer?.backgroundColor = NSColor.clear.cgColor
-            railShape.fillColor = line.withAlphaComponent(line.alphaComponent * strength).cgColor
+            railShape.fillColor = railFill(look)
         }
         updateShape()
+    }
+
+    /// Whether a rail joins its header's bar (`SidebarGroupLine.joinsBar` under the `joined` layout): its top stays square.
+    static var joinsBar: Bool { SidebarStyle.groupLineLayout == .joined && SidebarGroupLine.joinsBar }
+
+    /// The rail's paint, one rule for every group: under the solid band, the band's rest color (Leo 2026-10-19: bar and
+    /// line are one color); the quieter looks keep the dot's color; under a glass band, the pane's vivid color
+    /// (`GroupTint.glassRGB`), so rail and rim read as one group. A group with no color draws its header bar's own pane
+    /// under a band (Lawrence 2026-11-17: "identical color/texture to the workspace group"): the glass pane
+    /// (`GroupGlassPaint`, opaque under Reduce Transparency) or the solid band's neutral; under a quieter look, whose
+    /// header has no pane, the neutral grey line (`GroupTint.railTint`). Call inside `performWithTheme`.
+    private func railFill(_ look: (style: SidebarGroupHeaderStyle, palette: GroupPalette, noColor: SidebarNoColorGroupLook, glass: SidebarGroupGlass)) -> CGColor {
+        let glassy = background.drawsGlass(appLooksGlassy: look.glass != .solid)
+        let line: NSColor
+        if color.isNone, look.style == .band {
+            line = glassy
+                ? GroupGlassPaint(tint: .none, palette: look.palette, glass: look.glass, tokens: themeTokens,
+                                  opaque: ReduceTransparency.shared.isEnabled).fill.nsColor
+                : color.lineFill(palette: look.palette)
+        } else {
+            let tint = color.railTint
+            line = look.style != .band ? tint.lineColor(palette: look.palette)
+                : glassy ? tint.glassRGB(palette: look.palette).nsColor : tint.lineFill(palette: look.palette)
+        }
+        return line.withAlphaComponent(line.alphaComponent * strength).cgColor
     }
 
     /// A block's surface: the shared `group` surface role untinted (`SurfaceRole.group`), its veil over the sidebar's own
@@ -249,6 +292,8 @@ final class GroupLineView: NSView {
             light.isHidden = opaque || look != .lit
             let top = role.rimTop.nsColor.withAlphaComponent(role.rimTop.alpha * 0.25).cgColor
             light.colors = [top, veil.cgColor, veil.cgColor]
+            blockRail.isHidden = rail == nil
+            blockRailShape.fillColor = railFill(observedLook())
         }
         updateShape()
     }
@@ -259,6 +304,7 @@ final class GroupLineView: NSView {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         railShape.fillColor = nil
+        blockRail.isHidden = true
         layer?.backgroundColor = nil
         layer?.borderWidth = 0
         rim.isHidden = true
@@ -280,12 +326,20 @@ final class GroupLineView: NSView {
             rim.fadeDepth = SidebarDensityTokens.rowHeight
             light.frame = bounds
             light.locations = [0, NSNumber(value: Double(min(1, 2 * SidebarDensityTokens.rowHeight / max(bounds.height, 1)))), 1]
+            // The rail, as a colored group's: its own layer rounds both ends.
+            if let rail {
+                blockRail.frame = rail
+                blockRail.cornerRadius = SidebarGroupLineShape.cornerRadius(width: rail.width)
+                blockRail.maskedCorners = SidebarGroupLineShape.capCorners(flipped: layer?.contentsAreFlipped() == true, joined: Self.joinsBar)
+                blockRailShape.frame = blockRail.bounds
+                blockRailShape.path = SidebarGroupLineShape.body(width: rail.width, height: rail.height)
+            }
             return
         }
-        // The clipping layer owns both caps (one capsule, `SidebarGroupLineShape`), so they follow the presentation
-        // bounds through a fold; rounding the oversized body instead would clip the bottom cap off the visible rail.
+        // The clipping layer owns both caps, so they follow the presentation bounds through a fold; rounding the
+        // oversized body instead would clip the bottom cap off the visible rail (`SidebarGroupLineShape`).
         layer?.cornerRadius = SidebarGroupLineShape.cornerRadius(width: bounds.width)
-        layer?.maskedCorners = SidebarGroupLineShape.corners
+        layer?.maskedCorners = SidebarGroupLineShape.capCorners(flipped: layer?.contentsAreFlipped() == true, joined: Self.joinsBar)
         let height = max(bounds.height, railShape.frame.height, Self.shapeCoverageHeight)
         railShape.frame = CGRect(x: 0, y: 0, width: bounds.width, height: height)
         railShape.path = SidebarGroupLineShape.body(width: bounds.width, height: height)

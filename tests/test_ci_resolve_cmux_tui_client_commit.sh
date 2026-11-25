@@ -19,7 +19,7 @@ if [[ ! -x "$RESOLVER" ]]; then
 fi
 
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP"'
 export GIT_AUTHOR_NAME=cmux-test GIT_AUTHOR_EMAIL=test@example.com
 export GIT_COMMITTER_NAME=cmux-test GIT_COMMITTER_EMAIL=test@example.com
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1

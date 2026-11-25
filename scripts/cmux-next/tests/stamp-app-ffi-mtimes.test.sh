@@ -12,7 +12,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's ba
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 stamp="$root/scripts/cmux-next/stamp-app-ffi-mtimes.sh"
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+git_fixture_trap_exit 'rm -rf "$work"'
 export TZ=America/Los_Angeles
 
 fail() { echo "FAIL: $*" >&2; exit 1; }

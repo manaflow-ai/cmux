@@ -80,7 +80,7 @@
 .cv-message-group__head:focus-visible {
   outline: none;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--cv-text) 6%, transparent);
+  background: var(--ds-surface-inset);
 }
 /* Gallery versions (inboxNoticeLook.ts): the chevron always shown; the count alone. */
 .cv-message-group__head[data-look="group-chevron"] > .cv-tool__chevron {

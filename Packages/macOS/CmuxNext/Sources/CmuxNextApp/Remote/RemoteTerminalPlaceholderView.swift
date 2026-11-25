@@ -1,12 +1,13 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// What a remote-terminal tab shows while its terminal's session is not
 /// attached (plans/cmux-next/data-model.md 1.4): the machine, its state,
 /// Connect when the user can start it, and the last screen the home
 /// session saved. Never drops the reference.
-final class RemoteTerminalPlaceholderView: NSView {
+final class RemoteTerminalPlaceholderView: NSView, PaneCommitMotionPicture {
     enum State: Equatable {
         /// The session is connecting (or its terminal is being attached).
         case reconnecting
@@ -20,10 +21,12 @@ final class RemoteTerminalPlaceholderView: NSView {
     private let status = ChromeLabel(labelWithString: "")
     private let connect = ThemedBezelButton()
     private let snapshotView = NSTextView()
-    private let scroll = NSScrollView()
+    private let scroll = OverlayScrollView()
     private(set) var state: State = .reconnecting
     private(set) var machine = ""
     var onConnect: (() -> Void)?
+    /// "Reconnecting to {machine}…" waits the shared connection quiet time, as the sidebar and terminal do (Leo, 2026-11-14).
+    var reconnectHold = QuietHold(owner: "remote-terminal-reconnect", delay: QuietHold.connectionDelay)
 
     /// The glyph drawn (tests).
     var glyph: NSImage? { icon.image }
@@ -35,24 +38,16 @@ final class RemoteTerminalPlaceholderView: NSView {
         status.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
         status.lineBreakMode = .byTruncatingMiddle
         connect.title = RemoteStrings.placeholderConnect
-        connect.bezelStyle = .rounded
-        connect.controlSize = .small
-        connect.target = self
-        connect.action = #selector(connectPressed)
-        snapshotView.isEditable = false
-        snapshotView.isSelectable = true
-        snapshotView.drawsBackground = false
+        (connect.bezelStyle, connect.controlSize, connect.target, connect.action) = (.rounded, .small, self, #selector(connectPressed))
+        (snapshotView.isEditable, snapshotView.isSelectable, snapshotView.drawsBackground) = (false, true, false)
         snapshotView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         snapshotView.textContainerInset = NSSize(width: 12, height: 8)
         scroll.documentView = snapshotView
-        scroll.drawsBackground = false
-        scroll.hasVerticalScroller = true
+        (scroll.drawsBackground, scroll.hasVerticalScroller) = (false, true)
         SystemScrollers.follow(scroll)
         snapshotView.autoresizingMask = [.width]
         let header = NSStackView(views: [icon, status, connect])
-        header.orientation = .horizontal
-        header.spacing = 8
-        header.alignment = .centerY
+        (header.orientation, header.spacing, header.alignment) = (.horizontal, 8, .centerY)
         for view in [header, scroll] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
@@ -103,6 +98,8 @@ final class RemoteTerminalPlaceholderView: NSView {
         }
         connect.isHidden = state != .offline || onConnect == nil
         setSnapshot(snapshot)
+        reconnectHold.update(state == .reconnecting) { [weak self] in self?.status.isHidden = false }
+        status.isHidden = reconnectHold.held
         setAccessibilityLabel(status.stringValue)
     }
 

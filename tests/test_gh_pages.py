@@ -22,13 +22,20 @@ ALLOWED = {
 }
 
 
+# The App Store Connect CLI has its own flag of that name (`asc profiles list --paginate`); it
+# spends no GitHub quota, so a line that calls asc is not gh's flag (scripts/ci/ios_ci_profiles.py).
+ASC_CALL = re.compile(r"""(?<![\w./-])asc(?:\(|\s|["'],)""")
+
+
 def flag_lines(text: str) -> list[int]:
-    """Lines that pass the flag: not a comment, and not inside a `code span` (prose about it)."""
+    """Lines that pass gh's flag: not a comment, not inside a `code span` (prose about it), and
+    not an asc call (asc's own flag)."""
     hits = []
     for number, line in enumerate(text.splitlines(), 1):
         if line.lstrip().startswith(("#", "//")):
             continue
-        if "--paginate" in re.sub(r"`[^`]*`", "", line):
+        code = re.sub(r"`[^`]*`", "", line)
+        if "--paginate" in code and not ASC_CALL.search(code):
             hits.append(number)
     return hits
 
@@ -117,6 +124,12 @@ class NoPaginateFlagTests(unittest.TestCase):
     def test_the_lint_sees_the_flag_and_ignores_prose(self):
         self.assertEqual(flag_lines('gh api --paginate "x"\n# gh api --paginate\nNot `gh api --paginate`.\n'
                                     'args = ["api", "--paginate"]\n'), [1, 4])
+
+    def test_the_lint_ignores_asc_s_own_paginate_flag(self):
+        self.assertEqual(flag_lines('certs = asc("certificates", "list", "--paginate")\n'
+                                    'asc profiles list --paginate\n'
+                                    'subprocess.run(["asc", "apps", "list", "--paginate"])\n'
+                                    'gh api --paginate repos/x/basc\n'), [4])
 
 
 if __name__ == "__main__":

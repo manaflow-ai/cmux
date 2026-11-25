@@ -44,6 +44,9 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         var titles: [String] = []
         /// Each agent's unread dot, in `peers` order (``HomeAgentMessageRow/peerUnread``); empty: a report is unread.
         var unread: [Bool] = []
+        /// Each agent's time, in `peers` order (``HomeAgentFoldRowProvider/time(_:at:now:)``): how long it has
+        /// worked ("12m"), or its task's total once it reported or stopped ("1h 4m"); "" for none.
+        var times: [String] = []
     }
 
     /// The header style this provider draws (DEBUG: the Agent Messages Playground registers another).
@@ -68,11 +71,12 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         if installed == nil { CustomRows.register(HomeAgentFoldRowProvider()) }
     }
 
-    /// The part for an agents row or a status note; nil for a message row, or when not installed.
-    static func part(_ row: HomeAgentMessageRow) -> Part? { installed?.part(row) }
+    /// The part for an agents row or a status note as of `now`; nil for a message row, or when not installed.
+    static func part(_ row: HomeAgentMessageRow, now: Date = Date()) -> Part? { installed?.part(row, now: now) }
 
-    /// The part for an agents row or a status note, drawn in this provider's style; nil for a message row.
-    func part(_ row: HomeAgentMessageRow) -> Part? {
+    /// The part for an agents row or a status note, drawn in this provider's style as of `now` (each pill's
+    /// time); nil for a message row.
+    func part(_ row: HomeAgentMessageRow, now: Date = Date()) -> Part? {
         var payload: Payload
         switch row.kind {
         case let .fold(count, peers, expanded):
@@ -89,20 +93,75 @@ final class HomeAgentFoldRowProvider: TranscriptCustomRowProvider {
         payload.latest = row.latest
         payload.titles = row.peerTitles
         payload.unread = row.peerUnread
+        if payload.role == "fold" { payload.times = payload.peers.indices.map { Self.time(row, at: $0, now: now) } }
         payload.style = style
         let key = [String(describing: payload.style), payload.role, "\(payload.chevron)", "\(payload.open)", payload.label,
                    payload.chips.joined(separator: ","), payload.peers.joined(separator: ","), payload.states.joined(separator: ","),
                    payload.latest ?? "", payload.titles.joined(separator: "\u{1}"),
-                   payload.unread.map { $0 ? "1" : "0" }.joined()].joined(separator: "\u{0}")
+                   payload.unread.map { $0 ? "1" : "0" }.joined(), payload.times.joined(separator: ",")].joined(separator: "\u{0}")
         guard let custom = try? CustomPart(kind: Self.kind, version: HomeDiagramRowProvider.version(key), value: payload) else { return nil }
         return .custom(custom)
+    }
+
+    // MARK: Each agent's time (user 2026-11-19: "would be useful to see how long it has been running for")
+
+    /// Agent `index`'s time on its pill as of `now`: a working agent's time since its task began, from its
+    /// first whole minute ("12m", "1h 4m"); a reported or stopped agent's task total (at least "1m"); "" for
+    /// a queued agent (it has not started), one under a minute, or one with no dates.
+    static func time(_ row: HomeAgentMessageRow, at index: Int, now: Date) -> String {
+        guard let start = row.peerStarted[checked: index] ?? nil else { return "" }
+        switch row.peerStates[checked: index] ?? .told {
+        case .queued:
+            return ""
+        case .told:
+            return minutes(now.timeIntervalSince(start)).map(text) ?? ""
+        case .reported, .stopped:
+            guard let end = row.peerEnded[checked: index] ?? nil else { return "" }
+            return text(minutes(end.timeIntervalSince(start)) ?? 60)
+        }
+    }
+
+    /// Whether `row` has an agent at work, so its pills' times move with the clock (``nextChange(_:now:)``).
+    static func ticks(_ row: HomeAgentMessageRow) -> Bool {
+        working(row).contains { _ in true }
+    }
+
+    /// When each agent at work on `row` was told its task.
+    private static func working(_ row: HomeAgentMessageRow) -> some Sequence<Date> {
+        zip(row.peerStates, row.peerStarted).lazy.compactMap { state, start in state == .told ? start : nil }
+    }
+
+    /// Seconds from `now` until a working agent's time on `row` next changes (its next whole minute); nil when none works.
+    static func nextChange(_ row: HomeAgentMessageRow, now: Date) -> TimeInterval? {
+        working(row).map { start in
+            60 - max(0, now.timeIntervalSince(start)).truncatingRemainder(dividingBy: 60)
+        }.min()
+    }
+
+    /// `interval` down to its whole minutes; nil under one.
+    private static func minutes(_ interval: TimeInterval) -> TimeInterval? {
+        guard interval.isFinite, interval >= 60 else { return nil }
+        return interval - interval.truncatingRemainder(dividingBy: 60)
+    }
+
+    private static let durationFormatter: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.allowedUnits = [.hour, .minute]
+        formatter.maximumUnitCount = 2
+        return formatter
+    }()
+
+    /// "12m", "1h 4m": the system's abbreviated units, in the person's language.
+    private static func text(_ wholeMinutes: TimeInterval) -> String {
+        durationFormatter.string(from: wholeMinutes) ?? ""
     }
 
     /// The caption part for a Feed row (``HomeFeedRow``): its source and title on one muted line with
     /// no chevron, like a status note; nil when not installed (the row's text shows instead).
     static func part(feed row: HomeFeedRow) -> Part? {
         guard installed != nil else { return nil }
-        var payload = Payload(open: false, label: row.source.isEmpty ? row.title : "\(row.source) · \(row.title)", chips: [], chevron: false)
+        var payload = Payload(open: false, label: row.line, chips: [], chevron: false)
         payload.role = "feed"
         let key = "feed\u{0}\(payload.label)"
         guard let custom = try? CustomPart(kind: kind, version: HomeDiagramRowProvider.version(key), value: payload) else { return nil }

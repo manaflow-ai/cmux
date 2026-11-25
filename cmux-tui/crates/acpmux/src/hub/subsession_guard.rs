@@ -743,6 +743,9 @@ impl Hub {
         if self.caller_access(pm) == Access::Full {
             return Ok(());
         }
+        // As `session/new` does next (`rediscover.rs`): a harness installed since the catalog
+        // loaded is checked here, never passed as not startable and then started.
+        self.rediscover_head(Some(harness), None).await;
         let resolved = {
             let cfg = self.config.read().await;
             self.resolve_new(

@@ -173,6 +173,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/v2",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/remote.pipe",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/tailnet/login",
       "params": true,
       "result": true
@@ -294,7 +306,7 @@
         "$ref": "#/types/ViewParams"
       },
       "result": {
-        "$ref": "#/types/Done"
+        "$ref": "#/types/ViewDone"
       }
     },
     {
@@ -311,10 +323,30 @@
       "kind": "request",
       "name": "_acpmux/markUnread",
       "params": {
+        "$ref": "#/types/MarkUnreadParams"
+      },
+      "result": {
+        "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/markRead",
+      "params": {
         "$ref": "#/types/SessionRef"
       },
       "result": {
         "$ref": "#/types/Done"
+      }
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/seen",
+      "params": {
+        "$ref": "#/types/SeenParams"
+      },
+      "result": {
+        "$ref": "#/types/SeenDone"
       }
     },
     {
@@ -854,6 +886,14 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/release_to_watch",
+      "params": {
+        "$ref": "#/types/ReleaseToWatchParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/archive",
       "params": {
         "$ref": "#/types/ArchiveParams"
@@ -1106,6 +1146,22 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/rows",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/rows_patch",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/rows_lagged",
+      "params": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/queue_get",
       "params": {
         "$ref": "#/types/QueueGetParams"
@@ -1252,6 +1308,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/send_fanout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/media_open",
       "params": true,
       "result": true
@@ -1354,7 +1416,19 @@
     },
     {
       "kind": "request",
-      "name": "_acpmux/computer_use_enroll",
+      "name": "_acpmux/computer_use_call",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/computer_use_machines",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/computer_use_state",
       "params": true,
       "result": true
     },
@@ -1877,6 +1951,72 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/order.set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/spread.set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/remove",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/key.add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.begin",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.wait",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.cancel",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/chatgpt.token",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/claude_token.add",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/credential",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/web_modes",
       "params": true,
       "result": true
@@ -1993,6 +2133,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/journal_restore",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/attachments_held",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/pair_ticket_new",
       "params": true,
       "result": true
@@ -2036,6 +2188,42 @@
     {
       "kind": "request",
       "name": "_acpmux/machine_consent_refused",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_routes",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_route_probe",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/share_host_status",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_enroll",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_leave_if_auto",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/machine_signed_in",
       "params": true,
       "result": true
     },
@@ -2136,6 +2324,11 @@
     },
     {
       "kind": "notification",
+      "name": "_acpmux/connections.changed",
+      "params": true
+    },
+    {
+      "kind": "notification",
       "name": "_acpmux/harness_inventory",
       "params": true
     },
@@ -2152,6 +2345,11 @@
     {
       "kind": "notification",
       "name": "_acpmux/cancel_refused",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/unsent",
       "params": true
     },
     {
@@ -2234,6 +2432,7 @@
         "senderHarness": true,
         "senderHarnessChecked": true,
         "senderToken": true,
+        "sessionCreatedAt": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,
@@ -2244,6 +2443,7 @@
         "tags": true,
         "teamMessage": true,
         "throughSeq": true,
+        "throwaway": true,
         "topic": true,
         "via": true,
         "vmBoundary": true,
@@ -2463,6 +2663,13 @@
             "null"
           ]
         },
+        "attending": {
+          "description": "False attaches showing the chat to a person who is away (`_acpmux/view` `attending`): it\nsees nothing, so a reconnect while they are away keeps the chat's unread; default true.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "beforeSeq": {
           "description": "The newest `limit` records before this one.",
           "format": "uint64",
@@ -2508,6 +2715,13 @@
         },
         "sessionId": {
           "type": "string"
+        },
+        "settled": {
+          "description": "Answer from the chat's settled view first (`settled-attach-v1`,\n`server/requests/settled_attach.rs`): a read, falling back to a plain page.",
+          "type": [
+            "boolean",
+            "null"
+          ]
         },
         "visible": {
           "description": "False attaches without showing the chat (`hub/seen.rs`); default true.",
@@ -2556,6 +2770,15 @@
           "$ref": "#/types/PresenceNote",
           "description": "Who has the chat open now, this attachment included (`hub/presence.rs`)."
         },
+        "readThrough": {
+          "description": "The attaching person's seen cursor (`hub/seen.rs` `read_through`): the newest log seq they\nsaw while attending; null before they saw any. An older acpmux leaves it out.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "session": {
           "$ref": "#/types/SessionDetail"
         },
@@ -2577,6 +2800,7 @@
         "lastSeq",
         "pageThrough",
         "presence",
+        "readThrough",
         "session",
         "turnOpener"
       ],
@@ -3176,9 +3400,23 @@
             "null"
           ]
         },
+        "harness": {
+          "description": "With `live`: the harness the fork runs on, carrying the conversation over (a model switch).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "live": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "model": {
+          "description": "With `harness`: the model the fork starts on, at most 256 bytes.",
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -3213,6 +3451,25 @@
           "$ref": "#/types/RequestMeta"
         }
       },
+      "type": "object"
+    },
+    "GoneRow": {
+      "description": "A row that left the list since a follow's cursor.",
+      "properties": {
+        "peer": {
+          "description": "The peer a remote session ran on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
       "type": "object"
     },
     "HandoffDiscardParams": {
@@ -3389,6 +3646,8 @@
         },
         "cancelFork": true,
         "cancelToken": true,
+        "expectRevision": true,
+        "ifIdle": true,
         "purge": true,
         "sessionId": true
       },
@@ -3923,6 +4182,37 @@
       },
       "required": [
         "recipient"
+      ],
+      "type": "object"
+    },
+    "MarkUnreadParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/markUnread`: the person marks the chat unread; with `readThrough`, their seen cursor\nmoves back to it (never forward).",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "readThrough": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId"
       ],
       "type": "object"
     },
@@ -4710,9 +5000,12 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "credentials": true,
         "cwd": true,
         "harness": true,
-        "release": true
+        "model": true,
+        "release": true,
+        "workspaceId": true
       },
       "type": "object"
     },
@@ -5117,6 +5410,16 @@
       ],
       "type": "object"
     },
+    "ReleaseToWatchParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
+      "type": "object"
+    },
     "RequestMeta": {
       "properties": {
         "acpmux": {
@@ -5190,9 +5493,10 @@
       "type": "object"
     },
     "RetryReason": {
-      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, the\nagent process died mid-turn, or the chat outgrew its model's context window (`context`: it\nis compacted, then continued at once).",
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the account hit its usage or rate\nlimit (`rate_limit`, HTTP 429: the chat holds every turn until the reset, `hub/rate_hold.rs`),\nthe connection dropped, the agent process died mid-turn, or the chat outgrew its model's\ncontext window (`context`: it is compacted, then continued at once).",
       "enum": [
         "capacity",
+        "rate_limit",
         "transport",
         "agent_exited",
         "context"
@@ -5281,6 +5585,71 @@
       },
       "type": "object"
     },
+    "SeenDone": {
+      "description": "`_acpmux/seen`'s answer: the person's cursor after the request.",
+      "properties": {
+        "readThrough": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "readThrough"
+      ],
+      "type": "object"
+    },
+    "SeenParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/seen`: the person had the chat's rows through `seq` on screen while attending it\n(`hub/seen.rs`). Moves their seen cursor forward only.",
+      "properties": {
+        "_meta": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whose cursor: an author's, the owner's when absent."
+        },
+        "seq": {
+          "description": "The newest log seq of a row that was on screen.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sessionId",
+        "seq"
+      ],
+      "type": "object"
+    },
+    "SessionAuthCredential": {
+      "description": "Whose credential a sign-in refusal is about, so a client names that party and offers the one\nfix that works: sign in to the agent, replace the provider's key, or sign in to cmux.",
+      "oneOf": [
+        {
+          "const": "login",
+          "description": "The agent's own login (an OAuth or subscription sign-in): signing in again renews it.",
+          "type": "string"
+        },
+        {
+          "const": "apiKey",
+          "description": "An API key a provider issued: signing in does not renew it; a new key replaces it.",
+          "type": "string"
+        },
+        {
+          "const": "cmux",
+          "description": "The person's cmux account, which the cmux model router serves the chat with.",
+          "type": "string"
+        }
+      ]
+    },
     "SessionAuthLogin": {
       "description": "`terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or\nsign in again to the route `routeId`.",
       "properties": {
@@ -5348,6 +5717,17 @@
     "SessionAuthResult": {
       "description": "What `_acpmux/session/auth` answers. A client blocks a send only on `signedOut`, `expired`\nor `routeAuthNeeded`; `unknown` never blocks.",
       "properties": {
+        "credential": {
+          "anyOf": [
+            {
+              "$ref": "#/types/SessionAuthCredential"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Whose credential refused the chat, for `signedOut`, `expired` and `routeAuthNeeded`: the\nagent's own login, an API key a provider issued, or the person's cmux account. Absent when\nthe evidence does not say (a route of another kind names it by `routeId`)."
+        },
         "detail": {
           "description": "One sentence: the probe's status, the turn's error, or the check that ran.",
           "type": "string"
@@ -5388,6 +5768,13 @@
             }
           ],
           "description": "How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`."
+        },
+        "provider": {
+          "description": "The provider that issued a refused API key, by its id as the chat's model names it\n(`opencode-go` in `opencode-go/deepseek-v4.1-flash`) or as the agent's family implies it\n(`anthropic` for Claude Code); only with `credential` `apiKey`.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "routeId": {
           "description": "The route the chat is bound to; null when it is not routed.",
@@ -5481,6 +5868,12 @@
           "description": "The record kind, or `queue`, `permission_resolved` or `purged`.",
           "type": "string"
         },
+        "listSeq": {
+          "description": "The list position this change took (`hub/row_log.rs`): the client's cursor for\n`_acpmux/watch {afterSeq}` is the highest it applied.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "peer": {
           "description": "The peer a remote session runs on.",
           "type": [
@@ -5508,7 +5901,8 @@
         "session",
         "kind",
         "recordKind",
-        "seq"
+        "seq",
+        "listSeq"
       ],
       "type": "object"
     },
@@ -5619,6 +6013,10 @@
         "harnessSandboxFailing": {
           "default": false,
           "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
+          "type": "boolean"
+        },
+        "hasDraft": {
+          "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
           "type": "boolean"
         },
         "indicator": {
@@ -5828,6 +6226,24 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "rateLimitParked": {
+          "description": "Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on\nit, or Stop came while the limit had it, so it starts nothing by itself until `acpmux\nretry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer\non an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rateLimitedUntil": {
+          "description": "The account's rate limit holds every turn of this chat until this time (Unix ms): what\ncomes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows\n\"rate-limited until HH:MMZ\". Absent otherwise, and from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
@@ -6082,6 +6498,10 @@
             "string",
             "null"
           ]
+        },
+        "workingBelow": {
+          "description": "Work runs below it with no turn open: a background subagent, a harness background process,\nor a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app\nupdate that installs when idle waits for it. Absent otherwise, and from a peer on an older\nacpmux.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -6330,6 +6750,10 @@
           "description": "Whether its harness refuses commands now for that reason; a completed command or a new\nharness process ends it (`hub/harness_sandbox.rs`). Omitted for peers.",
           "type": "boolean"
         },
+        "hasDraft": {
+          "description": "Its composer holds typed text not sent yet (`composerDraft`, non-blank): an app update\nthat installs when idle (`updates.installWhenIdle`) waits for it. Absent otherwise, and from\na peer on an older acpmux.",
+          "type": "boolean"
+        },
         "indicator": {
           "anyOf": [
             {
@@ -6528,6 +6952,24 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "rateLimitParked": {
+          "description": "Since when (Unix ms) this chat is parked on the rate limit: six turns in a row failed on\nit, or Stop came while the limit had it, so it starts nothing by itself until `acpmux\nretry` or the person's own prompt (`hub/rate_hold.rs`). Absent otherwise, and from a peer\non an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rateLimitedUntil": {
+          "description": "The account's rate limit holds every turn of this chat until this time (Unix ms): what\ncomes in queues and goes in as one turn at the reset (`hub/rate_hold.rs`). `acpmux ls` shows\n\"rate-limited until HH:MMZ\". Absent otherwise, and from a peer on an older acpmux.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "retiredAgentSessionIds": {
           "description": "The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):\na Codex chat's earlier roots, which its older records still name, so a client folding\nthem never reads one as a subagent. Absent when none, and from a peer on an older acpmux.",
@@ -6778,6 +7220,10 @@
             "string",
             "null"
           ]
+        },
+        "workingBelow": {
+          "description": "Work runs below it with no turn open: a background subagent, a harness background process,\nor a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app\nupdate that installs when idle waits for it. Absent otherwise, and from a peer on an older\nacpmux.",
+          "type": "boolean"
         }
       },
       "required": [
@@ -6894,8 +7340,41 @@
     },
     "SessionsResult": {
       "properties": {
-        "delta": {
-          "description": "A watch that sent `known` (`watch_delta.rs`): `sessions` holds only the rows new or\nchanged since, and the rest of the known rows stand.",
+        "follow": {
+          "description": "A watch that sent `afterSeq`: `sessions` holds only the rows changed since, and `gone` the\nrows that went; the client's other rows stand.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "gone": {
+          "description": "With `follow`: the rows that went since `afterSeq`.",
+          "items": {
+            "$ref": "#/types/GoneRow"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "listEpoch": {
+          "description": "With `listSeq`: this daemon run's id for list positions.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "listSeq": {
+          "description": "A watch's reply: the list position it is current to (`hub/row_log.rs`). Every change after\nit reaches the watcher as a `session_changed` with a higher `listSeq`; a row replaces the\none held only when its position is not lower.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "more": {
+          "description": "With `follow`: cut at the page's size; `listSeq` is the last position it holds, and the\nclient follows again from there.",
           "type": [
             "boolean",
             "null"
@@ -6908,13 +7387,10 @@
             "null"
           ]
         },
-        "removed": {
-          "description": "With `delta`: the known sessions no longer listed.",
-          "items": {
-            "type": "string"
-          },
+        "reset": {
+          "description": "A watch whose `afterSeq` the log could not follow (another daemon run, or older than its\noldest removal): this is the list's first page, and the client drops the rows it held.",
           "type": [
-            "array",
+            "boolean",
             "null"
           ]
         },
@@ -6924,15 +7400,6 @@
             "$ref": "#/types/SessionSummary"
           },
           "type": "array"
-        },
-        "unchanged": {
-          "description": "With `delta`: how many listed rows were left out as unchanged.",
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
         }
       },
       "required": [
@@ -7442,6 +7909,22 @@
       ],
       "type": "object"
     },
+    "ViewDone": {
+      "description": "`_acpmux/view`'s answer: the person's return when coming to attend put \"New since you looked\"\non the chat (`hub/seen.rs`), so the client draws it without waiting for its list.",
+      "properties": {
+        "lastReturn": {
+          "anyOf": [
+            {
+              "$ref": "#/types/LastReturn"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "ViewParams": {
       "additionalProperties": false,
       "properties": {
@@ -7455,6 +7938,22 @@
             }
           ],
           "description": "An author changes only that person's presence (`hub/presence.rs`), not whether the\nchat counts as shown."
+        },
+        "attending": {
+          "description": "Its person attends the chat it shows: on screen, window key, input within the client's\nidle window. Absent: true. A shown chat nobody attends stays shown, but its turns are\nunread (`hub/seen.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "seenSeq": {
+          "description": "With `attending: false`, the log seq the client had at its person's last input: where the\nchat is left off, when earlier than now.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "sessionId": {
           "type": "string"
@@ -7484,6 +7983,15 @@
     "WatchParams": {
       "additionalProperties": false,
       "properties": {
+        "afterSeq": {
+          "description": "Follow the list from this position (`hub/row_log.rs`, capability\n`session-list-follow-v1`): the highest `listSeq` the client applied. The reply holds the\nrows changed since and `gone`, not the list (`follow: true`); one the log cannot follow is\nanswered with the list's first page and `reset: true`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "cursor": {
           "type": [
             "string",
@@ -7497,21 +8005,18 @@
             "null"
           ]
         },
-        "known": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "description": "A peer daemon's link only (`watch_delta.rs`): every session it holds of this daemon's\nlist, with the digest of its row as last listed (`\"\"` when it changed since). The reply\nis then a delta: `delta: true`, the rows new or changed, and `removed`.",
-          "type": [
-            "object",
-            "null"
-          ]
-        },
         "limit": {
           "format": "uint64",
           "minimum": 0,
           "type": [
             "integer",
+            "null"
+          ]
+        },
+        "listEpoch": {
+          "description": "The `listEpoch` that `afterSeq` came with: a cursor of another daemon run is reset.",
+          "type": [
+            "string",
             "null"
           ]
         },

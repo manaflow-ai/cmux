@@ -55,6 +55,49 @@ if MESSAGING and REGISTRY:
     atexit.register(lambda: os.path.exists(ENTRY) and os.remove(ENTRY))
 
 
+# A copy of _state() and _exited() from tests/process_gone.py, the canonical helper: this stand-in runs
+# from a scratch copy (cpu_class.rs) where that file cannot be loaded by path. Signal 0 alone is wrong here,
+# since a dead peer that is not reaped yet (a zombie) still answers it.
+# tests/test_lint_process_gone_checks.py fails when the two copies differ; change both together.
+def _state(pid):
+    """PID's one-letter process state ("Z" for a zombie), or "" when no process has it, or None when unknown.
+
+    Linux reads /proc; macOS has no /proc, so `ps -o stat= -p PID` answers there (and on Linux without /proc)."""
+    try:
+        with open("/proc/%d/stat" % pid) as f:
+            stat = f.read()
+        return stat[stat.rindex(")") + 2:][:1]
+    except FileNotFoundError:
+        if os.path.isdir("/proc/self"):
+            return ""  # /proc works and has no entry: the pid is gone
+    except (OSError, ValueError):
+        pass
+    try:
+        out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip()[:1]  # ps prints nothing (and exits 1) for a pid it does not know
+
+
+def _exited(pid):
+    """True when PID is gone or a zombie, False when it runs, None when it cannot be told."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except PermissionError:
+        pass  # another user's process: its state still answers below
+    state = _state(pid)
+    if state is None:
+        return None
+    return state in ("", "Z", "X")
+
+
+def died(pid):
+    """True when PID has exited (gone, or a zombie) now: tests/process_gone.py's died(), without the wait."""
+    return _exited(pid) is True
+
+
 def peers():
     """The other live sessions of the peer registry, by name."""
     names = []
@@ -62,9 +105,8 @@ def peers():
         try:
             with open(os.path.join(REGISTRY, entry)) as f:
                 record = json.load(f)
-            if record["pid"] == os.getpid():
+            if record["pid"] == os.getpid() or died(record["pid"]):
                 continue
-            os.kill(record["pid"], 0)
         except (OSError, ValueError, KeyError):
             continue
         names.append(record["name"])

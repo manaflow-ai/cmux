@@ -22,8 +22,8 @@ Only needed for the native app. Docs, translations, Python tooling, `cmux-tui` a
   ```
 
 - [Zig](https://ziglang.org/) (install via `brew install zig`)
-- [Rust](https://rustup.rs). Every app build compiles the bundled `cmux-cua` engine
-  with `cargo`, and `scripts/setup.sh` looks for `rustup` in `~/.cargo/bin`, where
+- [Rust](https://rustup.rs). Every app build compiles the bundled Rust helpers
+  (acpmux, the cmux-tui client) with `cargo`, and `scripts/setup.sh` looks for `rustup` in `~/.cargo/bin`, where
   the official installer puts it:
 
   ```bash
@@ -45,6 +45,10 @@ CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag my-feature
 - `setup.sh` initializes the submodules, installs the pinned Rust toolchain, and
   fetches a checksum-pinned prebuilt `GhosttyKit.xcframework` (it builds from source
   with Zig if that fails; force that with `CMUX_GHOSTTYKIT_NO_PREBUILT=1`).
+- With cmux NIGHTLY installed, a change to the web UI or the daemon needs no build:
+  `cmux app try .` copies your nightly and swaps your code into the copy, beside your
+  cmux (`--stop` deletes it; [the loop](docs/cmux-next/hot-reload.md#the-loop)).
+  The tagged build below stays the way for Swift.
 - `reload.sh --tag <tag>` builds a tagged Debug app and prints its path. Add
   `--launch` to open it, or `--build-only` to only compile.
   `CMUX_DEV_BACKEND_MODE=local` points it at the local dev origin; without it a

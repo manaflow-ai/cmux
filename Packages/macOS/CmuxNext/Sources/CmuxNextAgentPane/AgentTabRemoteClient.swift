@@ -15,14 +15,18 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func attach(_ page: AgentSessionPage, events handler: @escaping @Sendable (AgentSessionRemoteEvent) -> Void) async throws -> Data {
         try await mapped {
-            try await client.attach(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds) { event, line in
+            try await client.attach(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds,
+                                    maxBytes: page.maxBytes) { event, line in
                 handler(Self.event(event, line))
             }
         }
     }
 
     public func events(_ page: AgentSessionPage) async throws -> Data {
-        try await mapped { try await client.events(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds) }
+        try await mapped {
+            try await client.events(afterSeq: page.afterSeq, beforeSeq: page.beforeSeq, limit: page.limit, kinds: page.kinds,
+                                    maxBytes: page.maxBytes)
+        }
     }
 
     public func prompt(id: String, text: String) async throws -> Data {
@@ -31,6 +35,22 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
 
     public func prompt(id: String, content: Data) async throws -> Data {
         try await mapped { try await client.prompt(id: id, content: content) }
+    }
+
+    public func prompt(id: String, text: String, steer: Bool) async throws -> Data {
+        try await mapped { try await client.prompt(id: id, text: text, steer: steer) }
+    }
+
+    public func prompt(id: String, content: Data, steer: Bool) async throws -> Data {
+        try await mapped { try await client.prompt(id: id, content: content, steer: steer) }
+    }
+
+    public func queueApprove(promptID: String, turnID: String, revision: UInt64) async throws -> Data {
+        try await mapped { try await client.queueApprove(promptID: promptID, turnID: turnID, revision: revision) }
+    }
+
+    public func queueDecline(promptID: String) async throws -> Data {
+        try await mapped { try await client.queueDecline(promptID: promptID) }
     }
 
     public func cancel() async throws { _ = try await mapped { try await client.cancel(); return Data() } }
@@ -120,5 +140,47 @@ public nonisolated struct AgentTabRemoteClient: AgentSessionRemoteClient {
         } catch let error as AgentSessionAttachError {
             throw AgentSessionRemoteError(code: error.code, message: error.message)
         }
+    }
+}
+
+extension AgentTabRemoteClient {
+    /// The tab's surface on its machine as that machine's store lists it now (a new chat's tab may
+    /// have been provisional when its host was made).
+    public typealias TabSurface = @Sendable () async throws -> UInt64
+
+    /// The folder trust question of the tab's machine (cx-1bhjj, ``RemoteAcpmuxWire/Trust``): one
+    /// `agent-session-trust` call on a fresh attachment to `tab()`, gated by `ownerLink` there.
+    public static func trust(tab: @escaping TabSurface, reconnect: AgentSessionAttachClient.Reconnect?,
+                             endpoint: @escaping AgentSessionAttachClient.EndpointProvider,
+                             ownerLink: AgentSessionAttachClient.OwnerLink?) -> RemoteAcpmuxWire.Trust {
+        { cwd, level, home in
+            try await once(tab: tab, reconnect: reconnect, endpoint: endpoint) { client in
+                try await client.trust(cwd: cwd, level: level, homeConfirmed: home, ownerLink: ownerLink)
+            }
+        }
+    }
+
+    /// A new chat's agent sign-in on the tab's machine before it has a session (hq#11225,
+    /// ``RemoteAcpmuxWire/MachineLogin``): one `agent-session-login` step on a fresh attachment to
+    /// `tab()`, gated there as its start is (the same owner answer, `vm_kind: "owner"`).
+    public static func machineLogin(tab: @escaping TabSurface, reconnect: AgentSessionAttachClient.Reconnect?,
+                                    endpoint: @escaping AgentSessionAttachClient.EndpointProvider,
+                                    ownerLink: AgentSessionAttachClient.OwnerLink?) -> RemoteAcpmuxWire.MachineLogin {
+        { op, fields in
+            try await once(tab: tab, reconnect: reconnect, endpoint: endpoint) { client in
+                try await client.machineLogin(op, fields, ownerLink: ownerLink)
+            }
+        }
+    }
+
+    /// `work` on a fresh attachment to `tab()`, closed after, with the daemon's refusal as the pane's.
+    private static func once(tab: TabSurface, reconnect: AgentSessionAttachClient.Reconnect?,
+                             endpoint: @escaping AgentSessionAttachClient.EndpointProvider,
+                             _ work: (AgentSessionAttachClient) async throws -> Data) async throws -> Data {
+        let client = AgentSessionAttachClient(surface: try await tab(), reconnect: reconnect, endpoint: endpoint)
+        let answer: Result<Data, any Error>
+        do { answer = .success(try await AgentTabRemoteClient(client: client, mode: .attach).mapped { try await work(client) }) } catch { answer = .failure(error) }
+        await client.close()
+        return try answer.get()
     }
 }

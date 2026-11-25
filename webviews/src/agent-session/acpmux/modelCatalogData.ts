@@ -16,7 +16,8 @@ import { agentBrand } from "../shared/agentBrands.generated";
 // reads only `PickerCatalog`; it never matches model ids itself.
 
 export type EffortValue = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
-export type ModelStatus = "preview" | "deprecated";
+/** `disabled`: the catalog withdrew the model; it never shows (see `readModelCatalog`). */
+export type ModelStatus = "preview" | "deprecated" | "disabled";
 
 export type ModelInfo = {
   name: string;
@@ -172,8 +173,20 @@ const EFFORT_ORDER: readonly EffortValue[] = ["none", "minimal", "low", "medium"
 export function readModelCatalog(value: unknown): ModelCatalog | undefined {
   if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.harnesses)) return undefined;
   if (!isRecord(value.models) || !isRecord(value.providers)) return undefined;
-  const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness);
+  const harnesses = (value.harnesses as unknown[]).filter(isCatalogHarness).map(withoutDisabled);
   return { ...(value as ModelCatalog), harnesses };
+}
+
+/** Drops the models the catalog disabled, and a default model that is one of them. */
+function withoutDisabled(harness: CatalogHarness): CatalogHarness {
+  const disabled = new Set(harness.models.filter((m) => m?.status === "disabled").map((m) => m.id));
+  if (disabled.size === 0) return harness;
+  const { defaultModel, ...rest } = harness;
+  return {
+    ...rest,
+    models: harness.models.filter((m) => !disabled.has(m.id)),
+    ...(defaultModel && !disabled.has(defaultModel) ? { defaultModel } : {}),
+  };
 }
 
 /** Applies cmux.json `agentPane.models` to a catalog. Bad entries are skipped and reported. */

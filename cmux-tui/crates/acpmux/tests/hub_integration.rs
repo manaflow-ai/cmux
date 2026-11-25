@@ -81,6 +81,8 @@ mod prompt_delivery;
 mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/prompt_provenance_app_pane.rs"]
+mod prompt_provenance_app_pane;
 #[path = "hub_integration/prompt_supersede.rs"]
 mod prompt_supersede;
 #[path = "hub_integration/prompt_withdraw.rs"]
@@ -97,12 +99,17 @@ mod questions;
 mod queue_admission;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[cfg(unix)]
+#[path = "hub_integration/resume_here_ask.rs"]
+mod resume_here_ask;
 #[path = "hub_integration/run_parent.rs"]
 mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
 mod seen;
+#[path = "hub_integration/send_burst.rs"]
+mod send_burst;
 #[path = "hub_integration/session_offers.rs"]
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]
@@ -1025,6 +1032,11 @@ async fn limit_error_stays_on_the_current_profile() {
     assert!(!kinds.iter().any(|k| k == "failover"), "{kinds:?} {r:?}");
     assert_eq!(hub.session_summary(&session)["harness"], "fake");
     assert!(r.is_err(), "{r:?}");
+    // The limit holds the chat until its reset (`hub/rate_hold.rs`): the next prompt would queue
+    // behind the hold. Stop parks it; the person's next prompt goes on on the same profile.
+    let row = hub.session_summary(&session);
+    assert!(row["rateLimitedUntil"].as_u64().is_some(), "{row}");
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
     let ok = c
         .request(
             method::SESSION_PROMPT,
@@ -1033,7 +1045,11 @@ async fn limit_error_stays_on_the_current_profile() {
         .await
         .unwrap();
     assert_eq!(ok["stopReason"], "end_turn");
-    assert_eq!(hub.session_summary(&session)["preview"], "echo: after");
+    // Stop parked the rate-limited chat; the person's prompt takes it back and carries the
+    // continuation's words (`rate_hold.rs`).
+    let preview = hub.session_summary(&session)["preview"].as_str().unwrap_or_default().to_owned();
+    assert!(preview.starts_with("echo: after"), "{preview}");
+    assert!(preview.contains("rate limit"), "{preview}");
 }
 
 #[tokio::test]
@@ -1194,7 +1210,8 @@ async fn family_defaults_presets_and_the_target_grammar() {
         )
         .await
         .unwrap_err();
-    assert!(err.contains("cannot be enforced"), "{err}");
+    // Refused at its first start, it names the one fix (the start's flag, or the chat's policy).
+    assert!(err.contains("approve-all`") && !err.contains("did not start"), "{err}");
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"][0]["name"], "fast");
 }

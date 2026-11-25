@@ -17,7 +17,7 @@ export WEB_BUNDLE_KEY_STRICT=1
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 KEY="$ROOT/scripts/cmux-next/web-bundle-key.py"
 TMP=$(mktemp -d)
-trap 'rm -rf "$TMP"' EXIT
+git_fixture_trap_exit 'rm -rf "$TMP"'
 fail() { printf 'FAIL: %s\n' "$@" >&2; exit 1; }
 src="$TMP/src"
 mkdir -p "$src"

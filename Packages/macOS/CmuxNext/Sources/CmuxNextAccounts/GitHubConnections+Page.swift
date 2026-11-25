@@ -14,7 +14,7 @@ extension GitHubConnections {
         return [
             "outcome": .string(scopeIsSignedOut ? "needs-action" : error ? "failed" : (pending || busy) ? "pending" : connected ? "connected" : "needs-action"),
             "title": "GitHub", "detail": .string(note), "busy": .bool(busy),
-            "connect": .string(Self.connect), "disconnect": .string(Self.disconnect),
+            "connect": .string(Self.connect), "disconnect": .string(Self.disconnect), "reconfigure": .string(Self.reconfigure),
             "confirm": .string(Self.confirm), "cancel": .string(Self.cancel),
             "refresh": .string(Self.refresh), "canConnect": .bool(canConnect),
             // Msg 3790: signed out, the card says to sign in and shows the Sign In button.
@@ -24,6 +24,7 @@ extension GitHubConnections {
                  "account": row["account"]?["name"] ?? "GitHub",
                  "status": .string(Self.status(row["status"]?.stringValue)),
                  "canDisconnect": .bool(canDisconnect(row)),
+                 "canReconfigure": .bool(canReconfigure(row)),
                  "permissions": row["scopes_granted"] ?? .array([])]
             }),
         ]
@@ -33,6 +34,7 @@ extension GitHubConnections {
 private extension GitHubConnections {
     static var connect: String { String(localized: "github.connect", defaultValue: "Connect GitHub", table: "GitHubConnection", bundle: .module) }
     static var disconnect: String { String(localized: "github.disconnect", defaultValue: "Disconnect", table: "GitHubConnection", bundle: .module) }
+    static var reconfigure: String { String(localized: "github.reconfigure", defaultValue: "Reconfigure", table: "GitHubConnection", bundle: .module) }
     static var confirm: String { String(localized: "github.confirm", defaultValue: "Disconnect GitHub? Agents will lose access through this connection.", table: "GitHubConnection", bundle: .module) }
     static var cancel: String { String(localized: "github.cancel", defaultValue: "Cancel", table: "GitHubConnection", bundle: .module) }
     static var refresh: String { String(localized: "github.refresh", defaultValue: "Refresh", table: "GitHubConnection", bundle: .module) }

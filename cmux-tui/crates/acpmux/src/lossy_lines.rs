@@ -16,11 +16,19 @@ pub struct LossyLines<R> {
     /// The line read so far: kept when a `next_line` is cancelled (a `select!` branch that
     /// lost), so the next call goes on with it, as `Lines::next_line` does.
     buf: Vec<u8>,
+    /// Bytes of the lines returned so far, with their line ends (an offset in the stream).
+    consumed: u64,
 }
 
 impl<R: AsyncBufRead + Unpin> LossyLines<R> {
     pub fn new(reader: R) -> Self {
-        Self { reader, buf: Vec::new() }
+        Self { reader, buf: Vec::new(), consumed: 0 }
+    }
+
+    /// Bytes of every line returned so far, line ends included: the stream offset after the
+    /// last one (the agent holder's ring offset, `agent_host/custody.rs`).
+    pub fn consumed(&self) -> u64 {
+        self.consumed
     }
 
     /// The next line; `Ok(None)` at the end of the pipe. Cancel safe.
@@ -30,6 +38,7 @@ impl<R: AsyncBufRead + Unpin> LossyLines<R> {
             return Ok(None);
         }
         let mut line = std::mem::take(&mut self.buf);
+        self.consumed += line.len() as u64;
         if line.last() == Some(&b'\n') {
             line.pop();
             if line.last() == Some(&b'\r') {

@@ -1,3 +1,4 @@
+public import CMUXAuthCore
 public import Foundation
 
 /// A machine's exec and file routes: `/v1/cloud/machines/{id}/exec` and `/v1/cloud/machines/{id}/fs/...`
@@ -19,9 +20,10 @@ extension CloudAPIClient {
     public static func workerMachines(baseURL: URL, accessToken: @escaping @Sendable () async throws -> String,
                                       teamID: @escaping TeamID, session: URLSession = CloudAPIClient.noStoreTransport,
                                       appVersion: String = "cmux-next", machineIO: CloudMachineIO? = nil,
-                                      installToken: (@Sendable () async throws -> String)? = nil) -> CloudAPIClient {
+                                      installToken: (@Sendable () async throws -> String)? = nil,
+                                      buildSpace: CMUXBuildSpaceState = .nightly) -> CloudAPIClient {
         var client = CloudAPIClient(baseURL: baseURL, tokens: { (try await accessToken(), "") }, teamID: teamID, session: session,
-                                    appVersion: appVersion)
+                                    appVersion: appVersion, buildSpace: buildSpace)
         client.machineIO = machineIO
         client.installToken = installToken
         return client
@@ -34,6 +36,14 @@ extension CloudAPIClient {
             try await send("POST", "\(machinePath)/\(id)/exec", body: ["command": command, "timeoutMs": timeoutMs],
                            timeout: .milliseconds(timeoutMs) + .seconds(5), as: CloudExecResult.self)
         }
+    }
+
+    /// Starts the desktop closure on an existing running Cloud machine. The platform route
+    /// performs the root-owned capability repair; the app never asks the guest shell to invent it.
+    public func setupDesktop(_ id: String) async throws {
+        try requireWorker()
+        struct Response: Decodable { let ok: Bool }
+        _ = try await send("POST", "\(machinePath)/\(id)/desktop", timeout: .seconds(30), as: Response.self)
     }
 
     /// Lists a guest directory through the authenticated backend wrapper.

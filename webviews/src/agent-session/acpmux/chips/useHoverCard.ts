@@ -43,6 +43,27 @@ function watchPointerBridge(listener: PointerBridgeListener): () => void {
   };
 }
 
+/// While a card is open, what ends it with no pointer event on its trigger or card: a pointer that
+/// leaves the page (onto the window's native sidebar or tab row) or a window that loses focus sends
+/// no leave at all (Lucas, 2026-11-11: an image's card stayed on screen with the pointer no longer on
+/// it). A scroll puts it away through `onWheel` (ui/scrollHover.ts).
+function watchCardEnd(card: () => HTMLElement | null, end: () => void): () => void {
+  if (typeof document === "undefined") return () => {};
+  const view = document.defaultView;
+  // A card the keyboard is in stays when the pointer leaves: its focused control is still the
+  // reader's target. A window that loses focus ends it either way.
+  const onOut = (event: globalThis.PointerEvent) => {
+    if (event.relatedTarget !== null || card()?.contains(document.activeElement)) return;
+    end();
+  };
+  document.addEventListener("pointerout", onOut, true);
+  view?.addEventListener("blur", end);
+  return () => {
+    document.removeEventListener("pointerout", onOut, true);
+    view?.removeEventListener("blur", end);
+  };
+}
+
 /// `dwell`: the pointer rest before it opens (the hover-card dwell; an icon-only control whose
 /// card replaces its tooltip waits the tooltip delay).
 export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
@@ -63,13 +84,28 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
   /// The trigger came under a still pointer (a scroll, a layout change), or a scroll put its card
   /// away with the pointer on it: the card waits for the pointer to move from this place.
   const parked = useRef<PointerPlace | null>(null);
+  /// Ends the open card's page-leave and blur watch (`watchCardEnd`).
+  const unwatchEnd = useRef<(() => void) | undefined>(undefined);
+  const stopEndWatch = () => {
+    unwatchEnd.current?.();
+    unwatchEnd.current = undefined;
+  };
   bridge.current ??= new HoverBridge({
     dwell,
     grace: HOVER_INTENT.cardGrace,
-    open: () => setOpen(true),
+    open: () => {
+      setOpen(true);
+      // A card whose Open in menu is open stays, as it does for the pointer.
+      unwatchEnd.current ??= watchCardEnd(cardElement, () => {
+        if (!menuOpen.current) dismissNow();
+      });
+    },
     close: () => {
       stopWatching();
-      if (!menuOpen.current) setOpen(false);
+      if (!menuOpen.current) {
+        stopEndWatch();
+        setOpen(false);
+      }
     },
   });
 
@@ -97,6 +133,13 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
     unwatch.current?.();
     unwatch.current = undefined;
   };
+  /// Closes the card now, however it opened; the next hover or focus opens it again.
+  function dismissNow() {
+    stopWatching();
+    stopEndWatch();
+    bridge.current?.stop();
+    setOpen(false);
+  }
   const move = (event: PointerEvent<HTMLElement>) => {
     const still = parked.current;
     if (still) {
@@ -158,6 +201,7 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
   useEffect(
     () => () => {
       stopWatching();
+      stopEndWatch();
       bridge.current?.stop();
     },
     [],
@@ -175,17 +219,14 @@ export function useHoverCard(dwell: number = HOVER_INTENT.cardDwell) {
       if (target instanceof Node && cardElement()?.contains(target)) return;
       if (onTrigger.current && !parked.current) parked.current = pointerPlace() ?? { x: NaN, y: NaN };
       stopWatching();
+      stopEndWatch();
       state.stop();
       setOpen(false);
     });
   }, []);
 
   // Stable across renders, so a caller's Escape listener can depend on it.
-  const dismiss = useCallback(() => {
-    stopWatching();
-    bridge.current?.stop();
-    setOpen(false);
-  }, []);
+  const dismiss = useCallback(() => dismissNow(), []);
 
   return {
     open,

@@ -16,6 +16,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
@@ -27,7 +28,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   if (saved.had) Object.assign(scope, { window: saved.window, document: saved.document });
   else {
     delete scope.window;

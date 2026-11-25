@@ -14,7 +14,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 AREAS="$ROOT_DIR/scripts/cmux-next/autofix-areas.sh"
 APPLY="$ROOT_DIR/scripts/cmux-next/pr-autofix-apply.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-pr-autofix.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 
 area() { # changed path -> the actions area's value

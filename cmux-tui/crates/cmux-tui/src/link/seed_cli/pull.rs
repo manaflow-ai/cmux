@@ -208,7 +208,13 @@ fn base_of(kept: Option<&Record>, machine: Option<&str>) -> Result<SeedBase, See
 }
 
 /// Keeps the machine's state, the answer's `base`, as this folder's record.
-fn keep(local: &Path, remote: &str, machine: Option<String>, url: Option<String>, summary: &Value) {
+pub(super) fn keep(
+    local: &Path,
+    remote: &str,
+    machine: Option<String>,
+    url: Option<String>,
+    summary: &Value,
+) {
     let base = summary.get("base");
     let sha =
         |key: &str| base.and_then(|base| base.get(key)).and_then(Value::as_str).map(str::to_owned);
@@ -226,6 +232,7 @@ fn keep(local: &Path, remote: &str, machine: Option<String>, url: Option<String>
         stash_known: base.is_some_and(|base| base.get("stash").is_some()),
         // The export answered, so the machine's checkout is whole.
         filling: None,
+        hop: None,
     };
     // A record that could not be kept only makes the next pull merge from
     // the older base, where what came back already matches both sides.
@@ -276,6 +283,7 @@ mod tests {
             stash: None,
             stash_known: true,
             filling: None,
+            hop: None,
         }
     }
 

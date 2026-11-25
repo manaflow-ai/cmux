@@ -355,9 +355,10 @@ pub struct HubError {
 }
 
 impl HubError {
-    /// Whether no retry can help this daemon's loops: a refused credential (401, 403: a Cloud VM
-    /// token, a token without a team) or a refusal from no answer at all (no token command).
-    /// Any other refusal (a request the hub took issue with) is tried again with backoff.
+    /// Whether the hub refused this daemon's credential: a 401 or 403 (a Cloud VM token, a token
+    /// without a team, a revoked machine) or a refusal from no answer at all (no token command).
+    /// The relay's loops pause on one and try again every `refused_retry`, since a refusal can
+    /// pass; any other refusal (a request the hub took issue with) is tried again with backoff.
     pub fn ends_relay(&self) -> bool {
         self.refused && self.status.is_none_or(|s| s == 401 || s == 403)
     }
@@ -428,6 +429,33 @@ pub trait MeshHub: Send + Sync {
         _wait: Duration,
     ) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.receipt(message_id)
+    }
+}
+
+/// The team hub client sends go through (`Hub::mesh`): set when a mesh relay starts, cleared
+/// when a sign-out's leave stops it, and replaced when a later enroll starts one again, perhaps
+/// against another hub. Each read takes the client then in use; the lock is never held across
+/// a call.
+#[derive(Default)]
+pub struct MeshSlot(std::sync::RwLock<Option<Arc<dyn MeshHub>>>);
+
+impl MeshSlot {
+    /// The client in use, if a relay runs.
+    pub fn get(&self) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.read_or_recover().clone()
+    }
+
+    /// Make `client` the one in use; the one it replaced, if any.
+    pub fn set(&self, client: Arc<dyn MeshHub>) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().replace(client)
+    }
+
+    /// No client: the relay stopped. The one it removed, if any.
+    pub fn clear(&self) -> Option<Arc<dyn MeshHub>> {
+        use crate::no_panic::RwLockExt;
+        self.0.write_or_recover().take()
     }
 }
 

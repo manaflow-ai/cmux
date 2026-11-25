@@ -45,9 +45,32 @@ pub trait FrameLink: Send + Sync {
 #[derive(Clone, Debug)]
 pub enum LinkError {
     Closed,
-    FrameTooLarge { actual: usize, maximum: usize },
+    FrameTooLarge {
+        actual: usize,
+        maximum: usize,
+    },
     Transport(String),
     Protocol(String),
+    /// The far side refused the route for a reason no redial changes (its owner has not
+    /// granted the use, it serves no such thing): the dial ends here, with the reason.
+    Refused(Refusal),
+}
+
+/// A refusal a redial cannot cure: a `reason` code a caller acts on and the far side's line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Refusal {
+    pub reason: String,
+    pub message: String,
+}
+
+impl LinkError {
+    /// The refusal this error is, when the far side refused for good.
+    pub fn refusal(&self) -> Option<&Refusal> {
+        match self {
+            Self::Refused(refusal) => Some(refusal),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for LinkError {
@@ -59,6 +82,9 @@ impl fmt::Display for LinkError {
             }
             Self::Transport(message) => write!(formatter, "link transport failed: {message}"),
             Self::Protocol(message) => write!(formatter, "link protocol failed: {message}"),
+            Self::Refused(Refusal { reason, message }) => {
+                write!(formatter, "refused: {message} ({reason})")
+            }
         }
     }
 }
