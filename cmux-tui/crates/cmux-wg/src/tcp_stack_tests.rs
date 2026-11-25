@@ -38,3 +38,27 @@ fn syn_origins_stay_bounded() {
         assert!(server.syn_origins.as_ref().unwrap().len() <= MAX_SYN_ORIGINS);
     }
 }
+
+#[test]
+fn stream_window_parses_bytes_and_suffixes_within_bounds() {
+    use crate::tcp_stack::{MAX_STREAM_WINDOW, MIN_STREAM_WINDOW, parse_window};
+    assert_eq!(parse_window("262144"), Some(256 * 1024));
+    assert_eq!(parse_window("256K"), Some(256 * 1024));
+    assert_eq!(parse_window(" 2m "), Some(2 << 20));
+    assert_eq!(parse_window("1"), Some(MIN_STREAM_WINDOW));
+    assert_eq!(parse_window("1024M"), Some(MAX_STREAM_WINDOW));
+    assert_eq!(parse_window("lots"), None);
+    assert_eq!(parse_window(""), None);
+}
+
+#[test]
+fn a_new_connection_buffers_one_stream_window() {
+    let socket = TcpStack::new_socket(
+        std::time::Duration::from_secs(60),
+        smoltcp::socket::tcp::CongestionControl::Cubic,
+        crate::tcp_stack::DEFAULT_STREAM_WINDOW,
+    );
+    assert_eq!(socket.recv_capacity(), crate::tcp_stack::DEFAULT_STREAM_WINDOW);
+    assert_eq!(socket.send_capacity(), crate::tcp_stack::DEFAULT_STREAM_WINDOW);
+    assert!(crate::tcp_stack::DEFAULT_STREAM_WINDOW > 256 * 1024);
+}
