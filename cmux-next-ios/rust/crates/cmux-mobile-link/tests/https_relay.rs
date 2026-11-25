@@ -727,3 +727,78 @@ async fn met_on_the_relay_goes_direct(old_peer: bool, cell: &str) {
     );
     connected.link.close("done");
 }
+
+static UDP_LOST_LATER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn udp_lost_later(_: &std::net::SocketAddr) -> bool {
+    UDP_LOST_LATER.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Relay first marks only the dial's cold join. A later join is recovery:
+/// once both sides have left the relay and direct UDP dies, the phone's
+/// rejoin asks the Mac at once (`wg-relay`). Before the per-attempt flag the
+/// whole session counted as "relay first", so the ask was skipped and the
+/// Mac joined only after the phone's ask-back timer (5 s and more).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn relay_first_recovery_after_leaving_the_relay_asks_the_peer_at_once() {
+    let leave = Some(Duration::from_secs(2));
+    let mac_options =
+        DialOptions { drop_udp_to: Some(udp_lost_later), relay_leave_after: leave, ..options() };
+    let rig = rig(FakeOptions::default(), mac_options, true).await;
+    let phone = DialOptions {
+        drop_udp_to: Some(udp_lost_later),
+        relay: relay(&rig.server, &rig.phone_id),
+        relay_leave_after: leave,
+        timeout: Duration::from_secs(20),
+        ..options()
+    };
+    let connected =
+        dial::connect(&rig.phone, &rig.mac_id, TransportKind::WireGuard, &phone, LinkConfig::default())
+            .await
+            .expect("dial");
+    echo(&connected.link, 1).await;
+    let session = connected.session_id.clone();
+    // Both sides let the relay go once direct is confirmed.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        echo(&connected.link, 1).await;
+        let phone_held = cmux_mobile_link::dial::wireguard::relay_held(&session, true);
+        let mac_held = cmux_mobile_link::dial::wireguard::relay_held(&session, false);
+        if phone_held != Some(true) && mac_held != Some(true) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "relay held: phone {phone_held:?}, Mac {mac_held:?}");
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let phone_joins = rig.server.relay_joins_of(&rig.phone_id).len();
+    let mac_joins = rig.server.relay_joins_of(&rig.mac_id).len();
+    // Direct UDP dies silently on both sides.
+    UDP_LOST_LATER.store(true, std::sync::atomic::Ordering::Relaxed);
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let phone_rejoin = loop {
+        if let Some(at) = rig.server.relay_joins_of(&rig.phone_id).get(phone_joins) {
+            break *at;
+        }
+        assert!(std::time::Instant::now() < deadline, "the phone never rejoined the relay");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    };
+    let deadline = phone_rejoin + Duration::from_secs(8);
+    let mac_rejoin = loop {
+        if let Some(at) = rig.server.relay_joins_of(&rig.mac_id).get(mac_joins) {
+            break *at;
+        }
+        assert!(std::time::Instant::now() < deadline, "the Mac never rejoined the relay");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    let lag = mac_rejoin.saturating_duration_since(phone_rejoin);
+    eprintln!("relay recovery: Mac joined {lag:?} after the phone");
+    assert!(lag < Duration::from_secs(2), "the Mac joined {lag:?} after the phone's rejoin (ask skipped)");
+    // And the link carries again, on the relay.
+    let until = std::time::Instant::now() + Duration::from_secs(10);
+    while *connected.path.borrow() != LinkPath::HttpsRelay {
+        assert!(std::time::Instant::now() < until, "path: {:?}", *connected.path.borrow());
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    echo(&connected.link, 1).await;
+    connected.link.close("done");
+}
