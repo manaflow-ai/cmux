@@ -407,6 +407,14 @@ extension AgentPaneCloudStart {
         view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
                      scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
     }
+
+    /// Whether the card's machine step says "Waking machine": while the start's machine settles out of a pause or
+    /// a resume in flight, as Rust's `cloud_move_settle` answers (ask-259986a6c4). Keeps the step it is on.
+    @MainActor public static func waking(_ on: Bool, start key: String, to view: AgentPaneView) {
+        let push = JSONValue.object(["key": .string(key), "waking": .bool(on)])
+        view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
+                     scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
+    }
 }
 
 extension AgentPaneModel {
