@@ -8,45 +8,36 @@
 /// from a folder's history or an automation's run mode never is. Sandboxed is a one-off run, never
 /// a place, so it leaves what is kept as it was. Auto (autoWhereModel.ts) is kept as itself: the next
 /// new chat is Auto too, and its Send asks where.
+import { newChatPick, type PickStore } from "./newChatPicks";
 import type { RunLocation } from "./runLocationDefault";
 
 export type PickedPlace = { kind: "local" } | { kind: "cloud" } | { kind: "auto" } | { kind: "machine"; peer: string };
 
-export type PlaceStore = {
-  getItem(name: string): string | null;
-  setItem(name: string, value: string): void;
-};
+export type PlaceStore = PickStore;
 
-const KEY = "cmux.agentPane.lastNewChatPlace";
-
-function pageStore(): PlaceStore | undefined {
-  try {
-    return typeof localStorage === "undefined" ? undefined : localStorage;
-  } catch {
-    return undefined;
-  }
-}
+/// The kept place (newChatPicks.ts: one store for every new chat's composer picks, cmux#57157).
+const kept = newChatPick<PickedPlace>("cmux.agentPane.lastNewChatPlace", (value) => {
+  if (!value || typeof value !== "object" || !("kind" in value)) return undefined;
+  if (value.kind === "local" || value.kind === "cloud" || value.kind === "auto") return { kind: value.kind };
+  if (value.kind === "machine" && "peer" in value && typeof value.peer === "string" && value.peer)
+    return { kind: "machine", peer: value.peer };
+  return undefined;
+});
 
 /// The place last picked, or undefined (none yet, no storage, or a value this build can't read).
-export function lastNewChatPlace(store: PlaceStore | undefined = pageStore()): PickedPlace | undefined {
-  try {
-    const value: unknown = JSON.parse(store?.getItem(KEY) ?? "null");
-    if (!value || typeof value !== "object" || !("kind" in value)) return undefined;
-    if (value.kind === "local" || value.kind === "cloud" || value.kind === "auto") return { kind: value.kind };
-    if (value.kind === "machine" && "peer" in value && typeof value.peer === "string" && value.peer)
-      return { kind: "machine", peer: value.peer };
-  } catch {
-    // A value written by hand or by another build: as if nothing was picked.
-  }
-  return undefined;
+export function lastNewChatPlace(store?: PlaceStore): PickedPlace | undefined {
+  return kept.get(store);
 }
 
-export function rememberNewChatPlace(place: PickedPlace, store: PlaceStore | undefined = pageStore()): void {
-  try {
-    store?.setItem(KEY, JSON.stringify(place));
-  } catch {
-    // A full or refused store: the pick still holds on this page, only not on the next.
-  }
+export function rememberNewChatPlace(place: PickedPlace, store?: PlaceStore): void {
+  kept.set(place, store);
+}
+
+/// `lastNewChatPlace()`, drawn again when this page or another one picks (cmux#57157). A page the
+/// app keeps ready (the New Tab spare, an idle New Tab page a split or a new workspace adopts) was
+/// loaded before the pick: read once per chat, it kept the place it read then.
+export function useLastNewChatPlace(): PickedPlace | undefined {
+  return kept.use();
 }
 
 /// The run mode a pick names (sandboxRun.ts RunMode): Cloud, or This Mac for This Mac and any other
