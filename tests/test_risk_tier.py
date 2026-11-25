@@ -285,9 +285,18 @@ class ClassifyTests(unittest.TestCase):
             NEXT + "CmuxNextApp/AppOnboardingServices+ClassicMigration.swift",
             "cmux-tui/crates/acpmux/src/hub/place_migrate.rs", "web/drizzle/0001_x.sql",
             NEXT + "CmuxNextDaemon/Conversations/ChiefSecureStore.swift",
+            # The measure and repo-archive exemptions name files: a new release script there stays high.
+            "scripts/measure/sign-release.sh", "scripts/measure/nightly-notarize.sh",
+            "scripts/measure/publish-nightly.sh", "scripts/repo-archive/sign.sh", "scripts/repo-archive/deploy.sh",
+            # Each branch of the auth word: at the path start, a file-name word, a directory.
+            "auth/x.ts", "cmux-tui/crates/x/src/oauth_callback.rs", "web/app/sign-in/page.tsx",
+            "cmux-tui/crates/x/src/login/mod.rs",
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), "high")
+        # Only an image is spared the auth word; the word inside a longer word is not the auth word.
+        self.assertNotEqual(self.tier("web/auth.png"), "high")
+        self.assertNotEqual(self.tier("cmux-tui/crates/x/src/author.rs"), "high")
 
     def test_harness_code_and_own_temp_file_cleanup_are_not_new_deletes(self):
         cases = {
@@ -849,6 +858,30 @@ class RecentRevertTests(unittest.TestCase):
             unread = []
             self.assertEqual(risk.recent_reverts([stale], repo, base, own=21194, now=now, unread=unread, budget=0), {})
             self.assertEqual(unread, ["App.tsx"])
+
+
+    def test_a_registry_split_into_one_file_per_entry_takes_nothing_back(self):
+        # cmux#56291 (2026-11-25) moved agent-policy.json into agent-policy/<key>.json: its deleted lines live on in
+        # the new files, and the check named 56 pull requests as taken back.
+        now = time.time()
+        with tempfile.TemporaryDirectory() as repo:
+            self.git(repo, "init", "-q")
+            path = os.path.join(repo, "policy.json")
+            open(path, "w").write('"a": 1\n')
+            self.git(repo, "add", ".")
+            self.git(repo, "commit", "-qm", "feat: old (#100)", when=now - 30 * 86400)
+            open(path, "w").write('"a": 1\n"b": 2\n')
+            self.git(repo, "commit", "-qam", "feat: add b (#200)", when=now - 86400)
+            base = self.git(repo, "rev-parse", "HEAD").strip()
+            removed = {"filename": "policy.json", "status": "removed",
+                       "patch": '@@ -1,2 +0,0 @@\n-"a": 1\n-"b": 2'}
+            split = [removed, {"filename": "policy/a.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"},
+                     {"filename": "policy/b.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"}]
+            self.assertEqual(risk.recent_reverts(split, repo, base, own=300, now=now), {})
+            catalog = [dict(removed, filename="policy.json"), {"filename": "policy.json.d/b.json", "status": "added"}]
+            self.assertEqual(risk.recent_reverts(catalog, repo, base, own=300, now=now), {})
+            # Deleting it with no directory in its place still takes #200's line back.
+            self.assertEqual(risk.recent_reverts([removed], repo, base, own=300, now=now), {200: ["policy.json"]})
 
 
 class MergeBaseTests(unittest.TestCase):
