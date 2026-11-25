@@ -170,6 +170,10 @@ impl Hub {
             tokio::spawn(async move { hub.restore_spares().await });
         }
         tracing::info!("startup complete");
+        // Startup's reads (chat logs, catalogs, the model feed) freed most of what they built:
+        // one pass hands those pages back once the daemon has been quiet for `QUIET`, on the
+        // trim worker's own thread, never on a request (`malloc_quiet_trim.rs`).
+        cmux_tui_platform::malloc_quiet_trim::note_activity();
         // Probes and one-shots of earlier runs left files behind: remove them.
         let _ = tokio::task::spawn_blocking(|| {
             crate::qos::background(crate::probe_cleanup::at_daemon_start)

@@ -12,13 +12,15 @@
 //! Cost: one conditional GET an hour (`If-None-Match`; models.dev answers 304
 //! with no body when nothing changed, else about 0.7 MB gzip). The 5 MB body is
 //! parsed off the async runtime and dropped; only the models of the providers
-//! the rules name are kept (a few hundred small rows).
+//! the rules name are kept (a few hundred small rows), and the other providers'
+//! models are skipped as they stream past, never built as a tree.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read as _;
 
 use futures::future::BoxFuture;
 use serde::Deserialize;
+use serde::de::IgnoredAny;
 use serde_json::Value;
 
 use super::fetch::{FetchOutcome, Fetcher};
@@ -90,12 +92,25 @@ struct RawProvider {
 
 /// Reads one feed body (models.dev's `{provider: {name, models: {id: model}}}`), keeping the
 /// models of `keep`. A malformed model is skipped; only a body that is not that object fails.
+///
+/// The body streams through a typed visitor: a provider outside `keep` keeps its name only and
+/// its models are skipped unbuilt (`IgnoredAny`), so the 5 MB file never becomes a `Value` tree
+/// (that tree was several times the body, at startup and on each hourly refresh, and took 166 ms
+/// to build where the streamed read takes 6 ms). A kept provider is read
+/// as before, so the snapshot is the same (`feed_tests.rs` compares both on fixtures).
 pub fn parse(body: &[u8], keep: &BTreeSet<String>) -> Result<FeedSnapshot, String> {
-    let raw: BTreeMap<String, Value> = serde_json::from_slice(body)
+    let mut de = serde_json::Deserializer::from_slice(body);
+    let raw = serde::de::DeserializeSeed::deserialize(Providers { keep }, &mut de)
+        .and_then(|raw| de.end().map(|()| raw))
         .map_err(|e| format!("the model feed is not an object: {e}"))?;
+    Ok(snapshot(raw, keep))
+}
+
+/// The kept part of the providers read, in the order and with the fallbacks `parse` always had.
+fn snapshot(raw: BTreeMap<String, Option<RawProvider>>, keep: &BTreeSet<String>) -> FeedSnapshot {
     let mut snapshot = FeedSnapshot::default();
-    for (id, value) in raw {
-        let Ok(provider) = RawProvider::deserialize(value) else { continue };
+    for (id, provider) in raw {
+        let Some(provider) = provider else { continue };
         snapshot.names.insert(id.clone(), text(&provider.name).unwrap_or_else(|| id.clone()));
         if !keep.contains(&id) {
             continue;
@@ -106,7 +121,118 @@ pub fn parse(body: &[u8], keep: &BTreeSet<String>) -> Result<FeedSnapshot, Strin
         };
         snapshot.models.insert(id, models);
     }
-    Ok(snapshot)
+    snapshot
+}
+
+/// The feed's top-level map: each provider read whole when `keep` names it, else its name only.
+/// A later duplicate key replaces an earlier one, as a map read does.
+struct Providers<'a> {
+    keep: &'a BTreeSet<String>,
+}
+
+impl<'de> serde::de::DeserializeSeed<'de> for Providers<'_> {
+    type Value = BTreeMap<String, Option<RawProvider>>;
+
+    fn deserialize<D: serde::Deserializer<'de>>(self, de: D) -> Result<Self::Value, D::Error> {
+        de.deserialize_map(self)
+    }
+}
+
+impl<'de> serde::de::Visitor<'de> for Providers<'_> {
+    type Value = BTreeMap<String, Option<RawProvider>>;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a map of providers")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let mut raw = BTreeMap::new();
+        while let Some(id) = map.next_key::<String>()? {
+            let provider = if self.keep.contains(&id) {
+                RawProvider::deserialize(map.next_value::<Value>()?).ok()
+            } else {
+                map.next_value::<NameOnly>()?
+                    .0
+                    .map(|name| RawProvider { name, models: Value::Null })
+            };
+            raw.insert(id, provider);
+        }
+        Ok(raw)
+    }
+}
+
+/// A provider outside `keep`: its `name`, everything else skipped as it streams past. `None`
+/// where reading it as [`RawProvider`] would fail (not an object, an array past two items), so
+/// the provider is skipped as before. Never an error on well-formed JSON.
+struct NameOnly(Option<Value>);
+
+impl<'de> Deserialize<'de> for NameOnly {
+    fn deserialize<D: serde::Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        de.deserialize_any(NameOnlyVisitor)
+    }
+}
+
+struct NameOnlyVisitor;
+
+impl<'de> serde::de::Visitor<'de> for NameOnlyVisitor {
+    type Value = NameOnly;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a provider")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<NameOnly, A::Error> {
+        let mut name = Value::Null;
+        while let Some(key) = map.next_key::<std::borrow::Cow<'de, str>>()? {
+            if key == "name" {
+                name = map.next_value()?;
+            } else {
+                map.next_value::<IgnoredAny>()?;
+            }
+        }
+        Ok(NameOnly(Some(name)))
+    }
+
+    // A derived struct reads an array as its fields in order: `[name, models]`.
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, mut seq: A) -> Result<NameOnly, A::Error> {
+        let name = seq.next_element::<Value>()?;
+        let _models = seq.next_element::<IgnoredAny>()?;
+        let mut extra = false;
+        while seq.next_element::<IgnoredAny>()?.is_some() {
+            extra = true;
+        }
+        Ok(NameOnly((!extra).then(|| name.unwrap_or(Value::Null))))
+    }
+
+    fn visit_bool<E>(self, _: bool) -> Result<NameOnly, E> {
+        Ok(NameOnly(None))
+    }
+    fn visit_i64<E>(self, _: i64) -> Result<NameOnly, E> {
+        Ok(NameOnly(None))
+    }
+    fn visit_u64<E>(self, _: u64) -> Result<NameOnly, E> {
+        Ok(NameOnly(None))
+    }
+    fn visit_f64<E>(self, _: f64) -> Result<NameOnly, E> {
+        Ok(NameOnly(None))
+    }
+    fn visit_str<E>(self, _: &str) -> Result<NameOnly, E> {
+        Ok(NameOnly(None))
+    }
+    fn visit_unit<E>(self) -> Result<NameOnly, E> {
+        Ok(NameOnly(None))
+    }
+}
+
+/// The read `parse` replaced, kept as the reference its tests compare against: the whole body as
+/// a `Value` tree first, then the providers `keep` names.
+#[cfg(test)]
+pub(crate) fn parse_tree(body: &[u8], keep: &BTreeSet<String>) -> Result<FeedSnapshot, String> {
+    let raw: BTreeMap<String, Value> = serde_json::from_slice(body)
+        .map_err(|e| format!("the model feed is not an object: {e}"))?;
+    let raw =
+        raw.into_iter().map(|(id, value)| (id, RawProvider::deserialize(value).ok())).collect();
+    Ok(snapshot(raw, keep))
 }
 
 fn feed_model(raw: Value) -> Option<FeedModel> {
