@@ -86,6 +86,9 @@ public final class IPhoneHostService {
         /// DEBUG tagged dev builds only: this tag's own iPhone app pairs without the prompt
         /// (``IPhoneDevAutoApprove``); nil in Release, other builds and `--approve-first` launches.
         var devAutoApprove: IPhoneDevAutoApprove?
+        /// `mobile.autoApprovePhones` (off by default, the person's own switch): a phone signed in to
+        /// this Mac's account pairs without the prompt. Read at each request.
+        var autoApprovePhones: @MainActor () -> Bool = { false }
         /// This build's dev tag (any configuration; nil unless a tagged dev build): another tag's
         /// dev iPhone app asks quietly (``IPhoneDevAutoApprove/asksQuietly(_:macDevTag:)``).
         var macDevTag: String?
@@ -122,6 +125,7 @@ public final class IPhoneHostService {
         launch.browserHosts = dependencies.browserHosts != nil
         launch.surfaceHosts = dependencies.surfaceHosts != nil
         launch.simulatorSurfaces = dependencies.surfaceHosts?.streamsSimulators ?? false
+        launch.macDisplays = dependencies.surfaceHosts?.streamsMacDisplays ?? false
         launch.chiefSession = chief?.session
         launch.chiefSocket = chief?.socket
         launch.buildSpace = dependencies.buildSpace.space
@@ -156,7 +160,7 @@ public final class IPhoneHostService {
     private(set) var phonesError: String?
     /// The phones the signed-in user allowed on this Mac (cmux-next-ios verify/phone-approvals.md).
     /// Settings > Mobile marks them; Remove (or ``revokePhone(id:)``) forgets one.
-    internal(set) var paired: MobileHostPairedDevices?
+    internal(set) var paired: MobileHostPairedDevices? { didSet { updateKeepAwake() } }
     public let pairedStore: MobileHostPairedStore
     /// The app's one guard of the Keychain UI switch (this Mac's identity key).
     private let loginKeychain: LoginKeychain
@@ -183,13 +187,8 @@ public final class IPhoneHostService {
     @ObservationIgnored let supervisor = MobileHostSupervisor()
     /// Pairing requests waiting for the person, and the anti-flood state (Settings > Mobile lists them).
     internal(set) var prompts = MobileHostPairPrompts()
-    /// The pre-approval behind this Mac's pairing code (``pairInvite()``): a phone presenting the
-    /// live one pairs without the prompt, once.
-    @ObservationIgnored var pairTokens = MobileHostPairTokens()
     /// Pair requests that came before the paired list was in, answered once it is (``MobileHostHeldPairRequests``).
     @ObservationIgnored var heldPairRequests = MobileHostHeldPairRequests()
-    /// This Mac's identity public key, as hostd proves it to phones (nil until hostd started).
-    @ObservationIgnored private(set) var macPublicKey: Data?
     /// The open "Allow … to connect?" dialog: its dialog id and the request it shows.
     @ObservationIgnored var pairDialog: (id: Int, request: MobileHostPairRequest)?
     /// The banner and Dock bounce that tell the person about a request while cmux is not in front.
@@ -204,6 +203,7 @@ public final class IPhoneHostService {
     /// The folders acpmux gets (``followWorkspaceFolders()``).
     @ObservationIgnored private let folders = MobileHostWorkspaceFolders()
     @ObservationIgnored private var followingPicks: Task<Void, Never>?
+    @ObservationIgnored private var followingBrowserWorkspaceSource: Task<Void, Never>?
     /// This Mac's theme and wallpaper for the phones (`followAppearance(of:)`).
     @ObservationIgnored var followingAppearance: Task<Void, Never>?
     @ObservationIgnored private var pairingWatch: Task<Void, Never>?
@@ -223,6 +223,9 @@ public final class IPhoneHostService {
     @ObservationIgnored private var reconcileGeneration = 0
     /// Where this host holds off idle sleep while phones can reach it; tests record it instead.
     @ObservationIgnored var setKeepAwake: @MainActor (Bool) -> Void = { KeepAwakeService.shared.setIPhoneServing($0) }
+    /// The last start stopped without serving (blocked socket, build space, Keychain wait): no hold until the next start.
+    @ObservationIgnored var hostIdle = false
+    @ObservationIgnored var followingAutoApprove: Task<Void, Never>?
     /// The next try at this Mac's identity key after the Keychain refused the read, and how many
     /// were refused in a row (``MobileHostMacIdentityStore/loadOrCreate(fileStoreOnRefusal:)``).
     @ObservationIgnored private var identityRetry: Task<Void, Never>?
@@ -234,6 +237,15 @@ public final class IPhoneHostService {
     @ObservationIgnored private var daemonBackoff = Backoff(initial: .seconds(1), maximum: .seconds(30))
     /// The account and team those refusals were counted for: another one starts from zero.
     @ObservationIgnored private var identityRefusalsKey: String?
+    /// Device ids renewed in this launch because the service said another account owns them, by
+    /// account: a fresh UUID is never anyone's, so more than ``deviceIDRenewalLimit`` means something
+    /// else is wrong, and the host stops with that phase instead of renewing forever. Turning
+    /// connections off and on starts the count again.
+    @ObservationIgnored private var deviceIDRenewals: [String: Int] = [:]
+    static let deviceIDRenewalLimit = 2
+    /// The signed-in account's device id once read (off the main actor), so the paired list's pushes
+    /// never touch the disk on the main thread. Nil until read, and after it is forgotten.
+    @ObservationIgnored var resolvedDevice: (owner: String, id: String)?
     /// Refused reads in a row after which a DEV build uses the file store, as before (about a minute of
     /// tries): a rebuilt or re-signed DEV app may never read the item an earlier signature made. A
     /// Release build (nightly, stable) is always signed the same way, so a refusal there is a locked
@@ -287,6 +299,7 @@ public final class IPhoneHostService {
                     sessionExposureRevision &+= 1
                 }
                 if next.phase == .removed, before.phase != .removed { self.recordRemoval() }
+                if next.phase == .deviceIDTaken, before.phase != .deviceIDTaken { self.renewDeviceID() }
                 // The list follows what hostd reports: online, and each phone that comes or goes.
                 if next.phase == .online, before.phase != .online || before.phones.map(\.sessionID) != next.phones.map(\.sessionID) {
                     self.refreshPhones()
@@ -419,6 +432,34 @@ public final class IPhoneHostService {
         })
     }
 
+    /// Registers this build's daemon while its existing remote-connection setting permits it.
+    /// Projection and authorization stay in Rust; this passes only the captured app endpoint.
+    func followBrowserWorkspaceSource() {
+        followingBrowserWorkspaceSource?.cancel()
+        // task-owner: follows the host's account and existing remote-connection setting.
+        followingBrowserWorkspaceSource = Task { [weak self] in
+            for await enabled in ObservationStream({ [weak self] in
+                guard let self else { return false }
+                return allowed && account != nil
+            }) {
+                guard let self else { return }
+                guard enabled, let dependencies else {
+                    approverSync?.updateBrowserWorkspaceSource(socket: nil, host: nil)
+                    continue
+                }
+                let socket = try? await dependencies.daemonSocket()
+                guard !Task.isCancelled, allowed, account != nil else {
+                    approverSync?.updateBrowserWorkspaceSource(socket: nil, host: nil)
+                    continue
+                }
+                if approverSync == nil, let environment = dependencies.acpmuxEnvironment {
+                    approverSync = makeApproverSync(environment)
+                }
+                approverSync?.updateBrowserWorkspaceSource(socket: socket, host: dependencies.agentTabHost())
+            }
+        }
+    }
+
     /// Hands acpmux the agent and model this Mac's New Tab page picked last while iPhone
     /// connections are allowed for a signed-in account, so a phone's New Agent Chat starts
     /// where this Mac's does (the Mac keeps them locally: `newTab.lastAgent`, `newTab.lastPicks`).
@@ -457,16 +498,59 @@ public final class IPhoneHostService {
 
     /// hostd reported the removal: remember it (across relaunches) and forget the device id.
     private func recordRemoval() {
+        if let dependencies, let key = running, let owner = Self.owner(of: key),
+           let stopped = state.stoppedDevice, stopped.owner != owner {
+            // An older account's hostd, still running after a switch, was removed: that account's id
+            // goes (only that exact id), and this account's own start and keep-awake carry on.
+            let identity = MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: stopped.owner)
+            // task-owner: one file removal off the main actor
+            Task.detached(priority: .utility) { identity.forget(ifID: stopped.deviceID) }
+            return
+        }
         removed = true
         setKeepAwake(false)
-        pairTokens.revoke()
-        guard let dependencies, let key = running else { return }
+        guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
+        resolvedDevice = nil
         do {
             try MobileHostRemovalMarker(directory: dependencies.stateDirectory)
-                .record(account: key, identity: MobileHostDeviceIdentity(directory: dependencies.stateDirectory))
+                .record(account: key, identity: MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner))
         } catch {
             logger.error("could not record the removal: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// The service refused this account's device id (another account registered it, say an id an
+    /// older build kept for whoever signed in first): forget it and start hostd with a new one.
+    private func renewDeviceID() {
+        guard let dependencies, let key = running, let owner = Self.owner(of: key) else { return }
+        // An older account's hostd, still running after a switch, was refused with this account's
+        // token: that says nothing about this account's id. This account's own start follows.
+        guard let refused = state.stoppedDevice, refused.owner == owner else { return }
+        let renewals = deviceIDRenewals[owner, default: 0]
+        guard renewals < Self.deviceIDRenewalLimit else {
+            logger.error("iPhone host: the service keeps refusing this Mac's device id; stopped")
+            let supervisor = supervisor
+            // task-owner: one hop to the supervisor actor; the phase stays until the next reconcile
+            Task { await supervisor.stop(phase: .unavailable(IPhoneHostStrings.deviceIDTaken)) }
+            return
+        }
+        deviceIDRenewals[owner] = renewals + 1
+        logger.notice("iPhone host: another account owns this Mac's device id; registering a new one")
+        let identity = MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: owner)
+        // task-owner: one file removal off the main actor, then the restart for the same key
+        Task { [weak self] in
+            // Only the id that was refused: one this account made since stays.
+            _ = await Task.detached(priority: .medium) { identity.forget(ifID: refused.deviceID) }.value
+            guard let self, self.running == key else { return }
+            self.resolvedDevice = nil
+            self.running = nil
+            self.reconcile()
+        }
+    }
+
+    /// The account (Stack user id) of a running key (`<user> NUL <team>`).
+    static func owner(of key: String) -> String? {
+        key.split(separator: "\u{0}", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// The person allowed iPhone connections again after a removal (Settings > Mobile >
@@ -492,8 +576,7 @@ public final class IPhoneHostService {
         }
         // Turning the setting on again is the person allowing connections again.
         if allowed, removed { clearRemoval() }
-        // A pairing code shown before the switch went off pairs nothing afterwards.
-        if !allowed { pairTokens.revoke() }
+        if allowed { deviceIDRenewals = [:] }
         self.allowed = allowed
         // Turning connections off withdraws the waiting pairing requests and their prompt.
         if !allowed { resetPrompts() }
@@ -514,7 +597,9 @@ public final class IPhoneHostService {
         pairingWatch?.cancel()
         folders.stop()
         followingPicks?.cancel()
+        followingBrowserWorkspaceSource?.cancel()
         followingAppearance?.cancel()
+        followingAutoApprove?.cancel()
         approverSync?.stop()
         quietAttention()
         let supervisor = supervisor
@@ -573,7 +658,7 @@ public final class IPhoneHostService {
     }
 
     private func reconcile() {
-        setKeepAwake(allowed && account != nil && !removed)
+        updateKeepAwake()
         let want = allowed ? account : nil
         let key = want.map { "\($0.userID)\u{0}\($0.teamID)" }
         // A Keychain wait leaves `running` nil with a retry pending: turning connections off or
@@ -583,6 +668,8 @@ public final class IPhoneHostService {
         identityRetry?.cancel()
         identityRetry = nil
         running = key
+        hostIdle = false
+        updateKeepAwake()
         // A reconcile that changes nothing (same key) leaves the generation alone, so an in-flight
         // start for that key still releases the hold when its endpoint turns out blocked.
         reconcileGeneration += 1
@@ -607,7 +694,6 @@ public final class IPhoneHostService {
             if let key, MobileHostRemovalMarker(directory: dependencies.stateDirectory).account() == key {
                 self?.removed = true
                 self?.setKeepAwake(false)
-                self?.pairTokens.revoke()
                 await supervisor.stop(phase: .removed)
                 return
             }
@@ -626,7 +712,7 @@ public final class IPhoneHostService {
                 // Nothing to serve: the Mac may sleep (a later reconcile sets it again). Only while no
                 // newer reconcile ran: one that started meanwhile set the hold for its own start.
                 guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
-                self?.setKeepAwake(false)
+                self?.idleHost()
                 return
             } catch {
                 // cmux-tui is not connected yet (launch, a daemon restart or update). hostd needs its
@@ -643,7 +729,11 @@ public final class IPhoneHostService {
             do {
                 // A dev build with no usable tag would run hostd in nightly's space: it starts none.
                 try dependencies.buildSpace.check()
-                let deviceID = try MobileHostDeviceIdentity(directory: dependencies.stateDirectory).deviceID()
+                // This account's own id: another account signed in to this build has its own.
+                let identityFile = MobileHostDeviceIdentity(directory: dependencies.stateDirectory, owner: want.userID)
+                // task-owner: one file read (or first write) off the main actor; awaited here
+                let deviceID = try await Task.detached(priority: .medium) { try identityFile.deviceID() }.value
+                self?.resolvedDevice = (want.userID, deviceID)
                 // The key phones pin for this Mac (Keychain; created on first use), read off the
                 // main actor: a Keychain call must never hold launch (a re-signed rig app's access
                 // prompt did, and the watchdog killed it).
@@ -663,7 +753,6 @@ public final class IPhoneHostService {
                 let name = await dependencies.computerName()
                 let chief = await dependencies.chief?()
                 guard !Task.isCancelled, self?.running == key else { return }
-                self?.macPublicKey = identity.publicKey
                 let launch = Self.launch(dependencies, executable: executable, account: want, deviceID: deviceID,
                                          deviceName: name, daemonSocket: socket, chief: chief)
                 await supervisor.start(.init(
@@ -678,7 +767,7 @@ public final class IPhoneHostService {
                 logger.fault("iPhone host not started: \(reason, privacy: .public)")
                 await supervisor.stop(phase: .unavailable(reason))
                 guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
-                self?.setKeepAwake(false)
+                self?.idleHost()
             } catch MobileHostMacIdentityError.keychainRefused(let status) {
                 // The Keychain holds this Mac's identity but refused the read (locked at login or wake):
                 // try again shortly rather than prove a second key the phones would refuse. A stop() or a
@@ -690,7 +779,7 @@ public final class IPhoneHostService {
                 // this stale start neither ends its hold nor clears its key for a retry of its own.
                 guard !Task.isCancelled, self?.running == key, self?.reconcileGeneration == generation else { return }
                 // Nothing to serve while it waits: the Mac may sleep (the retry's reconcile sets it again).
-                self?.setKeepAwake(false)
+                self?.idleHost()
                 self?.running = nil
                 self?.retryIdentity(for: key)
             } catch {

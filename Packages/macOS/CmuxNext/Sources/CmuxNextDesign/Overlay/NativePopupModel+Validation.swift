@@ -36,7 +36,8 @@ extension NativePopupModel {
             guard columns.compactMap(\.width).reduce(0, +) <= width else { return false }
         } else if columnsHeight != nil { return false }
         if let searchAccessory {
-            guard search != nil, searchAccessory.kind == .submenu || searchAccessory.kind == .action else { return false }
+            // Only the columns layout draws the search row's accessory (NativePopupContent+Columns).
+            guard search != nil, columns != nil, searchAccessory.kind == .submenu || searchAccessory.kind == .action else { return false }
         }
         return Self.validate(allRows, depth: 0, identifiers: &identifiers)
     }
@@ -49,6 +50,8 @@ extension NativePopupModel {
             guard row.mark.map({ !$0.isEmpty && $0.count <= 128 }) ?? true,
                   row.monogram.map({ !$0.isEmpty && $0.count <= 8 }) ?? true,
                   row.sideLabel.map({ $0.count <= 200 && row.opensChildren }) ?? true else { return false }
+            // A loading row is one that runs work: never a section, separator or text row.
+            guard row.loading != true || !row.isNoninteractive else { return false }
             guard row.editSequence.map({ $0 >= 0 && $0 < 9_007_199_254_740_991 && row.kind == .textField }) ?? true else { return false }
             if let completion = row.completion {
                 guard row.kind == .action, completion.count <= 100_000 else { return false }

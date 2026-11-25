@@ -16,7 +16,7 @@
 //! machine never starts here. The client names only an agent kind
 //! (`harness`, resolved by acpmux from its own config), an optional model (`model`), and a folder (`cwd`,
 //! absolute; acpmux checks it), and on the caller's own Cloud VM a mode (`mode`, below). No command, env, policy, peer, preset,
-//! workspace or MCP server param exists (unknown fields are a bad request).
+//! workspace or MCP server param exists (an unknown field is dropped unread).
 //! The daemon itself names the tab's workspace to acpmux on `session/new`
 //! (`_meta.acpmux.workspaceId`, which picks the session's display), from the
 //! tab's place in this store; a tab with no workspace, or whose workspace key
@@ -374,7 +374,6 @@ impl Drop for StartSlot {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct StartParams {
     surface: SurfaceId,
     #[serde(default)]
@@ -417,7 +416,13 @@ pub(super) struct StartParams {
 }
 
 impl StartParams {
+    #[cfg(test)]
     fn valid(&self) -> bool {
+        self.invalid_field().is_none()
+    }
+
+    /// The first param out of bounds, by name (the bad request's `data.field`); none when all hold.
+    pub(super) fn invalid_field(&self) -> Option<&'static str> {
         let harness_ok = self.harness.as_deref().is_none_or(|harness| {
             (1..=64).contains(&harness.len())
                 && harness.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
@@ -439,13 +444,22 @@ impl StartParams {
         });
         let permission_mode_ok =
             self.permission_mode.as_deref().is_none_or(|mode| PERMISSION_MODES.contains(&mode));
-        let mode_ok = permission_mode_ok
-            && self.mode.as_deref().is_none_or(|mode| {
-                (1..=64).contains(&mode.len())
-                    && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
-            });
+        let mode_ok = self.mode.as_deref().is_none_or(|mode| {
+            (1..=64).contains(&mode.len())
+                && mode.bytes().all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+        });
         let credentials_ok = self.credentials.as_ref().is_none_or(StartCredentials::valid);
-        harness_ok && cwd_ok && instance_ok && model_ok && mode_ok && credentials_ok
+        [
+            ("harness", harness_ok),
+            ("cwd", cwd_ok),
+            ("person_instance", instance_ok),
+            ("model", model_ok),
+            ("permission_mode", permission_mode_ok),
+            ("mode", mode_ok),
+            ("credentials", credentials_ok),
+        ]
+        .into_iter()
+        .find_map(|(field, ok)| (!ok).then_some(field))
     }
 }
 
@@ -464,8 +478,8 @@ pub(super) fn start(
     mut params: StartParams,
     writer: &MessageWriter,
 ) -> bool {
-    if !params.valid() {
-        return refuse(writer, id, Refusal::BadRequest);
+    if let Some(field) = params.invalid_field() {
+        return super::bad_field::refuse_field(writer, id, Some(field));
     }
     if let Err(refusal) = mux.agent_host_gate(client, vm_word(&params.vm_kind)) {
         return refuse(writer, id, refusal);
@@ -496,12 +510,12 @@ pub(super) fn start(
             .map(|path| path.to_string_lossy().into_owned());
     }
     if params.cwd.is_none() {
-        return refuse(writer, id, Refusal::BadRequest);
+        return super::bad_field::refuse_field(writer, id, Some("cwd"));
     }
     // A chat never starts in `/`, above the home folder, or in the home folder
     // unless the person chose it (cx-1bhjj), as on the Mac.
     let Some(cwd) = params.cwd.as_deref() else {
-        return refuse(writer, id, Refusal::BadRequest);
+        return super::bad_field::refuse_field(writer, id, Some("cwd"));
     };
     if let Err(refusal) = super::agent_session_trust::home_rule(cwd, params.home_confirmed) {
         return refuse(writer, id, refusal);

@@ -38,6 +38,7 @@ import { useRowDisclosure } from "./transcriptDisclosureModel";
 import { toolResult } from "./toolResult";
 import { ToolOutput } from "./ToolOutputBody";
 import { ToolDetail } from "./ToolDetail";
+import { ToolWidget } from "./ToolWidget";
 import { FileResultCard } from "./FileResultCard";
 import { fileCard } from "./fileResults";
 import { inputFields, opensToFields } from "./toolInputFields";
@@ -94,11 +95,12 @@ export const ToolRow = memo(function ToolRow({
   const label = toolLabel(
     tool,
     item.text,
-    // "Running …" until it is done, "Ran …" after; its ⌃B hint is the live line's (Thinking.tsx).
-    (command) => t(foreground ? "tools.runningCommand" : "tools.ranCommand", { command }),
+    // A live command is its own shimmered line, so it needs no "Running" word (Leo, 2026-11-23:
+    // "running" doesn't need text). Finished commands keep the reader's localized "Ran" lead.
+    (command) => (running ? command : t("tools.ranCommand", { command })),
     cwd,
-    t(foreground ? "tools.runningUnnamed" : "tools.ranUnnamed"),
-    !asRun,
+    running || asRun ? undefined : t("tools.ranUnnamed"),
+    !asRun && !running,
   );
   // Failed by its status or a nonzero exit; in the background, by its status (toolFailure.ts rowFailed).
   const recovery = useMemo(() => repoRecoveryFor(tool), [tool]);
@@ -293,6 +295,8 @@ export const ToolRow = memo(function ToolRow({
       {recovery && <RepoRecoveryCard recovery={recovery} />}
       <ToolFailureCause failure={failure} />
       {shell && <RunElsewhereBelow toolCallId={tool.id} command={tool.command} />}
+      {/* An installed extension's card for this call (cmux.chat.widget/1), when the daemon routes one. */}
+      {!asRun && <ToolWidget tool={tool} />}
       {/* Its images show once the row opens, a small one at its edge until then (ToolVisualRow): a run
           of screenshots stays a list of lines (Lucas, 2026-11-11: "this really really big scroll
           because it has so many images"), as the Codex app's does. */}
@@ -305,6 +309,7 @@ export const ToolRow = memo(function ToolRow({
               id={detailsId}
               command={tool.command}
               output={failure?.output?.replace(/\n$/, "") ?? body}
+              cut={tool.earlierOutput}
               exitCode={failure?.exitCode ?? tool.exitCode}
               reveal={reveal}
               live={running}

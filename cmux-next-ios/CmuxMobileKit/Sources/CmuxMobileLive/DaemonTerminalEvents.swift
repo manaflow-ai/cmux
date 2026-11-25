@@ -26,9 +26,14 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     case sizeState(TerminalSizeState, selfParticipant: String?)
     /// Rows of the Mac's history older than the mirror's oldest row: the
     /// attach's `vt-state` left them out (`history_rows_omitted`,
-    /// `attach-replay-history-rows-v1`); 0 for a whole replay. (A `resized`
-    /// replay, always whole, says so with ``resetMirror(alternate:)``.)
+    /// `attach-replay-history-rows-v1`); 0 for a whole replay. A `resized`
+    /// replay is whole (``resetMirror(alternate:)`` says so) unless it names
+    /// the rows it left out (`attach-replay-history-window-v1`), which follow it.
     case historyRowsOmitted(Int)
+    /// History rows between the mirror's window and the Mac's screen, left
+    /// out of the attach's `vt-state` (`history_rows_skipped`,
+    /// `attach-replay-history-window-v1`); 0 when its rows reach the screen.
+    case historyRowsSkipped(Int)
     /// An `agent-cli-frame` (`agent-cli-hybrid-v1`) was drawn: its stream and frame, which a
     /// reattach names to resume from it; `resumed` when it applied on the screen the mirror
     /// already held (a resume after a drop), so the attach keeps that screen.
@@ -39,6 +44,9 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     /// frame: the session attaches again for a full resync, or in bytes mode
     /// (``DaemonTerminalSession``), so the phone never shows a wrong screen it cannot see is wrong.
     case hybridFallback(reason: String)
+    /// The Mac stamped this line's redraw (`pseq`, hostd): after its bytes, with the time the
+    /// phone read the line (epoch ms), so the screen can say when it painted it.
+    case stamped(seq: Int, receivedMs: Double)
 }
 
 /// Decodes attach-stream event lines (JSON, base64) and follows the alternate
@@ -51,6 +59,8 @@ struct DaemonTerminalEventParser: Sendable {
     private var grid: (columns: Int, rows: Int)?
     /// Whether this attach drew an `agent-cli-frame` yet: a later keyframe at another grid starts the mirror over.
     private var drewHybridFrame = false
+    /// The cursor the last drawn agent CLI frame left (column, row, visible).
+    private var drewCursor: (x: Int, y: Int, visible: Bool)?
     /// This attach's lean frames (`agent-cli-lean`): their header and style table.
     private var lean = AgentCLIHybridLeanDecoder()
     /// The stream and frame the mirror shows: the one this attach drew last, or before its
@@ -86,6 +96,7 @@ struct DaemonTerminalEventParser: Sendable {
             // A latest-screen-first replay names the older rows it left out;
             // any other replay holds the whole history.
             out.append(.historyRowsOmitted(max(0, object["history_rows_omitted"] as? Int ?? 0)))
+            out.append(.historyRowsSkipped(max(0, object["history_rows_skipped"] as? Int ?? 0)))
             // The attach's replay rebuilds the whole screen: its final
             // alternate screen state goes first, then its bytes, like a
             // `resized` replay. A reattach to a TUI that is still running
@@ -122,6 +133,10 @@ struct DaemonTerminalEventParser: Sendable {
                 .compactMap { $0.flatMap { Data(base64Encoded: $0) } }.filter { !$0.isEmpty }
             for chunk in chunks { _ = detector.scan(chunk) }
             out.append(.resetMirror(alternate: detector.isActive))
+            // The viewer's own window of the reflowed history, not all of it.
+            if let omitted = object["history_rows_omitted"] as? Int {
+                out.append(.historyRowsOmitted(max(0, omitted)))
+            }
             out.append(contentsOf: chunks.map { .output($0) })
         case "agent-cli-frame":
             // An agent CLI's screen as the cells that changed (`agent-cli-hybrid-v1`), drawn
@@ -143,6 +158,11 @@ struct DaemonTerminalEventParser: Sendable {
             }
         default:
             break
+        }
+        // A redraw hostd stamped: after what it drew, so the mark follows its bytes.
+        if let seq = (object["pseq"] as? NSNumber)?.intValue, seq > 0,
+           out.contains(where: { if case .output = $0 { true } else { false } }) {
+            out.append(.stamped(seq: seq, receivedMs: Date().timeIntervalSince1970 * 1000))
         }
         return out
     }
@@ -205,7 +225,14 @@ struct DaemonTerminalEventParser: Sendable {
             // A resumed stream applies on the mirror as it was, on the screen it showed.
             detector = AlternateScreenDetector(active: resumeAlternate)
         }
-        out.append(.output(bytes))
+        // An equal refresh (no cell, no row, the same cursor, on the screen this attach already
+        // drew) changes nothing on screen: no bytes, so the terminal view is not woken; the frame
+        // mark still follows, so a resume applies on it (Leo, 2026-11-24, ask-983c698fa4).
+        let cursor = (x: frame.cursorX, y: frame.cursorY, visible: frame.cursorVisible)
+        let unchanged = drewHybridFrame && sameGrid && frame.changesNoCell
+            && drewCursor.map { $0.x == cursor.x && $0.y == cursor.y && $0.visible == cursor.visible } == true
+        if !unchanged { out.append(.output(bytes)) }
+        drewCursor = cursor
         out.append(.hybridFrame(stream: frame.stream, frame: frame.frame, resumed: frame.base != nil && !drewHybridFrame))
         drewHybridFrame = true
     }
