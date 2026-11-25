@@ -1347,6 +1347,101 @@ mark {
   width: var(--page-size-160);
 }
 
+/* Settings > Automations: the form reads as labeled fields in rows, a condition is one line
+   (path, operator, value, remove), and the preview wraps its rendered prompt. */
+.autocloud-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+}
+
+.autocloud-heading {
+  margin-top: var(--ds-space-2);
+}
+
+.autocloud-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.autocloud-form > .autocloud-field {
+  max-width: var(--page-size-320);
+}
+
+.autocloud-form > .autocloud-field:has(textarea) {
+  max-width: none;
+}
+
+.hub-form > .autocloud-field {
+  flex: 1 1 var(--page-size-160);
+}
+
+.autocloud-condition {
+  flex-wrap: nowrap;
+}
+
+.autocloud-condition > .field:first-child {
+  flex: 2 1 0;
+}
+
+.autocloud-condition > select {
+  flex: none;
+}
+
+.autocloud-condition > .field:not(:first-child) {
+  flex: 1 1 0;
+}
+
+.autocloud-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: calc(var(--ds-control-row) * 5);
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  resize: vertical;
+  outline: none;
+}
+
+.autocloud-textarea:focus-visible {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.autocloud-check {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.autocloud-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-md);
+}
+
+.autocloud-prompt {
+  margin: 0;
+  max-height: calc(var(--ds-control-row) * 8);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: var(--text-detail);
+}
+
+.autocloud-number {
+  max-width: var(--page-size-160);
+}
+
 /* Settings > Connections (ConnectionsCard): the catalog as a grid of tiles in rank order, each with
    its title and status on one line, one line about it, and its button at the bottom. */
 .connections-grid {
@@ -2318,6 +2413,10 @@ mark {
 
 .menus-detail-header {
   display: flex;
+  /* The title and four buttons are wider than the detail column beside the menu list: the buttons
+     wrap under the title instead of running past the column (Reset to Default was cut at the
+     window's edge). */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--ds-space-2);
 }
@@ -3675,4 +3774,162 @@ button.menu-disclosure {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/* Settings > General's Customize cmux card (CustomizeProgressCard): progress, then the steps left, each
+ * with a check and an Open link to where it is done. */
+.customize-progress {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.customize-progress__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.customize-progress__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-2);
+  min-width: 0;
+}
+
+.customize-progress__head .group-title {
+  margin: 0;
+}
+
+.customize-progress__count,
+.customize-progress__detail {
+  margin: 0;
+  color: var(--muted-text);
+}
+
+.customize-progress__bar {
+  display: block;
+  width: 100%;
+  height: var(--ds-space-1);
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--grid-half-step);
+  appearance: none;
+  background: var(--input-bg);
+}
+
+.customize-progress__bar::-webkit-progress-bar {
+  background: transparent;
+}
+
+.customize-progress__bar::-webkit-progress-value {
+  border-radius: var(--grid-half-step);
+  background: var(--accent);
+  transition: width var(--cmux-motion-standard) var(--cmux-ease-out);
+}
+
+.customize-progress__steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.customize-progress__step {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  padding: var(--ds-space-1) 0;
+}
+
+.customize-progress__check {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ds-color-on-accent);
+}
+
+.customize-progress__step[data-done] .customize-progress__check {
+  border-color: var(--ds-color-accent);
+  background: var(--accent);
+}
+
+.customize-progress__check input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.customize-progress__check input:disabled {
+  cursor: default;
+}
+
+.customize-progress__check:has(input:focus-visible) {
+  outline: 2px solid var(--ds-color-accent);
+  outline-offset: 1px;
+}
+
+.customize-progress__check .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.customize-progress__words {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.customize-progress__step[data-done] .customize-progress__step-title {
+  color: var(--muted-text);
+}
+
+.customize-progress__more {
+  align-self: flex-start;
+}
+
+.customize-progress--newTab,
+.customize-progress--ring {
+  flex-direction: row;
+  align-items: center;
+}
+
+.customize-progress--newTab .customize-progress__summary,
+.customize-progress--ring .customize-progress__summary {
+  flex: 1;
+}
+
+.customize-progress--ring .customize-progress__summary {
+  flex-direction: column;
+  gap: 0;
+}
+
+.customize-progress__ring circle {
+  fill: none;
+  stroke-width: 3;
+}
+
+.customize-progress__ring-track {
+  stroke: var(--border);
+}
+
+.customize-progress__ring-fill {
+  stroke: var(--ds-color-accent);
+  stroke-linecap: round;
 }

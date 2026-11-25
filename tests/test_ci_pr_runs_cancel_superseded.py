@@ -79,13 +79,6 @@ ALLOWED = {
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
     "cmux-next-batch.yml": "debounce runs supersede themselves; the batch is never cancelled",
-    # Deploys preview, staging and production backends; deploy workflows
-    # serialise instead of cancelling. A pull request run also applies its
-    # migrations to the shared development database (migrations-development)
-    # before its preview deploy, so a workflow-level cancel could stop one
-    # mid-apply. Its test jobs (api-workerd, test) cancel per pull request at
-    # job level instead (backend_test_job_problems below).
-    "backend.yml": "deploy workflow; PR runs apply migrations to the shared development database",
     # Opt-in measurements (a marker line in the body): a new head runs beside the one running, never cancelled
     # (cloud-resume-matrix.yml's header), so an hour of samples on staging machines is not thrown away mid-cell.
     "cloud-resume-matrix.yml": "opt-in resume measurement; a new head runs beside the running one, never cancelled",
@@ -768,39 +761,6 @@ def self_check() -> list[str]:
     return failures
 
 
-# backend.yml's test jobs cancel per pull request at job level (its ALLOWED entry): two runs of one pull
-# request share each job's group, two pull requests do not, a pull request run cancels, and a push to
-# feat-cmux-next gets a group per run, so it neither cancels nor waits. migrations-development never cancels.
-BACKEND_CANCEL_JOBS = ("api-workerd", "test")
-
-
-def backend_test_job_problems(workflow: dict) -> list[str]:
-    problems: list[str] = []
-    jobs = workflow.get("jobs") or {}
-    for job_id in BACKEND_CANCEL_JOBS:
-        concurrency = (jobs.get(job_id) or {}).get("concurrency")
-        if not isinstance(concurrency, dict):
-            problems.append(f"backend.yml {job_id}: no job concurrency, so a superseded pull request run keeps it")
-            continue
-
-        def run(event: str, number: int, n: int) -> tuple[Any, Any]:
-            context = pr_context(workflow, event, number, n)
-            context["matrix"] = {"shard": 3}
-            return (resolve(concurrency.get("group"), context),
-                    resolve(concurrency.get("cancel-in-progress", False), context))
-
-        first, second, other = run("pull_request", 7, 1), run("pull_request", 7, 2), run("pull_request", 8, 1)
-        push_a, push_b = run("push", 0, 1), run("push", 0, 2)
-        if first[0] != second[0] or first[0] == other[0] or not _truthy(second[1]):
-            problems.append(f"backend.yml {job_id}: a newer push to the pull request must cancel it ({first}, {second}, {other})")
-        if push_a[0] == push_b[0] or _truthy(push_a[1]) or push_a[0] == first[0]:
-            problems.append(f"backend.yml {job_id}: a push run must get its own group and never cancel ({push_a}, {push_b})")
-    migrations = (jobs.get("migrations-development") or {}).get("concurrency") or {}
-    if migrations.get("cancel-in-progress", False) is not False:
-        problems.append("backend.yml migrations-development: must never cancel (a migration mid-apply)")
-    return problems
-
-
 def main() -> int:
     failures = self_check()
     checked = 0
@@ -824,8 +784,6 @@ def main() -> int:
             continue
         if reason:
             failures.append(f"{path.relative_to(ROOT)}: {reason}")
-    if (WORKFLOWS / "backend.yml").exists():
-        failures.extend(backend_test_job_problems(load(WORKFLOWS / "backend.yml")))
     for twin_name, target_name in sorted(CLOSED_TWINS.items()):
         if not (WORKFLOWS / twin_name).exists() or not (WORKFLOWS / target_name).exists():
             failures.append(f"CLOSED_TWINS names {twin_name} -> {target_name}, and one of them no longer exists")

@@ -472,7 +472,7 @@ class Fallback(unittest.TestCase):
 
     def test_the_labels_are_ci_yml_s(self):
         ci = (WORKFLOWS / "ci.yml").read_text()
-        self.assertIn(docs.label_guard(), ci, "ci.yml's label guard and the fallback's name the same labels")
+        self.assertIn(docs.label_guard(docs.CI_LABELS), ci, "ci.yml's label guard and the fallback's name the same labels")
 
 
 class Units(unittest.TestCase):
