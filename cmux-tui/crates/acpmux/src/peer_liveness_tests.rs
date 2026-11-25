@@ -123,6 +123,42 @@ async fn a_silent_peer_still_loses_the_link_within_8_s() {
     assert!(started.elapsed() <= Duration::from_secs(8), "{:?}", started.elapsed());
 }
 
+/// A 5G/LTE handoff: the peer's last frame came 0.5 s after the link opened, then nothing. Its
+/// link was dropped at the first ping tick past the 6 s budget, open + 8 s, 1.5 s after the
+/// budget ran out; most of a direct handoff's 8 s was this wait. It is dropped at the budget.
+#[tokio::test(start_paused = true)]
+async fn a_dead_link_drops_at_its_budget_not_the_next_ping_tick() {
+    use futures_util::SinkExt;
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let opened = tokio::time::Instant::now();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    server.send(Frame::Pong(Vec::new().into())).await.unwrap();
+    let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+        .await
+        .expect("the link ends")
+        .unwrap()
+        .expect_err("the link ends with why");
+    assert!(ended.contains("stopped answering"), "{ended}");
+    let budget = peer.timings.silence_budget();
+    let took = opened.elapsed();
+    assert!(took >= budget + Duration::from_millis(500), "dropped before its budget: {took:?}");
+    assert!(
+        took <= budget + Duration::from_millis(600),
+        "dropped {took:?} after open, past its budget"
+    );
+    drop(server);
+}
+
 /// Run 43783279032: the network went for 10 s without a reset and a request went out on the
 /// link. It is dropped within `NETWORK_PROBE` of that request, not after the silence budget.
 #[tokio::test(start_paused = true)]
@@ -557,4 +593,100 @@ async fn a_frame_write_that_moves_nothing_still_drops_the_link_at_the_send_budge
     let error = ended.expect_err("the link ends with why");
     assert!(error.contains("stopped reading"), "{error}");
     assert!(took <= Duration::from_secs(12), "{took:?}");
+}
+
+/// A silent link served under `start_paused` with a long silence budget (a peer whose budget
+/// grew), so only a wake probe can end it in time; the lid closes for an hour `before` in. Gives
+/// the time from the wake to the end and why it ended.
+async fn wake_on_a_dead_link(before: Duration, slow: bool) -> (Duration, String) {
+    use crate::store::test_clock;
+    test_clock::follow_tokio();
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+    timings.ping_misses = 60;
+    timings.handshake = Duration::from_secs(3_600);
+    if slow {
+        // A short probe once dropped a link that reopened at once: the peer proved slow.
+        peer.with_silence(|b| {
+            b.probe_dropped();
+            b.opened(tokio::time::Instant::now());
+        });
+    }
+    let (ours, _theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(before).await;
+    let woke = tokio::time::Instant::now();
+    test_clock::advance(60 * 60 * 1_000);
+    let ended = tokio::time::timeout(Duration::from_secs(100), serving).await;
+    test_clock::reset();
+    let ended = ended.expect("the link ends").unwrap().expect_err("the link ends with why");
+    (woke.elapsed(), ended)
+}
+
+/// The audit of 2026-11-19 (Leo: "i wonder if there's more places we can apply this
+/// principle"): after a wake a link had 30 s to answer, so opening the lid froze a remote chat
+/// for up to 35 s. It now gets the 2 s network probe: dropped and redialed within one clock check
+/// and `NETWORK_PROBE`, whenever in the ping cycle the lid opens.
+#[tokio::test(start_paused = true)]
+async fn a_wake_drops_a_dead_link_within_the_network_probe() {
+    let bound =
+        SleepWatch::EVERY + crate::peer::network::NETWORK_PROBE + Duration::from_millis(100);
+    let mut worst = Duration::ZERO;
+    for before in [500, 1_300, 2_100, 3_900] {
+        let (took, why) = wake_on_a_dead_link(Duration::from_millis(before), false).await;
+        assert!(why.contains("after this computer woke"), "{why}");
+        assert!(took <= bound, "woke {before} ms in: dropped {took:?} after the wake");
+        worst = worst.max(took);
+    }
+    eprintln!("wake to drop, worst of 4: {} ms", worst.as_millis());
+}
+
+/// The stop condition of the short probe: a peer that proved slow (a short probe dropped a link
+/// that reopened at once) keeps the 30 s wake probe, so a slow link is not redialed on every
+/// wake.
+#[tokio::test(start_paused = true)]
+async fn a_peer_that_proved_slow_keeps_the_long_wake_probe() {
+    let (took, why) = wake_on_a_dead_link(Duration::from_millis(500), true).await;
+    assert!(why.contains("after this computer woke"), "{why}");
+    assert!(took >= crate::peer_link::WAKE_PROBE, "{took:?}");
+}
+
+/// A link that answers the wake ping is kept: the short probe costs a live link nothing.
+#[tokio::test(start_paused = true)]
+async fn a_wake_keeps_a_link_that_answers() {
+    use crate::store::test_clock;
+    use futures_util::StreamExt;
+    test_clock::follow_tokio();
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+    Arc::get_mut(&mut peer).expect("only this test holds it").timings.handshake =
+        Duration::from_secs(3_600);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    // Reading answers each ping with a pong.
+    let answering = tokio::spawn(async move { while server.next().await.is_some() {} });
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    test_clock::advance(60 * 60 * 1_000);
+    tokio::time::sleep(Duration::from_secs(12)).await;
+    test_clock::reset();
+    assert!(!serving.is_finished(), "a link that answers the wake probe is kept");
+    serving.abort();
+    answering.abort();
+}
+
+#[test]
+fn the_wake_probe_is_the_network_probe_unless_the_peer_proved_slow() {
+    use crate::peer_link::{WAKE_PROBE, wake_probe};
+    let net = crate::peer::network::NETWORK_PROBE;
+    assert_eq!(wake_probe(true, net), Duration::from_secs(2));
+    assert_eq!(wake_probe(false, net), WAKE_PROBE);
+    assert_eq!(wake_probe(true, Duration::from_secs(90)), WAKE_PROBE, "never longer than before");
 }
