@@ -572,7 +572,7 @@ pub fn draw(f: &mut ratatui::Frame, app: &mut App) {
                 line2.push_str(&format!("  {short}"));
             }
             if !harness.is_empty() {
-                line2.push_str(&format!("  ·  {harness}"));
+                line2.push_str(&format!("  ·  {}", crate::agent_names::display_name(&harness)));
             }
             if !model.is_empty() && model != "default" {
                 line2.push_str(&format!(" · {model}"));
