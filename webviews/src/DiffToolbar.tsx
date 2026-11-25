@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useInPlaceGlassBlur } from "./ui/glass/pageGlassBlur";
 import { useScrollEdges } from "./ui/scrollEdges";
+import { usePopupSettle } from "./ui/popupSettle";
 import "./ui/popupSurface.css";
 import type { DiffItem } from "./diff-stream";
 import { diffStatParts } from "./file-tree-stats";
@@ -133,9 +134,13 @@ export function SourceMenu({
   const [open, setOpen] = useState(false);
   const [committedOpen, setCommittedOpen] = useState(false);
   const submenuEdges = useScrollEdges();
-  const submenuRef = useCallback((node: HTMLElement | null) => focusFirstMenuItem(node), []);
+  const submenuRef = usePopupSettle<HTMLElement>(focusFirstMenuItem);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const sourceMenuRef = usePopupSettle<HTMLDivElement>((node) => {
+    menuRef.current = node;
+    if (node && !node.contains(document.activeElement)) focusFirstMenuItem(node);
+  });
   const menuId = useId();
   const style = useAnchoredPopover(open, buttonRef, 230);
   const close = (refocus = true) => {
@@ -189,10 +194,7 @@ export function SourceMenu({
       {open && style
         ? createPortal(
             <div
-              ref={(node) => {
-                menuRef.current = node;
-                if (node && !node.contains(document.activeElement)) focusFirstMenuItem(node);
-              }}
+              ref={sourceMenuRef}
               id={menuId}
               className="toolbar-menu ui-popup ui-glass source-menu"
               role="menu"
@@ -348,6 +350,9 @@ export function JumpToFilePalette({
   const [highlight, setHighlight] = useState(0);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const paletteRef = useRef<HTMLDivElement | null>(null);
+  const settlePalette = usePopupSettle<HTMLDivElement>((node) => {
+    paletteRef.current = node;
+  });
   const listboxId = useId();
   const listEdges = useScrollEdges();
   const style = useAnchoredPopover(open, buttonRef, 440);
@@ -391,7 +396,7 @@ export function JumpToFilePalette({
       {open && style
         ? createPortal(
             <div
-              ref={paletteRef}
+              ref={settlePalette}
               className="toolbar-menu ui-popup ui-glass jump-palette"
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
               role="dialog"
@@ -513,10 +518,13 @@ export function FloatingToolbar({
   // Drawn in place, not portalled: it blurs the file list and diff under it itself (pageGlassBlur.ts).
   const menuRef = useRef<HTMLDivElement | null>(null);
   useInPlaceGlassBlur(menuRef, menuOpen);
-  const setMenu = useCallback((node: HTMLDivElement | null) => {
-    menuRef.current = node;
-    focusFirstMenuItem(node);
-  }, []);
+  // The menu also keeps the box it opened with (ui/popupSettle.ts), which forwards the node here.
+  const setMenu = usePopupSettle<HTMLDivElement>(
+    useCallback((node: HTMLDivElement | null) => {
+      menuRef.current = node;
+      focusFirstMenuItem(node);
+    }, []),
+  );
   const closeMenu = () => {
     onCloseMenu();
     document.getElementById("options-button")?.focus();
@@ -659,6 +667,10 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
   const [open, setOpen] = useState(false);
   const buttonRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const settleMenu = usePopupSettle<HTMLDivElement>((node) => {
+    menuRef.current = node;
+    focusFirstMenuItem(node);
+  });
   const menuId = useId();
   const style = useAnchoredPopover(open, buttonRef, 200);
   const close = (refocus = true) => {
@@ -687,10 +699,7 @@ export function FileMenuButton({ items, label }: { items: FileMenuItem[]; label:
       {open && style
         ? createPortal(
             <div
-              ref={(node) => {
-                menuRef.current = node;
-                focusFirstMenuItem(node);
-              }}
+              ref={settleMenu}
               id={menuId}
               className="toolbar-menu ui-popup ui-glass file-header-menu"
               role="menu"

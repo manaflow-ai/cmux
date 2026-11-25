@@ -630,6 +630,30 @@ python3 scripts/ci/zig_package_mirror.py check ${args[@]+"${args[@]}"} || status
 exit "$status"
 '''
 
+# Every on-disk format a cmux-tui build leaves for the next build ships its migration (Leo, 2026-11-24,
+# ask-1f9e8b7422: "we need to make sure in the future these kinds of cutovers always have proper migrations.").
+# The registry is cmux-tui/persisted-formats/formats.toml; the cmux_next_persisted_* Rust tests load its fixtures
+# through the real readers (the cmux_next_ daemon tests step). Seconds.
+[step.persisted-formats]
+job = "linux"
+timeout = 300
+title = "Persisted formats ship their migration"
+about = "every stored-format version constant in cmux-tui is registered; a migrate format keeps every old fixture byte for byte and has one for its current version; no version goes down; an unreviewed format changes only with a policy"
+inputs = [
+  "cmux-tui/**",
+  "scripts/ci/persisted_formats.py",
+  "tests/test_ci_persisted_formats.py",
+  "tests/git_fixture_env.py",
+]
+run = '''
+base="$(git rev-parse HEAD^1)"
+git cat-file -e "$base^{commit}"
+status=0
+python3 -I scripts/ci/persisted_formats.py --base "$base" || status=1
+python3 -I tests/test_ci_persisted_formats.py || status=1
+exit "$status"
+'''
+
 # ci-web.yml's web-typecheck job, which a feat-cmux-next pull request reached through ci.yml's `web` call when
 # web_subareas.py routed its `typecheck` subarea: a TS/JS/JSON file under web/, web/bun.lock, or ci-web.yml and
 # web_subareas.py themselves. The job keeps pushes, dispatch, the post-merge batch and pull requests into other
@@ -1409,6 +1433,11 @@ python3 -I scripts/ci/mac_tiers.py has fast_tier > "$CI_TOOLS/fast-tiers.txt" ||
 selected=()
 # A pure app FFI re-pin runs only the handler coverage suite (cmux_next_route.py pure_ffi_repin).
 if grep -qx 'ffi_repin=true' "$CI_TOOLS/fast-tiers.txt"; then selected=(--only "app handler coverage"); fi
+# Otherwise only the suites (and the package builds) the change reaches run; the post-merge batch runs every suite
+# (cmux-next-fast-tier-batch.yml). `vars.CI_FAST_TIER_PR_SCOPE` set to `0` runs them all here again.
+if [ ${#selected[@]} -eq 0 ] && [ "${CI_FAST_TIER_PR_SCOPE:-1}" != 0 ] && [ -n "${CI_PATHS_FILE:-}" ]; then
+  selected=(--changed-files "$CI_PATHS_FILE")
+fi
 python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind swift ${selected[@]+"${selected[@]}"} \
   --receipt "${RUNNER_TEMP:-$CI_TOOLS}/cmux-next-fast-tier.json"
 '''
