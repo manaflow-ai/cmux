@@ -43,6 +43,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The row badge draws each state apart (`sidebar.detailedStatusIcons`): working, waiting,
     /// error, done. Off (the default), it draws Working or Ready only (`WorkspaceRowBadges`).
     public var detailedStatus = false
+    /// The status mark draws in the leading icon slot, before the title (`sidebar.workspaceRow.statusPlacement`
+    /// `leading`); the row keeps that slot while idle so the title never moves. Off, it draws on the trailing column.
+    public var statusLeads = false
     /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
     public var expanded = false
     /// Expanded rows: the time since the last change, on the title's line.
@@ -95,9 +98,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
     /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
     public var now: String?
-    /// The agent chat's task progress (`SidebarWorkspace.taskProgress`) when the row draws its
-    /// count on the name's line (`trailingStatus`); its accessibility label says it in words.
-    public var tasks: SidebarTaskProgress?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
@@ -188,7 +188,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             icon: ws.icon,
             detail: Self.nonRedundantDetail(
                 (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
-                    ?? Self.summaryLine(ws) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                    ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                     ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
                 title: ws.title),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
@@ -270,14 +270,6 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     static func bar(_ ws: SidebarWorkspace) -> SidebarProgress? {
         guard let progress = ws.progress else { return nil }
         return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
-    }
-
-    /// The agent chat's rolling summary, with its next action after an arrow ("Tests pass → Open
-    /// the PR"): where the chat stands, said better than its raw last reply.
-    static func summaryLine(_ ws: SidebarWorkspace) -> String? {
-        guard let summary = nonEmpty(ws.detail.summary) else { return nil }
-        guard let next = nonEmpty(ws.detail.nextAction) else { return summary }
-        return Strings.summaryWithNext(summary, next)
     }
 
     /// The description's first non-empty line, trimmed: what a row shows of it.

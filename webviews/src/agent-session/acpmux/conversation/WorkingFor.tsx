@@ -27,8 +27,22 @@ import { formatDuration } from "./turns";
 import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { StatusVerb } from "./StatusVerb";
+import { LiveShimmer } from "./LiveShimmer";
 import { workingParts, WorkingCountsContext } from "./workingForModel";
-export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
+/// Over the work (`row.below` false), `onToggle` opens and closes the running turn's work under the
+/// key its "Worked for" takes when it ends (turns.ts `shapeLiveRows`, #50987): the label is the toggle,
+/// with the chevron "Worked for" draws, and the counts stay buttons of their own beside it.
+export function WorkingFor({
+  row,
+  now = Date.now,
+  expanded = false,
+  onToggle,
+}: {
+  row: AcpmuxRow;
+  now?: () => number;
+  expanded?: boolean;
+  onToggle?: () => void;
+}) {
   const t = useT();
   const counts = useContext(WorkingCountsContext);
   const waiting = useContext(WaitingOnContext);
@@ -53,20 +67,21 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const parts = counts ? workingParts(counts) : [];
   // A new call changes the words as Claude desktop's line does (ui/motion/useTextSwap.ts).
   const words = useTextSwap<HTMLSpanElement>(waiting ? undefined : (doing ?? ""));
-  return (
-    // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
-    // line is not painted either: the call it names is matched on its own tool row.
-    // Over the work (turns.ts `shapeLiveTurn`) it keeps the closed "Worked for" line's box, rule and
-    // room (`is-toggle`, conversation.css), so the turn's end swaps the words and nothing moves.
-    <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider is-toggle"} data-find-skip>
+  const toggles = onToggle !== undefined && !row.below;
+  const label = (
+    <>
       {!waiting && doing && row.doingCommand && !sending && (
         <span className="cv-worked__glyph" aria-hidden="true">
           <TerminalSquare />
         </span>
       )}
       {waiting ? (
-        <output className="cv-worked__label cv-waiting" data-waiting={waiting}>
-          {t(WAITING_LABEL[waiting])}
+        // The live spot's one shimmer, never plain or white words (Leo, 2026-11-22: "if it's in the
+        // thinking spot with the timer, it needs to have the glimmer and teh same looking fucking text").
+        <output className="cv-worked__label cv-waiting cv-thinking is-shimmer" data-waiting={waiting}>
+          <span className="cv-shimmer__row">
+            <LiveShimmer label={t(WAITING_LABEL[waiting])} />
+          </span>
         </output>
       ) : doing || row.thinkingNow ? (
         <>
@@ -88,6 +103,22 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
             />
           )}
         </span>
+      )}
+    </>
+  );
+  return (
+    // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
+    // line is not painted either: the call it names is matched on its own tool row.
+    // Over the work (turns.ts `shapeLiveTurn`) it keeps the closed "Worked for" line's box, rule and
+    // room (`is-toggle`, conversation.css), so the turn's end swaps the words and nothing moves.
+    <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider is-toggle"} data-find-skip>
+      {toggles ? (
+        <button type="button" className="cv-worked__toggle" aria-expanded={expanded} onClick={onToggle}>
+          {label}
+          <ChevronRight size={14} className={`cv-worked__chevron cv-rotor${expanded ? " is-open" : ""}`} />
+        </button>
+      ) : (
+        label
       )}
       {parts.map((part) => (
         <span key={part.key} className="cv-worked__count">

@@ -80,7 +80,7 @@ Sources cited:
 
 ### AcpmuxSnapshot.summary
 
-All 47 fields are home f (decision 230), all built: sessionId, cwd, turnCount, usage, contextBreakdown, usageStats, timeBreakdown, host, sessionStart, machine, peer, hostKind, additionalDirectories, branch, worktree, title, name, goal, harness, family, model, agentInfo, authSource, baseUrl, route, settingsSources, usageLimits, usageLimitsApply, confirmedModel, effort, promptCapabilities, steering, backgroundsWork, queuePaused, watching, agentSessionId, bridged, mcpServers, subsessionLimits, status, stalledSince, loopEpisode, enforcement, modes, configOptions, tools, toolsMutable, rollingSummary.
+All 46 fields are home f (decision 230), all built: sessionId, cwd, turnCount, usage, contextBreakdown, usageStats, timeBreakdown, host, sessionStart, machine, peer, hostKind, additionalDirectories, branch, worktree, title, name, goal, harness, family, model, agentInfo, authSource, baseUrl, route, settingsSources, usageLimits, usageLimitsApply, confirmedModel, effort, promptCapabilities, steering, backgroundsWork, queuePaused, watching, agentSessionId, bridged, mcpServers, subsessionLimits, status, stalledSince, loopEpisode, enforcement, modes, configOptions, tools, toolsMutable.
 
 The first table (FIELDS.md) has a reader for each. The list summary (e) also carries some of them: `chatId`, `title`, `harness`, `state`, `folder` and `origin` (list lib.rs:45-64), and `extra.{name, model, family, effort, gitBranch, watching, agentSessionId, turnCount, loopEpisode, turn.stalledSince}` (list_tee:11-55, 129).
 

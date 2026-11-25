@@ -571,9 +571,14 @@ async fn hub_carrier_a_dial_to_a_machine_whose_carrier_is_off_says_so_fast() {
     // The hub scopes the ticket to the caller's team: the words name it, not the far carrier.
     assert!(said.contains("another of your teams"), "{said}");
 
-    let plain_before = links.hub_plain_dials.load(Ordering::Relaxed);
+    // An acpmux dial asks for a kept circuit first (and goes plain only to a machine that keeps
+    // none or takes no acpmux streams): whichever it tried, the failed attempt counts.
+    let dials = || {
+        links.hub_plain_dials.load(Ordering::Relaxed) + links.hub_kept_dials.load(Ordering::Relaxed)
+    };
+    let dials_before = dials();
     assert!(dialer.dial(&unknown).await.is_err());
-    assert!(links.hub_plain_dials.load(Ordering::Relaxed) > plain_before);
+    assert!(dials() > dials_before);
 }
 
 /// The node key is WireGuard's static key and the carrier's Noise static key; the acpmux owner
@@ -1007,6 +1012,7 @@ struct PipeFixture {
     accepted: tokio::sync::mpsc::Receiver<Arc<cmux_remote::daemon::ServerConnection>>,
     daemon: SocketAddr,
     dialer: Arc<cmux_remote::provider::MachinePipeDialer>,
+    socket: std::path::PathBuf,
     gate: Arc<TestGate>,
     carrier_a: Arc<HubCarrier>,
     carrier_b: Arc<HubCarrier>,
@@ -1102,18 +1108,127 @@ async fn pipe_fixture() -> PipeFixture {
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     assert!(serves, "B never served: {last}");
-    let dialer = Arc::new(cmux_remote::provider::MachinePipeDialer::new(socket, "mac".into()));
+    let dialer =
+        Arc::new(cmux_remote::provider::MachinePipeDialer::new(socket.clone(), "mac".into()));
     PipeFixture {
         auth,
         accepted,
         daemon: daemon_address,
         dialer,
+        socket,
         gate,
         carrier_a,
         carrier_b,
         _serving: serving,
         _dirs: (state, home),
     }
+}
+
+/// The `_acpmux/remote.pipe` reply line says where the open's time went, so NOW's weft probe
+/// splits first byte by step: a dial after the kept circuit is open is one stream (`kept`), and
+/// a new circuit names its ticket, relay, join, Noise and answer steps.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_the_pipe_reply_reports_where_the_dial_went() {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let port = fixture.daemon.port();
+    let mut dials = Vec::new();
+    for _ in 0..2 {
+        let stream = tokio::net::UnixStream::connect(&fixture.socket).await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let line = json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/remote.pipe",
+                          "params": {"machine": "mac", "port": port}});
+        write.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        let mut reply = String::new();
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            tokio::io::BufReader::new(read).read_line(&mut reply),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply["result"]["via"], "hub", "{reply}");
+        dials.push(reply["result"]["dial"].clone());
+    }
+    let first = &dials[0];
+    match first["circuit"].as_str() {
+        Some("new") => {
+            for step in ["ticket", "relay", "peer_join", "noise", "answer", "total"] {
+                assert!(first["ms"][step].is_number(), "{step} missing: {first}");
+            }
+        }
+        Some("kept") => assert!(first["ms"]["stream"].is_number(), "{first}"),
+        _ => panic!("the reply names no dial: {first}"),
+    }
+    assert_eq!(dials[1]["circuit"], "kept", "the second dial rode the kept circuit: {dials:?}");
+    assert!(dials[1]["ms"]["stream"].is_number(), "{dials:?}");
+    assert_eq!(fixture.carrier_a.kept_circuits(&fixture.carrier_b.public_key()), 1);
+}
+
+/// One `_acpmux/remote.pipe` open through the fixture's socket: the reply line's `result`.
+async fn pipe_reply(fixture: &PipeFixture) -> serde_json::Value {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+    let stream = tokio::net::UnixStream::connect(&fixture.socket).await.unwrap();
+    let (read, mut write) = stream.into_split();
+    let line = json!({"jsonrpc": "2.0", "id": 1, "method": "_acpmux/remote.pipe",
+                      "params": {"machine": "mac", "port": fixture.daemon.port()}});
+    write.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+    let mut reply = String::new();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        tokio::io::BufReader::new(read).read_line(&mut reply),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let reply: serde_json::Value = serde_json::from_str(&reply).unwrap();
+    reply["result"].clone()
+}
+
+/// Weft move 2: with B listening for direct circuits and A knowing B's private address, a pipe
+/// dial skips the relay (`via: direct`) and the next one rides the kept direct circuit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_pipe_between_private_machines_goes_direct() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let direct = listener.local_addr().unwrap();
+    let _serving = fixture.carrier_b.serve_direct(listener);
+    let b = fixture.carrier_b.public_key();
+    fixture.carrier_a.set_direct_route(&b, direct);
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "direct", "{first}");
+    assert_eq!(first["dial"]["path"], "direct", "{first}");
+    let second = pipe_reply(&fixture).await;
+    assert_eq!(second["via"], "direct", "{second}");
+    assert_eq!(second["dial"]["circuit"], "kept", "{second}");
+    assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 1);
+}
+
+/// A direct address nobody listens on costs one refused connect: the dial takes the relay
+/// (`via: hub`) and holds B off the direct path, so the next dial goes straight to the relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_closed_direct_port_falls_back_to_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = closed.local_addr().unwrap();
+    drop(closed);
+    let b = fixture.carrier_b.public_key();
+    fixture.carrier_a.set_direct_route(&b, address);
+    for _ in 0..2 {
+        let reply = pipe_reply(&fixture).await;
+        assert_eq!(reply["via"], "hub", "{reply}");
+        assert_eq!(reply["dial"]["path"], "hub", "{reply}");
+    }
+    assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 0);
 }
 
 /// One remote-protocol connection to B's daemon through the pipe: with `invitation`, a new
@@ -2335,9 +2450,9 @@ struct MoveRun {
 }
 
 async fn move_over_relay(precopy: bool) -> MoveRun {
-    use acpmux::mesh::{ControlHook as _, InMessage};
+    use acpmux::mesh::InMessage;
     use acpmux::mesh_http::MeshControlFrom;
-    use acpmux::server::mesh_relay::MeshControlHook;
+    use acpmux::server::mesh_relay::{ControlHook as _, MeshControlHook};
     use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
 
     let _ = HERMETIC;
@@ -2404,8 +2519,10 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
     let hook = MeshControlHook::new(
         vec![MeshControlFrom {
             daemon_id: String::new(),
+            max_policy: None,
             same_user: true,
             ops: vec!["move".into()],
+            max_policy: None,
         }],
         Some(ledger.path().join("mesh-controls.json")),
     )
@@ -2500,7 +2617,6 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
     // Every page crossed the relay: what it carried is at least the bundle.
     assert!(carried >= bundle, "the relay carried {carried} B of a {bundle} B bundle");
     let moved_timings = moved["timings"].clone();
-
     let commit_started = tokio::time::Instant::now();
     let to = json!({"host": "machine-b", "via": "hub", "sessionId": id, "cwd": moved["cwd"]});
     let committed = ca
@@ -2705,6 +2821,10 @@ async fn standin_sshd() -> SocketAddr {
 
 struct KeptFixture {
     a: Arc<HubCarrier>,
+    /// A's node key and relay route, for an A started again with the same key (a restart).
+    a_key: [u8; 32],
+    a_route: String,
+    timings: Timings,
     b: Arc<HubCarrier>,
     b_key: String,
     sshd_port: u16,
@@ -2729,6 +2849,19 @@ impl KeptFixture {
         within("the banner", stream.read_exact(&mut banner)).await.unwrap();
         assert_eq!(banner, BANNER);
         stream
+    }
+
+    /// A new carrier on A's key and route: A's acpmux after a restart.
+    fn restarted_a(&self) -> Arc<HubCarrier> {
+        HubCarrier::new(
+            Arc::new(FixedTickets {
+                relay: self.a_route.clone(),
+                peers: vec![self.b_key.clone()],
+                asked: AtomicU64::new(0),
+            }),
+            self.a_key,
+            self.timings,
+        )
     }
 
     fn kept_circuits(&self) -> u64 {
@@ -2795,11 +2928,19 @@ async fn kept_fixture_with(
     b.set_cmux_tui_gate(gate.clone());
     let acpmux_b = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let acpmux_b_address = acpmux_b.local_addr().unwrap();
-    tokio::spawn(async move { while acpmux_b.accept().await.is_ok() {} });
+    // B's acpmux listener echoes, so a test can carry bytes over an acpmux link.
+    tokio::spawn(async move {
+        while let Ok((socket, _)) = acpmux_b.accept().await {
+            tokio::spawn(async move {
+                let (mut read, mut write) = socket.into_split();
+                let _ = tokio::io::copy(&mut read, &mut write).await;
+            });
+        }
+    });
     let serving = b.serve(acpmux_b_address);
     let a = HubCarrier::new(
         Arc::new(FixedTickets {
-            relay: route,
+            relay: route.clone(),
             peers: vec![public(&key_b)],
             asked: AtomicU64::new(0),
         }),
@@ -2808,6 +2949,9 @@ async fn kept_fixture_with(
     );
     let fixture = KeptFixture {
         a,
+        a_key: key_a,
+        a_route: route,
+        timings: fast,
         b,
         b_key: public(&key_b),
         sshd_port: sshd.port(),
@@ -2948,6 +3092,67 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     assert_eq!(fixture.kept_circuits(), 1, "every dial rode the one circuit");
     assert_eq!(fixture.plain_dials(), 0);
     assert_eq!(fixture.kept_opens() - opens, 4);
+}
+
+/// One circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials) ride
+/// the kept circuit as streams beside the cmux-tui ones, and no plain circuit opens.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_acpmux_links_ride_the_kept_circuit_as_streams() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    let mut probe = within("the hub probe", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"link\n").await;
+    echo(&mut probe, b"probe\n").await;
+    let _tui = fixture.dial_to_banner().await;
+    assert_eq!(fixture.kept_circuits(), 1, "the links rode the one cheap circuit");
+    assert_eq!(fixture.plain_dials(), 0, "no plain circuit beside it");
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 1);
+    assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(3));
+}
+
+/// A new dialer and an old machine: B refuses acpmux streams `service.unknown` as a daemon from
+/// before them does, so A's acpmux dial goes plain (and keeps going plain without asking again),
+/// while its cmux-tui dials still ride the kept circuit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_an_acpmux_dial_to_an_old_machine_goes_plain() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    fixture.b.acpmux_streams(false);
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"old b\n").await;
+    assert_eq!(fixture.plain_dials(), 1);
+    let opens = fixture.kept_opens();
+    let mut again = within("a redial", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut again, b"again\n").await;
+    assert_eq!(fixture.plain_dials(), 2);
+    assert_eq!(fixture.kept_opens(), opens, "an old machine is not asked again");
+    let _tui = fixture.dial_to_banner().await;
+    assert_eq!(fixture.plain_dials(), 2, "cmux-tui still rides the kept circuit");
+}
+
+/// A new dialer and a machine that keeps no circuits at all: the acpmux dial goes plain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_an_acpmux_dial_to_a_machine_with_no_kept_circuits_goes_plain() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, false, true).await;
+    let plain = fixture.plain_dials();
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"no kept\n").await;
+    assert_eq!(fixture.plain_dials(), plain + 1);
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 0);
+}
+
+/// An old dialer and a new machine: A dials acpmux plain with no hello, as before acpmux
+/// streams, and B's listener still answers it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_an_old_dialer_still_reaches_a_new_machines_acpmux() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    fixture.a.acpmux_streams(false);
+    let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
+    echo(&mut link, b"old a\n").await;
+    assert_eq!(fixture.plain_dials(), 1);
 }
 
 /// Twenty dials at once to a machine with no kept circuit open one circuit between them, not
@@ -3102,3 +3307,85 @@ async fn hub_carrier_kept_circuit_numbers() {
         ms(percentile(&mut warm_each, 0.95)),
     );
 }
+
+/// The lane-gh broker as a carrier service (RFD 0127 cut 2): B's gate names its broker socket
+/// for A's proven key only, so a broker stream from A reaches that socket on B's kept circuit.
+/// B with no gate (no `laneGhBroker`) refuses `service.off`, and a stranger's key is refused.
+struct TestBrokerGate {
+    admits: String,
+    socket: std::path::PathBuf,
+}
+
+#[async_trait::async_trait]
+impl acpmux::hub_carrier::broker::LaneGhBrokerGate for TestBrokerGate {
+    async fn admit(
+        &self,
+        from: &str,
+    ) -> Result<std::path::PathBuf, acpmux::hub_carrier::ServiceRefusal> {
+        if from != self.admits {
+            return Err(acpmux::hub_carrier::ServiceRefusal::new(
+                "service.unknown_machine",
+                "not this test's machine",
+            ));
+        }
+        Ok(self.socket.clone())
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_lane_gh_broker_stream_reaches_the_owners_broker_socket() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let broker = CircuitService::LaneGhBroker;
+    assert_eq!(CircuitLane::of(broker), CircuitLane::Cheap);
+    let refused = within("an ungated dial", fixture.a.dial_service(&fixture.b_key, broker))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("service.off"), "{refused}");
+
+    // B's broker: a line in, `broker:` and the line back, as a stand-in for lane-gh-broker.
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("client-a.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    tokio::spawn(async move {
+        while let Ok((conn, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (read, mut write) = conn.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if write.write_all(format!("broker:{line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: fixture.a.public_key(),
+        socket: socket.clone(),
+    }));
+    let mut stream =
+        within("a broker dial", fixture.a.dial_service(&fixture.b_key, broker)).await.unwrap();
+    stream.write_all(b"{\"tool\":\"get\"}\n").await.unwrap();
+    let mut back = vec![0u8; "broker:{\"tool\":\"get\"}\n".len()];
+    within("the broker's answer", stream.read_exact(&mut back)).await.unwrap();
+    assert_eq!(back, b"broker:{\"tool\":\"get\"}\n");
+    assert_eq!(fixture.plain_dials(), 0, "the broker stream rode the kept circuit");
+
+    // A gate that admits another key refuses A.
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: "someone else".to_owned(),
+        socket,
+    }));
+    let refused = within("a stranger's dial", fixture.a.dial_service(&fixture.b_key, broker))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("service.unknown_machine"), "{refused}");
+}
+
+#[path = "hub_carrier_cases/held_ssh.rs"]
+mod held_ssh;
+
+#[path = "hub_carrier/move_out.rs"]
+mod move_out;

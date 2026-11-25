@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cloudAgentLogin, localAgentLogin, localApiKeyLogin } from "./cloudAgentLogin";
+import { cloudAgentLogin, localAgentLogin, localApiKeyLogin, signsInRemotely, terminalSignIn } from "./cloudAgentLogin";
 
 type Call = [string, ...unknown[]];
 
@@ -133,4 +133,53 @@ test("a chat on this Mac gets the in-place card for its built-in agent; a route 
   for (const route of ["claude-sr", "claude-cr"]) expect(localAgentLogin(options({}, route).login)).toBeUndefined();
   expect(localAgentLogin(options({ elsewhere: true }, "claude").login)).toBeUndefined();
   expect(localAgentLogin(options({ machineID: "m-1" }, "claude").login)).toBeUndefined();
+});
+
+// Sign in again (the agent's own login in a terminal on the chat's machine) stays where it was (a
+// chat off Cloud) and now also reaches an older Cloud machine, whose acpmux signs nothing in from the
+// card. A current machine keeps its card, and a team machine takes no personal login.
+test("Sign in again runs the agent's login in a terminal on an older Cloud machine, not a current or team one", () => {
+  const base = {
+    connected: true,
+    loginCommand: "claude /login",
+    card: undefined,
+    onCloud: true,
+    machineSignsIn: false,
+    teamMachine: false,
+  };
+  expect(terminalSignIn(base)).toEqual({ runs: true, onCloud: true });
+  expect(terminalSignIn({ ...base, machineSignsIn: true })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, teamMachine: true })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, loginCommand: undefined })).toEqual({ runs: false, onCloud: false });
+  expect(terminalSignIn({ ...base, connected: false })).toEqual({ runs: false, onCloud: false });
+  // Off Cloud: as before, whatever the machine signs in.
+  expect(terminalSignIn({ ...base, onCloud: false })).toEqual({ runs: true, onCloud: false });
+  expect(terminalSignIn({ ...base, onCloud: false, machineSignsIn: true })).toEqual({ runs: true, onCloud: false });
+});
+
+// Codex's `codex login` waits for its browser's redirect to localhost:1455 on the machine, which the
+// Mac's browser cannot reach: an older Cloud machine's Codex chat keeps the card as before (Switch
+// model), while Claude Code's pasted-code login and any device-code login are offered. Off Cloud,
+// every login is offered as before.
+test("an older Cloud machine offers Sign in again only for a login that finishes from the Mac's browser", () => {
+  const older = { connected: true, card: undefined, onCloud: true, machineSignsIn: false, teamMachine: false };
+  for (const command of ["claude /login", "claude auth login", "CLAUDE_CONFIG_DIR=~/.claude-work claude /login"]) {
+    expect(signsInRemotely(command), command).toBe(true);
+    expect(terminalSignIn({ ...older, loginCommand: command }), command).toEqual({ runs: true, onCloud: true });
+  }
+  expect(signsInRemotely("codex login --device-auth")).toBe(true);
+  for (const command of [
+    "codex login",
+    "CODEX_HOME=/home/me/.codex-work codex login",
+    "opencode auth login",
+    "gemini",
+    "",
+  ]) {
+    expect(signsInRemotely(command), command).toBe(false);
+    expect(terminalSignIn({ ...older, loginCommand: command }), command).toEqual({ runs: false, onCloud: false });
+    expect(terminalSignIn({ ...older, onCloud: false, loginCommand: command }), command).toEqual({
+      runs: true,
+      onCloud: false,
+    });
+  }
 });

@@ -28,9 +28,9 @@ struct BoundActionCatalogTests {
         // (cmux-action-catalog sidebar_priority.rs) and binds it in the same pull request: until the
         // re-pin carries it, Restore on an archived row does nothing.
         "sidebar.priority.restore",
-        // Adjust Background…, Fill and Fit (PR #49748, step B) bind before their step A catalog rows
-        // (cmux-action-catalog backdrop.rs) re-pin: until then they do nothing.
-        "appearance.adjustBackground", "appearance.background.fill", "appearance.background.fit",
+        // Set My Picture…, Make This Agent a Chief and Show Last Line in Sidebar (step B) bind before
+        // the re-pin carries their step A rows (#50757): until then they do nothing.
+        "home.setMyAvatar", "agentPane.adoptAsChief", "terminal.pinTail",
     ]
 
     @Test func everyBoundActionIsInTheCatalog() {
