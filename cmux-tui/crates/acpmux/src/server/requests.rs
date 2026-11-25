@@ -2480,10 +2480,11 @@ async fn dispatch_request_with_identity(
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             let supersede_set = supersede.is_some();
-            let inbox_on = match tokio::time::timeout_at(admission.answer_due(), hub.config.read()).await {
-                Ok(config) => config.agent_inbox(),
-                Err(_) => false,
-            };
+            let inbox_on =
+                match tokio::time::timeout_at(admission.answer_due(), hub.config.read()).await {
+                    Ok(config) => config.agent_inbox(),
+                    Err(_) => false,
+                };
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
             // to `prompt_with`, which answers with its first run even once its uploads are gone
@@ -2516,10 +2517,11 @@ async fn dispatch_request_with_identity(
                 let received = tokio::task::spawn_blocking(move || {
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
                 });
-                (blocks, saved) = match tokio::time::timeout_at(admission.answer_due(), received).await {
-                    Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
-                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
-                };
+                (blocks, saved) =
+                    match tokio::time::timeout_at(admission.answer_due(), received).await {
+                        Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                        Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
+                    };
             }
             // From here the prompt's own uploads go only if the session refuses it.
             let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
