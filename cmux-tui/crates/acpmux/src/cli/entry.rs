@@ -719,6 +719,17 @@ fn command_index(argv: &[OsString]) -> usize {
         .unwrap_or(argv.len())
 }
 
+/// The daemon's subscriber, plus a Chrome trace (Perfetto) file when `CMUX_TRACE_FILE` is set
+/// (`perf_trace.rs`).
+fn init_logs<S>(logs: S)
+where
+    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
+{
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
+    logs.with(crate::perf_trace::from_env()).init();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -883,15 +894,4 @@ mod tests {
             assert!(default.metrics().num_workers() > MCP_WORKERS);
         }
     }
-}
-
-/// The daemon's subscriber, plus a Chrome trace (Perfetto) file when `CMUX_TRACE_FILE` is set
-/// (`perf_trace.rs`).
-fn init_logs<S>(logs: S)
-where
-    S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
-{
-    use tracing_subscriber::layer::SubscriberExt as _;
-    use tracing_subscriber::util::SubscriberInitExt as _;
-    logs.with(crate::perf_trace::from_env()).init();
 }

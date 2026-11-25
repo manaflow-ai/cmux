@@ -238,6 +238,49 @@ pub struct Gateway {
     /// Every task of the gateway and its servers' readers.
     scope: Arc<cmux_scope::Scope>,
     chats: Mutex<HashMap<String, Arc<Chat>>>,
+    /// Looks for idle servers made ([`reap`]); tests read it.
+    reap_passes: AtomicUsize,
+    /// A chat had a request: [`reap`] looks again while it may hold a server.
+    used: Arc<tokio::sync::Notify>,
+    /// Every chat's start answers by launch shape ([`Shared`]).
+    shared: Arc<Shared>,
+}
+
+/// The start answers ([`Answers`]) of every chat, by launch shape: the launch with the chat's own
+/// session id taken out ([`Chat::shape`]). Each new chat's harness asks `initialize` and
+/// `tools/list` first, which started that chat's `cmux mcp serve` although most chats never call
+/// a cmux tool in their first minutes, and many never do. Another chat of the same shape that was
+/// answered within [`SHARED_FOR`] answers it instead, with no process; a call starts the
+/// server as before. Kept in memory only: a new daemon's first chat of a shape asks its server.
+#[derive(Default)]
+struct Shared {
+    by_shape: Mutex<HashMap<String, (Instant, Answers)>>,
+}
+
+/// How long another chat's answers stand for a new chat's ([`Shared`]): a list can change
+/// without a new launch or binary (a connection the person added that the server reads at its
+/// start), and the next server start after this long reads it afresh. The idle window, so a
+/// burst of new chats shares one start.
+const SHARED_FOR: Duration = IDLE_STOP;
+
+/// The stand-in for a chat's own session id in a launch shape and a shared answer.
+const SESSION_MARK: &str = "\u{1}session\u{1}";
+
+/// The stand-in for a chat's own session token in a launch shape (never in an answer).
+const TOKEN_MARK: &str = "\u{1}token\u{1}";
+
+/// `value` with every `from` in its strings replaced by `to`.
+fn swap_strings(value: &Value, from: &str, to: &str) -> Value {
+    match value {
+        Value::String(s) if s.contains(from) => Value::String(s.replace(from, to)),
+        Value::Array(items) => {
+            Value::Array(items.iter().map(|v| swap_strings(v, from, to)).collect())
+        }
+        Value::Object(fields) => Value::Object(
+            fields.iter().map(|(k, v)| (k.clone(), swap_strings(v, from, to))).collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 struct Chat {
@@ -252,7 +295,14 @@ struct Chat {
     /// Its tool servers, made by their first request for the launch they were made from.
     tools: Mutex<Option<(Launch, Arc<Vec<crate::tools_mcp::Served>>)>>,
     last: Mutex<Instant>,
+    /// The [`Chat::last`] request whose server and tool servers [`reap`] let go: equal to `last`,
+    /// the chat holds nothing and [`reap`] need not look at it.
+    reaped: Mutex<Instant>,
+    /// The gateway's [`Gateway::used`].
+    used: Arc<tokio::sync::Notify>,
     inflight: AtomicUsize,
+    /// The gateway's start answers by launch shape.
+    shared: Arc<Shared>,
 }
 
 /// One running `cmux mcp serve`.
@@ -339,6 +389,8 @@ pub fn hibernated(session: &str) {
 /// The chat ended: its server stops and its launch file goes.
 pub fn forget(home: &Path, session: &str) {
     let _ = crate::home_fs::remove_file(launch_path(home, session));
+    // Its Computer Use session ends on the worker, as the stdio bridge's ended with its pipe.
+    crate::computer_use::served::end(session);
     if let Some(gateway) = current() {
         let chat = gateway.chats.lock().unwrap_or_else(PoisonError::into_inner).remove(session);
         if let (Some(chat), Ok(_)) = (chat, tokio::runtime::Handle::try_current()) {
@@ -450,6 +502,9 @@ pub async fn bind_at(
         idle,
         scope: Arc::new(cmux_scope::Scope::new("mcp gateway")),
         chats: Mutex::new(HashMap::new()),
+        reap_passes: AtomicUsize::new(0),
+        used: Arc::new(tokio::sync::Notify::new()),
+        shared: Arc::default(),
     });
     for listener in listeners {
         gateway.scope.spawn_named("mcp gateway listener", serve(gateway.clone(), listener));
@@ -690,6 +745,8 @@ impl Gateway {
             crate::acpmux_mcp_names::SESSION_ENV,
             crate::secret_mcp::SESSION_ENV,
             crate::offer_mcp::SESSION_ENV,
+            crate::computer_use::mcp::SESSION_ENV,
+            crate::cloud_repo_mcp::SESSION_ENV,
         ] {
             if let Some(value) = env.get_mut(key) {
                 *value = session.to_owned();
@@ -792,6 +849,7 @@ impl Gateway {
 
 impl Chat {
     fn new(id: &str, file: PathBuf, kept: Kept, gateway: &Gateway) -> Self {
+        let now = Instant::now();
         Chat {
             id: id.to_owned(),
             file,
@@ -800,9 +858,52 @@ impl Chat {
             server: tokio::sync::Mutex::new(None),
             tools_daemon: Arc::new(crate::tools_mcp::Daemon::at(gateway.socket.clone())),
             tools: Mutex::new(None),
-            last: Mutex::new(Instant::now()),
+            // Made holding nothing: nothing to let go until its first request.
+            last: Mutex::new(now),
+            reaped: Mutex::new(now),
+            used: gateway.used.clone(),
             inflight: AtomicUsize::new(0),
+            shared: gateway.shared.clone(),
         }
+    }
+
+    /// Its launch with its session id taken out, and the binary's [`stamp`]: chats of one shape
+    /// start the same server but for the session ([`Shared`]).
+    fn shape(&self, launch: &Launch) -> String {
+        let mut text = serde_json::to_string(launch).unwrap_or_default();
+        // Each chat's own secret: equal launches differ only by it and by the session id.
+        let token = launch.env.iter().find(|(k, _)| k == "ACPMUX_SESSION_TOKEN").map(|(_, v)| v);
+        if let Some(token) = token.filter(|t| !t.is_empty()) {
+            text = text.replace(token.as_str(), TOKEN_MARK);
+        }
+        let shape = if self.id.is_empty() { text } else { text.replace(&self.id, SESSION_MARK) };
+        format!("{}\n{shape}", stamp(launch))
+    }
+
+    /// Another chat's answer for `method` asked with `params` ([`Shared`]), for this chat.
+    fn shared_answer(&self, launch: &Launch, method: &str, params: &Value) -> Option<Value> {
+        let shape = self.shape(launch);
+        let asked = swap_strings(params, &self.id, SESSION_MARK);
+        let by_shape = self.shared.by_shape.lock().unwrap_or_else(PoisonError::into_inner);
+        let (_, answers) = by_shape.get(&shape).filter(|(at, _)| at.elapsed() < SHARED_FOR)?;
+        let slot = if method == "initialize" { &answers.initialize } else { &answers.list };
+        let (_, result) = slot.as_ref().filter(|(p, _)| *p == asked)?;
+        Some(swap_strings(result, SESSION_MARK, &self.id))
+    }
+
+    /// Keeps this chat's server's `result` for every new chat of its shape ([`Shared`]).
+    fn share_answer(&self, launch: &Launch, method: &str, params: &Value, result: &Value) {
+        let shape = self.shape(launch);
+        let asked = swap_strings(params, &self.id, SESSION_MARK);
+        let result = swap_strings(result, &self.id, SESSION_MARK);
+        let mut by_shape = self.shared.by_shape.lock().unwrap_or_else(PoisonError::into_inner);
+        by_shape.retain(|_, (at, _)| at.elapsed() < SHARED_FOR);
+        let (at, answers) = by_shape.entry(shape).or_insert_with(|| {
+            (Instant::now(), Answers { stamp: stamp(launch), ..Answers::default() })
+        });
+        *at = Instant::now();
+        let slot = if method == "initialize" { &mut answers.initialize } else { &mut answers.list };
+        *slot = Some((asked, result));
     }
 
     /// Its tool servers for the env `env` ([`Gateway::tools_env`]) of `launch`: the ones made
@@ -837,6 +938,18 @@ impl Chat {
         slot.as_ref().filter(|(asked, _)| asked == params).map(|(_, result)| result.clone())
     }
 
+    /// [`Chat::kept_answer`], else another chat's of the same shape ([`Shared`]), which is then
+    /// this chat's own kept answer too (its wakes get the same list).
+    fn start_answer(&self, method: &str, params: &Value) -> Option<Value> {
+        if let Some(own) = self.kept_answer(method, params) {
+            return Some(own);
+        }
+        let launch = self.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
+        let result = self.shared_answer(&launch, method, params)?;
+        self.keep_answer(method, params.clone(), result.clone());
+        Some(result)
+    }
+
     /// Keeps the server's `result` for `method` asked with `params`, in memory and in the chat's
     /// launch file (so the next daemon has it too).
     fn keep_answer(&self, method: &str, params: Value, result: Value) {
@@ -863,10 +976,17 @@ impl Chat {
 
     fn touch(&self) {
         *self.last.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
+        // A permit when the look is not waiting: it looks once more, then sleeps again.
+        self.used.notify_one();
     }
 
-    fn idle_for(&self) -> Duration {
-        self.last.lock().unwrap_or_else(PoisonError::into_inner).elapsed()
+    fn last(&self) -> Instant {
+        *self.last.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Whether a request came since [`reap`] last let this chat's servers go.
+    fn may_hold(&self) -> bool {
+        self.last() != *self.reaped.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// The running server, or a new one. A server started for anything but `initialize` gets the
@@ -1047,10 +1167,13 @@ async fn serve(gateway: Arc<Gateway>, listener: TcpListener) {
     }
 }
 
-/// Stops each chat's server that had no request in flight for the gateway's idle window.
+/// Stops each chat's server that had no request in flight for the gateway's idle window, looking
+/// every `every` while a chat used since its last stop may hold a server or tool servers. With
+/// none it sleeps until a request ([`Chat::touch`]): an idle daemon with chats that all stopped
+/// wakes for nothing (it looked every 30 s, the last periodic wake of an idle daemon but the lag
+/// canary's).
 async fn reap(gateway: Arc<Gateway>, every: Duration) {
     loop {
-        tokio::time::sleep(every).await;
         let chats: Vec<_> = gateway
             .chats
             .lock()
@@ -1058,17 +1181,28 @@ async fn reap(gateway: Arc<Gateway>, every: Duration) {
             .values()
             .cloned()
             .collect();
+        if !chats.iter().any(|chat| chat.may_hold()) {
+            // A request after the list was read left a permit: no request is missed.
+            gateway.used.notified().await;
+            continue;
+        }
+        tokio::time::sleep(every).await;
+        gateway.reap_passes.fetch_add(1, Ordering::Relaxed);
         for chat in chats {
-            if chat.inflight.load(Ordering::SeqCst) == 0 && chat.idle_for() >= gateway.idle {
+            let last = chat.last();
+            if chat.inflight.load(Ordering::SeqCst) == 0 && last.elapsed() >= gateway.idle {
                 chat.release_tools();
                 let server = match chat.server.try_lock() {
                     Ok(mut slot) => slot.take(),
-                    Err(_) => None,
+                    // A request holds the slot: looked at again next time.
+                    Err(_) => continue,
                 };
                 if let Some(server) = server {
                     tracing::debug!(session = %chat.id, "mcp gateway: idle server stops");
                     server.stop().await;
                 }
+                // A request since `last` keeps the chat looked at.
+                *chat.reaped.lock().unwrap_or_else(PoisonError::into_inner) = last;
             }
         }
     }
@@ -1238,10 +1372,8 @@ async fn tool_answer(
         for_server(&mut message, name);
     }
     chat.touch();
-    if message.get("id").is_none() {
-        // `initialized` and the like: the servers here keep no state for them.
-        return None;
-    }
+    // `initialized` and the like carry no id: the servers here keep no state for them.
+    message.get("id")?;
     let launch = chat.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
     let env = gateway.tools_env(&chat.id, &launch);
     let servers = chat.tools(&launch, &env);
@@ -1262,7 +1394,7 @@ async fn tool_answer(
 /// `message` for server `name` of a chat's tool servers: its params' `_meta` names it
 /// ([`crate::tools_mcp::SERVER_META`]) as the `cmux` server's request would, whatever the
 /// harness put there.
-fn for_server(message: &mut Value, name: &str) {
+pub(crate) fn for_server(message: &mut Value, name: &str) {
     let Some(fields) = message.as_object_mut() else { return };
     let params = fields.entry("params").or_insert_with(|| json!({}));
     if !params.is_object() {
@@ -1344,7 +1476,7 @@ async fn relay_answer(chat: &Arc<Chat>, message: Value, sse: Option<&mut TcpStre
     let params = message.get("params").cloned().unwrap_or(Value::Null);
     if method == "ping" || answered_from_kept(&method) {
         let kept =
-            if method == "ping" { Some(json!({})) } else { chat.kept_answer(&method, &params) };
+            if method == "ping" { Some(json!({})) } else { chat.start_answer(&method, &params) };
         if let Some(result) = kept {
             return Reply::Json(json!({"jsonrpc": "2.0", "id": id, "result": result}));
         }
@@ -1359,6 +1491,9 @@ async fn relay_answer(chat: &Arc<Chat>, message: Value, sse: Option<&mut TcpStre
         (answered_from_kept(&method), answer.as_ref().map(|a| a.get("result")))
         && let Some(result) = result
     {
+        // Only a server's own answer is shared, so the window counts from a real start.
+        let launch = chat.kept.lock().unwrap_or_else(PoisonError::into_inner).launch.clone();
+        chat.share_answer(&launch, &method, &params, result);
         chat.keep_answer(&method, params, result.clone());
     }
     let answer = answer.unwrap_or_else(|e| {
