@@ -82,11 +82,11 @@ DEEPEN_STEPS = (32, 200, 1000, 5000)
 # the tip spent 835 s in one --deepen=1000 with blob:none (every commit's trees came along) and the job then sat to
 # its cancel (8 such jobs at 25 min, 74% of the Merge step's 7,237 runner minutes a day; run 45236775245).
 DEEPEN_FILTER = "--filter=tree:0"
-# git 2.55/2.56's pack-objects aborts on a filtered deepen into a shallow checkout that is not a partial clone ("BUG:
-# builtin/pack-objects.c: should_include_obj should only be called on existing objects"; app FFI release run
-# 43863985334). A same-repo PR's checkout takes no blob filter (it reads the runner git mirror, note-559), so it is not
-# a partial clone: that deepen retries once with no filter (cmux#55022, fast gates run 45539318367).
-DEEPEN_FILTER_BUG = "should_include_obj"
+# GitHub's pack-objects can abort a tree:0 deepen ("BUG: builtin/pack-objects.c: should_include_obj should only be
+# called on existing objects", signal 6): on 2026-11-25 it failed #52583's fast gates on two runs in a row (jobs
+# 138890366419, 138894346038). The same deepen with blob:none brings more trees but gets through, so it is the
+# fallback for that one failure.
+DEEPEN_FALLBACK_FILTER = "--filter=blob:none"
 
 
 def log(message: str) -> None:
@@ -223,17 +223,15 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
     return not cuts.intersection(git(repo, "rev-list", head, base, *behind).stdout.split())
 
 
-def deepen_fetch(repo: Path, remote: str, depth_flag: str, wants: list[str]) -> None:
-    """One deepen fetch, commits only; on git's filtered-deepen BUG, the same fetch with no filter."""
-    args = ["fetch", "--no-tags", "--quiet", depth_flag, remote, *wants]
-    result = git(repo, args[0], args[1], args[2], DEEPEN_FILTER, *args[3:], check=False)
+def deepen_fetch(repo: Path, remote: str, how: str, wants: list[str]) -> None:
+    """One deepen fetch, commits only; when the server's pack-objects aborts on it, the same fetch with blob:none."""
+    result = git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, how, remote, *wants, check=False)
     if result.returncode == 0:
         return
-    if DEEPEN_FILTER_BUG not in result.stderr:
-        raise SystemExit(f"fast-gates: git {' '.join(args[:3] + [DEEPEN_FILTER] + args[3:])} failed: "
-                         f"{result.stderr.strip()}")
-    log(f"fast-gates: filtered deepen hit git's pack-objects BUG; fetching {depth_flag} with no filter")
-    git(repo, *args)
+    if "pack-objects" not in result.stderr:
+        raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} failed: {result.stderr.strip()}")
+    log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in the server's pack-objects; again with {DEEPEN_FALLBACK_FILTER}")
+    git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, how, remote, *wants)
 
 
 def deepen(repo: Path, remote: str, wants: list[str], head: str, base: str) -> None:

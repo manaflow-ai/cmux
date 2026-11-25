@@ -5086,6 +5086,31 @@ the service down, or a base reader without the phase) is `unavailable` and fails
 other than 0, 1 or 75 did. A check the fleet still holds queued (`pending`) is a warning, as exit 75 was. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
 canary run, and a push keeps its tip-check read and gateway compile.
 
+## note-fast-tier-current-base
+
+Above `fast-tier: Build on the base's current tip` in `.github/workflows/cmux-next.yml`.
+
+A pull_request run checks out the merge commit GitHub made when the run was queued, and the fast tier waits 1 to
+4 hours for a Mac. So it compiled bases hours old: on 2026-11-24 from 01:30 to 03:02Z it failed 50 times and
+passed 3 (34 runner-hours). Every failure sampled was the BrowserPageTunables compile error from #48267, which
+#53025 had fixed at 01:07Z. Job 138099435473 started at 02:16Z on a base from 23:34Z, 151 commits behind.
+scripts/ci/fast_tier_current_base.py applies the pull request's merged change to the base's current tip in a
+scratch index and checks out a merge commit with parents (tip, PR head). On any failure (a conflict, a fetch that
+fails or times out), the run's own merge stays checked out. `vars.CI_FAST_TIER_CURRENT_BASE` set to `0` turns it
+off.
+
+## note-pr-control-pool
+
+Above `push-head-preflight` in `.github/workflows/cmux-next.yml` (moved here to keep the workflow under its size limit).
+
+Its Linux control jobs (this one, the placements, release-compile-fast-admission, dev-landing-place) take
+cmux-linux, the persistent runner pool, on a push's or same-repo PR's attempt 1 (cmuxterm-hq decisions/junctions.md:
+one label for every own-branch Linux job). They took cmux-gcp-pr-control-jit-x64, one-job JIT VMs, until that label
+queued 1,860 jobs (oldest about 2 h, 2026-11-21) while the pool had about 300 runners idle. compile-status and its
+handoff stay on that label: each holds a statuses write App token (# ephemeral-required on its runs-on).
+Not cmux-gcp-nightly-jit-x64: on 2026-11-20 these jobs filled it (333 queued) and the nightly's own
+pick-nightly-app-runner waited behind them; that label serves nightly runs only. A re-run falls through to the pools.
+
 ## note-affected-set-replay
 
 How much of a PR's verdict goes to checks its diff could not have made fail (Leo, 2026-11-21: "help 100x ci speed
