@@ -113,7 +113,7 @@ extension MarkdownLayout {
 }
 
 /// cmux: one link of a transcript message for accessibility: a press opens it as a click does.
-final class TranscriptLinkElement: NSAccessibilityElement, NSAccessibilityButton {
+final class TranscriptLinkElement: NSAccessibilityElement {
     weak var controller: ChatController?
     var target: PaneLinkTarget = .text(nil)
     var ref = PartRef(messageId: "", partIndex: 0)
