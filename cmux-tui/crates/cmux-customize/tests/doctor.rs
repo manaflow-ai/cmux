@@ -210,6 +210,103 @@ fn an_unknown_and_a_misspelled_settings_key_are_named_with_their_line() {
 }
 
 #[test]
+fn keys_our_own_tools_read_are_not_unknown() {
+    // Leo, 2026-11-25, of a toast naming agents.desktopBridge (acpmux reads it): "will this be
+    // fixed soon?" Every key file-keys.json names, and anything under it, is someone's.
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        r#"{
+  "agents": { "desktopBridge": { "enabled": true, "entrypoints": ["codex_desktop"] } },
+  "chief.turnHooks": ["x"],
+  "chief": { "turnSkills": ["y"] },
+  "shortcuts": { "bindings": { "palette": "cmd+k" } },
+  "actions": { "test": { "command": "cargo test" } },
+  "agents.desktopBridgeTypo": true
+}
+"#,
+    );
+    let report = home.customize().doctor(&at(NOW));
+    let unknown: Vec<&str> = report
+        .findings
+        .iter()
+        .filter(|f| f.kind == FindingKind::UnknownKey)
+        .map(|f| f.id.as_str())
+        .collect();
+    assert_eq!(unknown, ["unknown-key:agents.desktopBridgeTypo"]);
+}
+
+#[test]
+fn a_retired_key_is_listed_but_never_announced() {
+    let home = Home::new();
+    home.write("cmux-next.json", "{ \"appearance\": { \"tabBarBackground\": \"#000000\" } }\n");
+    let report = home.customize().doctor_announce(&at(NOW)).unwrap();
+    let retired = find(&report, "unknown-key:appearance.tabBarBackground");
+    assert!(retired.quiet, "{retired:?}");
+    assert_eq!(report.announce, None, "a retired key is dropped without a word");
+}
+
+#[test]
+fn the_notice_counts_unknown_keys_in_plain_words_and_names_none() {
+    let home = Home::new();
+    home.write(
+        "cmux-next.json",
+        "{\n  \"mystery\": true,\n  \"status\": { \"working\": \"spinner\" }\n}\n",
+    );
+    let customize = home.customize();
+    let report = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(report.announce.as_deref(), Some("2 settings in cmux-next.json aren't recognized"));
+
+    let home2 = Home::new();
+    home2.write("cmux-next.json", "{ \"mystery\": true }\n");
+    let one = home2.customize().doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(one.announce.as_deref(), Some("1 setting in cmux-next.json isn't recognized"));
+}
+
+#[test]
+fn an_edit_above_an_unknown_key_does_not_announce_it_again() {
+    // The toast came back because three keys' lines moved when an agent edited above them.
+    let home = Home::new();
+    home.write("cmux-next.json", "{\n  \"mystery\": true\n}\n");
+    let customize = home.customize();
+    assert!(customize.doctor_announce(&at(NOW)).unwrap().announce.is_some());
+    home.write(
+        "cmux-next.json",
+        "{\n  \"appearance\": {\n    \"density\": \"compact\"\n  },\n  \"mystery\": true\n}\n",
+    );
+    let moved = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(find(&moved, "unknown-key:mystery").line, Some(5));
+    assert_eq!(moved.announce, None, "the same key on another line is not new");
+}
+
+#[test]
+fn a_state_file_of_the_old_scheme_says_nothing_again() {
+    // doctor.json before version 2 held prints with the line in them: what it announced stays
+    // announced, and what it dismissed stays dismissed.
+    let home = Home::new();
+    home.write("cmux-next.json", "{\n  \"mystery\": true,\n  \"other\": 1\n}\n");
+    let customize = home.customize();
+    let before = customize.doctor(&at(NOW));
+    assert_eq!(before.findings.iter().filter(|f| f.kind == FindingKind::UnknownKey).count(), 2);
+    let file = Roots::under(home.dir.path()).state_dir.join("doctor.json");
+    fs::create_dir_all(file.parent().unwrap()).unwrap();
+    fs::write(
+        &file,
+        json!({
+            "announced": { "unknown-key:mystery": "0123456789abcdef", "unknown-key:other": "0123456789abcdef" },
+            "dismissed": { "unknown-key:other": "0123456789abcdef" }
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let report = customize.doctor_announce(&at(NOW)).unwrap();
+    assert_eq!(report.announce, None);
+    assert!(find(&report, "unknown-key:other").dismissed);
+    let again = customize.doctor(&at(NOW));
+    assert!(find(&again, "unknown-key:other").dismissed, "moved over to the new print");
+}
+
+#[test]
 fn a_theme_that_overrides_a_setting_and_a_missing_theme_are_said() {
     let home = Home::new();
     home.write(

@@ -192,6 +192,9 @@ pub(super) fn unknown_keys(
         if cmux_config::schema::replaced_by_row(&here).is_some() {
             continue; // the owner reads it as its new key
         }
+        if cmux_config::schema::file_key(&here).is_some() {
+            continue; // a key no row has that another reader owns (file-keys.json)
+        }
         match value {
             Value::Object(inner) if prefixes.contains(&here) => {
                 let depth = path.len();
