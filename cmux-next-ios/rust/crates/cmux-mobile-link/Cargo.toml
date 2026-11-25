@@ -26,6 +26,7 @@ cmux-braid-path.workspace = true
 cmux-build-space.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
+cmux-remote-protocol.workspace = true
 cmux-transport.workspace = true
 cmux-wg.workspace = true
 flate2.workspace = true
