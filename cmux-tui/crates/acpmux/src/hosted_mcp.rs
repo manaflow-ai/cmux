@@ -373,9 +373,31 @@ enum Sent {
     Unauthorized,
 }
 
+/// The one HTTP client of every chat's bridge in this process, made at the first request.
+/// The gateway makes a chat's servers at each connect and again after an idle stop; a client
+/// made there (its TLS roots read, its resolver and pool set up) was most of a connect's cost,
+/// spent for every chat although most never call a hosted tool (`benches/icount.rs`
+/// `mcp_connect`, 3.7x its baseline). Its settings are the process's own (the build space is
+/// read once per process), so one client serves every bridge and shares its connections.
+fn http() -> Result<&'static reqwest::Client, String> {
+    static HTTP: std::sync::OnceLock<Result<reqwest::Client, String>> = std::sync::OnceLock::new();
+    HTTP.get_or_init(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        crate::happy_dial::http_client()
+            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
+            .redirect(reqwest::redirect::Policy::none())
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(CALL_TIMEOUT)
+            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map_err(|_| "could not start an HTTP client".to_owned())
+    })
+    .as_ref()
+    .map_err(Clone::clone)
+}
+
 /// The bridge: the held token and the hosted server's session.
 pub struct Bridge {
-    http: reqwest::Client,
     cmux: std::ffi::OsString,
     origin: Option<String>,
     held: Option<Minted>,
@@ -390,17 +412,9 @@ pub struct Bridge {
 
 impl Bridge {
     pub fn new(cmux: std::ffi::OsString, origin: Option<String>) -> Result<Self, String> {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let http = crate::happy_dial::http_client()
-            .default_headers(cmux_build_space::headers().map_err(|e| e.to_string())?)
-            .redirect(reqwest::redirect::Policy::none())
-            .connect_timeout(CONNECT_TIMEOUT)
-            .timeout(CALL_TIMEOUT)
-            .user_agent(concat!("acpmux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|_| "could not start an HTTP client".to_owned())?;
+        // A process that must not call the cloud has no bridge, as before the client was shared.
+        cmux_build_space::process().map_err(|e| e.to_string())?;
         Ok(Self {
-            http,
             cmux,
             origin,
             held: None,
@@ -463,8 +477,7 @@ impl Bridge {
         body: &Value,
         id: Option<&Value>,
     ) -> Result<Sent, String> {
-        let mut request = self
-            .http
+        let mut request = http()?
             .post(url)
             .bearer_auth(token)
             .header("accept", "application/json, text/event-stream")
