@@ -373,7 +373,12 @@ struct TabOverview<Source: TabsDataSource>: View {
                 .zIndex(Double(card.index))
                 .transition(.opacity)
         } else {
-            ResidentCard(slot: residency.slot(id), held: card.departed != nil || card.folded || holds(id),
+            // A morphing stack's cards stay built through the morph: a tab
+            // residency had not built yet (it was folded) otherwise swapped
+            // to its stand-in as it unfolded and came back at its new slot,
+            // so it popped in there instead of sliding out of the front card
+            // (PaneStacksUITests video, fleet run 2).
+            ResidentCard(slot: residency.slot(id), held: card.departed != nil || card.folded || inMorph(id) || holds(id),
                          standIn: standIn(card.tab, rect: card.departed?.rect ?? layout.card(card.index), pinned: false)) { tabCardView(card) }
                 // Explicit stacking in grid order: cards crossing in a reflow
                 // keep their order.
@@ -455,6 +460,12 @@ struct TabOverview<Source: TabsDataSource>: View {
         .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
         .allowsHitTesting(!card.folded)
         .accessibilityHidden(card.folded)
+    }
+
+    /// Whether `id` is a card of a stack that is opening or folding.
+    private func inMorph(_ id: String) -> Bool {
+        guard !morphingStacks.isEmpty, let stack = stacks.stack(of: id) else { return false }
+        return morphingStacks.contains(stack.id)
     }
 
     /// How small a folded card is under its stack's front card.
