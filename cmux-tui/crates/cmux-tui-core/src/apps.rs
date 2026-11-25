@@ -162,6 +162,8 @@ pub(crate) mod timer;
 #[cfg(unix)]
 mod toolbar;
 #[cfg(unix)]
+mod view_state;
+#[cfg(unix)]
 mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
