@@ -787,7 +787,7 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
     let after = standalone().folded().via_gateway_on(Some(&gateway), "s-budget", &root);
     let config = after.mcp_config().unwrap();
     let started = acpmux_processes(&config, &exe);
-    assert!(started.len() <= ACPMUX_PROCESSES_PER_CHAT, "{started:?} in {config}");
+    assert_eq!(started.len(), ACPMUX_PROCESSES_PER_CHAT, "{started:?} in {config}");
     for name in own.iter().filter(|name| config["mcpServers"].get(**name).is_some()) {
         let entry = &config["mcpServers"][*name];
         let endpoint = gateway.server_endpoint("s-budget", name);
@@ -809,7 +809,7 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
         .iter()
         .filter(|s| s.get("type").is_none() && s["command"] == exe.to_string_lossy().as_ref())
         .count();
-    assert!(stdio_acpmux <= ACPMUX_PROCESSES_PER_CHAT, "{acp}");
+    assert_eq!(stdio_acpmux, ACPMUX_PROCESSES_PER_CHAT, "{acp}");
     // With the `cmux` server (folded): acpmux's servers are its upstreams, served by the daemon.
     let folded = resolve(&inputs).for_session("s-budget-cmux").folded().via_gateway_on(
         Some(&gateway),
@@ -818,7 +818,7 @@ async fn a_chat_starts_at_most_its_budget_of_acpmux_processes() {
     );
     let config = folded.mcp_config().unwrap();
     let started = acpmux_processes(&config, &exe);
-    assert!(started.len() <= ACPMUX_PROCESSES_PER_CHAT, "{started:?} in {config}");
+    assert_eq!(started.len(), ACPMUX_PROCESSES_PER_CHAT, "{started:?} in {config}");
     let _ = std::fs::remove_dir_all(&root);
 }
 
