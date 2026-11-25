@@ -144,3 +144,27 @@ fn relaunch_permits_holds_for_a_running_command() {
     assert_eq!(code, OK);
     assert_eq!(body, json!({"permits": false, "empty": false}));
 }
+
+#[test]
+fn policy_waits_for_deltas_on_a_push() {
+    let (code, body) = call(
+        c"updater_policy",
+        &json!({"delta": {"listsDeltas": false, "userAsked": false, "waited": 0}}),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!({"deltaDownloadNow": false}));
+}
+
+#[test]
+fn channel_tracks_list_one_track_per_ring() {
+    let (code, body) = call(
+        c"updater_channel_tracks",
+        &json!({"index": [{"build": "1204", "shortVersion": "0.9.4", "date": "2026-11-24"}],
+                "installedBuild": "1204", "followed": "nightly"}),
+    );
+    assert_eq!(code, OK);
+    let rings: Vec<&str> =
+        body.as_array().unwrap().iter().map(|t| t["ring"].as_str().unwrap()).collect();
+    assert_eq!(rings, ["stable", "nightly", "canary", "dev"]);
+    assert_eq!(body[1]["builds"][0]["isInstalled"], true);
+}

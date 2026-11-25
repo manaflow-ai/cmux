@@ -12,15 +12,19 @@
 //! - [`feed`]: which appcast a build follows, the ring tags it accepts, its manual download.
 //! - [`install`]: an accepted install from the click to a download, and the watchdog's verdicts.
 //! - [`relaunch`]: whether an update may relaunch the app now.
+//! - [`policy`]: delta wait, metered links, closed cards, track defaults, time left.
+//! - [`channels`]: each ring's recent builds for Settings > Updates.
 //! - [`ops`]: the JSON requests the app sends over the app FFI (`updater_*`).
 //!
 //! No I/O: the app fetches the feed and passes its bytes.
 
 pub mod appcast;
+pub mod channels;
 pub mod feed;
 pub mod install;
 pub mod numeric;
 pub mod ops;
+pub mod policy;
 pub mod relaunch;
 pub mod rollback;
 pub mod select;

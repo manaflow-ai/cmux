@@ -7,9 +7,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use crate::appcast::{self, AppcastItem};
+use crate::channels;
 use crate::feed::{self, Architecture, Channel, Resolution, Ring};
 use crate::install::{self, Action, Attempt, Phase};
 use crate::numeric;
+use crate::policy::{self, MeteredMode, Sample, Snooze, Track, TrackDefaults};
 use crate::relaunch::{Blockers, Waits};
 use crate::rollback::{self, Kept, Refusal, RingReturn};
 use crate::select::{self, Candidate, Outcome};
@@ -281,6 +283,124 @@ pub fn relaunch_permits(request: &RelaunchRequest) -> RelaunchReply {
     }
 }
 
+/// `updater_policy`: the small policies, each asked only when its fields are present.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyRequest {
+    #[serde(default)]
+    pub delta: Option<DeltaQuery>,
+    #[serde(default)]
+    pub network: Option<NetworkQuery>,
+    #[serde(default)]
+    pub snooze: Option<SnoozeQuery>,
+    #[serde(default)]
+    pub track: Option<Track>,
+    #[serde(default)]
+    pub transfer: Option<TransferQuery>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeltaQuery {
+    pub lists_deltas: bool,
+    pub user_asked: bool,
+    pub waited: f64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NetworkQuery {
+    pub setting: bool,
+    pub mode: MeteredMode,
+    pub constrained: bool,
+    pub expensive: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnoozeQuery {
+    #[serde(default)]
+    pub snooze: Snooze,
+    #[serde(default)]
+    pub version: Option<String>,
+    pub now: f64,
+}
+
+/// `bytes` null: the phase is not a byte-counted download.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferQuery {
+    #[serde(default)]
+    pub samples: Vec<Sample>,
+    #[serde(default)]
+    pub bytes: Option<u64>,
+    pub now: f64,
+    #[serde(default)]
+    pub expected: Option<u64>,
+}
+
+#[derive(Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PolicyReply {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delta_download_now: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub downloads_automatically: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snooze: Option<SnoozeReply>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub track: Option<TrackDefaults>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transfer: Option<TransferReply>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SnoozeReply {
+    pub hides: bool,
+    pub expired: Snooze,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferReply {
+    pub samples: Vec<Sample>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bytes_per_second: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seconds_left: Option<i64>,
+}
+
+pub fn policy(request: &PolicyRequest) -> PolicyReply {
+    PolicyReply {
+        delta_download_now: request
+            .delta
+            .as_ref()
+            .map(|q| policy::delta_download_now(q.lists_deltas, q.user_asked, q.waited)),
+        downloads_automatically: request.network.as_ref().map(|q| {
+            policy::downloads_automatically(q.setting, q.mode, q.constrained, q.expensive)
+        }),
+        snooze: request.snooze.as_ref().map(|q| SnoozeReply {
+            hides: q.snooze.hides(q.version.as_deref(), q.now),
+            expired: q.snooze.expired(q.now),
+        }),
+        track: request.track.map(Track::defaults),
+        transfer: request.transfer.as_ref().map(|q| {
+            let samples = policy::record(&q.samples, q.bytes, q.now);
+            TransferReply {
+                bytes_per_second: policy::bytes_per_second(&samples),
+                seconds_left: policy::seconds_left(&samples, q.expected),
+                samples,
+            }
+        }),
+    }
+}
+
+/// `updater_channel_tracks`.
+pub fn channel_tracks(request: &channels::Request) -> Vec<channels::Track> {
+    channels::tracks(request)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,5 +540,29 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(relaunch_permits(&request), RelaunchReply { permits: true, empty: false });
+    }
+
+    #[test]
+    fn policy_answers_only_what_was_asked() {
+        let request: PolicyRequest = serde_json::from_value(json!({
+            "delta": {"listsDeltas": false, "userAsked": false, "waited": 10},
+            "network": {"setting": true, "mode": "defer-expensive", "constrained": false, "expensive": true},
+            "snooze": {"snooze": {"remindAfter": 50.0}, "version": "9", "now": 60.0},
+            "track": "nightly-next",
+            "transfer": {"samples": [{"bytes": 0, "at": 0.0}], "bytes": 1000, "now": 1.0, "expected": 13000},
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(policy(&request)).unwrap(),
+            json!({
+                "deltaDownloadNow": false,
+                "downloadsAutomatically": false,
+                "snooze": {"hides": false, "expired": {}},
+                "track": {"allowsTestFeed": true, "downloadsAutomatically": true, "installsWhenIdle": true},
+                "transfer": {"samples": [{"bytes": 0, "at": 0.0}, {"bytes": 1000, "at": 1.0}],
+                             "bytesPerSecond": 1000.0, "secondsLeft": 15},
+            })
+        );
+        assert_eq!(serde_json::to_value(policy(&PolicyRequest::default())).unwrap(), json!({}));
     }
 }

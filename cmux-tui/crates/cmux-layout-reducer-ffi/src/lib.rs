@@ -394,6 +394,18 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
                 serde_json::to_vec(&ops::relaunch_permits(&request)).map_err(|_| ERR_INVALID)?
             }
+            b"updater_policy" => {
+                use cmux_updater_core::ops;
+                let request: ops::PolicyRequest =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&ops::policy(&request)).map_err(|_| ERR_INVALID)?
+            }
+            b"updater_channel_tracks" => {
+                use cmux_updater_core::ops;
+                let request: cmux_updater_core::channels::Request =
+                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
+                serde_json::to_vec(&ops::channel_tracks(&request)).map_err(|_| ERR_INVALID)?
+            }
             b"bookmarks_apply" => {
                 let request: cmux_bookmarks_core::preview::Request =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
