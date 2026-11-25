@@ -19,7 +19,7 @@ import Testing
 @Suite struct PageChromiumCoverageTests {
     /// Every page the app ships, with the engine options its service makes it with.
     private static let surfaces: [(page: PageDescriptor, options: PageEngineOptions)] = [
-        (.agent, PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
+        (.agent, PageEngineOptions(chromiumAgentChat: AgentPaneTunables.chromium.value)), (.history, .standard), (.terminalHistory, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
         (.keybindings, .standard), (.diff, DiffPageService.engineOptions), (.markdown, FilePageService.engineOptions),
         (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions),
         (.groupEditor, GroupEditorService.engineOptions), (.passwords, .standard),
@@ -90,6 +90,34 @@ import Testing
         #expect(entries[PageDescriptor.diff.id]?.entry == "diff-page.html")
         #expect(entries[PageDescriptor.markdown.id]?.entry == "markdown-page.html")
         #expect(entries[PageDescriptor.editor.id]?.entry == "editor-page.html")
+    }
+
+    /// The generated app resource is the integration seam between the pages builder and Chromium.
+    /// The ordinary test bundle has no generated pages, so this runs when the fleet build has
+    /// installed the packaged resources and verifies the document and its shared entry together.
+    private static var packagedPagesFixtureReady: Bool {
+        guard let root = PageDescriptor.history.pagesBundleRoot else { return false }
+        return FileManager.default.fileExists(atPath: root.appendingPathComponent(PageDescriptor.history.entry).path)
+    }
+
+    // The resources are read on the main actor, so the trait awaits them (a condition is evaluated off it).
+    @Test(.enabled("needs generated packaged page resources") { await Self.packagedPagesFixtureReady })
+    func packagedTerminalHistoryDocumentAndSharedEntryAreServed() async throws {
+        let page = PageDescriptor.terminalHistory
+        let root = try #require(page.pagesBundleRoot)
+        let documentURL = page.url()
+        let document = await PageWebView.liveChromiumResource(documentURL, range: nil, page: page, root: root, bundledOnly: true)
+        #expect(document.status == 200)
+        let html = String(decoding: document.body, as: UTF8.self)
+        #expect(html.contains(#"data-cmux-page="terminal-history"#))
+        #expect(html.contains("../__shared/page-terminal-history.js"))
+        #expect(html.contains("../__shared/page-base.css"))
+
+        let sharedURL = try #require(URL(string: "cmux-page://cmux.terminal-history/__shared/page-terminal-history.js"))
+        let shared = await PageWebView.liveChromiumResource(sharedURL, range: nil, page: page, root: root, bundledOnly: true)
+        #expect(shared.status == 200)
+        #expect(shared.mimeType == "text/javascript")
+        #expect(!shared.body.isEmpty)
     }
 
     @Test func aReservedIDTheAppDoesNotShipIsNeverServed() {

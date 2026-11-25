@@ -32,19 +32,29 @@ import Testing
         rule.move(for: "n", section: section, in: sections(home: home), home: home ? "home" : nil)
     }
 
-    @Test func topIsTheSectionsFirstSlotAndSendsNoMove() {
+    @Test func topFromALooseCurrentIsTheSectionsTopAndIsMoved() {
+        // A loose current workspace: still the section's top, and it is sent. The daemon's own `top` follows its
+        // active workspace, which can be one an agent opened in Chief's workspaces while this window shows another
+        // (Lawrence 2026-11-23: Cmd-N on an arbitrary workspace made it in Chief's group).
+        let rule = NewWorkspaceDefaultSlot(placement: .top, current: "a")
+        #expect(Self.slot(rule) == .top(anchor: nil))
+        #expect(Self.move(rule) == .top(anchor: nil))
+    }
+
+    /// With no current workspace (a top page such as Home, New Workspace in Section) the daemon still anchors its `top`
+    /// to its active workspace, first in that one's group: the row drew loose at the top, then jumped into the group
+    /// (Leo 2026-11-22, cmux#50539). The app sends the top it drew.
+    @Test func topWithNoCurrentIsMoved() {
         let rule = NewWorkspaceDefaultSlot(placement: .top, current: nil)
         #expect(Self.slot(rule) == .top(anchor: nil))
-        // Sent: the daemon's own top follows its active workspace, which may sit in an agent's group.
         #expect(Self.move(rule) == .top(anchor: nil))
-        // A loose current workspace changes nothing: still the section's top.
-        #expect(Self.slot(NewWorkspaceDefaultSlot(placement: .top, current: "a")) == .top(anchor: nil))
     }
 
     @Test func topStaysBelowHome() {
         let rule = NewWorkspaceDefaultSlot(placement: .top, current: nil)
         #expect(Self.slot(rule, home: true) == .below("home"))
         #expect(Self.move(rule, home: true) == .below("home"))
+        #expect(Self.move(NewWorkspaceDefaultSlot(placement: .top, current: "a"), home: true) == .below("home"))
     }
 
     @Test func topInAGroupIsTheGroupsTopAndIsMoved() {

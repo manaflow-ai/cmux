@@ -11,7 +11,10 @@ use cmux_customize::community::Tier;
 use cmux_customize::{Customize, Roots};
 
 use super::super::{GlobalArgs, OutputMode};
-use super::{Consent, Git, RepoRef, Request, Routed, listed, parse, resolve_in, routed, run};
+use super::{
+    Consent, Git, RepoRef, Request, Routed, install_link, link_reference, listed, parse,
+    resolve_in, routed, run,
+};
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -380,4 +383,53 @@ fn apps_install_of_a_theme_repository_installs_and_applies_it() {
     );
     let settings = fs::read_to_string(home.path().join("config/cmux-next.json")).unwrap();
     assert!(!settings.contains("\"dusk\""), "{settings}");
+}
+
+#[test]
+fn an_open_in_cmux_link_names_the_repository_and_its_pinned_commit() {
+    let sha = "193443b5c1da7526df8a506228441e72e31edc8b";
+    assert_eq!(
+        link_reference(&format!(
+            "cmux://apps/install?repo=github.com%2Fteamleaderleo%2Fteal-twin-theme&commit={sha}"
+        ))
+        .unwrap(),
+        format!("github.com/teamleaderleo/teal-twin-theme@{sha}")
+    );
+    // Any build's scheme; no commit follows releases.
+    assert_eq!(
+        link_reference("cmux-nightly://apps/install?repo=github.com/alice/dusk").unwrap(),
+        "github.com/alice/dusk"
+    );
+    for bad in [
+        "https://apps/install?repo=github.com/alice/dusk",
+        "cmux://apps/remove?repo=github.com/alice/dusk",
+        "cmux://apps/install",
+        "cmux://apps/install?repo=github.com/alice/dusk&yes=1",
+        "cmux://apps/install?repo=github.com/alice/dusk&repo=github.com/bob/x",
+        "cmux://apps/install?repo=github.com/alice/dusk@main",
+        "cmux://apps/install?repo=github.com/alice/dusk&commit=main",
+        "cmux://apps/install?repo=github.com/alice/dusk#x",
+        "cmux://apps/install?repo=127.0.0.1/a/b",
+        "cmux://apps/install?repo=%ZZ",
+    ] {
+        assert!(link_reference(bad).is_err(), "{bad}");
+    }
+}
+
+#[test]
+fn apps_install_link_becomes_apps_install_of_the_reference_and_takes_no_yes() {
+    let args = words("--json apps install-link cmux://apps/install?repo=github.com/alice/dusk");
+    assert_eq!(
+        install_link(&args).unwrap().unwrap(),
+        words("--json apps install github.com/alice/dusk")
+    );
+    assert!(
+        install_link(&words(
+            "apps install-link cmux://apps/install?repo=github.com/alice/dusk --yes"
+        ))
+        .unwrap()
+        .is_err()
+    );
+    assert!(install_link(&words("apps install-link cmux://apps/install")).unwrap().is_err());
+    assert_eq!(install_link(&words("apps install github.com/alice/dusk")), None);
 }

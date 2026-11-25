@@ -7,8 +7,8 @@ import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// SPEC 4.3 composer for agent chat: glass card with a text row over a
-/// controls row (`+` menu, model pill, voice mode, send/stop), attachment previews,
+/// SPEC 4.3 composer for agent chat: one glass card whose one row holds the `+` menu, the text,
+/// the model pill and send/stop (`ComposerRowLayout`, the text above them once it wraps), attachment previews,
 /// queue rows, slash-command suggestions, and the collapsed capsule (same placeholder as the field).
 struct ChatComposer: View {
     let store: AgentChatStore
@@ -38,6 +38,8 @@ struct ChatComposer: View {
     @State private var showFiles = false
     @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
+    /// Picked videos Photos is still copying out (a large one takes seconds): a chip each.
+    @State private var preparingVideos = 0
     /// An attachment tapped before sending: previewed full screen.
     @State private var preview: FilePreviewRequest?
     @State private var sendCount = 0
@@ -61,7 +63,14 @@ struct ChatComposer: View {
     @State private var mentionIndex = MentionIndex()
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var hasContent: Bool { !trimmed.isEmpty || !attachments.isEmpty }
+    /// Read by the body on every key: stops at the draft's first visible character, where
+    /// trimming copied the whole draft through Foundation per key (ComposerTypingLagUITests).
+    private var hasContent: Bool {
+        #if DEBUG
+        if ComposerReturnTextView.measuresWholeDraft { return !trimmed.isEmpty || !attachments.isEmpty }
+        #endif
+        return text.contains(where: { !$0.isWhitespace }) || !attachments.isEmpty
+    }
     private var collapsedTarget: Bool { collapsible && !focus.wrappedValue && !hasContent && !expandRequested }
     /// Follows `collapsedTarget` inside an explicit `.cmuxMobileSmooth` animation.
     /// Losing focus to the keyboard's dismissal changes the target in an
@@ -71,8 +80,15 @@ struct ChatComposer: View {
     private var collapsed: Bool { shownCollapsed ?? collapsedTarget }
     /// `collapsible` as last placed: it flips when the chat's first turns come.
     @State private var placedCollapsible: Bool?
+    #if DEBUG
+    @State private var didFillTypingDemo = false
+    #endif
 
     var body: some View {
+        #if DEBUG
+        let _ = InputLatencyTrace.shared?.count("composer_body")
+        let _ = InputLatencyTrace.shared?.note("chat_composer_body")
+        #endif
         VStack(spacing: Self.suggestionsGap) {
             if !slashMatches.isEmpty {
                 slashSuggestions
@@ -109,20 +125,35 @@ struct ChatComposer: View {
             }
             .ignoresSafeArea()
         }
+        // Files start for the Mac the moment they are picked, not at Send (AttachmentPrestager).
+        .onChange(of: attachments.map(\.id), initial: true) { _, _ in
+            store.composerAttachmentsChanged(attachments)
+        }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
         }
         .cmuxMobileSensoryFeedback(.impact(weight: .light), trigger: sendCount)
-        .onChange(of: focus.wrappedValue) { _, focused in
-            if focused { expandRequested = false }
+        .onChange(of: expandRequested && focus.wrappedValue) { _, expansionFocused in
+            if expansionFocused { expandRequested = false }
         }
-        .onAppear { if expandOnAppear { expand() } }
+        .onAppear {
+            if expandOnAppear { expand() }
+            #if DEBUG
+            guard !didFillTypingDemo,
+                  let mode = ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_CHAT_COMPOSER"],
+                  mode.hasPrefix("chars:"), text.isEmpty,
+                  let count = Int(mode.dropFirst("chars:".count).prefix(while: \.isNumber)) else { return }
+            didFillTypingDemo = true
+            text = Self.demoTypingText(count, oneParagraph: mode.hasSuffix(":oneline"))
+            focus.wrappedValue = true
+            #endif
+        }
         #if DEBUG
         .task {
             let arguments = ProcessInfo.processInfo.arguments
             guard let index = arguments.firstIndex(of: "-cmux-mobile-demo"),
-                  arguments.indices.contains(index + 1), arguments[index + 1] == "offline-send",
+                  arguments.indices.contains(index + 1), ["offline-send", "offline-held"].contains(arguments[index + 1]),
                   !ranOfflineSendDemo else { return }
             ranOfflineSendDemo = true
             text = "Run the tests and summarize the results."
@@ -165,6 +196,22 @@ struct ChatComposer: View {
             }
         }
     }
+
+    #if DEBUG
+    /// ComposerTypingLagUITests' long draft: the terminal's demo prose (a paragraph break every
+    /// four sentences), or with `oneParagraph` the same text as a single paragraph.
+    private static func demoTypingText(_ count: Int, oneParagraph: Bool) -> String {
+        let sentence = "The build fails on the second step when the cache is cold, so check the log and the screenshots before rerunning it. "
+        var text = ""
+        var index = 0
+        while text.utf8.count < count {
+            text += sentence
+            index += 1
+            if index % 4 == 0, !oneParagraph { text += "\n\n" }
+        }
+        return String(text.prefix(count))
+    }
+    #endif
 
     /// A copied image or file pasted into the field: attached as Photos or
     /// Files would attach it (`UIPasteboard.composerImages`).
@@ -227,39 +274,47 @@ struct ChatComposer: View {
         return (files, refused)
     }
 
+    /// One card, one row (``ComposerRowLayout``): `+` (and the voice button when it sits left),
+    /// the draft or the collapsed placeholder, then the picker, the context ring and Send. A draft
+    /// that wraps goes above the same controls. Before 2026-11-23 the text always had a row of its
+    /// own over the controls, 96 pt tall at one line with 10 pt between the text and the buttons.
     private var card: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !collapsed {
-                if !attachments.isEmpty {
-                    attachmentStrip
-                }
+        ComposerCard(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight) {
+            if !collapsed, !attachments.isEmpty || preparingVideos > 0 {
+                attachmentStrip
+            }
+        } leading: {
+            HStack(spacing: 0) {
+                plusMenu
+                if voice.placement == .leading { voiceButton }
+            }
+        } field: {
+            if collapsed {
+                // One placeholder: the collapsed capsule reads the same as the field it opens.
+                Text(placeholder)
+                    .lineLimit(1)
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // A 44 pt target that reports one line, so the row reads it as one line.
+                    .padding(.vertical, 12)
+                    .contentShape(.rect)
+                    .padding(.vertical, -12)
+                    .onTapGesture { expand() }
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityLabel(placeholder)
+            } else {
                 // Return starts a new line, the send button sends; a hardware
                 // keyboard's Return sends, Shift-Return starts a new line.
                 ChatComposerField(text: $text, placeholder: placeholder, isFocused: focus, onSend: sendFromKeyboard,
                                   onPasteAttachments: pasteAttachments,
                                   onLineChange: { store.lineMotionPending = true })
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .padding(.bottom, 6)
                     .onAppear { if expandRequested { focus.wrappedValue = true } }
             }
-            HStack(spacing: 8) {
-                plusMenu
-                if voice.placement == .leading { voiceButton }
-                if collapsed {
-                    // One placeholder: the collapsed capsule reads the same as the field it opens.
-                    Text(placeholder)
-                        .lineLimit(1)
-                        .foregroundStyle(.tertiary)
-                        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                        .contentShape(.rect)
-                        .onTapGesture { expand() }
-                        .accessibilityAddTraits(.isButton)
-                        .accessibilityLabel(placeholder)
-                } else {
+        } trailing: {
+            HStack(spacing: 4) {
+                if !collapsed {
                     if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
                         || store.effortOption?.options.isEmpty == false { pickerMenu }
-                    Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
                 // Voice mode instead of a dictation mic (the keyboard's own mic still
@@ -271,21 +326,11 @@ struct ChatComposer: View {
                 if primaryState == .empty || primaryState == .stop, voiceInSend { voiceButton }
                 if primaryState != .empty || !voiceInSend { primaryButton }
             }
-            .padding(.horizontal, 8)
-            // CMUX-46: the collapsed "Reply to <agent>" capsule is the 44 pt row plus 2 pt each
-            // side, 48 pt: the card's minimum and a true capsule at its 24 pt radius (6 pt each
-            // side drew it 56 pt tall, rounder at the ends than a capsule and too thick). The row
-            // keeps its 44 pt targets and grows with Dynamic Type.
-            .padding(.bottom, collapsed ? 2 : 8)
-            .padding(.top, collapsed ? 2 : 0)
         }
-        .frame(minHeight: collapsed ? 48 : 96, alignment: .bottom)
-        // Its own height whatever it is offered: a min-height frame offered
-        // less takes the offer, and the grown draft ran outside the rounded
-        // card (user report 2026-11-12, the same rule as the terminal composer).
-        .fixedSize(horizontal: false, vertical: true)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
-        .padding(.horizontal, collapsed ? 20 : 12)
+        // The same 48 pt whether collapsed, focused and empty, or holding one line
+        // (``ComposerCard``, the terminal's composer too).
+        .accessibilityIdentifier("chat.composer.card")
+        .padding(.horizontal, collapsed ? 20 : ComposerCardMetrics.horizontalInset)
     }
 
     private var placeholder: String {
@@ -556,10 +601,11 @@ struct ChatComposer: View {
         } label: {
             Image(systemName: state == .stop ? "stop.fill" : "arrow.up")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(state == .empty ? Color(uiColor: .tertiaryLabel) : Color.cmuxMobileOnAccent)
+                .foregroundStyle(state == .empty ? Color(uiColor: .tertiaryLabel) : Color.cmuxMobileOnSend)
                 .contentTransition(.symbolEffect(.replace))
                 .frame(width: 36, height: 36)
-                .cmuxMobilePressBackground(state == .empty ? Color.cmuxMobileFill : Color.cmuxMobileAccent, in: .circle)
+                // The theme's Send color, never a white disk (`Color.cmuxMobileSend`).
+                .cmuxMobilePressBackground(state == .empty ? Color.cmuxMobileFill : Color.cmuxMobileSend, in: .circle)
                 .overlay {
                     if state == .queue {
                         Circle().strokeBorder(.secondary, lineWidth: 2).padding(-4)
@@ -607,6 +653,9 @@ struct ChatComposer: View {
             }
             return
         }
+        #if DEBUG
+        LoadFrameProbe.shared?.event("send")
+        #endif
         store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
         // A multi-line draft shrinks to one line on the line motion, with the transcript.
         withAnimation(ComposerLineMotion.animation.unlessReduceMotion) { text = "" }
@@ -627,6 +676,18 @@ struct ChatComposer: View {
                         attachments.removeAll { $0.id == attachment.id }
                     }
                     .transition(.scale(scale: 0.8).combined(with: .opacity))
+                }
+                if preparingVideos > 0 {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text(preparingVideos == 1 ? "Preparing video…" : "Preparing \(preparingVideos) videos…")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .frame(height: 56)
+                    .background(Color.cmuxMobileFill, in: .rect(cornerRadius: 12, style: .continuous))
+                    .accessibilityElement(children: .combine)
+                    .transition(.opacity)
                 }
             }
             .padding(.horizontal, 12)
@@ -729,7 +790,13 @@ struct ChatComposer: View {
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
             if item.supportedContentTypes.contains(where: { $0.conforms(to: .movie) }) {
-                guard let movie = try? await item.loadTransferable(type: PickedMovie.self) else {
+                preparingVideos += 1
+                let started = ContinuousClock.now
+                let picked = try? await item.loadTransferable(type: PickedMovie.self)
+                preparingVideos -= 1
+                let elapsed = ContinuousClock.now - started
+                PickedMovie.log.info("pick ms=\(elapsed.components.seconds * 1000 + elapsed.components.attoseconds / 1_000_000_000_000_000) ok=\(picked != nil)")
+                guard let movie = picked else {
                     store.clientError = String(localized: "Couldn't read the video.")
                     continue
                 }
@@ -799,8 +866,7 @@ struct QueuedPromptsView: View {
         .alert("Edit queued prompt", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } }),
                presenting: editing) { item in
             TextField("Message", text: $editText, axis: .vertical)
-                // Prompts are code-like: no autocorrect, no capitals (full verify D5).
-                .autocorrectionDisabled()
+                // Prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                 .textInputAutocapitalization(.never)
             Button("Cancel", role: .cancel) {}
             Button("Save") { store.editQueued(item.id, text: editText) }
@@ -997,25 +1063,22 @@ extension ComposerVoiceStyle {
 
 /// `@` mention candidates, memoized: `SessionArtifacts.collect` walks the whole transcript,
 /// and the composer's body asked for it twice on every key while a mention was typed.
-/// The scan reruns only when the transcript changes (`AgentChatStore.revision`); the
-/// candidates only when the query does too. Not observed: it is a cache, read in `body`.
+/// The artifacts come from `AgentChatStore.mentionArtifacts`, which reads the transcript
+/// untracked (frames streaming in never re-render the composer) and rescans at most once a
+/// second; the candidates rerun only when the query or the artifacts change. Not observed:
+/// it is a cache, read in `body`.
 @MainActor
 final class MentionIndex {
-    private var key: (Int, Int, Int, String)?
-    private var artifacts: [TerminalArtifact] = []
+    private var generation: Int?
     private var lastQuery: String?
     private var lastMatches: [TerminalArtifact] = []
 
     func matches(_ query: String, store: AgentChatStore) -> [TerminalArtifact] {
-        let key = (store.revision, store.turns.count, store.subagents.count, store.summary.cwd)
-        if self.key.map({ $0 != key }) ?? true {
-            self.key = key
-            artifacts = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd).artifacts
-            lastQuery = nil
-        }
-        if lastQuery != query {
+        let current = store.mentionArtifacts()
+        if generation != current.generation || lastQuery != query {
+            generation = current.generation
             lastQuery = query
-            lastMatches = ComposerMention.candidates(query, in: artifacts)
+            lastMatches = ComposerMention.candidates(query, in: current.artifacts)
         }
         return lastMatches
     }

@@ -64,6 +64,8 @@ public final class ScreenSharingService {
     var demoDiscovery: Discovery?
     var demoMacs: [HubDevice] = []
     var demoAccess: [String: DeviceScope] = [:]
+    /// Mock mode's Macs (`useMock`).
+    @ObservationIgnored var mockMacs: (@MainActor () -> [HubDevice])?
     @ObservationIgnored var demoTask: Task<Void, Never>?
     #endif
 
@@ -115,14 +117,18 @@ public final class ScreenSharingService {
         public var tokens: any DeviceHubAccountTokenProvider
         /// The signed-in account: the Macs list it last read draws before the next read (nil: none).
         public var accountID: String?
+        /// The build's cloud data space (``DeviceHubBuildSpace``): a tagged Debug build lists and reaches only its
+        /// own tag's Macs on the hub, never NIGHTLY's or another tag's of the same account.
+        public var buildSpace: DeviceHubBuildSpace
 
         public init(baseURL: URL, bundleIdentifier: String, deviceName: String, tokens: any DeviceHubAccountTokenProvider,
-                    accountID: String? = nil) {
+                    accountID: String? = nil, buildSpace: DeviceHubBuildSpace = .nightly) {
             self.baseURL = baseURL
             self.bundleIdentifier = bundleIdentifier
             self.deviceName = deviceName
             self.tokens = tokens
             self.accountID = accountID
+            self.buildSpace = buildSpace
         }
     }
 
@@ -224,7 +230,8 @@ public final class ScreenSharingService {
             let hub: DeviceHub
             do {
                 hub = try await DeviceHub.forApp(baseURL: configuration.baseURL, bundleIdentifier: configuration.bundleIdentifier,
-                                                 deviceName: configuration.deviceName, platform: .ios, tokens: configuration.tokens)
+                                                 deviceName: configuration.deviceName, platform: .ios, tokens: configuration.tokens,
+                                                 buildSpace: configuration.buildSpace)
             } catch {
                 guard !Task.isCancelled else { return }
                 self?.loadStatus = .failed(UserFacingError.message(error, fallback: "Screen sharing couldn't start. Try again."))
@@ -430,7 +437,8 @@ public final class ScreenSharingService {
             viewer = current
         } else {
             self.viewer?.close(reason: .viewerDisconnected)
-            viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, hub: hub, preferences: preferences)
+            viewer = ScreenSharingViewer(hostID: mac.id, hostName: mac.name, hostPlatform: mac.platform, hub: hub,
+                                         preferences: preferences)
             viewer.sessionLeft = { [weak self] id in self?.abandoned.insert(id) }
             viewer.refusedBeforeShown = { [weak self, weak viewer] refusal, requested in
                 guard let self, let viewer, self.viewer === viewer else { return }

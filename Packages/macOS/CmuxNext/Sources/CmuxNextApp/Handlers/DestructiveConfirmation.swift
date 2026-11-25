@@ -66,6 +66,7 @@ enum DestructiveConfirmation {
             return Prompt(title: CloudStrings.deleteSnapshotTitle, body: CloudStrings.deleteSnapshotBody, button: CloudStrings.deleteSnapshot)
         case "cloudFileRemove":
             return Prompt(title: CloudStrings.removeFileTitle, body: CloudStrings.removeFileBody, button: CloudStrings.removeFile)
+        case "cloud.secret.remove": return PaletteVerbActions.secretRemovePrompt(invocation).map { Prompt(title: $0.title, body: $0.body, button: $0.button, returnConfirms: false) }
         case "cloudFirewallDelete":
             return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
                           button: CloudStrings.deleteFirewallRule)
