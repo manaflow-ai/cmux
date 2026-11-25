@@ -190,6 +190,24 @@ import Testing
                                   searching: false, failing: true) == .none)
     }
 
+    @Test func aKnownEmptyMacHomeStaysOutOfTheWarmupState() {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let key = MacHomeRowsCache.key(account: "user-a", macID: "mac-empty")
+        let writer = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        writer.save(key, rows: [])
+        writer.flush()
+
+        let cache = MacHomeRowsCache(directory: directory, writeDelay: .milliseconds(0))
+        let feed = Self.feed(cache, account: Account())
+        feed.showKeptRows(of: "mac-empty")
+
+        #expect(feed.rows?.isEmpty == true)
+        #expect(feed.isShowingKeptRows)
+        #expect(HomeListNote.make(rows: feed.rows, showingKept: feed.isShowingKeptRows, homeMacID: "mac-empty",
+                                  macsMayExist: true, searching: false, failing: false) == .none)
+    }
+
     /// A conversation opened from Home shows its kept messages before its channel opens, under
     /// its own key (never the Mac Chief's), and that same session goes live.
     @Test func aMacConversationShowsItsKeptMessagesAndGoesLiveInPlace() async throws {
