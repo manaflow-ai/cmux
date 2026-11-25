@@ -9,8 +9,7 @@
 //! `Reply with` line, `--reply-to` answers it, its sender unsends it and it is in the inbox
 //! history.
 
-#[path = "agent_message_policy/harness.rs"]
-mod harness;
+use crate::harness;
 
 /// One module, so `cargo test agent_message_reply_in_place` selects it.
 mod agent_message_reply_in_place {
