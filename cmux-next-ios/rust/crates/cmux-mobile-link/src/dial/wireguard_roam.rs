@@ -186,6 +186,8 @@ pub(super) struct RelayShared {
     hold_port: watch::Sender<Option<super::super::relay::HoldPort>>,
     state: Mutex<RelayClock>,
     asked: tokio::sync::Notify,
+    /// Something authenticated ([`Self::heard`]).
+    heard_now: tokio::sync::Notify,
 }
 
 #[derive(Debug)]
@@ -267,6 +269,7 @@ impl Default for RelayShared {
                 allocated: None,
             }),
             asked: tokio::sync::Notify::new(),
+            heard_now: tokio::sync::Notify::new(),
         }
     }
 }
@@ -337,6 +340,22 @@ impl RelayShared {
 
     pub(super) fn heard(&self, at: Instant) {
         lock(&self.state).heard = Some(at);
+        self.heard_now.notify_waiters();
+    }
+
+    /// Wait until something authenticates after `at`, or `limit` passes.
+    async fn until_heard_after(&self, at: Instant, limit: Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + limit;
+        loop {
+            let mut heard = std::pin::pin!(self.heard_now.notified());
+            heard.as_mut().enable();
+            if self.heard_after(at) {
+                return true;
+            }
+            if tokio::time::timeout_at(deadline, heard).await.is_err() {
+                return self.heard_after(at);
+            }
+        }
     }
 
     fn roamed(&self) {
@@ -2037,8 +2056,23 @@ async fn run_relay_watch(session: Weak<Session>) {
                 // them, a peer that met this one on the relay), so they go to
                 // it again through the tunnel. Its upgrade probes then find the
                 // LAN path. The message is the roam announcement older peers
-                // already take.
-                session.reannounce().await;
+                // already take. A side that dials the relay first joins as its
+                // dial starts, before the tunnel is up, so an announcement then
+                // has no tunnel to ride: it goes once something authenticates.
+                if plan.first {
+                    let weak = Arc::downgrade(&session);
+                    let shared = Arc::clone(&shared);
+                    let joined = Instant::now();
+                    tokio::spawn(async move {
+                        if shared.until_heard_after(joined, RELAY_DISCO_WAIT).await
+                            && let Some(session) = weak.upgrade()
+                        {
+                            session.reannounce().await;
+                        }
+                    });
+                } else {
+                    session.reannounce().await;
+                }
                 // The peer joins too unless it already does (it asked, or it said it
                 // has no other path). A plan exists only when the peer offered the
                 // relay, so `wg-relay` never reaches a build that does not know it.
@@ -2087,6 +2121,10 @@ async fn run_relay_watch(session: Weak<Session>) {
 const ANSWER_REASSERT_JITTER: std::ops::Range<u64> = 300..900;
 
 /// Send a handshake (or keepalive) through the relay this side just joined.
+/// How long a relay-first join waits for the tunnel before it gives up
+/// announcing its endpoints through it (disco over the relay).
+const RELAY_DISCO_WAIT: Duration = Duration::from_secs(10);
+
 async fn reassert_on_relay(session: &Arc<Session>, shared: &Arc<RelayShared>) {
     if !session.dialer {
         let mut bytes = [0u8; 8];
