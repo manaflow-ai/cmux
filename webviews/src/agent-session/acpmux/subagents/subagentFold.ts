@@ -38,7 +38,6 @@ export function awaitsOwnWork(agent: Pick<Subagent, "state" | "reaction">): bool
   return agent.reaction?.interim === true && (agent.state === "running" || agent.state === "completed");
 }
 
-
 /// What the pane knows about subagent stops, kept across the fold's rebuilds (direct.ts): the
 /// subagents this pane asked to stop, and each stopped one's reason once known. A reload of the
 /// page knows only what acpmux's records say (a Send now's `queue_order`).
