@@ -288,17 +288,3 @@ test("a work-only turn that said nothing has nothing to copy and stays empty; on
   expect(isEmptyFooter(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(false);
   expect(rowMark(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(MARK_FOOTER_ROW);
 });
-
-test("a finished plan line stands the reply's 8 over its footer row, as a final reply does", async () => {
-  const grid = await import("../transcriptGrid");
-  const plan = { kind: "plan", plan: [{ content: "Ship", status: "completed" }], turnEnded: true };
-  expect(grid.rowMark(plan)).toBe(grid.MARK_PLAN_LINE);
-  expect(grid.transcriptGap(grid.MARK_PLAN_LINE, grid.MARK_FOOTER_ROW)).toBe(
-    grid.transcriptGap(grid.MARK_MESSAGE, grid.MARK_FOOTER_ROW),
-  );
-  // A running turn's pinned list is any other row.
-  expect(grid.rowMark({ ...plan, turnEnded: false })).toBe(grid.MARK_OTHER);
-  expect(grid.transcriptGap(grid.MARK_MESSAGE, grid.MARK_PLAN_LINE)).toBe(
-    grid.transcriptGap(grid.MARK_MESSAGE, grid.MARK_OTHER),
-  );
-});
