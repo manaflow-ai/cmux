@@ -25,8 +25,11 @@ CSS_FILE = "webviews/src/ui/glass/glass.css"
 SWIFT_FILE = "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FloatingGlass/SurfaceRole.swift"
 DESIGN_SCALE = "schemas/design-scale/design-scale.json"
 TRANSIENT_FILE = "Packages/Shared/CmuxTheme/Sources/CmuxTheme/TransientMaterial.swift"
+# The Swift copy of the design scale's content surface levels (`surfaces`): the iPhone chat's cards,
+# code blocks and chips draw them (CmuxMobileDesign/ContentSurface.swift).
+LEVELS_FILE = "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ContentSurfaceLevel.swift"
 # What this check reads. scripts/web_lint_prepush.py runs it alone when a push touches one (declared_inputs()).
-INPUTS = (SOURCE, DESIGN_SCALE, CSS_FILE, SWIFT_FILE, TRANSIENT_FILE)
+INPUTS = (SOURCE, DESIGN_SCALE, CSS_FILE, SWIFT_FILE, TRANSIENT_FILE, LEVELS_FILE)
 BEGIN = "/* surface-roles:begin. Follows " + SOURCE + " (scripts/cmux-next/check-surface-roles.py checks it). */"
 END = "/* surface-roles:end */"
 # The neutral glass's gray levels (FloatingGlassStyle.look): dark veil, light veil. The web reads them
@@ -95,6 +98,18 @@ def load():
         with open(os.path.join(ROOT, exception["file"])) as handle:
             assert exception["contains"] in handle.read(), "%s no longer carries the drift %r: remove the exception" % (
                 exception["file"], exception["contains"])
+    levels = {level["name"]: level for level in scale["surfaces"]["levels"]}
+    with open(os.path.join(ROOT, LEVELS_FILE)) as handle:
+        swift_levels = handle.read()
+    cases = re.findall(r"^    case (\w+)$", swift_levels, re.M)
+    assert cases == list(levels), f"{LEVELS_FILE} cases {cases} must be the design scale's levels {list(levels)}"
+    for key in ("fill", "line"):
+        body = re.search(r"public var " + key + r": Double \{(.*?)\n    \}", swift_levels, re.S)
+        assert body, f"{LEVELS_FILE} has no {key}"
+        for name, level in levels.items():
+            match = re.search(r"case \." + name + r": return ([0-9.]+)", body[1])
+            assert match and float(match[1]) == level.get(key, 0) / 100, \
+                f"{LEVELS_FILE} {name}.{key} must be the design scale's {level.get(key, 0)}%"
     toast = next(role for role in data["roles"] if role["name"] == "toast")
     for appearance in ("dark", "light"):
         assert toast["veil"][appearance] == transient[appearance + "VeilAlpha"], "toast and transient veil differ"
