@@ -6,6 +6,7 @@ captures and probe events stay in the rig's private work directory.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -108,13 +109,32 @@ class PairInputProbe:
 RD_METER_LINE = re.compile(r"[0-9]+(?:\.[0-9]+)? fps · [0-9]+ kbps")
 
 
-def screen_sharing_page_state(nodes):
-    """What the Screen Sharing list showed, in fixed words (no Mac names or ids): its state row
-    (finding, failed, empty) and how many Mac rows it drew."""
+def _digest(text):
+    return hashlib.sha256(text.lower().encode()).hexdigest()[:8]
+
+
+def screen_sharing_page_state(nodes, name=None, device_id=None):
+    """What the Screen Sharing list showed: its state row (finding, failed, empty) and each Mac
+    row as a short id digest, whether its name is the rig Mac's, and its status line. No ids or
+    other Macs' names are printed."""
     identifiers = {str(node.get(key, "")) for node in nodes for key in ("AXIdentifier", "AXUniqueId")}
     states = [state for state in ("finding", "failed", "empty") if f"screenSharing.{state}" in identifiers]
-    rows = sum(1 for identifier in identifiers if identifier.startswith("screenSharing.device."))
-    return f"page state: {', '.join(states) or 'none'}; Mac rows: {rows}"
+    prefix = "screenSharing.device."
+    rows = []
+    for node in nodes:
+        identifier = str(node.get("AXIdentifier") or node.get("AXUniqueId") or "")
+        if not identifier.startswith(prefix):
+            continue
+        label = str(node.get("AXLabel", ""))
+        named = bool(name) and label.startswith(name)
+        status = next((word for word in ("Offline", "Not shared", "Blocked", "Sharing") if word in label), "?")
+        rows.append(f"{_digest(identifier[len(prefix):])}{' (rig name)' if named else ''} {status}")
+    text = f"page state: {', '.join(states) or 'none'}; Mac rows: {len(rows)}"
+    if rows:
+        text += " [" + "; ".join(rows) + "]"
+    if device_id:
+        text += f"; wanted {_digest(device_id)}"
+    return text
 
 
 class PairSharePhone(ScreenProofPhone):
@@ -140,6 +160,7 @@ class PairSharePhone(ScreenProofPhone):
         deadline = time.monotonic() + 90
         row = None
         nodes = []
+        attempt = 0
         while time.monotonic() < deadline:
             nodes = self.ui.find(lambda node: True)
             matches = [node for node in nodes if exact_id in (str(node.get("AXIdentifier", "")).lower(),
@@ -149,10 +170,14 @@ class PairSharePhone(ScreenProofPhone):
             if matches:
                 row = matches[0]
                 break
-            self.ui.run(["axe", "gesture", "scroll-up", "--udid", self.ui.udid], check=False)
+            # Alternate a pull to refresh (the page rereads the hub's list) with a scroll the other way.
+            gesture = "scroll-down" if attempt % 2 == 0 else "scroll-up"
+            attempt += 1
+            self.ui.run(["axe", "gesture", gesture, "--udid", self.ui.udid], check=False)
             time.sleep(1)
         if row is None:
-            raise PairShareFailure(f"the rig Mac row was not visible ({screen_sharing_page_state(nodes)})")
+            raise PairShareFailure("the rig Mac row was not visible "
+                                   f"({screen_sharing_page_state(nodes, name, device_id)})")
         self.ui.tap(row)
         title = f"{name} isn't sharing its screen"
         self.ui.control(lambda node: node.get("type") == "StaticText"

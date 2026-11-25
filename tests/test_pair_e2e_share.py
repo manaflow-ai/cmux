@@ -112,7 +112,15 @@ class MacRowTests(unittest.TestCase):
 
     def test_the_page_state_names_only_fixed_words_and_a_count(self):
         nodes = [{"AXIdentifier": "screenSharing.empty"}, {"AXIdentifier": "screenSharing.device.ABC", "AXLabel": "Mac"}]
-        self.assertEqual(screen_sharing_page_state(nodes), "page state: empty; Mac rows: 1")
+        self.assertEqual(screen_sharing_page_state(nodes), "page state: empty; Mac rows: 1 [ba7816bf ?]")
+
+    def test_each_row_says_its_digest_name_match_and_status(self):
+        nodes = [{"AXIdentifier": "screenSharing.device.abc", "AXLabel": "rig, Not shared"},
+                 {"AXIdentifier": "screenSharing.device.def", "AXLabel": "Old Mac, Offline"}]
+        text = screen_sharing_page_state(nodes, "rig", "ABC")
+        self.assertEqual(text, "page state: none; Mac rows: 2 [ba7816bf (rig name) Not shared; cb8379ac Offline]; "
+                               "wanted ba7816bf")
+        self.assertNotIn("Old Mac", text)
         self.assertEqual(screen_sharing_page_state([]), "page state: none; Mac rows: 0")
 
     def test_an_upper_case_row_id_matches_a_lower_case_device_id(self):
@@ -133,5 +141,5 @@ class MacRowTests(unittest.TestCase):
         phone.ui.udid = "sim"
         with patch("cmux_next_pair_share_phone.time.monotonic", side_effect=[0, 0, 100]), \
                 patch("cmux_next_pair_share_phone.time.sleep"):
-            with self.assertRaisesRegex(PairShareFailure, "page state: failed; Mac rows: 0"):
+            with self.assertRaisesRegex(PairShareFailure, "page state: failed; Mac rows: 0; wanted "):
                 phone.request_share("rig", "abc-1")
