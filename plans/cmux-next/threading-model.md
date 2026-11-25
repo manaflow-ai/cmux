@@ -4,6 +4,8 @@ Owner: Performance Lead (PL-blocking, 2026-10-24; the detector's one process-wid
 Performance Lead with PL-arch). Chrome's model is the reference: the UI thread never
 blocks (`base::ScopedBlockingCall`, `base::ThreadRestrictions`), each thread owns its state, work moves
 between threads as messages, and every queue has a bound and a back-pressure rule.
+The short how-to for agents (the seams, `BackgroundWork`, the `NonisolatedNonsendingByDefault` trap, a worked
+conversion): [skills/cmux-architecture/references/main-thread-model.md](../../skills/cmux-architecture/references/main-thread-model.md).
 
 How it is enforced:
 - **Runtime (the real guard).** The checked seams in `CmuxNextCompat/Threading` wrap the blocking primitives
@@ -150,6 +152,7 @@ still waits for everything queued before it on that queue.
 A new thread or queue in `Packages/macOS/CmuxNext/Sources` needs its label here (the `thread-doc` guardrail
 matches the label's literal text; `<x>` matches an interpolation). Its owner row above says what it may block on.
 
+- Disk writes: `com.cmuxterm.app.next.coalescing-file-writer` (CoalescingFileWriter: one utility queue per writer, newest bytes per path, pending bytes bounded, flushed at quit)
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.slow-log`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
@@ -184,6 +187,12 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   stop, so no back-pressure; MacScreenRdProcess), `com.cmuxterm.mac-screen.rd-socket` (the viewer's
   Unix socket to `cmux rd connect`, user-initiated: Network delivers the stream's bytes here, it blocks on
   nothing, the decode pipeline reads them; MacScreenUnixStream),
+  `com.cmuxterm.mac-screen.stream-stdin` (one iPhone viewer session's JSON lines into its WebRTC host child
+  in the Screen Sharing helper, user-initiated, serial: its pipe writes block only it; a few signals per
+  session and an exclusion list per window change, so no back-pressure; MacScreenStreamProcess),
+  `com.cmuxterm.mac-screen.stream-host-stdout` and `screen-stream-host-input` (that child's own lines to the
+  app and its input reader thread, in the child process only, never the app: the queue's pipe writes block
+  only it, the thread blocks on its stdin and ends at its end of file; MacScreenStreamChild),
   `cmux.remote-view.mock-host`, `cmux.next.mobile.unix-lane`, `com.cmuxterm.mobile.paired-devices` (the iPhone
   host's paired-phone list and its Keychain seal, utility, serial: its file and Keychain calls block this queue,
   never main; one item per save, read or withdrawal, each from a person's action or an account change, so no back-pressure;
@@ -202,6 +211,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)
+- Design: `com.cmuxterm.next.live-wallpaper.render` (every live wallpaper's frames, LiveWallpaperRenderer,
+  user-initiated, serial: `nextDrawable`, which may wait for the compositor to hand a drawable back, the
+  encode and the commit block this queue, never main; at most one frame per view in flight, a tick that
+  finds its last frame still on the GPU draws nothing, so no back-pressure; held wallpapers queue nothing)
 - Agents: `com.cmuxterm.app.next.agent-pane.tail-disk` (each chat's kept tail on disk, AgentPaneTailDisk, utility,
   serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
   20 files of 1 MiB, and a read waits only behind the saves queued before it; the quit awaits its saves with the

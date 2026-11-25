@@ -20,7 +20,7 @@
 //!   `vm_stat` Swapouts, Linux `/proc/vmstat` pswpout).
 //!
 //! The formula's defaults are built in. An optional file, `$ACPMUX_HOST_BUDGET`
-//! or else `~/.config/cmux/host-budget.json`, overrides them: `{"enforce",
+//! or else `~/.config/cmux/host-budget.json` (`cmux-next` on macOS), overrides them: `{"enforce",
 //! "formula": {..}, "hosts": {"<host>": {..}}}`, the same keys as leo-workspace
 //! `machines/host-budget.json`, which lane-place reads. `enforce` is reported,
 //! not acted on: nothing is refused, queued or held.
@@ -135,11 +135,15 @@ fn apply_key(f: &mut Formula, key: &str, value: &Value) {
     };
 }
 
-/// The override file's path: `$ACPMUX_HOST_BUDGET`, else `~/.config/cmux/host-budget.json`.
+/// The override file's path: `$ACPMUX_HOST_BUDGET`, else `~/.config/cmux/host-budget.json`
+/// (`~/.config/cmux-next/` on macOS, where `cmux` is cmux Classic's).
 pub fn override_path() -> Option<PathBuf> {
     match std::env::var_os(OVERRIDE_ENV).filter(|v| !v.is_empty()) {
         Some(path) => Some(PathBuf::from(path)),
-        None => dirs::home_dir().map(|h| h.join(".config/cmux/host-budget.json")),
+        None => {
+            let dir = if cfg!(target_os = "macos") { "cmux-next" } else { "cmux" };
+            dirs::home_dir().map(|h| h.join(".config").join(dir).join("host-budget.json"))
+        }
     }
 }
 
@@ -192,6 +196,25 @@ pub struct Sample {
     pub available_ram_fraction: Option<f64>,
     /// Bytes swapped out since boot.
     pub swapout_bytes: Option<u64>,
+    // RFD 0072 signals. Read, never judged: `evaluate` ignores them.
+    /// The share of all CPUs busy since the last sample (0..1); none on the first.
+    pub cpu_busy: Option<f64>,
+    /// macOS `com.apple.system.thermalpressurelevel`: 0 nominal, 1 moderate, 2 heavy,
+    /// 3 trapping, 4 sleeping ([`thermal_pressure_word`]).
+    pub thermal_pressure_level: Option<u32>,
+    /// Linux: the hottest `/sys/class/thermal` zone, in degrees C.
+    pub thermal_max_c: Option<f64>,
+    /// On AC power. Not read here: acpmux's `host_power` reads it (and the lid); a caller fills it.
+    pub on_ac: Option<bool>,
+    /// The battery's percent; as `on_ac`.
+    pub battery_percent: Option<u8>,
+    /// Seconds since the last keyboard or pointer input (macOS `HIDIdleTime`); none on Linux.
+    pub hid_idle_seconds: Option<f64>,
+    /// Timer lateness over the last minute ([`lateness`]), once [`lateness::start_global`] ran.
+    pub lateness_p50_ms: Option<f64>,
+    pub lateness_p95_ms: Option<f64>,
+    /// The share of timer wakes more than 5 ms late (0..1).
+    pub lateness_over_5ms_share: Option<f64>,
 }
 
 /// Reads a [`Sample`]; tests inject their own.
@@ -362,10 +385,14 @@ pub use meter::{Meter, SAMPLE_WAIT};
 // The real host's readings, and the parsers of Linux's `/proc` files.
 mod probe;
 pub use probe::{
-    HostProbe, cpu_busy, parse_loadavg, parse_meminfo_available, parse_meminfo_swap_used,
-    parse_proc_stat_cpu, parse_psi_avg60, parse_psi_some_avg10, parse_vmstat_oom_kill,
-    parse_vmstat_pswpout, performance_cores,
+    HostProbe, Reclaim, cpu_busy, parse_loadavg, parse_meminfo_available, parse_meminfo_swap_used,
+    parse_proc_stat_cpu, parse_psi_avg60, parse_psi_some_avg10, parse_thermal_millic_max,
+    parse_vmstat_oom_kill, parse_vmstat_pswpout, parse_vmstat_reclaim, performance_cores,
+    thermal_pressure_word,
 };
+
+// Timer lateness, the interactive-speed signal (RFD 0072): a thread, and the pure window.
+pub mod lateness;
 
 // The level the app shows, which does not flicker, and a verdict judged again
 // with a newer memory pressure.
@@ -373,6 +400,11 @@ mod level;
 pub use level::{LOAD_RELEASE_FRACTION, LOAD_WARN_FRACTION, Level, Reading, Tracker, level_for};
 mod rejudge;
 pub use rejudge::with_pressure;
+
+// Where new work runs: here, or spilled to a machine with room (RFD 0032 "Place").
+pub mod place;
+// Which idle sessions leave this machine while it stays over budget (beside `place::decide`).
+pub mod evacuate;
 
 // The shadow admission verdict (cmuxterm-hq#7342): logged beside a pick, never acted on.
 mod shadow;

@@ -1,4 +1,4 @@
-import CmuxNextCloud
+import CmuxEgress; import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
@@ -32,7 +32,7 @@ extension AppControl {
                 for (name, value) in issuer.buildSpaceHeaders { request.setValue(value, forHTTPHeaderField: name) }
                 request.httpBody = try JSONEncoder().encode(planned.body)
                 // No answer at all is status 0, which Rust reads as unreachable.
-                let answer = try? await URLSession.shared.data(for: request)
+                let answer = try? await CmuxEgress.shared(site: "CmuxNextApp.AppControl+VMAgentKey").data(for: request)
                 let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
                 return try Self.vmAgentKeyAnswer(status: status, body: answer?.0 ?? Data(), baseURL: baseURL, teamID: issuer.teamID)
             }.withDeadline(.fixed(.seconds(25))),
@@ -149,13 +149,13 @@ extension AppControl {
     nonisolated static func vmText(_ text: VMText) -> String {
         switch text {
         case .notSignedIn:
-            String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module)
+            String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module.inAppLanguage)
         case .noTeam:
-            String(localized: "vm.token.error.noTeam", defaultValue: "Choose a cmux team in the cmux app first.", table: "Runs", bundle: .module)
+            String(localized: "vm.token.error.noTeam", defaultValue: "Choose a cmux team in the cmux app first.", table: "Runs", bundle: .module.inAppLanguage)
         case .unreachable:
-            String(localized: "vm.token.error.unreachable", defaultValue: "The cmux VM service didn't answer. Try again in a moment.", table: "Runs", bundle: .module)
+            String(localized: "vm.token.error.unreachable", defaultValue: "The cmux VM service didn't answer. Try again in a moment.", table: "Runs", bundle: .module.inAppLanguage)
         case .cloudUnavailable:
-            String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module)
+            String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module.inAppLanguage)
         }
     }
 }

@@ -90,26 +90,21 @@ impl Journal {
     }
 
     /// A daemon restart may launch the successor just before the old runner
-    /// notices its disconnected socket. Wait on the kernel lock, with a bounded
-    /// deadline, rather than racing it or polling. No work starts until claimed.
-    pub fn open_handoff(
-        directory: &Path,
-        source: &str,
-        fresh_call_limit: usize,
-        timeout: std::time::Duration,
-    ) -> Result<Self> {
+    /// notices its disconnected socket. Wait on the kernel lock's exact
+    /// ownership condition rather than racing it, sampling, or imposing an
+    /// arbitrary handoff delay. No work starts until the old owner exits and
+    /// the kernel grants this process the lock.
+    pub fn open_handoff(directory: &Path, source: &str, fresh_call_limit: usize) -> Result<Self> {
         crate::config::private_state_dir(directory)?;
         let owner = private_file(&directory.join("resume.lock"))?;
         let (send, receive) = std::sync::mpsc::sync_channel(1);
         std::thread::Builder::new().name("workflow-handoff".into()).spawn(move || {
             let result = owner.lock().map(|()| owner);
-            // On timeout, dropping the unreceived File releases the eventual
-            // lock. This thread performs no dispatch or journal mutation.
+            // This thread performs no dispatch or journal mutation; it only
+            // transfers the kernel-granted owner to the runner.
             let _ = send.send(result);
         })?;
-        let owner = receive
-            .recv_timeout(timeout)
-            .context("previous workflow runner did not release its journal")??;
+        let owner = receive.recv().context("workflow handoff waiter stopped")??;
         Self::open_owned(directory, source, fresh_call_limit, owner)
     }
 

@@ -305,6 +305,7 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
     // Each untracked heavy folder is named once, as the folder.
     let mut heavy_named: BTreeSet<String> = BTreeSet::new();
     let top = place::Dir::open(folder)?;
+    let mut chain = place::Chain::default();
     // Each file is counted as git lists it: past the copy's limit the listing stops there.
     let mut skipped = 0;
     working_files(folder, &mut skipped, &mut |path, untracked| {
@@ -326,7 +327,7 @@ fn list_into(set: &mut LocalSet, folder: &Path, rules: Rules) -> anyhow::Result<
             set.skips.note(&path, why);
             return Ok(());
         }
-        add_working(set, &top, folder, &path)
+        add_working(set, &mut chain, &top, folder, &path)
     })?;
     set.skipped += skipped;
     // A share of files sends no git state (`cmux link access` keeps no `.git` path), so it reads none:
@@ -486,6 +487,7 @@ fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<L
     }
     set.git = true;
     let handle = place::Dir::open(folder)?;
+    let mut chain = place::Chain::default();
     // Run in the folder, git lists only what is under it, by paths from it.
     let mut refused: BTreeSet<String> = BTreeSet::new();
     let mut skipped = 0;
@@ -506,7 +508,7 @@ fn listed_files(folder: &Path, enter: &dyn Fn(&str) -> bool) -> anyhow::Result<L
             }
             return Ok(());
         }
-        add_working(&mut set, &handle, folder, &path)
+        add_working(&mut set, &mut chain, &handle, folder, &path)
     })?;
     set.skipped = set.skipped.saturating_add(skipped);
     Ok(set)
@@ -691,6 +693,8 @@ pub(super) fn working_files(
 ) -> anyhow::Result<()> {
     // A conflicted path is listed once a stage; it goes once.
     let mut tracked: HashSet<String> = HashSet::new();
+    let submodules = checked_out_submodules(folder);
+    let mut inside: Vec<String> = Vec::new();
     git_listing(folder, &["ls-files", "-z", "--cached"], &mut |path| {
         let Ok(path) = String::from_utf8(path) else {
             *skipped += 1;
@@ -699,8 +703,23 @@ pub(super) fn working_files(
         if !tracked.insert(path.clone()) {
             return Ok(());
         }
+        // A checked-out submodule's gitlink is a folder: its own files go instead, below.
+        if submodules.contains(&path) {
+            inside.push(path);
+            return Ok(());
+        }
         each(path, false)
     })?;
+    // A submodule's files are its own repository's listing, under its path, and its `.git`
+    // file, which names its repository in the outer one's `.git/modules` (that goes with
+    // the outer repository's git state).
+    for submodule in inside {
+        let prefix = format!("{submodule}/");
+        working_files(&folder.join(&submodule), skipped, &mut |path, untracked| {
+            each(format!("{prefix}{path}"), untracked)
+        })?;
+        each(format!("{prefix}.git"), false)?;
+    }
     git_listing(folder, &["ls-files", "-z", "--others", "--exclude-standard"], &mut |path| {
         let Ok(path) = String::from_utf8(path) else {
             *skipped += 1;
@@ -711,6 +730,32 @@ pub(super) fn working_files(
         }
         each(path, true)
     })
+}
+
+/// The submodules of the repository at `folder` that are checked out with a `.git` file (as
+/// `git submodule add` and `clone --recurse-submodules` leave them), by path. Read from
+/// `.gitmodules`, so a repository without one costs one stat. A submodule not checked out, or
+/// with its own `.git` folder, is left as its gitlink.
+fn checked_out_submodules(folder: &Path) -> HashSet<String> {
+    if !folder.join(".gitmodules").is_file() {
+        return HashSet::new();
+    }
+    let Ok(listed) = git(
+        folder,
+        &["config", "--file", ".gitmodules", "-z", "--get-regexp", r"^submodule\..*\.path$"],
+    ) else {
+        return HashSet::new();
+    };
+    listed
+        .split('\0')
+        .filter_map(|entry| entry.split_once('\n').map(|(_, path)| path))
+        .filter(|path| below(path))
+        .filter(|path| {
+            std::fs::symlink_metadata(folder.join(path).join(".git"))
+                .is_ok_and(|meta| meta.is_file())
+        })
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Runs git as [`git_bytes`] does and calls `each` with every NUL-ended name
@@ -774,7 +819,9 @@ pub(super) fn git(folder: &Path, args: &[&str]) -> anyhow::Result<String> {
 /// names (an fsmonitor or a hook) and never taking a bare repository in it
 /// for its own.
 pub(super) fn git_bytes(folder: &Path, args: &[&str]) -> anyhow::Result<Vec<u8>> {
-    let output = git_command(folder, args).output().context("cannot run git")?;
+    let name = format!("git {}", args.first().copied().unwrap_or("?"));
+    let output = crate::link::spans::time(&name, || git_command(folder, args).output())
+        .context("cannot run git")?;
     if !output.status.success() {
         bail!("git {}: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
     }

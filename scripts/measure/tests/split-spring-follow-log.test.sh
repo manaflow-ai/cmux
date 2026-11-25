@@ -21,8 +21,9 @@ printf 'old run line\n' > "$log"
   unfollow_log
   if kill -0 "$pid" 2>/dev/null; then echo "FAIL: the tail $pid still runs"; exit 1; fi
   [[ -z "$follow_pid" ]] || { echo "FAIL: follow_pid not cleared"; exit 1; }
-) > "$work/out" 2>&1
-sleep 0.2  # the awk ends once its tail did; its last flushed lines are in the file
+) 2>&1 | cat > "$work/out"
+# Through a pipe: the pipeline ends only once every writer closed it, the follow's awk too (it ends with its
+# tail), so its last flushed lines are in the file by now.
 out="$(cat "$work/out")"
 grep -qx 'reload-log: first line' <<<"$out" || { echo "FAIL: no first line: $out"; exit 1; }
 grep -qx 'reload-log: second line' <<<"$out" || { echo "FAIL: no second line: $out"; exit 1; }

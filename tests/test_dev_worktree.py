@@ -213,7 +213,7 @@ class DedupeTests(unittest.TestCase):
             old = f.tmp / "old"
             git(f.repo, "worktree", "add", "-q", "--detach", str(old), f.c)
             (old / "src" / "edit.txt").write_text("my edit\n")
-            time.sleep(1.1)  # files older than the index, in whole seconds: not racily clean
+            time.sleep(1.1)  # sleep-ok: an mtime tick; files older than the index, in whole seconds: not racily clean
             git(old, "update-index", "-q", "--really-refresh", check=False)  # as an agent's status would
             before = physical_offset(old / "src" / "big.bin")
             self.assertNotEqual(before, physical_offset(f.seed / "src" / "big.bin"))
@@ -245,8 +245,10 @@ class DedupeTests(unittest.TestCase):
             self.assertEqual(tool(f.repo, f.seed, "seed", "HEAD").returncode, 0)
             old = f.tmp / "old"
             git(f.repo, "worktree", "add", "-q", "--detach", str(old), "HEAD")
-            time.sleep(1.1)
+            time.sleep(1.1)  # sleep-ok: an mtime tick; files older than the index, in whole seconds: not racily clean
             git(old, "update-index", "-q", "--really-refresh", check=False)
+            first = old / "many" / "f0.txt"
+            first_inode = first.stat().st_ino
             env = git_fixture_env.fixture_env()
             proc = subprocess.Popen([sys.executable, "-I", str(TOOL), "-C", str(f.repo), "--seed-dir", str(f.seed),
                                      "dedupe", "--apply", "--only", str(old)], env=env,
@@ -255,7 +257,9 @@ class DedupeTests(unittest.TestCase):
             deadline = time.monotonic() + 60
             while not (gdir / "index.lock").exists() and proc.poll() is None and time.monotonic() < deadline:
                 time.sleep(0.01)  # until it holds the index: stopped while it clones
-            time.sleep(0.05)
+            # Until its first clone is in place (os.replace gives many/f0.txt a new inode): stopped mid-clone.
+            while first.stat().st_ino == first_inode and proc.poll() is None and time.monotonic() < deadline:
+                time.sleep(0.01)
             self.assertIsNone(proc.poll(), "dedupe ended before it could be stopped; make the fixture bigger")
             proc.terminate()
             proc.wait(timeout=60)
