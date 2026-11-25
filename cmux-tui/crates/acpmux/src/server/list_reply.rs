@@ -13,6 +13,7 @@
 use super::{Conn, Hub, Message, RpcError, Value, json, peer_text};
 use crate::hub::list_guard::RequestStage;
 use crate::hub::row_log;
+use crate::no_panic::LockExt as _;
 use cmux_json::JsonSet as _;
 use std::cell::RefCell;
 use std::future::Future;
@@ -253,6 +254,11 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.set_watching(on);
+    // A client watching again may have lost row notices (a host left them out): each chat's next
+    // row goes whole, a base it can patch (`session_patch.rs`).
+    if on {
+        *conn.sent_rows.lock_or_recover() = Default::default();
+    }
     // Off is a pause (a hidden page, webviews sessionPages.ts `pause`): the client keeps the rows and
     // cursor it holds and follows from them when it turns the watch on again, so no list is built
     // for it, as `_acpmux/inventory_watch` answers `{}` (docs/inventory-watch.md).

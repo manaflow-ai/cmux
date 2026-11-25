@@ -101,6 +101,9 @@ impl Mux {
             self.note_launch_for_freeing();
         }
         self.activity.observe(&event);
+        if journal_plugin_demand_tapped() {
+            self.note_journal_plugin_demand_event(&event);
+        }
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
         }
