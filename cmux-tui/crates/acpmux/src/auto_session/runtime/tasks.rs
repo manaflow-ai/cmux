@@ -288,8 +288,35 @@ impl<C: AutoCloud + 'static> Ctx<C> {
                     tracing::warn!(session = %id, "auto session: assignment not acked: {error}");
                 }
             }
+            LaneOp::Unsent { after } => self.unsent(&id, after).await,
         }
         self.tell(Command::LaneDone { id, drained: op == LaneOp::Drain });
+    }
+
+    /// The person's prompts that wait in the chat's queue here and that the store never had
+    /// (queued after record `after`) go to the chat's Cloud inbox, oldest first. Each goes
+    /// under its own id, so one sent twice is one message to the store, and a holder whose
+    /// log has the prompt after all does not take it again (`inbox.rs`). A prompt whose id
+    /// the store does not take stays as it is: under a new id it could run twice.
+    async fn unsent(&self, id: &str, after: u64) {
+        let Some(session) = self.session(id) else { return };
+        let hub = self.hub.clone();
+        let read = tokio::task::spawn_blocking(move || hub.auto_unsent(&session, after)).await;
+        for (prompt, text) in read.unwrap_or_default() {
+            if super::switch::message_id(Some(&prompt)) != prompt {
+                continue;
+            }
+            let post = InboxPost { id: prompt, text };
+            match self.cloud.post_inbox(id, &post).await {
+                Ok(_) => {
+                    tracing::info!(session = %id, prompt = %post.id, "auto session: queued prompt sent");
+                }
+                Err(error) => {
+                    tracing::warn!(session = %id, "auto session: queued prompt not sent: {error}");
+                    return;
+                }
+            }
+        }
     }
 
     /// The leftover patch: what the folder holds beyond the snapshot whose tree is `anchor`.

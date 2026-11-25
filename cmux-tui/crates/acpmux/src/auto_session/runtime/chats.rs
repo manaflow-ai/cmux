@@ -23,6 +23,9 @@ pub(super) enum LaneOp {
     Drain,
     /// Tell the store the assignment was picked up.
     Ack { epoch: u64 },
+    /// Send the Cloud inbox the person's queued prompts the store never had: the ones queued
+    /// here after record `after` (`tasks.rs` `unsent`).
+    Unsent { after: u64 },
 }
 
 /// Whether the chat's work is being read, and what to read it for next.
@@ -52,6 +55,10 @@ pub(super) struct Tracked {
     pub view: Option<SessionView>,
     /// The store's last event, as far as this machine knows.
     pub sent: u64,
+    /// The last record of this machine's own log that the store has, when that is known: what
+    /// its last copy stored, or the import its log began from. `sent` follows the store, so it
+    /// counts another holder's records once the chat is theirs; this does not.
+    pub own: Option<u64>,
     /// The epoch of the copy that is on its way.
     pub copying: Option<u64>,
     /// The newest copy asked for while one was on its way. It goes at the chat's epoch then.
@@ -90,6 +97,7 @@ impl Tracked {
             timer: None,
             view: None,
             sent: 0,
+            own: None,
             copying: None,
             wanted: None,
             lane: VecDeque::new(),

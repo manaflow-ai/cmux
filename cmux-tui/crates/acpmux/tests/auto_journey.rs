@@ -41,6 +41,8 @@ mod native;
 mod steps;
 #[path = "auto_journey/taking.rs"]
 mod taking;
+#[path = "auto_journey/unsent.rs"]
+mod unsent;
 #[path = "auto_journey/variants.rs"]
 mod variants;
 #[path = "auto_journey/world.rs"]

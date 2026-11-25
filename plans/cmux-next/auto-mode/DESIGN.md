@@ -413,7 +413,13 @@ Known limits of the store's rules:
   does not try that copy again until the folder changes. The laptop sees `coming_back` and Auto off is refused.
 - What a laptop did after the last copy that reached the store is not in a takeover: the machine goes on from the
   store's copy, and the laptop's later folder changes are kept as its leftover patch when it returns. Its later
-  conversation records stay in its own log only.
+  conversation records are not in the chat: the machine never had them, and the laptop's log is replaced by the
+  store's copy when the chat comes home. The exception is a prompt the person queued there that had not started:
+  the laptop sends it to the chat's Cloud inbox when it learns another holder has the chat, and once more before
+  it brings the Cloud's copy in, under the prompt's own id, so the holder runs it once. Not sent: a prompt whose
+  turn had started on the laptop (its work is in the leftover patch), one with no text, one whose id the store
+  does not take, an inbox message the laptop had taken and acked moments before it dropped off, and anything
+  queued before a laptop daemon restart that no copy followed (the daemon then does not know what the store has).
 - `delivered` to a laptop holder means the store took the message for a holder whose lease is live. A laptop that
   has just gone to sleep reads it when it wakes, or the machine does after the takeover.
 

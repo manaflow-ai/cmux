@@ -68,12 +68,19 @@ impl<C: AutoCloud + 'static> Loop<C> {
                     tracked.tool = None;
                 }
             }
-            Effect::WriteLeftoverPatch => self.lane(id, LaneOp::Leftover),
+            Effect::WriteLeftoverPatch => {
+                self.lane(id, LaneOp::Leftover);
+                self.unsent(id);
+            }
             // The copy sends the events ahead of its snapshot (`export::copy`).
             Effect::UploadEvents { .. } => {}
             Effect::UploadSnapshot { epoch, copy } => self.copy(id, epoch, copy),
             Effect::DrainInbox => self.lane(id, LaneOp::Drain),
-            Effect::Import { reason, epoch } => self.lane(id, LaneOp::Import { reason, epoch }),
+            Effect::Import { reason, epoch } => {
+                // Once more before the chat here is replaced, for a send that did not arrive.
+                self.unsent(id);
+                self.lane(id, LaneOp::Import { reason, epoch });
+            }
             Effect::AckAssignment { epoch } => self.lane(id, LaneOp::Ack { epoch }),
             // A chat the person moved (`give.rs`).
             Effect::StopTurn => self.stop_turn(id),
@@ -128,12 +135,14 @@ impl<C: AutoCloud + 'static> Loop<C> {
         let event = match result {
             Ok(copied) => {
                 tracked.sent = copied.last_seq;
+                tracked.own = Some(copied.last_seq);
                 tracked.anchor = copied.stored.anchor;
                 Event::SnapshotStored { copy, snapshot: copied.stored.snapshot }
             }
             Err((stored, failed)) => {
                 if let Some(stored) = stored {
                     tracked.sent = stored;
+                    tracked.own = Some(stored);
                 }
                 if let Failed::Cloud(error) = &failed
                     && matches!(error.code(), Some(ErrorCode::StaleEpoch | ErrorCode::NotHolder))
@@ -166,6 +175,19 @@ impl<C: AutoCloud + 'static> Loop<C> {
     }
 
     /// Queues one thing in the chat's lane and starts it when the lane is free.
+    /// A laptop that lost the chat, or brings its Cloud copy in, sends the Cloud inbox what
+    /// the person queued here that the store never had, so the chat's holder runs it once. A
+    /// takeover goes on from the store's copy, and an import replaces the chat here with it:
+    /// without this such a prompt would run nowhere.
+    fn unsent(&mut self, id: &str) {
+        if self.side != holder::Side::Laptop {
+            return;
+        }
+        if let Some(after) = self.chats.get(id).and_then(|tracked| tracked.own) {
+            self.lane(id, LaneOp::Unsent { after });
+        }
+    }
+
     pub(super) fn lane(&mut self, id: &str, op: LaneOp) {
         let Some(tracked) = self.chats.get_mut(id) else { return };
         // One drain that waits is enough: it takes whatever the inbox holds when it runs.
@@ -241,6 +263,7 @@ impl<C: AutoCloud + 'static> Loop<C> {
                     // The chat's log here is the store's now, and the folder is the snapshot's:
                     // the next copy sets the tree a leftover patch is cut against.
                     tracked.sent = imported.last_seq;
+                    tracked.own = Some(imported.last_seq);
                     tracked.anchor = None;
                     tracked.tool = None;
                     // The import made the chat a session of this daemon.
