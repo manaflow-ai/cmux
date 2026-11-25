@@ -22,7 +22,7 @@ import type { Folds } from "./viewFolds";
 import { continuesTurn, opensTurn } from "../turnStart";
 import { AFTER_SEND, findRowIndex } from "./chatFind";
 import { cutLongRuns } from "./runParts";
-import { keptPrefix, noteKeptPrefix, PrefixFilter } from "./prefixFlatMap";
+import { keptPrefix, PrefixFilter, noteKeptPrefix } from "./prefixFlatMap";
 import { renderCall } from "./renderCall";
 import { hasTimestamp, showsTimestamp, type TurnTimes } from "./timestamps";
 import { isRunGroup, isSubagentGroup, WORKFLOW_CARD, SUBAGENT_DONE, SUBAGENT_STARTED } from "../subagents/subagentRows";
@@ -3372,6 +3372,18 @@ export function continuationStart(rows: readonly AcpmuxRow[], start: number): nu
     }
   }
   return from;
+}
+
+/// When the running turn's current stretch began, for a clock outside the transcript (the composer
+/// hat's plan header, cmux#51039): the harness's turn start, else the person's last prompt, moved on
+/// to the latest notice that set the agent going again (`continuationStart`), so it reads as the
+/// transcript's live line does. Undefined without a known start.
+export function liveTurnClockStart(rows: readonly AcpmuxRow[], turnStartedAtMs?: number): number | undefined {
+  let index = rows.length - 1;
+  while (index >= 0 && !sentByPerson(rows[index]!)) index -= 1;
+  const opened = turnStartedAtMs ?? rows[index]?.at;
+  if (opened === undefined || !hasTimestamp(opened)) return undefined;
+  return continuationStart(index < 0 ? rows : rows.slice(index + 1), opened);
 }
 
 /// A turn's footer that holds only its buttons (copy, fork, pin, read aloud, its time): no failure,

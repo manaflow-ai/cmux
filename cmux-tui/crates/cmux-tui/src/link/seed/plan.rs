@@ -101,6 +101,10 @@ pub struct Planned {
     /// (`seed_cli::asks_head_first`).
     #[serde(skip)]
     pub lfs_attributes: Vec<String>,
+    /// The LFS pointers in the work commit and whether this Mac holds their content; empty
+    /// unless `CMUX_SEED_LFS=1` ([`super::lfs::enabled`]).
+    #[serde(skip)]
+    pub lfs_files: Vec<super::lfs::LfsFile>,
 }
 
 /// The commits an earlier seed of this folder sent ([`plan_since`]).
@@ -337,6 +341,7 @@ pub fn plan_recorded(
         bundle_bytes,
         unchanged: false,
         lfs_attributes,
+        lfs_files: Vec::new(),
     })
 }
 
@@ -619,6 +624,13 @@ fn build(
     let stash = repo.commit("refs/stash");
     let lfs_attributes = lfs_attributes(repo, &skipped);
     skipped.extend(submodule_work);
+    let lfs_files = if super::lfs::enabled() {
+        let dir = repo.git_path("lfs")?;
+        super::lfs::scan(&repo.top, &dir, &work_commit)
+    } else {
+        Vec::new()
+    };
+    skipped.extend(super::lfs::skipped(&lfs_files));
 
     let mut refs = vec![
         ("refs/cmux-seed/head", repo.head.as_str()),
@@ -706,6 +718,7 @@ fn build(
         bundle_bytes,
         unchanged,
         lfs_attributes,
+        lfs_files,
     })
 }
 

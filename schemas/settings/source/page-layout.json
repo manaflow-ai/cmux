@@ -564,6 +564,7 @@
             {"title": {"key": "settings.pageGroup.network", "text": "Network Requests"}, "keys": [
               "browser.omnibar.remoteSuggestions", "announcements.fetch"
             ]},
+            {"group": "settings.group.anonymousTelemetry", "note": "Opt-in crash reports and product analytics (`sendAnonymousTelemetry`)."},
             {"group": "settings.group.hangReports"},
             {"group": "settings.group.usagePatterns", "note": "Opt-in local usage patterns (cmux-usage-patterns); `cmux usage-patterns` reads them."},
             {"group": "settings.group.sshLinks", "note": "The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate)."}
