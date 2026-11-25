@@ -341,7 +341,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         hosts[tab.id] = host
         hostFrameKeys[tab.id] = key
         frameLifecycle.hostBuilt(tabID: tab.id)
-        upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil)
+        upgrade.built(tabID: tab.id, workspaceID: workspace.id, live: live != nil, upgradable: attachLive)
         placeholderTabs[tab.id] = live == nil ? (tab, workspace) : nil
         if let slot = slots[tab.id] { slot.host = host }
         watchReattach(tab.id, model: model)

@@ -21,7 +21,13 @@ import Testing
             return PendingTerminalSession(macName: "Mac", programName: "zsh")
         }
 
+        _ = source.card(for: tab, in: workspace)
         source.prepareCard(for: tab, in: workspace)
+        #expect(requests == 0)
+
+        source.workspaceLookup = { _ in workspace }
+        source.hasLiveSession = { _, _ in true }
+        source.liveDataChanged()
         #expect(requests == 0)
 
         _ = source.page(for: tab, in: workspace,
