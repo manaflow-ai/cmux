@@ -257,7 +257,7 @@ import Testing
         }, open: { opened.append($0) })
         await model.connect()
         #expect(model.error)
-        #expect(model.canConnect, "the held key makes the pending flow resumable")
+        #expect(model.canConnect, "a pending flow never blocks Connect; the held key resumes it")
         await model.connect()
         #expect(keys.count == 2)
         #expect(keys[0] != nil && keys[0] == keys[1])
@@ -343,19 +343,27 @@ import Testing
         #expect(GitHubConnections.signedInScope(project: "project", user: "user", team: nil, managedTeam: nil) != nil)
     }
 
-    @Test func restoredPendingConnectionDoesNotCreateADuplicate() async {
+    /// #46018: a pending connection this launch can't resume (another launch's, or one whose return to cmux failed) can't
+    /// be finished, so it never makes Connect a no-op: Connect asks for a new one and opens GitHub, once per click.
+    @Test func aPendingConnectionFromAnotherLaunchStillConnects() async {
         var connects = 0
         var opened = 0
         let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
-            if op == "integration.connect" { connects += 1 }
-            return ["connections": [["id": "pending", "provider": "github", "created_by": "user", "status": "pending"]], "providers": [["provider": "github", "configured": true]]]
+            if op == "integration.connect" {
+                connects += 1
+                return ["connection": ["id": "fresh"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return ["connections": [["id": "stale", "provider": "github", "created_by": "user", "status": "pending"]], "providers": [["provider": "github", "configured": true]]]
         }, open: { _ in opened += 1 })
+        await model.perform("githubRefresh")
+        #expect(model.pageState["canConnect"] == true)
         await model.connect()
-        #expect(model.pageState["canConnect"] == false)
-        #expect(model.pageState["outcome"] == "pending")
+        #expect(connects == 1)
+        #expect(opened == 1)
+        // A second click reopens this launch's own page; it asks no second connection.
         await model.perform("githubConnect")
-        #expect(connects == 0)
-        #expect(opened == 0)
+        #expect(connects == 1)
+        #expect(opened == 2)
     }
 
     @Test func sharedConnectDoesNotCreateAnotherActiveConnection() async {

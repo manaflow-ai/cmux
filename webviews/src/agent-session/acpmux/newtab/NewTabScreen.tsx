@@ -17,6 +17,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
+import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
 import type { ConnectKind } from "../environments";
 import { githubFolder, githubFolderRepo } from "../githubRepos";
 import { useSendAfterCheckout } from "../sendAfterCheckout";
@@ -837,11 +838,14 @@ export function NewTabScreen(props: Props) {
       ? project
       : (props.startCwd ?? (props.startPending && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   const cloudMode = props.runMode?.mode === "cloud";
-  const cloudFolder = cloudRepositoryPick(
-    localAskFolder,
-    (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
-      props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
-  );
+  // A folder of this Mac the person picked here goes to Cloud as itself (copied, granted on the pick) when it is
+  // no clone of a GitHub repository; never the tab's inherited folder (cmux#53226).
+  const cloudFolder =
+    cloudRepositoryPick(
+      localAskFolder,
+      (localGitHubPick?.cwd === localAskFolder ? localGitHubPick?.name : undefined) ??
+        props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
+    ) ?? (picked && project !== undefined && localAskFolder === project ? project : undefined);
   const askFolder = cloudMode ? cloudFolder : githubFolderRepo(localAskFolder) ? undefined : localAskFolder;
   // A GitHub repository picked with This Mac picked, not checked out yet: the chip names it, Return checks it out.
   const pendingGitHubFolder = !cloudMode && githubFolderRepo(localAskFolder) ? localAskFolder : undefined;
@@ -1915,6 +1919,52 @@ export function NewTabScreen(props: Props) {
   const placeholder = profilePick ? nt("profile.placeholder", { site: shortHost(profilePick.url) }) : nt("placeholder");
   // A dictation waiting for words says so in the empty field, in italic (dictation.css).
   const dictating = props.dictating === true;
+  // `app.keyStyle`. The prompt keeps its typing (Emacs' Ctrl-N/P are listStep's arrows already);
+  // Vim's Esc (Emacs' Ctrl-G) on open suggestions gives the keyboard to them, where j/k, gg/G and l
+  // or Return step and run them as the arrows and Return do, and / goes back to the prompt. A key
+  // the rows take never reaches the type-to-field listener (`typeAnywhere`: it is prevented, and
+  // the listbox owns its keys).
+  const rowsTakeKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const fieldKeys = useListKeys({
+    onCommand: (command) => {
+      if (command !== "list.leave" || !rows.length || !list.current) return false;
+      focusRoute(list.current, "person", "key style list key", { preventScroll: true });
+    },
+  });
+  const rowKeys = useListKeys({
+    onCommand: (command) => {
+      if (!rows.length) return false;
+      switch (command) {
+        case "list.next":
+          pick(stepSelection(current, 1, rows.length));
+          return;
+        case "list.previous":
+          pick(stepSelection(current, -1, rows.length));
+          return;
+        case "list.first":
+          return pick(0);
+        case "list.last":
+          return pick(rows.length - 1);
+        case "list.open":
+          return void submit();
+        case "list.search":
+          return void focusRoute(field.current, "person", "key style list key");
+        case "list.leave":
+          // The field's first Escape: the suggestions close, the prompt has the keyboard again.
+          setDismissed(text);
+          return void focusRoute(field.current, "person", "key style list key");
+        default:
+          return false;
+      }
+    },
+  });
+  const rowsKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    rowKeys(event);
+    const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    if (event.defaultPrevented || event.key !== "Enter" || !plain || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    submit();
+  };
   const keyDown = (event: KeyboardEvent) => {
     touch();
     if (composing.current || event.isComposing || event.keyCode === 229) return;
@@ -1922,6 +1972,11 @@ export function NewTabScreen(props: Props) {
     const input = field.current;
     const state = fieldText();
     if (!input) return;
+    // The profile search, the command list and shell mode keep their own Escape.
+    if (!profilePick && !commandsOpen && !shell) {
+      fieldKeys(event);
+      if (event.defaultPrevented) return;
+    }
     if (profilePick) {
       // The profile search keeps the rows' keys; Escape, or Backspace in its empty field, goes back.
       if (event.key === "Escape" || (event.key === "Backspace" && !state.value)) {
@@ -2125,7 +2180,8 @@ export function NewTabScreen(props: Props) {
     setPicked(true);
     setNone(cwd === undefined);
     setProject(cwd);
-    if (cwd && !cloudMode && !githubFolderRepo(cwd)) props.onProjectPicked?.(cwd);
+    // With Cloud picked too: the host grants it on this click, so the Cloud start can copy it (cmux#53226).
+    if (cwd && !githubFolderRepo(cwd)) props.onProjectPicked?.(cwd);
     if (!cwd) setCloudFolderWaiting(false);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,
@@ -3009,6 +3065,8 @@ export function NewTabScreen(props: Props) {
             }${boxFocused ? " nt-popover-focused" : ""}`
           }
           hostGlass={false}
+          // The rows are the live answer to what is typed in the field (ui/popupSettle.ts).
+          popupSettle="results"
           initialFocus={false}
           finalFocus={false}
         >
@@ -3019,6 +3077,8 @@ export function NewTabScreen(props: Props) {
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={nt("suggestions")}
+            tabIndex={rowsTakeKeys ? -1 : undefined}
+            onKeyDown={rowsKeyDown}
           >
             {rows.map((row, index) => (
               <div

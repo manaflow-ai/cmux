@@ -17,7 +17,7 @@ import React, {
   useSyncExternalStore,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
 import type { ConnectKind, OffloadKind, OffloadReasons } from "./environments";
@@ -206,6 +206,7 @@ import { focusRoute } from "../../ui/focusRoute";
 import { outcomeAsk } from "./outcomeAsk.experiment";
 import { withOutcomeAsk } from "./outcomeAsk";
 import type { ComposerEditCommand } from "./composerEditCommand";
+import { ComposerCustomizer } from "./ComposerCustomizer";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -891,10 +892,10 @@ function ComposerFrame({
   const promptRef = useRef(promptText);
   /// Each write from here (not the field's own typing) renders the frame once, so the caret it
   /// asked for (`pendingCaret`) is applied after the field takes the text.
-  const [, setWrites] = useState(0);
   const writeText = (value: string, at: number) => {
+    if (field.current && field.current.value() !== value) field.current.reset(value);
     promptRef.current.set(value, at);
-    setWrites((count) => count + 1);
+    promptRef.current.draw();
   };
   /// Runs a text change's draft writes (the text effects of before) once per change, after the
   /// handler that made it, as React's flush of the change ran them.
@@ -1903,7 +1904,7 @@ function ComposerFrame({
     // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
     // and emoji lists come back as the / list does.
     promptRef.current.set(value, at, true);
-    if (!typed) setWrites((count) => count + 1);
+    if (!typed) promptRef.current.draw();
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
     // next draft picks its own skills.
     if (!value.trim()) pickedSkills.current.clear();
@@ -2373,12 +2374,21 @@ function ComposerFrame({
     setShellText(typed);
     shellCaret.current = typed.length;
   };
+  /// Shows the prompt again (shell mode's end) and puts the caret in it in the same task: the prompt is
+  /// `display: none` until the render that ends shell mode commits, and a focus before that does
+  /// nothing, so the shell field unmounted and the keyboard went to the page, with no caret until a
+  /// click (Leo, 2026-11-22: "we can't have that"). Only from an event handler, never a render.
+  const showPrompt = () => {
+    flushSync(() => {
+      setShell(false);
+      setShellText("");
+    });
+    field.current?.focus();
+  };
   /// Leaves shell mode; what was typed moves to the prompt, never lost.
   const exitShell = () => {
     const typed = shellText;
-    setShell(false);
-    setShellText("");
-    field.current?.focus();
+    showPrompt();
     if (typed) field.current?.writeText(typed, typed.length, typed.length);
   };
   const runShell = () => {
@@ -2387,9 +2397,7 @@ function ComposerFrame({
     const run = onShell(command);
     if (!run) return;
     setAttachments((current) => cappedShellChips([...current, shellAttachment(run)]));
-    setShell(false);
-    setShellText("");
-    field.current?.focus();
+    showPrompt();
   };
   const interrupt = (event: KeyboardEvent | React.KeyboardEvent) => {
     if (event.key !== "c" || !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return false;
@@ -3469,7 +3477,6 @@ function ComposerFrame({
       )}
       <ComposerBox
         handle={box}
-        prompt={promptText}
         onPersonEdit={() => {
           typedAt.current = performance.now();
         }}
@@ -3480,8 +3487,9 @@ function ComposerFrame({
           className: shell
             ? "acpmux-composer-prompt is-hidden"
             : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}${cloudStarting && startLook === "dimmed" ? " is-cloud-starting" : ""}`,
-          // ComposerBox reads the text itself (`prompt`), so a key renders the box, not this frame.
-          value: "",
+          // The editor updates its own content for each key. This value is the frame's last drawn
+          // snapshot, so the box only renders when the prompt's visible facts change.
+          value: facts.text,
           selectionKey: sessionId,
           placeholder: dictating ? t("dictation.listening") : (startingPlaceholder ?? suggested ?? placeholderText),
           placeholderKey:
@@ -3722,6 +3730,8 @@ function ComposerFrame({
           </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).
+        // The Customize button under the chat box, when its experiment is on (ComposerCustomizer.tsx).
+        footCenter={<ComposerCustomizer />}
         // A new chat has no ring: it shows from the first send (chatHasFirstSend, locationRow.ts),
         // when the location strip goes. After that it keeps its place before the chat reports
         // usage (inert, ContextRing), so the first report moves nothing in the row (hq#1957: the

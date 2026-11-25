@@ -361,22 +361,10 @@ function WorkflowAgentTranscript({
   running: boolean;
   reads: WorkflowReads;
 }) {
-  const transcript = useWorkflowTranscript(
-    pane,
-    reads.sessionId,
-    true,
-    agent,
-    reads.chat,
-    reads.read,
-    reads.connection,
-  );
-  // The first row is the "Subagent of" pill the app's pane leads with; the panel's head names it. The
-  // hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
+  const transcript = useWorkflowTranscript(pane, reads.sessionId, true, agent, reads.read, reads.connection);
+  // The panel's head names the agent. The hook's notice row (Loading, or why the history is short) is a line of its own above the rows, so
   // the window is taken from the agent's rows when they arrive, never from the notice.
-  const rows = useMemo(
-    () => (transcript.rows?.slice(1) ?? []).filter((row) => row.kind !== "notice"),
-    [transcript.rows],
-  );
+  const rows = useMemo(() => (transcript.rows ?? []).filter((row) => row.kind !== "notice"), [transcript.rows]);
   const notice = transcript.rows?.find((row) => row.kind === "notice")?.text;
   // Older history, a page at a time, from the transcript's top (the hook's loader changes each render).
   const loader = useRef(transcript.loadOlder);

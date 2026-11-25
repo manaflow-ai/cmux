@@ -50,6 +50,7 @@ import type {
   DoctorReport,
   HubState,
   ConnectionsState,
+  AutocloudState,
 } from "../pages/settings/ops";
 import type { DoctorTreatment } from "../pages/settings/customizeDoctor";
 import type { MockData } from "../pages/passwords/mockProvider";
@@ -84,6 +85,8 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
+  autocloud?: AutocloudState;
   /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
   connections?: ConnectionsState;
   /** The id of the Accounts team to mark active (Settings > Connections shows its owner menu). */
