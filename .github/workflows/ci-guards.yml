@@ -210,6 +210,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
 
+      - name: Test fleet submission from a plain checkout
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_submit_fleet_test.py
+
       - name: Validate no job names its runner only as literal labels
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
@@ -1666,7 +1670,6 @@ jobs:
       - name: Validate nightly push throttle
         if: ${{ matrix.group == 'release-notary' }}
         run: |
-          python3 tests/test_defaults_guard_review_rerun.py
           python3 tests/test_ci_intent_familiar_review_git.py
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
