@@ -61,6 +61,10 @@
       "scope": "storage:local",
       "class": "mutation"
     },
+    "app.view.state": {
+      "scope": "none",
+      "class": "runtime"
+    },
     "automation.audit.list": {
       "scope": "automation:read",
       "class": "read"
@@ -506,6 +510,10 @@
       "class": "mutation"
     },
     "cloud.vm.event.emit": {
+      "scope": "cloud:execute",
+      "class": "mutation"
+    },
+    "cloud.vm.machine.request": {
       "scope": "cloud:execute",
       "class": "mutation"
     },
