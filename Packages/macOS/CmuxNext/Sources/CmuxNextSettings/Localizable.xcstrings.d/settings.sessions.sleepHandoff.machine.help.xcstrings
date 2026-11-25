@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sessions.sleepHandoff.machine.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "اسم جهاز قمت بتوصيله ضمن الأجهزة، أو auto لاختيار جهاز قيد التشغيل وغير مستخدم."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Naziv mašine koju ste povezali u odjeljku Mašine, ili auto za odabir one koja je uključena i nije u upotrebi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navnet på en maskine, du har forbundet under Maskiner, eller auto for at vælge en, der er tændt og ikke i brug."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Name eines Rechners, den du unter Rechner verbunden hast, oder auto, um einen eingeschalteten und nicht genutzten auszuwählen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The name of a machine you connected under Machines, or auto to pick one that's on and not in use."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El nombre de una máquina que conectaste en Máquinas, o auto para elegir una que esté encendida y no en uso."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le nom d'une machine connectée dans Machines, ou auto pour en choisir une qui est allumée et inutilisée."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il nome di una macchina collegata in Macchine, oppure auto per sceglierne una accesa e non in uso."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "「マシン」で接続したマシンの名前。電源が入っていて使用中でないマシンを自動で選ぶには auto と入力します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ឈ្មោះម៉ាស៊ីនដែលអ្នកបានភ្ជាប់ក្នុងម៉ាស៊ីន ឬ auto ដើម្បីជ្រើសម៉ាស៊ីនដែលបើក និងមិនកំពុងប្រើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "머신 항목에서 연결한 머신의 이름이며, 켜져 있고 사용 중이 아닌 머신을 고르려면 auto를 입력하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Navnet på en maskin du har koblet til under Maskiner, eller auto for å velge en som er på og ikke i bruk."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nazwa maszyny połączonej w sekcji Maszyny lub auto, aby wybrać włączoną i nieużywaną."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O nome de uma máquina que você conectou em Máquinas, ou auto para escolher uma que esteja ligada e não esteja em uso."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Имя машины, подключённой в разделе «Машины», или auto, чтобы выбрать включённую и свободную."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ชื่อเครื่องที่คุณเชื่อมต่อไว้ในเครื่อง หรือ auto เพื่อเลือกเครื่องที่เปิดอยู่และไม่ได้ใช้งาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Makineler bölümünde bağladığınız bir makinenin adı veya açık ve kullanılmayan birini seçmek için auto."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Назва машини, підключеної в розділі «Машини», або auto, щоб вибрати ввімкнену й вільну."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tên của một máy bạn đã kết nối trong Máy, hoặc auto để chọn máy đang bật và không được sử dụng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你在“机器”中连接的机器的名称，或输入 auto 以选择已开机且未被使用的机器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你在「機器」中連接的機器的名稱，或輸入 auto 以選擇已開機且未被使用的機器。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
