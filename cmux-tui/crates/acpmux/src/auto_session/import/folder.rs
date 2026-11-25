@@ -17,11 +17,11 @@
 //! A new folder that cannot be finished is removed.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use cmux_auto_session::wire::Cwd;
+use cmux_process::Command;
 
-use super::reconcile;
+use super::{mirror, reconcile};
 
 use crate::home_fs;
 
@@ -74,7 +74,15 @@ pub(super) fn clone(dir: &Path, remote: &str, branch: &str) -> Result<(), String
     plain(remote, "the repository")?;
     plain(branch, "the branch")?;
     make_empty(dir)?;
-    let cloned = git(dir, &["clone", "-q", "--branch", branch, "--", remote, "."])
+    let cloned = from_mirror(dir, remote, branch)
+        .or_else(|why| {
+            if !why.is_empty() {
+                tracing::info!(%why, "the warm mirror did not make the chat's folder; cloning");
+            }
+            let _ = home_fs::remove_dir_all(dir);
+            make_empty(dir)?;
+            git(dir, &["clone", "-q", "--branch", branch, "--", remote, "."])
+        })
         .or_else(|_| {
             git(dir, &["clone", "-q", "--", remote, "."])?;
             git(dir, &["checkout", "-q", "-b", branch])
@@ -86,11 +94,31 @@ pub(super) fn clone(dir: &Path, remote: &str, branch: &str) -> Result<(), String
     cloned
 }
 
+/// The chat's folder from the warm mirror of `remote` (`mirror.rs`): `branch` checked out,
+/// tracking `origin/<branch>`; at the default branch's head when the remote has no `branch`.
+/// An empty error: the mirror is off.
+fn from_mirror(dir: &Path, remote: &str, branch: &str) -> Result<String, String> {
+    if !mirror::enabled() {
+        return Err(String::new());
+    }
+    let (commit, tracked) = mirror::attach(dir, remote, mirror::Want::Branch(branch))?;
+    git(dir, &["checkout", "-q", "-b", branch, &commit])?;
+    if tracked.is_some() {
+        git(dir, &["branch", "-q", &format!("--set-upstream-to=origin/{branch}"), branch])?;
+    }
+    Ok(commit)
+}
+
 /// Git in `dir` for a snapshot's folder. It reaches the remote with the machine's own git
 /// credentials, never asks at a terminal, gives up on a stalled transfer, and runs no hook of
 /// the repository.
 pub(super) fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
     git_with(dir, &[], args)
+}
+
+/// [`git`] with `input` on its stdin.
+pub(super) fn git_input(dir: &Path, input: &[u8], args: &[&str]) -> Result<String, String> {
+    run(dir, &[], Some(input), args)
 }
 
 /// [`git`] with more environment variables.
@@ -99,7 +127,27 @@ pub(super) fn git_with(
     env: &[(&str, String)],
     args: &[&str],
 ) -> Result<String, String> {
-    let out = Command::new("git")
+    run(dir, env, None, args)
+}
+
+fn run(
+    dir: &Path,
+    env: &[(&str, String)],
+    input: Option<&[u8]>,
+    args: &[&str],
+) -> Result<String, String> {
+    // The input goes in as a file: the child reads it at its own pace, so a full stdout never
+    // blocks a writer.
+    let scratch = match input {
+        Some(input) => {
+            let file = tempfile::NamedTempFile::new().map_err(|e| format!("a temp file: {e}"))?;
+            std::fs::write(file.path(), input).map_err(|e| format!("write git's input: {e}"))?;
+            Some(file)
+        }
+        None => None,
+    };
+    let mut command = Command::new("git");
+    command
         .envs(env.iter().map(|(k, v)| (*k, v.as_str())))
         .arg("-C")
         .arg(dir)
@@ -110,10 +158,11 @@ pub(super) fn git_with(
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes")
         .env("GIT_LFS_SKIP_SMUDGE", "1")
-        .env("LC_ALL", "C")
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("git did not start: {e}"))?;
+        .env("LC_ALL", "C");
+    if let Some(file) = &scratch {
+        command.open_stdin_path(file.path());
+    }
+    let out = command.output().map_err(|e| format!("git did not start: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
         return Err(format!("git {} failed: {}", args.first().unwrap_or(&""), err.trim()));
@@ -173,6 +222,13 @@ impl Git<'_> {
         let (root, before) = if fresh {
             git(dir, &["init", "-q"])?;
             git(dir, &["remote", "add", "origin", self.remote])?;
+            // The base's objects from the warm mirror, borrowed (`mirror.rs`); the fetch below
+            // then finds the base here and asks the remote for nothing.
+            if mirror::enabled()
+                && let Err(why) = mirror::attach(dir, self.remote, mirror::Want::Commit(self.base))
+            {
+                tracing::info!(%why, "the warm mirror did not lend the base; fetching it");
+            }
             (dir.to_owned(), None)
         } else {
             let top = git(dir, &["rev-parse", "--show-toplevel"])
@@ -250,13 +306,17 @@ impl Git<'_> {
         // The base comes from the remote: by its id where the remote gives commits by id, else
         // with the branch it is on. A remote that cannot be reached is no failure yet: a
         // bundle that needs no base, or a folder that has the base already, still checks out.
-        let from_remote =
-            git(dir, &["fetch", "-q", "--no-tags", "origin", self.base]).or_else(|e| {
-                match self.branch {
-                    "" => Err(e),
-                    branch => git(dir, &["fetch", "-q", "--no-tags", "origin", branch]),
-                }
-            });
+        let base = format!("{}^{{commit}}", self.base);
+        let have_base = git(dir, &["cat-file", "-e", &base]).is_ok();
+        let from_remote = if have_base {
+            Ok(String::new())
+        } else {
+            git(dir, &["fetch", "-q", "--no-tags", "origin", self.base])
+        }
+        .or_else(|e| match self.branch {
+            "" => Err(e),
+            branch => git(dir, &["fetch", "-q", "--no-tags", "origin", branch]),
+        });
         if self.bundle.is_empty() {
             let commit = format!("{}^{{commit}}", self.base);
             return match git(dir, &["cat-file", "-e", &commit]) {

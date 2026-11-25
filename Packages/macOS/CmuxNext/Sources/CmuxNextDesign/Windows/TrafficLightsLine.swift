@@ -17,6 +17,20 @@ import CmuxNextCompat
 public struct TrafficLightsLine {
     public init() {}
 
+    /// macOS's traffic light buttons (14 pt; their ink fills the button's width) and the titlebar container it makes
+    /// for them (`TopRowLineAt2xTests`).
+    public nonisolated static let buttonSide: CGFloat = 14
+    public nonisolated static let nativeTitlebarHeight: CGFloat = 32
+
+    /// The close button's left edge, from the window's left edge, in a windowed minimal window on the default line
+    /// (``TopRowLineLook/concentric``) at `scale`: where the red light's ink starts. The sidebar's rows sit so Home's
+    /// house centers under the light (Lucas 2026-11-24), and every row's first glyph and text-only title start where
+    /// the house does. Pure in the density, so a row layout reads it without a window.
+    public static func defaultLeadingX(scale: CGFloat = 2) -> CGFloat {
+        let line = TopRowLine.concentric(WindowTitlebar.topRowMetrics(scale: scale), rim: PaneTabRowRim.height, scale: scale)
+        return placement(centerY: line.centerY, buttonHeight: buttonSide, nativeHeight: nativeTitlebarHeight, scale: scale).leadingX
+    }
+
     /// Where the lights' container is and where the buttons sit in it.
     public nonisolated struct Placement: Equatable, Sendable {
         /// The container's height, from the window's top edge.
