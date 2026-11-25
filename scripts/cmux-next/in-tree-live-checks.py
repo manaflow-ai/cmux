@@ -1753,6 +1753,15 @@ def check_pane_zoom(tab, pane):
         else:
             sized = bool(final) and all(abs(a - b) <= FIT_PX for a, b in zip(final, before))
         rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, f"pane-{direction}.png")})
+        if direction == "zoom" and final and before:
+            # What is on top in the zoomed pane where its old rect is not (the region that stayed dark, 2026-11-24), and
+            # inside its old rect (a control), at rest after the zoom: debug.views_at, builds that have it.
+            height = content_height()
+            probes = {}
+            for name, x in (("left_of_old", (final[0] + before[0]) / 2), ("inside_old", before[0] + before[2] / 2)):
+                y = height - (final[1] + final[3] / 2)
+                probes[name] = rpc("debug.views_at", {"x": x, "y": y})
+            RAW["pane_zoom_views_at"] = probes
         row(sized and len(shown) == 1 and clean and fits(viewport, final) and result["lag_ms"] is not None
             and result["lag_ms"] <= LAG_MS and not zoom_glitch(result["vp"]), f"pane_zoom.{direction}",
             {"bug": 14, "before": before, "final": final, "shown_page_views": len(shown), "clean": clean,
