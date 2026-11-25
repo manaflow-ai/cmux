@@ -2015,5 +2015,35 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(len(git(self.repo, "worktree", "list").splitlines()), 1)
 
 
+
+class DeepenFilterBug(unittest.TestCase):
+    """git 2.55/2.56 aborts a filtered deepen into a shallow checkout that is not a partial clone (fast gates run
+    45539318367): the deepen retries once with no filter; any other failure still stops the job."""
+
+    def fake(self, module, stderr):
+        calls = []
+
+        def git(repo, *args, check=True):
+            calls.append(args)
+            failed = module.DEEPEN_FILTER in args
+            if failed and check:
+                raise SystemExit("unexpected checked call")
+            return subprocess.CompletedProcess(args, 1 if failed else 0, "", stderr if failed else "")
+        module.git = git
+        return calls
+
+    def test_the_pack_objects_bug_retries_without_the_filter(self):
+        module = load(SCRIPT)
+        calls = self.fake(module, "BUG: builtin/pack-objects.c:5098: should_include_obj should only be called")
+        module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        self.assertEqual(calls[-1], ("fetch", "--no-tags", "--quiet", "--deepen=32", "origin", "a", "b"))
+        self.assertIn(module.DEEPEN_FILTER, calls[0])
+
+    def test_any_other_failure_stops(self):
+        module = load(SCRIPT)
+        self.fake(module, "fatal: unable to access")
+        with self.assertRaises(SystemExit):
+            module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a"])
+
 if __name__ == "__main__":
     unittest.main()
