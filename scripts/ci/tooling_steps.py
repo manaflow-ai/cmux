@@ -52,7 +52,7 @@ from workflow_paths_cover_inputs import (  # noqa: E402
 # no test file): scripts/ci/tooling-step-inputs.json. A change to it runs every step, as a change to this router does.
 DECLARED = "scripts/ci/tooling-step-inputs.json"
 ROUTER_FILES = ("scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
-                "scripts/ci/gh_expressions.py", DECLARED)
+                "scripts/ci/gh_expressions.py", "scripts/ci/tooling_reuse.py", DECLARED)
 SETUP_ID = "setup-"
 # Imports no repository file can satisfy: what the job pip-installs (PyYAML, pytest) and Pillow. Any other import the
 # walker cannot resolve may be a repository module it missed, so the step runs.
