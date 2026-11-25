@@ -25,15 +25,38 @@ pub(crate) fn host_pressure_line(p: &Value) -> Option<String> {
 /// session its shell runs in, else the person) hears it once per host per
 /// [`WARNING_EVERY_MS`] (W5-S, bench round 4 friction 9, 2026-11-08: the line came on every
 /// send, in agents' tool output too, where it costs context). `--json` prints none.
-pub(crate) fn warn_host_pressure(accepted: &Value) {
+///
+/// `done` says what already happened (`Done::Started` for `new`, `Done::Queued` for a send): the
+/// line was read as a refusal, and a coordinator who retried a "refused" `acpmux new` got a
+/// second, duplicate lane (fs-agent-lane-2, gcp-agent-lane-6, 2026-11-25). The line now says
+/// the start or send went through and must not be retried.
+pub(crate) fn warn_host_pressure(accepted: &Value, done: Done) {
     let Some(line) = accepted.pointer("/host_pressure/warning").and_then(Value::as_str) else {
         return;
     };
     let caller = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.trim().is_empty());
     let dir = crate::config::home().join("host-warnings");
     if warning_due(&dir, caller.as_deref().unwrap_or("person"), line, crate::store::now_ms()) {
-        eprintln!("{line}");
+        eprintln!("{}", warning_text(line, done));
     }
+}
+
+/// What went through before an over-budget line is printed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Done {
+    /// `new`: the session exists and its first prompt is queued.
+    Started,
+    /// A send: the prompt is queued.
+    Queued,
+}
+
+/// `line` with what already happened after it: a warning, never a refusal.
+pub(crate) fn warning_text(line: &str, done: Done) -> String {
+    let what = match done {
+        Done::Started => "the session started anyway (do not start it again)",
+        Done::Queued => "the prompt was queued anyway",
+    };
+    format!("{line} (warning only, nothing refused: {what})")
 }
 
 /// How long one caller hears no second over-budget line for the same host.

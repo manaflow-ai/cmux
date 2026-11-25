@@ -166,3 +166,24 @@ fn allow_adds_and_set_allow_replaces() {
     assert_eq!(next_allow(&was, Some(&s(&["coord*"])), &s(&["x"])), s(&["coord*", "x"]));
     assert_eq!(next_allow(&was, Some(&s(&[""])), &[]), Vec::<String>::new());
 }
+
+#[test]
+fn a_fleet_hold_lifts_at_its_until_and_an_older_unmarked_one_after_the_default() {
+    // 2026-11-25: a leftover fleet hold idled every chat on a host, silently, for good.
+    let at = 1_000_000;
+    let set = FleetHold {
+        on: true,
+        at,
+        until: Some(at + 60_000),
+        by: Some("c".into()),
+        ..Default::default()
+    };
+    assert!(set.active(at + 59_999));
+    assert!(!set.active(at + 60_000));
+    let never = FleetHold { on: true, at, until: None, by: Some("c".into()), ..Default::default() };
+    assert!(never.active(at + 30 * DEFAULT_FOR_MS));
+    let older = FleetHold { on: true, at, ..Default::default() };
+    assert!(older.active(at + DEFAULT_FOR_MS - 1));
+    assert!(!older.active(at + DEFAULT_FOR_MS));
+    assert!(!FleetHold { on: false, ..never }.active(at));
+}

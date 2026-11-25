@@ -176,9 +176,10 @@ impl Hub {
         }
         // A move committed before `moved_to` was recorded: its log says so.
         let mut moved = false;
-        // The whole log with no move: off the runtime's workers (`qos::off_worker`).
+        // Its `transferred` records, from the kind index (a whole log's parse was minutes of a
+        // big chat's move, cmux#54461), off the runtime's workers (`qos::off_worker`).
         let _ = crate::qos::off_worker(|| {
-            self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+            self.store.scan_kinds(&session.id, &["transferred"], &mut |e: EventRecord| {
                 // The daemon's own records only: an agent's update may carry any kind.
                 moved |= e.dir == "mux" && e.kind == "transferred";
                 !moved
@@ -230,11 +231,13 @@ impl Hub {
             let landed = if let Some(transfer_id) = value.get("transferId").and_then(Value::as_str)
             {
                 let mut landed = false;
-                let _ = self.store.scan(id, 0, &mut |event: EventRecord| {
-                    landed |= event.kind == "transferred_in"
-                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
-                    !landed
-                });
+                let _ =
+                    self.store.scan_kinds(id, &["transferred_in"], &mut |event: EventRecord| {
+                        landed |= event.kind == "transferred_in"
+                            && event.msg.get("transferId").and_then(Value::as_str)
+                                == Some(transfer_id);
+                        !landed
+                    });
                 landed
             } else {
                 false
@@ -341,11 +344,12 @@ impl Hub {
             super::transfer::is_plain_id(outer_id),
         ) {
             let mut landed = false;
-            let _ = self.store.scan(outer_id, 0, &mut |event: EventRecord| {
-                landed |= event.kind == "transferred_in"
-                    && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
-                !landed
-            });
+            let _ =
+                self.store.scan_kinds(outer_id, &["transferred_in"], &mut |event: EventRecord| {
+                    landed |= event.kind == "transferred_in"
+                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
+                    !landed
+                });
             landed
         } else {
             false
@@ -682,7 +686,13 @@ impl Hub {
         params: &Value,
     ) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).filter(|s| !s.is_empty());
+        // The owner's login for the chat's agent (`agent_credentials.rs`), which a new Cloud
+        // machine has none of: held on the chat before its queue runs, so the turn the move
+        // continues starts signed in. Never recorded; a bad one fails the finish before anything.
+        let credential = crate::agent_credentials::requested(Some(params))?;
+        let mut steps = super::transfer_out::transfer_live::MoveSteps::new("finish");
         let _receives = RECEIVES.lock().await;
+        steps.step("lock");
         let dir = receive_dir(text("receiveId").unwrap_or(""))?;
         let (manifest, files) = receive_manifest(&dir)?;
         let incoming_epoch = manifest_epoch(&manifest)?;
@@ -697,6 +707,7 @@ impl Hub {
                 return Err(transfer_error("incomplete", format!("{path:?}: {have} of {size}")));
             }
         }
+        steps.step("check");
         let from = params.get("from").cloned().unwrap_or(Value::Null);
         // Back where it once moved from: its closed copy gives way (below). Bind the
         // bundle's outer identity, harness, and ACP identity before any source is killed.
@@ -721,8 +732,13 @@ impl Hub {
         if let Some(name) = manifest["asHarness"].as_str().filter(|n| *n != bundle_meta.harness) {
             self.land_on_harness(&bundle, &mut bundle_meta, name).await?;
         }
+        // After the harness is settled: the login must serve the agent the chat lands on.
+        if let Some(credential) = &credential {
+            self.credential_serves(&bundle_meta.harness, credential).await?;
+        }
         let old = self.session_get(id);
         let old = old.filter(|s| self.moved_away(s));
+        steps.step("moved_away");
         if let Some(existing) = old.as_ref() {
             if !existing.ownership_epoch_is_valid() {
                 return Err(transfer_error("epoch_unreadable", "ownership history is unreadable"));
@@ -847,10 +863,19 @@ impl Hub {
             .as_ref()
             .map(|guard| super::transfer_guard::GuardedImport { guard, replace_native });
         let session = match self
-            .import_into(&bundle, name, true, guarded, replacing_durable, true, staged.as_ref())
+            .import_into(
+                &bundle,
+                name,
+                super::transfer::Live::Moved(credential),
+                guarded,
+                replacing_durable,
+                true,
+                staged.as_ref(),
+            )
             .await
         {
             Ok(session) => {
+                steps.step("import");
                 session.restore_ownership_epoch(incoming_floor);
                 let (_, appended) = self.append_at(
                     &session,
@@ -882,6 +907,7 @@ impl Hub {
                     }
                     return Err(transfer_error("store", "could not durably record transferred_in"));
                 }
+                steps.step("receipt");
                 if guard.is_none() {
                     self.note_received(&session, &transfer_id, bundle_meta.last_seq);
                 }
@@ -911,6 +937,7 @@ impl Hub {
                     let _ = std::fs::remove_dir_all(backup);
                     let _ = std::fs::remove_file(backup.with_extension("replacement-state.json"));
                 }
+                steps.step("finalize");
                 session
             }
             Err(error) => {
@@ -927,8 +954,12 @@ impl Hub {
         }
         // Its queue (back since the import) runs here now; the source withdraws it on commit.
         self.resume_queues();
+        steps.step("queues");
         let _ = crate::home_fs::remove_dir_all(&dir);
-        Ok(self.session_summary(&session))
+        steps.step("cleanup");
+        let summary = self.session_summary(&session);
+        steps.step("summary");
+        Ok(summary)
     }
 
     /// Drops every receive of move `transferId` and says whether its chat landed here.
@@ -956,9 +987,9 @@ impl Hub {
         let here = self.session_get(session_id);
         let mut landed = false;
         if let Some(session) = here {
-            // The whole log when it did not land: off the runtime's workers (`qos::off_worker`).
+            // Its `transferred_in` records, from the kind index, off the runtime's workers.
             let _ = crate::qos::off_worker(|| {
-                self.store.scan(&session.id, 0, &mut |e: EventRecord| {
+                self.store.scan_kinds(&session.id, &["transferred_in"], &mut |e: EventRecord| {
                     landed |= e.kind == "transferred_in" && e.msg["transferId"] == transfer_id;
                     !landed
                 })

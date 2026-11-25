@@ -50,7 +50,6 @@ use crate::linux::spawn::lookup_user;
 pub const HEARTBEAT_ENV: &str = "CMUX_VM_AGENT_HEARTBEAT_MS";
 /// Where a trajectory restore stages its bundles (the work user's, 0700).
 pub const TRAJECTORY_STAGING: &str = "/var/lib/cmux-trajectory-restore";
-const MAX_CLIENTS: usize = 16;
 const MAX_LINE: usize = 64 * 1024;
 
 fn log(line: &str) {
@@ -818,7 +817,7 @@ impl Worker {
                     }
                     let now = self.now();
                     if let Some(live) = self.live.as_mut() {
-                        let reqs = live.session.resume(now);
+                        let reqs = live.session.resume(now, wall_ms());
                         self.drive(reqs);
                     }
                 }
@@ -831,14 +830,7 @@ impl Worker {
     fn accept(&mut self) {
         let Some(listener) = self.listener.as_ref() else { return };
         while let Ok((stream, _)) = listener.accept() {
-            if self.clients.len() >= MAX_CLIENTS {
-                // A GitHub token asker gets an answer rather than an EOF.
-                let mut stream = stream;
-                let busy = github::refusal("busy", "the Cloud agent's socket is full; retry");
-                let _ = stream.set_write_timeout(Some(Duration::from_millis(200)));
-                let _ = stream.write_all(format!("{busy}\n").as_bytes());
-                continue;
-            }
+            // Every client is taken: each is one descriptor and a line of at most MAX_LINE.
             if stream.set_nonblocking(true).is_err() {
                 continue;
             }
@@ -1389,6 +1381,7 @@ impl Worker {
             "last_report": { "reason": req.reason, "ok": ok, "applied": applied, "at": wall_ms(), "status": status },
             "daemon": live.session.reporter.daemon().to_json(),
             "heartbeat_ms": live.session.reporter.heartbeat_ms(),
+            "wake": live.session.wake_latest(),
         });
         // Diagnostic only; a failed write is ignored.
         let _ = self.store.write(AGENT_STATE_FILE, &format!("{state}\n"), 0o644);
