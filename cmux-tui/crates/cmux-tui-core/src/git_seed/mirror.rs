@@ -38,6 +38,12 @@ use sha2::{Digest as _, Sha256};
 
 use super::{Failure, Seed, clean_folder};
 
+/// `root` made and canonical.
+fn mirrors_root(root: &Path) -> Option<PathBuf> {
+    std::fs::create_dir_all(root).ok()?;
+    root.canonicalize().ok()
+}
+
 /// The mirrors' folder, beside AutoCloud's chat folders (`acpmux` `machine.rs::chats_root`).
 const MIRRORS: &str = "Projects/auto/.cmux-git-mirrors";
 
@@ -121,76 +127,113 @@ impl Seed {
     }
 
     fn attach(&mut self, root: &Path) -> Borrow {
-        if std::fs::create_dir_all(root).is_err() {
-            return Borrow::Failed("root");
-        }
-        let Ok(root) = root.canonicalize() else { return Borrow::Failed("root") };
+        let Some(root) = mirrors_root(root) else { return Borrow::Failed("root") };
         let url = self.params.url.clone();
-        let key = key(&url);
-        // Before the wait: a fetch another add makes after this moment brings what this add
-        // would have fetched itself.
-        let asked = std::time::SystemTime::now();
-        let Some(lock) = lock(&root.join(format!("{key}.lock"))) else {
-            return Borrow::Failed("lock");
+        let mut fill = |seed: &mut Self, mirror: &Path| match seed.mirror_target(mirror) {
+            Some(commit) => seed.fill_mirror(mirror, &commit).map_err(|_| "fill"),
+            None => Ok(()),
         };
-        let mirror = root.join(format!("{key}.git"));
-        let warm = mirror.join("HEAD").is_file();
-        // The proof of access is this caller's own reach of the remote, now: a fetch into the
-        // mirror, or, when an add it waited for fetched since it asked, `ls-remote` (one round
-        // trip). A crowd of adds of one remote makes one fetch, not one each in turn.
-        let proven = match (warm, warm && fetched_since(&mirror, asked)) {
-            (true, true) => self.reach(&mirror),
-            (true, false) => self.refresh(&mirror, &url),
-            (false, _) => self.make(&root, &mirror),
-        };
-        match proven {
-            Ok(()) => {}
+        let (mirror, warm) = match self.warm_mirror(&root, &url, true, &mut fill) {
+            Ok(warmed) => warmed,
             Err(None) => return Borrow::Unproven,
             Err(Some(stage)) => return Borrow::Failed(stage),
-        }
-        if let Some(commit) = self.mirror_target(&mirror)
-            && self.fill_mirror(&mirror, &commit).is_err()
-        {
-            return Borrow::Failed("fill");
-        }
-        // The mirror only gains objects from here on (it never prunes): the folder is made
-        // while the next add has the mirror.
-        drop(lock);
+        };
         match self.borrow_into(&mirror) {
             Ok(()) => Borrow::Done(warm),
             Err(_) => Borrow::Failed("folder"),
         }
     }
 
-    /// The warm mirror brought up to date with this caller's paths. `Err(None)`: the fetch
-    /// failed (access not proven); `Err(Some(stage))`: the mirror is not this remote's.
-    fn refresh(&mut self, mirror: &Path, url: &str) -> Result<(), Option<&'static str>> {
+    /// The mirror of `url` under `root` (and whether it was there before), made or brought up
+    /// to date with this caller's own reach of `url`, then `fill`ed, all under the mirror's
+    /// lock; the lock is let go on return (the mirror only gains objects: it never prunes).
+    /// `origin`: `url` is the seed's remote, not a submodule's. `Err(None)`: this caller's own
+    /// reach failed (access not proven); `Err(Some(stage))`: something else did.
+    fn warm_mirror(
+        &mut self,
+        root: &Path,
+        url: &str,
+        origin: bool,
+        fill: &mut dyn FnMut(&mut Self, &Path) -> Result<(), &'static str>,
+    ) -> Result<(PathBuf, bool), Option<&'static str>> {
+        let key = key(url);
+        // Before the wait: a fetch another add makes after this moment brings what this add
+        // would have fetched itself.
+        let asked = std::time::SystemTime::now();
+        let _lock = lock(&root.join(format!("{key}.lock"))).ok_or(Some("lock"))?;
+        let mirror = root.join(format!("{key}.git"));
+        let warm = mirror.join("HEAD").is_file();
+        // The proof of access is this caller's own reach of the remote, now: a fetch into the
+        // mirror, or, when an add it waited for fetched since it asked, `ls-remote` (one round
+        // trip). A crowd of adds of one remote makes one fetch, not one each in turn.
+        match (warm, warm && fetched_since(&mirror, asked)) {
+            (true, true) => self.reach(&mirror, url, origin)?,
+            (true, false) => self.refresh(&mirror, url, origin)?,
+            (false, _) => self.make(root, &mirror, url, origin)?,
+        }
+        fill(self, &mirror).map_err(Some)?;
+        Ok((mirror, warm))
+    }
+
+    /// A network step for the mirror of the seed's remote (`origin`: it records the path that
+    /// reached it) or of a submodule's.
+    fn net_for(
+        &mut self,
+        origin: bool,
+        cwd: &Path,
+        args: &[&str],
+        between: &mut dyn FnMut(),
+    ) -> Result<(), Option<&'static str>> {
+        let ran = if origin {
+            self.net_origin(Some(cwd), args, between)
+        } else {
+            self.net(Some(cwd), args, between)
+        };
+        ran.map_err(|_| None)
+    }
+
+    /// `Err(Some("origin"))` unless the mirror is `url`'s.
+    fn mirror_of(&self, mirror: &Path, url: &str) -> Result<(), Option<&'static str>> {
         let origin = self.git.quiet(Some(mirror), &self.chosen, &["config", "remote.origin.url"]);
         let origin = origin.map(|out| String::from_utf8_lossy(&out).trim().to_owned()).ok();
-        if origin.as_deref() != Some(url) {
-            return Err(Some("origin"));
-        }
+        if origin.as_deref() == Some(url) { Ok(()) } else { Err(Some("origin")) }
+    }
+
+    /// The warm mirror brought up to date with this caller's paths.
+    fn refresh(
+        &mut self,
+        mirror: &Path,
+        url: &str,
+        origin: bool,
+    ) -> Result<(), Option<&'static str>> {
+        self.mirror_of(mirror, url)?;
         let args = ["fetch", "--progress", "--prune", "--tags", "--filter=blob:none", "origin"];
-        self.net_origin(Some(mirror), &args, &mut || {}).map_err(|_| None)?;
+        self.net_for(origin, mirror, &args, &mut || {})?;
         stamp(mirror);
         Ok(())
     }
 
     /// This caller reaches the remote with its own paths (`ls-remote origin HEAD`), the mirror
-    /// fresh from another add's fetch. `Err(None)`: refused (access not proven).
-    fn reach(&mut self, mirror: &Path) -> Result<(), Option<&'static str>> {
-        let origin = self.git.quiet(Some(mirror), &self.chosen, &["config", "remote.origin.url"]);
-        let origin = origin.map(|out| String::from_utf8_lossy(&out).trim().to_owned()).ok();
-        if origin.as_deref() != Some(self.params.url.as_str()) {
-            return Err(Some("origin"));
-        }
-        let args = ["ls-remote", "--quiet", "origin", "HEAD"];
-        self.net_origin(Some(mirror), &args, &mut || {}).map_err(|_| None)
+    /// fresh from another add's fetch.
+    fn reach(
+        &mut self,
+        mirror: &Path,
+        url: &str,
+        origin: bool,
+    ) -> Result<(), Option<&'static str>> {
+        self.mirror_of(mirror, url)?;
+        self.net_for(origin, mirror, &["ls-remote", "--quiet", "origin", "HEAD"], &mut || {})
     }
 
     /// The mirror made aside with this caller's paths and renamed in: an add that sees the
     /// mirror sees a whole one.
-    fn make(&mut self, root: &Path, mirror: &Path) -> Result<(), Option<&'static str>> {
+    fn make(
+        &mut self,
+        root: &Path,
+        mirror: &Path,
+        url: &str,
+        origin: bool,
+    ) -> Result<(), Option<&'static str>> {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.subsec_nanos());
@@ -198,15 +241,14 @@ impl Seed {
         let tmp =
             root.join(format!(".tmp-{}-{}-{nanos}", name.unwrap_or_default(), std::process::id()));
         let path = tmp.display().to_string();
-        let url = self.params.url.clone();
-        let args = ["clone", "--progress", "--bare", "--filter=blob:none", "--", &url, &path];
+        let args = ["clone", "--progress", "--bare", "--filter=blob:none", "--", url, &path];
         let remove = || {
             let _ = std::fs::remove_dir_all(&tmp);
         };
         let mut between = remove;
-        if self.net_origin(Some(root), &args, &mut between).is_err() {
+        if let Err(error) = self.net_for(origin, root, &args, &mut between) {
             remove();
-            return Err(None);
+            return Err(error);
         }
         let configured = [
             ["config", "remote.origin.fetch", "+refs/heads/*:refs/heads/*"],
@@ -237,6 +279,113 @@ impl Seed {
         }
     }
 
+    /// The submodules of the checked-out head a clone has not made yet, each cloned
+    /// blobless from its own warm mirror under the same root (made, fetched into and filled
+    /// with the submodule commit's files under the same lock and access rules as the
+    /// remote's), so a second add downloads none of them again. A submodule whose mirror
+    /// fails is left to the plain `submodule update` that follows, as before.
+    pub(super) fn submodules_from_mirrors(&mut self) {
+        let Some(root) = self.mirrors.clone().and_then(|root| mirrors_root(&root)) else { return };
+        for (name, path, url) in self.submodules_listed() {
+            if self.folder.join(".git/modules").join(&name).exists() {
+                continue;
+            }
+            let Some(commit) = self.gitlink(&path) else { continue };
+            let mut fill = |seed: &mut Self, mirror: &Path| {
+                let commit = seed.commit_in(mirror, &commit).ok_or("commit")?;
+                seed.fill_mirror(mirror, &commit).map_err(|_| "fill")
+            };
+            let stage = match self.warm_mirror(&root, &url, false, &mut fill) {
+                Ok((mirror, _)) => {
+                    let reference = mirror.display().to_string();
+                    let folder = self.folder.clone();
+                    let args = [
+                        "submodule",
+                        "update",
+                        "--init",
+                        "--progress",
+                        "--filter=blob:none",
+                        "--reference",
+                        &reference,
+                        "--",
+                        &path,
+                    ];
+                    if self.net(Some(&folder), &args, &mut || {}).is_ok() {
+                        continue;
+                    }
+                    "update"
+                }
+                Err(None) => "fetch",
+                Err(Some(stage)) => stage,
+            };
+            self.job.note("seed.mirror.submodule_fallback");
+            eprintln!("cmux-tui: seed.mirror.submodule_fallback at {stage}");
+        }
+    }
+
+    /// `(name, path, url)` of each submodule `.gitmodules` names with a remote URL (a relative
+    /// URL is left to `submodule update`).
+    fn submodules_listed(&self) -> Vec<(String, String, String)> {
+        let Ok(out) = self.git(&[
+            "config",
+            "-f",
+            ".gitmodules",
+            "--get-regexp",
+            r"^submodule\..*\.(path|url)$",
+        ]) else {
+            return Vec::new();
+        };
+        let mut paths =
+            std::collections::BTreeMap::<String, (Option<String>, Option<String>)>::new();
+        for line in String::from_utf8_lossy(&out).lines() {
+            let Some((key, value)) = line.split_once(' ') else { continue };
+            let Some(rest) = key.strip_prefix("submodule.") else { continue };
+            if let Some(name) = rest.strip_suffix(".path") {
+                paths.entry(name.to_owned()).or_default().0 = Some(value.to_owned());
+            } else if let Some(name) = rest.strip_suffix(".url") {
+                paths.entry(name.to_owned()).or_default().1 = Some(value.to_owned());
+            }
+        }
+        paths
+            .into_iter()
+            .filter_map(|(name, (path, url))| Some((name, path?, url?)))
+            .filter(|(_, _, url)| url.contains("://"))
+            .collect()
+    }
+
+    /// The commit the head records at submodule `path`.
+    fn gitlink(&self, path: &str) -> Option<String> {
+        let out = self.git(&["ls-tree", "HEAD", "--", path]).ok()?;
+        let line = String::from_utf8_lossy(&out).trim().to_owned();
+        let (meta, _) = line.split_once('\t')?;
+        match meta.split_whitespace().collect::<Vec<_>>()[..] {
+            ["160000", "commit", id] => Some(id.to_owned()),
+            _ => None,
+        }
+    }
+
+    /// `id` as a commit of the mirror, fetched by id when the mirror lacks it.
+    fn commit_in(&mut self, mirror: &Path, id: &str) -> Option<String> {
+        let commit_of = |seed: &Self| {
+            let name = format!("{id}^{{commit}}");
+            seed.git
+                .quiet(Some(mirror), &seed.chosen, &["rev-parse", "-q", "--verify", &name])
+                .ok()
+                .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
+                .filter(|id| !id.is_empty())
+        };
+        if let Some(commit) = commit_of(self) {
+            return Some(commit);
+        }
+        let hex = id.len() >= 40 && id.bytes().all(|byte| byte.is_ascii_hexdigit());
+        if !hex {
+            return None;
+        }
+        let args = ["fetch", "--progress", "--no-tags", "--filter=blob:none", "origin", id];
+        self.net(Some(mirror), &args, &mut || {}).ok()?;
+        commit_of(self)
+    }
+
     /// The commit whose files the clone will check out, in the mirror: the branch, tag or
     /// commit asked for (fetched into the mirror when it is a commit the mirror lacks), the
     /// remote's default branch, or a seed's base. A head-first seed fills its own way.
@@ -264,16 +413,7 @@ impl Seed {
                 return Some(commit);
             }
         }
-        if let Some(commit) = commit_of(self, &want) {
-            return Some(commit);
-        }
-        let hex = want.len() >= 40 && want.bytes().all(|byte| byte.is_ascii_hexdigit());
-        if !hex {
-            return None;
-        }
-        let args = ["fetch", "--progress", "--no-tags", "--filter=blob:none", "origin", &want];
-        self.net(Some(mirror), &args, &mut || {}).ok()?;
-        commit_of(self, &want)
+        self.commit_in(mirror, &want)
     }
 
     /// The files of `commit` fetched into the mirror in one batch; the ones it has are

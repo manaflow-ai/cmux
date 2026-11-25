@@ -285,6 +285,74 @@ fn an_add_that_waited_for_a_fetch_reaches_the_remote_and_skips_its_own() {
     assert!(!folder.exists(), "nothing of the mirror reached the folder");
 }
 
+/// A submodule comes from its own warm mirror, as the remote does: the second add's
+/// submodule borrows the mirror (alternates) and downloads none of its objects again. (A warm
+/// add of a repository with large submodules used to clone each one whole from GitHub.)
+#[test]
+fn a_submodule_comes_from_its_own_warm_mirror() {
+    const SUB: &str = "https://github.com/o/sub.git";
+    let world = World::new("mirror-sub");
+    let lib = world.home.join("lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    git(&lib, &["init", "-q", "-b", "main"]);
+    write(&lib.join("x"), "x\n");
+    git(&lib, &["add", "-A"]);
+    git(&lib, &["commit", "-q", "-m", "lib"]);
+    let sub_remote = world.home.join("sub.git");
+    git(
+        &world.home.path,
+        &["clone", "-q", "--bare", lib.to_str().unwrap(), sub_remote.to_str().unwrap()],
+    );
+    git(&sub_remote, &["config", "uploadpack.allowFilter", "true"]);
+    git(&sub_remote, &["config", "uploadpack.allowAnySHA1InWant", "true"]);
+    let commit = git(&lib, &["rev-parse", "HEAD"]);
+    write(
+        &world.mac.join(".gitmodules"),
+        &format!("[submodule \"lib\"]\n\tpath = lib\n\turl = {SUB}\n"),
+    );
+    git(&world.mac, &["update-index", "--add", "--cacheinfo", &format!("160000,{commit},lib")]);
+    git(&world.mac, &["add", ".gitmodules"]);
+    git(&world.mac, &["commit", "-q", "-m", "submodule"]);
+    git(&world.mac, &["push", "-q", "origin", "main"]);
+    let config = Config {
+        git: Git {
+            extra_config: vec![
+                format!("url.file://{}.insteadOf={URL}", world.remote.display()),
+                format!("url.file://{}.insteadOf={SUB}", sub_remote.display()),
+                "protocol.file.allow=always".into(),
+            ],
+        },
+        credentials: Some(vec![Credential::Anonymous]),
+        mirrors: world.mirrors.clone(),
+    };
+    let service = GitSeedService::with_config(Roots::new([world.home.path.clone()]), config);
+    let root = || std::fs::canonicalize(world.mirrors.as_ref().unwrap()).unwrap();
+    let mut add = |name: &str| {
+        let folder = world.home.join(name);
+        let job = start(&service, &clone_params(&folder, None)).unwrap();
+        let status = wait(&service, &job);
+        assert_eq!(status["state"], "done", "{status}");
+        assert!(!notes(&status).iter().any(|n| n.contains("fallback")), "{status}");
+        assert_eq!(std::fs::read_to_string(folder.join("lib/x")).unwrap(), "x\n");
+        folder
+    };
+    add("one");
+    let sub_mirror = root().join(format!("{}.git", mirror::key(SUB)));
+    assert!(missing(&sub_mirror, &commit).is_empty(), "the submodule's files are in its mirror");
+    let before = own_objects(&sub_mirror);
+
+    let second = add("two");
+    let module = second.join(".git/modules/lib");
+    assert_eq!(
+        std::fs::read_to_string(module.join("objects/info/alternates")).unwrap().trim(),
+        sub_mirror.join("objects").display().to_string()
+    );
+    assert_eq!(own_objects(&module), 0, "the submodule holds no objects of its own");
+    assert_eq!(own_objects(&sub_mirror), before, "nothing new came into its mirror");
+    assert_eq!(git(&second.join("lib"), &["rev-parse", "HEAD"]), commit);
+    git(&second.join("lib"), &["fsck", "--no-progress", "--connectivity-only"]);
+}
+
 /// The numbers for the PR (`scripts/measure/cloud-add-repo-mirror.sh`): Cloud "Add repository"
 /// of a real public GitHub repository through this service, as a machine runs it (no test
 /// remote, the anonymous path), with the mirror off (today), on and cold (the add that makes

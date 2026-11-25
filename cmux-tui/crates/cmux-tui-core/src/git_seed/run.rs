@@ -1199,6 +1199,9 @@ impl Seed {
             return Ok(());
         }
         self.job.enter(Phase::Submodules);
+        // Each from its warm mirror when it can; what is left (nested, relative, failed) as
+        // before.
+        self.submodules_from_mirrors();
         let folder = self.folder.clone();
         self.net(
             Some(&folder),
