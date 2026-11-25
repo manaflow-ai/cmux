@@ -1333,6 +1333,8 @@ jobs:
           # Warn-only: what the pull request's next head reuses, never this run's verdict.
           PASSED_BEFORE: ${{ steps.passed-before.outcome }}
           PASSED_UPLOAD: ${{ steps.passed-upload.outcome }}
+          # Warn-only: the pick fails open (an error runs both git-hook suites), never this run's verdict.
+          HOOK_SUITES: ${{ steps.hook-suites.outcome }}
           # The eager JS budget (a size cap) and the React Compiler coverage are
           # structural: for feat-cmux-next they warn (Leo 2026-10-19).
           CMUX_NEXT_STYLE_GUARDS: ${{ (github.base_ref == 'feat-cmux-next' || github.ref == 'refs/heads/feat-cmux-next') && 'warn' || 'fail' }}
@@ -1347,6 +1349,9 @@ jobs:
           fi
           if [ "$PASSED_BEFORE" = failure ] || [ "$PASSED_UPLOAD" = failure ]; then
             echo "::warning::The files that passed at the previous head were not read, or this head's were not kept: every file runs."
+          fi
+          if [ "$HOOK_SUITES" = failure ]; then
+            echo "::warning::Picking shard 1's git-hook suites failed; both suites ran."
           fi
           for gate in \
             "SOURCE_BUILD|Verify webviews source checks" \
