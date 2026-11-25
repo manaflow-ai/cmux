@@ -58,6 +58,8 @@ const STOP_WAIT: Duration = Duration::from_secs(5);
 const GIVE_UP_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 /// How often the server redials over a quiet socket: a refused quiet dial costs no platform call.
 const QUIET_RETRY: Duration = Duration::from_millis(500);
+/// The folder this process serves (`serve`), named on each of its dials as `from`.
+static SERVED_FOLDER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// The env switch that overrides the setting (`1`/`true` on, `0`/`false` off).
 const ENV: &str = "CMUX_PROJECTED_FOLDERS";
 
@@ -544,6 +546,8 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let name = name.unwrap_or_else(|| name_of(&at));
     let folder = std::fs::canonicalize(&folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
+    // Every dial of this server names the folder, so the machine's mount says which it mirrors.
+    let _ = SERVED_FOLDER.set(folder.to_string_lossy().into_owned());
     let started = Instant::now();
     let listed = list(&folder)?;
     let listed_ms = elapsed_ms(started);
@@ -901,6 +905,10 @@ fn ask(
         // the machine does too (an older machine ignores this and keeps base64 lines).
         "wire": cmux_tui_core::projection::WIRE,
     });
+    if let (Some(from), Some(object)) = (SERVED_FOLDER.get(), line.as_object_mut()) {
+        // The folder on this Mac: the machine names it in its mount table, for the agent.
+        object.insert("from".into(), json!(from));
+    }
     if let (Some(revision), Some(object)) = (revision, line.as_object_mut()) {
         // The listing is in the store: the machine fetches it from there by this reference.
         object.insert("revision".into(), revision.clone());
