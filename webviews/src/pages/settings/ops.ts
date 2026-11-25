@@ -1940,6 +1940,9 @@ export type ConnectionEntry = {
   ownerLabel: string | null;
   toolCount: number | null;
   toolsLabel: string | null;
+  /** When the connection's sign-in lapses (RFC 3339, the platform's `connection.expiresAt`); null or
+   * absent when the platform does not say. The card offers Reconnect a few days before. */
+  expiresAt?: string | null;
 };
 
 /** `cmux mcp-servers catalog --json`, or the CLI's refusal. `available: false` is a deployment

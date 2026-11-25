@@ -4,7 +4,16 @@
 // the calls waiting for the person with Approve once, Approve and don't ask again and Deny; Rules
 // and Audit beside them. Reconnect on a dead key, the pause switch.
 import { settingsPageEntry, type PageFixtureStep, type SettingsPageVariant } from "../../gallery/format";
-import { connected, MOCK_CATALOG, mockConnectionsCatalog, mockConnectionsState } from "./mockConnections";
+import { ACCOUNT_LISTS } from "../shared/signIn/galleryFixtures";
+import {
+  connected,
+  MOCK_CATALOG,
+  mockConnectionsCatalog,
+  mockConnectionsState,
+  mockExpiringCatalog,
+} from "./mockConnections";
+import { mockCmuxAccount } from "./mockProvider";
+import type { AccountsRow, AccountsState } from "./ops";
 import { MOCK_HUB_GITHUB, MOCK_HUB_STRIPE, mockHubOverview, mockHubState } from "./mockHub";
 
 const shown: PageFixtureStep = { selector: '[data-card="integrationsHub"]', action: "wait" };
@@ -13,6 +22,53 @@ const tab = (name: "connections" | "approvals" | "rules" | "audit"): PageFixture
   action: "click",
 });
 const grid: PageFixtureStep = { selector: "[data-connections-entry]", action: "wait" };
+const all: PageFixtureStep = { selector: "[data-all-connections]", action: "wait" };
+const modelRow = (
+  provider: string,
+  name: string,
+  status: string,
+  statusKind: AccountsRow["statusKind"],
+): AccountsRow => ({
+  provider,
+  name,
+  detail: null,
+  status,
+  statusKind,
+  busy: false,
+  buttons: [],
+  linked: [],
+  note: null,
+  outcome: null,
+  confirm: null,
+  paste: null,
+});
+/** Every kind of account All connections lists: cmux, GitHub, the daemon's sign-ins and a model key. */
+const everyAccount = (patch: Partial<AccountsState> = {}): AccountsState => ({
+  teams: null,
+  refresh: "Refresh",
+  refreshing: false,
+  cmux: mockCmuxAccount.signedIn,
+  removeTitle: "Remove from CodeRouter",
+  github: {
+    title: "GitHub",
+    detail: "Connected",
+    busy: false,
+    connect: "Connect GitHub",
+    disconnect: "Disconnect",
+    confirm: "Disconnect GitHub?",
+    cancel: "Cancel",
+    refresh: "Refresh",
+    canConnect: false,
+    connections: [
+      { id: "sample-github", account: "sample-team", status: "Connected", permissions: [], canDisconnect: true },
+    ],
+  },
+  signInAccounts: [...ACCOUNT_LISTS.oneEach],
+  groups: [
+    { id: "other", title: "Other Providers", rows: [modelRow("openrouter", "OpenRouter", "Key saved", "success")] },
+  ],
+  ...patch,
+});
 const variant = (patch: Partial<SettingsPageVariant> & { note: string }): SettingsPageVariant => ({
   section: "integrations",
   steps: [shown],
@@ -36,6 +92,32 @@ export default settingsPageEntry({
     connections: variant({
       steps: [shown, tab("connections"), grid],
       note: "The Connections tab: the catalog grid in rank order (Linear for the team with 23 tools, Sentry yours with 14, Exa takes a pasted key, Figma says why it is not here), then the linked Stripe account.",
+    }),
+    "connections-expiring": variant({
+      connections: mockConnectionsState(mockExpiringCatalog()),
+      steps: [shown, tab("connections"), grid],
+      note: "Linear's sign-in lapses within a day: an Expires soon pill, when, and Reconnect before it stops; Sentry's lapsed an hour ago: Sign in again. Both keep Disconnect. The platform must send connection.expiresAt for this to show live.",
+    }),
+    "all-connections": variant({
+      accounts: everyAccount(),
+      steps: [shown, tab("connections"), all],
+      note: "All connections on top: the cmux account, GitHub (the integration and the sign-in as one row), the ChatGPT and Claude sign-ins, an OpenRouter key, then Linear and Sentry; each a pill and one action.",
+    }),
+    "all-connections-attention": variant({
+      accounts: everyAccount({
+        cmux: mockCmuxAccount.signedOut,
+        signInAccounts: [...ACCOUNT_LISTS.signedOut],
+        groups: [
+          {
+            id: "other",
+            title: "Other Providers",
+            rows: [modelRow("openrouter", "OpenRouter", "Key refused", "attention")],
+          },
+        ],
+      }),
+      connections: mockConnectionsState(mockExpiringCatalog()),
+      steps: [shown, tab("connections"), all],
+      note: "What needs the person, in the list: cmux signed out, a GitHub and a ChatGPT sign-in to redo, a refused key, Linear expiring and Sentry lapsed (Reconnect in the row).",
     }),
     "connections-team": variant({
       activeTeam: "team-acme",
