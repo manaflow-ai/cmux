@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -42,6 +43,7 @@ await requireBrowserLane("cloud-start-handoff-browser.test.ts", async () => {
     await warmViteServer(vite, PAGE);
     browser = await chromium.launch({ headless: true });
     page = await browser.newPage({ viewport: { width: 1600, height: 900 } });
+    await installPaintedFrames(page);
     const { port } = vite.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}${PAGE}`);
     await page.waitForFunction(() => "__handoff" in window);
@@ -63,7 +65,8 @@ await requireBrowserLane("cloud-start-handoff-browser.test.ts", async () => {
           shown,
           { width },
         );
-        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
         const bubble = document.querySelector<HTMLElement>(".cv-user__bubble");
         const words = document.querySelector<HTMLElement>("output.cv-thinking");
         if (!bubble || !words) throw new Error(`${shown}: no bubble or status line drawn`);
