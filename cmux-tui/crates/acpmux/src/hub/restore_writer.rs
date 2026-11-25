@@ -798,8 +798,8 @@ mod tests {
     #[test]
     fn a_chat_journal_is_appended_in_one_place() {
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src");
-        // A move's import (`transfer.rs`, its tail in `transfer_precopy.rs`) writes a chat not
-        // yet listed.
+        // `hub/transfer_precopy.rs` `copy_bundle_events` is the import's, moved out of
+        // `hub/transfer.rs` with the staged prefix it writes after.
         let allowed = [
             "hub/mod.rs",
             "hub/journal_restore.rs",

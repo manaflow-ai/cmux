@@ -114,6 +114,8 @@ public final class MacScreenPane {
     private var decodeTask: Task<Void, Never>?
     /// The current transport's remote cursor (cap `cursor`) into the pane's one cursor.
     private var cursorTask: Task<Void, Never>?
+    /// The current transport's clipboard sync (cap `clipboard.text`); nil until a session offers it.
+    private var clipboardBridge: RemoteClipboardBridge?
 
     /// One of the user's devices from the device hub. Each stream is one
     /// approved session: `viewer` asks for it and hands its ticket's
@@ -175,6 +177,7 @@ public final class MacScreenPane {
         // connecting, waiting, failed or ended).
         view.input.onFocusChange = { [weak self] focused in
             guard let self else { return }
+            if focused { clipboardBridge?.checkNow() }
             model.capturesKeyboard = focused && MacScreenPaneView.takesInput(gate: model.gate, card: model.liveCard, viewOnly: model.viewOnly)
             handlers.keyboardChanged()
         }
@@ -225,6 +228,13 @@ public final class MacScreenPane {
         decodeTask?.cancel()
         model.hasFrame = false
         model.recording.attach(transport)
+        clipboardBridge?.stop()
+        clipboardBridge = nil
+        if session?.offersClipboard == true {
+            let bridge = RemoteClipboardBridge(channel: transport) { [weak self] in self?.model.viewOnly == false }
+            bridge.start()
+            clipboardBridge = bridge
+        }
         let presenter = view.presenter
         let counter = MacScreenFrameCounter()
         session?.frameCounter = counter

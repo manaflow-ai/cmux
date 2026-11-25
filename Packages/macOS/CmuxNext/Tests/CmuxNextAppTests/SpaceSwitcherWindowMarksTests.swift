@@ -108,6 +108,20 @@ import Testing
         }
     }
 
+    @Test func retainedAccessibilityButtonFollowsItsSpaceAcrossReorderAndRemoval() throws {
+        let bar = Bar(style: .plain)
+        defer { bar.window.closeAfterTest() }
+        let element = try #require(bar.view.accessibilityChildren()?[1] as? ProfileDotElement)
+        bar.model.profiles.swapAt(1, 2)
+        bar.view.refresh()
+        #expect(element.accessibilityPerformPress())
+        #expect(bar.intents == [.switchProfile(Self.keys[1])])
+        bar.model.profiles.removeLast()
+        bar.view.refresh()
+        #expect(!element.accessibilityPerformPress())
+        #expect(bar.intents == [.switchProfile(Self.keys[1])])
+    }
+
     @Test func clickingAnotherWindowsSpaceOffersGoToWindowAndMoveHere() throws {
         let bar = Bar(style: .ring)
         defer { bar.window.closeAfterTest() }

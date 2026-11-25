@@ -12,8 +12,8 @@ name: Long-running VM hassle (staging)
 # own cleanup and SIGTERM handler, each delete retried under one key while the API says it was cut off); the
 # always() step deletes what a run killed before its cleanup left, by its tag.
 #
-# Secrets: the staging agent test account (CMUX_JOURNEY_DEV_STACK_*) in cmux-next-cloud-journey, as
-# cloud-journey-pr.yml reads it. Same-repo pull requests only. Without the pair the script writes the documented
+# Secrets: the staging journey account (CMUX_STAGING_STACK_*) in cmux-next-cloud-journey, passed to the script as
+# CMUX_DOGFOOD_STACK_*. (The dogfood pair is a prod account: staging refuses it.) Same-repo pull requests only. Without the pair the script writes the documented
 # path (the counts from the code) and passes.
 
 on:
@@ -53,16 +53,22 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
       - name: Tag this run
         id: tag
         run: echo "tag=vh-$(date +%s | xargs printf '%x')${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
       - name: Measure (staging)
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_STAGING_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_STAGING_STACK_PASSWORD }}
           HASSLE_PATH: ${{ inputs.path || 'both' }}
           HASSLE_TAG: ${{ steps.tag.outputs.tag }}
           HASSLE_FAULT_ROUNDS: ${{ inputs.fault_rounds || '1' }}
@@ -76,8 +82,8 @@ jobs:
       - name: Delete what a cut-off run left
         if: always()
         env:
-          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_JOURNEY_DEV_STACK_EMAIL }}
-          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_JOURNEY_DEV_STACK_PASSWORD }}
+          CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_STAGING_STACK_EMAIL }}
+          CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_STAGING_STACK_PASSWORD }}
           HASSLE_TAG: ${{ steps.tag.outputs.tag }}
         run: |
           if [ -z "${CMUX_DOGFOOD_STACK_EMAIL:-}" ] || [ -z "$HASSLE_TAG" ]; then exit 0; fi

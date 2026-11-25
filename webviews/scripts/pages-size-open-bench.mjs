@@ -56,7 +56,6 @@ const pages = [
   "icon-picker",
   "keybindings",
   "machines",
-  "mobile-pairing",
   "onboarding",
   "passwords",
   "server-cards",
@@ -80,10 +79,10 @@ const hostStates = {
   "site-data": siteData,
   certificate: certificateChain,
   "cookie-import": {
-    title: "Import Cookies",
+    title: "Import sign-ins from Google Chrome",
     importTitle: "Import…",
-    notNowTitle: "Not Now",
-    neverTitle: "Don't Show Again",
+    notNowTitle: "Not now",
+    neverTitle: "Never for Chrome",
   },
   "setup-card": {
     agents: [{ id: "codex", name: "Codex", state: "missing" }],
