@@ -1439,6 +1439,7 @@ img.onb-make-tile-image {
   border-radius: var(--ds-radius-sm);
   border: 1px solid color-mix(in srgb, var(--ds-color-fg) 10%, transparent);
   background: color-mix(in srgb, var(--ds-color-surface, Canvas) 62%, transparent);
+  /* glass-raw-blur-allow: a soft 4 px frost on a Make cmux Yours preview card over the painting, not a floating glass surface */
   backdrop-filter: blur(4px);
 }
 /* The sidebar sits on the window's glass, as NEXT's does: the painting shows through it. */

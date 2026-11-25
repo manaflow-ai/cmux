@@ -16,18 +16,12 @@ struct TerminalKeyBar: View {
     /// Scroller keys clipped at its edges (`KeyBarClipping`): hidden from
     /// accessibility, offered as row actions.
     @State private var clipped = KeyBarClippedKeys()
-    /// The pinned keys' width: nothing is drawn under them.
-    @State private var pinnedWidth: CGFloat = 0
-    /// How far the row is scrolled past its start (points).
-    @State private var scrolled: CGFloat = 0
 
     var body: some View {
         ScrollView(.horizontal) {
-            // Its own view, fed only reference types: the per-frame
-            // `scrolled` updates below re-evaluate this bar's body, but
-            // SwiftUI skips the ~30 glass keys' bodies when their inputs are
-            // unchanged (they were rebuilt every scroll frame: the lag). The
-            // layout is a plain enum, so it keeps that.
+            // Its own view, fed only reference types and a plain enum, so
+            // SwiftUI skips the ~30 glass keys' bodies when the bar's body
+            // runs again with the same inputs.
             KeyBarScrollerKeys(model: model, layout: layout, clipped: clipped)
         }
         .scrollIndicators(.hidden)
@@ -38,32 +32,12 @@ struct TerminalKeyBar: View {
         .onScrollPhaseChange { _, phase in
             if clipped.resting != (phase == .idle) { clipped.resting = phase == .idle }
         }
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            geometry.contentOffset.x + geometry.contentInsets.leading
-        } action: { _, new in
-            // The fade only depends on the first `KeyRowFade.width` points:
-            // past them the value stops changing, so the bar stops updating.
-            let clamped = min(KeyRowFade.width, max(0, new.rounded()))
-            if clamped != scrolled { scrolled = clamped }
-        }
-        // Keys dissolve over 24 pt as they reach the pinned keys, more the
-        // farther the row is scrolled, as under an iOS toolbar (classic's
-        // `AccessoryEdgeFadeScrollView`); nothing is drawn under the pinned
-        // glass keys themselves. iOS's own soft edge effect is hidden on this
-        // edge: over these glass keys it drew a uniform dim band with a hard
-        // seam where it ended.
-        .mask(alignment: .leading) {
-            let edge = KeyRowFade().leadingEdgeAlpha(scrolled: scrolled)
-            HStack(spacing: 0) {
-                Color.clear.frame(width: pinnedWidth)
-                LinearGradient(colors: [.black.opacity(edge), .black], startPoint: .leading, endPoint: .trailing)
-                    .frame(width: KeyRowFade.width)
-                Rectangle()
-            }
-            // Measured from the scroller's own edge, not its safe area (the bar's inset).
-            .ignoresSafeArea()
-        }
-        .scrollEdgeEffectHidden(true, for: .leading)
+        // Apple's scroll edge effect, not a hand-made mask: keys soften as
+        // they slide under the pinned keys (the scroller's leading bar, so
+        // the system draws the effect behind them) and off the trailing
+        // edge. Soft, the style iOS gives a toolbar over scrolling content
+        // (HIG, Scroll views: "scroll edge effect").
+        .scrollEdgeEffectStyle(.soft, for: .horizontal)
         // The pinned keys are the scroller's leading bar, as a toolbar is a
         // scroll view's: the keys scroll under them.
         .safeAreaBar(edge: .leading, spacing: TerminalDockMetrics.keySpacing) {
@@ -79,7 +53,6 @@ struct TerminalKeyBar: View {
             // The gaps between the pinned keys take their taps too, so none
             // falls through to a hidden key scrolled under them.
             .contentShape(.rect)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { pinnedWidth = $0 }
         }
         // Room above and below the 28 pt row for the glass's touch lift,
         // which the scroller would otherwise clip; the row's layout height
@@ -228,7 +201,8 @@ struct KeyCap: View {
 
     var body: some View {
         let state = stickyState
-        let locked = state == .locked
+        // Wide shows as a locked key while it is on.
+        let locked = state == .locked || (key == .wide && model.wideOutput)
         let armed = if case .armed = state { true } else { false }
         Button {
             taps += 1
@@ -253,7 +227,7 @@ struct KeyCap: View {
         .buttonRepeatBehavior(key.repeats ? .enabled : .disabled)
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: taps)
         .accessibilityLabel(key.accessibilityLabel)
-        .accessibilityValue(locked ? "locked" : armed ? "armed" : "")
+        .accessibilityValue(key == .wide ? (model.wideOutput ? "on" : "off") : locked ? "locked" : armed ? "armed" : "")
         .accessibilityIdentifier("terminal.key.\(key.identifier)")
     }
 }
