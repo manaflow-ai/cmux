@@ -378,6 +378,15 @@ pub enum Command {
     /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
     #[command(name = "sub-fork-job", hide = true)]
     SubForkJob,
+    /// Run a heavy build or test on a fork of this Cloud machine (RFD 0144 piece 3,
+    /// `placement/run_vm.rs`): its output streams here, its file changes come back. Runs here
+    /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
+    #[command(name = "run-vm", hide = true)]
+    RunVm {
+        /// The shell command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
