@@ -81,6 +81,12 @@ fn classes_offered() -> bool {
     std::env::var("CMUX_LINK_CLASSES").map_or(true, |value| value != "off")
 }
 
+/// Whether this side lists [`crate::classes::SCREEN_LANE`] beside `classes`:
+/// on unless `CMUX_LINK_SCREEN=off` (benches measure the plain class path).
+fn screen_offered() -> bool {
+    classes_offered() && std::env::var("CMUX_LINK_SCREEN").map_or(true, |value| value != "off")
+}
+
 /// Bind the liveness port and carry its datagrams to and from the link:
 /// to `peer_ip` only, in the tunnel's interactive class (ahead of the
 /// link's TCP), and only datagrams from `peer_ip` back. `None` when the
@@ -93,6 +99,7 @@ async fn open_liveness(
     peer_ip: Ipv4Addr,
     peer_listening: bool,
     classes: bool,
+    screen: bool,
 ) -> Option<crate::link::LivenessDatagrams> {
     let mut socket = match net.bind_datagram(LIVENESS_PORT).await {
         Ok(socket) => socket,
@@ -112,7 +119,11 @@ async fn open_liveness(
                     let Some(datagram) = datagram else { return };
                     let class = match datagram.first() {
                         Some(&crate::classes::DATAGRAM_CLASS) => Some(cmux_wg::Priority::Interactive),
-                        Some(&crate::classes::DATAGRAM_SCREEN) => Some(cmux_wg::Priority::Screen),
+                        // Screen updates and their acknowledgements go ahead of
+                        // every other datagram, the keys' class included.
+                        Some(&crate::classes::DATAGRAM_SCREEN | &crate::classes::DATAGRAM_SCREEN_ACK) => {
+                            Some(cmux_wg::Priority::Screen)
+                        }
                         _ => None,
                     };
                     let sent = if let Some(class) = class {
@@ -136,7 +147,7 @@ async fn open_liveness(
             }
         }
     });
-    Some(crate::link::LivenessDatagrams { outgoing, incoming, peer_listening, classes })
+    Some(crate::link::LivenessDatagrams { outgoing, incoming, peer_listening, classes, screen })
 }
 
 /// How long the input lane's second connection may take before input stays
@@ -2526,6 +2537,9 @@ pub(super) fn dial_wireguard<'a>(
                         lanes.push(crate::link::LIVENESS_LANE.to_owned());
                         if classes_offered() {
                             lanes.push(crate::classes::CLASSES_LANE.to_owned());
+                            if screen_offered() {
+                                lanes.push(crate::classes::SCREEN_LANE.to_owned());
+                            }
                         }
                         lanes
                     },
@@ -2544,6 +2558,7 @@ pub(super) fn dial_wireguard<'a>(
         // This side's relay ticket comes stamped on the Mac's answer (`relayTicket`).
         let relay_ticket;
         let classes_agreed;
+        let screen_agreed;
         let (peer_key, peer_endpoints, peer_ip, peer_relayed, peer_relayed_tls, peer_version, peer_relay) = loop {
             match events.next().await? {
                 SessionEvent::Signal(envelope) => match envelope.payload {
@@ -2565,6 +2580,8 @@ pub(super) fn dial_wireguard<'a>(
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
                         classes_agreed = classes_offered()
                             && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
+                        screen_agreed =
+                            screen_offered() && lanes.iter().any(|lane| lane == crate::classes::SCREEN_LANE);
                         video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                         webrtc_media_agreed =
                             video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
@@ -2663,8 +2680,11 @@ pub(super) fn dial_wireguard<'a>(
             None
         };
         // The Mac listed the lane once its port was bound: it listens.
-        let liveness =
-            if liveness_agreed { open_liveness(&net, peer_ip, true, classes_agreed).await } else { None };
+        let liveness = if liveness_agreed {
+            open_liveness(&net, peer_ip, true, classes_agreed, classes_agreed && screen_agreed).await
+        } else {
+            None
+        };
         options.timeline.mark("wg_liveness");
         let link_addr = SocketAddr::new(IpAddr::V4(peer_ip), LINK_PORT);
         let stream = net.connect(link_addr).await.map_err(transport_error)?;
@@ -2818,8 +2838,11 @@ impl Dialer for WireGuardDialer {
             // answer, so this side's pings switch over on its first datagram.
             let classes_wanted =
                 classes_offered() && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
+            let screen_wanted = classes_wanted
+                && screen_offered()
+                && lanes.iter().any(|lane| lane == crate::classes::SCREEN_LANE);
             let liveness = if lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE) {
-                open_liveness(&net, peer_ip, false, classes_wanted).await
+                open_liveness(&net, peer_ip, false, classes_wanted, screen_wanted).await
             } else {
                 None
             };
@@ -2866,6 +2889,9 @@ impl Dialer for WireGuardDialer {
                                 lanes.push(crate::link::LIVENESS_LANE.to_owned());
                                 if classes_wanted {
                                     lanes.push(crate::classes::CLASSES_LANE.to_owned());
+                                    if screen_wanted {
+                                        lanes.push(crate::classes::SCREEN_LANE.to_owned());
+                                    }
                                 }
                             }
                             lanes
@@ -2978,6 +3004,7 @@ mod tests {
             datagram
         };
         assert_eq!(send_class_of(&data(1312), Priority::Interactive), SendClass::Input);
+        assert_eq!(send_class_of(&data(1312), Priority::Screen), SendClass::Input);
         assert_eq!(send_class_of(&data(1312), Priority::Media), SendClass::Media);
         assert_eq!(send_class_of(&data(1312), Priority::Bulk), SendClass::Bulk);
         assert_eq!(send_class_of(&data(96), Priority::Bulk), SendClass::Bulk);
