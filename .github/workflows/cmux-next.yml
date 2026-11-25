@@ -1288,7 +1288,7 @@ jobs:
             needs.path_route.outputs.native == 'true' && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.mac_release == 'true' && !(needs.app-compile-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.app-compile-placement.outputs.gateway_runner != '')) && 'release-compile' || '',
             github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.swift == 'true' && 'swift-test' || '',
             github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.daemon == 'true' && needs.path_route.outputs.tree_state == 'ready' && 'daemon-test' || '',
-            github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.generated == 'true' && needs.path_route.outputs.generated_host == 'generated-files' && 'generated-files' || '') }}
+            format('{0}', vars.CI_GENERATED_FILES_LINUX) == '0' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.path_route.outputs.generated == 'true' && needs.path_route.outputs.generated_host == 'generated-files' && 'generated-files' || '') }}
           CASCADE_JOBS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'swift-test daemon-test generated-files' || '' }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-119
           PROMOTE_LABEL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
@@ -1635,6 +1635,8 @@ jobs:
             bash scripts/cmux-next/tests/generated-autofixable.test.sh
             bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
             bash scripts/cmux-next/tests/judge-action-exports.test.sh
+            bash scripts/cmux-next/tests/regenerate-exports-linux.test.sh
+            bash scripts/cmux-next/tests/export-settings-linux.test.sh
             bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
             bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
             bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
@@ -5129,11 +5131,278 @@ jobs:
         run: python3 -I .base-red-src/scripts/ci/base_red_skip.py decide --workflow cmux-next.yml --job "cmux-next generated files" --events push,workflow_dispatch --dispatch-title "cmux-next base tier" >> "$GITHUB_OUTPUT"
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-59
-  generated-files:
-    needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red]
-    # Why: docs/ci/cmux-next-workflow-notes.md#note-265
-    if: ${{ !cancelled() && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+  # Leo, 2026-11-25: "if like... it works on linux and is at least as fast if not faster, then we ought to just go
+  # ahead. especially if we use freestyle vms." The generated files checks run on the fleet's Linux pool: the action
+  # exports from the Rust catalog at the app-ffi-pin.json commit (what the Swift export reads), the settings exports and
+  # links.json from their sources, judged by the same scripts as the Mac job (judge-action-exports.sh,
+  # check-settings-exports.sh) with their export commands swapped for the Linux ones. The Mac job below runs only when
+  # this one gives no verdict: an exporter that cannot run here, a parity mismatch with a Swift-made export kept in R2
+  # (generated-parity-linux.sh), or vars.CI_GENERATED_FILES_LINUX == '0'. It logs itself as the fallback.
+  generated-files-linux:
+    needs: [path_route, push-head-preflight, generated-files-base-red]
+    if: ${{ !cancelled() && format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' && needs.generated-files-base-red.outputs.base_red != 'true' && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next generated files
+    concurrency:
+      group: ${{ github.event_name == 'push' && format('cmux-next-push-{0}-generated-files-linux', github.sha) || format('cmux-next-run-{0}-generated-files-linux', github.run_id) }}
+      cancel-in-progress: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    container:
+      image: public.ecr.aws/docker/library/swift:6.2-noble@sha256:d6f8f6112e9a63da0a4a151d6b93acd16699d35c0b82531ac1a245f5af210197
+    defaults:
+      run:
+        shell: bash
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      verdict: ${{ steps.verdict.outputs.verdict }}
+      parity: ${{ steps.parity.outputs.parity }}
+    steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-267
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+          # An inherited socket would still name another home's daemon; empty is unset.
+          echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
+
+      - name: Install checkout tools
+        run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          submodules: false
+          fetch-depth: 2
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/
+            /plans/cmux-next/
+            /schemas/
+            /docs/mdm/
+            /cmux-tui/
+            /Packages/macOS/CmuxNext/
+            /web/data/next-docs/
+
+      - name: Trust the workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # Exit 0 fresh, 1 stale, anything else: this pool cannot export, so the Mac job decides.
+      - name: Can this runner export?
+        id: preflight
+        run: |
+          set -uo pipefail
+          ok=true
+          scripts/cmux-next/check-generated-linux.sh; rc=$?
+          (( rc <= 1 )) || { echo "::warning::the Linux action exporter failed (exit $rc)"; ok=false; }
+          # The settings export runs when check-settings-exports.sh needs it (the settings sources or
+          # exports changed), and hands over to the Mac there if it cannot decide.
+          git checkout -q HEAD -- plans/cmux-next
+          echo "ok=$ok" >> "$GITHUB_OUTPUT"
+
+      - name: Parity with the Swift export
+        id: parity
+        if: ${{ steps.preflight.outputs.ok == 'true' }}
+        run: scripts/cmux-next/generated-parity-linux.sh >> "$GITHUB_OUTPUT"
+
+      - name: Check generated action catalog, surfaces and inventory
+        id: actions
+        if: ${{ steps.preflight.outputs.ok == 'true' && steps.parity.outputs.parity != 'mismatch' }}
+        continue-on-error: true
+        env:
+          CMUX_ACTION_EXPORTS_CHECK: scripts/cmux-next/check-generated-linux.sh
+          CMUX_ACTION_EXPORTS_REGEN: scripts/cmux-next/regenerate-action-exports-linux.sh ${{ runner.temp }}/action-exports-regen
+          # The Linux export builds nothing from the package: a base export only checks the base's inputs out.
+          CMUX_ACTION_EXPORTS_BUILD: "true"
+        run: scripts/cmux-next/judge-action-exports.sh "$PWD/Packages/macOS/CmuxNext"
+
+      - name: Check the settings exports
+        id: settings
+        if: ${{ steps.preflight.outputs.ok == 'true' && steps.parity.outputs.parity != 'mismatch' }}
+        continue-on-error: true
+        env:
+          CMUX_SETTINGS_EXPORTS_REGEN: scripts/cmux-next/regenerate-settings-exports-linux.sh
+        # Exit 1 is a stale export; 2 or more is the Linux export that cannot decide (a Swift shape or a catalog
+        # key it does not know), which leaves no verdict so the Mac job decides.
+        run: |
+          set +e
+          scripts/cmux-next/check-settings-exports.sh; rc=$?
+          if (( rc >= 2 )); then
+            echo "undecided=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::the Linux settings export could not decide (exit $rc); the Mac job decides"
+            git checkout -q HEAD -- docs/mdm schemas/settings
+            exit 0
+          fi
+          exit "$rc"
+
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-380
+      - name: Pack the exports for the base autofix
+        id: base-exports
+        if: ${{ steps.preflight.outputs.ok == 'true' && steps.parity.outputs.parity != 'mismatch' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/feat-cmux-next' && format('{0}', vars.CMUX_NEXT_BASE_EXPORTS_PACK) != '0' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CMUX_BASE_EXPORTS_REGENERATE_ACTIONS: scripts/cmux-next/regenerate-action-exports-linux.sh
+          CMUX_BASE_EXPORTS_REGENERATE_SETTINGS: scripts/cmux-next/regenerate-settings-exports-linux.sh
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && [[ "$(python3 -I -c 'import json, os; print(str((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("inputs") or {}).get("base_tier", "")).lower())')" != true ]]; then
+            echo "not a base tier dispatch: no pack"
+            exit 0
+          fi
+          scripts/cmux-next/base-autofix-exports-pack.sh "$RUNNER_TEMP/base-exports" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Upload the exports for the base autofix
+        if: ${{ steps.base-exports.outcome == 'success' && steps.base-exports.outputs.name != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.base-exports.outputs.name }}
+          path: ${{ runner.temp }}/base-exports
+          if-no-files-found: error
+          retention-days: 1
+
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-516
+      - name: Pack the exports for the PR autofix
+        id: pr-exports
+        if: ${{ steps.preflight.outputs.ok == 'true' && steps.parity.outputs.parity != 'mismatch' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && format('{0}', vars.CMUX_NEXT_PR_EXPORTS_PACK) != '0' }}
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CMUX_BASE_EXPORTS_REGENERATE_ACTIONS: ${{ github.workspace }}/scripts/cmux-next/regenerate-action-exports-linux.sh
+          CMUX_BASE_EXPORTS_REGENERATE_SETTINGS: ${{ github.workspace }}/scripts/cmux-next/regenerate-settings-exports-linux.sh
+        run: |
+          set -euo pipefail
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-544
+          base="$RUNNER_TEMP/pr-autofix-base"
+          rm -rf "$base" && mkdir -p "$base"
+          git archive HEAD^1 scripts/cmux-next | tar -x -C "$base"
+          pack="$base/scripts/cmux-next/base-autofix-exports-pack.sh"
+          if ! grep -q -- '--pr' "$pack"; then echo "the base's pack script makes no PR pack yet"; exit 0; fi
+          if git log -1 --format=%B HEAD^2 | grep -q '^Autofix-Run: '; then echo "an autofix head: the PR autofix wants no exports"; exit 0; fi
+          areas="$(git diff --no-renames --name-only HEAD^1 HEAD | "$base/scripts/cmux-next/autofix-areas.sh")"
+          if ! grep -qE '^(actions|settings)=true$' <<<"$areas"; then
+            echo "no action or settings inputs changed: the PR autofix wants no exports"
+            exit 0
+          fi
+          "$pack" "$RUNNER_TEMP/pr-exports" --pr | tee -a "$GITHUB_OUTPUT"
+
+      - name: Upload the exports for the PR autofix
+        if: ${{ steps.pr-exports.outcome == 'success' && steps.pr-exports.outputs.name != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.pr-exports.outputs.name }}
+          path: ${{ runner.temp }}/pr-exports
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-277
+      - name: Regenerate stale files
+        id: regenerate
+        if: ${{ steps.actions.outcome == 'failure' || steps.settings.outcome == 'failure' }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.actions.outcome }}" == failure ]]; then
+            scripts/cmux-next/regenerate-action-exports-linux.sh "$RUNNER_TEMP/action-exports-stale"
+          fi
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-454
+          python3 scripts/ci/defaults_guard.py snapshot
+          out="$RUNNER_TEMP/generated/files"
+          mkdir -p "$out"
+          generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
+            schemas/settings/settings-schema.json 'docs/mdm/*' schemas/defaults/cmux-next.json)
+          git add -N -- "${generated[@]}"
+          git diff --name-only -- "${generated[@]}" > "$RUNNER_TEMP/generated/paths.txt"
+          git diff --stat
+          while IFS= read -r path; do
+            mkdir -p "$out/$(dirname "$path")"
+            cp "$path" "$out/$path"
+          done < "$RUNNER_TEMP/generated/paths.txt"
+          cp "$RUNNER_TEMP/generated/paths.txt" "$out/.paths"
+          if [[ -s "$RUNNER_TEMP/generated/paths.txt" ]]; then
+            echo "patch=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload the regenerated files
+        if: ${{ steps.regenerate.outputs.patch == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-generated-patch
+          path: ${{ runner.temp }}/generated/files
+          include-hidden-files: true
+          retention-days: 3
+
+      # The Mac job's "Fail on stale generated files", as a verdict the Mac job reads: empty when this pool decided
+      # nothing (the Mac job runs instead).
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-481
+      - name: Verdict
+        id: verdict
+        if: ${{ steps.preflight.outputs.ok == 'true' && steps.parity.outputs.parity != 'mismatch' && steps.settings.outputs.undecided != 'true' }}
+        env:
+          ACTIONS: ${{ steps.actions.outcome }}
+          CATALOG: ${{ steps.actions.outputs.catalog }}
+          SETTINGS: ${{ steps.settings.outcome }}
+          AUTOFIXED_OK: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_PR_AUTOFIX_PUSH == '1' }}
+        run: |
+          if [[ "$ACTIONS" != failure && "$SETTINGS" != failure ]]; then
+            echo "verdict=fresh" >> "$GITHUB_OUTPUT"
+            echo "Generated cmux-next files are fresh (checked on the fleet's Linux pool)." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
+            echo "verdict=catalog" >> "$GITHUB_OUTPUT"
+            {
+              echo "### The action catalog checks fail: a catalog failure, not stale files"
+              echo
+              echo "Fresh exports fail the same checks, so regenerating changes nothing. The step \"Check generated action catalog, surfaces and inventory\" names the failing check."
+              [[ "$SETTINGS" != failure ]] || echo "- settings exports are also stale: scripts/cmux-next/regenerate-settings-exports.sh"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::The action catalog checks fail with fresh exports too: a catalog failure, not stale files."
+            exit 1
+          fi
+          if [[ "$AUTOFIXED_OK" == true ]] && why="$(scripts/cmux-next/generated-autofixable.sh)"; then
+            echo "verdict=autofixed" >> "$GITHUB_OUTPUT"
+            echo "### Generated cmux-next files are stale: autofixed ($why)" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=cmux-next generated files (autofixed)::Generated cmux-next files are stale only from this pull request's own changes: $why"
+            exit 0
+          fi
+          echo "verdict=stale" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Generated cmux-next files are stale"
+            echo
+            [[ "$ACTIONS" != failure ]] || echo "- action catalog, surfaces or inventory: scripts/cmux-next/regenerate-action-contracts.sh (or scripts/cmux-next/regenerate-action-exports-linux.sh OUT, off a Mac)"
+            [[ "$SETTINGS" != failure ]] || echo "- settings exports: scripts/cmux-next/regenerate-settings-exports.sh (or scripts/cmux-next/regenerate-settings-exports-linux.sh OUT, off a Mac)"
+            echo
+            echo "The cmux-next-generated-patch artifact holds the regenerated files at their repository paths."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "::error::Generated cmux-next files are stale. Regenerate them as the step summary says."
+          exit 1
+
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-263
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
+
+  generated-files:
+    needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red, generated-files-linux]
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-265
+    if: ${{ !cancelled() && needs.generated-files-linux.outputs.verdict == '' && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    name: cmux-next generated files (Mac fallback)
     # Why: docs/ci/cmux-next-workflow-notes.md#note-266
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || github.event_name == 'push' && format('cmux-next-push-{0}-generated-files', github.sha) || format('cmux-next-run-{0}-generated-files', github.run_id) }}
@@ -5154,6 +5423,18 @@ jobs:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
     steps:
+      # The fleet's Linux job (generated-files-linux) decides this check; this Mac job is its fallback.
+      - name: Log the Mac fallback
+        env:
+          LINUX_RESULT: ${{ needs.generated-files-linux.result }}
+          PARITY: ${{ needs.generated-files-linux.outputs.parity }}
+        run: |
+          why="the fleet job ended $LINUX_RESULT with no verdict"
+          [[ "$LINUX_RESULT" != skipped ]] || why="the fleet job is off (vars.CI_GENERATED_FILES_LINUX) or skipped"
+          [[ "$PARITY" != mismatch ]] || why="the fleet export differs from the Swift export (parity)"
+          echo "::warning title=cmux-next generated files: Mac fallback::$why"
+          echo "Mac fallback: $why." >> "$GITHUB_STEP_SUMMARY"
+
       # Why: docs/ci/cmux-next-workflow-notes.md#note-267
       - name: Give this job its own acpmux home
         run: |
@@ -6042,9 +6323,9 @@ jobs:
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-70
   swift-exports-cache:
-    needs: [path_route, checks, generated-files, generated-verdict, swift-test, daemon-test]
+    needs: [path_route, checks, generated-files-linux, generated-files, generated-verdict, swift-test, daemon-test]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-292
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.result == 'success' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.result == 'success' && needs.checks.result == 'success' && (needs.generated-files.result == 'success' || needs.generated-files.result == 'skipped' && needs.generated-files-linux.result == 'success' && needs.generated-files-linux.outputs.verdict != '' || needs.generated-files.result == 'skipped' && needs.generated-verdict.result == 'success') && needs.swift-test.result == 'success' && needs.daemon-test.result == 'success' }}
     name: cmux-next Swift exports cache
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
     timeout-minutes: 10
@@ -7389,7 +7670,7 @@ jobs:
       own_checks_green: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
 
   push-attribution:
-    needs: [checks, generated-files, generated-verdict, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, crash-ends-app]
+    needs: [checks, generated-files-linux, generated-files, generated-verdict, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, crash-ends-app]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-341
     if: ${{ (failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push' || inputs.base_tier == true) && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next push attribution

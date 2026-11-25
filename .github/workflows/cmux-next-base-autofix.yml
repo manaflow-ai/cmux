@@ -420,6 +420,15 @@ jobs:
     env:
       CI_CACHE_R2_BUCKET: cmux-ci-cache-next
     steps:
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-267
+      - name: Give this job its own acpmux home
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+          # An inherited socket would still name another home's daemon; empty is unset.
+          echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
+
       # git before the checkout, or it downloads a tarball the script cannot move to the newest tip.
       - name: Install git, python3 and curl
         timeout-minutes: 5
@@ -481,6 +490,18 @@ jobs:
   # read-only token and hands them to autofix as the action-exports artifact
   # (files at their repository paths).
   # Only when the push's packed exports (pushed-exports) could not be taken.
+
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
+
   action-exports:
     name: action exports (Mac)
     needs: [action-areas, pushed-exports, action-exports-linux]
