@@ -4,7 +4,7 @@
 // what happened, "Finished 2 background tasks and ran 5 commands", with its chevron; one row per call
 // titled by what its command did (commandActions.ts), and a failure draws no word (Codex parity); opened,
 // the command in its code colours, "Exit code N" in red, then the output in mono; a background
-// command's end noted as "Background command completed <command>". Our colours, glass, fonts and row
+// command's end shown as its description and outcome. Our colours, glass, fonts and row
 // grid stay. Reference: cmux-design-references claude/live/transcript-tool-call-group-summary.
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -94,7 +94,12 @@ const running = chat(
 const notes = chat([
   user("Did the nightly import finish?", 4),
   row("backgroundTask", 3.5, {
-    backgroundTask: { toolCallId: "gallery-bg-1", command: "python3 scripts/import_nightly.py", state: "completed" },
+    backgroundTask: {
+      toolCallId: "gallery-bg-1",
+      description: "Import the nightly results",
+      command: "python3 scripts/import_nightly.py",
+      state: "completed",
+    },
   }),
   row("backgroundTask", 3.4, {
     backgroundTask: { toolCallId: "gallery-bg-2", command: "python3 scripts/reindex.py", state: "failed" },
@@ -150,7 +155,7 @@ export default agentPaneEntry({
       snapshot: finished(mixed()),
     },
     opened: {
-      note: "The run opened (opened here if it is not already): one row per call by its command (Codex parity); a failed one draws no word.",
+      note: "The run opened (opened here if it is not already): each row shows its description and opens to its command and output.",
       snapshot: finished(mixed()),
       play: openRun,
     },
@@ -164,12 +169,12 @@ export default agentPaneEntry({
       snapshot: running,
     },
     "no-description": {
-      note: "Calls with no description read as their command too, as every call does.",
+      note: "Calls without descriptions show the recognized action or the command.",
       snapshot: finished(mixed(false)),
       play: openRun,
     },
     "background-notes": {
-      note: "A background command's end without its call: Background command completed (muted), then the command.",
+      note: "A completed import shows its description and outcome. The other task has only its command.",
       snapshot: notes,
     },
   },
