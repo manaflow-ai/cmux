@@ -409,6 +409,14 @@ struct TerminalPage: View {
                 Text("Shows vim, htop or Codex at the Mac's size: pinch to zoom, drag to pan, and the Mac pane keeps its size. Typing into one fits it to the phone, which remembers that program. Applies to terminals opened next.")
             }
             Section {
+                Toggle(isOn: $settings.terminalHistoryFind) {
+                    SettingsLabel("Find in Whole History", symbol: "doc.text.magnifyingglass")
+                }
+                .accessibilityIdentifier("settings.terminalHistoryFind")
+            } footer: {
+                Text("Find searches the terminal's whole history on the Mac, not only the lines on this phone.")
+            }
+            Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {
@@ -660,6 +668,14 @@ struct TransportPage: View {
                 .accessibilityIdentifier("settings.transport.alignKeepalives")
             } footer: {
                 Text("Sends every connection's keepalive at the same moments, every 10 seconds, so the radio wakes once for all of them instead of for each. Applies at the next connection.")
+            }
+            Section {
+                Toggle(isOn: $settings.lanDirect) {
+                    Text("Direct on Wi-Fi")
+                }
+                .accessibilityIdentifier("settings.transport.lanDirect")
+            } footer: {
+                Text("Talk to your Mac directly when you share a network. Off: always use the relay.")
             }
             Section {
                 Toggle(isOn: $settings.quietCloudConnect) {

@@ -8,10 +8,11 @@ binary 16.8 MB larger (116.5 -> 133.3 MB). Thin LTO with 16 codegen units made
 it 24% larger in #27830, so cmux-tui, cmux-tui-core and acpmux keep one unit.
 
 The build workflow's `lto: fat` input means "the Cargo.toml release profile".
-Only build-machine-channel passes `lto: thin` (cmux-tui-build-package.yml:
-release LTO off): the Cloud machine channel's own copy of the two Linux musl
-targets, artifacts machine-channel-*, which only point-machine-channel-early
-reads (cmux-tui-artifacts.yml MACHINE_CHANNEL_THIN; on the cmux-linux pool a
+Only build-machine-channel-x86_64 and build-machine-channel (aarch64) pass
+`lto: thin` (cmux-tui-build-package.yml: release LTO off): the Cloud machine
+channel's own copy of the two Linux musl targets, one call each, artifacts
+machine-channel-*, which only point-machine-channel-early (x86_64) and
+point-machine-channel-early-linux (both) read (cmux-tui-artifacts.yml MACHINE_CHANNEL_THIN; on the cmux-linux pool a
 fat leg builds cold in 23-40 min). Every other caller, and so every shipped
 app, npm, PyPI, release, R2 and tree artifact, keeps the Cargo.toml profile.
 ChannelOnlyThinTest checks that.
@@ -65,7 +66,7 @@ class CmuxTuiReleaseProfileTest(unittest.TestCase):
 BUILD_PACKAGE = "./.github/workflows/cmux-tui-build-package.yml"
 MACHINE_PREFIX = "machine-channel-"
 PROFILES_PATH = ROOT / "scripts/cmux-next/cmux-tui-build-profiles.json"
-PROFILE_REF = re.compile(r"fromJSON\(needs\.tree-preflight\.outputs\.build_profiles\)\.([a-z_]+)\.([a-z_]+)")
+PROFILE_REF = re.compile(r"fromJSON\(needs\.tree-preflight\.outputs\.build_profiles\)\.([a-z_]+)\.([a-z0-9_]+)")
 # The build-package inputs that decide what a tree build makes.
 BUILD_DEFINING = ("lto", "target_set", "artifact_prefix", "include_windows", "windows_acpmux", "build_cmux_rd")
 
@@ -106,7 +107,7 @@ class ChannelOnlyThinTest(unittest.TestCase):
                 self.assertIn(lto, ("fat", "thin"))
                 if lto == "thin":
                     thin.append((file, name))
-                    self.assertEqual(inputs.get("target_set"), "linux")
+                    self.assertIn(inputs.get("target_set"), ("linux-x86_64", "linux-aarch64"))
                     self.assertEqual(inputs.get("artifact_prefix"), MACHINE_PREFIX)
                     self.assertFalse(inputs.get("package_npm", True))
                     self.assertFalse(inputs.get("package_pypi", True))
@@ -114,7 +115,9 @@ class ChannelOnlyThinTest(unittest.TestCase):
                     # A fat build's artifacts keep the names every shipped download reads.
                     self.assertEqual(inputs.get("artifact_prefix", ""), "")
         # MACHINE_CHANNEL_THIN: the Cloud machine channel's own copy of the Linux targets, alone.
-        self.assertEqual(thin, [("cmux-tui-artifacts.yml", "build-machine-channel")])
+        # LINUX_X86_64_FIRST: one call per target, so the x86_64 point waits for no aarch64 leg.
+        self.assertEqual(thin, [("cmux-tui-artifacts.yml", "build-machine-channel-x86_64"),
+                                ("cmux-tui-artifacts.yml", "build-machine-channel")])
 
     def test_the_shipped_linux_binaries_come_from_the_fat_build(self):
         jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
@@ -142,22 +145,31 @@ class ChannelOnlyThinTest(unittest.TestCase):
                     names += re.findall(r"(?:--pattern|--name|-n)[ =]+[\"']?([^\s\"']+)", str(step.get("run", "")))
                     if any(n.startswith(MACHINE_PREFIX) for n in names):
                         readers.append((path.name, name))
-        self.assertEqual(readers, [("cmux-tui-artifacts.yml", "point-machine-channel-early")])
-        early = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]["point-machine-channel-early"]
-        self.assertIn("build-machine-channel", early["needs"])
-        self.assertIn("needs.build-machine-channel.result == 'success'", early["if"])
-        downloads = [step["with"]["pattern"] for step in early["steps"]
-                     if "download-artifact" in str(step.get("uses", ""))]
-        self.assertEqual(downloads, ["machine-channel-cmux-tui-*-unknown-linux-musl"])
-        run = "\n".join(str(step.get("run", "")) for step in early["steps"])
-        # Its payload names cmux-tui/<sha>/machine/, never the shipped names.
-        self.assertIn("--machine-path", run)
-        self.assertIn("cmux-machine-linux-bytes.sh early", run)
+        self.assertEqual(readers, [("cmux-tui-artifacts.yml", "point-machine-channel-early"),
+                                   ("cmux-tui-artifacts.yml", "point-machine-channel-early-linux")])
+        jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
+        early = jobs["point-machine-channel-early"]
+        # LINUX_X86_64_FIRST: the x86_64 point waits for the x86_64 leg alone.
+        self.assertIn("build-machine-channel-x86_64", early["needs"])
+        self.assertNotIn("build-machine-channel", early["needs"])
+        self.assertIn("needs.build-machine-channel-x86_64.result == 'success'", early["if"])
+        both = jobs["point-machine-channel-early-linux"]
+        self.assertIn("build-machine-channel-x86_64", both["needs"])
+        self.assertIn("build-machine-channel", both["needs"])
+        for job, pattern in ((early, "machine-channel-cmux-tui-x86_64-unknown-linux-musl"),
+                             (both, "machine-channel-cmux-tui-*-unknown-linux-musl")):
+            downloads = [step["with"]["pattern"] for step in job["steps"]
+                         if "download-artifact" in str(step.get("uses", ""))]
+            self.assertEqual(downloads, [pattern])
+            run = "\n".join(str(step.get("run", "")) for step in job["steps"])
+            # Its payload names cmux-tui/<sha>/machine/, never the shipped names.
+            self.assertIn("--machine-path", run)
+            self.assertIn("cmux-machine-linux-bytes.sh early", run)
 
     def test_the_build_workflow_refuses_thin_outside_the_channel_shape(self):
         jobs = workflow(ROOT / ".github/workflows/cmux-tui-build-package.yml")["jobs"]
         plan = next(step["run"] for step in jobs["plan-build"]["steps"] if step.get("id") == "targets")
-        self.assertIn('lto=thin needs target_set=linux, no packages and an artifact_prefix', plan)
+        self.assertIn('lto=thin needs a Linux target_set (linux, linux-x86_64, linux-aarch64), no packages and an artifact_prefix', plan)
         inputs = workflow(ROOT / ".github/workflows/cmux-tui-build-package.yml")[True]["workflow_call"]["inputs"]
         self.assertEqual(inputs["lto"]["default"], "fat")
         self.assertEqual(inputs["artifact_prefix"]["default"], "")
@@ -170,7 +182,8 @@ class BuildProfileSourceTest(unittest.TestCase):
         jobs = workflow(ROOT / ".github/workflows/cmux-tui-artifacts.yml")["jobs"]
         calls = {name: job.get("with") or {} for name, job in jobs.items()
                  if isinstance(job, dict) and job.get("uses") == BUILD_PACKAGE}
-        self.assertEqual(sorted(calls), ["build", "build-darwin-fallback", "build-windows"])
+        self.assertEqual(sorted(calls), ["build", "build-darwin-fallback", "build-linux", "build-machine-channel",
+                                        "build-machine-channel-x86_64", "build-windows"])
         keyed = profiles()
         for name, inputs in calls.items():
             for key in BUILD_DEFINING:

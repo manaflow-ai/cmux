@@ -57,6 +57,15 @@ const ANNOUNCE_RESENDS: [Duration; 5] = [
 /// The most endpoints one announcement may carry.
 const MAX_ENDPOINTS: usize = 16;
 
+/// Metered addresses one message carries.
+const MAX_METERED: usize = 4;
+
+/// How often this side's metered addresses go again.
+const METERED_RESEND: Duration = Duration::from_secs(5);
+
+/// Times an empty `metered` list goes again after the first.
+const METERED_CLEARED_RESENDS: usize = 2;
+
 /// Changes the roaming side makes to its [`HybridUnderlay`].
 pub(super) enum Control {
     /// This side's network changed: carry the session on `socket`, ask
@@ -90,10 +99,20 @@ pub(super) enum Control {
     /// Debug and tests: the network goes dark (`true`: nothing this side
     /// sends leaves and nothing arrives, on its socket or its TURN
     /// allocation) or comes back on the same socket and addresses
-    /// (`false`), with no roam: an elevator, a tunnel, a dead cell.
+    /// (`false`), with no roam: an elevator, a tunnel, a dead cell. A
+    /// second socket ([`Control::Secondary`]) is on another interface and
+    /// stays up: Wi-Fi dies, cell lives.
     Dark(bool),
     /// Debug and tests: the TURN allocation's stream to its server dies.
     KillTurn,
+    /// Take a socket on the second interface (cell beside Wi-Fi), or drop it.
+    Secondary(Option<super::multipath::SecondarySocket>),
+    /// The second interface became the primary one: carry the session on
+    /// its warm socket.
+    Promote,
+    /// The peer's addresses on its metered interface (its `metered` roam
+    /// message; none: it has no second interface now).
+    PeerMetered(Vec<String>),
     /// A joined relay socket: one more carrier, beside UDP and TURN.
     Relay(super::RelayCarrier),
     /// Debug and tests: the relay socket dies, as a proxy that resets it.
@@ -462,6 +481,14 @@ enum RoamMessage {
     Ack {
         generation: u64,
     },
+    /// This side's addresses on its metered interface (cell beside Wi-Fi,
+    /// protocol version 3; an older peer logs it as unreadable and goes on):
+    /// the peer keeps them out of its path selector and sends a copy of its
+    /// keystrokes and echo there. Empty: no second interface now.
+    Metered {
+        #[serde(default)]
+        addresses: Vec<String>,
+    },
     /// "Your datagrams reach me" (protocol version 2; an older peer logs it
     /// as unreadable and goes on): they arrived from `from` (the sender's
     /// address as seen here), on this side's plain UDP socket or its TURN
@@ -495,6 +522,8 @@ pub(super) struct SessionParts {
     pub turn_dead: Option<watch::Receiver<bool>>,
     /// The underlay's current plain-UDP destination.
     pub route_to: Arc<watch::Sender<Option<SocketAddr>>>,
+    /// The peer's protocol version (`version` in its `wg-*`).
+    pub peer_version: u32,
     /// cmux's relay for this session, when both sides offered it.
     pub relay: Option<RelayPlan>,
     pub relay_shared: Arc<RelayShared>,
@@ -525,9 +554,10 @@ pub(super) struct Session {
     inject: mpsc::UnboundedSender<RoamMessage>,
     injected: Mutex<Option<mpsc::UnboundedReceiver<RoamMessage>>>,
     /// Asks the control task to send its latest announcement through
-    /// signaling again (a new signaling socket).
-    resignal: mpsc::UnboundedSender<()>,
-    resignals: Mutex<Option<mpsc::UnboundedReceiver<()>>>,
+    /// signaling again: `false` for a new signaling socket, `true` to nudge
+    /// a peer whose route went quiet ([`Self::nudge_peer`]).
+    resignal: mpsc::UnboundedSender<bool>,
+    resignals: Mutex<Option<mpsc::UnboundedReceiver<bool>>>,
     follow: Mutex<Option<JoinHandle<()>>>,
     announce: Mutex<Option<mpsc::UnboundedSender<Announcement>>>,
     control_task: Mutex<Option<JoinHandle<()>>>,
@@ -541,6 +571,15 @@ pub(super) struct Session {
     roams: std::sync::atomic::AtomicU64,
     closed: AtomicBool,
     route_to: Arc<watch::Sender<Option<SocketAddr>>>,
+    /// The peer takes a second socket's datagrams and the `metered` message
+    /// (protocol version [`super::multipath::MULTIPATH_VERSION`]).
+    multipath: bool,
+    /// The interface the underlay's second socket is bound to.
+    secondary: Mutex<Option<String>>,
+    /// The second socket's reflexive address (`None`: gone), for the control
+    /// task to announce as metered.
+    metered: Mutex<Option<mpsc::UnboundedSender<Option<SocketAddr>>>>,
+    metered_rx: Mutex<Option<mpsc::UnboundedReceiver<Option<SocketAddr>>>>,
     /// This side's router mapping of the current socket's port (a Mac with
     /// a mapper, [`portmap::install`]); replaced on a roam, dropped (and so
     /// deleted at the router) with the session.
@@ -567,6 +606,24 @@ fn registry() -> &'static Mutex<Vec<Weak<Session>>> {
 }
 
 /// Every live session of this process.
+/// Give every live session the second socket [`super::multipath`] wants
+/// now, or take it away (WIP: the underlay side lands next).
+/// Bring every live session's second socket in line with the interfaces,
+/// the person's setting and the app's state ([`super::multipath`]).
+pub(super) fn apply_multipath_to_live_sessions() {
+    let interfaces = super::multipath::interfaces();
+    let wanted = super::multipath::secondary_interface(
+        &interfaces,
+        super::multipath::cellular_assist(),
+        super::app_backgrounded(),
+    );
+    let primary =
+        interfaces.iter().find(|interface| interface.primary).map(|interface| interface.name.as_str());
+    for session in live() {
+        session.apply_multipath(wanted.as_ref(), primary);
+    }
+}
+
 fn live() -> Vec<Arc<Session>> {
     let mut sessions = lock(registry());
     sessions.retain(|weak| weak.strong_count() > 0);
@@ -582,6 +639,7 @@ impl Session {
         let turn_dead = parts.turn_dead;
         let (inject, injected) = mpsc::unbounded_channel();
         let (resignal, resignals) = mpsc::unbounded_channel();
+        let (metered, metered_rx) = mpsc::unbounded_channel();
         let session = Arc::new(Self {
             session_id: parts.session_id,
             peer: parts.peer,
@@ -610,6 +668,10 @@ impl Session {
             roams: std::sync::atomic::AtomicU64::new(0),
             closed: AtomicBool::new(false),
             route_to: parts.route_to,
+            multipath: parts.peer_version >= super::multipath::MULTIPATH_VERSION,
+            secondary: Mutex::new(None),
+            metered: Mutex::new(Some(metered)),
+            metered_rx: Mutex::new(Some(metered_rx)),
             mapping: Mutex::new(None),
             own_mapped: Mutex::new(None),
             mapped_was_offered: Mutex::new(false),
@@ -626,7 +688,56 @@ impl Session {
         if let Some(dead) = turn_dead {
             session.monitor_turn(dead);
         }
+        let interfaces = super::multipath::interfaces();
+        let wanted = super::multipath::secondary_interface(
+            &interfaces,
+            super::multipath::cellular_assist(),
+            super::app_backgrounded(),
+        );
+        session.apply_multipath(wanted.as_ref(), None);
         session
+    }
+
+    /// Give the underlay a socket on `wanted` (none: drop it), or move the
+    /// session onto it once its interface is the `primary` one.
+    fn apply_multipath(&self, wanted: Option<&super::multipath::NetInterface>, primary: Option<&str>) {
+        // The dialing side (the phone) takes the second socket; the answering
+        // side copies to the phone's metered address instead.
+        if !self.multipath || !self.dialer || self.closed.load(Ordering::Relaxed) {
+            return;
+        }
+        let mut current = lock(&self.secondary);
+        if current.is_some() && current.as_deref() == primary {
+            tracing::debug!(interface = ?current, "the second interface is the primary one now");
+            *current = None;
+            let _ = self.control.send(Control::Promote);
+            return;
+        }
+        let wanted_name = wanted.map(|interface| interface.name.as_str());
+        if current.as_deref() == wanted_name {
+            return;
+        }
+        let metered = lock(&self.metered).clone().unwrap_or_else(|| mpsc::unbounded_channel().0);
+        let Some(interface) = wanted else {
+            *current = None;
+            let _ = self.control.send(Control::Secondary(None));
+            let _ = metered.send(None);
+            return;
+        };
+        match super::multipath::bind_udp_on(&interface.name) {
+            Ok(socket) => {
+                *current = Some(interface.name.clone());
+                let _ = self.control.send(Control::Secondary(Some(super::multipath::SecondarySocket {
+                    socket,
+                    interface: interface.name.clone(),
+                    stun: lock(&self.stun).clone(),
+                    reflexive: metered,
+                })));
+            }
+            Err(error) => {
+                tracing::debug!(%error, interface = interface.name, "no socket on the second interface");
+            }
+        }
     }
 
     /// When the current TURN allocation's stream to its server dies, take a
@@ -824,7 +935,9 @@ impl Session {
 
     /// Hand `turn` to the underlay and watch its stream.
     fn install_turn(self: &Arc<Self>, turn: TurnCarrier, relayed: (Vec<String>, Vec<String>)) {
-        let dead = turn.transport.is_stream().then(|| turn.dead());
+        // UDP too: its allocation dies when its server stops answering
+        // (`TurnCarrier::check_server`).
+        let dead = Some(turn.dead());
         *lock(&self.relayed) = relayed;
         if self.control.send(Control::Turn(turn)).is_err() {
             return;
@@ -847,6 +960,15 @@ impl Session {
 
     fn signaling(&self) -> SignalingClient {
         lock(&self.signaling).clone()
+    }
+
+    /// The signaling socket this session follows now.
+    pub(super) fn signaling_client(&self) -> SignalingClient {
+        self.signaling()
+    }
+
+    pub(super) fn id(&self) -> &str {
+        &self.session_id
     }
 
     /// Watch `events` for the peer's `bye`, replacing the subscription of
@@ -916,6 +1038,7 @@ impl Session {
         let reach = lock(&self.reach).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
         let injected = lock(&self.injected).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
         let resignal = lock(&self.resignals).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
+        let metered = lock(&self.metered_rx).take().unwrap_or_else(|| mpsc::unbounded_channel().1);
         let task = tokio::spawn(run_control(
             socket,
             peer,
@@ -926,6 +1049,7 @@ impl Session {
                 reach,
                 injected,
                 resignal,
+                metered,
                 peer_mapped: Arc::clone(&self.peer_mapped),
                 signal: SignalTarget {
                     dialer: self.dialer,
@@ -1193,19 +1317,40 @@ impl Session {
         timeline
     }
 
+    /// Our route to the peer went quiet: send the peer our latest endpoint
+    /// announcement again through signaling (generation 0 with none yet).
+    /// Already applied there, it is only acknowledged, inside the tunnel,
+    /// which is the point: the peer sends on its route to us, and that
+    /// starts its silence watch (and, on its TURN allocation, the server
+    /// check) without waiting for its next probe.
+    pub(super) fn nudge_peer(&self) {
+        let _ = self.resignal.send(true);
+    }
+
     fn rehome_onto(&self, client: &SignalingClient) {
         let old = std::mem::replace(&mut *lock(&self.signaling), client.clone());
         old.unsubscribe(&self.session_id);
         self.follow(client.subscribe(&self.session_id));
         // An announcement sent while the old socket was dead is sent again.
-        let _ = self.resignal.send(());
+        let _ = self.resignal.send(false);
         tracing::debug!(session = self.session_id, "WireGuard session moved to a new signaling socket");
     }
 }
 
 async fn send_message(socket: &WgDatagramSocket, peer: SocketAddr, message: &RoamMessage) {
     let bytes = serde_json::to_vec(message).expect("roam message serializes");
-    if let Err(error) = socket.send_to(&bytes, peer, Priority::Interactive).await {
+    // An endpoint announcement keeps Ultra Mode's repair: it is what a roam
+    // on a lossy network waits for. `reach`, `ack` and `metered` are
+    // repeated by their senders and nothing answers them, so each goes as
+    // one liveness datagram: no floor parity (which cost a lone `reach` as
+    // much again, 12 a minute on an idle link) and no silence watch armed.
+    let result = match message {
+        RoamMessage::Endpoints { .. } => socket.send_to(&bytes, peer, Priority::Interactive).await,
+        RoamMessage::Ack { .. } | RoamMessage::Metered { .. } | RoamMessage::Reach { .. } => {
+            socket.send_liveness(&bytes, peer, true).await
+        }
+    };
+    if let Err(error) = result {
         tracing::debug!(%error, "roam message not sent");
     }
 }
@@ -1250,7 +1395,9 @@ struct ControlChannels {
     announce: mpsc::UnboundedReceiver<Announcement>,
     reach: mpsc::UnboundedReceiver<(SocketAddr, Carrier)>,
     injected: mpsc::UnboundedReceiver<RoamMessage>,
-    resignal: mpsc::UnboundedReceiver<()>,
+    resignal: mpsc::UnboundedReceiver<bool>,
+    /// The reflexive address of this side's second socket (`None`: gone).
+    metered: mpsc::UnboundedReceiver<Option<SocketAddr>>,
     /// Where the peer's mapped endpoints are kept (for `link_stat`).
     peer_mapped: Arc<Mutex<portmap::PeerMapped>>,
     signal: SignalTarget,
@@ -1267,8 +1414,20 @@ async fn run_control(
     channels: ControlChannels,
     path_epoch: Arc<watch::Sender<u64>>,
 ) {
-    let ControlChannels { mut announce, mut reach, mut injected, mut resignal, peer_mapped, signal } =
-        channels;
+    let ControlChannels {
+        mut announce,
+        mut reach,
+        mut injected,
+        mut resignal,
+        mut metered,
+        peer_mapped,
+        signal,
+    } = channels;
+    // This side's metered addresses, sent again every METERED_RESEND while
+    // there are any (the message has no acknowledgment).
+    let mut own_metered: Vec<String> = Vec::new();
+    let mut metered_at: Option<Instant> = None;
+    let mut cleared_left = 0usize;
     // The latest announcement, for a resend through a new signaling socket.
     let mut latest: Option<RoamMessage> = None;
     let mut generation = 0u64;
@@ -1289,7 +1448,27 @@ async fn run_control(
                 None => std::future::pending().await,
             }
         };
+        let metered_resend = async {
+            match metered_at {
+                Some(at) => tokio::time::sleep_until(at).await,
+                None => std::future::pending().await,
+            }
+        };
         tokio::select! {
+            Some(address) = metered.recv() => {
+                own_metered = address.map(|addr| vec![addr.to_string()]).unwrap_or_default();
+                cleared_left = METERED_CLEARED_RESENDS;
+                send_message(&socket, peer, &RoamMessage::Metered { addresses: own_metered.clone() }).await;
+                metered_at = Some(Instant::now() + METERED_RESEND);
+            }
+            () = metered_resend => {
+                send_message(&socket, peer, &RoamMessage::Metered { addresses: own_metered.clone() }).await;
+                // An empty list goes a few times more, then stops.
+                if own_metered.is_empty() {
+                    cleared_left = cleared_left.saturating_sub(1);
+                }
+                metered_at = (!own_metered.is_empty() || cleared_left > 0).then(|| Instant::now() + METERED_RESEND);
+            }
             Some((from, carrier)) = reach.recv() => {
                 let via = match carrier {
                     Carrier::Turn => "turn",
@@ -1343,9 +1522,20 @@ async fn run_control(
                     pending = None;
                 }
             }
-            Some(()) = resignal.recv() => {
-                if let Some(message) = &latest {
-                    signal.send(message);
+            Some(nudge) = resignal.recv() => {
+                match &latest {
+                    Some(message) => signal.send(message),
+                    // Nothing announced yet: generation 0, which every peer
+                    // has applied, so it only acknowledges it.
+                    None if nudge => signal.send(&RoamMessage::Endpoints {
+                        generation: 0,
+                        endpoints: Vec::new(),
+                        relayed: Vec::new(),
+                        relayed_tls: Vec::new(),
+                        mapped: Vec::new(),
+                        mapped_by: None,
+                    }),
+                    None => {}
                 }
             }
             received = async {
@@ -1413,6 +1603,16 @@ async fn run_control(
                         let current = lock(&net).clone();
                         if let Some(net) = current {
                             let _ = net.reach_moved_peer().await;
+                        }
+                    }
+                    Ok(RoamMessage::Metered { addresses }) => {
+                        let addresses: Vec<String> = addresses
+                            .into_iter()
+                            .filter(|text| text.parse::<SocketAddr>().is_ok())
+                            .take(MAX_METERED)
+                            .collect();
+                        if control.send(Control::PeerMetered(addresses)).is_err() {
+                            return;
                         }
                     }
                     Ok(RoamMessage::Ack { generation: acked }) => {
@@ -1736,6 +1936,109 @@ pub fn simulate_turn_loss(session_id: Option<&str>, dialer: bool) -> usize {
 mod tests {
     use super::*;
 
+    /// An answer-side session with `endpoints`, no tunnel (`net` none), and
+    /// its announcements collected.
+    async fn offering(
+        signaling: &crate::testing::FakeSignaling,
+        endpoints: &[&str],
+    ) -> (Arc<Session>, mpsc::UnboundedReceiver<Announcement>) {
+        let client = SignalingClient::connect(&signaling.base_url, "user:alice", "team", "mac")
+            .await
+            .expect("signaling");
+        let session = Session::register(SessionParts {
+            session_id: uuid::Uuid::new_v4().to_string(),
+            peer: "phone".into(),
+            dialer: false,
+            peer_ip: Ipv4Addr::new(10, 64, 0, 2),
+            signaling: Arc::new(Mutex::new(client)),
+            net: Arc::new(Mutex::new(None)),
+            control: mpsc::unbounded_channel().0,
+            reach: mpsc::unbounded_channel().1,
+            options: DialOptions::default(),
+            stun: Vec::new(),
+            endpoints: endpoints.iter().map(|e| (*e).to_owned()).collect(),
+            relayed: (Vec::new(), Vec::new()),
+            keeps_turn: false,
+            turn_dead: None,
+            route_to: Arc::new(watch::channel(None).0),
+            peer_version: super::super::WG_VERSION,
+            relay: None,
+            relay_shared: Arc::new(RelayShared::default()),
+        });
+        let (tx, rx) = mpsc::unbounded_channel();
+        *lock(&session.announce) = Some(tx);
+        (session, rx)
+    }
+
+    fn sent(rx: &mut mpsc::UnboundedReceiver<Announcement>) -> (Vec<String>, Vec<String>, Option<String>) {
+        let a = rx.try_recv().expect("an announcement");
+        (a.endpoints, a.mapped, a.mapped_by)
+    }
+
+    fn strings(all: &[&str]) -> Vec<String> {
+        all.iter().map(|e| (*e).to_owned()).collect()
+    }
+
+    /// The mapped endpoint's lifecycle on the answer side: offered labeled,
+    /// replaced when the router's address changes, withdrawn when the
+    /// mapping lapses, kept when STUN found it too, and dropped by a roam,
+    /// after which the old socket's mapping can no longer offer anything.
+    #[tokio::test]
+    async fn the_mapped_endpoint_is_offered_replaced_withdrawn_and_dropped_on_roam() {
+        let signaling = crate::testing::FakeSignaling::start(crate::testing::FakeOptions::default()).await;
+        let lan = "192.168.1.20:51000";
+        let (session, mut rx) = offering(&signaling, &[lan]).await;
+        let mapped: SocketAddr = "203.0.113.7:40000".parse().unwrap();
+        let moved: SocketAddr = "203.0.113.7:40001".parse().unwrap();
+
+        assert!(session.offer_mapped(0, Some((mapped, "pcp"))).await);
+        assert_eq!(
+            sent(&mut rx),
+            (strings(&[lan, "203.0.113.7:40000"]), strings(&["203.0.113.7:40000"]), Some("pcp".into()))
+        );
+        // The same address again: nothing new to say.
+        assert!(session.offer_mapped(0, Some((mapped, "pcp"))).await);
+        assert!(rx.try_recv().is_err());
+        // The router renewed it on another port: the old one goes.
+        assert!(session.offer_mapped(0, Some((moved, "pcp"))).await);
+        assert_eq!(
+            sent(&mut rx),
+            (strings(&[lan, "203.0.113.7:40001"]), strings(&["203.0.113.7:40001"]), Some("pcp".into()))
+        );
+        // It lapsed: withdrawn, unlabeled.
+        assert!(session.offer_mapped(0, None).await);
+        assert_eq!(sent(&mut rx), (strings(&[lan]), Vec::new(), None));
+
+        // STUN found the same address: labeled while mapped, kept after.
+        let stun = "203.0.113.9:51000";
+        lock(&session.endpoints).push(stun.to_owned());
+        assert!(session.offer_mapped(0, Some((stun.parse().unwrap(), "nat-pmp"))).await);
+        assert_eq!(sent(&mut rx), (strings(&[lan, stun]), strings(&[stun]), Some("nat-pmp".into())));
+        assert!(session.offer_mapped(0, None).await);
+        assert_eq!(sent(&mut rx), (strings(&[lan, stun]), Vec::new(), None));
+
+        // A roam drops a mapping-only endpoint (and keeps a STUN one), and
+        // the old socket's mapping, from before the roam, offers nothing.
+        assert!(session.offer_mapped(0, Some((mapped, "upnp"))).await);
+        let _ = sent(&mut rx);
+        let _ = session.roam().await;
+        assert_eq!(*lock(&session.endpoints), strings(&[lan, stun]));
+        assert!(lock(&session.own_mapped).is_none());
+        assert!(!*lock(&session.mapped_was_offered));
+        assert!(!session.offer_mapped(0, Some((moved, "upnp"))).await, "a stale mapping is not offered");
+        assert!(rx.try_recv().is_err());
+        // The new socket's mapping (after the roam) is.
+        assert!(session.offer_mapped(1, Some((moved, "upnp"))).await);
+        assert_eq!(sent(&mut rx).1, strings(&["203.0.113.7:40001"]));
+        // A roam while the mapped endpoint is the one STUN found keeps it.
+        assert!(session.offer_mapped(1, Some((stun.parse().unwrap(), "pcp"))).await);
+        let _ = sent(&mut rx);
+        let _ = session.roam().await;
+        assert!(lock(&session.endpoints).contains(&stun.to_owned()), "the STUN endpoint stays");
+        assert!(!lock(&session.endpoints).contains(&"203.0.113.7:40001".to_owned()));
+        session.close();
+    }
+
     #[test]
     fn roam_messages_are_small_json() {
         let message = RoamMessage::Endpoints {
@@ -1772,6 +2075,45 @@ mod tests {
             serde_json::from_str::<RoamMessage>(r#"{"t":"reach"}"#).unwrap(),
             RoamMessage::Reach { from: None, via: None }
         );
+    }
+
+    /// Protocol version 3's `metered` message, old against new both ways: a
+    /// version-2 peer's messages all still parse, a `metered` one is new
+    /// JSON a version-2 peer reads as unreadable and skips (its loop logs
+    /// it and goes on), and only a version-3 peer gets a second socket.
+    #[test]
+    fn metered_messages_old_and_new() {
+        let metered = RoamMessage::Metered { addresses: vec!["198.51.100.4:61000".into()] };
+        let text = serde_json::to_string(&metered).unwrap();
+        assert_eq!(text, r#"{"t":"metered","addresses":["198.51.100.4:61000"]}"#);
+        assert_eq!(serde_json::from_str::<RoamMessage>(&text).unwrap(), metered);
+        assert_eq!(
+            serde_json::from_str::<RoamMessage>(r#"{"t":"metered"}"#).unwrap(),
+            RoamMessage::Metered { addresses: Vec::new() }
+        );
+        // What a version-2 side sends parses the same here.
+        let old = r#"{"t":"endpoints","generation":3,"endpoints":["203.0.113.7:40000"]}"#;
+        assert!(matches!(serde_json::from_str::<RoamMessage>(old).unwrap(), RoamMessage::Endpoints { .. }));
+        // A version-2 side's enum, which lacks `metered`, refuses it (and
+        // `run_control` there only logs an unreadable message).
+        #[derive(Debug, Deserialize)]
+        #[serde(tag = "t", rename_all = "kebab-case")]
+        #[allow(dead_code)]
+        enum V2 {
+            Endpoints { generation: u64, endpoints: Vec<String> },
+            Ack { generation: u64 },
+            Reach { from: Option<String>, via: Option<String> },
+        }
+        assert!(serde_json::from_str::<V2>(&text).is_err());
+        assert!(serde_json::from_str::<V2>(old).is_ok());
+        let many = RoamMessage::Metered {
+            addresses: vec!["[2001:db8::1234:5678:9abc:def0]:65535".into(); MAX_METERED],
+        };
+        assert!(serde_json::to_vec(&many).unwrap().len() <= 1232);
+        const {
+            assert!(super::super::WG_VERSION >= super::super::multipath::MULTIPATH_VERSION);
+            assert!(2 < super::super::multipath::MULTIPATH_VERSION, "a version-2 peer gets no second socket");
+        };
     }
 
     /// PROTOCOL.md "Mapped endpoints": a mapped endpoint is a plain endpoint

@@ -30,7 +30,7 @@ public struct TerminalEnvironment: Sendable {
     /// The app's settings file (`CMUX_NEXT_CONFIG_FILE`), for the app's own daemon only (never a
     /// remote one): `terminal(login:base:)` drops every `CMUX_NEXT_*` key, so without this a build
     /// launched on its own settings file (a side instance, a tagged test build) had a daemon reading
-    /// `~/.config/cmux/cmux-next.json` and the keybindings.json beside it, not the app's.
+    /// `~/.config/cmux-next/cmux-next.json` and the keybindings.json beside it, not the app's.
     public let daemonSettingsKeys: Set<String> = ["CMUX_NEXT_CONFIG_FILE"]
 
     public func isAllowed(_ key: String) -> Bool {

@@ -127,7 +127,9 @@ import { HatFaces, hatFaces, type HatFace } from "./HatFaces";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
-import { trayHead, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
+import { trayHead, trayHeadGroups, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
+import { HeadSummary } from "./HeadSummary";
+import { trayColumnLook } from "./trayColumn.experiment";
 import { trayHeadHeightLook } from "./trayHeadHeight.experiment";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
 import { KIND_LINE_SEPARATOR, trayKindLineLook } from "./trayKindLine.experiment";
@@ -139,8 +141,11 @@ import { hatTuckLook } from "./hatTuck.experiment";
 import { hatOpenLook } from "./hatOpen.experiment";
 import { SubagentCardBody, SubagentPreviewCard } from "./SubagentPreview";
 import "./hatOpen.css";
+import { deckOf, hatHeaderLook, hideOf } from "./hatHeader.experiment";
+import { HatHeadDeck } from "./HatHeadDeck";
+import "./hatHeader.css";
 import { DoneCheck, DoneMark } from "./DoneMark";
-import { Tick, useGlide } from "./trayMotion";
+import { Tick, useGlide, GlideRow } from "./trayMotion";
 import { useCountedRender } from "../perfRender";
 import { useTrayMotion } from "./trayMotionModel";
 import { useTraySeen } from "./traySeen";
@@ -321,6 +326,7 @@ export const SubagentTray = memo(function SubagentTray({
   const [foldHead] = useState(() => experimentArm(trayFoldHeadLook));
   const [facesArm] = useState(() => experimentArm(hatFacesLook));
   const [headHeight] = useState(() => experimentArm(trayHeadHeightLook));
+  const [column] = useState(() => experimentArm(trayColumnLook));
   const [stopLook] = useState(() => experimentArm(trayStopLook));
   const [opensArm] = useState(() => experimentArm(trayOpenLook));
   const [headClock] = useState(() => experimentArm(trayHeadClockLook));
@@ -338,6 +344,12 @@ export const SubagentTray = memo(function SubagentTray({
   // How a line opens what it stands for (hatOpen.experiment.ts; Lawrence, 2026-11-20: "ui for opening
   // subagents is very confusing").
   const [openLook] = useState(() => experimentArm(hatOpenLook));
+  // The top bar (hatHeader.experiment.ts; Leo, 2026-11-20: "thumb through them like a Rolodex or
+  // whatever at the top"): a deck of marks to thumb through, and where the hide control sits.
+  const [headerLook] = useState(() => experimentArm(hatHeaderLook));
+  // The line the header names while the pointer is on its mark (HatHeadDeck.tsx); a pointer event
+  // sets it, never the clock.
+  const [peeked, setPeeked] = useState<string | undefined>(undefined);
   const showLatest = latestAt !== "tooltip";
   const latestPlacement = latestAt === "tooltip" ? undefined : latestAt;
   const agentsById = useMemo(
@@ -398,6 +410,9 @@ export const SubagentTray = memo(function SubagentTray({
   const open = !headed || (opened === true && opensPanel !== "header");
   // The `hide` arm (hatOpen.experiment.ts): a headed hat hides from a button in its header, not the top edge.
   const hidesInHead = Boolean(onTuck) && headed && openLook === "hide";
+  // The `eye`, `pill` and `bar` arms (hatHeader.experiment.ts): the hide control's own place in the top
+  // bar, instead of today's tab on the top edge.
+  const hideAt = onTuck && headed && !hidesInHead ? hideOf(headerLook) : undefined;
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron.
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
@@ -409,11 +424,13 @@ export const SubagentTray = memo(function SubagentTray({
   // was in the list is kept as it moves (onFocus/onBlur below), not read after the commit.
   const headButton = useRef<HTMLButtonElement | null>(null);
   // "+N more" and the time move as one trailing segment: a width change before them glides them to
-  // their new place instead of jumping (trayMotion.tsx `useGlide`).
-  // The kinds after the subagent icons glide too, when the icon row widens (HatFaces).
-  useGlide(
+  // their new place instead of jumping (trayMotion.tsx `useGlide`). So do the counts after the
+  // subagent icons (HatFaces.tsx): the icons' row takes its new width at once, and the words after
+  // it glide on transform, never by an eased layout width (the feel harness's layout-shift check);
+  // the icons' own held count starts that glide in its own commit (GlideRow, HatFaces.tsx).
+  const headGlide = useGlide(
     headButton,
-    ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time, :scope > .acpmux-running-tray__kinds > .acpmux-running-tray__kind",
+    ":scope > .acpmux-running-tray__more, :scope > .acpmux-running-tray__time, :scope > .acpmux-running-tray__kinds > :not(.acpmux-hat-faces)",
   );
   const focusInList = useRef(false);
   useLayoutEffect(() => {
@@ -601,12 +618,16 @@ export const SubagentTray = memo(function SubagentTray({
     [t, items, finished, waiting, working, chatHarness, kindsArm, kindLine],
   );
   // Each kind's mark and count (the `kinds` arm), folded and open; hovering one names what it counts.
+  // The `groups` arms (the default) count two kinds: subagents, and everything else backgrounded.
+  const groupsHead = foldHead === "groups" || foldHead === "group-marks";
   const headParts = useMemo(
     () =>
-      foldHead === "kinds" || foldHead === "tally"
-        ? trayHeadParts(t, { items, finished, waiting }, foldHead === "tally", chatHarness)
-        : NO_PARTS,
-    [foldHead, t, items, finished, waiting, chatHarness],
+      groupsHead
+        ? trayHeadGroups(t, { items, finished, waiting }, chatHarness)
+        : foldHead === "kinds" || foldHead === "tally" || foldHead === "summary"
+          ? trayHeadParts(t, { items, finished, waiting }, foldHead !== "kinds", chatHarness)
+          : NO_PARTS,
+    [groupsHead, foldHead, t, items, finished, waiting, chatHarness],
   );
   // One icon per subagent in the kinds header, each naming its own (HatFaces.tsx).
   const faces = useMemo(
@@ -646,7 +667,9 @@ export const SubagentTray = memo(function SubagentTray({
   // swapping in (Leo, 2026-11-23: "just like how the "running a command" is inherently bullshit, and the
   // swap-in animation for it is even more additional bullshit"). Only one with nothing left to count
   // (it ended done or stopped) keeps its own head.
-  const tallyHead = foldHead === "tally" && headParts.length > 0;
+  // The `summary` arm (the default) counts as the tally does, in words while they fit (HeadSummary.tsx).
+  const summaryHead = (foldHead === "summary" || groupsHead) && headParts.length > 0;
+  const tallyHead = (foldHead === "tally" || summaryHead) && headParts.length > 0;
   const loneEnd = lone && !tallyHead ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;
   // The `kinds` arm draws each kind's mark and count, folded and open; a lone item keeps its own head.
@@ -657,7 +680,15 @@ export const SubagentTray = memo(function SubagentTray({
   const planText = planned ? (planEarlier ? earlierPlanHead(t, plan) : planHead(t, plan)) : "";
   const workText =
     items.length + finished.length === 0 ? "" : loneHead ? loneHead.title : named ? shownNames.join(" · ") : title;
-  const headText = [planText, workText].filter(Boolean).join(" · ");
+  // The `strip` and `cards` arms: the header's marks are one per running line, to thumb through. A lone
+  // item's header already names it, so its one mark only opens it; with nothing running the header
+  // keeps today's marks.
+  const deck = leading.length > 0 ? deckOf(headerLook) : undefined;
+  const peekItem = deck && !lone && peeked !== undefined ? leading.find((item) => itemKey(item) === peeked) : undefined;
+  // What the header says while a mark is pointed at: that line's name and latest step, as a lone
+  // item's header says them. The bar keeps its height and its trailing columns; the words truncate.
+  const peekHead = peekItem ? loneHeadOf(t, language, peekItem, waiting, true) : undefined;
+  const headText = peekHead ? peekHead.title : [planText, workText].filter(Boolean).join(" · ");
   // A tray with only a plan draws the Plan mode mark in its head's icon slot; with work beside the
   // plan the head keeps the work's ring.
   const planOnly = Boolean(planText) && !workText;
@@ -703,6 +734,17 @@ export const SubagentTray = memo(function SubagentTray({
     setTuckQuiet(true);
     setOpened(!open);
     rememberTrayOpen(chat, !open);
+  };
+  // A click on a deck's mark (HatHeadDeck.tsx) opens its line as the line's own open does: a subagent's
+  // view, a started chat, a command's terminal. A line with nothing to open there opens the hat on it,
+  // expanded in place.
+  const openItem = (item: TrayItem) => {
+    if (item.kind === "agent") return onOpen(item.agent.id);
+    if (item.kind === "session" && onOpenSession) return onOpenSession(item.session.sessionId);
+    if (item.kind === "command" && onOpenCommand && canOpenTerminal) return onOpenCommand(item.command);
+    const key = itemKey(item);
+    setExpanded((current) => (current.has(key) ? current : new Set([...current, key])));
+    if (!open) toggle();
   };
   // The top rim drags the list taller or shorter (trayResize.ts): it stays under the cursor, settles
   // on each line's edge, lands on a whole line, and folds below half the first. A press that never
@@ -812,6 +854,7 @@ export const SubagentTray = memo(function SubagentTray({
       data-narrow={narrow || undefined}
       data-head={head}
       data-head-height={headHeight}
+      data-column={column}
       data-stop={stopLook}
       data-opens={(headed && opensPanel) || undefined}
       data-tucks={onTuck ? tuckSide : undefined}
@@ -819,6 +862,8 @@ export const SubagentTray = memo(function SubagentTray({
       data-chevron={headed ? chevronAt : undefined}
       data-row-motion={rowMotion}
       data-open-look={openLook}
+      data-header-look={headerLook === "today" ? undefined : headerLook}
+      data-hide-at={hideAt}
       data-sized={(resizes && hatHeight !== undefined) || undefined}
       style={
         gutter > 0 || (resizes && hatHeight !== undefined)
@@ -843,6 +888,20 @@ export const SubagentTray = memo(function SubagentTray({
         if (!to || !event.currentTarget.contains(to)) setKeyboardIn(false);
       }}
     >
+      {hideAt === "bar" && (
+        // The `bar` arm: a slim bar along the hat's top, over the header. A press hides the hat (the rim
+        // over it passes a press that never dragged through to it); its eye-slash shows on hover.
+        <button
+          type="button"
+          className="acpmux-hat-hide-bar"
+          aria-label={t("tray.tuck")}
+          title={t("tray.tuck")}
+          onClick={onTuck}
+        >
+          {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
+          <Icon name="action.hide" size={10} />
+        </button>
+      )}
       {headed && (
         <button
           type="button"
@@ -853,7 +912,31 @@ export const SubagentTray = memo(function SubagentTray({
           aria-controls={open && opensPanel !== "header" ? listId : undefined}
           onClick={toggle}
         >
-          {kindsHead ? (
+          {/* The `pill` arm: the hide pill's room, leading the bar (the pill lies over it, outside the
+              header's own button). */}
+          {hideAt === "pill" && <span className="acpmux-hat-hide-slot" data-at="pill" aria-hidden="true" />}
+          {deck ? (
+            <HatHeadDeck
+              items={leading}
+              chatHarness={chatHarness}
+              look={deck}
+              peeked={peekItem ? peeked : undefined}
+              onPeek={lone ? noPeek : setPeeked}
+              onOpenItem={openItem}
+            />
+          ) : summaryHead ? (
+            <HeadSummary
+              t={t}
+              parts={headParts}
+              plan={planText}
+              planIcon={PLAN_ICON}
+              separator={KIND_LINE_SEPARATOR[kindLine]}
+              markSize={ROW_ICON}
+              mark={(part) => <KindMark part={part} chatHarness={chatHarness} />}
+              nameOf={(item) => itemName(t, item)}
+              countOnly={foldHead === "group-marks"}
+            />
+          ) : kindsHead ? (
             <HeadKinds
               t={t}
               parts={headParts}
@@ -863,14 +946,16 @@ export const SubagentTray = memo(function SubagentTray({
               tally={tallyHead}
               faces={
                 !tallyHead && faces.length > 0 && facesArm !== "lead" ? (
-                  <HatFaces
-                    faces={faces}
-                    size={ROW_ICON}
-                    narrow={narrow}
-                    arm={facesArm}
-                    onOpen={onOpen}
-                    onOpenSession={onOpenSession}
-                  />
+                  <GlideRow value={headGlide}>
+                    <HatFaces
+                      faces={faces}
+                      size={ROW_ICON}
+                      narrow={narrow}
+                      arm={facesArm}
+                      onOpen={onOpen}
+                      onOpenSession={onOpenSession}
+                    />
+                  </GlideRow>
                 ) : undefined
               }
             />
@@ -944,17 +1029,25 @@ export const SubagentTray = memo(function SubagentTray({
                   slide
                 />
               )}
+          {/* A pointed-at mark's latest step, after its name, as a lone item's header shows its own. */}
+          {peekHead?.latest && peekHead.latest !== peekHead.title && (
+            <Tick
+              className={`acpmux-running-tray__latest${peekHead.latestCode ? " is-code" : ""}`}
+              text={peekHead.latest}
+              slide
+            />
+          )}
           {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
-          {!named && !loneEnd && !kindsHead && counts.failed > 0 && (
+          {!named && !loneEnd && !peekHead && !kindsHead && counts.failed > 0 && (
             <span className="acpmux-running-tray__failed">
               {title && <span aria-hidden="true">· </span>}
               {t("summary.subagents.failed", { n: counts.failed })}
             </span>
           )}
           {/* A family the stacked marks already draw is not drawn again here. */}
-          {!named && !loneEnd && !kindsHead && trailingMarks.length > 0 && (
+          {!named && !loneEnd && !peekHead && !kindsHead && trailingMarks.length > 0 && (
             <span className="acpmux-running-tray__marks" data-tray-marks>
               {trailingMarks.map((harness) => (
                 <AgentMark key={harness} agent={harness} size={ROW_ICON} label={harness} />
@@ -963,7 +1056,7 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           {/* The rest of the names, one word space after them (subagents.css); its count rolls in place
               and its "+" sits on the figures' centre (Typography.tsx `Sign`). */}
-          {named && moreCount > 0 && (
+          {named && !peekHead && moreCount > 0 && (
             <Dwelt key={open ? "open" : "folded"} value={moreCount} dwellMs={PHASE_DWELL_MS}>
               {(n) => (
                 <Tick
@@ -1011,6 +1104,7 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The `hide` arm (hatOpen.experiment.ts): the hide control's room in the header, one column
               before the panel button's, so it never sits where the expand chevron is. */}
           {hidesInHead && <span className="acpmux-running-tray__hide-slot" aria-hidden="true" />}
+          {hideAt === "eye" && <span className="acpmux-hat-hide-slot" data-at="eye" aria-hidden="true" />}
           {opensPanel === "button" && <span className="acpmux-running-tray__open-slot" aria-hidden="true" />}
           {/* The one trailing column every line's chevron ends in. */}
           <span className="acpmux-running-tray__status">
@@ -1098,7 +1192,23 @@ export const SubagentTray = memo(function SubagentTray({
           <Icon name="action.hide" size={ROW_ICON} row />
         </button>
       )}
-      {onTuck && !hidesInHead && (
+      {(hideAt === "eye" || hideAt === "pill") && (
+        // The `eye` arm: a small eye-slash circle in the bar's trailing controls, shown at rest in muted
+        // ink (never a hover-only control). The `pill` arm: a glass pill leading the bar, attached to the
+        // hat's edge. Each lies over its slot in the header, outside the header's own button.
+        <button
+          type="button"
+          className="acpmux-hat-hide"
+          data-at={hideAt}
+          data-with-panel={opensPanel === "button" || undefined}
+          aria-label={t("tray.tuck")}
+          title={t("tray.tuck")}
+          onClick={onTuck}
+        >
+          <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
+        </button>
+      )}
+      {onTuck && !hidesInHead && !hideAt && (
         <button
           type="button"
           className="acpmux-running-tray__tuck"
@@ -1651,8 +1761,28 @@ function HeadKind({
   );
 }
 
+/// A kind's mark in the `summary` header: a subagent kind its harness's logo in its first subagent's
+/// tone, as its line draws it; any other kind its own icon.
+function KindMark({ part, chatHarness }: { part: TrayHeadPart; chatHarness: string | undefined }) {
+  const lead = part.items[0];
+  const agent = part.key.startsWith("agents") && lead?.kind === "agent" ? lead.agent : undefined;
+  return agent ? (
+    <AgentIdentity
+      className="acpmux-running-tray__stack-mark"
+      harness={part.harness ?? agent.harness ?? chatHarness}
+      tone={agentTone(agent.id)}
+      size={ROW_ICON}
+      fallback={part.icon}
+    />
+  ) : (
+    <Icon name={part.icon} size={ROW_ICON} row />
+  );
+}
+
 type HeadMark = { key: string; harness?: string; tone?: number; icon: string };
 const NO_MARKS: readonly HeadMark[] = [];
+/// A lone item's deck: its header already names it, so pointing at its mark changes nothing.
+const noPeek = () => {};
 /// How many lines' marks the header stacks; the counts after them say the rest.
 const STACK_MARKS = 4;
 
