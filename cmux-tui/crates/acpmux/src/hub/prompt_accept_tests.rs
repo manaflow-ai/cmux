@@ -572,6 +572,34 @@ async fn a_prompt_waiting_on_a_held_turn_lock_is_answered_queued_by_its_due_time
     assert_eq!(s.queue().len(), 0, "the queue drained");
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_restore_starting_during_the_turn_lock_wait_refuses_the_queue_receipt() {
+    let (hub, s) = chat().await;
+    let held = s.turn_lock.lock().await;
+    let (tx, accepted) = tokio::sync::oneshot::channel();
+    let run = prompt(&hub, &s, "raced-restore", "waits on the turn lock", tx);
+    tokio::time::timeout(WAIT, async {
+        while s.queued() == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the prompt reserved its queue slot");
+    {
+        let _admit = s.admit.lock().unwrap();
+        s.restoring.store(true, Ordering::SeqCst);
+        hub.park_writes(&s, 17);
+    }
+    let refusal = tokio::time::timeout(WAIT, run).await.unwrap().unwrap().unwrap_err();
+    assert_eq!(refusal.data.unwrap()["wait"], "prompt waiting for journal restore");
+    assert!(accepted.await.is_err());
+    assert!(s.queue().is_empty());
+    assert_eq!(s.queued(), 0);
+    s.restoring.store(false, Ordering::SeqCst);
+    hub.unpark_writes(&s);
+    drop(held);
+}
+
 /// An owner still importing its journal has reserved the next sequence numbers. If its
 /// next page is late, the same delivery can be retried without losing those numbers.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

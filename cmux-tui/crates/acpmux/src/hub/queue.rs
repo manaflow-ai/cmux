@@ -915,6 +915,15 @@ impl Hub {
         // Its provenance first: `mark_pasted` reads it to leave a daemon-made prompt unnoted.
         let mut queued = crate::prompt_provenance::marked(queued, p.provenance);
         super::session::mark_pasted(&mut queued, p.blocks);
+        // A restore may have started while the prompt waited for the turn lock.
+        // Hold admission through the queued record so its receipt always names a durable entry.
+        let _admit = session.admit.lock().unwrap_or_else(|e| e.into_inner());
+        if session.restoring.load(Ordering::SeqCst)
+            || session.restore_token.load(Ordering::SeqCst) != 0
+        {
+            session.queued.fetch_sub(1, Ordering::SeqCst);
+            return Err(super::prompt_admission::restore_deadline());
+        }
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check and insert under one lock: simultaneous prompts cannot all reserve the last
         // held slot. Rejection precedes superseding and logging, so it has no queue side effects.
