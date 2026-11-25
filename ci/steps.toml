@@ -1403,6 +1403,8 @@ exit "$rc"
 # runs past 40 minutes on a CI runner, Cargo.toml's [profile.gate] note).
 [step.acpmux-icount]
 job = "linux"
+# Push tier: a cold build plus Callgrind runs is no per-push fast check.
+tier = "push"
 # A cold gate-profile build of acpmux, then three Callgrind runs of a few seconds each.
 alone = true
 timeout = 2400
