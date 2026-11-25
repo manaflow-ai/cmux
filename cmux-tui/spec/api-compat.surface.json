@@ -10,9 +10,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/activity/last_user_input_at_ms": {
@@ -22678,9 +22690,21 @@
         "ty": "uint32",
         "required": true
       },
+      "/data/activity/echo_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/data/activity/echo_input_at_ms": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/activity/last_agent_action_at_ms": {
         "ty": "uint64",
         "required": true,
+        "nullable": true
+      },
+      "/data/activity/last_person_attach_at_ms": {
+        "ty": "uint64",
         "nullable": true
       },
       "/data/activity/last_user_input_at_ms": {
