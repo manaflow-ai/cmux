@@ -84,6 +84,8 @@ public final class AgentPaneView: NSView {
     var runsOnOtherInstall = false
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
+    /// "The Cloud chat ended" on a Mac tab whose Cloud chat went (``showCloudChatEnded(machine:promptBack:)``, cmux#55066).
+    var cloudChatEndedNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
     /// Why the notice says a peer of this Mac's daemon did not count this Mac's allow (peer-route
     /// approvals); nil for no notice or another one.
@@ -125,6 +127,8 @@ public final class AgentPaneView: NSView {
     private var uiScaleObservation: Task<Void, Never>?
     /// Hands the old host's document `app.language` on every change (``observeLanguage()``).
     var languageObservation: Task<Void, Never>?
+    /// Tells the page each time this app's acpmux answers a lookup (``observeAcpmuxAnswers()``).
+    var acpmuxAnswerObservation: Task<Void, Never>?
     /// The indicator while Computer use can act as me is on; it has no pill until the grant is on (``showActAsMe(_:)``).
     let actAsMePill = AgentPaneActAsMePill()
     public var zoom: Double = 1 {
@@ -143,6 +147,7 @@ public final class AgentPaneView: NSView {
         state["calls"] = transportPacer?.calls ?? -1
         state["usesPageHost"] = pageEvents != nil
         if let pageEvents { state["provider"] = pageEvents.debugState }
+        state["blank_recovery"] = documentCover.report // ``AgentPaneDocumentCover``'s detector
         return state
     }
     struct QuestionKeyBinding: Equatable {
@@ -179,6 +184,8 @@ public final class AgentPaneView: NSView {
     public internal(set) var lastContextMenu: (point: NSPoint, uptime: TimeInterval)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView = AgentPaneLoadingView()
+    /// The page's last frame over each later document until it paints (`AgentPaneView+DocumentCover`).
+    public let documentCover = AgentPaneDocumentCover()
     /// The chat's own ground under its page, from the turn the pane is made (``AgentPaneGround``).
     let ground = AgentPaneGround()
     /// The page lies outside the window until it draws the chat a tab adopted it for
@@ -329,6 +336,7 @@ public final class AgentPaneView: NSView {
         model.onTabRowToolInvoked = { [weak self] id, menuItemID in
             self?.invokeTabRowTool(id, menuItemID: menuItemID)
         }
+        model.onCustomizationsMenuRequested = { [weak self] point in self?.popCustomizationsMenu(at: point) ?? false }
         model.onTabRowToolMenuRequested = { [weak self] id, menuItemID in
             self?.onNativeToolMenuRequested?(id, menuItemID)
         }
@@ -337,6 +345,7 @@ public final class AgentPaneView: NSView {
         }
         inputReadiness.attach(webView)
         flickerLog?.watchWindows()
+        if let ended = model.seed?.cloudChatEnded { showCloudChatEnded(machine: ended.machine, promptBack: ended.promptBack) }
         if let page {
             attachPage(page)
         } else {
@@ -370,6 +379,7 @@ public final class AgentPaneView: NSView {
         }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onTabKeyChange = { [weak self] in self?.announceTab() }
+        model.onPaintReport = { [weak self] in self?.documentCoverPaintReported() }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full
@@ -407,6 +417,7 @@ public final class AgentPaneView: NSView {
         observeUIScale()
         observeIconFamily()
         observeLanguage()
+        observeAcpmuxAnswers()
         sessionStatusObservation = AgentPaneSessionStatus.follow(self)
         model.onCloudTeamChange = { [weak self] in self?.evaluateScript(AgentPaneCloudMachines.teamChangeScript) }
         installSessionInfo()
@@ -484,6 +495,7 @@ public final class AgentPaneView: NSView {
         MainActor.assumeIsolated {
             uiScaleObservation?.cancel()
             languageObservation?.cancel()
+            acpmuxAnswerObservation?.cancel()
             gitHubChangeObservation?.cancel()
             actAsMePill.stop()
             sessionStatusObservation?.cancel()
@@ -511,6 +523,7 @@ public final class AgentPaneView: NSView {
         placeChromiumMove(at: frame)
         ground.place(in: frame, of: self)
         if loadingView.superview === self { loadingView.frame = topBar.contentFrame(in: bounds) }
+        layOutDocumentCover(frame)
         layoutSessionInfo()
         layoutHostGlass()
         // A pane resized or moved under shown toasts: they stay clear of its composer.
@@ -587,6 +600,8 @@ public final class AgentPaneView: NSView {
         iconFamilyObservation = nil
         languageObservation?.cancel()
         languageObservation = nil
+        acpmuxAnswerObservation?.cancel()
+        acpmuxAnswerObservation = nil
         sessionStatusObservation?.cancel()
         model.sessionInfo.hostObservation?.cancel()
         model.sessionInfo.hostObservation = nil
@@ -609,6 +624,7 @@ public final class AgentPaneView: NSView {
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
         model.onTabRowToolMenuRequested = nil
+        model.onCustomizationsMenuRequested = nil
         onNativeToolMenuRequested = nil
         model.transport.onQuestionStateChanged = nil
         model.onQuestionKeySessionChange = nil

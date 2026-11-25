@@ -84,6 +84,10 @@ impl Translator {
                 .get("compact_result")
                 .and_then(Value::as_str)
                 .is_some_and(|result| result != "success");
+        // The turn's last assistant line on the main loop: Claude Code's own API error or not.
+        if kind == "assistant" && parent.is_none() {
+            *self.api_error.lock().await = super::api_error::text(line);
+        }
         if kind == "assistant"
             || (kind == "system" && (sub == "conversation_reset" || sub == "compact_boundary"))
             || compaction_failed
@@ -411,6 +415,21 @@ impl Translator {
                     out.push(upd(json!({"sessionUpdate": "compaction_summary", "text": text})));
                 }
             }
+            // A Stop hook that blocked the stop: Claude Code writes its reason as a synthetic user
+            // line, `Stop hook feedback:\n<reason>`, and the agent goes on. The chat draws it as one
+            // quiet line, so what the agent writes next reads as the hook's doing, not the agent
+            // saying it again (Leo, 2026-11-22: "i assume you got re-prompted here. i thought we
+            // removed those. you also basically said the same thing, so there didnt seem to be a
+            // point to that. if you did get hooked, i think it should get displayed better.").
+            "user"
+                if parent.is_none()
+                    && line.get("isSynthetic").and_then(Value::as_bool) == Some(true)
+                    && stop_hook_feedback(line).is_some() =>
+            {
+                if let Some(reason) = stop_hook_feedback(line) {
+                    out.push(upd(json!({"sessionUpdate": "stop_hook_feedback", "text": reason})));
+                }
+            }
             "user" => {
                 for c in line
                     .pointer("/message/content")
@@ -593,10 +612,10 @@ impl Translator {
                         if req.get("callback_id").and_then(Value::as_str)
                             == Some(dedupe::DEDUPE_CALLBACK) =>
                     {
-                        self.dedupe_hook(&rid, &req).await;
+                        self.dedupe_hook(&rid, req).await;
                     }
                     // A registered hook fired: answered with no decision (hook_callback.rs).
-                    Some("hook_callback") => self.answer_hook_callback(&rid, &req).await,
+                    Some("hook_callback") => self.answer_hook_callback(&rid, req).await,
                     // Anything else (mcp_message) is declined with an error
                     // response, so claude does not wait on it.
                     other => self.decline_control(&rid, other.unwrap_or("?")).await,
@@ -748,7 +767,11 @@ impl Translator {
                 }
                 // `is_error` with a success subtype is how Claude reports a
                 // usage limit or an API refusal: a failed turn, not a reply.
-                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                // So is a "success" right after Claude Code's own API error line (`api_error.rs`).
+                let api_failure =
+                    super::api_error::failure(line, self.api_error.lock().await.take());
+                let is_error = line.get("is_error").and_then(Value::as_bool).unwrap_or(false)
+                    || api_failure.is_some();
                 // A resumed process emits one empty result (num_turns 0, no
                 // API time) right after its system/init, before the real
                 // turn. That is startup noise, not the end of our prompt; a
@@ -932,7 +955,10 @@ impl Translator {
                     && stop != "max_turn_requests"
                 {
                     Err(RpcError::internal(
-                        line.get("result").and_then(Value::as_str).unwrap_or(sub),
+                        api_failure
+                            .as_deref()
+                            .or_else(|| line.get("result").and_then(Value::as_str))
+                            .unwrap_or(sub),
                     ))
                 } else {
                     let mut claude = json!({"subtype": sub, "cost_usd": line.get("total_cost_usd"), "usage": line.get("usage"), "num_turns": line.get("num_turns")});
@@ -1321,6 +1347,15 @@ fn compaction_summary_text(line: &Value) -> Option<String> {
         _ => return None,
     };
     (!text.trim().is_empty()).then_some(text)
+}
+
+/// The reason of a Stop hook's block, from the synthetic user line Claude Code writes for it
+/// (`Stop hook feedback:\n<reason>`); None for any other line, and for a head with no reason.
+pub(super) fn stop_hook_feedback(line: &Value) -> Option<String> {
+    const HEAD: &str = "Stop hook feedback:";
+    let text = compaction_summary_text(line)?;
+    let reason = text.trim_start().strip_prefix(HEAD)?.trim();
+    (!reason.is_empty()).then(|| reason.to_owned())
 }
 
 /// The output file a background Bash launch's result names ("… Output is

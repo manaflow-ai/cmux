@@ -340,11 +340,10 @@
     },
     "agentPane.display.sessionInfo.placement" : {
       "default" : "overlay",
-      "description" : "Push narrows the chat; Overlay covers it; Inline puts it atop the chat.",
+      "description" : "Push narrows the chat; Overlay covers it.",
       "enum" : [
         "push",
-        "overlay",
-        "inline"
+        "overlay"
       ],
       "title" : "Session Info",
       "type" : "string"
@@ -365,12 +364,26 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.thinking.glyph" : {
+      "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
+      "title" : "Thinking Glyph",
+      "type" : "string"
+    },
+    "agentPane.display.thinking.glyphSize" : {
+      "default" : 0,
+      "description" : "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size.",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Jump Button Glyph Size",
+      "type" : "number"
+    },
     "agentPane.display.thinking.jumpButton" : {
       "default" : "arrow",
       "description" : "What the Jump to latest button shows while the agent works.",
       "enum" : [
         "arrow",
-        "dots"
+        "dots",
+        "glyph"
       ],
       "title" : "Jump to Latest While Working",
       "type" : "string"
@@ -760,6 +773,12 @@
       "title" : "Write to a Chat a Terminal Runs",
       "type" : "boolean"
     },
+    "agents.claudeCodeInboxRelay" : {
+      "default" : false,
+      "description" : "Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards.",
+      "title" : "Add Message Relay to Claude Code",
+      "type" : "boolean"
+    },
     "agents.cmuxMcp" : {
       "default" : "on",
       "description" : "Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings.",
@@ -964,6 +983,17 @@
       "title" : "Internal Developer Mode",
       "type" : "boolean"
     },
+    "app.keyStyle" : {
+      "default" : "standard",
+      "description" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
+      "enum" : [
+        "standard",
+        "vim",
+        "emacs"
+      ],
+      "title" : "Key Style",
+      "type" : "string"
+    },
     "app.language" : {
       "default" : "system",
       "description" : "The language of cmux's menus, pages and messages.",
@@ -1003,6 +1033,16 @@
         "end-everything"
       ],
       "title" : "When Quitting",
+      "type" : "string"
+    },
+    "app.shortcutLayout" : {
+      "default" : "followLayout",
+      "description" : "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
+      "enum" : [
+        "followLayout",
+        "qwertyPositions"
+      ],
+      "title" : "Keyboard Layout",
       "type" : "string"
     },
     "app.showMenuBarIcon" : {
@@ -2093,18 +2133,6 @@
       "title" : "Highlight Color",
       "type" : "string"
     },
-    "appearance.homeCardStyle" : {
-      "default" : "standard",
-      "description" : "How the cards on Home and the New Tab page draw: today's, flat, raised, or glass.",
-      "enum" : [
-        "standard",
-        "flat",
-        "raised",
-        "glass"
-      ],
-      "title" : "Home Cards",
-      "type" : "string"
-    },
     "appearance.hue" : {
       "default" : 0.5,
       "description" : "Shift the tint color around the hue wheel.",
@@ -2195,6 +2223,13 @@
       "maximum" : 420,
       "minimum" : 160,
       "title" : "Sidebar Width",
+      "type" : "number"
+    },
+    "appearance.metrics.spaceButtonSpacing" : {
+      "description" : "Distance between the centers of neighboring Space buttons. The density default fits them to the sidebar.",
+      "maximum" : 48,
+      "minimum" : 18,
+      "title" : "Space Button Spacing",
       "type" : "number"
     },
     "appearance.metrics.tabFontSize" : {
@@ -2321,6 +2356,26 @@
       "description" : "A status that asks for a style (cmux status set --style) uses it.",
       "title" : "Let Statuses Choose Their Style",
       "type" : "boolean"
+    },
+    "appearance.statusIndicator.iconSet" : {
+      "default" : "codex",
+      "description" : "The marks for agent working, blocked, done and error on sidebar rows, tabs and badges.",
+      "enum" : [
+        "codex",
+        "current",
+        "still",
+        "symbols",
+        "symbolsOutline",
+        "pips",
+        "rings",
+        "badges",
+        "signs",
+        "shapes",
+        "bars",
+        "letters"
+      ],
+      "title" : "Status Icons",
+      "type" : "string"
     },
     "appearance.statusIndicator.showAgentWorkingOnTabs" : {
       "default" : true,
@@ -2601,18 +2656,6 @@
         "subtleTone"
       ],
       "title" : "Title Area",
-      "type" : "string"
-    },
-    "appearance.toolbarButtonStyle" : {
-      "default" : "standard",
-      "description" : "How a pane's buttons draw: today's, plain glyphs, a grouped pill, or glass.",
-      "enum" : [
-        "standard",
-        "plain",
-        "grouped",
-        "glass"
-      ],
-      "title" : "Top Right Buttons",
       "type" : "string"
     },
     "appearance.twoTone" : {
@@ -3217,6 +3260,12 @@
       "title" : "Let Agents Use Cloud Without Asking",
       "type" : "boolean"
     },
+    "cloud.autoCloud" : {
+      "default" : false,
+      "description" : "Auto runs a new chat on this Mac when it has room, else on a Cloud machine.",
+      "title" : "Auto Places Chats in Cloud",
+      "type" : "boolean"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies your git working copy to the new machine.",
@@ -3360,6 +3409,23 @@
       "default" : false,
       "description" : "Adds Customize Menu… to the end of every right-click menu.",
       "title" : "Show Customize Menu…",
+      "type" : "boolean"
+    },
+    "customize.checklist.done" : {
+      "default" : [
+
+      ],
+      "description" : "The checklist steps you marked done yourself.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Checked Off Customize Steps",
+      "type" : "array"
+    },
+    "customize.checklist.enabled" : {
+      "default" : true,
+      "description" : "Shows the steps for making cmux your own at the top of Settings, with how many are done.",
+      "title" : "Show the Customize cmux Checklist",
       "type" : "boolean"
     },
     "customize.doctorNotice" : {
@@ -3881,6 +3947,12 @@
       "title" : "Remove Trailing Spaces on Save",
       "type" : "boolean"
     },
+    "editor.vimMode" : {
+      "default" : false,
+      "description" : "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar.",
+      "title" : "Vim Keys in the Editor",
+      "type" : "boolean"
+    },
     "editor.wordBasedSuggestions" : {
       "default" : true,
       "description" : "editor.wordBasedSuggestions",
@@ -3924,16 +3996,34 @@
       "title" : "Agent Badges: Running Beam",
       "type" : "boolean"
     },
+    "experiments.attachmentTypeIcons" : {
+      "default" : false,
+      "description" : "While an attachment loads, its chip shows a file or image icon instead of the loading mark.",
+      "title" : "Attachment Type Icons",
+      "type" : "boolean"
+    },
     "experiments.chatWidgets" : {
       "default" : false,
       "description" : "Installed extensions can show a card under a finished tool call in agent chat.",
       "title" : "Extension Chat Widgets",
       "type" : "boolean"
     },
+    "experiments.composerButtonsVisible" : {
+      "default" : false,
+      "description" : "Keep Send, attachment removal, and queued message actions visible in agent chats.",
+      "title" : "Always Show Composer Buttons",
+      "type" : "boolean"
+    },
     "experiments.composerV2" : {
       "default" : false,
       "description" : "A glass composer with mode chips, mention chips and a round send button. Still being shaped.",
       "title" : "Composer Refresh",
+      "type" : "boolean"
+    },
+    "experiments.foldSummaryCounts" : {
+      "default" : false,
+      "description" : "A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files.",
+      "title" : "Fold Summary Counts",
       "type" : "boolean"
     },
     "experiments.glassToolbarGroups" : {
@@ -3958,6 +4048,12 @@
       "default" : false,
       "description" : "Restyled menus.",
       "title" : "Menu Style v2",
+      "type" : "boolean"
+    },
+    "experiments.seeThroughDock" : {
+      "default" : false,
+      "description" : "The conversation stays visible behind the notices and the Needs your input row above the composer.",
+      "title" : "See-Through Dock",
       "type" : "boolean"
     },
     "experiments.toastsV2" : {
@@ -5414,6 +5510,36 @@
       "title" : "Ultra Connection Mode",
       "type" : "string"
     },
+    "remoteDesktop.maxBitrateMbps" : {
+      "default" : "auto",
+      "description" : "The most megabits per second a new Screen Sharing session may use. Auto lets the host decide. Also accepts a number from 0 to 80 in a raw profile.",
+      "enum" : [
+        "auto"
+      ],
+      "title" : "Screen Sharing Bitrate Limit",
+      "type" : "string"
+    },
+    "remoteDesktop.maxFps" : {
+      "default" : "auto",
+      "description" : "The most frames per second a Screen Sharing session asks for. Auto follows this display's refresh rate. Also accepts a number from 1 to 240 in a raw profile.",
+      "enum" : [
+        "auto"
+      ],
+      "title" : "Screen Sharing Frame Rate Limit",
+      "type" : "string"
+    },
+    "remoteDesktop.quality" : {
+      "default" : "auto",
+      "description" : "The quality a new Screen Sharing session starts at. The session's toolbar can still change it.",
+      "enum" : [
+        "auto",
+        "sharpText",
+        "smoothMotion",
+        "lowBandwidth"
+      ],
+      "title" : "Screen Sharing Quality",
+      "type" : "string"
+    },
     "RestrictToManagedTeam" : {
       "description" : "Refuse sign-in to any team other than ManagedTeam on this device.",
       "title" : "RestrictToManagedTeam",
@@ -6484,6 +6610,16 @@
       "title" : "Second Line Order",
       "type" : "array"
     },
+    "sidebar.workspaceRow.statusPlacement" : {
+      "default" : "trailing",
+      "description" : "Where the row's status mark draws: at the row's end, or before the name in the icon's place.",
+      "enum" : [
+        "trailing",
+        "leading"
+      ],
+      "title" : "Status Position",
+      "type" : "string"
+    },
     "sidebar.workspaceRow.tabCount" : {
       "default" : false,
       "description" : "sidebar.workspaceRow.tabCount",
@@ -6879,6 +7015,17 @@
         "xterm-ghostty"
       ],
       "title" : "Terminal Type (TERM)",
+      "type" : "string"
+    },
+    "transport.tailnetCarrier" : {
+      "default" : "off",
+      "description" : "Race a peer's direct Tailscale address with the other transports when tailscaled reports one.",
+      "enum" : [
+        "off",
+        "direct-only",
+        "on"
+      ],
+      "title" : "Tailscale Carrier",
       "type" : "string"
     },
     "ui.animations.cursor" : {
