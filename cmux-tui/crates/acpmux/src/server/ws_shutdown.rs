@@ -186,7 +186,12 @@ pub(super) async fn write_link<S>(
                 };
                 let Some(line) = line else { break };
                 let Some(frame) = wire.frame(line).await else { break };
-                let send = sink.send(frame);
+                // Every line already queued goes in the same write (`take_queued`): a burst of a
+                // peer's events is one flush, not one per event.
+                let mut batch = vec![frame];
+                let ended =
+                    take_queued(&mut outbound, slot.as_deref(), &mut streak, &wire, &mut batch).await;
+                let send = write_batch(&mut sink, batch);
                 tokio::pin!(send);
                 let sent = match deadline {
                     Some(at) => tokio::time::timeout_at(at, send).await.ok(),
@@ -201,13 +206,58 @@ pub(super) async fn write_link<S>(
                         }
                     },
                 };
-                if !matches!(sent, Some(Ok(()))) {
+                if !matches!(sent, Some(Ok(()))) || ended {
                     break;
                 }
             }
         } => {},
     }
     close(&mut sink, shutdown.close_code_restart()).await;
+}
+
+/// At most this many frames go in one write: a long backlog still flushes as it goes.
+const BATCH_FRAMES: usize = 256;
+/// Nor past this many bytes of frames: a large line is written as soon as it is queued.
+const BATCH_BYTES: usize = 64 << 10;
+
+/// Adds to `batch` each line `outbound` (or the v2 slot) holds now, in the order
+/// [`crate::link_v2::next_line`] gives them, up to [`BATCH_FRAMES`] and [`BATCH_BYTES`]. It never
+/// waits for a line: a lone event goes out at once, as before, and a burst goes out in one flush
+/// (sessions-2000-attached: a host daemon wrote and flushed every event of a fan-out burst on
+/// its own). True when the runtime shut down while a large line was compressed: the batch so far
+/// is written, then the connection ends, as a lone line's failure did.
+async fn take_queued(
+    outbound: &mut mpsc::Receiver<String>,
+    slot: Option<&crate::link_v2::Slot>,
+    streak: &mut u32,
+    wire: &crate::frame_compress::Wire,
+    batch: &mut Vec<Frame>,
+) -> bool {
+    use futures_util::FutureExt;
+    let mut bytes: usize = batch.iter().map(Frame::len).sum();
+    while batch.len() < BATCH_FRAMES && bytes < BATCH_BYTES {
+        // `next_line` is cancel-safe (the writer already races it against its stop): a line
+        // not ready now stays queued for the next turn.
+        let Some(Some(line)) = crate::link_v2::next_line(outbound, slot, streak).now_or_never()
+        else {
+            break;
+        };
+        let Some(frame) = wire.frame(line).await else { return true };
+        bytes = bytes.saturating_add(frame.len());
+        batch.push(frame);
+    }
+    false
+}
+
+/// Feeds every frame of `batch` in order, then flushes once.
+async fn write_batch<S: Sink<Frame> + Unpin>(
+    sink: &mut S,
+    batch: Vec<Frame>,
+) -> Result<(), S::Error> {
+    for frame in batch {
+        sink.feed(frame).await?;
+    }
+    sink.flush().await
 }
 
 pub(super) async fn close<S: Sink<Frame> + Unpin>(sink: &mut S, restarting: bool) {

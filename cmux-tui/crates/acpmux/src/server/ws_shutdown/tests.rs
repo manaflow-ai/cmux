@@ -279,3 +279,118 @@ async fn a_connection_that_ends_during_a_restart_closes_with_1012() {
         other => panic!("a restart closed a connection with {other:?}"),
     }
 }
+
+/// A sink that keeps each frame and counts its flushes.
+#[derive(Default)]
+struct Counting {
+    frames: Vec<Frame>,
+    flushes: usize,
+}
+
+impl Sink<Frame> for Counting {
+    type Error = std::convert::Infallible;
+    fn poll_ready(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+    fn start_send(self: std::pin::Pin<&mut Self>, frame: Frame) -> Result<(), Self::Error> {
+        self.get_mut().frames.push(frame);
+        Ok(())
+    }
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.get_mut().flushes += 1;
+        std::task::Poll::Ready(Ok(()))
+    }
+    fn poll_close(
+        self: std::pin::Pin<&mut Self>,
+        _: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+}
+
+/// Lines already queued go out in one flush, every one of them once and in order; past
+/// `BATCH_FRAMES` a backlog flushes again; a lone line still goes at once.
+#[tokio::test]
+async fn queued_lines_go_in_one_flush_in_order() {
+    let mut sink = Counting::default();
+    let (out, mut outbound) = mpsc::channel(1024);
+    let n = BATCH_FRAMES + 10;
+    for i in 0..n {
+        out.send(format!("line {i}\n")).await.unwrap();
+    }
+    let wire = crate::frame_compress::Wire::default();
+    let mut streak = 0;
+    let mut written = 0;
+    while written < n {
+        let line = outbound.recv().await.unwrap();
+        let mut batch = vec![wire.frame(line).await.unwrap()];
+        assert!(!take_queued(&mut outbound, None, &mut streak, &wire, &mut batch).await);
+        written += batch.len();
+        write_batch(&mut sink, batch).await.unwrap();
+    }
+    assert_eq!(sink.flushes, 2, "one flush per batch of at most BATCH_FRAMES");
+    let texts: Vec<String> = sink
+        .frames
+        .iter()
+        .map(|f| match f {
+            Frame::Text(t) => t.to_string(),
+            other => panic!("not text: {other:?}"),
+        })
+        .collect();
+    let want: Vec<String> = (0..n).map(|i| format!("line {i}")).collect();
+    assert_eq!(texts, want, "nothing lost, nothing twice, in order");
+    // Nothing queued: the batch is the one line, and it does not wait for more.
+    let mut batch = vec![Frame::Text("alone".into())];
+    assert!(!take_queued(&mut outbound, None, &mut streak, &wire, &mut batch).await);
+    assert_eq!(batch.len(), 1);
+}
+
+/// A batch stops at `BATCH_BYTES`: a large line is not held behind a backlog.
+#[tokio::test]
+async fn a_batch_stops_at_its_byte_bound() {
+    let (out, mut outbound) = mpsc::channel(16);
+    for _ in 0..8 {
+        out.send("y".repeat(BATCH_BYTES / 4)).await.unwrap();
+    }
+    let wire = crate::frame_compress::Wire::default();
+    let mut batch = vec![wire.frame(outbound.recv().await.unwrap()).await.unwrap()];
+    let mut streak = 0;
+    assert!(!take_queued(&mut outbound, None, &mut streak, &wire, &mut batch).await);
+    assert_eq!(batch.len(), 4);
+}
+
+/// The whole writer: a burst queued before it runs reaches the client whole and in order.
+#[tokio::test]
+async fn the_writer_sends_a_queued_burst_whole_and_in_order() {
+    let (ours, theirs) = tokio::io::duplex(1 << 20);
+    let socket = WebSocketStream::from_raw_socket(ours, Role::Server, None).await;
+    let (sink, _source) = socket.split();
+    let mut client = WebSocketStream::from_raw_socket(theirs, Role::Client, None).await;
+    let (out, outbound) = mpsc::channel(1024);
+    for i in 0..600 {
+        out.send(format!("{{\"n\":{i}}}\n")).await.unwrap();
+    }
+    let (_stop, stopped) = oneshot::channel();
+    let task = tokio::spawn(write_link(
+        sink,
+        outbound,
+        None,
+        stopped,
+        WsShutdown::default(),
+        Default::default(),
+    ));
+    for i in 0..600 {
+        let frame =
+            tokio::time::timeout(Duration::from_secs(5), client.next()).await.unwrap().unwrap();
+        let Frame::Text(t) = frame.unwrap() else { panic!("expected text") };
+        assert_eq!(t.as_str(), format!("{{\"n\":{i}}}"));
+    }
+    drop(out);
+    tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+}
