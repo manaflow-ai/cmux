@@ -578,11 +578,20 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             if let Some(m) = model {
                 acpmux.insert("model".into(), json!(m));
             }
+            // One id for this fork, sent again on the retry after a daemon restart: the daemon
+            // answers the fork the first request made instead of a second one (cmux#50084).
+            acpmux.insert("requestId".into(), json!(uuid::Uuid::now_v7().to_string()));
             let mut p = json!({"sessionId": id, "mcpServers": [], "_meta": {"acpmux": acpmux}});
             if let Some(c) = cwd {
                 p["cwd"] = json!(c);
             }
-            let v = client.request(method::SESSION_FORK, p).await?;
+            let v = match client.request(method::SESSION_FORK, p.clone()).await {
+                Err(e) if crate::cli::output::daemon_closed_error(&e) => {
+                    let client = crate::cli::output::reconnect_after_update().await?;
+                    client.request(method::SESSION_FORK, p).await?
+                }
+                answer => answer?,
+            };
             super::launch::print_new_warnings(&v);
             if json_out {
                 print_json(&v)
@@ -986,6 +995,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
         Command::DaemonFelt => crate::cli::daemon_felt::run(json_out).await,
+        Command::DaemonPlacement { message } => crate::cli::daemon_placement::run(&message).await,
         Command::DaemonStats { by, since, top } => {
             crate::cli::daemon_stats::run(by, &since, top, json_out).await
         }
@@ -1122,6 +1132,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         // This machine's own key file or ssh agent; no daemon.
         Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
+        // Its own socket, a fresh daemon connection per client: none held here.
+        #[cfg(unix)]
+        Command::Host(PeerCmd::BrokerForward { owner, socket }) => {
+            crate::cli::host_broker_forward::run(owner, socket).await
+        }
+        #[cfg(not(unix))]
+        Command::Host(PeerCmd::BrokerForward { .. }) => {
+            Err(anyhow!("machine broker-forward needs unix sockets"))
+        }
         Command::Host(PeerCmd::Join {
             ticket,
             name,
@@ -1615,7 +1634,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 | PeerCmd::Tunnel { .. }
                 | PeerCmd::Vault { .. }
                 | PeerCmd::Deps { .. }
-                | PeerCmd::Key { .. } => {
+                | PeerCmd::Key { .. }
+                | PeerCmd::BrokerForward { .. } => {
                     return Err(anyhow!(
                         "host join, leave, consent, vault and deps are handled before daemon connection"
                     ));

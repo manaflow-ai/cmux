@@ -5,6 +5,8 @@ import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useEscapingList } from "../../ui/popupHost";
 import { useScrollEdges } from "../../ui/scrollEdges";
+import type { ListCommand } from "../../ui/keyStyle";
+import { useKeyStyleSettings, useListKeys } from "../../ui/useListKeys";
 // AgentMark and KindIcon live in tabMarks.tsx: chat lists draw them, and importing them from here
 // would pull this New Tab screen into the chat page's first script.
 import { KindIcon, StrokeIcon as Icon, AgentMark } from "./tabMarks";
@@ -22,7 +24,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, isTemporaryFolder, mostRecentProject, projectLabel } from "./sessionList";
+import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
@@ -49,6 +51,7 @@ import {
   cycleKind,
   recentSessions,
 } from "./newTabModel";
+import { focusRoute } from "../../ui/focusRoute";
 
 function escapedLiteral(value: string): string {
   return value.replace(/[!-/:-@[-`{-~]/g, "\\$&").replace(/\r\n?|\n/g, "\\\n");
@@ -538,8 +541,35 @@ export function NewTabPage({
     if (kind === "browser" && !query.trim()) return;
     make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
   };
+  // `app.keyStyle`. The prompt keeps its typing: Emacs' Ctrl-N/P step the rows as the arrows do,
+  // and Vim's Esc (Emacs' Ctrl-G) gives the keyboard to the rows, where j/k, gg/G and l or Return
+  // pick as the arrows and Return do and / goes back to the prompt. Their Esc is the page's.
+  const listTakesKeys = useKeyStyleSettings().keyStyle !== "standard";
+  const runListCommand = (command: ListCommand, inField: boolean): boolean | void => {
+    if (!rows.length) return false;
+    if (command === "list.next" || command === "list.previous") {
+      setSelected((current) => stepSelection(current, command === "list.next" ? 1 : -1, rows.length));
+      return;
+    }
+    if (inField) {
+      if (command !== "list.leave" || !list.current) return false;
+      focusRoute(list.current, "person", "key style list key", { preventScroll: true });
+      return;
+    }
+    if (command === "list.first" || command === "list.last")
+      setSelected(command === "list.first" ? 0 : rows.length - 1);
+    else if (command === "list.open") {
+      const row = rows[selected];
+      if (row) activate(row);
+    } else if (command === "list.search") focusRoute(field.current, "person", "key style list key");
+    else return false;
+  };
+  const fieldKeys = useListKeys({ onCommand: (command) => runListCommand(command, true) });
+  const rowKeys = useListKeys({ onCommand: (command) => runListCommand(command, false) });
   const keyDown = (event: KeyboardEvent) => {
     if (composing.current || event.isComposing || event.keyCode === 229) return;
+    fieldKeys(event);
+    if (event.defaultPrevented) return;
     const input = field.current?.text() ?? { value: typed, selectionStart: typed.length, selectionEnd: typed.length };
     replacing.current = input.value !== "" && input.selectionStart === 0 && input.selectionEnd === input.value.length;
     // A prompt of several lines, wrapped ones too, keeps ↑ and ↓ for its caret while there is a line
@@ -647,7 +677,9 @@ export function NewTabPage({
             onBlur={(event) => {
               if (
                 fieldElement()?.contains(event.target) &&
-                !fieldElement()?.contains(event.relatedTarget as Node | null)
+                !fieldElement()?.contains(event.relatedTarget as Node | null) &&
+                // A key style's leave hands the keyboard to the rows: they stay up.
+                !list.current?.contains(event.relatedTarget as Node | null)
               )
                 setFocused(false);
             }}
@@ -763,10 +795,23 @@ export function NewTabPage({
           <div
             ref={attachList}
             className="acpmux-omni ui-popup ui-glass ui-popup-scroll-shell"
+            // The omnibar's rows are the live answer to the field above (ui/popupSettle.ts).
+            data-popup-settle="results"
             id="acpmux-omni"
             // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
             role="listbox"
             aria-label={t(NEW_TAB_LABELS.suggestions)}
+            tabIndex={listTakesKeys ? -1 : undefined}
+            onKeyDown={(event) => {
+              rowKeys(event);
+              if (event.defaultPrevented || event.key !== "Enter" || event.nativeEvent.isComposing) return;
+              event.preventDefault();
+              runListCommand("list.open", false);
+            }}
+            onBlur={(event) => {
+              const next = event.relatedTarget as Node | null;
+              if (!list.current?.contains(next) && !fieldElement()?.contains(next)) setFocused(false);
+            }}
           >
             <div ref={listEdges} className="ui-popup-scroll ui-scroll-edge-fade">
               {/* Virtual focus, as the composer's slash menu: the field keeps focus and names the row. */}

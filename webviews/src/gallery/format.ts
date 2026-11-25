@@ -48,6 +48,7 @@ import type {
   ModelsState,
   LibraryListing,
   HubState,
+  AutocloudState,
   DoctorReport,
   ConnectionsState,
 } from "../pages/settings/ops";
@@ -84,6 +85,8 @@ export type SettingsPageVariant = VariantBase & {
   keys?: KeysState;
   /** Settings > Integrations fixture state; default the mock's (a waiting Stripe refund). */
   hub?: HubState;
+  /** Settings > Automations fixture state; default the mock's (three automations, one failed run). */
+  autocloud?: AutocloudState;
   /** Settings > Connections fixture state; default the mock's (Linear and Sentry connected). */
   connections?: ConnectionsState;
   /** The id of the Accounts team to mark active (Settings > Connections shows its owner menu). */
@@ -302,9 +305,6 @@ export type AgentPaneVariant = VariantBase & {
   /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
    *  pane's scripts run: a variant about one arm's look keeps it when the default moves. */
   experiments?: Record<string, string>;
-  /** Settings > Advanced > Experiments switches the variant turns on, by name (`{ foldSummaryCounts:
-   *  true }`), as the app's `applyExperiments` push sends them (experiments/switches.ts). */
-  experimentSwitches?: Record<string, boolean>;
   /** The pane's first chat has Session Info open, as a person who opened it there has it. Session
    *  Info starts closed in every new pane (sessionInfoState.ts); a stage that draws it set this. */
   sessionInfoOpen?: boolean;
@@ -364,6 +364,9 @@ export type DiffPageVariant = VariantBase & {
    * key (`cmux.diff.summary`, after `summaryDelayMs`), or a refusal reason `summaryCheck` answers.
    * Absent, the host serves no summary op. */
   summaries?: { sentences: Record<string, string>; delayMs?: number } | { refused: string };
+  /** Experiment arms the variant pins, by experiment id (experiments/experiment.ts), set before the
+   *  page's scripts run: a variant about one arm's look keeps it when the default moves. */
+  experiments?: Record<string, string>;
 };
 
 /** The App Store page on an in-page cmuxPage host serving its supervisor projection. */
