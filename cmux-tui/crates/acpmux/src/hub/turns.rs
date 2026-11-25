@@ -168,6 +168,33 @@ const LIVE_CHECK_WITHIN: std::time::Duration = std::time::Duration::from_secs(2)
 /// How many recent first-run acceptances a session keeps for resends (`Session::accepted_prompts`).
 pub(super) const KEPT_ACCEPTS: usize = 512;
 
+/// Return the existing outcome, or create a new attempt and retire any receipt for an
+/// older attempt with the same client id. The ledger is bounded and can forget a completed
+/// outcome while the larger acceptance cache still remembers it; leaving that receipt live
+/// would make a new attempt look like a duplicate of the old one.
+fn begin_outcome(
+    session: &Session,
+    prompt_id: &str,
+) -> Result<PromptOutcome, tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>> {
+    let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+    match ledger.iter().find(|(id, _)| id == prompt_id) {
+        Some((_, outcome)) => Err(outcome.subscribe()),
+        None => {
+            // Keep the lock order identical to keep_acceptance (prompts, then accepted).
+            // A pending outcome cannot be pruned, so this only retires a receipt whose
+            // original outcome is already complete.
+            session
+                .accepted_prompts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|(id, _)| id != prompt_id);
+            let outcome = Arc::new(tokio::sync::watch::channel(None).0);
+            ledger.push_back((prompt_id.to_owned(), outcome.clone()));
+            Ok(outcome)
+        }
+    }
+}
+
 /// Keeps the acceptance `v` of client prompt id `prompt_id`'s first run, for a resend of it.
 fn keep_acceptance(session: &Session, prompt_id: &str, v: &Value) {
     // A prompt whose outcome is still pending must remain discoverable even when a burst
@@ -379,17 +406,7 @@ impl Hub {
             name_kept_message(&mut answer, session, &prompt_id);
             answer
         };
-        let seen = {
-            let mut ledger = session.prompts.lock().unwrap();
-            match ledger.iter().find(|(id, _)| *id == prompt_id) {
-                Some((_, outcome)) => Err(outcome.subscribe()),
-                None => {
-                    let outcome = Arc::new(tokio::sync::watch::channel(None).0);
-                    ledger.push_back((prompt_id.clone(), outcome.clone()));
-                    Ok(outcome)
-                }
-            }
-        };
+        let seen = begin_outcome(session, &prompt_id);
         let outcome = match seen {
             Err(mut first) => {
                 // A copy never reaches the queue: it lets the chat's prompt admission go
