@@ -525,6 +525,11 @@ async fn drop_own_uploads(hub: &Arc<Hub>, new: &Delivery, kept: &Delivery) {
 const LIST_LIMIT: usize = 200;
 
 async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Value, RpcError> {
+    // `{stats: true}`: this daemon's send counters and gauges (`hub/outbox_stats.rs`), the
+    // `/proc/net/snmp` of agent sends. Counts only, no targets: any connection may read them.
+    if params.get("stats").and_then(Value::as_bool) == Some(true) {
+        return Ok(json!({"stats": hub.outbox.stats()}));
+    }
     // `{list: true, caller?, limit?}`: this daemon's messages to deliver, newest first, each as
     // its status (`acpmux send --status` with no id, `acpmux session inbox`). Only the unix
     // socket reads the list: it names other sessions' targets.
@@ -539,7 +544,9 @@ async fn status(hub: &Arc<Hub>, conn: &Arc<Conn>, params: &Value) -> Result<Valu
             .map_or(LIST_LIMIT, |n| usize::try_from(n).unwrap_or(LIST_LIMIT).min(LIST_LIMIT));
         let (deliveries, pending) = hub.outbox.list(caller, limit);
         let deliveries: Vec<Value> = deliveries.iter().map(Delivery::status).collect();
-        return Ok(json!({"deliveries": deliveries, "pending": pending}));
+        return Ok(
+            json!({"deliveries": deliveries, "pending": pending, "stats": hub.outbox.stats()}),
+        );
     }
     let id = str_param(params, "deliveryId")
         .ok_or_else(|| RpcError::invalid_params("deliveryId is required"))?;
