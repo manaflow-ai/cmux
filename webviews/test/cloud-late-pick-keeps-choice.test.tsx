@@ -139,7 +139,7 @@ const REMEMBERED = "/Users/you/src/old";
 
 /// A new chat whose host offers Cloud. `newTab.cloudPick` answers `remembered` only when `answerCloudPick()` runs;
 /// `workspace.useFolder` answers each folder only when `grant()` runs.
-async function mount(remembered: string) {
+async function mount(remembered: string, { cloud = true }: { cloud?: boolean } = {}) {
   if (!restoreAnswer) await trustFolder();
   const starts: Record<string, unknown>[] = [];
   const grants: (() => void)[] = [];
@@ -200,7 +200,7 @@ async function mount(remembered: string) {
   await act(async () => root!.render(<AcpmuxApp />));
   await until(() => actions() !== undefined && promptField() !== undefined, "the new chat connects");
   await until(() => cloudPicks.length === 1, "the chat page asks the app for Cloud's last pick");
-  await until(() => debug().runMode("cloud").runMode === "cloud", "Cloud is picked");
+  if (cloud) await until(() => debug().runMode("cloud").runMode === "cloud", "Cloud is picked");
   return {
     starts,
     asked,
@@ -283,4 +283,21 @@ test("a GitHub repository picked while the remembered folder's grant is out is t
   await pane.grant();
   for (let step = 0; step < 5; step += 1) await tick();
   expect(await sendAndReadFolder(pane)).toBe("github:acme/web");
+}, 60_000);
+
+test("a choice made on This Mac before Cloud was picked does not hold off Cloud's late default", async () => {
+  const pane = await mount("github:acme/api", { cloud: false });
+  await chooseNoFolder();
+  // Cloud from the Where menu, as the person picks it.
+  const where = () =>
+    host.querySelector<HTMLButtonElement>(
+      `.acpmux-composer-context button[aria-label^="${t("composer.environment")}"]`,
+    );
+  await until(() => where() !== null, "the composer has its Where control");
+  await act(async () => where()!.click());
+  await click((row) => row.textContent?.startsWith(t("composer.cloud")) === true, "the Where menu offers Cloud");
+  await until(() => debug().runMode().runMode === "cloud", "Cloud is picked");
+  await pane.answerCloudPick();
+  // Cloud's default replaced This Mac's No folder when Cloud was picked; its late answer is still Cloud's default.
+  await until(() => folderChip()?.textContent?.includes("acme/api") === true, "the chip reads Cloud's last pick");
 }, 60_000);

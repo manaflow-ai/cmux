@@ -4190,12 +4190,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// folder clears the draft and the pick both, and a local pick names no folder until the host answers, so neither
   /// tells it apart from no choice (cmux#53226).
   const folderChoice = useRef(0);
+  /// `folderChoice` when Cloud's default last applied (the mode became Cloud): the app's late Cloud pick counts only
+  /// choices after that, as one made before it was already replaced by Cloud's default.
+  const cloudDefaultChoice = useRef(0);
   // Cloud's last pick as the app keeps it, for a chat page (no New Tab context): an unstarted chat already on Cloud
   // takes it when the answer comes, unless a folder was chosen while it was out.
   useEffect(() => {
     const choiceAtAsk = folderChoice.current;
     askAppCloudPick(callNative, () => {
-      if (composerModeNow.current !== "cloud" || !freshRef.current || folderChoice.current !== choiceAtAsk) return;
+      if (composerModeNow.current !== "cloud" || !freshRef.current) return;
+      if (folderChoice.current !== Math.max(choiceAtAsk, cloudDefaultChoice.current)) return;
       cloudFolderDefaultLatest.current(true);
     });
   }, []);
@@ -4629,6 +4633,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // last place) or carried from the chat before. `late`: the app's Cloud pick answered after the mode was set, so only
   // a folder the person picked here stays (cmux#53226).
   const cloudFolderDefault = (late = false) => {
+    if (!late) cloudDefaultChoice.current = folderChoice.current;
     const shown = projectDraft ?? composerSnapshot.summary?.cwd;
     // The person's own pick here stays; else Cloud starts where their last Cloud chat did (a GitHub repository, or a
     // folder of this Mac the host grants again), never the tab's folder's GitHub origin or No folder (cmux#53226).
@@ -7604,6 +7609,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       if (!peer && githubFolderRepo(cwd)) {
         dropFolderRequest.current?.();
         folderPick.current += 1;
+        // The ended request's question and any checkout under way go with it, as a deferred repository's do.
+        folderConfirmGeneration.current += 1;
+        folderConfirmInFlight.current = false;
+        setFolderConfirming(false);
+        setFolderAsk(undefined);
+        setWorktreeCreating(false);
         // The person's pick: a Cloud start in it is Cloud's next default (newtab/startedProject.ts).
         pickedProject.current = cwd;
         if (freshRef.current) setProjectDraft(cwd);
@@ -9255,6 +9266,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // The chat starts in its agent-home folder, never the workspace's (AcpmuxPathPolicy).
       // A refused start keeps the folder picked before.
       onNoProject: () => {
+        folderChoice.current += 1;
         pickedProject.current = undefined;
         dropFolderRequest.current?.();
         folderPick.current += 1;
