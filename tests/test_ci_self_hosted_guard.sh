@@ -1018,7 +1018,7 @@ check_no_github_hosted_runners() {
   local hosted='(^|[^A-Za-z0-9_-])(ubuntu-(latest|slim|[0-9]{2}[.][0-9]{2}(-arm)?)|macos-(latest|[0-9]+(-intel|-large|-xlarge|-arm64)?)|windows-(latest|[0-9]{4}(-arm)?|11-arm))([^A-Za-z0-9_.-]|$)'
   # A fork pull request's branch of the one Linux label (scripts/ci/one_linux_label.py) is fork-only too:
   # a fork takes hosted Ubuntu, never an owned host (check_no_hosted_runs_on.py agrees).
-  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|github[.]event_name == 'pull_request' [&][&] github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository [&][&] 'ubuntu-24[.]04' [|][|] "
+  local fork_branch="github[.]repository_owner != 'manaflow-ai' [&][&] ('[A-Za-z0-9._-]+'|matrix[.]hosted_runner)|(github[.]event_name == 'pull_request' [&][&] )?github[.]event[.]pull_request[.]head[.]repo[.]full_name != github[.]repository [&][&] 'ubuntu-24[.]04' [|][|] "
   local trusted_list='fromJSON[(]'"'"'[[]"blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"[]]'"'"'[)], vars[.]CI_TRUSTED_RUNNER'
   # The nightly's secret-holding Linux jobs (signer, publication, promotion, release notes, dSYMs, deltas,
   # notarization polls, the tag permission probe) take the one-job cmux-gcp-nightly-jit-x64 label on every
