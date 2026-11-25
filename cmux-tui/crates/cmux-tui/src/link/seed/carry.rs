@@ -36,10 +36,9 @@ pub fn pack(folder: &Path, base: &str, out: &Path, max_bytes: u64) -> Result<u64
     pack_with_filter(folder, base, out, false, max_bytes)
 }
 
-/// Writes the projection carry pack: commits and trees for the depth-one base, plus explicit
-/// staged blobs, while leaving ordinary base blobs to the public promisor or projected fallback.
-/// A projected start needs the repository shape immediately; it does not need to retransmit every
-/// large blob the Mac can already serve or a public remote can provide.
+/// Writes the projection carry pack: commits and trees for the depth-one base while leaving blobs
+/// to the public promisor or projected fallback. Staged blobs are fetched explicitly from the
+/// projected repository when the machine copies its index.
 pub fn pack_projection(folder: &Path, base: &str, out: &Path) -> Result<u64, String> {
     pack_with_filter(folder, base, out, true, max_bytes())
 }
@@ -67,21 +66,7 @@ fn pack_with_filter(
         .stdout(file)
         .stderr(Stdio::piped());
     let mut child = command.spawn().map_err(|error| format!("cannot run git: {error}"))?;
-    let staged = git::optional(git::at(folder).args(["ls-files", "--stage"]))
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|line| line.split_whitespace().nth(1).map(str::to_owned))
-        .filter(|object| {
-            (object.len() == 40 || object.len() == 64)
-                && object.bytes().all(|byte| byte.is_ascii_hexdigit())
-        })
-        .filter(|object| object.chars().any(|character| character != '0'))
-        .collect::<Vec<_>>();
-    let mut input = format!("--shallow {base}\n{base}\n");
-    for object in staged {
-        input.push_str(&object);
-        input.push('\n');
-    }
+    let input = format!("--shallow {base}\n{base}\n");
     let wrote =
         child.stdin.take().map(|mut stdin| stdin.write_all(input.as_bytes())).unwrap_or(Ok(()));
     let done = child.wait_with_output().map_err(|error| format!("cannot run git: {error}"))?;
