@@ -35,6 +35,8 @@
 //! ```
 
 pub mod decode;
+pub mod ghostty;
+pub mod harnesses;
 pub mod ledger;
 mod limits;
 pub mod model;
