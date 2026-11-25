@@ -159,6 +159,8 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     # strings). CODEOWNERS is not among them.
     ("low", "docs or copy", (
         "*.md", "*.mdx", "LICENSE*", "*/LICENSE*", "*.xcstrings", "*.strings", "docs/*", "release-notes/*", "*.log",
+        # A plan stays low when its file name has an auth word (arch-exceptions/*-sign-in-*.json).
+        "plans/*",
     )),
     # Lockfiles are the package graph: never high (an auth service's package-lock), never low (a
     # swapped dependency still gets agent review).
@@ -175,14 +177,36 @@ RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("normal", "app code, UI or CI", (
         "scripts/cmux-next/media/*", NEXT + "CmuxNextUpdater/*View.swift", NEXT + "CmuxNextUpdater/Share/*",
     )),
+    # Named like a high path, but not one (the 2026-11-25 audit of open risk:high pull requests).
+    ("normal", "app code, UI or CI", (
+        # "nightly" as a schedule: measurement and test runs that sign, publish and feed nothing.
+        # Named one by one: a *-nightly.yml suffix would also catch ios-internal-nightly.yml, a release.
+        ".github/workflows/nightly-speed.yml", ".github/workflows/nightly-interaction-latency.yml",
+        ".github/workflows/billing-nightly.yml", ".github/workflows/cmux-next-ios-energy-nightly.yml",
+        ".github/workflows/webviews-sampled-nightly.yml", "scripts/measure/*",
+        # Publishes the docs site or the fleet's repo mirror, not the app.
+        ".github/workflows/docs-deploy-reusable.yml", "scripts/repo-archive/*",
+        # A star prompt and copy that live in the updater module.
+        NEXT + "CmuxNextUpdater/GitHubStar/*", NEXT + "CmuxNextUpdater/UpdaterStrings.swift",
+        # An auth test run and a health probe, a login(1) shell, and CLI message strings.
+        ".github/workflows/auth-refresh-tests.yml", ".github/workflows/vercel-auth-health.yml",
+        "*/login_shell.rs", "*/localization/*",
+        # The package graph, even inside a relay or auth crate (Cargo.lock already is).
+        "cmux-tui/crates/*/Cargo.toml", "cmux-tui/relays/*/Cargo.toml",
+        "cmux-tui/crates/*/.gitignore", "cmux-tui/relays/*/.gitignore",
+        # Moving a Chief or a setup between hosts: no stored schema is rewritten.
+        "Native/OptChat/optchat-chief/src/migrate*.rs", "cmux-tui/crates/cmux-migrate/*",
+        "cmux-tui/crates/cmux-tui/src/cli/migrate.rs",
+    )),
     # Who may sign in, and where tokens live. A bug here leaks or loses credentials, and a revert
     # doesn't un-leak a token.
     ("high", "auth or credentials", (
         "Packages/Shared/CmuxAuthRuntime/*", "Packages/Shared/CMUXAuthCore/*", "*/WebAuth/*",
-        "*/Keychain/*", "*Keychain*Store*", "*TokenStore*", "web/services/auth/*", "workers/*/src/auth/*",
+        "*/Keychain/*", "*Keychain*Store*", "*TokenStore*", "*SecureStore*", "web/services/auth/*", "workers/*/src/auth/*",
         "ios/CmuxiOS/Sources/CmuxiOSAuth/*", "*.entitlements", "web/proxy.ts", "web/middleware.ts",
         # A path segment or file-name word: dashboard-auth.ts, auth/, oauth_callback.rs, sign-in/.
-        r"re:(^|/|[-_.])(auth|oauth|sign[-_]?in|login)([-_./]|$)",
+        # Not an image: a 06-sign-in.png screenshot holds no credential.
+        r"re:^(?!.*\.(png|jpe?g|gif|webp)$)(.*[/_.-])?(auth|oauth|sign[-_]?in|login)([-_./]|$)",
     )),
     # Who may drive the app over its socket, and what a relay may forward. The app has no relay
     # policy yet (skills/cmux-socket-policy), so every relay path must stay default-deny.
@@ -307,9 +331,23 @@ GENERATED = (
 DELETES = re.compile(
     r"(\bremoveItem\s*\(\s*at|\bremove_dir_all\s*\(|\bfs::remove_(file|dir)\s*\(|\bshutil\.rmtree\b"
     r"|\brmSync\s*\(|\bfs\.(promises\.)?rm\s*\(|\brimraf\b|\bDROP\s+(TABLE|COLUMN)\b|\bTRUNCATE\s+TABLE\b"
-    r"|\bDELETE\s+FROM\b|\.trashItem\s*\(|\bdeleteAll\w*\s*\(|\b(db|tx)\.delete\s*\()")
+    r"|\bDELETE\s+FROM\b|\.trashItem\s*\(|\bdeleteAll\w*\s*\(|\b(db|tx)\.delete\s*\("
+    # A bare remove_file( after `use std::fs::remove_file` (not a method or its definition),
+    # unlink(2) and rmdir(2) through libc, Node's and Python's unlink, and a keychain item delete.
+    r"|(?<![\w.:])(?<!fn )remove_(file|dir)\s*\(|\blibc::(unlink|unlinkat|rmdir)\s*\("
+    r"|\.unlink(Sync)?\s*\(|\bSecItemDelete\b)")
+# Removing the file the same code just made: an atomic write's temp or part file on its failure
+# path, or a Swift `defer` that drops a scratch copy. It trusts the variable's name, from a closed
+# list, and the argument must be that bare name (`&temp`, `self.staged`), so `&path` still counts.
+_TEMP_NAME = r"(temp|tmp|temporary|part|partial|staged|staging|scratch)"
+OWN_TEMP = re.compile(
+    r"\b(remove_file|remove_dir_all|remove_dir|rmSync)\s*\(\s*&?(self\.)?" + _TEMP_NAME + r"\s*[,)]"
+    r"|^defer\s*\{\s*(try\?\s*)?FileManager\.\w+\.removeItem\(at:\s*(" + _TEMP_NAME[1:-1] + r"|copy)\s*\)\s*\}$")
 DELETE_SCOPE_EXCLUDED = ("scripts/*", "*/scripts/*", ".github/*", "tools/*", "dogfood/*", "Prototypes/*",
-                         "samples/*", "examples/*", ".claude/*", ".codex/*", ".agents/*", "cmux-tui/bindings/*")
+                         "samples/*", "examples/*", ".claude/*", ".codex/*", ".agents/*", "cmux-tui/bindings/*",
+                         # Benchmarks, end-to-end runs, examples, evals and simulators: harness code.
+                         "*/bench/*", "*/benches/*", "*/e2e/*", "*.bench.*", "*.e2e.*", "*/examples/*",
+                         "evals/*", "design/*", "*/coord-sim/*")
 
 # A change kind, read from the lines a workflow adds: a trigger that runs with the base's secrets
 # and a write token on a fork's pull request. A cache or checkout of the fork's code under one is
@@ -583,7 +621,7 @@ def delete_lines(patch: str, sign: str, path: str = "", source: str | None = Non
             code = " ".join(text.split())
             if code.startswith(("//", "#", "--", "*", "/*")):
                 continue
-            if DELETES.search(code):
+            if DELETES.search(OWN_TEMP.sub(" ", code)):
                 found.append(code)
     return found
 
