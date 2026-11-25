@@ -77,16 +77,19 @@ extension CEFTab {
         // after the next commit, so the grant waits for that commit. Every grant path comes here.
         // A page shown in a recent turn waits for its first frame out of the window (`CEFLayerHosting.firstFrameHold`):
         // the ask is kept and the hold's end grants it, so nothing re-arms a grant each pass meanwhile.
-        // A window still being restored (Restart to Update shows its windows one per frame) or an inactive app cannot
-        // hold the keys: a grant now made the page window key before its cmux window showed and the app lost its key
-        // window. The ask is kept and a window show or app activation grants it (`watchForKeyableWindow`).
-        if let owner = container.window, !owner.isVisible || owner.occlusionState.contains(.visible) == false || !NSApp.isActive {
-            host.lifecycleTrace.record(id, "grant kept: window not on screen or app inactive")
+        // A window still being restored (Restart to Update shows its windows one per frame) cannot hold the keys: a grant
+        // now made the page window key before its cmux window showed, and the app lost its key window. The ask is kept
+        // and re-asked after each frame commit (at most 120) until the window is on screen.
+        if let owner = container.window, !owner.isVisible || !owner.occlusionState.contains(.visible) {
+            guard offscreenGrantRetries < 120 else { return }
+            offscreenGrantRetries += 1
+            host.lifecycleTrace.record(id, "grant kept: window not on screen")
             traceGrant("kept: window not on screen")
             pendingFocus = true
-            watchForKeyableWindow(owner)
+            AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
             return
         }
+        offscreenGrantRetries = 0
         let hosting = host.hostView.layerHosting
         if hosting.holdsFirstFrame() {
             host.lifecycleTrace.record(id, "grant kept: first-frame hold")
@@ -134,23 +137,6 @@ extension CEFTab {
         }
         keyWindows.makeKey(window)
         traceGrant("granted")
-    }
-
-    /// Re-asks a kept grant once the window shows or the app activates (one-shot).
-    private func watchForKeyableWindow(_ window: NSWindow) {
-        guard keyableWatch == nil else { return }
-        keyableWatch = Task { @MainActor [weak self] in
-            let center = NotificationCenter.default
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { for await _ in center.notifications(named: NSWindow.didChangeOcclusionStateNotification, object: window).map({ _ in () }) { return } }
-                group.addTask { for await _ in center.notifications(named: NSApplication.didBecomeActiveNotification).map({ _ in () }) { return } }
-                await group.next()
-                group.cancelAll()
-            }
-            guard !Task.isCancelled, let self else { return }
-            self.keyableWatch = nil
-            AfterFrameCommit().run { [weak self] in self?.grantPendingFocusIfShown() }
-        }
     }
 
     /// `cmux app clicks`: the grant's outcome, on the newest press in the page's cmux window.
