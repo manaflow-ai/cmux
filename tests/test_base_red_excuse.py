@@ -9037,6 +9037,103 @@ class WsCheckFleetRoute(unittest.TestCase):
                     self.judge()
 
 
+class WsCheckLocalRun(unittest.TestCase):
+    """2026-11-25: land-judge refused teamleaderleo/leo-workspace#10190 at c31fd01b, "'ws-check' on c31fd01b...: its
+    status links nothing, not a manaflow-ai/cmuxterm-hq Actions run". The lane-gh broker ran that head's ws-check on its
+    own host (hq#15545): no Actions run, a status with no link, its log kept beside its record (local_kept_run)."""
+    RED = WsCheckPerTest.DEPLOY
+    SNAPSHOT, TREE, RUN = "9" * 40, "5" * 40, excuse.LOCAL_RUN_BASE + 12
+
+    def setUp(self):
+        self.gh = WsCheckGitHub()
+        red = {self.RED: WsCheckPerTest.ws_deploy(None, "test_a")}
+        self.gh.verdict(HEAD, 1, red)
+        self.gh.verdict(self.gh.TIP, 2, red)
+        # HEAD's run as the broker leaves it: no Actions run, a status linking nothing, its log on this host only.
+        del self.gh.runs[1], self.gh.jobs[1]
+        self.gh.statuses[HEAD][0]["target_url"] = ""
+        log = self.gh.logs.pop(11)
+        self.lines = [line.split(" ", 1)[1].replace(HEAD, self.SNAPSHOT) for line in log.splitlines()]
+        folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, folder)
+        self.folder = Path(folder)
+        env = unittest.mock.patch.dict(os.environ, {excuse.FLEET_RECORDS_ENV: folder})
+        env.start()
+        self.addCleanup(env.stop)
+        self.squashed = []
+        trees = {self.gh.TIP: self.TREE, self.gh.OLDER: "6" * 40, self.gh.MERGE_BASE: "7" * 40}
+
+        def squash(repo, head, tip, branches=None, whole=False):
+            self.squashed.append((head, tip, whole))
+            return trees.get(tip, "8" * 40) if whole else "3" * 40  # only the uncut merge is the tested tree
+        patch = unittest.mock.patch.object(excuse, "ws_check_squash_tree", squash)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def keep(self, *, run=None, receipt_run=None, conclusion="failure", state="done", head=HEAD, url=None,
+             ran_on=excuse.LOCAL_RAN_ON, source_tree=None, mismatch=None, repo=None):
+        run = self.RUN if run is None else run
+        repo = repo or self.gh.REPO
+        record = {"id": "j1", "repo": repo, "dispatch": self.gh.HOST, "head": head, "run_id": run,
+                  "url": url if url is not None else f"lane-gh-broker://huge-blue/{repo}/local-runs/{run}",
+                  "conclusion": conclusion, "snapshot": self.SNAPSHOT, "tree": self.TREE, "mismatch": mismatch,
+                  "ended": "2026-11-25T08:00:00Z", "local": {"state": state, "host": "huge-blue"}}
+        (self.folder / "j1.json").write_text(json.dumps(record))
+        receipt = {"source_sha": self.SNAPSHOT, "head_after": self.SNAPSHOT, "exit_code": 1, "ran_on": ran_on,
+                   "source_tree": source_tree or self.TREE, "run_id": str(receipt_run or run)}
+        (self.folder / "j1.local-log").write_text(
+            "\n".join(self.lines + ["FAST_CHECKS_RECEIPT=" + json.dumps(receipt)]) + "\n")
+
+    def judge(self):
+        return excuse.judge(self.gh.REPO, "main", HEAD, [], self.gh)
+
+    def test_a_local_run_with_no_kept_record_is_refused_as_before(self):
+        with self.assertRaisesRegex(excuse.Refused, r"its status links nothing, not a manaflow-ai/cmuxterm-hq Actions "
+                                                    r"run, and this host's lane-gh broker keeps no settled local run"):
+            self.judge()
+
+    def test_a_local_runs_kept_log_is_read_and_its_base_red_excused(self):
+        self.keep()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+        # Held to the uncut merge of HEAD with main's tip: a local run tests the whole merged tree.
+        self.assertIn((HEAD, self.gh.TIP, True), self.squashed)
+        # A status that links the run's own lane-gh-broker url reads the same.
+        self.gh.statuses[HEAD][0]["target_url"] = f"lane-gh-broker://huge-blue/{self.gh.REPO}/local-runs/{self.RUN}"
+        self.assertIn("every failure", self.judge()[0])
+
+    def test_a_local_runs_own_red_is_still_refused(self):
+        self.lines = [line.replace("test_a", "test_b") for line in self.lines]
+        self.keep()
+        with self.assertRaisesRegex(excuse.Refused, r"1 failure\(s\) not on main: .*test_b"):
+            self.judge()
+
+    def test_a_record_not_held_to_this_head_run_and_verdict_is_not_read(self):
+        for kwargs in ({"run": 77}, {"conclusion": "success"}, {"state": "running"}, {"head": "b" * 40},
+                       {"mismatch": "no receipt"}, {"url": "https://example.com/x"},
+                       {"repo": "teamleaderleo/other"}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "keeps no settled local run"):
+                    self.judge()
+        self.keep()  # a status linking another run's url reads none
+        self.gh.statuses[HEAD][0]["target_url"] = f"lane-gh-broker://huge-blue/{self.gh.REPO}/local-runs/{self.RUN + 1}"
+        with self.assertRaisesRegex(excuse.Refused, "keeps no settled local run"):
+            self.judge()
+
+    def test_a_receipt_not_naming_the_run_snapshot_and_tree_is_refused(self):
+        for kwargs in ({"receipt_run": self.RUN + 1}, {"ran_on": "build-fleet"}, {"source_tree": "2" * 40}):
+            with self.subTest(**kwargs):
+                self.keep(**kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "has no FAST_CHECKS_RECEIPT naming that run"):
+                    self.judge()
+
+    def test_a_run_that_tested_another_tree_is_refused(self):
+        self.TREE = "1" * 40
+        self.keep()
+        with self.assertRaisesRegex(excuse.Refused, "it tested another base or head"):
+            self.judge()
+
+
 class WsCheckFleetRecordsFolders(unittest.TestCase):
     """cmux#46667: with no BASE_RED_FLEET_RECORDS the primary broker's records are read, then the standby broker's."""
 
