@@ -53,7 +53,7 @@ fn a_plan_over_the_control_limit_still_answers_in_one_reply() {
     let scheduler =
         Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
     let params = json!({"machine": "current", "session": "current",
-                        "bundle_id": "com.cmuxterm.app", "mode": "automatic"});
+                        "bundle_id": "com.cmuxterm.app", "mode": "automatic", "consented": true});
     let request = resource_request("plan", "classic_import.plan", params, None);
     assert!(handle_connection_message(&mux, client, &request, &writer, &scheduler));
 
