@@ -118,6 +118,27 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 
+  // Leo, 2026-11-25: "this is extremely strange". A background task the last turn started ends 2 minutes later;
+  // its notice opens a turn that only thinks and answers in two sentences. His pane drew "Background task finished",
+  // then "Worked for 2m 28s" with the answer folded inside it: the answer was hidden, and the time ran from far
+  // before the turn's own start.
+  "notice-no-tool-turn": () => {
+    const b = sim(
+      "notice-no-tool-turn",
+      "A background task's end opens a turn of one thought and a two-sentence answer, no tools.",
+    );
+    b.prompt("Run the tests and merge when green.");
+    b.think("Starting the test and merge run in the background.");
+    b.background("bun test && gh pr merge 123", { ms: 140_000 });
+    b.say("The test and merge run is going in the background; I'll report when it ends.");
+    b.turnEnd();
+    b.wait(140_000).backgroundEnds();
+    b.bgDone("bg-call-1", "test+merge 123", { after: 200 });
+    b.think("Already known: the run passed and the PR merged. Nothing else is waiting on it.", { chunks: 3 });
+    b.say("The tests passed and the PR merged. Nothing else is waiting on it.", { chunks: 3 });
+    return b.turnEnd().build();
+  },
+
   // Leo, 2026-11-21: "the messages and whatever collapsing and stuff, sometimes it does so too soon in the midst of a turn".
   "long-turn-messages": () => {
     const b = sim(
