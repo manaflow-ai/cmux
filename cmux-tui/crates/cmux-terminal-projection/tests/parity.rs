@@ -1697,3 +1697,491 @@ fn a_claude_code_scroll_step_costs() {
         std::fs::write(dir.join("scroll.md"), format!("{summary}\n{table}")).unwrap();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Phone-width parity: the phone shows what the Mac would draw at its width.
+//
+// Leo, 2026-11-25: "we know what a Mac's Claude code pane looks like. And we
+// know it/can know it for any variation/combination at various phone sizes.
+// [...] do everything at parity on the phone", "you obviously fit to phone by
+// default? [...] why would the Mac on an iPhone connection ALWAYS be resized
+// down anyways!?", and "I think we should be able to get best of both worlds
+// correctness and speed".
+//
+// The target is each program run at the phone's grid from its start (what
+// the Mac's pane would show had it been that size); the phone path is the
+// projection of the same program run at the Mac's 120x40, its PTY never
+// resized. Every screen counts, the alternate one too (no scaled-view
+// exemption): the phone's grid against the target's, every row of the screen
+// and of scrollback, cell by cell, with wrap flags and the cursor
+// (`compare_grid`). Target: 0 mismatched cells per case and width.
+
+/// iPhone grids at 12 pt: the largest text 33x30, a small phone 43x33,
+/// portrait 52x38, landscape 112x17.
+const PHONE_WIDTH_GRIDS: [(usize, usize); 4] = [(33, 30), (43, 33), (52, 38), (112, 17)];
+const MAC_GRID: (usize, usize) = (120, 40);
+
+/// Words wrapped at `width` columns (ASCII text), the way an Ink or ratatui
+/// app wraps a paragraph itself.
+fn wrap_words(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
+    let mut lines = Vec::new();
+    let mut line = String::new();
+    for word in text.split(' ') {
+        let mut word = word.to_string();
+        while word.len() > width {
+            if !line.is_empty() {
+                lines.push(std::mem::take(&mut line));
+            }
+            let rest = word.split_off(width);
+            lines.push(word);
+            word = rest;
+        }
+        if line.is_empty() {
+            line = word;
+        } else if line.len() + 1 + word.len() <= width {
+            line.push(' ');
+            line += &word;
+        } else {
+            lines.push(std::mem::replace(&mut line, word));
+        }
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// An inline app's live region (Ink's log-update): erase the last frame's
+/// rows, print what scrolled into the transcript, then the new frame. The
+/// cursor rests at the end of the frame's last row.
+struct Inline {
+    last_rows: usize,
+}
+
+impl Inline {
+    fn frame(&mut self, out: &mut String, history: &[String], frame: &[String]) {
+        if self.last_rows > 0 {
+            out.push_str("\x1b[2K");
+            for _ in 1..self.last_rows {
+                out.push_str("\x1b[1A\x1b[2K");
+            }
+            out.push('\r');
+        }
+        for line in history {
+            out.push_str(line);
+            out.push_str("\r\n");
+        }
+        out.push_str(&frame.join("\r\n"));
+        self.last_rows = frame.len();
+    }
+}
+
+const REPLY: &str = "The projection keeps the Mac grid and lays the primary screen out again at the phone width, so a shell and its output read the same on both screens. A full screen app is the hard part: it draws for one grid, and only the app knows how its frame looks at another width.";
+const TOOL_OUT: &str = "test result: ok. 214 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 4.21s";
+
+/// Claude Code's pane (model of its Ink layout): transcript paragraphs
+/// wrapped at the width with a `⏺` gutter, a tool call with its `⎿` result
+/// cut to the width, a rounded input box across the width, a status row;
+/// typing redraws the box.
+fn claude_code_pane(
+    cols: usize,
+    _rows: usize,
+    typed_steps: &[&str],
+    log: &[String],
+) -> Vec<Vec<u8>> {
+    let gutter = |first: &str, text: &str, color: &str| -> Vec<String> {
+        wrap_words(text, cols.saturating_sub(2))
+            .into_iter()
+            .enumerate()
+            .map(
+                |(i, l)| {
+                    if i == 0 { format!("{color}{first}\x1b[0m {l}") } else { format!("  {l}") }
+                },
+            )
+            .collect()
+    };
+    let frame = |typed: &str| -> Vec<String> {
+        let inner = cols.saturating_sub(4);
+        let mut rows =
+            vec![String::new(), format!("\x1b[38;5;244m╭{}╮\x1b[0m", "─".repeat(cols - 2))];
+        let lines = wrap_words(typed, inner.saturating_sub(2));
+        let lines = if lines.is_empty() { vec![String::new()] } else { lines };
+        for (i, l) in lines.iter().enumerate() {
+            let lead = if i == 0 { "> " } else { "  " };
+            rows.push(format!(
+                "\x1b[38;5;244m│\x1b[0m {lead}{l:<w$} \x1b[38;5;244m│\x1b[0m",
+                w = inner.saturating_sub(2)
+            ));
+        }
+        rows.push(format!("\x1b[38;5;244m╰{}╯\x1b[0m", "─".repeat(cols - 2)));
+        let left = "  ? for shortcuts";
+        let right = "● high";
+        let pad = cols.saturating_sub(left.len() + 6 + 1);
+        rows.push(format!("\x1b[2m{left}{}{right}\x1b[0m", " ".repeat(pad)));
+        rows
+    };
+    let mut app = Inline { last_rows: 0 };
+    let mut steps = Vec::new();
+    let mut out = String::from("\x1b[?25l");
+    let mut history = vec![format!("\x1b[38;5;174m✻\x1b[0m Welcome to Claude Code"), String::new()];
+    history.extend(gutter(">", "make the phone render the pane at its own width", "\x1b[2m"));
+    history.push(String::new());
+    history.extend(gutter("⏺", REPLY, "\x1b[37m"));
+    history.push(String::new());
+    history.push(format!(
+        "\x1b[32m⏺\x1b[0m \x1b[1mBash\x1b[0m(cargo test -p cmux-terminal-projection)"
+    ));
+    let cut: String = TOOL_OUT.chars().take(cols.saturating_sub(5)).collect();
+    history.push(format!("  ⎿  {cut}"));
+    app.frame(&mut out, &history, &frame(""));
+    steps.push(std::mem::take(&mut out).into_bytes());
+    let mut typed = String::new();
+    for (i, step) in typed_steps.iter().enumerate() {
+        typed.push_str(step);
+        let lines: Vec<String> = if log.is_empty() {
+            Vec::new()
+        } else {
+            let per = log.len() / typed_steps.len().max(1);
+            log[i * per..(i + 1) * per]
+                .iter()
+                .flat_map(|l| {
+                    let cut: String = l.chars().take(cols.saturating_sub(5)).collect();
+                    [format!("  ⎿  {cut}")]
+                })
+                .collect()
+        };
+        app.frame(&mut out, &lines, &frame(&typed));
+        steps.push(std::mem::take(&mut out).into_bytes());
+    }
+    steps
+}
+
+/// Codex's pane (model of its ratatui inline viewport): `•` history cells
+/// wrapped at the width, a composer with a `›` lead on a tinted background
+/// across the width, a key-hint footer.
+fn codex_pane(cols: usize, _rows: usize, typed_steps: &[&str]) -> Vec<Vec<u8>> {
+    let cell = |text: &str| -> Vec<String> {
+        wrap_words(text, cols.saturating_sub(2))
+            .into_iter()
+            .enumerate()
+            .map(|(i, l)| if i == 0 { format!("\x1b[1m•\x1b[0m {l}") } else { format!("  {l}") })
+            .collect()
+    };
+    let frame = |typed: &str| -> Vec<String> {
+        let mut rows = vec![String::new()];
+        let lines = wrap_words(typed, cols.saturating_sub(3));
+        let lines = if lines.is_empty() { vec![String::new()] } else { lines };
+        for (i, l) in lines.iter().enumerate() {
+            let lead = if i == 0 { "› " } else { "  " };
+            rows.push(format!("\x1b[48;5;236m {lead}{l:<w$}\x1b[0m", w = cols.saturating_sub(3)));
+        }
+        rows.push(String::new());
+        let hint = "  ⏎ send   ⌃J newline   ⌃T transcript   ⌃C quit";
+        let hint: String = hint.chars().take(cols).collect();
+        rows.push(format!("\x1b[2m{hint}\x1b[0m"));
+        rows
+    };
+    let mut app = Inline { last_rows: 0 };
+    let mut steps = Vec::new();
+    let mut out = String::from("\x1b[?25l");
+    let mut history = vec![">_ OpenAI Codex (v0.63.0)".to_string(), String::new()];
+    history.extend(cell("make the phone render the pane at its own width"));
+    history.push(String::new());
+    history.extend(cell(REPLY));
+    app.frame(&mut out, &history, &frame(""));
+    steps.push(std::mem::take(&mut out).into_bytes());
+    let mut typed = String::new();
+    for step in typed_steps {
+        typed.push_str(step);
+        app.frame(&mut out, &[], &frame(&typed));
+        steps.push(std::mem::take(&mut out).into_bytes());
+    }
+    steps
+}
+
+/// vim on the alternate screen: a file whose long lines vim wraps at the
+/// width, `~` past its end, a reversed status line with the position right
+/// aligned, insert mode typing, then `:q` back to the shell.
+fn vim(cols: usize, rows: usize, typed_steps: &[&str]) -> Vec<Vec<u8>> {
+    let file: Vec<String> = (0..12)
+        .map(|i| format!("{i:02} {}", "let projection = phone.width(); ".repeat(i % 4 + 1)))
+        .collect();
+    let paint = |first: &str, mode: &str| -> String {
+        let mut out = String::from("\x1b[H\x1b[2J");
+        let mut screen: Vec<String> = Vec::new();
+        for (i, line) in file.iter().enumerate() {
+            let line = if i == 0 { format!("{first}{line}") } else { line.clone() };
+            let mut rest = line.as_str();
+            while !rest.is_empty() {
+                let take = rest.len().min(cols);
+                screen.push(rest[..take].to_string());
+                rest = &rest[take..];
+            }
+        }
+        let body = rows - 2;
+        screen.truncate(body);
+        while screen.len() < body {
+            screen.push("\x1b[34m~\x1b[0m".to_string());
+        }
+        for (y, line) in screen.iter().enumerate() {
+            out += &format!("\x1b[{};1H{line}", y + 1);
+        }
+        let name = " src/project.rs [+]";
+        let pos = format!("1,{}  All ", first.len() + 1);
+        let pad = cols.saturating_sub(name.len() + pos.len());
+        out += &format!("\x1b[{};1H\x1b[7m{name}{}{pos}\x1b[0m", rows - 1, " ".repeat(pad));
+        out += &format!("\x1b[{rows};1H\x1b[1m{mode}\x1b[0m\x1b[K");
+        out += &format!("\x1b[1;{}H", first.len() + 1);
+        out
+    };
+    let mut steps = vec![s(&format!("$ vim src/project.rs\r\n\x1b[?1049h{}", paint("", "")))];
+    let mut typed = String::new();
+    for step in typed_steps {
+        typed.push_str(step);
+        steps.push(paint(&typed, "-- INSERT --").into_bytes());
+    }
+    steps.push(s("\x1b[?1049l$ "));
+    steps
+}
+
+/// htop: header meters sized to the width, the process table, a refresh,
+/// then `q`.
+fn htop(cols: usize, rows: usize) -> Vec<Vec<u8>> {
+    let paint = |tick: usize| -> String {
+        let mut out = String::from("\x1b[H\x1b[2J");
+        let bar = cols.saturating_sub(10);
+        for cpu in 0..2 {
+            let used = (bar * (30 + 20 * cpu + tick * 7)) / 100;
+            out += &format!(
+                "\x1b[{};1H{cpu:>2}[\x1b[32m{}\x1b[0m{}{:>4.1}%]",
+                cpu + 1,
+                "|".repeat(used.min(bar)),
+                " ".repeat(bar - used.min(bar)),
+                (30 + 20 * cpu + tick * 7) as f32
+            );
+        }
+        let title = format!(
+            "{:<w$}",
+            "  PID USER      PRI  NI  VIRT   RES S CPU% MEM%   TIME+  Command",
+            w = cols
+        );
+        let title: String = title.chars().take(cols).collect();
+        out += &format!("\x1b[4;1H\x1b[30;42m{title}\x1b[0m");
+        for i in 0..rows.saturating_sub(6) {
+            let line = format!(
+                "{:5} cmux       20   0 {:4}M {:4}M S {:4.1}  0.{i}  0:0{}.{:02} /usr/bin/cmux-process-{i} --flag",
+                1000 + i,
+                400 + i,
+                90 + i,
+                ((i * 7 + tick) % 100) as f32,
+                i % 10,
+                (i * 13 + tick) % 60
+            );
+            let line: String = line.chars().take(cols).collect();
+            out += &format!("\x1b[{};1H{line}", i + 5);
+        }
+        let keys = "F1Help  F2Setup F3Search F4Filter F5Tree  F6SortBy F9Kill  F10Quit";
+        let keys: String = keys.chars().take(cols).collect();
+        out += &format!("\x1b[{rows};1H\x1b[30;46m{keys}\x1b[0m\x1b[K");
+        out
+    };
+    vec![
+        s(&format!("$ htop\r\n\x1b[?1049h\x1b[?25l{}", paint(0))),
+        paint(1).into_bytes(),
+        s("\x1b[?25h\x1b[?1049l$ "),
+    ]
+}
+
+/// A long log a shell prints (no redraw of its own): every line length up
+/// to 2.5 Mac widths, styled.
+fn long_wrapped_log() -> Vec<Vec<u8>> {
+    let mut steps = Vec::new();
+    for block in 0..4 {
+        let mut out = String::new();
+        for i in block * 300..(block + 1) * 300 {
+            let len = (i * 37) % 300;
+            out += &format!("\x1b[3{}m{i:05}\x1b[0m {}\r\n", i % 8, "log-entry ".repeat(len / 10));
+        }
+        steps.push(out.into_bytes());
+    }
+    steps.push(s("$ "));
+    steps
+}
+
+/// The duress log: about 400 KB of tool output (one second of a busy
+/// build at 400 KB/s) streamed above Claude Code's input box while the
+/// person types into it.
+fn duress_log() -> Vec<String> {
+    let mut log = Vec::new();
+    let mut bytes = 0;
+    let mut i = 0usize;
+    while bytes < 400 << 10 {
+        let line = format!(
+            "   Compiling crate-{i:05} v0.{}.{} (/src/crates/crate-{i:05}) warning: unused {}",
+            i % 9,
+            i % 31,
+            "x".repeat(i % 50)
+        );
+        bytes += line.len() + 8;
+        log.push(line);
+        i += 1;
+    }
+    log
+}
+
+struct WidthCase {
+    name: &'static str,
+    /// The program's output at a grid, as steps compared after each.
+    program: Box<dyn Fn(usize, usize) -> Vec<Vec<u8>>>,
+    /// Feed chunk for the phone path (bytes arrive in network reads).
+    chunk: usize,
+}
+
+fn width_cases() -> Vec<WidthCase> {
+    const TYPED: [&str; 4] = ["fix", " the", " parity", " at every width please"];
+    let log = std::rc::Rc::new(duress_log());
+    let duress_typed: Vec<&'static str> =
+        "typing while the build streams".split_inclusive(' ').collect();
+    vec![
+        WidthCase {
+            name: "claude_code_pane",
+            program: Box::new(|c, r| claude_code_pane(c, r, &TYPED, &[])),
+            chunk: 4096,
+        },
+        WidthCase {
+            name: "codex_pane",
+            program: Box::new(|c, r| codex_pane(c, r, &TYPED)),
+            chunk: 4096,
+        },
+        WidthCase { name: "vim", program: Box::new(|c, r| vim(c, r, &TYPED)), chunk: 4096 },
+        WidthCase { name: "htop", program: Box::new(htop), chunk: 4096 },
+        WidthCase {
+            name: "long_wrapped_log",
+            program: Box::new(|_, _| long_wrapped_log()),
+            chunk: 4096,
+        },
+        WidthCase {
+            name: "duress_400KB_while_typing",
+            program: Box::new(move |c, r| claude_code_pane(c, r, &duress_typed, &log)),
+            chunk: 4096,
+        },
+    ]
+}
+
+#[derive(Default, Clone)]
+struct WidthRow {
+    steps: usize,
+    cells: usize,
+    /// Mismatched cells, the projection's exact mode.
+    exact: usize,
+    /// Mismatched cells, compact (the default).
+    compact: usize,
+    cursor: usize,
+    bytes: usize,
+    /// Wall time the projection took for the whole stream, compact (ms).
+    feed_ms: f64,
+    notes: Vec<String>,
+}
+
+fn run_width_case(case: &WidthCase, grid: (usize, usize)) -> WidthRow {
+    let mut row = WidthRow::default();
+    let mac_steps = (case.program)(MAC_GRID.0, MAC_GRID.1);
+    let phone_steps = (case.program)(grid.0, grid.1);
+    assert_eq!(mac_steps.len(), phone_steps.len(), "{}: steps differ by width", case.name);
+    row.bytes = mac_steps.iter().map(Vec::len).sum();
+    for compact in [false, true] {
+        let mut run = Run::new(MAC_GRID, grid, compact);
+        let mut target = vt(grid.0, grid.1);
+        let mut spent = std::time::Duration::ZERO;
+        for (i, (mac, phone)) in mac_steps.iter().zip(&phone_steps).enumerate() {
+            for part in mac.chunks(case.chunk.max(1)) {
+                let start = std::time::Instant::now();
+                let segments = run.projection.feed(part, true);
+                spent += start.elapsed();
+                run.mac.vt_write(part);
+                run.apply(segments);
+                let _ = run.projection.take_replies();
+            }
+            target.vt_write(phone);
+            run.load_all();
+            let score = compare_grid(&snapshot(&target), &snapshot(&run.phone));
+            row.steps += 1;
+            row.cells += score.cells;
+            row.cursor += score.cursor_mismatches;
+            if compact {
+                row.compact += score.mismatched;
+            } else {
+                row.exact += score.mismatched;
+            }
+            if (score.mismatched > 0 || score.cursor_mismatches > 0) && row.notes.len() < 4 {
+                let mode = if compact { "compact" } else { "exact" };
+                for what in score.first.iter().take(1) {
+                    row.notes.push(format!("{}x{} {mode} step {i}: {what}", grid.0, grid.1));
+                }
+            }
+        }
+        if compact {
+            row.feed_ms = spent.as_secs_f64() * 1000.0;
+        }
+    }
+    row
+}
+
+#[test]
+fn phone_width_matches_the_program_drawn_at_the_phones_width() {
+    let mut table = String::from(
+        "| case | phone | bytes | steps | cells compared | mismatched (exact) | mismatched (compact, default) | cursor | projection ms (compact) |\n|---|---|---:|---:|---:|---:|---:|---:|---:|\n",
+    );
+    let mut json = Vec::new();
+    let mut details = String::new();
+    let mut bad = 0;
+    for case in width_cases() {
+        for grid in PHONE_WIDTH_GRIDS {
+            let row = run_width_case(&case, grid);
+            bad += row.exact + row.compact + row.cursor;
+            let _ = writeln!(
+                table,
+                "| {} | {}x{} | {} | {} | {} | {} | {} | {} | {:.1} |",
+                case.name,
+                grid.0,
+                grid.1,
+                row.bytes,
+                row.steps,
+                row.cells,
+                row.exact,
+                row.compact,
+                row.cursor,
+                row.feed_ms
+            );
+            json.push(format!(
+                "{{\"case\":{:?},\"phone\":\"{}x{}\",\"bytes\":{},\"cells\":{},\"exact\":{},\"compact\":{},\"cursor\":{},\"feed_ms\":{:.1}}}",
+                case.name, grid.0, grid.1, row.bytes, row.cells, row.exact, row.compact, row.cursor, row.feed_ms
+            ));
+            if !row.notes.is_empty() {
+                let _ = writeln!(details, "\n{} {}x{}:", case.name, grid.0, grid.1);
+                for note in &row.notes {
+                    let _ = writeln!(details, "  {note}");
+                }
+            }
+        }
+    }
+    if !details.is_empty() {
+        println!("First phone-width mismatches:{details}");
+    }
+    println!(
+        "Phone-width parity (projection of the Mac's 120x40 vs the program drawn at the phone's grid):\n{table}"
+    );
+    if let Ok(dir) = std::env::var("PARITY_OUT") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("phone_width.md"), format!("{table}\n{details}")).unwrap();
+        std::fs::write(dir.join("phone_width.json"), format!("[{}]\n", json.join(",\n"))).unwrap();
+    }
+    if std::env::var("PARITY_REPORT_ONLY").is_err() {
+        assert_eq!(
+            bad, 0,
+            "the phone differs from the program drawn at its width; see the table above"
+        );
+    }
+}
