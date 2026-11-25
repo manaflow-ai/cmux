@@ -21,7 +21,6 @@ const OFF = { kind: "off", label: "Turn off", confirm: false } as const;
 const OPEN = { kind: "open", label: "Open", confirm: false } as const;
 const REMOVE = { kind: "remove", label: "Remove", confirm: true } as const;
 const RESTORE = { kind: "restore", label: "Restore last good", confirm: true } as const;
-const FOLLOW_DEFAULT = { kind: "follow-default", label: "Follow default", confirm: false } as const;
 
 /** Every kind the doctor reports, one finding each, warnings first. */
 export const DOCTOR_FINDINGS: Record<string, DoctorFinding> = {
@@ -111,18 +110,6 @@ export const DOCTOR_FINDINGS: Record<string, DoctorFinding> = {
     path: "/Users/me/.config/cmux/theme/dusk.json",
     fixes: [OPEN, REMOVE],
   }),
-  // Leo's real case, 2026-11-19: "i thought we turned those on by default and htat i was following
-  // them by default? where's it all at?"
-  notDefault: finding({
-    id: "not-default:appearance.surfaces.splitDivider.opacity",
-    kind: "not-default",
-    title: "You are not following the default for appearance.surfaces.splitDivider.opacity",
-    detail: "Yours: 0, default: follows Window opacity.",
-    place: "cmux-next.json:31",
-    path: "/Users/me/.config/cmux/cmux-next.json",
-    line: 31,
-    fixes: [FOLLOW_DEFAULT, OPEN],
-  }),
   override: finding({
     id: "override:cmux-tui.json",
     kind: "override",
@@ -157,14 +144,15 @@ export function recoverPlan(findings: readonly DoctorFinding[]): DoctorRecover |
   };
 }
 
-/** The line the CLI writes for the findings that are not dismissed (null for none). */
+/** The line the CLI writes for the warnings that are not dismissed (null for none): info findings
+ * never count. */
 export function doctorLine(findings: readonly DoctorFinding[]): string | null {
-  const open = findings.filter((one) => !one.dismissed);
+  const open = findings.filter((one) => !one.dismissed && one.level === "warning");
   if (open.length === 0) return null;
-  const head = open.length === 1 ? "1 customization problem" : `${open.length} customization problems`;
+  if (open.length === 1) return `Customization: ${open[0]!.title}`;
   const names = open.slice(0, 2).map((one) => one.title);
-  const more = open.length > 2 ? `; and ${open.length - 2} more` : "";
-  return `${head}: ${names.join("; ")}${more}`;
+  const more = open.length > 2 ? ` and ${open.length - 2} more` : "";
+  return `${open.length} customization problems: ${names.join("; ")}${more}`;
 }
 
 /** A report of `findings`, its line computed as the CLI does. */
@@ -177,16 +165,17 @@ export function report(findings: readonly DoctorFinding[]): DoctorReport {
   };
 }
 
-/** Only the file that changes cmux from outside its settings. */
-export const mockOverrideDoctor = (): DoctorReport => report([DOCTOR_FINDINGS.override!]);
+/** A theme set twice (the one problem, with no way back to plan) and a file that changes cmux from
+ * outside its settings (info, listed under it). */
+export const mockOverrideDoctor = (): DoctorReport => report([DOCTOR_FINDINGS.shadowed!, DOCTOR_FINDINGS.override!]);
 
 /** No findings: the start and the end state. */
 export const mockEmptyDoctor = (): DoctorReport => report([]);
 
-/** A stale PR layer that is still on, a theme file that does not load, and a setting hidden at 0
- * where the default shows it (Leo's pane dividers). */
+/** A stale PR layer that is still on, a theme file that does not load, and a key cmux does not know
+ * (info: listed, never counted). */
 export const mockDoctor = (): DoctorReport =>
-  report([DOCTOR_FINDINGS.layer!, DOCTOR_FINDINGS.broken!, DOCTOR_FINDINGS.notDefault!]);
+  report([DOCTOR_FINDINGS.layer!, DOCTOR_FINDINGS.broken!, DOCTOR_FINDINGS.unknownKey!]);
 
 /** One finding of every kind. */
 export const mockAllDoctor = (): DoctorReport => report(Object.values(DOCTOR_FINDINGS));
@@ -244,9 +233,7 @@ export function runDoctor(
       ? `Moved ${name} aside; a copy is kept.`
       : run.fix === "restore"
         ? `Put back the last ${name} that loaded; the broken text is kept.`
-        : run.fix === "follow-default"
-          ? `${name} follows the default again; a copy of your settings file is kept.`
-          : `Turned off ${name}.`;
+        : `Turned off ${name}.`;
   return {
     doctor: report(doctor.findings.filter((one) => one.id !== run.id)),
     fixed: { id: run.id, kind: run.fix, kept, said },
