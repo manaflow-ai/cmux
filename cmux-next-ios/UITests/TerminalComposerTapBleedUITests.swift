@@ -140,15 +140,16 @@ final class TerminalComposerTapBleedUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.exists, "the keyboard went down")
         XCTAssertEqual(target.value as? String, "composer", "the composer lost the focus")
 
-        // The positive control: a tap in the middle of a key does reach it, so the probe counts.
-        let escape = app.buttons["terminal.key.escape"]
-        XCTAssertTrue(escape.waitForExistence(timeout: 2), "the Esc positive-control key is missing")
-        XCTAssertLessThanOrEqual(escape.frame.maxX, width, "the Esc positive-control key is off screen")
+        // The positive control: the pinned Control key is always visible, and a tap in its middle
+        // reaches the row so the probe counts a real key activation.
+        let control = app.buttons["terminal.key.control"]
+        XCTAssertTrue(control.waitForExistence(timeout: 2), "the Control positive-control key is missing")
+        XCTAssertLessThanOrEqual(control.frame.maxX, width, "the Control positive-control key is off screen")
         let before = probe.value as? String ?? ""
-        origin.withOffset(CGVector(dx: escape.frame.midX, dy: escape.frame.midY)).tap()
+        origin.withOffset(CGVector(dx: control.frame.midX, dy: control.frame.midY)).tap()
         let after = probe.value as? String ?? ""
-        XCTAssertTrue(after != before && after.contains("escape"),
-                      "a tap on Esc \(escape.frame) did not reach it: \(before) -> \(after)")
+        XCTAssertTrue(after != before && after.contains("control"),
+                      "a tap on Control \(control.frame) did not reach it: \(before) -> \(after)")
     }
 
     /// The 8 pt gap between the key row and the composer is the composer's: a tap there, at the
