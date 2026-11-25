@@ -253,11 +253,17 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
     let tools = with_tools(params)?;
     conn.watch_tools.store(on && tools, Ordering::SeqCst);
     conn.set_watching(on);
+    // Off is a pause (a hidden page, webviews sessionPages.ts `pause`): the client keeps the rows and
+    // cursor it holds and follows from them when it turns the watch on again, so no list is built
+    // for it, as `_acpmux/inventory_watch` answers `{}` (docs/inventory-watch.md).
+    if !on {
+        return Ok(json!({}));
+    }
     // The position the reply is current to, read once the watch is on: every change after it is
     // a notice on this connection (`row_log.rs`).
     let head = hub.list_cursor().0;
     let own_only = conn.origin == super::Origin::Peer;
-    if on && let Some(after) = follow_cursor(hub, params)? {
+    if let Some(after) = follow_cursor(hub, params)? {
         // Rows changed after the client's cursor, never the list: its cost is the changes.
         if let Some(done) = follow(hub, conn, after, own_only, tools).await {
             return done;
