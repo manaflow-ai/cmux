@@ -1,4 +1,4 @@
-import { Plugin } from "@milkdown/kit/prose/state";
+import { Plugin, TextSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 import { growthHoldsText } from "./fieldGrowth";
 
@@ -29,10 +29,55 @@ export function revealCaret(view: EditorView, scroller: HTMLElement, margin: num
   else if (caret.top < top + clear) scroller.scrollTop -= top + clear - caret.top;
 }
 
+// perf-hot: ProseMirror reveals the caret after every key typed (the typed text's transaction asks
+// for it), and its reveal reads the caret's rect and every ancestor's box, forcing the edit's layout
+// inside the key's own task: about 0.4-0.7 ms of a key's 4.9 ms on Mac WebKit (goal typing-latency,
+// cmux16 split of 300 keys). A caret placed in text waits for the frame instead: the same reveal runs
+// in its animation-frame callback, before that frame's layout and paint, so the frame drawn is the one
+// it drew before and the layout it reads is the one the frame does anyway. Keys typed within one
+// frame share one reveal. A node selection (a chip) and a range keep the reveal in the edit.
+type RevealingView = EditorView & { scrollToSelection?: () => void };
+const revealing = new WeakSet<EditorView>();
+const waiting = new WeakSet<EditorView>();
+
+/** Whether ProseMirror's reveal for `view` was taken to the next frame (true: it is not run now). */
+export function revealInFrame(view: EditorView): boolean {
+  // The reveal this module runs in the frame: ProseMirror's own.
+  if (revealing.has(view)) return false;
+  const selection = view.state.selection;
+  const reveal = (view as RevealingView).scrollToSelection;
+  if (!(selection instanceof TextSelection) || !selection.empty) return false;
+  if (typeof reveal !== "function" || typeof requestAnimationFrame !== "function") return false;
+  if (waiting.has(view)) return true;
+  waiting.add(view);
+  requestAnimationFrame(() => {
+    waiting.delete(view);
+    if (view.isDestroyed) return;
+    // A growth that started meanwhile holds the text on the field's edge (fieldGrowth.ts).
+    const scroller = view.dom.closest<HTMLElement>(".acpmux-md-field");
+    if (scroller && growthHoldsText(scroller)) return;
+    revealing.add(view);
+    try {
+      reveal.call(view);
+    } finally {
+      revealing.delete(view);
+    }
+  });
+  return true;
+}
+
 /** The plugin: watches the text column's width and the scroller's height, both of which move the
  *  caret's line without an edit. `margin` is ProseMirror's own `scrollMargin` for this field. */
 export function caretInView(margin: number): Plugin {
   return new Plugin({
+    props: {
+      // Before fieldGrowth's: a growth that holds the text keeps holding it (its own prop says so).
+      handleScrollToSelection(view) {
+        const scroller = view.dom.closest<HTMLElement>(".acpmux-md-field");
+        if (scroller && growthHoldsText(scroller)) return false;
+        return revealInFrame(view);
+      },
+    },
     view(view) {
       if (typeof ResizeObserver !== "function") return {};
       // Set when the person scrolls the draft themselves (wheel, touch, the scrollbar); an edit or a
