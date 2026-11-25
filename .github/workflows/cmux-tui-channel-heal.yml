@@ -8,7 +8,7 @@ name: cmux-tui channel heal
 # its oldest missing feat-cmux-next commit is over HEAL_LAG_MIN (45) minutes old and no artifacts run on
 # feat-cmux-next is queued or running, reruns the newest failed run's failed jobs, or dispatches a run on the branch
 # (scripts/ci/cmux_tui_channel_heal.py). The point job stays the only writer and moves forward only, to a
-# daemon-tested tree. It runs on a GitHub-hosted runner so a dead pool cannot stop its own repair.
+# daemon-tested tree. It runs on the repair pool (cmux-gcp-repair-jit-x64), set apart from the build pools.
 # vars.CMUX_TUI_CHANNEL_HEAL=0 turns it off.
 on:
   schedule:
@@ -33,8 +33,8 @@ env:
 jobs:
   heal:
     name: heal the feat-cmux-next acpmux channel
-    if: github.repository == 'manaflow-ai/cmux' && vars.CMUX_TUI_CHANNEL_HEAL != '0'
-    runs-on: ubuntu-24.04
+    if: github.repository == 'manaflow-ai/cmux' && (vars.CMUX_TUI_CHANNEL_HEAL || '1') != '0'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || fromJSON(vars.RUNNER_POOLS).linux_4 }} # ephemeral-required: holds an actions-write token to rerun or dispatch the artifacts workflow; the repair pool, as cmux-next-package-deps-heal.yml
     timeout-minutes: 5
     permissions:
       actions: write
