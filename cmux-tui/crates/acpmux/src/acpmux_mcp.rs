@@ -91,6 +91,8 @@ pub(crate) mod pr;
 pub(crate) use pr::pr_state;
 #[path = "acpmux_mcp_control.rs"]
 mod control;
+#[path = "acpmux_mcp_look.rs"]
+mod look;
 #[path = "acpmux_mcp_machine.rs"]
 mod machine;
 #[path = "acpmux_mcp_race.rs"]
@@ -118,6 +120,7 @@ pub(crate) fn tools() -> Value {
         list.push(pr::wait_tool());
         list.push(wrap_up::tool());
         list.push(who_else::tool());
+        list.push(look::tool());
         list.extend(goal::tools());
         list.extend(watch::tools());
         list.extend(race::tools());
@@ -420,6 +423,9 @@ fn served_with(
                 }
                 if name == who_else::NAME {
                     return who_else::call(&daemon, &session, &args).await;
+                }
+                if name == look::NAME {
+                    return look::call(&daemon, &session).await;
                 }
                 if goal::TOOLS.contains(&name) {
                     return goal::call(&daemon, &session, name, &args).await;
