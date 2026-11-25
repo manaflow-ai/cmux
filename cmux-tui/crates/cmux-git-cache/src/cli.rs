@@ -1,7 +1,7 @@
 //! `cmux host git-cache serve|credential` (and the tests' entry).
 //!
 //! `serve [--listen ADDR] [--upstream URL] [--edge URL] [--tenant T] [--cache DIR] [--peer URL]...
-//!        [--include PATH --helper CMD]`: listens, then writes the include (when given) and
+//!        [--include PATH --helper CMD] [--stats PATH]`: listens, then writes the include (when given) and
 //! removes it on SIGTERM or SIGINT.
 
 use std::net::SocketAddr;
@@ -9,9 +9,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::gitconfig;
-use crate::server::{Config, State, router};
+use crate::server::{Config, State, app};
 
-pub const USAGE: &str = "usage: cmux host git-cache serve [--listen ADDR] [--upstream URL] [--edge URL] [--tenant T] [--cache DIR] [--peer URL]... [--include PATH --helper CMD] | credential get|store|erase";
+pub const USAGE: &str = "usage: cmux host git-cache serve [--listen ADDR] [--upstream URL] [--edge URL] [--tenant T] [--cache DIR] [--peer URL]... [--include PATH --helper CMD] [--stats PATH] | credential get|store|erase";
 
 pub struct Serve {
     pub cfg: Config,
@@ -41,12 +41,16 @@ pub fn parse_serve(args: &[String]) -> Result<Serve, String> {
                 );
             }
             "--include" => include = Some(PathBuf::from(value()?)),
+            "--stats" => cfg.stats_file = Some(PathBuf::from(value()?)),
             "--helper" => helper = Some(value()?),
             other => return Err(format!("unknown argument {other}")),
         }
     }
     if include.is_some() && helper.is_none() {
         return Err("--include needs --helper".to_owned());
+    }
+    if cfg.stats_file.is_none() {
+        cfg.stats_file = include.as_ref().and_then(|p| p.parent()).map(|d| d.join("stats.json"));
     }
     Ok(Serve { cfg, include, helper })
 }
@@ -75,7 +79,7 @@ pub async fn serve(opts: Serve) -> Result<(), String> {
             _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending().await } } => {}
         }
     };
-    let result = axum::serve(listener, router(state))
+    let result = axum::serve(listener, app(state))
         .with_graceful_shutdown(shutdown)
         .await
         .map_err(|e| e.to_string());

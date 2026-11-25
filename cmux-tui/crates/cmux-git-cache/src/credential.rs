@@ -3,6 +3,10 @@
 //! `https://github.com/OWNER/REPO.git` and asks the machine's own helpers for it with
 //! `git credential fill|approve|reject` (lane-gh-credential, `cmux github credential`, the
 //! person's). Nothing is printed for any other URL. Never prompts.
+//!
+//! It also carries the chat's `CMUX_GIT_CACHE` switch (`switch`): with the switch off it
+//! answers the off marker, and with no credential of the person's the anonymous marker, so the
+//! proxy's challenge always gets an answer. `store` and `erase` of a marker do nothing.
 
 use cmux_process::{Command, Stdio};
 use std::io::{Read, Write};
@@ -64,6 +68,9 @@ pub fn run(op: &str) -> u8 {
         return 0;
     }
     let Some(request) = map_request(&input) else { return 0 };
+    if crate::switch::names_marker(&input) {
+        return 0;
+    }
     let mut cmd = Command::new("git");
     cmd.args(["credential", verb])
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -72,16 +79,29 @@ pub fn run(op: &str) -> u8 {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    let Ok(mut child) = cmd.spawn() else { return 0 };
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(request.as_bytes());
-    }
-    let Ok(out) = child.wait_with_output() else { return 0 };
-    if verb == "fill" && out.status.success() {
-        let _ = std::io::stdout()
-            .write_all(filter_answer(&String::from_utf8_lossy(&out.stdout)).as_bytes());
+    let filled = cmd.spawn().ok().and_then(|mut child| {
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(request.as_bytes());
+        }
+        let out = child.wait_with_output().ok()?;
+        out.status.success().then(|| filter_answer(&String::from_utf8_lossy(&out.stdout)))
+    });
+    if verb == "fill" {
+        let answer = if crate::switch::env_off() {
+            crate::switch::off_answer(filled.as_deref())
+        } else {
+            fill_answer(filled)
+        };
+        let _ = std::io::stdout().write_all(answer.as_bytes());
     }
     0
+}
+
+/// What `get` prints: the person's credential, or the anonymous marker when they have none.
+pub fn fill_answer(filled: Option<String>) -> String {
+    filled
+        .filter(|a| a.lines().any(|l| l.starts_with("password=")))
+        .unwrap_or_else(|| crate::switch::marker(crate::switch::ANON_USER))
 }
 
 #[cfg(test)]
@@ -97,6 +117,16 @@ mod tests {
         );
         assert!(map_request("protocol=http\nhost=127.0.0.1:1\npath=gitlab.com/o/r\n").is_none());
         assert!(map_request("protocol=http\nhost=127.0.0.1:1\n").is_none());
+    }
+
+    #[test]
+    fn no_credential_answers_anonymous() {
+        assert_eq!(fill_answer(None), "username=cmux-git-cache-anon\npassword=x\n");
+        assert_eq!(fill_answer(Some(String::new())), "username=cmux-git-cache-anon\npassword=x\n");
+        assert_eq!(
+            fill_answer(Some("username=u\npassword=p\n".into())),
+            "username=u\npassword=p\n"
+        );
     }
 
     #[test]

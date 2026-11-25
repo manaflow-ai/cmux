@@ -18,6 +18,15 @@
 //! upstream refuses gets upstream's refusal and nothing from the cache. Tokens are never
 //! logged or written: only a short hash prefix appears in logs.
 //!
+//! Visible and switchable: a pack served from the mirror ends with a sideband line, so the
+//! clone itself prints `remote: cmux git cache: served by cache, N s`. Any error of the
+//! cache's (upstream unreachable for the ref advertisement, a mirror short of objects, a
+//! local upload-pack failure) falls back to github.com and counts in `fallbacks`, which goes
+//! with the other counters to `stats.json` beside the include (and `/_cmux/git-cache/health`)
+//! for NOW. `CMUX_GIT_CACHE=0` in one chat's environment sends that chat's git to github.com
+//! (`switch`: the proxy's credential helper, which git runs in the chat's environment, says
+//! so); `/etc/cmux/git-cache.disabled` turns the whole machine's proxy off.
+//!
 //! Pushes never come here (`pushInsteadOf` keeps them on their own URL), and a proxy that is
 //! not listening has no include file, so git goes straight to GitHub as before.
 
@@ -29,5 +38,6 @@ pub mod mirror;
 pub mod pkt;
 pub mod route;
 pub mod server;
+pub mod switch;
 
-pub use server::{Config, State, router};
+pub use server::{Config, State, app, router};

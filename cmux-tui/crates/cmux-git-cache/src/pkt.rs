@@ -74,6 +74,36 @@ pub fn classify(body: &[u8], v2: bool) -> Request {
     if wants.is_empty() { Request::Upstream } else { Request::Fetch { wants } }
 }
 
+/// Whether upload-pack's answer to this fetch ends in a sideband-multiplexed pack: the request
+/// says `done` (so a pack follows, not a negotiation round), and it is protocol v2 (whose
+/// `packfile` section is always multiplexed) or a v0 request whose first want asks for
+/// `side-band` or `side-band-64k`. Only then may a progress line go before the final flush.
+pub fn sideband_pack(body: &[u8], v2: bool) -> bool {
+    let Some(pkts) = parse(body) else { return false };
+    let lines: Vec<&[u8]> = pkts
+        .iter()
+        .filter_map(|p| match p {
+            Pkt::Data(d) => Some(line(d)),
+            _ => None,
+        })
+        .collect();
+    let done = lines.contains(&b"done".as_slice());
+    let sideband = v2
+        || lines.iter().find(|l| l.starts_with(b"want ")).is_some_and(|l| {
+            l.split(|b| *b == b' ' || *b == 0)
+                .any(|cap| cap == b"side-band" || cap == b"side-band-64k")
+        });
+    done && sideband
+}
+
+/// A sideband progress pkt-line (band 2): git prints it as `remote: <msg>`.
+pub fn progress(msg: &str) -> Vec<u8> {
+    let mut out = format!("{:04x}", msg.len() + 5).into_bytes();
+    out.push(2);
+    out.extend_from_slice(msg.as_bytes());
+    out
+}
+
 /// One pkt-line (tests and the fake upstream).
 pub fn encode(data: &str) -> String {
     format!("{:04x}{data}", data.len() + 4)
@@ -136,5 +166,26 @@ mod tests {
         assert_eq!(classify(b"", false), Request::Upstream);
         let bad = format!("{}0000", encode("want nothex\n"));
         assert_eq!(classify(bad.as_bytes(), false), Request::Upstream);
+    }
+
+    #[test]
+    fn sideband_pack_only_when_a_multiplexed_pack_follows() {
+        let v2 = format!(
+            "{}0001{}{}0000",
+            encode("command=fetch\n"),
+            encode(&format!("want {A}\n")),
+            encode("done\n")
+        );
+        assert!(sideband_pack(v2.as_bytes(), true));
+        let v2_negotiating =
+            format!("{}0001{}0000", encode("command=fetch\n"), encode(&format!("want {A}\n")));
+        assert!(!sideband_pack(v2_negotiating.as_bytes(), true));
+        let v0 = |caps: &str| {
+            format!("{}0000{}", encode(&format!("want {A} {caps}\n")), encode("done\n"))
+        };
+        assert!(sideband_pack(v0("multi_ack side-band-64k ofs-delta").as_bytes(), false));
+        assert!(sideband_pack(v0("side-band").as_bytes(), false));
+        assert!(!sideband_pack(v0("multi_ack ofs-delta").as_bytes(), false));
+        assert_eq!(progress("hi\n"), b"0008\x02hi\n");
     }
 }

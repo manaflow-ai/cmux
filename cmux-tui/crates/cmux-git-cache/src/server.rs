@@ -22,6 +22,7 @@ use crate::auth::{AuthCache, caller_key, short};
 use crate::mirror::{Mirrors, git};
 use crate::pkt;
 use crate::route::{self, Action, Route};
+use crate::switch::Caller;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -39,6 +40,9 @@ pub struct Config {
     pub peers: Vec<String>,
     pub auth_ttl: Duration,
     pub max_body: usize,
+    /// Where the counters go as JSON after each serve, fallback and bypass (NOW reads it):
+    /// `stats.json` beside the include by default.
+    pub stats_file: Option<PathBuf>,
 }
 
 impl Config {
@@ -52,6 +56,7 @@ impl Config {
             peers: Vec::new(),
             auth_ttl: Duration::from_secs(60),
             max_body: 64 << 20,
+            stats_file: None,
         }
     }
 }
@@ -63,6 +68,53 @@ pub struct Stats {
     pub local_serves: AtomicU64,
     pub local_bytes: AtomicU64,
     pub refused: AtomicU64,
+    /// Requests the cache meant to answer that github.com answered instead (an error, a mirror
+    /// short of objects, an upstream it could not reach for the ref advertisement).
+    pub fallbacks: AtomicU64,
+    /// Ref advertisements sent to github.com because the caller has `CMUX_GIT_CACHE=0`.
+    pub bypassed: AtomicU64,
+}
+
+impl Stats {
+    pub fn json(&self) -> serde_json::Value {
+        let n = |c: &AtomicU64| c.load(Ordering::Relaxed);
+        serde_json::json!({
+            "upstreamRequests": n(&self.upstream_requests),
+            "upstreamBytes": n(&self.upstream_bytes),
+            "localServes": n(&self.local_serves),
+            "localBytes": n(&self.local_bytes),
+            "refused": n(&self.refused),
+            "fallbacks": n(&self.fallbacks),
+            "bypassed": n(&self.bypassed),
+        })
+    }
+}
+
+/// Writes the counters to its file (atomically: a temp file renamed over it), for NOW.
+struct StatsWriter(Option<PathBuf>);
+
+impl StatsWriter {
+    fn write(&self, stats: &Stats) {
+        let Some(path) = &self.0 else { return };
+        let mut body = stats.json();
+        body["at"] = serde_json::json!(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_secs())
+        );
+        let tmp = path.with_extension("json.tmp");
+        if std::fs::write(&tmp, body.to_string())
+            .and_then(|()| std::fs::rename(&tmp, path))
+            .is_err()
+        {
+            let _ = std::fs::remove_file(&tmp);
+        }
+    }
+}
+
+/// The router as a service (what `axum::serve` takes).
+pub fn app(state: Arc<State>) -> axum::routing::IntoMakeService<Router> {
+    router(state).into_make_service()
 }
 
 pub struct State {
@@ -124,6 +176,17 @@ impl State {
         self.via_edge.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(route.key());
     }
 
+    fn write_stats(&self) {
+        StatsWriter(self.cfg.stats_file.clone()).write(&self.stats);
+    }
+
+    /// github.com answers a request the cache meant to: counted, logged, recorded for NOW.
+    fn fallback(&self, key: &str, reason: &str) {
+        self.stats.fallbacks.fetch_add(1, Ordering::Relaxed);
+        eprintln!("git-cache: {key} served by github.com (fallback: {reason})");
+        self.write_stats();
+    }
+
     fn peer_urls(&self, route: &Route) -> Vec<String> {
         self.cfg
             .peers
@@ -141,18 +204,11 @@ pub fn router(state: Arc<State>) -> Router {
 }
 
 async fn health(axum::extract::State(state): axum::extract::State<Arc<State>>) -> Response {
-    let s = &state.stats;
-    let body = serde_json::json!({
-        "ok": true,
-        "upstream": state.cfg.upstream,
-        "tenant": state.cfg.tenant,
-        "peers": state.cfg.peers,
-        "upstreamRequests": s.upstream_requests.load(Ordering::Relaxed),
-        "upstreamBytes": s.upstream_bytes.load(Ordering::Relaxed),
-        "localServes": s.local_serves.load(Ordering::Relaxed),
-        "localBytes": s.local_bytes.load(Ordering::Relaxed),
-        "refused": s.refused.load(Ordering::Relaxed),
-    });
+    let mut body = state.stats.json();
+    body["ok"] = true.into();
+    body["upstream"] = state.cfg.upstream.clone().into();
+    body["tenant"] = state.cfg.tenant.clone().into();
+    body["peers"] = state.cfg.peers.clone().into();
     ([(header::CONTENT_TYPE, "application/json")], body.to_string()).into_response()
 }
 
@@ -182,8 +238,45 @@ async fn handle(
     };
     let query = req.uri().query().map(str::to_owned);
     let method = req.method().clone();
-    let headers = req.headers().clone();
+    let mut headers = req.headers().clone();
+    let caller = crate::switch::classify(authorization(&headers).as_deref());
+    if caller == Caller::Off {
+        // The person's own credential, carried inside the off marker, goes to github.com.
+        let upstream = authorization(&headers).and_then(|a| crate::switch::off_upstream(&a));
+        headers.remove(header::AUTHORIZATION);
+        if let Some(value) = upstream.and_then(|v| HeaderValue::from_str(&v).ok()) {
+            headers.insert(header::AUTHORIZATION, value);
+        }
+    } else if caller == Caller::Anon {
+        headers.remove(header::AUTHORIZATION);
+    }
+    let off = caller == Caller::Off;
     match (&method, route.action) {
+        (_, action) if off => {
+            if action == Action::InfoRefs {
+                state.stats.bypassed.fetch_add(1, Ordering::Relaxed);
+                eprintln!(
+                    "git-cache: {} served by github.com ({}=0 or {}=0 in the caller)",
+                    route.key(),
+                    crate::switch::ENV,
+                    crate::switch::TRANSPORT_ENV
+                );
+                state.write_stats();
+            }
+            let tail = route_tail(action);
+            let body = reqwest::Body::wrap_stream(req.into_body().into_data_stream());
+            let base = state.cfg.upstream.clone();
+            passthrough(&state, &base, &route, method, tail, query.as_deref(), &headers, body)
+                .await
+                .0
+        }
+        // Ask git's credential helper first: it carries the chat's switch (`switch`).
+        (&Method::GET, Action::InfoRefs) if caller == Caller::Unasked => (
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, "Basic realm=\"cmux git cache\"")],
+            "",
+        )
+            .into_response(),
         (&Method::GET, Action::InfoRefs) => {
             info_refs(&state, &route, query.as_deref(), &headers).await
         }
@@ -200,6 +293,21 @@ async fn handle(
                 .0
         }
     }
+}
+
+/// Sends git to `url` (github.com's own ref advertisement). git follows the first request's
+/// redirect and fetches the rest of this clone from there.
+fn redirect(url: &str, query: Option<&str>) -> Response {
+    let location = match query {
+        Some(q) => format!("{url}?{q}"),
+        None => url.to_owned(),
+    };
+    Response::builder()
+        .status(StatusCode::FOUND)
+        .header(header::LOCATION, location)
+        .header(header::CACHE_CONTROL, "no-cache")
+        .body(Body::empty())
+        .unwrap_or_else(|_| StatusCode::BAD_GATEWAY.into_response())
 }
 
 fn route_tail(action: Action) -> &'static str {
@@ -310,14 +418,20 @@ async fn info_refs(
     if upload {
         record(state, route, &caller, status);
     }
+    if status == StatusCode::BAD_GATEWAY {
+        // Any error of ours (upstream unreachable from here, the edge down): git asks
+        // github.com itself, which also carries the rest of this clone.
+        state.fallback(&route.key(), "ref advertisement failed here");
+        return redirect(&route.url(&state.cfg.upstream, "/info/refs"), query);
+    }
     resp
 }
 
 /// Upstream's answer to this caller's ref advertisement, without its body.
-async fn confirm(state: &State, route: &Route, headers: &HeaderMap, caller: &str) -> bool {
+async fn confirm(state: &State, route: &Route, headers: &HeaderMap, caller: &str) -> StatusCode {
     let tenant = &state.cfg.tenant;
     if state.auth.allowed(caller, tenant, &route.key()) {
-        return true;
+        return StatusCode::OK;
     }
     let ask = |base: String| async move {
         let url = route.url(&base, "/info/refs?service=git-upload-pack");
@@ -343,7 +457,7 @@ async fn confirm(state: &State, route: &Route, headers: &HeaderMap, caller: &str
         status = StatusCode::OK;
     }
     record(state, route, caller, status);
-    status == StatusCode::OK
+    status
 }
 
 fn decode(headers: &HeaderMap, raw: &[u8], max: usize) -> Option<Vec<u8>> {
@@ -394,9 +508,14 @@ async fn upload_pack(state: &State, route: &Route, headers: &HeaderMap, body: Bo
         return upstream(raw).await;
     };
     let key = route.key();
+    let started = std::time::Instant::now();
     // Tenant safety: nothing from the cache before upstream said yes to this caller.
-    if !confirm(state, route, headers, &caller).await {
+    let confirmed = confirm(state, route, headers, &caller).await;
+    if confirmed != StatusCode::OK {
         eprintln!("git-cache: {key} caller={} not confirmed: upstream answers", short(&caller));
+        if !matches!(confirmed.as_u16(), 401 | 403 | 404) {
+            state.fallback(&key, &format!("access check answered {confirmed}"));
+        }
         return upstream(raw).await;
     }
     let dir = state.mirrors.dir(&state.cfg.tenant, &key);
@@ -406,23 +525,14 @@ async fn upload_pack(state: &State, route: &Route, headers: &HeaderMap, body: Bo
         .ensure(&dir, &upstream_url, &state.peer_urls(route), auth.as_deref(), &wants)
         .await
     {
-        eprintln!(
-            "git-cache: {key} caller={} mirror short of wants: upstream answers",
-            short(&caller)
-        );
+        state.fallback(&key, &format!("mirror short of {} wants", wants.len()));
         return upstream(raw).await;
     }
-    match serve_local(state, &dir, v2, decoded).await {
-        Ok(resp) => {
-            eprintln!(
-                "git-cache: {key} caller={} wants={} served=local",
-                short(&caller),
-                wants.len()
-            );
-            resp
-        }
+    let served = Served { key: key.clone(), caller: short(&caller).to_owned(), started };
+    match serve_local(state, &dir, v2, decoded, served).await {
+        Ok(resp) => resp,
         Err(e) => {
-            eprintln!("git-cache: {key} local upload-pack: {e}: upstream answers");
+            state.fallback(&key, &format!("local upload-pack: {e}"));
             upstream(raw).await
         }
     }
@@ -438,12 +548,64 @@ async fn reap(mut child: cmux_process::Child) -> Result<std::process::ExitStatus
 /// `git upload-pack --stateless-rpc` on the mirror. An upload-pack that ends before its first
 /// byte is an error the caller turns into a pass-through, so a request the local git cannot
 /// answer still succeeds.
+/// Who a local serve is for, and when its request came in (for the "served by cache" line).
+struct Served {
+    key: String,
+    caller: String,
+    started: std::time::Instant,
+}
+
+/// `inner` with its last 4 bytes held back; at its end, `trailer` runs, and when those bytes
+/// are the final flush (`0000`) its line goes in before them.
+fn with_trailer<S, F>(
+    inner: S,
+    trailer: F,
+) -> impl futures_util::Stream<Item = std::io::Result<Bytes>>
+where
+    S: futures_util::Stream<Item = std::io::Result<Bytes>> + Unpin,
+    F: FnOnce() -> Option<Vec<u8>>,
+{
+    futures_util::stream::unfold(
+        (inner, Vec::<u8>::new(), Some(trailer)),
+        |(mut inner, mut held, mut trailer)| async move {
+            loop {
+                let t = trailer.take()?;
+                match inner.next().await {
+                    Some(Ok(chunk)) => {
+                        held.extend_from_slice(&chunk);
+                        trailer = Some(t);
+                        let keep = held.len().saturating_sub(4);
+                        if keep == 0 {
+                            continue;
+                        }
+                        let tail = held.split_off(keep);
+                        let out = std::mem::replace(&mut held, tail);
+                        return Some((Ok(Bytes::from(out)), (inner, held, trailer)));
+                    }
+                    Some(Err(e)) => return Some((Err(e), (inner, held, None))),
+                    None => {
+                        let line = t();
+                        let mut out = Vec::new();
+                        if held == b"0000" {
+                            out.extend(line.unwrap_or_default());
+                        }
+                        out.append(&mut held);
+                        return Some((Ok(Bytes::from(out)), (inner, held, None)));
+                    }
+                }
+            }
+        },
+    )
+}
+
 async fn serve_local(
     state: &State,
     dir: &std::path::Path,
     v2: bool,
     body: Vec<u8>,
+    served: Served,
 ) -> Result<Response, String> {
+    let sideband = pkt::sideband_pack(&body, v2);
     let mut cmd = git();
     cmd.args(["upload-pack", "--stateless-rpc", "--strict"]).arg(dir);
     if v2 {
@@ -495,6 +657,23 @@ async fn serve_local(
     let stream =
         futures_util::stream::once(async move { Ok::<_, std::io::Error>(Bytes::from(first)) })
             .chain(rest);
+    let (stats, stats_state) = (state.stats.clone(), StatsWriter(state.cfg.stats_file.clone()));
+    let stream = with_trailer(Box::pin(stream), move || {
+        let secs = served.started.elapsed().as_secs_f64();
+        eprintln!(
+            "git-cache: {} caller={} served by cache, {secs:.1} s ({} bytes local in total)",
+            served.key,
+            served.caller,
+            stats.local_bytes.load(Ordering::Relaxed)
+        );
+        stats_state.write(&stats);
+        sideband.then(|| {
+            pkt::progress(&format!(
+                "cmux git cache: served by cache, {secs:.1} s ({}=0 skips it)\n",
+                crate::switch::ENV
+            ))
+        })
+    });
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/x-git-upload-pack-result")

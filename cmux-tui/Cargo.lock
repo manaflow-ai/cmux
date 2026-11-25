@@ -2127,6 +2127,7 @@ name = "cmux-git-cache"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "base64",
  "bytes",
  "cmux-process",
  "cmux-scope",

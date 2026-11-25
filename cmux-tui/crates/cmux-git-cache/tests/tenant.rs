@@ -121,11 +121,21 @@ async fn listen(router: Router) -> SocketAddr {
     addr
 }
 
+/// The proxy as `cmux host git-cache serve` runs it: each request knows its connection's ends.
+async fn listen_proxy(state: Arc<cmux_git_cache::State>) -> SocketAddr {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, cmux_git_cache::app(state)).await.unwrap() });
+    addr
+}
+
 struct World {
     _tmp: tempfile::TempDir,
     tmp: PathBuf,
     fake: Arc<Fake>,
     proxy: SocketAddr,
+    upstream: SocketAddr,
+    state: Arc<cmux_git_cache::State>,
     head: String,
 }
 
@@ -148,26 +158,72 @@ async fn world() -> World {
     let mut cfg = cmux_git_cache::Config::new(root.join("cache"));
     cfg.upstream = format!("http://{upstream}");
     cfg.tenant = "team-a".to_owned();
+    cfg.stats_file = Some(root.join("stats.json"));
     let state = cmux_git_cache::State::new(cfg).unwrap();
-    let proxy = listen(cmux_git_cache::router(state)).await;
-    World { _tmp: tmp, tmp: root, fake, proxy, head }
+    let proxy = listen_proxy(state.clone()).await;
+    World { _tmp: tmp, tmp: root, fake, proxy, upstream, state, head }
 }
 
 async fn clone(w: &World, name: &str, auth: Option<&str>, protocol: &str) -> bool {
+    clone_with(w, name, auth, protocol, None).await.0
+}
+
+/// A non-quiet clone (`-q` would hide the progress lines); `switch` sets `CMUX_GIT_CACHE`.
+/// Returns success and git's stderr.
+async fn clone_with(
+    w: &World,
+    name: &str,
+    auth: Option<&str>,
+    protocol: &str,
+    switch: Option<(&str, &str)>,
+) -> (bool, String) {
     let url = format!("http://{}/github.com/o/r.git", w.proxy);
     let dest = w.tmp.join(name);
     let auth = auth.map(str::to_owned);
     let protocol = protocol.to_owned();
+    let switch = switch.map(|(k, v)| (k.to_owned(), v.to_owned()));
+    let (proxy, upstream) = (w.proxy, w.upstream);
     tokio::task::spawn_blocking(move || {
         let mut cmd = git_cmd();
-        cmd.args(["-c", &format!("protocol.version={protocol}")]);
-        if let Some(a) = auth {
-            cmd.args(["-c", &format!("http.extraHeader=Authorization: {a}")]);
+        cmd.env_remove("CMUX_GIT_CACHE").env_remove("CMUX_TRANSPORT_REWRITE");
+        if let Some((k, v)) = switch {
+            cmd.env(k, v);
         }
-        cmd.args(["clone", "-q", &url]).arg(&dest).stderr(Stdio::null()).status().unwrap().success()
+        cmd.args(["-c", &format!("protocol.version={protocol}")]);
+        // The proxy's helper as `cmux host git-cache credential` answers (`switch`): the off
+        // marker when the chat's switch is off, the caller's credential, else the anonymous
+        // marker. github.com's own helper (here upstream's) answers after a redirect.
+        let user = match auth.as_deref() {
+            Some(GOOD) => Some("good"),
+            Some(OTHER) => Some("bad"),
+            Some(other) => panic!("no user for {other}"),
+            None => None,
+        };
+        let off_password = user.map_or_else(|| "x".to_owned(), |u| format!("{u}:token"));
+        let creds = match user {
+            Some(u) => format!("echo username={u}; echo password=token"),
+            None => format!("echo username={}; echo password=x", cmux_git_cache::switch::ANON_USER),
+        };
+        let proxy_helper = format!(
+            "!f() {{ test \"$1\" = get || exit 0; if [ \"${{CMUX_GIT_CACHE:-}}\" = 0 ] || [ \"${{CMUX_TRANSPORT_REWRITE:-}}\" = 0 ]; then echo username={}; echo password={off_password}; else {creds}; fi; }}; f",
+            cmux_git_cache::switch::OFF_USER
+        );
+        cmd.args(["-c", &format!("credential.http://{proxy}.helper={proxy_helper}")]);
+        if let Some(u) = user {
+            cmd.args([
+                "-c",
+                &format!("credential.http://{upstream}.helper=!f() {{ echo username={u}; echo password=token; }}; f"),
+            ]);
+        }
+        let out = cmd.args(["clone", "--progress", &url]).arg(&dest).output().unwrap();
+        (out.status.success(), String::from_utf8_lossy(&out.stderr).into_owned())
     })
     .await
     .unwrap()
+}
+
+fn stat(w: &World, name: &str) -> u64 {
+    w.state.stats.json()[name].as_u64().unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -272,4 +328,81 @@ fn include_rewrites_fetch_and_keeps_push() {
     // Other hosts are untouched.
     git_ok(&repo, &["remote", "add", "gl", "https://gitlab.com/o/r.git"]);
     assert_eq!(git_ok(&repo, &["remote", "get-url", "gl"]), "https://gitlab.com/o/r.git");
+}
+
+/// Each local serve says so in the clone's own output and in the stats file NOW reads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn warm_clone_says_served_by_cache() {
+    for protocol in ["2", "0"] {
+        let w = world().await;
+        assert!(clone(&w, "a", Some(GOOD), protocol).await);
+        let (ok, err) = clone_with(&w, "b", Some(GOOD), protocol, None).await;
+        assert!(ok, "{err}");
+        assert!(
+            err.lines().any(|l| l.starts_with("remote: cmux git cache: served by cache, ")),
+            "v{protocol} stderr: {err}"
+        );
+        assert_eq!(git_ok(&w.tmp.join("b"), &["rev-parse", "HEAD"]), w.head);
+        let file: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(w.tmp.join("stats.json")).unwrap()).unwrap();
+        assert!(file["localServes"].as_u64().unwrap() >= 1, "{file}");
+        assert_eq!(file["fallbacks"], 0, "{file}");
+    }
+}
+
+/// `CMUX_GIT_CACHE=0` in the caller's environment (its credential helper says so): the proxy
+/// sends that git to upstream for the whole clone, serving nothing itself.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn env_switch_sends_the_clone_to_github() {
+    let w = world().await;
+    assert!(clone(&w, "a", Some(GOOD), "2").await, "warm the mirror");
+    let (serves, posts) = (stat(&w, "localServes"), w.fake.upload_posts.load(Ordering::SeqCst));
+    for (protocol, switch) in [("2", "CMUX_GIT_CACHE"), ("0", "CMUX_TRANSPORT_REWRITE")] {
+        let (ok, err) =
+            clone_with(&w, &format!("off{protocol}"), Some(GOOD), protocol, Some((switch, "0")))
+                .await;
+        assert!(ok, "{err}");
+        assert!(!err.contains("served by cache"), "{err}");
+        assert_eq!(git_ok(&w.tmp.join(format!("off{protocol}")), &["rev-parse", "HEAD"]), w.head);
+    }
+    assert_eq!(stat(&w, "localServes"), serves, "the cache served a caller that turned it off");
+    assert_eq!(w.fake.upload_posts.load(Ordering::SeqCst), posts + 2, "upstream served both");
+    assert_eq!(stat(&w, "bypassed"), 2);
+}
+
+/// Upstream unreachable from the proxy: the ref advertisement redirects git to upstream
+/// itself (git tries github.com on its own), and the fallback is counted.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unreachable_upstream_falls_back_to_github() {
+    let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let dead_addr = dead.local_addr().unwrap();
+    drop(dead);
+    let tmp = tempfile::tempdir().unwrap();
+    let mut cfg = cmux_git_cache::Config::new(tmp.path().join("cache"));
+    cfg.upstream = format!("http://{dead_addr}");
+    cfg.stats_file = Some(tmp.path().join("stats.json"));
+    let state = cmux_git_cache::State::new(cfg).unwrap();
+    let proxy = listen_proxy(state.clone()).await;
+    let client =
+        reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().unwrap();
+    let url = format!("http://{proxy}/github.com/o/r.git/info/refs?service=git-upload-pack");
+    // No credential yet: the proxy asks git's helper first, which carries the chat's switch.
+    let resp = client.get(&url).send().await.unwrap();
+    assert_eq!(resp.status().as_u16(), 401);
+    assert_eq!(resp.headers()["www-authenticate"], "Basic realm=\"cmux git cache\"");
+    let resp = client
+        .get(&url)
+        .header("authorization", cmux_git_cache::switch::ANON_AUTHORIZATION)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 302);
+    assert_eq!(
+        resp.headers()["location"].to_str().unwrap(),
+        format!("http://{dead_addr}/o/r.git/info/refs?service=git-upload-pack")
+    );
+    assert_eq!(state.stats.json()["fallbacks"], 1);
+    let file: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(tmp.path().join("stats.json")).unwrap()).unwrap();
+    assert_eq!(file["fallbacks"], 1);
 }
