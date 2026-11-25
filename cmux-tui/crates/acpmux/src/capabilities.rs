@@ -354,6 +354,8 @@ pub const CAPABILITIES: &[Capability] = &[
     // Who has a shared chat open and who types in it (`hub/presence.rs`); the attach reply's
     // `presence` comes with it.
     Capability { id: CHAT_PRESENCE, wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
+    // Who is on this machine now, people across devices and agents in a turn (`hub/here.rs`).
+    Capability { id: "here-v1", wire: &[method::MUX_HERE_BEAT, method::MUX_HERE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
     // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).

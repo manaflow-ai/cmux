@@ -473,6 +473,7 @@ mod permission_groups;
 mod permissions;
 pub(crate) use permissions::drop_display_lines;
 pub mod cmux_tools_answer;
+pub mod here;
 mod hunk_summary;
 pub mod person;
 pub mod presence;
@@ -1489,6 +1490,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// Who has each chat open and who types in it, in memory only (`presence.rs`).
     pub presence: presence::Presence,
+    /// Who is on this machine now, across devices, in memory only (`here.rs`).
+    pub here: here::HereTable,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// The moves one watch ends, or whose begin still makes them (`transfer_watch.rs`).
@@ -1910,6 +1913,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             presence: Default::default(),
+            here: Default::default(),
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
