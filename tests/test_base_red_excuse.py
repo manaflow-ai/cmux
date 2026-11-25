@@ -8528,6 +8528,62 @@ class WsCheckPerTest(unittest.TestCase):
                 with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
                     self.judge()
 
+    def own_base_red(self, *, on_main=("test_a.py", "test_b.py")):
+        """HEAD red on DEPLOY's units test_a.py and test_b.py, its own run's base pass having reran both in main's
+        tree and seen ON_MAIN fail there too; no main commit has a ws-check verdict at all."""
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                "test_b.py": self.ws_deploy("test_b")}},
+                        description=f"base red (main {self.gh.TIP[:8]} fails it too) 1 of 77 steps failed: "
+                                    f"{self.DEPLOY}"[:139])
+        self.gh.statuses.pop(self.gh.TIP, None)  # main carries no ws-check verdict to compare with
+        log = self.gh.logs[11].split("\n")
+        at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
+        stamp = "2026-11-05T04:39:27.9954759Z "
+        log[at:at] = [stamp + f"ws-check base pass whole: main {self.gh.TIP}, {len(on_main)} of 2 failed units fail on "
+                              "main too (9.0 s)",
+                      *(stamp + f"ws-check step FAILED on main too: {self.DEPLOY} [{unit}] (exit 1, ran 4, skipped 0, "
+                                "gh calls 0)" for unit in on_main)]
+        self.gh.logs[11] = "\n".join(log)
+
+    def test_the_runs_own_base_pass_is_the_base_verdict_when_no_main_commit_has_one(self):
+        # 2026-11-25: lw#8742 at 712f2b07 was refused "not excused: 'ws-check': none of the 30 newest main commits has
+        # a ws-check verdict to compare with" though its own run (45550954791) had rerun every red unit (test_reach.py
+        # shards the PR does not touch) in main's tree and seen them fail there. Since leo-workspace#9404 that rerun is
+        # the base evidence: most main commits get no ws-check verdict at all, so every tools/ PR waited on one.
+        self.own_base_red()
+        audit = self.judge()
+        self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red in main {self.gh.TIP[:12]}'s tree "
+                      "too, in this run's own base pass", audit[0])
+        self.assertIn("2 unit(s) whose suites this PR does not touch: "
+                      f"{self.DEPLOY} [test_a.py], {self.DEPLOY} [test_b.py]", audit[0])
+        self.assertIn(f"excused 'ws-check' test '{self.DEPLOY} :: [test_a.py] test_a (__main__.FastForward.test_a)': "
+                      f"red in main {self.gh.TIP[:12]}'s tree too, in this run's own base pass", audit)
+        # Its verdict for the lane-gh broker is base_red too.
+        self.assertEqual(excuse.ws_check_red(self.gh.REPO, "main", HEAD, self.gh)["kind"], "base_red")
+
+    def test_a_red_the_runs_own_base_pass_does_not_cover_is_still_refused(self):
+        refused = f"'ws-check': none of the {excuse.WS_CHECK_COMMITS} newest main commits has a ws-check verdict"
+        # A unit that passed in main's tree is the head's own red, so nothing is excused by the rerun.
+        self.own_base_red(on_main=("test_a.py",))
+        with self.assertRaisesRegex(excuse.Refused, re.escape(refused)):
+            self.judge()
+        # Nor is a suite this PR changes: its red there may be the PR's own (ws_check_suite_touched).
+        self.own_base_red()
+        self.gh.pr_files = ["tools/test_b.py"]
+        with self.assertRaisesRegex(excuse.Refused, re.escape(refused)):
+            self.judge()
+        # Nor a red naming no suite (a lint, a whole step): its new offender would be the head's own.
+        self.gh.verdict(HEAD, 1, {self.RELAY: self.relay_lint()})
+        self.gh.statuses.pop(self.gh.TIP, None)
+        log = self.gh.logs[11].split("\n")
+        at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
+        stamp = "2026-11-05T04:39:27.9954759Z "
+        log[at:at] = [stamp + f"ws-check base pass whole: main {self.gh.TIP}, 1 of 1 failed units fail on main too (9.0 s)",
+                      stamp + f"ws-check step FAILED on main too: {self.RELAY} (exit 1, ran 4, skipped 0, gh calls 0)"]
+        self.gh.logs[11] = "\n".join(log)
+        with self.assertRaisesRegex(excuse.Refused, re.escape(refused)):
+            self.judge()
+
     def test_a_global_git_config_write_is_read_from_its_own_line(self):
         # ws_check_run.py adds "global git config changed by a step" to `failed` with no step line, only "ws-check: a
         # step changed the global git config PATH (...)": lw#9703 at 85551f8b (run 45341796653) was refused "has no
