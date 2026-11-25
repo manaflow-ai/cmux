@@ -481,7 +481,10 @@ import Testing
         // states. The helper stays hidden instead of reappearing because its hook has not cleared yet.
         var staleHook = Self.sections([Self.coordinator, Self.lane])
         staleHook[0].nodes[1] = .workspace({ var ws = SidebarWorkspace(id: Self.lane, title: "lane"); ws.activity = .waiting; return ws }())
-        let idleLane = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator], states: [Self.lane: .idle], hidesStarted: true)
+        let idleLane = SidebarSessionTreeState(parents: [Self.lane: Self.coordinator],
+                                               pullRequests: [Self.lane: SidebarPullRequestBadge(count: 1, status: .attention)],
+                                               states: [Self.lane: .idle], hidesStarted: true)
+        #expect(idleLane.shape.pullRequests.isEmpty)
         #expect(Self.rows(staleHook, tree: idleLane.shape).map(\.id) == [Self.coordinator])
         // The row index lays the list out again when a hidden row starts or stops waiting, not on its other changes.
         let idle = SidebarWorkspace(id: Self.lane, title: "lane")

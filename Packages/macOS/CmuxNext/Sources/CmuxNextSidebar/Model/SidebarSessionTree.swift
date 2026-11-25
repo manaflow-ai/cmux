@@ -275,7 +275,7 @@ public nonisolated struct SidebarSessionTreeState: Hashable, Sendable {
     /// a second.
     public var shape: SidebarSessionTreeState {
         let waiting = hidesStarted ? states.filter { Self.needsPerson($0.value) && parents[$0.key] != nil } : [:]
-        return SidebarSessionTreeState(parents: parents, pullRequests: pullRequests, states: waiting, laneStates: states,
+        return SidebarSessionTreeState(parents: parents, pullRequests: [:], states: waiting, laneStates: states,
                                        collapsed: collapsed, opened: opened, foldsDeep: foldsDeep,
                                        hidesStarted: hidesStarted, keeps: keeps)
     }
