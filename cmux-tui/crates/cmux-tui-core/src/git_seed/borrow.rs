@@ -20,6 +20,11 @@
 //! (`origin` for the forge, `cmux-promisor-N` for a local repository) and the last one is
 //! `extensions.partialClone`. A local source whose `origin` is another repository is skipped.
 //!
+//! A seed borrows only when asked: its own `mirror` param, or [`MIRRORS_ENV`]
+//! (`CMUX_SEED_MIRRORS=ROOT`, the daemon's environment) naming a folder that holds
+//! `ROOT/OWNER/NAME.git` for the seed's repository (`wt`'s `~/Projects/.wt-mirrors` on a fleet
+//! machine). Neither set, the default, seeds exactly as before.
+//!
 //! Every failure leaves the folder as it was and the seed carries or clones as before; the
 //! job's status notes `borrowed` or `borrow_failed`.
 
