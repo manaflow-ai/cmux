@@ -42,6 +42,9 @@ const RELEASED: &str = "released";
 pub const FILE: &str = "fleet-hold.json";
 /// Listed in `initialize`'s `_meta.acpmux.features`.
 pub(crate) const FEATURE: &str = "sessionHold";
+const DEFAULT_EXPIRY_MS: u64 = 2 * 60 * 60 * 1000;
+const OWNER_TAG: &str = "acpmux.sessionHoldOwner";
+const REASON_TAG: &str = "acpmux.sessionHoldReason";
 
 /// The fleet hold as its file holds it.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -56,6 +59,12 @@ pub struct FleetHold {
     pub reason: Option<String>,
     #[serde(default)]
     pub at: u64,
+    /// The host or session that set this hold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    /// Unix milliseconds at which the hold is lifted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
 }
 
 impl FleetHold {
@@ -78,6 +87,7 @@ pub(crate) struct FleetHoldCache {
     /// Tests: the file to read instead of the one in the acpmux home.
     pub(crate) path: Option<PathBuf>,
     read: Option<(Option<std::time::SystemTime>, FleetHold)>,
+    started_at: u64,
 }
 
 impl FleetHoldCache {
@@ -92,15 +102,34 @@ impl FleetHoldCache {
         }
         let path = self.path();
         let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
-        if let Some((at, hold)) = &self.read
-            && *at == mtime
+        if let Some((at, hold)) = self.read.clone()
+            && at == mtime
         {
+            if hold.on && hold.expires_at.is_some_and(|expires_at| expires_at <= now_ms()) {
+                let mut expired = hold.clone();
+                tracing::info!(owner = ?expired.owner, expires_at = expired.expires_at, "fleet hold expired; lifting it");
+                expired.on = false;
+                let _ = self.put(&expired);
+                return expired;
+            }
             return hold.clone();
         }
-        let hold = mtime
+        let mut hold = mtime
             .and_then(|_| std::fs::read(&path).ok())
             .and_then(|b| serde_json::from_slice::<FleetHold>(&b).ok())
             .unwrap_or_default();
+        if self.started_at == 0 {
+            self.started_at = now_ms();
+        }
+        if hold.on && hold.expires_at.is_none() {
+            hold.expires_at = Some(self.started_at.saturating_add(DEFAULT_EXPIRY_MS));
+            tracing::info!(owner = ?hold.owner, expires_at = hold.expires_at, "fleet hold missing expiry; repaired from daemon startup");
+            let _ = self.put(&hold);
+        } else if hold.on && hold.expires_at.is_some_and(|at| at <= now_ms()) {
+            tracing::info!(owner = ?hold.owner, expires_at = hold.expires_at, "fleet hold expired; lifting it");
+            hold.on = false;
+            let _ = self.put(&hold);
+        }
         self.read = Some((mtime, hold.clone()));
         hold
     }
@@ -139,7 +168,57 @@ fn tag_of(session: &Session) -> Option<String> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .tags
         .get(TAG)
+        .filter(|t| t.expires_at.is_none_or(|at| at > now_ms()))
         .map(|t| t.value.clone())
+}
+
+fn tag_value(session: &Session, key: &str) -> Option<String> {
+    session
+        .meta
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .tags
+        .get(key)
+        .filter(|t| t.expires_at.is_none_or(|at| at > now_ms()))
+        .map(|t| t.value.clone())
+}
+
+fn expire_session_hold(hub: &Hub, session: &Session) {
+    let expired = session
+        .meta
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .tags
+        .get(TAG)
+        .and_then(|tag| tag.expires_at)
+        .filter(|expires_at| *expires_at <= now_ms());
+    let Some(expires_at) = expired else { return };
+    if hub
+        .set_tags_answered(
+            session,
+            None,
+            &[TAG.to_owned(), OWNER_TAG.to_owned(), REASON_TAG.to_owned()],
+            None,
+        )
+        .is_ok()
+    {
+        tracing::info!(session = %session.id, expires_at, "session hold expired; lifting it");
+    }
+}
+
+fn hold_text(session: &Session, fleet: &FleetHold) -> String {
+    let owner = tag_value(session, OWNER_TAG)
+        .or_else(|| fleet.owner.clone())
+        .unwrap_or_else(|| "unknown".to_owned());
+    let until = tag_of(session)
+        .and_then(|_| session.meta.lock().ok()?.tags.get(TAG)?.expires_at)
+        .or(fleet.expires_at)
+        .map(|at| at.to_string())
+        .unwrap_or_else(|| "unknown".to_owned());
+    let reason = tag_value(session, REASON_TAG)
+        .or_else(|| fleet.reason.clone())
+        .unwrap_or_else(|| "no reason".to_owned());
+    format!("held by {owner} until {until}: {reason}")
 }
 
 /// Whether a prompt only points at messages already in the inbox: acpmux's inbox notice or digest.
@@ -155,6 +234,7 @@ impl Hub {
     /// Whether `session` is held: its own hold, or the fleet hold when the allowlist does not
     /// name it and it was not released under it.
     pub(crate) fn session_held(&self, session: &Session) -> bool {
+        expire_session_hold(self, session);
         match tag_of(session).as_deref() {
             Some(HELD) => true,
             Some(RELEASED) => false,
@@ -171,16 +251,40 @@ impl Hub {
         self: &Arc<Self>,
         session: &Arc<Session>,
         held: bool,
+        params: &Value,
     ) -> Result<Value, RpcError> {
         let was = self.session_held(session);
         let mut set = serde_json::Map::new();
         set.insert(TAG.to_owned(), json!(if held { HELD } else { RELEASED }));
-        self.set_tags_answered(session, Some(&set), &[], None)?;
+        let ttl = if held {
+            let expires_at = params
+                .get("expiresAt")
+                .and_then(Value::as_u64)
+                .unwrap_or_else(|| now_ms().saturating_add(DEFAULT_EXPIRY_MS));
+            Some(expires_at.saturating_sub(now_ms()).div_ceil(1000))
+        } else {
+            None
+        };
+        if held {
+            set.insert(
+                OWNER_TAG.to_owned(),
+                json!(params.get("owner").and_then(Value::as_str).unwrap_or(&session.meta().name)),
+            );
+            if let Some(reason) = params.get("reason").and_then(Value::as_str) {
+                set.insert(REASON_TAG.to_owned(), json!(reason));
+            }
+        }
+        let clear =
+            if held { Vec::new() } else { vec![OWNER_TAG.to_owned(), REASON_TAG.to_owned()] };
+        self.set_tags_answered(session, Some(&set), &clear, ttl)?;
         if was != held {
             self.append(session, "mux", "session_hold", json!({"held": held}));
         }
         let mut answer = json!({"sessionId": session.id, "held": held, "was": was});
         if held {
+            answer["owner"] = json!(tag_value(session, OWNER_TAG));
+            answer["reason"] = json!(tag_value(session, REASON_TAG));
+            answer["expiresAt"] = json!(session.meta().tags.get(TAG).and_then(|t| t.expires_at));
             // Best effort: a busy chat is held all the same.
             let paused = self.pause(session).await.ok();
             answer.set(
@@ -202,7 +306,15 @@ impl Hub {
         }
         let mut set = serde_json::Map::new();
         set.insert(TAG.to_owned(), json!(RELEASED));
-        if self.set_tags_answered(session, Some(&set), &[], None).is_ok() {
+        if self
+            .set_tags_answered(
+                session,
+                Some(&set),
+                &[OWNER_TAG.to_owned(), REASON_TAG.to_owned()],
+                None,
+            )
+            .is_ok()
+        {
             tracing::info!(session = %session.id, "the person asked for a held chat: released");
             self.append(session, "mux", "session_hold", json!({"held": false, "by": "person"}));
             self.resume_restored(std::slice::from_ref(session));
@@ -222,7 +334,22 @@ impl Hub {
             .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
             .unwrap_or_default();
         let reason = params.get("reason").and_then(Value::as_str).map(str::to_owned);
-        let hold = FleetHold { on, allow, reason, at: now_ms() };
+        let at = now_ms();
+        let owner = params
+            .get("owner")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+            .or_else(|| Some(crate::pairing::machine_name()));
+        let expires_at = params.get("expiresAt").and_then(Value::as_u64);
+        let hold = FleetHold {
+            on,
+            allow,
+            reason,
+            at,
+            owner,
+            expires_at: on
+                .then_some(expires_at.unwrap_or_else(|| at.saturating_add(DEFAULT_EXPIRY_MS))),
+        };
         cache
             .put(&hold)
             .map_err(|e| RpcError::internal(format!("could not write the fleet hold: {e}")))?;
@@ -292,6 +419,8 @@ impl Hub {
             .unwrap_or_else(|| client.to_owned());
         let mut receipt = self.hold_in_inbox(session, prompt_id, client, blocks, opts, from)?;
         receipt.set("sessionHeld", json!(true));
+        let fleet = self.fleet_hold();
+        receipt["heldBy"] = json!(hold_text(session, &fleet));
         Ok(Some(receipt))
     }
 }
