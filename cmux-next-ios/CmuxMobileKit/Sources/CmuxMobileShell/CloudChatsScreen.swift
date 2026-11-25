@@ -47,8 +47,11 @@ struct CloudChatsScreen: View {
                     }
                 }
                 if loading {
-                    CmuxSpinner(label: Text("Loading Cloud chats…"))
-                        .placeholderBound("cloud.chats.loading", .milliseconds(2000))
+                    // A list that answers within the coming-up bound draws no spinner (Leo, 2026-11-14).
+                    CloudChatsComingUp {
+                        CmuxSpinner(label: Text("Loading Cloud chats…"))
+                            .placeholderBound("cloud.chats.loading", .milliseconds(2000))
+                    }
                 } else if needsMac {
                     CloudChatsConnectMac { openDevices() }
                 } else if let error {
@@ -153,36 +156,40 @@ struct CloudChatsConnectMac: View {
     }
 }
 
+/// A Cloud list's or machine's wait, drawn only once it has lasted ``QuietStatusGate/threshold``
+/// (the shared 10 s `connectionQuietMs` of schemas/notice-timing): a connect that answers inside it
+/// goes straight from nothing to the list (Leo, 2026-11-14: "i also want all our connectivity stuff
+/// to shut up and load faster/percievably load faster"). A failure, which has Retry, never waits:
+/// it is its own view. One gate per wait, ended with the view. Only with Settings → Transport →
+/// Quiet Cloud Connections on (off by default); off draws the wait at once, as before.
+struct CloudChatsComingUp<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    @State private var gate = QuietStatusGate()
+    @AppStorage(CmuxMobilePreferences.Key.quietCloudConnect) private var quiet = CmuxMobilePreferences.defaultQuietCloudConnect
+
+    var body: some View {
+        Group {
+            if !quiet || gate.isShown { content() } else { Color.clear.frame(height: 1).accessibilityHidden(true) }
+        }
+        .onAppear { gate.update(down: true) }
+        .onDisappear { gate.update(down: false) }
+    }
+}
+
 /// How long the phone waits for a Cloud machine's chats before it says why it
 /// stopped: the paired link's 20 s (`cloudLink`) plus the chat channel's first
 /// request (`AcpmuxHub.bind`, 20 s).
 let cloudConnectBudget: Duration = .seconds(40)
 
-/// The wait for a Cloud machine's chats: what it waits on (the machine, through
-/// which Mac) and how long it can take, counted up once past 5 s (SPEC 6, "Working · 12s").
+/// The wait for a Cloud machine's chats draws nothing: no spinner, no "Connecting to <machine>
+/// through <Mac>…" and no count of seconds. The phone keeps connecting and the chats fill in
+/// when the machine answers (Leo, 2026-11-24: "all the connecting... indicators ... nah let's
+/// not do that. let's just keep optimistically connecting and reinforcing the connection").
+/// Past `cloudConnectBudget` the screen says why it stopped, with Retry (`CloudChatsConnectFailed`).
 struct CloudChatsConnecting: View {
-    let machine: String
-    let mac: String
-    let since: Date
-
     var body: some View {
-        VStack(spacing: 6) {
-            CmuxSpinner(label: Text("Connecting to \(machine) through \(mac)…"))
-                .placeholderBound("cloud.chat.connecting", .milliseconds(0))
-            // The text is "Up to 40 s" for the first 5 s: no redraw until it counts.
-            TimelineView(ElapsedTextSchedule(since: since, quietSeconds: 5)) { context in
-                let elapsed = Int(context.date.timeIntervalSince(since))
-                Text(elapsed < 5 ? "Up to \(cloudConnectBudget.components.seconds) s"
-                                 : "\(elapsed) s · up to \(cloudConnectBudget.components.seconds) s")
-                    .font(CmuxMobileTheme.standard.type.meta)
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
-            }
-        }
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, 20)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("cloudChats.connecting")
+        Color.clear.frame(width: 0, height: 0)
+            .accessibilityHidden(true)
     }
 }
 
@@ -260,7 +267,6 @@ private struct CloudMachineChatsScreen: View {
     @State private var selectedSession: String?
     @State private var error: String?
     @State private var refresh = 0
-    @State private var connectingSince = Date.now
     /// The relay was not ready within `cloudConnectBudget`.
     @State private var timedOut = false
     @State private var openedPreferred = false
@@ -323,7 +329,7 @@ private struct CloudMachineChatsScreen: View {
             } else if let cause = failure {
                 CloudChatsConnectFailed(cause: cause) { refresh += 1 }
             } else {
-                CloudChatsConnecting(machine: machine.name, mac: macName, since: connectingSince)
+                CloudChatsConnecting()
             }
         }
         .navigationTitle(machine.name)
@@ -352,7 +358,6 @@ private struct CloudMachineChatsScreen: View {
         }
         .task(id: refresh) {
             timedOut = false
-            connectingSince = .now
             try? await Task.sleep(for: cloudConnectBudget)
             guard !Task.isCancelled, relay?.hub.isReady != true else { return }
             timedOut = true
