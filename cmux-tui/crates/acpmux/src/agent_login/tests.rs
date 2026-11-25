@@ -1116,6 +1116,37 @@ async fn github_sign_in_end_to_end_against_a_stub_gh() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// After a GitHub sign-in, git on the machine signs in through gh: `gh auth setup-git` for
+/// github.com, run without the daemon's token; a gh that fails it is a typed failure.
+#[cfg(unix)]
+#[tokio::test]
+async fn github_setup_git_runs_gh_for_github_com_only() {
+    let root = dir("gh-setup-git");
+    let seen = root.join("seen");
+    let program = stub(
+        &root,
+        "gh",
+        &format!(
+            "[ \"$*\" = 'auth setup-git --hostname github.com' ] || exit 9\n\
+             env > {seen}\n",
+            seen = seen.display()
+        ),
+    );
+    let mut cli = Cli { program: program.display().to_string(), ..Cli::default() };
+    cli.env.insert("HOME".into(), root.display().to_string());
+    cli.env.insert("GH_TOKEN".into(), "daemon-token-must-not-reach-gh".into());
+    github::setup_git(&cli).await.expect("set up");
+    let env = std::fs::read_to_string(&seen).unwrap();
+    assert!(!env.contains("GH_TOKEN"), "gh saw the daemon's token");
+    assert!(env.lines().any(|l| l == "GH_PROMPT_DISABLED=1"), "{env}");
+    let failing = stub(&root, "gh-fails", "exit 1\n");
+    let bad = Cli { program: failing.display().to_string(), ..cli.clone() };
+    assert_eq!(github::setup_git(&bad).await.unwrap_err().reason, reason::FAILED);
+    let missing = Cli { program: root.join("no-gh").display().to_string(), ..cli };
+    assert_eq!(github::setup_git(&missing).await.unwrap_err().reason, reason::FAILED);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// A sign-out runs the CLI's own logout in the account's home only: the default store's
 /// sign-in stays.
 #[cfg(unix)]
