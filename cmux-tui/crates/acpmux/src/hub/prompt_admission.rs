@@ -136,7 +136,7 @@ impl Admission {
     }
 
     /// When an unanswered prompt is queued instead.
-    pub(super) fn answer_due(&self) -> Instant {
+    pub(crate) fn answer_due(&self) -> Instant {
         self.came + ANSWER_BOUND
     }
 
