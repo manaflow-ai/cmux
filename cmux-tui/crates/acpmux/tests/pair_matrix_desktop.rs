@@ -811,7 +811,9 @@ async fn measure(
         w.mark(&m).await;
         marks.push(m);
     }
+    tracing::info!(target: "pm", "pm: change started; ends in {:?}", end.saturating_duration_since(Instant::now()));
     tokio::time::sleep_until(end).await;
+    tracing::info!(target: "pm", "pm: change ended");
     let fresh = format!("{tag}-fresh");
     let from = ca.len();
     w.mark(&fresh).await;
@@ -820,6 +822,7 @@ async fn measure(
         format!("no fresh content within {} s of the change's end", CONTENT_BOUND.as_secs())
     })?;
     n.resume_ms = Some(ms(at - end));
+    tracing::info!(target: "pm", "pm: fresh content arrived, resume {} ms", ms(at - end));
     if condition != "long" {
         n.delta_bytes = Some(s.bytes() as f64);
     }
@@ -856,6 +859,12 @@ const ROW_CONDITIONS: &[&str] = &["loss", "latency", "handoff", "sleep", "failov
 #[ignore = "bench: run with --ignored --nocapture (pm/DESIGN.md)"]
 async fn pair_matrix_desktop_row() {
     let _ = HERMETIC;
+    if let Ok(f) = std::env::var("PAIRMATRIX_LOG") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(f))
+            .with_writer(std::io::stderr)
+            .try_init();
+    }
     let runs = env_u64("PAIRMATRIX_N", 5);
     let seed_base = env_u64("PAIRMATRIX_SEED_BASE", 0);
     let conditions = env_list("PAIRMATRIX_CONDITIONS", ROW_CONDITIONS);
