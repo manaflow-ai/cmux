@@ -75,6 +75,11 @@ pub(super) fn route(hub: &Hub, target: &str) -> Option<Route> {
     if peer.connected.load(std::sync::atomic::Ordering::SeqCst) {
         return None;
     }
+    // A peer named as this machine is this daemon: ssh to it is a login to ourselves, which
+    // (gcp lane VM, 2026-11-24) failed its publickey on every retry of 416 deliveries.
+    if peer.name == crate::pairing::machine_name() {
+        return None;
+    }
     let destination = crate::peer::ssh_target(&peer.url).ok()?.destination;
     plain_key(&key).then(|| Route { host: peer.name.clone(), destination, key })
 }
@@ -207,7 +212,23 @@ pub(super) fn sender(delivery: &Delivery, name_of: impl Fn(&str) -> String) -> S
 /// One ssh carry of `delivery`, when it has a route ([`route`]) and a message ssh carries
 /// ([`message`]); None otherwise (the outbox goes on as before).
 pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> {
+    carry_by(hub, delivery, run).await
+}
+
+/// [`carry`], with `login` as the ssh login itself ([`run`]; a test's stand-in counts them).
+async fn carry_by(
+    hub: &Arc<Hub>,
+    delivery: &Delivery,
+    login: fn(Vec<String>, Vec<u8>) -> Carry,
+) -> Option<Carry> {
     let route = route(hub, &delivery.target)?;
+    // One host whose ssh login refuses is tried once per cool-down for all its deliveries, not
+    // once per delivery per retry (each a process spawn, a daemon.log line and outbox writes).
+    let cooldown =
+        || hub.ssh_carry_cooldown.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cooldown().cooling(&route.host, std::time::Instant::now()) {
+        return None;
+    }
     let from = sender(delivery, |id| hub.session_name(id));
     let machine = crate::pairing::machine_name();
     let message = message(&delivery.request, &from, &machine)?;
@@ -215,7 +236,7 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
         .ok()?;
     let started = std::time::Instant::now();
     let text = message.text.into_bytes();
-    let outcome = tokio::task::spawn_blocking(move || run(argv, text))
+    let outcome = tokio::task::spawn_blocking(move || login(argv, text))
         .await
         .unwrap_or_else(|e| Carry::NotTaken(format!("the ssh carry did not run: {e}")));
     let (label, why) = match &outcome {
@@ -231,6 +252,11 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
         ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         "ssh carry: {why}"
     );
+    cooldown().record(
+        &route.host,
+        matches!(outcome, Carry::NotTaken(_)),
+        std::time::Instant::now(),
+    );
     Some(match outcome {
         Carry::Taken(mut answer) => {
             if let Some(fields) = answer.as_object_mut() {
@@ -240,6 +266,34 @@ pub(super) async fn carry(hub: &Arc<Hub>, delivery: &Delivery) -> Option<Carry> 
         }
         other => other,
     })
+}
+
+/// The first wait after a host's carry was not taken; each further refusal doubles it up to
+/// [`COOLDOWN_MAX`]. A carry that reached the host (taken or maybe) clears it.
+const COOLDOWN_FIRST: Duration = Duration::from_secs(60);
+const COOLDOWN_MAX: Duration = Duration::from_secs(15 * 60);
+
+/// Per host: until when no carry goes to it, and the wait last used. Each hub holds its own
+/// (`Hub::ssh_carry_cooldown`).
+#[derive(Default)]
+pub(crate) struct Cooldown(std::collections::HashMap<String, (std::time::Instant, Duration)>);
+
+impl Cooldown {
+    fn cooling(&self, host: &str, now: std::time::Instant) -> bool {
+        self.0.get(host).is_some_and(|(until, _)| now < *until)
+    }
+
+    fn record(&mut self, host: &str, refused: bool, now: std::time::Instant) {
+        if !refused {
+            self.0.remove(host);
+            return;
+        }
+        let wait = self
+            .0
+            .get(host)
+            .map_or(COOLDOWN_FIRST, |(_, last)| last.saturating_mul(2).min(COOLDOWN_MAX));
+        self.0.insert(host.to_owned(), (now.checked_add(wait).unwrap_or(now), wait));
+    }
 }
 
 /// The ssh login itself, bounded by [`CARRY_DEADLINE`], and what it did.
@@ -324,7 +378,76 @@ fn not_connected(stderr: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// Duress harness: 416 queued deliveries to one host whose ssh login refuses, each retried
+    /// every 2 s for an hour (the herd a link flap woke). Carries that spawn ssh: one per
+    /// cool-down step, not one per delivery per retry.
+    #[test]
+    fn a_refusing_host_gets_one_carry_per_cool_down_not_one_per_delivery() {
+        let start = std::time::Instant::now();
+        let mut cool = super::Cooldown::default();
+        let mut spawned = 0u32;
+        for tick in 0..1800u64 {
+            let now = start + std::time::Duration::from_secs(tick * 2);
+            for _ in 0..416 {
+                if !cool.cooling("h", now) {
+                    spawned += 1;
+                    cool.record("h", true, now);
+                }
+            }
+        }
+        eprintln!("ssh carries in 1 h for 416 deliveries: {spawned} (was {})", 1800 * 416);
+        // At 0, 60, 180, 420, 900, 1800 and 2700 s (waits 60, 120, 240, 480, then 900): 7.
+        assert_eq!(spawned, 7);
+        // Another host is not held back by this one; a carry that reached a host clears it.
+        assert!(!cool.cooling("other", start));
+        let late = start + std::time::Duration::from_secs(3600);
+        cool.record("h", false, late);
+        assert!(!cool.cooling("h", late));
+    }
+
     use super::*;
+
+    /// Review of #53719, F2: `carry` itself skips the ssh login while the host cools down. 416
+    /// deliveries to one refusing ssh host: one login, the rest not carried; another hub's own
+    /// cool-down is its own, so it logs in once too.
+    #[tokio::test]
+    async fn carry_skips_a_cooling_host_and_each_hub_has_its_own_cool_down() {
+        static LOGINS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        fn refused(_: Vec<String>, _: Vec<u8>) -> Carry {
+            LOGINS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Carry::NotTaken("ssh: connect to host box port 22: Connection refused".into())
+        }
+        let hub = || {
+            let mut config = crate::config::Config::default();
+            config.store.mode = crate::config::StoreMode::Memory;
+            let store =
+                crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+            let hub = Hub::new(config, store);
+            let row = json!({"sessionId": "s-lane", "name": "lane", "status": "idle",
+                             "turnCount": 1, "updatedAt": 5});
+            hub.seed_down_peer_at("carry-cool-box", "ssh://carry-cool-box", vec![row]);
+            hub
+        };
+        let mut d = delivery(json!({"promptId": "p"}));
+        d.target = "carry-cool-box/lane".into();
+        let (one, two) = (hub(), hub());
+        assert!(route(&one, &d.target).is_some(), "no ssh route to the down peer");
+        let mut carried = 0;
+        for _ in 0..416 {
+            carried += u32::from(carry_by(&one, &d, refused).await.is_some());
+        }
+        assert_eq!((carried, LOGINS.load(std::sync::atomic::Ordering::SeqCst)), (1, 1));
+        assert!(carry_by(&two, &d, refused).await.is_some(), "another hub's cool-down held it");
+        assert_eq!(LOGINS.load(std::sync::atomic::Ordering::SeqCst), 2);
+        // A carry that reached the host clears its cool-down for the next one.
+        one.ssh_carry_cooldown.lock().unwrap().record(
+            "carry-cool-box",
+            false,
+            std::time::Instant::now(),
+        );
+        assert!(carry_by(&one, &d, refused).await.is_some());
+        assert_eq!(LOGINS.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
 
     #[test]
     fn the_message_goes_on_stdin_and_every_word_is_quoted() {

@@ -32,6 +32,8 @@ import {
 } from "./permissions/prompt";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
 import { focusRoute } from "../../ui/focusRoute";
+import { cx } from "../../ui/cx";
+import { Surface } from "../../ui/surface/Surface";
 
 type PermissionOption = AcpmuxPermission["options"][number];
 
@@ -49,22 +51,27 @@ type PermissionCardFrameProps = {
 export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, PermissionCardFrameProps>(
   function PermissionCardFrame({ title, ariaLabel, leading, children, className, focusable }, ref) {
     const titleId = React.useId();
+    // The ask role's shell (ui/surface): the content material, the card corner, the hairline, the
+    // type and the padding are the role's, the same as every other card in the transcript. The
+    // `acpmux-permission-card` class is a hook for keys.css and the tests, with no shell rules.
     return (
-      <fieldset
+      <Surface
+        as="fieldset"
+        // oxlint-disable-next-line jsx-a11y/aria-role -- the Surface role, not an ARIA role
+        role="ask"
         ref={ref}
-        className={`acpmux-permission-card${className ? ` ${className}` : ""}`}
+        className={cx("acpmux-permission-card", className)}
         aria-labelledby={title ? titleId : undefined}
         aria-label={!title ? ariaLabel : undefined}
         tabIndex={focusable ? -1 : undefined}
       >
         {title && (
-          <div className="acpmux-permission-card-heading">
-            {leading && <span className="acpmux-permission-card-leading">{leading}</span>}
-            <strong id={titleId}>{title}</strong>
-          </div>
+          <Surface.Header icon={leading} titleId={titleId} className="acpmux-permission-card-heading">
+            {title}
+          </Surface.Header>
         )}
         {children}
-      </fieldset>
+      </Surface>
     );
   },
 );
@@ -99,6 +106,7 @@ export function PermissionActionButton({
   label,
   shortcut,
   cardKey,
+  kind,
   hold,
   holdDescription,
   ...props
@@ -106,6 +114,9 @@ export function PermissionActionButton({
   label: string;
   shortcut?: string;
   cardKey?: CardKey;
+  /// On the ask card's actions row: the one primary, or a quiet secondary (ui/Button's solid and subtle).
+  /// Without it (the Home inbox's own answer buttons) the button keeps its caller's class styling.
+  kind?: "primary" | "secondary";
   /// Hold to approve (permissions/HoldButton.tsx): the button answers after a held press, with a
   /// ring at its leading edge; its click answers nothing. Absent, the button is today's.
   hold?: HoldControl;
@@ -113,20 +124,12 @@ export function PermissionActionButton({
   holdDescription?: string;
 }) {
   const { className, ...buttonProps } = props;
-  return (
-    <button
-      {...buttonProps}
-      {...(hold ? holdButtonProps(hold, holdDescription ?? "") : {})}
-      title={hold ? holdTitle(buttonProps.title, holdDescription ?? "") : buttonProps.title}
-      className={className}
-      type="button"
-      aria-label={label}
-      aria-keyshortcuts={[cardKey?.aria, shortcut].filter(Boolean).join(" ") || undefined}
-    >
+  const content = (
+    <>
       {hold && <HoldRing hold={hold} />}
       <span className="acpmux-permission-action-label">{label}</span>
       {cardKey ? (
-        <span className="acpmux-permission-keys">
+        <Surface.Keys className="acpmux-permission-keys">
           {cardKey.letter && <Keycap>{cardKey.letter.toUpperCase()}</Keycap>}
           {cardKey.letter && (cardKey.keys.length > 0 || shortcut) && (
             <span className="acpmux-permission-keys-or" aria-hidden="true">
@@ -136,10 +139,28 @@ export function PermissionActionButton({
           {cardKey.keys.length > 0
             ? cardKey.keys.map((key) => <Keycap key={key}>{key}</Keycap>)
             : shortcut && <KeyHint shortcut={shortcut} />}
-        </span>
+        </Surface.Keys>
       ) : (
         shortcut && <KeyHint shortcut={shortcut} />
       )}
+    </>
+  );
+  const common = {
+    ...(hold ? holdButtonProps(hold, holdDescription ?? "") : {}),
+    title: hold ? holdTitle(buttonProps.title, holdDescription ?? "") : buttonProps.title,
+    "aria-label": label,
+    "aria-keyshortcuts": [cardKey?.aria, shortcut].filter(Boolean).join(" ") || undefined,
+  };
+  if (kind)
+    return (
+      <Surface.Action {...buttonProps} {...common} kind={kind} className={className}>
+        {content}
+      </Surface.Action>
+    );
+  return (
+    // The Home inbox's answer buttons keep their own row styling until that surface migrates.
+    <button {...buttonProps} {...common} className={className} type="button">
+      {content}
     </button>
   );
 }
@@ -185,6 +206,8 @@ export function PlanBuildSplit({
       {children}
       <Menu>
         <MenuButton
+          variant="solid"
+          size="md"
           className="acpmux-permission-primary acpmux-plan-build-chevron"
           label={t("permission.plan.buildMenu")}
           title={t("permission.plan.buildMenu")}
@@ -652,13 +675,13 @@ export function PermissionCard({
   const commandBlock = command && (
     <div ref={commandRef} className="acpmux-permission-command" data-expanded={showFull || undefined}>
       {showFull ? (
-        <pre id={fullId} className="acpmux-permission-command-full">
+        <Surface.Inset as="pre" mono scroll id={fullId} className="acpmux-permission-command-full">
           <code>{command}</code>
-        </pre>
+        </Surface.Inset>
       ) : (
-        <div className="acpmux-permission-command-preview">
+        <Surface.Inset mono className="acpmux-permission-command-preview">
           <code ref={previewRef}>{preview.line}</code>
-        </div>
+        </Surface.Inset>
       )}
       {(preview.more || clamped || showFull) && (
         <button
@@ -685,58 +708,61 @@ export function PermissionCard({
   );
 
   return (
-    <PermissionCardFrame
-      ref={group}
-      className="acpmux-permission-ask ui-glass ui-glass-content"
-      ariaLabel={title}
-      focusable
-    >
-      <div className="acpmux-permission-request" data-harness={harness || undefined}>
-        <div className="acpmux-permission-request-head">
-          <span className="acpmux-permission-request-icon" aria-hidden="true">
-            {toolIcon(permission.kind ?? (command ? "execute" : undefined))}
-          </span>
-          <div className="acpmux-permission-request-label" data-external-access={external ? "" : undefined}>
-            {title}
-          </div>
-        </div>
-        {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
-        {detail && <p className="acpmux-permission-request-description">{detail}</p>}
-        {fullAccessMode && permission.pending && (
-          <p className="acpmux-permission-one-time">
-            {t(allowOnce ? "permission.fullAccessStillAsks" : "permission.fullAccessStillAsksNoOnce", {
-              mode: fullAccessMode,
-            })}
-          </p>
-        )}
-        {plan &&
-          (editingPlan && planEdit ? (
-            // The plan as text the person edits; Approve plan sends it to the agent.
-            <textarea
-              className="acpmux-permission-plan acpmux-permission-plan-editor"
-              aria-label={t("permission.plan.editLabel")}
-              value={planEdit.text}
-              rows={Math.min(16, Math.max(4, planEdit.text.split("\n").length + 1))}
-              spellCheck
-              autoFocus
-              onChange={(event) => setPlanEdit({ permissionId: permission.permissionId, text: event.target.value })}
-              onKeyDown={(event) => {
-                // Typing stays in the field; Escape closes the edit without sending it.
-                event.stopPropagation();
-                if (event.key === "Escape") {
-                  event.preventDefault();
-                  setPlanEdit(undefined);
-                }
-              }}
-            />
-          ) : (
-            // Fences as plain code, scrolled inside the card when long.
-            <div className="acpmux-permission-plan selectable" role="document" aria-label={t("permission.plan.label")}>
-              <Markdown plainCode>{plan}</Markdown>
-            </div>
-          ))}
-        {editedText !== undefined && <p className="acpmux-permission-plan-edited">{t("permission.plan.edited")}</p>}
-      </div>
+    <PermissionCardFrame ref={group} className="acpmux-permission-ask" ariaLabel={title} focusable>
+      <Surface.Header
+        icon={toolIcon(permission.kind ?? (command ? "execute" : undefined))}
+        className="acpmux-permission-request-head"
+        titleClassName="acpmux-permission-request-label"
+        titleProps={{ "data-external-access": external ? "" : undefined }}
+      >
+        {title}
+      </Surface.Header>
+      {/* Rendered only with content: an empty slot would still add the role's gap. */}
+      {(waiting > 0 || detail || (fullAccessMode && permission.pending) || plan || editedText !== undefined) && (
+        <Surface.Body className="acpmux-permission-request" data-harness={harness || undefined}>
+          {waiting > 0 && <p className="acpmux-permission-waiting">{t("permission.moreWaiting", { n: waiting })}</p>}
+          {detail && <p className="acpmux-permission-request-description">{detail}</p>}
+          {fullAccessMode && permission.pending && (
+            <p className="acpmux-permission-one-time">
+              {t(allowOnce ? "permission.fullAccessStillAsks" : "permission.fullAccessStillAsksNoOnce", {
+                mode: fullAccessMode,
+              })}
+            </p>
+          )}
+          {plan &&
+            (editingPlan && planEdit ? (
+              // The plan as text the person edits; Approve plan sends it to the agent.
+              <textarea
+                className="acpmux-permission-plan acpmux-permission-plan-editor"
+                aria-label={t("permission.plan.editLabel")}
+                value={planEdit.text}
+                rows={Math.min(16, Math.max(4, planEdit.text.split("\n").length + 1))}
+                spellCheck
+                autoFocus
+                onChange={(event) => setPlanEdit({ permissionId: permission.permissionId, text: event.target.value })}
+                onKeyDown={(event) => {
+                  // Typing stays in the field; Escape closes the edit without sending it.
+                  event.stopPropagation();
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setPlanEdit(undefined);
+                  }
+                }}
+              />
+            ) : (
+              // Fences as plain code, scrolled inside the card when long.
+              <Surface.Inset
+                scroll
+                className="acpmux-permission-plan selectable"
+                role="document"
+                aria-label={t("permission.plan.label")}
+              >
+                <Markdown plainCode>{plan}</Markdown>
+              </Surface.Inset>
+            ))}
+          {editedText !== undefined && <p className="acpmux-permission-plan-edited">{t("permission.plan.edited")}</p>}
+        </Surface.Body>
+      )}
       {(commandBlock || scopeBlock) && (
         <div className="acpmux-permission-details">
           {commandBlock}
@@ -750,7 +776,7 @@ export function PermissionCard({
         </p>
       )}
       {!writing && (
-        <div className="acpmux-permission-buttons">
+        <Surface.Actions className="acpmux-permission-buttons">
           {others.map((option, index) => {
             const label = otherLabels[index]!;
             const full = [option.name.trim(), option.description?.trim()].filter(Boolean).join(" · ");
@@ -762,6 +788,7 @@ export function PermissionCard({
                   label={label}
                   title={more}
                   aria-describedby={more ? fullId : undefined}
+                  kind="secondary"
                   className="acpmux-permission-other"
                   onClick={() => answer(option)}
                 />
@@ -791,6 +818,7 @@ export function PermissionCard({
               shortcut={shortcuts ? denyShortcut : undefined}
               cardKey={shortcuts ? DENY_KEY : undefined}
               aria-describedby={scopeText ? targetId : undefined}
+              kind="secondary"
               className="acpmux-permission-deny"
               data-feedback-opener=""
               onClick={() => deny()}
@@ -798,6 +826,7 @@ export function PermissionCard({
           )}
           {external && (
             <PermissionActionButton
+              kind="secondary"
               label={t("permission.external.openSettings")}
               onClick={() => {
                 const id = permission.permissionId;
@@ -816,7 +845,7 @@ export function PermissionCard({
           )}
           {(allowAlways || allowOnce) && (
             // The allows keep the trailing edge together, so a narrow card wraps them as a pair.
-            <span className="acpmux-permission-allows">
+            <Surface.Trailing className="acpmux-permission-allows">
               {allowAlways && allowAlwaysLabel && (
                 <PermissionActionButton
                   label={allowAlwaysLabel}
@@ -826,6 +855,7 @@ export function PermissionCard({
                   aria-describedby={
                     [scopeText && targetId, alwaysScope && ruleId].filter(Boolean).join(" ") || undefined
                   }
+                  kind="secondary"
                   disabled={alwaysAtSource}
                   onClick={() => answer(allowAlways)}
                   hold={holdAlways}
@@ -849,6 +879,7 @@ export function PermissionCard({
                       aria-describedby={scopeText ? targetId : undefined}
                       shortcut={shortcuts ? allowOnceShortcut : undefined}
                       cardKey={shortcuts ? ALLOW_KEY : undefined}
+                      kind="primary"
                       className="acpmux-permission-primary"
                       onClick={() => answer(allowOnce)}
                       hold={holdOnce}
@@ -870,9 +901,9 @@ export function PermissionCard({
                     approve
                   );
                 })()}
-            </span>
+            </Surface.Trailing>
           )}
-        </div>
+        </Surface.Actions>
       )}
       {settingsError?.id === permission.permissionId && (
         <p className="acpmux-permission-refused" role="alert">
@@ -906,19 +937,24 @@ export function PermissionCard({
             }}
           />
           <div className="acpmux-permission-feedback-actions">
-            <button type="button" aria-keyshortcuts="Escape" disabled={writing.sending} onClick={closeFeedback}>
+            <Surface.Action aria-keyshortcuts="Escape" disabled={writing.sending} onClick={closeFeedback}>
               {t("permission.feedbackCancel")}
-              <Keycap>{DENY_KEY.keys[0]}</Keycap>
-            </button>
-            <button
+              <Surface.Keys>
+                <Keycap>{DENY_KEY.keys[0]}</Keycap>
+              </Surface.Keys>
+            </Surface.Action>
+            <Surface.Action
+              kind="primary"
               type="submit"
               className="acpmux-permission-feedback-send"
               aria-keyshortcuts="Enter"
               disabled={writing.sending}
             >
               {t("permission.feedbackSend")}
-              <Keycap>↩</Keycap>
-            </button>
+              <Surface.Keys>
+                <Keycap>↩</Keycap>
+              </Surface.Keys>
+            </Surface.Action>
           </div>
         </form>
       )}
