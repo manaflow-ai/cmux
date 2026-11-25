@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.updates.oneClickInstall.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "One click on Update downloads, installs and restarts. Terminals and agents keep running."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Klick auf „Aktualisieren“ lädt, installiert und startet neu. Terminals und Agenten laufen weiter."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un clic sur Mettre à jour télécharge, installe et redémarre. Les terminaux et les agents continuent de tourner."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "نقرة واحدة على «تحديث» تنزّله وتثبّته وتعيد التشغيل. تستمر الطرفيات والوكلاء في العمل."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un clic en Actualizar descarga, instala y reinicia. Los terminales y los agentes siguen ejecutándose."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "按一下「更新」即會下載、安裝並重新啟動。終端機和代理程式會繼續執行。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "点按一次“更新”即会下载、安装并重新启动。终端和代理会继续运行。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "업데이트를 한 번 클릭하면 다운로드, 설치, 재시작합니다. 터미널과 에이전트는 계속 실행됩니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「アップデート」を1回クリックするとダウンロード、インストール、再起動します。ターミナルとエージェントは動作し続けます。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jedan klik na Ažuriraj preuzima, instalira i ponovo pokreće. Terminali i agenti nastavljaju raditi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ét klik på Opdater henter, installerer og genstarter. Terminaler og agenter kører videre."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un clic su Aggiorna scarica, installa e riavvia. Terminali e agenti continuano a funzionare."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ចុចម្តងលើ ធ្វើបច្ចុប្បន្នភាព ដើម្បីទាញយក ដំឡើង និងចាប់ផ្តើមឡើងវិញ។ ស្ថានីយ និងភ្នាក់ងារនៅតែដំណើរការ។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ett klikk på Oppdater laster ned, installerer og starter på nytt. Terminaler og agenter fortsetter å kjøre."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Jedno kliknięcie Aktualizuj pobiera, instaluje i uruchamia ponownie. Terminale i agenci działają dalej."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um clique em Atualizar baixa, instala e reinicia. Terminais e agentes continuam rodando."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Один клик по «Обновить» загружает, устанавливает и перезапускает. Терминалы и агенты продолжают работать."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "คลิกอัปเดตครั้งเดียวจะดาวน์โหลด ติดตั้ง และรีสตาร์ท เทอร์มินัลและเอเจนต์ยังคงทำงาน"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Güncelle'ye tek tık indirir, yükler ve yeniden başlatır. Terminaller ve ajanlar çalışmaya devam eder."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Один клік на «Оновити» завантажує, встановлює й перезапускає. Термінали й агенти працюють далі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Một lần nhấp vào Cập nhật sẽ tải xuống, cài đặt và khởi động lại. Terminal và tác tử vẫn tiếp tục chạy."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
