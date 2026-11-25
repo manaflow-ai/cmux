@@ -41,8 +41,10 @@ const STATE_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/state$/
 const SHARES_PATH = /^\/v1\/cloud\/machines\/(vm_[a-z0-9]{20})\/shares(?:\/[^/]+)?$/
 /** Cloud apps (cmux-platform CloudApps.ts, RFD 0003): the app records, versions, promote, rollback, grants and process-env that a machine's `cmux app publish` asks for through its agent (cmux-host apps.call), plain segments only. */
 const APPS_PATH = /^\/v1\/cloud\/apps(?:\/[A-Za-z0-9_-]+)*$/
+/** A send's trace (cmux-platform StartTraceRoute.ts START_TRACES_PATH): the team's list, one trace, its Chrome trace JSON and the client and VM spans posted to it. */
+const START_TRACES_PATH = /^\/v1\/cloud\/start-traces(?:\/[A-Za-z0-9_-]{8,80}(?:\/spans|\/chrome)?)?$/
 /** The machine routes only cmux-platform serves (cmux-api has no handler for them). */
-const PLATFORM_ONLY_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH, CARRIER_PATH, INFERENCE_GATEWAY_PATH, SSH_ENDPOINT_PATH, ACCESS_PATH, DESKTOP_PATH, STATE_PATH, SHARES_PATH, APPS_PATH]
+const PLATFORM_ONLY_PATHS: ReadonlyArray<RegExp> = [/^\/v1\/cloud\/bind$/, /^\/v1\/cloud\/keyset$/, ACPMUX_PATH, CLIENT_SESSION_PATH, GUEST_PATH, TRAJECTORY_PATH, CARRIER_PATH, INFERENCE_GATEWAY_PATH, SSH_ENDPOINT_PATH, ACCESS_PATH, DESKTOP_PATH, STATE_PATH, SHARES_PATH, APPS_PATH, START_TRACES_PATH]
 
 /** NEXT Cloud's machine routes outside the op path (bind, keyset, keyed acpmux start, client session and access, guest exec and files, trajectories, the carrier ticket, the team's inference gateway, the SSH endpoint, desktop, the state socket and shares), the platform's Native network target read (cmux-platform NativeNetwork.ts), the platform's remote off switch for the Mac's login copy (cmux-platform LoginCopySwitch.ts) and its client config (the app's origins and the backend's create capabilities, cmux-platform Http.ts), which have no op and no route here. Unbound, the client config answers 404 here as before and the app keeps its built-in table. */
 const CLOUD_PATHS: ReadonlyArray<RegExp> = [...PLATFORM_ONLY_PATHS, /^\/v1\/host\/network\/target$/, /^\/v1\/cloud\/harness-login-copy$/, /^\/v1\/client-config$/]
