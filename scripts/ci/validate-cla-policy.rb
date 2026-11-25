@@ -585,7 +585,7 @@ WORKFLOW_JOB_NAMES = %w[
 ].freeze
 ALLOWED_ACTIONS = [
   CLA_ACTION,
-  "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"
+  "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
 ].freeze
 
 class BoundedYamlTreeBuilder < Psych::TreeBuilder
@@ -2152,7 +2152,7 @@ end
       "steps" => [
         {
           "name" => "Checkout immutable guard revision",
-          "uses" => "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803",
+          "uses" => "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd",
           "with" => Marshal.load(Marshal.dump(GUARD_CHECKOUT_WITH))
         },
         { "name" => "Verify trusted checkout", "env" => GUARD_VERIFY_ENV.dup, "run" => "#{GUARD_VERIFY_RUN}\n" },
@@ -3437,7 +3437,7 @@ def validate_workflow(raw)
   assert_action_inputs(action_step, writer_inputs, "CLALedgerWriter action")
   assert_comment_binding_contract(gate["outputs"], writer_inputs)
 
-  checkout = step_using(rerun, "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803", "RerunFailedCLA")
+  checkout = step_using(rerun, "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd", "RerunFailedCLA")
   assert_action_inputs(
     checkout,
     {
@@ -3555,7 +3555,7 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   assert_step_keys(verification_step, "guard checkout verification step", %w[name env run])
   assert_step_keys(validation_step, "guard validation step", %w[name env run])
   fail!("guard workflow checkout step is not the immutable checkout") unless
-    guard_steps[0]["uses"] == "actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"
+    guard_steps[0]["uses"] == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
   assert_exact_typed_inputs(guard_steps[0], GUARD_CHECKOUT_WITH, "guard checkout step")
   fail!("guard checkout step has an unexpected name") unless guard_steps[0]["name"] == "Checkout immutable guard revision"
   fail!("guard checkout step must pin the trusted repository") unless
@@ -3589,7 +3589,7 @@ def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
     fail!("guard workflow may not use repository-local actions") if reference.start_with?("./")
   end
   # The checkout, and in the App-token layout the pinned App-token action, each exactly once.
-  expected_uses = ["actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803"]
+  expected_uses = ["actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"]
   expected_uses << GUARD_APP_TOKEN_ACTION if layout.key?(:app_token_index)
   fail!("guard workflow uses an unapproved action") unless uses == expected_uses
   if authorize && digest != EXPECTED_GUARD_WORKFLOW_DIGEST
