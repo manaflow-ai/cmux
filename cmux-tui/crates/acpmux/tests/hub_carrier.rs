@@ -1237,6 +1237,68 @@ async fn hub_carrier_a_pipe_between_private_machines_goes_direct() {
     assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 1);
 }
 
+/// Mac-side accept (Leo, 2026-11-25: "why don't we do mac side connect + measure more numbers
+/// and do more stuff"): with no private route between them, A's first dial rides the relay while
+/// A and B trade candidates through it and both open toward each other; the next dial takes the
+/// punched connection (`via: direct`) and the one after rides its kept direct circuit.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_machines_with_no_private_route_punch_a_direct_path() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    let mut serving = Vec::new();
+    for carrier in [&fixture.carrier_a, &fixture.carrier_b] {
+        let listener = acpmux::hub_carrier::punch::punch_listener(0).unwrap();
+        carrier.set_punch_port(listener.local_addr().unwrap().port());
+        carrier.set_punch_addresses(vec!["127.0.0.1".parse().unwrap()]);
+        serving.push(carrier.serve_direct(listener));
+    }
+    let b = fixture.carrier_b.public_key();
+    let first = pipe_reply(&fixture).await;
+    assert_eq!(first["via"], "hub", "the first dial never waits on a punch: {first}");
+    let mut ready = false;
+    for _ in 0..100 {
+        if fixture.carrier_a.punch_ready(&b, acpmux::hub_carrier::CircuitLane::Bulk) {
+            ready = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(ready, "no punched connection: {:?}", fixture.carrier_a.punch_counts());
+    let second = pipe_reply(&fixture).await;
+    assert_eq!(second["via"], "direct", "{second}");
+    let third = pipe_reply(&fixture).await;
+    assert_eq!(third["via"], "direct", "{third}");
+    assert_eq!(third["dial"]["circuit"], "kept", "{third}");
+    assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 1);
+    let (tried, punched, failed, _) = fixture.carrier_a.punch_counts();
+    assert_eq!((tried, punched, failed), (1, 1, 0));
+    assert_eq!(fixture.carrier_b.punch_counts().3, 1, "B answered the one offer");
+}
+
+/// A machine from before punches refuses the offer `service.unknown`: the dial stays on the
+/// relay, the machine is held there, and nothing retries per dial.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_machine_that_does_not_punch_keeps_the_relay() {
+    let _ = HERMETIC;
+    let fixture = pipe_fixture().await;
+    fixture.gate.granted.store(true, Ordering::SeqCst);
+    // Only A listens for punches; B answers offers as a daemon from before them.
+    let listener = acpmux::hub_carrier::punch::punch_listener(0).unwrap();
+    fixture.carrier_a.set_punch_port(listener.local_addr().unwrap().port());
+    fixture.carrier_a.set_punch_addresses(vec!["127.0.0.1".parse().unwrap()]);
+    let _serving = fixture.carrier_a.serve_direct(listener);
+    let b = fixture.carrier_b.public_key();
+    for _ in 0..3 {
+        let reply = pipe_reply(&fixture).await;
+        assert_eq!(reply["via"], "hub", "{reply}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    let (tried, punched, failed, _) = fixture.carrier_a.punch_counts();
+    assert_eq!((tried, punched, failed), (1, 0, 1), "one offer, refused, then held");
+    assert_eq!(fixture.carrier_a.kept_direct_circuits(&b), 0);
+}
+
 /// A direct address nobody listens on costs one refused connect: the dial takes the relay
 /// (`via: hub`) and holds B off the direct path, so the next dial goes straight to the relay.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

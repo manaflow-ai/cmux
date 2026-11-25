@@ -175,6 +175,11 @@ pub enum CircuitService {
     /// `ssh -R` forward. Hello `{"service":"lane-gh-broker"}`. Off unless the owner names the
     /// broker's socket (`laneGhBroker`); rides only a kept circuit's stream.
     LaneGhBroker,
+    /// The candidate exchange of a punch (`hub_carrier_punch.rs`): one JSON line each way, the
+    /// addresses each machine opens toward the other from. Hello `{"service":"direct-offer"}`;
+    /// a daemon from before it refuses it `service.unknown` and the dialer keeps to the relay.
+    /// Rides only a kept circuit's stream.
+    DirectOffer,
 }
 
 /// The service name a hello gives [`CircuitService::LaneGhBroker`].
@@ -218,7 +223,8 @@ impl CircuitLane {
             CircuitService::Acpmux
             | CircuitService::CmuxTuiSession
             | CircuitService::MachineCall
-            | CircuitService::LaneGhBroker => Self::Cheap,
+            | CircuitService::LaneGhBroker
+            | CircuitService::DirectOffer => Self::Cheap,
         }
     }
 
@@ -318,6 +324,7 @@ fn hello_record(service: CircuitService) -> Bytes {
         CircuitService::MachineCall => serde_json::json!({"service": MACHINE_CALL_SERVICE}),
         CircuitService::TransferSource => serde_json::json!({"service": TRANSFER_SERVICE}),
         CircuitService::LaneGhBroker => serde_json::json!({"service": LANE_GH_BROKER_SERVICE}),
+        CircuitService::DirectOffer => serde_json::json!({"service": punch::DIRECT_OFFER_SERVICE}),
     };
     let mut record = SERVICE_HELLO.to_vec();
     record.extend_from_slice(body.to_string().as_bytes());
@@ -361,6 +368,9 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         }
         (Some(LANE_GH_BROKER_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::LaneGhBroker)
+        }
+        (Some(punch::DIRECT_OFFER_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::DirectOffer)
         }
         _ => Err(unknown()),
     })
@@ -1074,7 +1084,7 @@ impl HubCarrier {
     ) -> KeptOpen {
         let slot = match path {
             Path::Relay => self.kept.slot(daemon, lane),
-            Path::Direct(_) => self.direct.kept.slot(daemon, lane),
+            Path::Direct(_) | Path::Punched => self.direct.kept.slot(daemon, lane),
         };
         let mut why = String::new();
         for _ in 0..2 {
@@ -1089,7 +1099,8 @@ impl HubCarrier {
                         // Parallel dials wait here on this one open, not on one each. Never a
                         // plain dial beside it: a service hello can ask the far machine's owner
                         // for consent, and one dial asks once.
-                        let (mux, said, mut stages) = match self.open_kept(daemon, path).await {
+                        let (mux, said, mut stages) = match self.open_kept(daemon, lane, path).await
+                        {
                             Ok(opened) => opened,
                             Err(e) => return KeptOpen::Failed(e),
                         };
@@ -1203,8 +1214,18 @@ impl HubCarrier {
         early: &[u8],
         report: &mut DialReport,
     ) -> Option<KeptOpen> {
-        let address = self.direct_address(daemon).await?;
-        match self.kept_open(daemon, lane, hello, early, report, Path::Direct(address)).await {
+        // A private route first; else a punched connection (`hub_carrier_punch.rs`), which a
+        // first dial never waits for: it starts one and rides the relay.
+        let path = match self.direct_address(daemon).await {
+            Some(address) => Path::Direct(address),
+            None => self.punch_path(daemon, lane)?,
+        };
+        let address = path;
+        let miss = |carrier: &Self| match path {
+            Path::Punched => carrier.direct.punch.miss(daemon),
+            _ => carrier.direct.miss(daemon),
+        };
+        match self.kept_open(daemon, lane, hello, early, report, path).await {
             KeptOpen::Stream(stream) => {
                 report.via = direct::Via::Direct;
                 Some(KeptOpen::Stream(stream))
@@ -1214,19 +1235,19 @@ impl HubCarrier {
             }
             // The far service may have read the early bytes: no relay dial repeats them.
             KeptOpen::Lost(why) => {
-                tracing::info!("hub carrier direct: {address} failed ({why}) after early bytes");
-                self.direct.miss(daemon);
+                tracing::info!("hub carrier direct: {address:?} failed ({why}) after early bytes");
+                miss(self);
                 Some(KeptOpen::Lost(why))
             }
             KeptOpen::Refused(refusal) => {
-                tracing::debug!("hub carrier direct: {address} refused: {refusal}; the relay");
-                self.direct.miss(daemon);
+                tracing::debug!("hub carrier direct: {address:?} refused: {refusal}; the relay");
+                miss(self);
                 *report = DialReport::default();
                 None
             }
             KeptOpen::Failed(why) | KeptOpen::Plain(why) => {
-                tracing::info!("hub carrier direct: {address} failed ({why}); the relay");
-                self.direct.miss(daemon);
+                tracing::info!("hub carrier direct: {address:?} failed ({why}); the relay");
+                miss(self);
                 *report = DialReport::default();
                 None
             }
@@ -1239,12 +1260,14 @@ impl HubCarrier {
     async fn open_kept(
         &self,
         daemon: &str,
+        lane: CircuitLane,
         path: Path,
     ) -> Result<(Arc<mux::Mux>, mux::HelloAnswer, DialStages), String> {
         crate::gauges::bump(&crate::gauges::links().hub_kept_dials);
         let (secure, stages) = match path {
             Path::Relay => self.open_circuit(daemon).await?,
             Path::Direct(address) => self.open_direct(daemon, address).await?,
+            Path::Punched => self.open_punched(daemon, lane).await?,
         };
         secure.send(mux::mux_hello()).await.map_err(|e| e.to_string())?;
         let (mux, said) = mux::start_dialer(
@@ -2064,7 +2087,8 @@ impl Incoming {
                         | CircuitService::CmuxTuiSession
                         | CircuitService::MachineCall
                         | CircuitService::TransferSource
-                        | CircuitService::LaneGhBroker,
+                        | CircuitService::LaneGhBroker
+                        | CircuitService::DirectOffer,
                     ) => Err(ServiceRefusal::new("service.unknown", "no such service")),
                     Err(refusal) => Err(refusal),
                 };
@@ -2488,9 +2512,14 @@ pub async fn start_configured(
     let direct_port = hub.config.read().await.direct_port;
     let mut serving = carrier.serve(websocket);
     serving.lease = lease;
-    if let Some(port) = direct_port {
-        serving.direct = start_direct(hub, &carrier, port).await;
-    }
+    serving.direct = match direct_port {
+        // `directPort` 0: no direct path at all.
+        Some(0) => None,
+        Some(port) => start_direct(hub, &carrier, port).await,
+        // Unset: no dialing by name, but a port of its own for punches (on by default).
+        None if punch::enabled() => start_punch(&carrier, 0),
+        None => None,
+    };
     Some(serving)
 }
 
@@ -2513,26 +2542,33 @@ async fn start_direct(
                 .map(|(_, host)| host)
         })),
     );
-    match tokio::net::TcpListener::bind((std::net::Ipv6Addr::UNSPECIFIED, port)).await {
-        Ok(listener) => {
-            tracing::info!("hub carrier direct: listening on port {port}");
-            Some(carrier.serve_direct(listener))
-        }
-        Err(e) => {
-            match tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, port)).await {
-                Ok(listener) => {
-                    tracing::info!("hub carrier direct: listening on port {port} (IPv4)");
-                    Some(carrier.serve_direct(listener))
-                }
-                Err(e4) => {
-                    tracing::warn!(
-                        "hub carrier direct: port {port} will not bind ({e}; {e4}); dialing only"
-                    );
-                    None
-                }
-            }
-        }
+    let served = start_punch(carrier, port);
+    if served.is_none() {
+        tracing::warn!("hub carrier direct: port {port} will not bind; dialing only");
     }
+    served
+}
+
+/// Listen for direct connections on `port` (0: a port of its own) where punches can open from
+/// the same port, map it on the router when PCP or NAT-PMP grants one, and serve it.
+fn start_punch(carrier: &Arc<HubCarrier>, port: u16) -> Option<tokio::task::JoinHandle<()>> {
+    let listener = match punch::punch_listener(port) {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::warn!("hub carrier punch: no listener on port {port}: {e}");
+            return None;
+        }
+    };
+    let port = listener.local_addr().ok()?.port();
+    tracing::info!("hub carrier direct: listening on port {port}");
+    if punch::enabled() {
+        carrier.set_punch_port(port);
+        let mapping = Arc::downgrade(carrier);
+        direct::scope().spawn_named("hub carrier port map", async move {
+            punch::portmap::keep_mapped(mapping, port).await;
+        });
+    }
+    Some(carrier.serve_direct(listener))
 }
 
 /// [`start_configured`] on the daemon's key lock (its WireGuard transport's, else the carrier's
@@ -2582,11 +2618,16 @@ mod rehome;
 #[path = "hub_carrier_direct.rs"]
 pub mod direct;
 
+#[path = "hub_carrier_punch.rs"]
+pub mod punch;
+
 /// Which path a kept circuit runs on.
 #[derive(Clone, Copy, Debug)]
 enum Path {
     Relay,
     Direct(SocketAddr),
+    /// A connection both machines opened toward each other (`hub_carrier_punch.rs`).
+    Punched,
 }
 
 #[cfg(test)]
