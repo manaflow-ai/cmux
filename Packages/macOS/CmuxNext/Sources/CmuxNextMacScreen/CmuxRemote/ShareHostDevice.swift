@@ -93,13 +93,20 @@ public nonisolated struct ShareHostDevice {
     /// ``prefer(in:build:bundleID:loginKeychain:tokens:)`` with the daemon's channel at `path`.
     @MainActor static func prefer(in deviceHub: DeviceHubService, socketPath path: String, bundleID: String, loginKeychain: LoginKeychain,
                                   tokens: @escaping @Sendable () async throws -> String) {
+        // The daemon's device signs in with its machine credential, which names no build: it is a device of the hub's
+        // default space. A tagged dev build's hub is its own space's (``DeviceHubService/buildSpace``), so it keeps the
+        // worker's or its own identity there instead of adopting a device whose socket lives in another space.
+        guard deviceHub.buildSpace == .nightly else {
+            shareHostLogger.info("device hub: a dev build space; the acpmux daemon's device is not used")
+            return
+        }
         let devices = channel(socketPath: path)
         let link = Link()
         let worker = deviceHub.makeRemoteHub, workerChanged = deviceHub.hubChanged
         deviceHub.makeRemoteHub = { url, user in
             link.made = nil
             if let hub = try await ShareHostDevice.daemonHub(devices, socketPath: path, make: { identity in
-                devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain, tokens: tokens)
+                devices.makeHub(url: url, identity: identity, bundleID: bundleID, loginKeychain: loginKeychain, buildSpace: .nightly, tokens: tokens)
             }) {
                 link.made = hub
                 shareHostLogger.info("device hub: this Mac's device is the acpmux daemon's")
