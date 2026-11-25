@@ -534,9 +534,15 @@ async function runAxis(axis: "chats" | "tabs", mix?: Mix): Promise<Scene | undef
     const browserCdp = await browser.newBrowserCDPSession();
     // The default context: with noDefaults it is the one Playwright adds no focus emulation to.
     const context = browser.contexts()[0]!;
-    await context.addInitScript((size) => {
-      (globalThis as any).cmuxAcpmuxMockListSize = size;
-    }, SESSIONS);
+    // The fidelity mode lists the sessions as a fleet Mac's rows (long titles, previews, peers, PRs; mockFixture.ts
+    // `fleetListedSession`), as the profiled app's 3,761-row list is; the ladder keeps its light rows.
+    await context.addInitScript(
+      ([size, shape]) => {
+        (globalThis as any).cmuxAcpmuxMockListSize = size;
+        if (shape) (globalThis as any).cmuxAcpmuxMockListShape = shape;
+      },
+      [SESSIONS, PROFILE !== undefined ? "fleet" : null] as const,
+    );
     if (TIMER_CENSUS)
       await context.addInitScript(() => {
         const counts: Record<string, number> = ((globalThis as any).__slTimers = {});
