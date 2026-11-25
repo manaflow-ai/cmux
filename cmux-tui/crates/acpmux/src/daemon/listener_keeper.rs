@@ -58,6 +58,7 @@ pub(crate) fn hold_for_next(home: &Path) -> Vec<&'static str> {
     }
     match start_keeper(home, &held) {
         Ok(()) => {
+            listener_handover::mark_kept();
             let kinds: Vec<&'static str> = held.iter().map(|(kind, _)| kind_name(kind)).collect();
             tracing::info!(?kinds, "a listener keeper holds this daemon's ports for the next one");
             kinds

@@ -87,6 +87,20 @@ pub(crate) fn handed_to_live() -> bool {
     pid != 0 && alive(pid)
 }
 
+/// A keeper (`daemon/listener_keeper.rs`) holds copies of the listeners for the next daemon.
+static KEPT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn mark_kept() {
+    KEPT.store(true, Ordering::SeqCst);
+}
+
+/// Whether another process holds this daemon's listening sockets for the next daemon: a live
+/// successor it handed them to, or a keeper. A shutdown of the socket would stop that process's
+/// copy too (Linux stops a listening socket on `shutdown`, whatever copies remain).
+pub(crate) fn listeners_live_on() -> bool {
+    KEPT.load(Ordering::SeqCst) || handed_to_live()
+}
+
 fn alive(pid: u32) -> bool {
     let Ok(pid) = i32::try_from(pid) else { return false };
     // SAFETY: signal 0 only checks that the pid exists.
