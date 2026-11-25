@@ -347,10 +347,10 @@ fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, ToolOmissi
     })
 }
 
-/// The opening of a move's continuation when the move did not happen ([`Cut::unmoved`]).
-const STAYED: &str = "This chat did not move: a move to another machine stopped your previous \
-                      turn and then did not happen. You are still on this machine, with the same \
-                      files; processes you started may have ended with the turn.";
+/// What cut the turn off ([`Cut`]), and how a takeover's tool call in flight is told.
+#[path = "restart_cut.rs"]
+mod cut;
+pub(in crate::hub) use cut::Cut;
 
 /// The provenance key of a continuation the harness may run from its own transcript, with no
 /// prompt written ([`Cut::MoveAtBoundary`]).
@@ -362,58 +362,6 @@ pub(in crate::hub) fn silent(provenance: Option<&Value>) -> bool {
         p.get("kind").and_then(Value::as_str) == Some("auto_resume")
             && p.get(SILENT).and_then(Value::as_bool) == Some(true)
     })
-}
-
-/// What cut the turn off.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(in crate::hub) enum Cut {
-    /// The daemon restarted (an update or a crash).
-    Restart,
-    /// The chat moved to another machine (`transfer_out.rs`).
-    Move,
-    /// It moved at a tool boundary, with nothing of the turn left running: a [`Cut::Move`] whose
-    /// continuation says so (`"silent": true` in its provenance), so a harness that can go on
-    /// from its own transcript does, and the text is never written
-    /// (`claude_stdio/resume_cut.rs`). Any other harness gets the text as after `Cut::Move`.
-    MoveAtBoundary,
-}
-
-impl Cut {
-    /// The `reason` of its records and provenance.
-    pub(in crate::hub) fn reason(self) -> &'static str {
-        match self {
-            Cut::Restart => "daemon_restart",
-            Cut::Move | Cut::MoveAtBoundary => "moved",
-        }
-    }
-
-    /// Whether `reason` is a queued continuation's, which goes ahead of what waited behind the
-    /// cut turn and is no waiting retry (`queue.rs`, `auto_resume/restore.rs`).
-    pub(in crate::hub) fn queued(reason: Option<&str>) -> bool {
-        matches!(reason, Some("daemon_restart" | "moved"))
-    }
-
-    /// A [`Cut::Move`] continuation's text for a move that did not happen (`transfer_out.rs`
-    /// `queue_carried`): the same turn, told it is still on this machine. `None` for any other
-    /// text.
-    pub(in crate::hub) fn unmoved(text: &str) -> Option<String> {
-        text.strip_prefix(Cut::Move.opening()).map(|rest| format!("{STAYED}{rest}"))
-    }
-
-    fn opening(self) -> &'static str {
-        match self {
-            Cut::Restart => {
-                "acpmux restarted (an update or a crash) while your previous turn was running, \
-                 and the turn was cut off."
-            }
-            Cut::Move | Cut::MoveAtBoundary => {
-                "This chat moved to another machine while your previous turn was running, and the \
-                 turn was cut off. The files and git state came with it, but processes you \
-                 started (dev servers, watchers, background shells) did not: start again any \
-                 that you still need."
-            }
-        }
-    }
 }
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
@@ -499,6 +447,18 @@ impl Hub {
         turn_id: &str,
         cut: Cut,
     ) -> Option<String> {
+        self.log_continuation_told(session, turn_id, cut, None)
+    }
+
+    /// [`Self::log_continuation`]; `in_flight` names the tool call (name, arguments) a
+    /// takeover's snapshot says was running, which the log may not show (`auto_import.rs`).
+    pub(in crate::hub) fn log_continuation_told(
+        &self,
+        session: &Arc<Session>,
+        turn_id: &str,
+        cut: Cut,
+        in_flight: Option<(&str, &str)>,
+    ) -> Option<String> {
         // One continuation per configured wait, as a transport cut gets: `[]` configures none,
         // which turns it off. A contended config lock reads as the default waits, never as off.
         let configured = self.config.try_read().map(|c| c.auto_resume_delays_ms.clone());
@@ -562,10 +522,10 @@ impl Hub {
             let is_turn = e.msg.get("turnId").and_then(Value::as_str) == Some(turn_id);
             let field = |k: &str| e.msg.get(k).and_then(Value::as_str).map(str::to_owned);
             match e.kind.as_str() {
-                "auto_resume_scheduled" => {
-                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) {
-                        moved.extend(field("promptId"));
-                    }
+                "auto_resume_scheduled"
+                    if e.msg.get("reason").and_then(Value::as_str) == Some(Cut::Move.reason()) =>
+                {
+                    moved.extend(field("promptId"));
                 }
                 "turn_started" if is_turn => {
                     started = true;
@@ -728,7 +688,10 @@ impl Hub {
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": cut.reason()});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let text = continue_text_for(cut, &prompts, &unfinished, omitted_tools);
+        let mut text = continue_text_for(cut, &prompts, &unfinished, omitted_tools);
+        if let Some((name, args)) = in_flight.filter(|_| unfinished.is_empty()) {
+            cut::tell_in_flight(&mut text, cut.opening().len(), name, args);
+        }
         let mut provenance = json!({"kind": "auto_resume", "reason": cut.reason(), "promptId": root, "attempt": attempt, "turnId": turn_id});
         // Nothing of the turn was cut short: the harness may go on from its own transcript.
         if cut == Cut::MoveAtBoundary
