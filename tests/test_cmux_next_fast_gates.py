@@ -674,12 +674,24 @@ class WorkflowShape(unittest.TestCase):
         gates_job = job(workflow())
         steps = gates_job["steps"]
         gates = steps.index(step_named(steps, "Fast gates on the merge"))
-        total = 0
+        # A step whose `if` is another's exact negation (Checkout on GitHub's runners, "Pool mirror: checkout" on
+        # pool VMs) never runs in the same job, so the pair costs the larger bound, not both (cmux#55973 added the
+        # pool step and summed 44 against this 40 with one of the two always skipped).
+        def condition(step: dict) -> str:
+            text = str(step.get("if", "")).strip()
+            return text[3:-2].strip() if text.startswith("${{") and text.endswith("}}") else text
+
+        bounds: dict[str, int] = {}
         for step in steps[:gates]:
             with self.subTest(step=step["name"]):
                 self.assertIn("timeout-minutes", step)
-                total += int(step["timeout-minutes"])
-        self.assertLessEqual(total, 40)
+                minutes = int(step["timeout-minutes"])
+                cond = condition(step)
+                base = cond.lstrip("!").strip()
+                twins = {base, f"!{base}"} <= {condition(s) for s in steps[:gates]} if cond else False
+                key = f"either:{base}" if twins else f"step:{step['name']}"
+                bounds[key] = max(bounds.get(key, 0), minutes)
+        self.assertLessEqual(sum(bounds.values()), 40)
         # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
         node = step_named(steps, "Setup Node")
         self.assertNotIn("uses", node)
