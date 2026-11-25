@@ -95,7 +95,10 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         #expect(controller.phase.isConnected)
     }
 
-    @Test func resumeReplacesStaleLinkWithoutWaitingForAProbe() async throws {
+    /// Back from the background the redial goes out at once, beside the old
+    /// link (kept as the standby and probed): a stale link never holds up the
+    /// redial, and it closes when the redial wins.
+    @Test func resumeRedialsAtOnceBesideTheStaleLink() async throws {
         let dialer = RecoveryDialer()
         let clock = LinkTestClock()
         let controller = controller(dialer, clock: clock)
@@ -107,8 +110,10 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         controller.send(.resume)
         #expect(controller.phase == .connecting(.wireGuard, attempt: 1))
         #expect(controller.dialGeneration > oldGeneration)
+        // The stale link's standby probe never answers (silent), yet the redial
+        // is made and wins, and the stale link closes.
         try await eventually { dialer.dials == 2 && dialer.first.isClosed }
-        #expect(dialer.first.probeCount == 1, "No probe of the stale link before redial")
+        #expect(controller.phase.isConnected)
     }
 
     @Test func shortResumeKeepsTheLiveLinkAndOnlyProbesIt() async throws {
@@ -151,7 +156,8 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         try await driver.settle()
         try await driver.advance(by: LinkController.presenceProbeTimeout + LinkController.probeGrace + .milliseconds(100),
                                  until: { dialer.dials == 2 })
-        try await eventually { dialer.dials == 2 }
+        // The count goes up before the dialer reads the controller on the main actor.
+        try await eventually { dialer.dials == 2 && dialer.sawAtRedial != nil }
         // The redial connects at once here, which then closes the kept link: what holds is that the
         // silent link is kept as the standby when the redial begins, not that it stays afterwards.
         #expect(dialer.sawAtRedial == true, "The silent link stays beside the redial")
@@ -230,6 +236,33 @@ private final class RecoveryDialer: MacLinkDialer, @unchecked Sendable {
         #expect(machine.handle(.resume) == [.close, .dial(generation: 2, macID: "m", transport: .wireGuard)])
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .direct)) == [])
         #expect(machine.phase == .connecting(.wireGuard, attempt: 1))
+    }
+
+    /// A connected link back from the background is kept beside the redial;
+    /// when it answers first it is the link again, nothing re-attached.
+    @Test func connectedResumeKeepsTheLinkBesideTheRedial() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(.init(macID: "m", name: "Mac", isOnline: true)))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        _ = machine.handle(.background)
+        #expect(machine.handle(.resume) == [.keepStandby, .dial(generation: 2, macID: "m", transport: .wireGuard)])
+        #expect(machine.standby == 1)
+        #expect(machine.handle(.standbyAlive(generation: 1, path: .direct, rttMillis: 40)) == [.promoteStandby(generation: 3)])
+        #expect(machine.phase == .connected(.wireGuard, .direct, rttMillis: 40))
+        // The redial's late answer is ignored.
+        #expect(machine.handle(.dialSucceeded(generation: 2, path: .direct)) == [])
+    }
+
+    /// The redial wins (the old link was silent): the standby closes.
+    @Test func connectedResumeRedialWinsAndClosesTheStandby() {
+        var machine = LinkMachine(transport: .wireGuard)
+        _ = machine.handle(.target(.init(macID: "m", name: "Mac", isOnline: true)))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        _ = machine.handle(.background)
+        _ = machine.handle(.resume)
+        #expect(machine.handle(.dialSucceeded(generation: 2, path: .direct)) == [.closeStandby])
+        #expect(machine.standby == nil)
+        #expect(machine.handle(.standbyAlive(generation: 1, path: .direct, rttMillis: 40)) == [])
     }
 
     private func connected() -> LinkMachine {

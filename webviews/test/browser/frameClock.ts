@@ -20,7 +20,8 @@
 // Stop condition: the frame loop is the page's (one callback a frame while the page lives); the timer
 // chain runs only while a timer is due before the next frame.
 
-const FRAME_MS = 1000 / 120;
+/// One frame's slot (ms): 120 Hz, or `?fps=N` (frames120's `frameMs` with the same rate).
+const FRAME_MS = 1000 / (Number(new URLSearchParams(location.search).get("fps")) || 120);
 
 type Timer = { id: number; due: number; run: () => void };
 

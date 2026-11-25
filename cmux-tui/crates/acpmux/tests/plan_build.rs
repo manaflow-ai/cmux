@@ -200,6 +200,9 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     assert_eq!(here["builds"], json!([]), "{here}");
     let said = app.said(rid).await;
     assert!(said.contains("chose yes") && !said.contains("building:"), "{said}");
+    let summary = hub.session_summary(&hub.resolve(&chat).unwrap());
+    assert_eq!(summary["approvedPlan"]["markdown"], "Add a changelog", "{summary}");
+    assert_eq!(summary["approvedPlan"]["edited"], false, "{summary}");
 
     // Edit the plan, then Approve: the agent builds the edited plan.
     let (rid, pid) = app.ask_plan(&chat, "plan-ask: 1. Add a changelog").await;
@@ -218,6 +221,12 @@ async fn a_plan_builds_here_or_on_two_agents_and_one_is_kept() {
     .await;
     let said = app.said(rid).await;
     assert!(said.contains(&format!("chose yes building: {edited}")), "{said}");
+    // The approved plan stays on the chat while the agent builds it, as edited.
+    let summary = hub.session_summary(&hub.resolve(&chat).unwrap());
+    let approved = &summary["approvedPlan"];
+    assert_eq!(approved["markdown"], edited, "{summary}");
+    assert_eq!(approved["edited"], true, "{summary}");
+    assert_eq!(approved["permissionId"], pid.as_str(), "{summary}");
 
     // Build on two agents: two chats in two new worktrees, the plan's own chat stopped.
     // A harness that plans on after the rejected plan (as Claude's adapter does) is stopped.
