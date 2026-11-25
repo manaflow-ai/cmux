@@ -21,8 +21,6 @@
 			<string>system</string>
 			<key>history.terminalCommands</key>
 			<false/>
-			<key>labs.appStore</key>
-			<false/>
 			<key>navigation.historyScope</key>
 			<string>workspace</string>
 		</dict>
