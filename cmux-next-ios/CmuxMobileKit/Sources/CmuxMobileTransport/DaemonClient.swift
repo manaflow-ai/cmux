@@ -10,6 +10,10 @@ public actor DaemonClient {
     private var expected: Set<String> = []
     private var early: [String: Result<ReceivedLine, any Error>] = [:]
     private var deadlines: [String: Task<Void, Never>] = [:]
+    /// ``submit``ted requests, whose deadline counts from their last progress, not from the start.
+    private var watches: [String: Watch] = [:]
+    private var writers: [String: Task<Void, any Error>] = [:]
+    private var stalledWrites: Set<String> = []
     /// Set once the channel ended; later waits fail with it.
     private var ended: (any Error)?
     private var buffer = Data()
@@ -25,6 +29,26 @@ public actor DaemonClient {
     /// The `LinkError` code of a request whose deadline passed.
     public static let replyTimeout = "reply_timeout"
     public static let defaultDeadline: Duration = .seconds(15)
+    /// The longest a ``submit``ted request may keep going while it makes progress. The daemon
+    /// remembers a send's key for 600 s (`DAEMON_KEY_TTL`); half of that keeps a keyed resend
+    /// from ever applying twice.
+    public static let progressCeiling: Duration = .seconds(300)
+    /// ``submit``ted requests answered later than their deadline after they were armed: each one
+    /// a fixed wall clock would have cut while it was still moving.
+    public private(set) var outlivedFixedDeadline = 0
+
+    /// A ``submit``ted request's progress. While its write is in progress, bytes the link takes
+    /// (``LinkChannel/sentBytes``) are progress; then its write completing, and a reply to an
+    /// earlier request (the daemon answers a connection's lines in order). Events are not: they
+    /// do not prove the uplink, and a reply to a later request means ours was lost.
+    private struct Watch {
+        let armedAt: ContinuousClock.Instant
+        var progressAt: ContinuousClock.Instant
+        let stall: Duration
+        let number: Int?
+        var writing = true
+        var sent: UInt64?
+    }
 
     public struct ReceivedLine: Sendable {
         public let data: Data
@@ -198,22 +222,75 @@ public actor DaemonClient {
         try Task.checkCancellation()
         if let ended { throw ended }
         expected.insert(id)
-        arm(id: id, deadline: deadline)
-        do {
-            let channel = self.channel
-            try await LinkDeadline.run(timeout: deadline,
-                                       timeoutError: LinkError(code: "write_timeout", message: "write timed out"),
+        watch(id: id, stall: deadline)
+        let writeTimeout = LinkError(code: "write_timeout", message: "write timed out")
+        let channel = self.channel
+        let writer = Task {
+            try await LinkDeadline.run(timeout: Self.progressCeiling, timeoutError: writeTimeout,
                                        operation: { try await channel.send(line) },
                                        onCancel: {
                                            if closeChannelOnCancel {
                                                await channel.close(code: "timeout", reason: "write interrupted")
                                            }
                                        })
-        } catch {
-            discard(id)
-            throw error
         }
+        writers[id] = writer
+        do {
+            try await withTaskCancellationHandler { try await writer.value } onCancel: { writer.cancel() }
+        } catch {
+            writers[id] = nil
+            let stalled = stalledWrites.remove(id) != nil
+            discard(id)
+            throw stalled ? writeTimeout : error
+        }
+        writers[id] = nil
+        if var watch = watches[id] {
+            watch.writing = false
+            watch.progressAt = .now
+            watches[id] = watch
+            // The write finished just as its watch gave up on it: it did not stall, watch on.
+            if stalledWrites.remove(id) != nil {
+                deadlines[id] = Task { await self.expireWithoutProgress(id) }
+            }
+        }
+        stalledWrites.remove(id)
         return id
+    }
+
+    /// `deadline` is how long the request may go without progress (``Watch``), up to
+    /// ``progressCeiling`` in all: a slow send that keeps moving is never cut by a wall clock.
+    private func watch(id: String, stall: Duration) {
+        let now = ContinuousClock.now
+        let number = id.hasPrefix("m") ? Int(id.dropFirst()) : nil
+        watches[id] = Watch(armedAt: now, progressAt: now, stall: stall, number: number, sent: channel.sentBytes)
+        deadlines[id] = Task { await self.expireWithoutProgress(id) }
+    }
+
+    private func expireWithoutProgress(_ id: String) async {
+        // While the write waits, sample the link's progress at least this often.
+        let sample = Duration.milliseconds(250)
+        while let watch = watches[id] {
+            var due = min(watch.progressAt + watch.stall, watch.armedAt + Self.progressCeiling)
+            if watch.writing { due = min(due, .now + min(sample, watch.stall)) }
+            do { try await Task.sleep(until: due, clock: .continuous) } catch { return }
+            guard !Task.isCancelled, var current = watches[id] else { return }
+            let now = ContinuousClock.now
+            if current.writing, let sent = channel.sentBytes, sent != current.sent {
+                current.sent = sent
+                current.progressAt = now
+                watches[id] = current
+            }
+            guard now - current.progressAt >= current.stall || now - current.armedAt >= Self.progressCeiling else {
+                continue
+            }
+            if current.writing, let writer = writers[id] {
+                stalledWrites.insert(id)
+                writer.cancel()
+                return
+            }
+            fail(id: id, error: LinkError(code: Self.replyTimeout, message: "reply timed out"))
+            return
+        }
     }
 
     /// The reply to a ``submit(_:params:)``ed request, which may already have come.
@@ -268,12 +345,14 @@ public actor DaemonClient {
 
     private func discard(_ id: String) {
         deadlines.removeValue(forKey: id)?.cancel()
+        watches[id] = nil
         expected.remove(id)
         early[id] = nil
     }
 
     private func fail(id: String, error: any Error) {
         deadlines.removeValue(forKey: id)?.cancel()
+        watches[id] = nil
         if let waiter = pending.removeValue(forKey: id) {
             waiter.resume(throwing: error)
         } else if expected.remove(id) != nil {
@@ -310,12 +389,27 @@ public actor DaemonClient {
             return
         }
         deadlines.removeValue(forKey: id)?.cancel()
+        progress(answered: id)
         if let continuation = pending.removeValue(forKey: id) {
             continuation.resume(returning: received)
         } else if expected.remove(id) != nil {
             early[id] = .success(received)
         } else if !(id.hasPrefix("m") || id.hasPrefix("r")) || Int(id.dropFirst()) == nil {
             await yieldEvent(received)
+        }
+    }
+
+    /// A reply to `id` is progress for every request written after it.
+    private func progress(answered id: String) {
+        guard !watches.isEmpty else { return }
+        let now = ContinuousClock.now
+        if let watch = watches.removeValue(forKey: id), now - watch.armedAt >= watch.stall {
+            outlivedFixedDeadline += 1
+        }
+        guard id.hasPrefix("m"), let number = Int(id.dropFirst()) else { return }
+        for (other, var watch) in watches where (watch.number ?? 0) > number {
+            watch.progressAt = now
+            watches[other] = watch
         }
     }
 
@@ -330,6 +424,7 @@ public actor DaemonClient {
         pending.removeAll()
         for task in deadlines.values { task.cancel() }
         deadlines.removeAll()
+        watches.removeAll()
         expected.removeAll()
         orderedContinuation.finish()
         await eventBuffer.finish()
