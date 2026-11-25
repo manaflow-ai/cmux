@@ -2452,8 +2452,6 @@ jobs:
         timeout-minutes: 5
         continue-on-error: true
         id: web-bundle-cache
-        timeout-minutes: 4
-        continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: web-bundles-out
@@ -2465,8 +2463,6 @@ jobs:
         timeout-minutes: 3
         continue-on-error: true
         if: ${{ (steps.web-bundle-cache.outputs.cache-hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
-        timeout-minutes: 4
-        continue-on-error: true
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
