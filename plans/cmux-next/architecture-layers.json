@@ -105,6 +105,7 @@
     "CmuxNextHome": {"layer": "ui"},
     "CmuxNextHomeModel": {"layer": "ui", "mixes": ["domain"], "plan": "Home models with no views (design/home.md); domain once HomeAgentGlance reads IconName from a target below ui (CmuxNextIcons is ui)"},
     "CmuxNextFilesUI": {"layer": "ui"},
+    "CmuxNextTerminalComments": {"layer": "ui"},
     "CmuxNextFocusUI": {"layer": "ui"},
     "CmuxNextSettingsWindow": {"layer": "ui"},
     "CmuxNextOnboarding": {"layer": "ui"},

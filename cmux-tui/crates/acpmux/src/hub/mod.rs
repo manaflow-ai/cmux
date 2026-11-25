@@ -34,6 +34,7 @@ mod adopted_fences;
 mod adoption;
 pub(crate) mod agent_hold;
 mod agent_pairs;
+pub(crate) mod agent_timer;
 pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
@@ -2476,6 +2477,7 @@ impl Hub {
             input_since: AtomicU64::new(0),
             wait_reason: StdMutex::new(None),
             work_below_since: StdMutex::new(0),
+            loop_timers: StdMutex::new(None),
             asks_below: StdMutex::new((0, 0)),
             held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),
