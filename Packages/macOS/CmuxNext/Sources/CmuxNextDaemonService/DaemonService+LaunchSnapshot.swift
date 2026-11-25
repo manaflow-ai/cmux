@@ -83,7 +83,7 @@ extension DaemonService {
                                      echoesPlacementShift: Bool = false) -> Task<DaemonPrestart?, Never> {
         DevBuildReaper.current()?.start()
         // task-owner: AppDelegate.finishLaunching awaits this task and forwards cancellation from cloudBootstrap.
-        Task.detached(priority: .userInitiated) {
+        return Task.detached(priority: .userInitiated) {
             guard !Task.isCancelled else { return nil }
             DaemonLaunchTimings.shared.mark("daemon.prepare_start")
             defer { DaemonLaunchTimings.shared.mark("daemon.prepare_end") }
