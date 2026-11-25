@@ -296,7 +296,7 @@
               "note": "In the text and in the row too, so every attachment shows in one place with its remove (Leo, 2026-10-24: \"ALSO show the top displayed attachments alongside the inline attachments\")."
             }
           ],
-          "default": "inline",
+          "default": "strip",
           "keywords": [
             "attachment",
             "attachments",
