@@ -292,9 +292,16 @@ function proxyUpgrade(opts, req, socket, clientHead, route, retried = false) {
     res.on("end", () => {
       const body = Buffer.concat(chunks)
       const lines = statusLines(res, HOP_BY_HOP)
-      lines.push(`content-length: ${body.length}`, "connection: close")
-      if (!socket.destroyed) socket.end(Buffer.concat([Buffer.from(lines.join("\r\n") + "\r\n\r\n"), body]))
-      res.socket?.destroy()
+      // A 204 or 304 has no body and names no length (RFC 9110 8.6).
+      if (res.statusCode !== 204 && res.statusCode !== 304) lines.push(`content-length: ${body.length}`)
+      lines.push("connection: close")
+      if (!socket.destroyed) {
+        socket.end(Buffer.concat([Buffer.from(lines.join("\r\n") + "\r\n\r\n"), body]))
+        // Bytes the client sent before the answer (another request, an early frame) are read and dropped, so
+        // its end reaches us and the socket closes instead of waiting on unread data.
+        socket.resume()
+      }
+      upstream.destroy() // agent: false already closes it after the response; say so here
     })
     res.on("error", close)
   })
