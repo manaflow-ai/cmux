@@ -189,12 +189,14 @@ impl Deref for MirrorGuard<'_> {
     type Target = Box<Terminal>;
 
     fn deref(&self) -> &Box<Terminal> {
+        // crash-allow: every MirrorGuard is built with Some (`unparked` fills the slot first, `lock_unparked` checks it).
         self.guard.as_ref().expect("a mirror guard holds an unparked terminal")
     }
 }
 
 impl DerefMut for MirrorGuard<'_> {
     fn deref_mut(&mut self) -> &mut Box<Terminal> {
+        // crash-allow: every MirrorGuard is built with Some (`unparked` fills the slot first, `lock_unparked` checks it).
         self.guard.as_mut().expect("a mirror guard holds an unparked terminal")
     }
 }
@@ -216,6 +218,7 @@ fn blank_terminal(size: Option<(PtyGeometry, usize)>) -> Terminal {
         Terminal::new(geometry.cols, geometry.rows, scrollback, Callbacks::default()).ok()
     })
     .or_else(|| Terminal::new(1, 1, 0, Callbacks::default()).ok())
+    // crash-allow: a one-cell, no-scrollback Ghostty terminal fails only when allocation fails, which aborts anyway.
     .expect("a one-cell terminal")
 }
 
