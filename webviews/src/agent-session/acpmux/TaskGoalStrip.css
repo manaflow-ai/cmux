@@ -127,6 +127,8 @@
      properly"). test/hat-composer-icon-grid.test.ts measures it. */
   --acpmux-goal-lead-box: var(--acpmux-composer-control, 28px);
   --acpmux-goal-lead-gap: var(--acpmux-composer-lead-gap, 8px);
+  /* The mark: the plan's step mark size, 12 of the composer glyph's 16 px. */
+  --acpmux-goal-mark-size: calc(var(--acpmux-composer-glyph, 16px) * 12 / 16);
   --acpmux-goal-gap: var(--ds-space-2);
   display: grid;
   /* The mark's column holds +'s box and the rest of the lead gap the grid's own gap leaves. */
@@ -176,15 +178,19 @@
   width: var(--acpmux-goal-lead-box);
   height: var(--acpmux-goal-line);
 }
+/* The mark is the plan's mark size (the hat's --acpmux-tray-mark: the header glyph's ink, 12 px at
+   Default) at every density: a ring round a dot, the ring alone while paused (the person, 2026-11-24:
+   the card's and the plan's icons the same size on the + axis). */
 .acpmux-goal[data-look] .acpmux-goal-mark > span {
-  width: var(--ds-space-2);
-  height: var(--ds-space-2);
+  box-sizing: border-box;
+  width: var(--acpmux-goal-mark-size);
+  height: var(--acpmux-goal-mark-size);
   border-radius: 50%;
-  background: currentColor;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+  background: radial-gradient(circle, currentColor 0 calc(var(--acpmux-composer-glyph, 16px) * 2.5 / 16), transparent calc(var(--acpmux-composer-glyph, 16px) * 2.5 / 16 + 0.5px));
 }
 .acpmux-goal[data-look][data-state="paused"] .acpmux-goal-mark > span {
   background: none;
-  box-shadow: inset 0 0 0 1.5px currentColor;
 }
 .acpmux-goal[data-look]:is([data-state="done"], [data-state="complete"]) .acpmux-goal-mark {
   color: var(--agent-success, var(--agent-accent));
