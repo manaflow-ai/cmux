@@ -1107,9 +1107,9 @@ impl OutputStore {
         if state.generation.as_ref() != generation || state.next_offset() != covered_through {
             return false;
         }
-        state.tail.clear();
+        state.tail = VecDeque::new();
         state.tail_start = covered_through;
-        state.pending.clear();
+        state.pending = Vec::new();
         state.pending_start = covered_through;
         state.dirty = false;
         state.measure_due = false;

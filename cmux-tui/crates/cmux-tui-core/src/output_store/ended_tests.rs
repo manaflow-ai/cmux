@@ -14,6 +14,11 @@ fn releasing_durably_covered_output_drops_memory_and_fences_late_chunks() {
     store.append(&terminal, &generation, b"final output", None);
 
     assert!(store.release_terminal_output(&terminal, generation.as_ref(), 12));
+    let log = store.logs.lock().unwrap().get(&terminal).cloned().unwrap();
+    let state = log.state.lock().unwrap();
+    assert_eq!(state.tail.capacity(), 0);
+    assert_eq!(state.pending.capacity(), 0);
+    drop(state);
     let window = store.read_after(&terminal, 0, 1024).unwrap();
     assert!(window.bytes.is_empty());
     assert_eq!((window.start_offset, window.next_offset), (12, 12));

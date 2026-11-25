@@ -92,3 +92,22 @@ fn a_parked_mirror_holds_no_scrollback() {
     assert_eq!(mirror.term.lock().unwrap().scrollback_rows(), 0);
     assert_eq!(mirror.lock().unwrap().scrollback_rows(), rows);
 }
+
+#[test]
+fn a_dead_surface_keeps_only_its_replay_until_read() {
+    let mux = Mux::new_for_test("dead-mirror-park", SurfaceOptions::default());
+    let surface =
+        Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+    let pty = surface.as_pty().unwrap();
+    pty.term.lock().unwrap().vt_write(SCREEN);
+    let before = pty.term.lock().unwrap().plain_text().unwrap();
+
+    pty.dead.store(true, Ordering::Release);
+    assert!(pty.park_dead_mirror());
+    assert!(pty.term.is_parked());
+
+    // A final-screen reader rebuilds the exact replay and consumes the
+    // placeholder, preserving the dead-tab attach/render behavior.
+    assert_eq!(pty.term.lock().unwrap().plain_text().unwrap(), before);
+    assert!(!pty.term.is_parked());
+}

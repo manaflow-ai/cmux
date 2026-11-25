@@ -70,6 +70,10 @@ pub(super) struct PublicTopologyFold {
     complete: bool,
     /// The public ids of the workspaces that the fold holds whole (see the module text).
     whole: HashSet<String>,
+    /// Whether the current complete projection omitted an exited terminal. Such a fold cannot
+    /// answer that an absent value is absent from the journal, even after the projection marked
+    /// itself complete.
+    omitted_dead: bool,
 }
 
 /// A 128-bit digest (the first half of a SHA-256) of one form of a value.
@@ -321,7 +325,7 @@ impl PublicTopologyFold {
     fn holds_every_resource(&self) -> bool {
         #[cfg(test)]
         COMPLETE_READS.with(|reads| reads.set(reads.get() + 1));
-        self.complete
+        self.complete && !self.omitted_dead
     }
 
     fn apply(&mut self, changes: &Value) {
@@ -338,6 +342,12 @@ impl PublicTopologyFold {
             let key = (resource.to_string(), id.to_string());
             match kind {
                 "upsert" => {
+                    if resource == "terminal" && change["value"]["lifecycle"] == "exited" {
+                        self.values.remove(&key);
+                        self.complete = false;
+                        self.omitted_dead = true;
+                        continue;
+                    }
                     self.values.insert(key, StatedDigests::new(resource, &change["value"]));
                 }
                 "delete" => {
@@ -354,7 +364,7 @@ impl PublicTopologyFold {
     /// A full projection was folded: the fold holds every live resource, so each workspace
     /// that it holds is whole.
     fn completed(&mut self) {
-        self.complete = true;
+        self.complete = !self.omitted_dead;
         let workspaces = self
             .values
             .keys()
@@ -362,6 +372,10 @@ impl PublicTopologyFold {
             .map(|(_, id)| id.clone())
             .collect::<Vec<_>>();
         self.whole.extend(workspaces);
+    }
+
+    fn begin_complete_projection(&mut self) {
+        self.omitted_dead = false;
     }
 
     /// Whether decorating `change` could make the fold state it: an upsert of a resource decoration adds to
@@ -385,18 +399,25 @@ impl PublicTopologyFold {
     }
 
     fn states(&self, change: &Value) -> bool {
-        change["kind"] == "upsert"
-            && change["resource"]
-                .as_str()
-                .is_some_and(|resource| TRACKED_RESOURCES.contains(&resource))
-            && match (change["resource"].as_str(), change["id"].as_str()) {
-                // Only a workspace's digests have the form without its key.
-                (Some(resource), Some(id)) => self
-                    .values
-                    .get(&(resource.to_string(), id.to_string()))
-                    .is_some_and(|held| workspace_value_stated(held, &change["value"])),
-                _ => false,
+        let (Some(resource), Some(id)) = (change["resource"].as_str(), change["id"].as_str())
+        else {
+            return false;
+        };
+        if !TRACKED_RESOURCES.contains(&resource) {
+            return false;
+        }
+        let held = self.values.get(&(resource.to_string(), id.to_string()));
+        match change["kind"].as_str() {
+            // Only a workspace's digests have the form without its key.
+            Some("upsert") => {
+                held.is_some_and(|held| workspace_value_stated(held, &change["value"]))
             }
+            // A complete fold knows that an absent entry is absent from the journal's live
+            // topology. A partial fold cannot distinguish a dead item from one it has not seen,
+            // so it keeps the delete for the journal reducer to apply.
+            Some("delete") => self.complete && held.is_none(),
+            _ => false,
+        }
     }
 }
 
@@ -543,6 +564,9 @@ impl WorkspaceRegistry {
     ) {
         match self.public_fold.as_mut() {
             Some(fold) if fold.revision == previous_revision => {
+                if full_projection {
+                    fold.begin_complete_projection();
+                }
                 fold.apply(journaled);
                 fold.revision = revision;
                 if full_projection {
@@ -589,6 +613,9 @@ impl WorkspaceRegistry {
             // of the projection is then one it held with that value (pruned) or one the record
             // states.
             Some(held) if held < revision => {
+                if let Some(fold) = self.public_fold.as_mut() {
+                    fold.begin_complete_projection();
+                }
                 if self.catch_up_public_fold()
                     && let Some(fold) = self.public_fold.as_mut()
                 {

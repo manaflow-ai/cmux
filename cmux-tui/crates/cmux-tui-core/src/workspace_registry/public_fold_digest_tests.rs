@@ -94,7 +94,15 @@ fn values() -> Vec<Value> {
 }
 
 fn upsert(resource: &str, value: &Value) -> Value {
-    json!({"kind": "upsert", "resource": resource, "id": "x", "value": value})
+    upsert_id(resource, "x", value)
+}
+
+fn upsert_id(resource: &str, id: &str, value: &Value) -> Value {
+    json!({"kind": "upsert", "resource": resource, "id": id, "value": value})
+}
+
+fn delete(resource: &str, id: &str) -> Value {
+    json!({"kind": "delete", "resource": resource, "id": id})
 }
 
 /// For each pair of representative values, of each tracked resource, the fold's digests
@@ -199,4 +207,57 @@ fn the_fold_keeps_no_copy_of_a_value() {
             held.retained_bytes()
         );
     }
+}
+
+/// A complete fold can prune a delete for an item that is already absent. A partial fold keeps
+/// that delete because the missing entry may simply be outside the records it has folded.
+#[test]
+fn a_complete_fold_prunes_deletes_of_dead_items() {
+    let mut complete = PublicTopologyFold::default();
+    complete.apply(&json!([upsert("workspace", &json!({"id": "live"}))]));
+    complete.completed();
+    assert!(complete.states(&delete("workspace", "closed")));
+    assert!(!complete.states(&delete("workspace", "live")));
+
+    let partial = PublicTopologyFold::default();
+    assert!(!partial.states(&delete("workspace", "closed")));
+}
+
+/// Folding a retained delete removes the value and keeps a complete fold complete, so a later
+/// duplicate delete remains safe to prune.
+#[test]
+fn folding_a_delete_keeps_completeness_and_prunes_duplicates() {
+    let mut fold = PublicTopologyFold::default();
+    fold.apply(&json!([upsert("workspace", &json!({"id": "live"}))]));
+    fold.completed();
+    fold.apply(&json!([delete("workspace", "live")]));
+    assert!(fold.complete);
+    assert!(fold.values.is_empty());
+    assert!(fold.states(&delete("workspace", "live")));
+}
+
+#[test]
+fn an_exited_terminal_is_not_retained_by_the_fold() {
+    let mut fold = PublicTopologyFold::default();
+    fold.apply(&json!([
+        upsert_id("terminal", "running", &json!({"lifecycle": "running"})),
+        upsert_id("terminal", "exited", &json!({"lifecycle": "exited"})),
+    ]));
+
+    assert!(fold.values.contains_key(&("terminal".into(), "running".into())));
+    assert!(!fold.values.contains_key(&("terminal".into(), "exited".into())));
+    assert!(!fold.complete);
+}
+
+#[test]
+fn a_complete_projection_with_an_exited_terminal_stays_conservative() {
+    let mut fold = PublicTopologyFold::default();
+    fold.apply(&json!([
+        upsert_id("workspace", "workspace", &json!({"id": "workspace"})),
+        upsert_id("terminal", "exited", &json!({"lifecycle": "exited"})),
+    ]));
+    fold.completed();
+
+    assert!(!fold.complete);
+    assert!(!fold.holds_every_resource());
 }

@@ -172,6 +172,29 @@ fn rebuild(parked: ParkedMirror) -> ghostty_vt::Result<Terminal> {
 }
 
 impl PtySurface {
+    /// The terminal has ended and no reader can rebuild it from a host. Keep
+    /// the bounded replay and zero-scrollback placeholder so the final tab
+    /// still rebuilds its screen on the next lock without retaining the full
+    /// VT runtime.
+    pub(super) fn park_dead_mirror(&self) -> bool {
+        let Some(mux) = self.mux.upgrade() else { return false };
+        let defaults = mux.default_colors();
+        let scrollback = mux
+            .surface_options
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .scrollback;
+        let title_changed = Arc::new(AtomicBool::new(false));
+        let Ok(geometry) = self.geometry.lock() else { return false };
+        self.term.park(ParkMirror {
+            geometry: *geometry,
+            scrollback,
+            defaults,
+            callbacks: Callbacks::default(),
+            title_changed: &title_changed,
+        })
+    }
+
     /// Nothing reads this terminal's mirror on its own: no attach or render
     /// viewer and no resource subscriber. Anyone who comes later locks the
     /// mirror, which rebuilds it.
