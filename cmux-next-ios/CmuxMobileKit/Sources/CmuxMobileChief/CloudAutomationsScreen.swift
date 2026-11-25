@@ -32,6 +32,7 @@ public struct CloudAutomationsScreen: View {
             CmuxSpinner(label: Text("Loading automations…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("automations.loading")
+                .placeholderBound("cloud.automations.loading", .milliseconds(2000))
         case .failed(let message):
             ContentUnavailableView {
                 Label("Couldn't load automations", systemImage: "exclamationmark.triangle")
@@ -202,7 +203,7 @@ struct CloudAutomationDetail: View {
                         }
                     }
                     if !row.task.isEmpty {
-                        Section("Does") { Text(row.task).font(theme.type.body).textSelection(.enabled) }
+                        Section("Does") { InPlaceSelectionLabel(row.task) }
                     }
                     Section {
                         CloudAutomationActions(model: model, row: row, deleting: $deleting)

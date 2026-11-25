@@ -44,7 +44,10 @@ FAKE_GH = r"""#!/usr/bin/env python3
 import json, os, sys
 state = json.load(open(os.environ["FAKE_STATE"]))
 args = sys.argv[1:]
-if os.environ.get("GH_TOKEN") in state.get("rate_limited", []):
+path = next((a for a in args[1:] if a.startswith("repos/")), "")
+limited_paths = state.get("rate_limited_paths", [])
+if (os.environ.get("GH_TOKEN") in state.get("rate_limited", []) or
+        any(fragment in path for fragment in limited_paths)):
     message = "gh: API rate limit exceeded for the repo installation (HTTP 403)"
     if state.get("rate_limit_header"):
         message += f"\nx-ratelimit-reset: {state['rate_limit_header']}"
@@ -54,7 +57,6 @@ open(os.environ["FAKE_LOG"] + ".tokens", "a").write(os.environ.get("GH_TOKEN", "
 if args[:2] == ["run", "rerun"]:
     target = args[3] if args[2] == "--job" else args[2]
     sys.exit(0 if target not in state.get("rerun_fails", []) else 1)
-path = next(a for a in args[1:] if a.startswith("repos/"))
 if "-X" in args:
     if state.get("delete_fails"):
         print(state["delete_fails"], file=sys.stderr); sys.exit(1)
@@ -340,6 +342,17 @@ class CommandTests(unittest.TestCase):
         self.assertNotIn("installation ID", result.stdout)
         self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
 
+    def test_published_candidate_metadata_rate_limit_names_the_deferred_run(self):
+        state = {"rate_limited_paths": ["/actions/workflows/cmux-tui-artifacts.yml/runs?"],
+                 "artifacts": [marker(31, 12)],
+                 "runs": {"12": {"status": "completed", "run_attempt": 1}}}
+        result, calls = self.run_handoff(state, extra=("--published",))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("[quota-only]", result.stdout)
+        self.assertIn("published tree; run 12; no attempt before ", result.stdout)
+        self.assertNotIn("published tree; run 99;", result.stdout)
+        self.assertFalse(any(c[:2] == ["run", "rerun"] for c in calls))
+
     def test_rate_limit_reset_header_wins_over_full_hour_fallback(self):
         now = datetime(2026, 11, 17, 4, 55, 31, tzinfo=timezone.utc)
         self.assertEqual(handoff.quota_retry_before("x-ratelimit-reset: 1794891631", now), "05:01Z")
@@ -416,8 +429,11 @@ class WorkflowTests(unittest.TestCase):
         steps = notify["steps"]
         step = next(s for s in steps if s.get("name") == "Hand the key to a run that deferred to this one")
         self.assertNotIn("continue-on-error", step, "a hand-off that could not run is the job's red, not a warning")
-        self.assertEqual(step["env"]["GH_TOKEN"], "${{ github.token }}")
-        self.assertEqual(step["env"]["GH_TOKEN_SPARE"], "${{ steps.cmux-bot-token.outputs.token }}")
+        # The CI pool App's token first, the workflow token without it (#51604); the bot App's token, or the
+        # workflow token behind a pool token, is the spare.
+        self.assertEqual(step["env"]["GH_TOKEN"], "${{ env.CI_POOL_GH_TOKEN || github.token }}")
+        self.assertEqual(step["env"]["GH_TOKEN_SPARE"],
+                         "${{ steps.cmux-bot-token.outputs.token || env.CI_POOL_GH_TOKEN && github.token || '' }}")
         mint = next(s for s in steps if s.get("id") == "cmux-bot-token")
         self.assertLess(steps.index(mint), steps.index(step))
         self.assertEqual(mint["uses"], "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1")

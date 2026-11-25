@@ -407,6 +407,16 @@ fn english_catalog_equals_the_swift_dump() {
         actions
             .retain(|action| !action["id"].as_str().is_some_and(|id| listed(&AWAITING_REPIN, id)));
     }
+    // An action the dump does not have yet has no palette aliases or tier entry there either:
+    // they wait with its `actions/<id>` marker (#49740 and #49757 each added such rows).
+    if let Some(aliases) = rust["palette"]["aliases"].as_object_mut() {
+        aliases.retain(|id, _| !listed(&AWAITING_REPIN, id));
+    }
+    for tier in ["daily", "niche"] {
+        if let Some(list) = rust["palette"][tier].as_array_mut() {
+            list.retain(|id| !id.as_str().is_some_and(|id| listed(&AWAITING_REPIN, id)));
+        }
+    }
     awaiting_family_repin(&mut rust, &swift);
     awaiting_tier_repin(&mut rust, &swift);
     awaiting_field_repin(&mut rust, &swift);

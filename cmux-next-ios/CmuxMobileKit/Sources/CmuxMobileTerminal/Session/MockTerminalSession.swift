@@ -1,5 +1,5 @@
-// DEBUG and Demo builds only: mock content is never compiled into Production.
-#if DEBUG
+// In every build: DEBUG mock mode and the App Review demo account (server-flagged,
+// AppStore.loadReviewDemo) use it. A live account never does (TerminalSessionChoice).
 import CmuxMobileTransport
 import Foundation
 
@@ -15,6 +15,11 @@ public final class MockTerminalSession: TerminalSession {
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     private let clock: any Clock<Duration>
     private let playsIntro: Bool
+    /// The intro is written at once (the review demo): the terminal opens on its
+    /// last commands and takes typing from the first frame. Off: it is typed out.
+    private let instantIntro: Bool
+    /// Pauses are skipped while the instant intro is written.
+    private var paced = true
     private var columns = 50
     private var rows = 40
     private var line = ""
@@ -53,6 +58,19 @@ public final class MockTerminalSession: TerminalSession {
     public private(set) var bytesFromPhone = 0
     /// DEBUG bench: wheel reports and cursor keys `claudefull` scrolled by.
     public private(set) var appScrolls = 0
+    /// Stamps every write as hostd stamps a redraw (`.paintMark`), so the screen reports
+    /// when it painted it (``reportPaint(_:)``): the simulator's receive-to-paint.
+    public var stampsRedraws = false
+    private var paintSeq = 0
+    /// When the phone's first unanswered input was sent (gesture-to-paint stamps, negative seq).
+    private var firstInputMs: Double?
+    private var gestureSeq = 0
+    /// What the screen reported painted (`[seq, received, painted]`, epoch ms).
+    public var paintSamples: [TerminalPaintTally.Sample] = []
+
+    public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
+        paintSamples += samples
+    }
     /// DEBUG bench (`tuipan`): input goes the way `DaemonTerminalSession`
     /// sends it, one `send` per main-queue turn with everything Ghostty
     /// wrote in it (`scheduleInputDrain`), on a later turn: the finger's
@@ -95,12 +113,19 @@ public final class MockTerminalSession: TerminalSession {
     private var fullTick = 0
 
     /// `playsIntro`: run `ls -la`, `git log` and a build when the session starts.
-    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, roundTrip: Duration = .zero,
-                macResize: Duration? = nil) {
+    /// `offline`: the Mac is out of reach (`CMUX_MOBILE_MOCK_LINK=down`). The
+    /// shell's screen is there, the session says it is offline, and nothing
+    /// typed arrives.
+    private let offline: Bool
+
+    public init(clock: any Clock<Duration> = ContinuousClock(), playsIntro: Bool = true, instantIntro: Bool = false,
+                roundTrip: Duration = .zero, macResize: Duration? = nil, offline: Bool = false) {
         self.clock = clock
         self.playsIntro = playsIntro
+        self.instantIntro = instantIntro
         self.roundTrip = roundTrip
         self.macResize = macResize
+        self.offline = offline
     }
 
     public var remoteRows: Int? { macGrid?.rows }
@@ -110,9 +135,12 @@ public final class MockTerminalSession: TerminalSession {
         self.handler = handler
         handler(.title("zsh — cmux-next"))
         let intro = playsIntro
+        if instantIntro { paced = false }
         run { session in
+            defer { session.paced = true }
             session.write("Last login: Mon Oct 12 09:41:07 on ttys004\r\n")
             session.prompt()
+            if session.offline { session.handler?(.connection(.offline(mac: "Mock Mac"))) }
             guard intro else { return }
             for command in ["ls -la", "git log --oneline --graph -n 18", "cargo build --release -p cmux-mobile-host"] {
                 try await session.typeCommand(command)
@@ -121,7 +149,9 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     public func send(_ bytes: Data) {
+        guard !offline else { return }
         bytesFromPhone += bytes.count
+        if stampsRedraws, firstInputMs == nil { firstInputMs = TerminalPaintReport.nowMs }
         guard batchesInputPerTurn else {
             sends += 1
             return forward(bytes)
@@ -161,8 +191,15 @@ public final class MockTerminalSession: TerminalSession {
             appScrolls += full.scrolls - before
             program = .agentFull(full)
             write(full.render(columns: columns, rows: rows))
+            if stampsRedraws, let sentMs = firstInputMs {
+                // Gesture to paint: the app's redraw for the wheel the phone sent.
+                gestureSeq += 1
+                handler?(.paintMark(seq: -gestureSeq, receivedMs: sentMs))
+            }
+            firstInputMs = nil
             return
         }
+        firstInputMs = nil
         for byte in bytes { receive(byte) }
         // A lone ESC at the end of a write is the Escape key, not a sequence start.
         if escapeBuffer == [0x1B] {
@@ -278,9 +315,15 @@ public final class MockTerminalSession: TerminalSession {
     private func write(_ text: String) {
         if macResize != nil, !isAlternateScreen { record(text) }
         let data = Data(text.utf8)
+        #if DEBUG
         // No link in mock mode: the shell's output is what the transport would deliver.
         ReceivedByteCount.shared.add(data.count)
+        #endif
         handler?(.output(data))
+        if stampsRedraws {
+            paintSeq += 1
+            handler?(.paintMark(seq: paintSeq, receivedMs: TerminalPaintReport.nowMs))
+        }
     }
 
     /// The primary screen's history the Mac would replay (its last 256 KB).
@@ -316,6 +359,7 @@ public final class MockTerminalSession: TerminalSession {
     }
 
     private func pause(_ milliseconds: Int) async throws {
+        guard paced else { return }
         try await clock.sleep(for: .milliseconds(milliseconds))
     }
 
@@ -400,7 +444,7 @@ public final class MockTerminalSession: TerminalSession {
             write("\u{1B}[H\u{1B}[2J")
             write("\u{1B}[32m❯\u{1B}[0m \(line)")
         case .control("d"):
-            if line.isEmpty { write("\r\n\u{1B}[2m(mock) exit is disabled\u{1B}[0m"); prompt() }
+            if line.isEmpty { write("\r\n\u{1B}[2mexit is disabled in this session\u{1B}[0m"); prompt() }
         case .up:
             guard let last = history.last else { return }
             write(String(repeating: "\u{8} \u{8}", count: line.count))
@@ -458,7 +502,7 @@ public final class MockTerminalSession: TerminalSession {
             // `codex N`: N rows of an earlier answer above the box.
             let rule = String(repeating: "-", count: max(10, min(40, columns - 2)))
             let earlier = (0..<(parts.count > 1 ? Int(parts[1]) ?? 0 : 0)).map { "• earlier answer row \($0 + 1)\r\n" }.joined()
-            write("\u{1B}[H\u{1B}[2J\u{1B}[3J" + earlier + "╭\(rule)╮\r\n│ >_ OpenAI Codex (mock)\r\n│ model: gpt-6 high   /model to change\r\n│ directory: ~/cmux-next\r\n╰\(rule)╯\r\n\r\n"
+            write("\u{1B}[H\u{1B}[2J\u{1B}[3J" + earlier + "╭\(rule)╮\r\n│ >_ OpenAI Codex\r\n│ model: gpt-6 high   /model to change\r\n│ directory: ~/cmux-next\r\n╰\(rule)╯\r\n\r\n"
                 + "  To get started, describe a task or try one of these commands:\r\n\r\n  /init - create an AGENTS.md file\r\n  /status - show current session configuration\r\n\r\n"
                 + "› Ask Codex to do anything\r\n\r\n  ? for shortcuts                          100% context left")
             write("\u{1B}[2A\r\u{1B}[2C")
@@ -491,6 +535,14 @@ public final class MockTerminalSession: TerminalSession {
             let rows = (older + 1...older + shown).map(row)
             heldBack = ((1...older).map(row), rows, delay)
             write(rows.map { $0 + "\r\n" }.joined())
+        case "widetable":
+            // widetable [COLUMNS=180] [ROWS=12]: a table wider than the phone
+            // (Leo, 2026-11-23: "an extra wide table... just doesnt even work
+            // right now"), every row one line: `|` cells of 10 columns named
+            // by their first column, the last one `END`.
+            let width = parts.count > 1 ? Int(parts[1]) ?? 180 : 180
+            let count = parts.count > 2 ? Int(parts[2]) ?? 12 : 12
+            try await stream(MockOutput.wideTable(columns: width, rows: count), lineDelay: 4)
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))
@@ -581,7 +633,8 @@ public final class MockTerminalSession: TerminalSession {
             let mouse = !parts.contains("keys")
             let stream = parts.first { $0.hasPrefix("stream=") }.flatMap { Int($0.dropFirst(7)) }.map { max(5, $0) }
             busy = false
-            let full = MockClaudeFull(rows: count, mouse: mouse)
+            var full = MockClaudeFull(rows: count, mouse: mouse)
+            full.scrolling = parts.contains("scroll")
             program = .agentFull(full)
             setAlternate(true, program: "claude")
             if mouse { handler?(.output(Data(Self.htopMouse.utf8))) }
@@ -597,7 +650,13 @@ public final class MockTerminalSession: TerminalSession {
                         if full.offset > 0 { full.offset += 1 }
                     }
                     self.program = .agentFull(full)
-                    self.write(stream != nil ? full.render(columns: self.columns, rows: self.rows) : full.statusRow(rows: self.rows))
+                    if stream == nil {
+                        self.write(full.statusRow(rows: self.rows))
+                    } else if full.scrolling, full.offset == 0 {
+                        self.write(full.appendRow(columns: self.columns, rows: self.rows))
+                    } else {
+                        self.write(full.render(columns: self.columns, rows: self.rows))
+                    }
                 }
             }
             tasks.append(task)
@@ -768,6 +827,10 @@ public final class MockTerminalSession: TerminalSession {
 struct MockClaudeFull: Equatable {
     var rows: Int
     let mouse: Bool
+    /// `scroll`: the transcript is written into a scroll region (rows 2 to
+    /// the status row) a line feed at a time, so its rows scroll off the
+    /// region's top as a log viewer's do, instead of a whole-screen redraw.
+    var scrolling = false
     /// Rows scrolled up from the newest.
     var offset = 0
     var tick = 0
@@ -805,6 +868,7 @@ struct MockClaudeFull: Equatable {
     /// The whole screen: a header row, the transcript ending `offset` rows
     /// above the newest, the status row and the input box.
     func render(columns: Int, rows screen: Int) -> String {
+        if scrolling { return renderScrolling(columns: columns, rows: screen) }
         let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
         let body = max(1, screen - 5)
         let last = max(1, rows - offset)
@@ -816,6 +880,33 @@ struct MockClaudeFull: Equatable {
         out += statusRow(rows: screen)
         out += "\u{1B}[\(screen - 2);1H\u{256D}\(rule)\u{256E}\u{1B}[\(screen - 1);1H\u{2502} > \u{1B}[\(screen);1H\u{2570}\(rule)\u{256F}"
         return out + "\u{1B}[\(screen - 1);5H"
+    }
+
+    /// `scroll`: each row cleared in place (no erase of the display), the
+    /// header, then the transcript's last rows (at the newest: 3,000 past
+    /// the region) written down the region `2...screen-4`, scrolling it.
+    private func renderScrolling(columns: Int, rows screen: Int) -> String {
+        let rule = String(repeating: "\u{2500}", count: max(10, min(60, columns - 2)))
+        let body = max(1, screen - 5)
+        let last = max(1, rows - offset)
+        // Scrolled back by the app: its screen only (a redraw per wheel).
+        let first = max(1, last - body + 1 - (offset > 0 ? 0 : 3_000))
+        var out = "\u{1B}[r"
+        for row in 1...max(1, screen) { out += "\u{1B}[\(row);1H\u{1B}[2K" }
+        out += "\u{1B}[1;1H\u{1B}[33m\u{273B}\u{1B}[0m Claude Code (mock full screen, scrolling)"
+        out += "\u{1B}[2;\(body + 1)r\u{1B}[2;1H"
+        for index in first...last {
+            out += (index == first ? "" : "\r\n") + String(Self.transcriptRow(index).prefix(columns + 12))
+        }
+        out += statusRow(rows: screen)
+        out += "\u{1B}[\(screen - 2);1H\u{256D}\(rule)\u{256E}\u{1B}[\(screen - 1);1H\u{2502} > \u{1B}[\(screen);1H\u{2570}\(rule)\u{256F}"
+        return out + "\u{1B}[\(screen - 1);5H"
+    }
+
+    /// `scroll`: the newest row, a line feed at the region's bottom (its top row scrolls off).
+    func appendRow(columns: Int, rows screen: Int) -> String {
+        let body = max(1, screen - 5)
+        return "\u{1B}7\u{1B}[\(body + 1);1H\r\n" + String(Self.transcriptRow(rows).prefix(columns + 12)) + "\u{1B}8" + statusRow(rows: screen)
     }
 }
 
@@ -863,4 +954,3 @@ enum MockKey: Equatable {
         }
     }
 }
-#endif

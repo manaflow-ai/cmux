@@ -34,6 +34,8 @@ pub(crate) use import::ImportedMessage;
 pub(crate) mod links;
 #[path = "conversation_runs.rs"]
 pub(crate) mod runs;
+#[path = "conversation_scheduled.rs"]
+pub(crate) mod scheduled;
 #[path = "conversation_spill.rs"]
 pub(crate) mod spill;
 #[path = "conversation_threads.rs"]
@@ -250,6 +252,7 @@ impl ConversationStore {
         transaction.execute_batch(threads::SCHEMA)?;
         transaction.execute_batch(inbox::SCHEMA)?;
         transaction.execute_batch(runs::SCHEMA)?;
+        transaction.execute_batch(scheduled::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -858,6 +861,18 @@ pub enum ConversationEvent {
     /// echoed the capability in `set-client-info` (never the remote relay or
     /// `conversation.events`).
     Chief { chief: String, change: &'static str },
+    /// One of a participant's Send Later messages changed
+    /// (`conversation-scheduled-v1`): `scheduled` is the waiting or failed
+    /// message, or `removed` its id with `reason` `sent` (and the `seq` it
+    /// got) or `cancelled`. Not conversation state (no rev); `subscribe`
+    /// delivers it only to connections whose principal is `participant`
+    /// (never the remote relay or `conversation.events`).
+    Scheduled {
+        conversation: String,
+        participant: String,
+        scheduled: Option<Value>,
+        removed: Option<(String, &'static str, Option<u64>)>,
+    },
 }
 
 impl ConversationEvent {
@@ -912,6 +927,39 @@ impl ConversationEvent {
                 "chief": chief,
                 "change": change,
             }),
+            Self::Scheduled { conversation, participant, scheduled, removed } => {
+                let mut value = json!({
+                    "event": "conversation-scheduled-changed",
+                    "conversation": conversation,
+                    "participant": participant,
+                });
+                if let Some(scheduled) = scheduled {
+                    value["scheduled"] = scheduled.clone();
+                }
+                if let Some((id, reason, seq)) = removed {
+                    value["removed"] = json!({"id": id, "reason": reason, "seq": seq});
+                }
+                value
+            }
+        }
+    }
+
+    /// The `event` name of the line `subscribe` sends for it, read without building it: a
+    /// page relay's mailbox takes only the events its page hears
+    /// (server/cmd_subscribe.rs `subscribed_event_name`).
+    pub(crate) const fn wire_name(&self) -> &'static str {
+        match self {
+            Self::Changed { .. } => "conversation-changed",
+            Self::Typing { .. } => "conversation-typing",
+            // `subscribe` sends a draft as its own `conversation-draft` line
+            // (server/cmd_subscribe.rs), not as the stored item.
+            Self::Draft { .. } => "conversation-draft",
+            Self::Inbox { .. } => "conversation-inbox-changed",
+            Self::Run { .. } => "conversation-run-changed",
+            Self::Live { .. } => "conversation-live",
+            Self::Avatar { .. } => "participant-avatar-changed",
+            Self::Chief { .. } => "chief-changed",
+            Self::Scheduled { .. } => "conversation-scheduled-changed",
         }
     }
 
@@ -974,6 +1022,8 @@ pub(crate) struct ConversationHost {
         Mutex<std::collections::HashMap<String, cmux_conversation::HomeChangeLog>>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
+    /// Wakes the Send Later sender when the queue changes.
+    pub(crate) scheduled: Arc<scheduled::SenderWake>,
 }
 
 #[cfg(test)]

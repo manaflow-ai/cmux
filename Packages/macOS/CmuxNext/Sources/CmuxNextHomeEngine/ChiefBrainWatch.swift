@@ -38,6 +38,9 @@ public final class ChiefBrainWatch {
     private var deaths: [ContinuousClock.Instant] = []
     private var stopped = false
     private var restarting = false
+    /// It stopped restarting a host that kept dying (``deathLimit`` within ``deathWindow``), until
+    /// the next ask or a host it finds; Home's Auto then gives the Hosted Chief (``ChiefHome/isOn(canStart:gaveUp:isChiefHost:)``).
+    public private(set) var hasGivenUp = false
     private let clock = ContinuousClock()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
@@ -80,6 +83,7 @@ public final class ChiefBrainWatch {
             armOnLock()
             return
         }
+        hasGivenUp = false
         // A launch that printed its pid is watched before the host writes that pid into the lock,
         // and a reader of the brain's liveness reads the lock, not this process source. So the lock
         // watch stays armed until the lock names this host, and the write that names it tells the
@@ -178,7 +182,7 @@ public final class ChiefBrainWatch {
     /// it is one line of a small local file plus a `proc_pidpath`, once per lock change, and these
     /// sources exist only while no host is watched, so there is no stream of events to read on. Off
     /// the main actor it would need a generation check, and `isChiefHost` to cross isolation; Home's
-    /// own repeated reads are the ones that go off it (``HomeService/localChiefRuns(_:)``).
+    /// own repeated reads are the ones that go off it (``HomeService/localChiefRuns(_:canStart:gaveUp:)``).
     private func lockChanged(folder: Bool) {
         guard !stopped else { return }
         guard let pending = pendingLockPID else {
@@ -269,6 +273,7 @@ public final class ChiefBrainWatch {
         let now = clock.now
         deaths = deaths.filter { now - $0 < Self.deathWindow } + [now]
         guard deaths.count < Self.deathLimit else {
+            hasGivenUp = true
             logger.error("chief brain exited \(self.deaths.count, privacy: .public) times within a minute; not restarting until asked again")
             return
         }

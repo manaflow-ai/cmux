@@ -64,9 +64,10 @@ nonisolated extension AcpmuxPaneMethods {
         // (attachParams.ts plainAttach, forward attach, #47119); refused, every reconnect said "cmux
         // blocked opening this chat" over the composer (Leo, 2026-11-22).
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
-        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "waitLogs", "settled", "hold", "afterSeq"], []),
+        "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
-        "_acpmux/view": (["sessionId", "visible"], []),
+        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq"], []),
+        "_acpmux/seen": (["sessionId", "seq"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
@@ -122,20 +123,35 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
         "_acpmux/status": ([], []),
         "_acpmux/peers": ([], []),
+        // Which of the page's requests the daemon still runs (AcpmuxRequestIds.requestStateMethod).
+        "_acpmux/request_state": ([], []),
         // The chat Inspector's Perf tab and page reporter (PerfPanel.tsx, perfReporter.ts; acpmux perf_watch.rs):
         // a default-off diagnostic that names no path and starts nothing; acpmux answers this Mac's app and
         // unix socket only. `op`: on, off, status, read (`after`, `limit`, `waitMs`), snapshot, budgets, or report (the
-        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`).
-        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes"], []),
+        // page's measurements: `page`, `windowMs`, `spans`, `renders`, `frames`, `layoutShifts`, `bytes`), frames, or tally (frameTally.ts: `bucketMs`, `gaps`).
+        "_acpmux/perf": (["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes", "bucketMs", "gaps"], []),
         // Placement names are local display labels; the optional source lets the page filter
         // targets for a chat without exposing a host URL or session identity.
         "_acpmux/move_targets": (["source", "sourceKind"], []),
+        // `where`: "auto" (or "here"); `targets`: the places the page can start a chat on, each a
+        // `place` name and its `headroom`, all data the page already holds (Cloud today).
+        // `parent` ({machine, fork}) and `key`: the Cloud machine the starting chat runs on and
+        // this start's key, for fork placement behind `cloud.autoCloud` (acpmux fork_place.rs).
+        "_acpmux/place_chat": (["where", "targets", "parent", "key"], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
         "_acpmux/inbox_thread": (["sessionId", "threadId"], []),
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/turn_shots": (["sessionId", "turnId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
+        "_acpmux/prompts_list": ([], []),
+        "_acpmux/prompts_save": (["name", "text"], []),
+        "_acpmux/prompts_delete": (["name"], []),
+        "_acpmux/stash_list": (["chat"], []),
+        "_acpmux/stash_push": (["chat", "text", "attachments", "replaces"], []),
+        "_acpmux/stash_get": (["chat", "id"], []),
+        "_acpmux/stash_drop": (["chat", "id"], []),
+        "_acpmux/stash_move": (["chat", "to"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         // `turnId` and `revision`: the queued incarnation and revision the owner saw (acpmux answers
         // `queue.stale` on another one; direct.ts answerHeld names both).
@@ -161,8 +177,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/permission_groups": (["sessionId"], []),
         "_acpmux/permission_group_respond": (["sessionId", "groupId", "revision", "decisionKey", "decision"], []),
         "_acpmux/permission_chat_revoke": (["sessionId"], []),
-        // No `value` declines the card.
-        "_acpmux/secret_submit": (["sessionId", "secretId", "value"], []),
+        // No `value` declines the card. `keepAs`: the card's "keep as key NAME", which acpmux stores in the key store.
+        "_acpmux/secret_submit": (["sessionId", "secretId", "value", "keepAs"], []),
         // The preset approval card's answer only; a preset write (`set`, `clear`) never comes from the pane.
         "_acpmux/presets": (["name", "approveMode", "approveDigest", "sessionId"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
@@ -184,6 +200,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `accept` and `dismiss`: the offer's own one-line facts, which acpmux matches against it.
         "_acpmux/memory_resolve": (["sessionId", "offerId", "file", "accept", "dismiss"], []),
+        "_acpmux/agent_home": (["sessionId"], []),
+        // `accept` and `drop`: proposal ids from `_acpmux/agent_home`.
+        "_acpmux/agent_home_resolve": (["sessionId", "accept", "drop"], []),
         "_acpmux/context": (["sessionId"], []),
         "_acpmux/ledger": (["since", "until", "limit", "groupBy"], []),
         "_acpmux/team_audit": (["since", "until", "groupBy", "format"], []),
@@ -194,6 +213,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/context_override": (["sessionId", "scope", "text", "partId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_transcript": (["sessionId", "runId", "agentId", "before", "after", "limit"], []),
+        // `ended`: how many ended subagents to list, at most 500.
+        "_acpmux/subagents": (["sessionId", "ended"], []),
         // `before`: a `native_history` cursor, a byte offset into the chat's own transcript.
         "_acpmux/native_history": (["sessionId", "before", "mark"], []),
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
@@ -212,6 +233,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/agent_login/finish": (["loginId", "code", "sessionId"], []),
         "_acpmux/agent_login/api_key": (["agent", "key", "sessionId"], []),
         "_acpmux/agent_login/cancel": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in": (["family", "sessionId"], []),
+        "_acpmux/account/sign_in.finish": (["loginId", "sessionId"], []),
+        "_acpmux/account/sign_in.cancel": (["loginId", "sessionId"], []),
         // `live`: Fork Conversation's fork of the whole chat as it is now (acpmux `fork_through.rs`).
         // `cancelToken`: the name its Cancel stops it by (acpmux hub/fork_cancel.rs).
         "acp.session.fork": (["sessionId", "throughSeq", "live", "cancelToken", "harness", "model"], []),
@@ -225,6 +249,58 @@ nonisolated extension AcpmuxPaneMethods {
         "session/set_mode": (["sessionId", "modeId", "_meta"], []),
         "session/set_config_option": (["sessionId", "configId", "value", "_meta"], []),
     ]
+
+    /// P0, before the params rule: `object` with every key the method's lists do not name removed,
+    /// and those keys' paths (`limit`, `_meta.other`, `_meta.acpmux.peerRowBatches`), sorted; nil
+    /// when it names none. A page newer than this app may send a field the app has never heard of
+    /// (cmux#46563 sent `initialize` `_meta.acpmux.peerRowBatches`, and refusing it refused every
+    /// chat's open on a NIGHTLY, 737 times; cmux#42185 `settled` and #42460 `hold` did the same to
+    /// every attach). Dropped, the field never reaches the daemon, which answers as it did before
+    /// the field existed: what is sent is a part of the page's frame the params rule passes on its
+    /// own, so the strip never grants more than a refusal would.
+    ///
+    /// It keeps what the params rule refuses on purpose, so the rule still refuses it: a daemon
+    /// `modeFields` name outside the setting methods, a `params`, `_meta` or `_meta.acpmux` that is
+    /// not an object, and the `_meta` of a frame that redeems a gesture ticket (R1). An unknown
+    /// method is the allowlist's, never this strip's. Mirrors cmux-agent-pane-policy
+    /// `stripping_unknown_params` (tests/unknown_params.rs).
+    static func strippingUnknownParams(_ object: [String: Any], modeFields: Set<String>?) -> (object: [String: Any], dropped: [String])? {
+        guard let method = object["method"] as? String, var params = object["params"] as? [String: Any] else { return nil }
+        let known = knownParams[method] ?? ([], [])
+        let setting = settingMethods.contains(method)
+        let denied = setting ? [] : modeFields ?? []
+        var dropped: [String] = []
+        // A `_meta` that is not an object is a forged shape, not a newer key: it stays for the
+        // params rule to refuse.
+        for key in params.keys where !known.params.contains(key) && !denied.contains(key)
+            && !(key == "_meta" && !(params[key] is [String: Any])) {
+            params.removeValue(forKey: key)
+            dropped.append(key)
+        }
+        let ticketOnly = method == "_acpmux/permission_respond" || method == "_acpmux/plan/build" || method == "chat.fix_from_link"
+        if var meta = params["_meta"] as? [String: Any], !ticketOnly, !(setting && meta[gestureTicketKey] != nil) {
+            let prompt = method == "session/prompt"
+            for key in meta.keys where key != "acpmux" && !(prompt && key == gestureTicketKey) {
+                meta.removeValue(forKey: key)
+                dropped.append("_meta.\(key)")
+            }
+            if var acpmux = meta["acpmux"] as? [String: Any] {
+                // A credential (``initializeRefusedAcpmux``) is a forgery, not a newer key: it stays
+                // for the params rule to refuse.
+                for key in acpmux.keys where !known.acpmux.contains(key) && !denied.contains(key)
+                    && !initializeRefusedAcpmux.contains(key) {
+                    acpmux.removeValue(forKey: key)
+                    dropped.append("_meta.acpmux.\(key)")
+                }
+                meta["acpmux"] = acpmux
+            }
+            params["_meta"] = meta
+        }
+        guard !dropped.isEmpty else { return nil }
+        var out = object
+        out["params"] = params
+        return (out, dropped.sorted())
+    }
 
     /// P1: whether a page frame breaks the params rule. On every method: a top-level param outside
     /// the method's ``knownParams``; a `_meta` that is not an object, or that holds a key other

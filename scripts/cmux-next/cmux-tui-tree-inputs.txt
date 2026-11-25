@@ -87,6 +87,7 @@ blob Resources/theme-files/claude-desktop.json
 blob Resources/theme-files/harbor.json
 blob Resources/theme-files/lily-pond.json
 blob Resources/theme-files/meadow.json
+blob Resources/theme-files/minimal-sessions.json
 blob Resources/theme-files/moss.json
 blob Resources/theme-files/phosphor.json
 blob Resources/theme-files/teal.json
@@ -119,6 +120,7 @@ blob schemas/remote-tab/scroll-writer.json
 blob schemas/remote-tab/session.json
 blob schemas/terminal-sizing/fixtures.json
 blob schemas/settings/retired-keys.json
+blob schemas/settings/source/updates.json
 blob schemas/settings/source/agent-cache.json
 blob schemas/settings/source/agent-retry.json
 blob schemas/settings/source/mcp-servers.json

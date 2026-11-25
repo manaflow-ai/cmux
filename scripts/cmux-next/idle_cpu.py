@@ -3,7 +3,7 @@
 
     idle_cpu.py (--artifact sha256:HEX | --app APP) [--minutes 10] [--window 60] [--windows 3]
                 [--chats 0] [--fake-agent SCRIPT] [--no-sample] [--budget-cpu 1.0] [--budget-wakeups 1.0]
-                [--out DIR]
+                [--peer-rows N --restart-at M [--restart-cycles 3]] [--out DIR]
 
 The app is ready when a window is visible and its first frame is committed (not when Home is selected).
 A dogfood build must rest when nobody uses it: on 2026-11-04 Lawrence's idle Mac had acpmux daemons at
@@ -22,6 +22,10 @@ processes over budget (acpmux and cmux-tui daemon processes only: CPU % median >
 median > --budget-wakeups). --out keeps report.json and the samples (sample-<kind>-<pid>.txt).
 Exit 0: within budget. 1: over budget. 3: could not run (no app, no GUI session, Home never rendered).
 
+--peer-rows N --restart-at M: a second acpmux daemon (a peer, as an ssh host is) with N chats, linked to the
+app's daemon, which then restarts M minutes into the idle period while a batch of the peer's rows is owed to every
+agent page (owed_restart): the run that shows a page reading the list again and again after a restart (#254).
+
 Run it on a quiet fleet Mac only, through the mini scheduler (scripts/measure/idle-cpu.sh); never on a
 person's Mac. It never touches another app: every process it starts runs under its own /tmp root and is
 stopped by exact pid.
@@ -29,6 +33,7 @@ stopped by exact pid.
 from __future__ import annotations
 
 import argparse
+import signal
 import hashlib
 import json
 import math
@@ -57,14 +62,303 @@ DAEMON_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|terminal-host|optchat-chief
 SAMPLE_KINDS = re.compile(r"^(acpmux-.*|tui-daemon.*|optchat-chief)$")
 
 
+# The bench's Chromium runs without its component updater. A fresh home (every run's) downloads and unpacks every
+# Chromium component in its first minutes; on one build on cmux20-bench, 2 runs with it and 2 without, it was about
+# half the app's idle CPU (0.47-0.54 % against 0.24-0.28 %) and of the renderer's (0.37-0.45 % against 0.13-0.18 %),
+# and runs of one build varied with it. 'none' turns it back on.
+BENCH_CEF_SWITCHES = "disable-component-update"
+
+
+# --cef-trace: Chromium's startup trace as a ring buffer (the idle tail stays, the startup goes) of at most this size;
+# the JSON file is a few times that, in a temporary folder removed once read.
+CEF_TRACE_BUFFER_KB = 65536
+CEF_TRACE_CATEGORIES = "toplevel,toplevel.flow,ipc,mojom"
+
+
+def cef_trace_switches(path: str, seconds: int) -> str:
+    """The Chromium switches (colon-separated, as CMUX_NEXT_CEF_EXTRA_SWITCHES takes them) for a startup trace of
+    `seconds` into `path`."""
+    if ":" in path:
+        raise ValueError(f"a trace path with ':' cannot pass as a switch: {path}")
+    return ":".join([f"trace-startup={CEF_TRACE_CATEGORIES}", f"trace-startup-duration={int(seconds)}",
+                     "trace-startup-record-mode=record-continuously", f"trace-buffer-size-in-kb={CEF_TRACE_BUFFER_KB}",
+                     "trace-startup-format=json", f"trace-startup-file={path}"])
+
+
+def join_switches(base: str, extra: str) -> str:
+    """The bench's switches (`none`: none) and `extra`, colon-separated."""
+    return ":".join(part for part in ((base if base != "none" else ""), extra) if part)
+
+
+def _posted_from(args: dict) -> str:
+    """`function (file)` of a RunTask event's posting place, in the old (`src_func`) or the typed (`task.posted_from`)
+    argument shape."""
+    func, file = args.get("src_func"), args.get("src_file")
+    if func is None:
+        posted = (args.get("task") or {}).get("posted_from") or {}
+        func, file = posted.get("function_name"), posted.get("file_name")
+    return f"{func or '?'} ({file or '?'})"
+
+
+def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40) -> dict:
+    """Tasks per second of a Chromium JSON trace after its first `skip_s` seconds (the startup), for each process,
+    thread and posting place, busiest first."""
+    events = trace.get("traceEvents", []) if isinstance(trace, dict) else trace
+    processes = {e.get("pid"): (e.get("args") or {}).get("name", "?") for e in events
+                 if e.get("ph") == "M" and e.get("name") == "process_name"}
+    threads = {(e.get("pid"), e.get("tid")): (e.get("args") or {}).get("name", "?") for e in events
+               if e.get("ph") == "M" and e.get("name") == "thread_name"}
+    stamps = [e["ts"] for e in events if e.get("ph") != "M" and isinstance(e.get("ts"), (int, float))]
+    if not stamps:
+        return {"seconds": 0.0, "tasks": []}
+    start, end = min(stamps) + skip_s * 1e6, max(stamps)
+    seconds = max((end - start) / 1e6, 1e-3)
+    counts: dict = {}
+    for e in events:
+        if e.get("name") != "ThreadControllerImpl::RunTask" or not start <= e.get("ts", -1) <= end:
+            continue
+        key = (processes.get(e.get("pid"), str(e.get("pid"))), threads.get((e.get("pid"), e.get("tid")), str(e.get("tid"))),
+               _posted_from(e.get("args") or {}))
+        counts[key] = counts.get(key, 0) + 1
+    rows = [{"process": p, "thread": t, "posted_from": f, "count": n, "per_s": round(n / seconds, 2)}
+            for (p, t, f), n in counts.items()]
+    rows.sort(key=lambda r: (-r["count"], r["process"], r["thread"], r["posted_from"]))
+    return {"seconds": round(seconds, 1), "tasks": rows[:top]}
+
+
+def _settled(path: str, wait_s: float = 3.0) -> bool:
+    """True when `path` stopped growing over `wait_s` (Chromium finished writing it)."""
+    size = os.path.getsize(path)
+    time.sleep(wait_s)
+    return os.path.getsize(path) == size and size > 0
+
+
+def read_cef_trace(folder: str, skip_s: float = 30.0) -> dict:
+    """cef_trace_tasks of `folder`/cef-trace.json, or {"error"}; the folder is removed either way."""
+    path = os.path.join(folder, "cef-trace.json")
+    try:
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            trace = json.load(handle)
+        got = cef_trace_tasks(trace, skip_s)
+        got["bytes"] = os.path.getsize(path)
+        return got
+    except (OSError, ValueError) as error:
+        return {"error": str(error)[:300]}
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
 def with_cef_switches(prepare, switches: str):
     """`prepare` (the launch smoke's PREPARE_HOME), then the extra Chromium switches into the launch env."""
     def run(env: dict) -> None:
         prepare(env)
-        if switches:
+        if switches and switches != "none":
             env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = switches
             log(f"idle-cpu: CMUX_NEXT_CEF_EXTRA_SWITCHES={switches}")
     return run
+
+
+def chromium_dirs(home: Path) -> list[dict]:
+    """Each top-level entry of the app's Chromium root cache (`<Application Support>/<bundle id>/Chromium`, its
+    components among them) with its size in bytes, biggest first: what the component updater put on disk."""
+    rows: dict = {}
+    for root in (home / "Library/Application Support").glob("*/Chromium"):
+        for entry in root.iterdir():
+            size = 0
+            if entry.is_symlink() or not entry.is_dir():
+                size = entry.lstat().st_size
+            else:
+                for folder, _, files in os.walk(entry):
+                    for name in files:
+                        try:
+                            size += os.lstat(os.path.join(folder, name)).st_size
+                        except OSError:
+                            pass
+            rows[entry.name] = rows.get(entry.name, 0) + size
+    return [{"name": name, "bytes": size} for name, size in sorted(rows.items(), key=lambda item: (-item[1], item[0]))]
+
+
+# A peer's rows reach a page as one `_acpmux/peer_rows_changed` batch only above this many (acpmux hub/peers.rs
+# PEER_ROW_BATCH_MIN); fewer come one notice each, and no batch is ever owed.
+PEER_ROW_BATCH_MIN = 32
+
+
+def owed_restart(ops, cycles: int) -> dict:
+    """The app's acpmux restarts while a batch of a peer's rows is owed to every agent page.
+
+    A page owes a batch until a read reaches the batch's last list position (webviews sessionPages.ts `owed`); a
+    page that reads it at once owes nothing when a restart comes, so the pages (every Chromium renderer of the app)
+    are stopped first: the batch, then the daemon's end, wait unread in order, and the pages read them after it is
+    gone. The positions are the daemon run's: the new run starts from the bottom, so the old run's are pushed up
+    first (`cycles` more batches: the peer removed and linked again) past any the new run reaches at idle. A build
+    without the #254 fix then follows the old batch forever; one with it drops it at the new run's first list.
+    A hidden page drops list notices and reads the list anew when shown (sessionPages.ts `invalidate`), so it never
+    owes a batch: an agent page is shown first. `ops` does each step (LiveOwedOps on a fleet Mac); returns what was
+    done."""
+    ops.show_chat()
+    ops.add_peer()
+    rows = ops.listed_rows()
+    if rows <= PEER_ROW_BATCH_MIN:
+        raise RuntimeError(f"the app's daemon lists {rows} of the peer's rows: a batch needs more than "
+                           f"{PEER_ROW_BATCH_MIN}")
+    for _ in range(cycles):
+        ops.remove_peer()
+        ops.add_peer()
+    pages = ops.renderers()
+    old = ops.daemon_pid()
+    ops.signal(pages, signal.SIGSTOP)
+    try:
+        ops.remove_peer()
+        ops.add_peer()
+        ops.settle(3)   # the batch and its rows reach the pages' connections (sent; the pages read nothing)
+        ops.kill(old)
+    finally:
+        ops.signal(pages, signal.SIGCONT)
+    new = ops.wait_new_daemon(old, 120)
+    if not new:
+        raise RuntimeError(f"no new acpmux daemon of the app came after pid {old} was ended")
+    return {"old_pid": old, "new_pid": new, "peer_rows": rows, "batches": cycles + 1, "frozen": len(pages)}
+
+
+class LiveOwedOps:
+    """owed_restart's steps on the launched app: its acpmux daemon (`socket`), a peer daemon of the bench's own
+    (idle_cost_load.PeerDaemon) and the app's renderers. Every process it signals is the bench's: the launched
+    app's renderers and acpmux daemon (the app starts a new one after a crash, AgentPaneHost.swift)."""
+
+    def __init__(self, app_pid: int, bundle: str, socket: str, peer, want_rows: int, client=None,
+                 workspace: str | None = None):
+        self.app_pid, self.bundle, self.socket, self.peer, self.want = app_pid, bundle, socket, peer, want_rows
+        self.client, self.workspace = client, workspace
+
+    def show_chat(self):
+        if not self.workspace:
+            raise RuntimeError("no chat workspace to show: --peer-rows needs --chats 1 or more")
+        shown = self.client.action("goToWorkspace", workspace=self.workspace)
+        if isinstance(shown, dict) and (shown.get("error") or shown.get("code")):
+            raise RuntimeError(f"goToWorkspace {self.workspace}: {shown}")
+        time.sleep(5)  # test script: the shown chat page loads its list before the batches
+
+    def _rpc(self, method, params, timeout=120):
+        import idle_cost_load
+        return idle_cost_load.rpc(self.socket, method, params, timeout=timeout)
+
+    def add_peer(self):
+        self._rpc("_acpmux/peer_add", self.peer.entry)
+
+    def remove_peer(self):
+        self._rpc("_acpmux/peer_remove", {"name": self.peer.entry["name"]})
+
+    def listed_rows(self) -> int:
+        deadline, rows = time.monotonic() + 90, 0
+        while time.monotonic() < deadline:
+            listed = (self._rpc("_acpmux/sessions", {"peer": self.peer.entry["name"], "limit": 1000}) or {})
+            rows = sum(1 for row in listed.get("sessions") or [] if row.get("peer") == self.peer.entry["name"])
+            if rows >= self.want:
+                break
+            time.sleep(2)  # test script: waiting for the peer's chats to reach the app's daemon
+        return rows
+
+    def _owned(self) -> dict:
+        return bench_memory.owned(self.app_pid, self.bundle)
+
+    def renderers(self) -> list[int]:
+        return renderer_pids(self._owned())
+
+    def daemon_pid(self) -> int:
+        """The daemon that serves the app's socket (its own `_acpmux/status` pid): the app also runs Chief's
+        acpmux and others (3 on cmux20-bench, 2026-11-24), so a process name alone does not tell which."""
+        pid = (self._rpc("_acpmux/status", {}, timeout=10) or {}).get("pid")
+        kind = self._owned().get(pid, ("", ""))
+        if not isinstance(pid, int) or not kind[0].startswith("acpmux-daemon") or " acp daemon run" in kind[1]:
+            raise RuntimeError(f"the app's acpmux socket is served by pid {pid!r} ({kind[0] or 'not the app'}'s), "
+                               "not an acpmux daemon of the app's own")
+        return pid
+
+    def signal(self, pids, number):
+        for pid in pids:
+            try:
+                os.kill(pid, number)
+            except ProcessLookupError:
+                pass
+
+    def settle(self, seconds):
+        time.sleep(seconds)  # test script: the batch reaches the stopped pages' connections
+
+    def kill(self, pid):
+        os.kill(pid, signal.SIGKILL)
+
+    def wait_new_daemon(self, old: int, seconds: float) -> int | None:
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            try:
+                pid = self.daemon_pid()
+            except (OSError, RuntimeError):
+                pid = None
+            if pid and pid != old:
+                return pid
+            time.sleep(1)  # test script: the app starts its daemon again when a page reconnects
+        return None
+
+
+TIMER_RE = re.compile(r"<CFRunLoopTimer [^>]*>\{valid = (\w+), firing = \w+, interval = ([0-9.e+-]+),[^}]*?"
+                      r"callout = ([^,}\n]+)")
+
+
+def wake_report(before: dict, after: dict) -> dict:
+    """The app's own wakeup sources over the measured windows, from two `debug.wakeups` answers: each ledger
+    (owner, reason) count's rate between them (one born between them counts from 0), busiest first, and the main
+    run loop's valid repeating timers at the end (each wakes the main thread 1/interval times a second, outside
+    the ledger)."""
+    if not isinstance(before, dict) or not isinstance(after, dict) or before.get("error") or after.get("error"):
+        return {"error": (after or {}).get("error") or (before or {}).get("error") or "no debug.wakeups answer"}
+    seconds = max(float(after.get("uptime_s") or 0) - float(before.get("uptime_s") or 0), 1e-3)
+    was = {(e.get("owner"), e.get("reason")): e.get("count") or 0 for e in before.get("ledger") or []}
+    ledger = []
+    for entry in after.get("ledger") or []:
+        key = (entry.get("owner"), entry.get("reason"))
+        delta = (entry.get("count") or 0) - was.get(key, 0)
+        if delta > 0:
+            ledger.append({"owner": key[0], "reason": key[1], "count": delta, "per_s": round(delta / seconds, 3)})
+    ledger.sort(key=lambda e: -e["count"])
+    timers = []
+    seen = set()
+    for valid, interval, callout in TIMER_RE.findall(after.get("main_run_loop") or ""):
+        if valid != "Yes" or float(interval) <= 0 or (callout.strip(), interval) in seen:
+            continue
+        seen.add((callout.strip(), interval))
+        timers.append({"callout": callout.strip()[:160], "interval_s": float(interval),
+                       "per_s": round(1 / float(interval), 3)})
+    timers.sort(key=lambda t: -t["per_s"])
+    return {"seconds": round(seconds, 1), "ledger": ledger,
+            "ledger_per_s": round(sum(e["per_s"] for e in ledger), 3), "timers": timers}
+
+
+def executable_name(bundle: str) -> str:
+    """The app's executable name (CFBundleExecutable): what a trace shows for a thread with no pthread name."""
+    import plistlib
+    try:
+        with open(Path(bundle) / "Contents" / "Info.plist", "rb") as handle:
+            return str(plistlib.load(handle).get("CFBundleExecutable") or "")
+    except (OSError, plistlib.InvalidFileException):
+        return ""
+
+
+def thread_wake_rows(traced: dict, sampled: dict | None = None, process_name: str = "") -> list[dict]:
+    """thread_wakes.record's threads, busiest first: wakeups and CPU ms per second, with the thread's name. A thread
+    with no pthread name (the trace shows the process name) is named by `sampled` (thread_wakes.sample_threads of a
+    `sample` of the same process): its dispatch queue, else its heaviest stack's first frames."""
+    import thread_wakes
+    seconds = max(float(traced.get("seconds") or 0), 1e-3)
+    rows = []
+    for tid, t in (traced.get("threads") or {}).items():
+        name = (t.get("name") or "").strip()
+        got = (sampled or {}).get(tid)
+        row = {"tid": tid, "name": thread_wakes.label("" if name == process_name else name, got) if got else (name or "?"),
+               "wakes_per_s": round(t.get("wakes", 0) / seconds, 2), "cpu_ms_per_s": round(t.get("running_ns", 0) / 1e6 / seconds, 3)}
+        if got and got.get("frames"):
+            row["frames"] = got["frames"][:6]
+        rows.append(row)
+    return sorted(rows, key=lambda r: -r["wakes_per_s"])
 
 
 def log(message: str) -> None:
@@ -151,7 +445,7 @@ PAGE_PROBE = """(() => {
     return {name, where, iterations: String(timing.iterations), duration: timing.duration};
   });
   const el = document.activeElement;
-  return JSON.stringify({visibility: document.visibilityState, focus: document.hasFocus(),
+  return JSON.stringify({visibility: document.visibilityState, focus: document.hasFocus(), ready: document.readyState,
     active: el ? el.tagName + (el.isContentEditable ? "[contenteditable]" : "") : null, animations: anims.slice(0, 20),
     animation_count: anims.length});
 })()"""
@@ -181,14 +475,20 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
         reply = devtools(browser, "Performance.getMetrics")
         return {m["name"]: m["value"] for m in reply.get("metrics", [])} if "metrics" in reply else None
 
+    every = (call("debug.cef_pages") or {}).get("pages") or []
+    # Every page's load state, browser tabs and blank pages too: a page whose load never ends keeps Chrome's tab icon
+    # spinning (a compositor animation in the app at idle: "CompositorAnimationObserver is active for too long ...
+    # TabIcon" in the app log).
+    log("IDLE-CPU-LOADING " + json.dumps([{"browser": p.get("browser"), "origin": p.get("origin"), "path": p.get("path"),
+                                           "hidden": p.get("hidden"), "loading": p.get("loading")} for p in every]))
     # Hidden pages too: a hidden page's script runs on its renderer's main thread as a shown one's does.
-    pages = [page for page in (call("debug.cef_pages") or {}).get("pages") or []
-             if str(page.get("origin", "")).startswith("cmux-page://")]
+    pages = [page for page in every if str(page.get("origin", "")).startswith("cmux-page://")]
     out = []
     for page in pages:
         devtools(page["browser"], "Performance.enable")
         entry = {"browser": page["browser"], "origin": page.get("origin"), "path": page.get("path"),
-                 "hidden": bool(page.get("hidden")), "renderer_clients": page.get("renderer_clients")}
+                 "hidden": bool(page.get("hidden")), "loading": page.get("loading"),
+                 "renderer_clients": page.get("renderer_clients")}
         probe = devtools(page["browser"], "Runtime.evaluate", {"expression": PAGE_PROBE, "returnByValue": True})
         try:
             entry.update(json.loads(probe["result"]["value"]))
@@ -206,7 +506,7 @@ def page_activity(call, seconds: float = 10.0) -> list[dict]:
         except (KeyError, TypeError, ValueError):
             entry["idle_probe"] = {"error": reply}
     before = {entry["browser"]: metrics(entry["browser"]) for entry in out}
-    time.sleep(seconds)  # the probed window: the pages run with no call into them
+    time.sleep(seconds)  # sleep-ok: the measured window: the pages run with no call into them
     for entry in out:
         first, last = before[entry["browser"]], metrics(entry["browser"])
         if first and last:
@@ -476,7 +776,7 @@ def bench_line(rows: list[dict], samples: dict) -> dict:
     return line
 
 
-def main(argv: list[str] | None = None) -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--artifact", help="sha256:HEX of a fleet build's app zip (cmux-ci status JOB: artifact)")
@@ -498,16 +798,54 @@ def main(argv: list[str] | None = None) -> int:
                         help="after each window: one IDLE-CPU-WINDOW line per daemon and `sample` of the busiest process")
     parser.add_argument("--budget-cpu", type=float, default=1.0, help="CPU %% of one core per daemon process")
     parser.add_argument("--budget-wakeups", type=float, default=1.0, help="wakeups per second per daemon process")
-    parser.add_argument("--cef-switches", default="",
+    parser.add_argument("--cef-switches", default=BENCH_CEF_SWITCHES,
                         help="extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES; development "
-                             "bundles of DEBUG builds), e.g. disable-component-update for an arm without the updater")
+                             f"bundles of DEBUG builds); default {BENCH_CEF_SWITCHES} (see BENCH_CEF_SWITCHES), "
+                             "'none' for none (the component updater on, as a person's app runs)")
+    parser.add_argument("--peer-rows", type=int, default=0,
+                        help=f"a peer acpmux with this many chats (more than {PEER_ROW_BATCH_MIN}: one batch) linked "
+                             "to the app's daemon; needs --restart-at")
+    parser.add_argument("--restart-at", type=float, default=None,
+                        help="with --peer-rows: minutes into the idle period at which the app's acpmux restarts "
+                             "with a batch of the peer's rows owed to every page (owed_restart)")
+    parser.add_argument("--restart-cycles", type=int, default=3,
+                        help="with --peer-rows: batches before the owed one, so the old run's positions pass the "
+                             "new run's")
+    parser.add_argument("--wake-trace", type=int, default=0,
+                        help="after the windows: the app's own wakeup ledger over them (debug.wakeups), its main run "
+                             "loop timers, and a System Trace of this many seconds (1-15; capped in size and "
+                             "refused below 30 GiB free, thread_wakes.record) naming each app thread's wakeups")
+    parser.add_argument("--cef-trace", type=int, default=0,
+                        help="Chromium's own startup trace for this many seconds (30-600; a ring buffer of "
+                             f"{CEF_TRACE_BUFFER_KB >> 10} MiB in a temporary folder removed after): tasks per second for "
+                             "each thread and the place that posted them, the first 30 s (startup) left out")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
+    args.parser = parser
+    return args
+
+
+def check_args(args: argparse.Namespace) -> None:
+    parser = args.parser
+    if args.cef_trace != 0 and not 30 <= args.cef_trace <= 600:
+        parser.error("--cef-trace must be 0 (off) or 30 to 600 seconds")
+    if not 0 <= args.wake_trace <= 15:
+        parser.error("--wake-trace must be 0 (off) to 15 seconds")
     if (args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0
             or not math.isfinite(args.writers) or not math.isfinite(args.window) or not math.isfinite(args.minutes)
             or args.writers < 0 or args.history_prompt_kb < 0 or (args.writers > 0 and args.history <= 0)):
         parser.error("--windows must be >= 1, --window > 0, --minutes, --chats, --history, --history-prompt-kb and "
                      "--writers >= 0, and --writers needs --history")
+    if (args.peer_rows or args.restart_at is not None) and not (
+            args.chats >= 1 and args.peer_rows > PEER_ROW_BATCH_MIN and args.restart_at is not None
+            and math.isfinite(args.restart_at) and 0 <= args.restart_at <= args.minutes and args.restart_cycles >= 0):
+        parser.error(f"--peer-rows must be > {PEER_ROW_BATCH_MIN} with --restart-at between 0 and --minutes, "
+                     "--chats >= 1 (a shown agent page) and --restart-cycles >= 0")
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    check_args(args)
     out = Path(args.out) if args.out else None
     if out:
         out.mkdir(parents=True, exist_ok=True)
@@ -529,14 +867,49 @@ def main(argv: list[str] | None = None) -> int:
         if args.chats > 0:
             chats = bench_memory.FakeChats(client, bundle, args.fake_agent)
             for index in range(args.chats):
-                made += chats.open(index) is not None
+                workspace = chats.open(index)
+                made += workspace is not None
+                state["chat_workspace"] = workspace or state.get("chat_workspace")
             log(f"idle-cpu: {made} of {args.chats} chats made, their first turn answered")
             if made < args.chats:
                 verdict.update(status=3, why=f"only {made} of {args.chats} chats were made")
                 return []
         result["chats_made"] = made
+        if args.peer_rows:
+            return idle_with_owed_restart(process, bundle, client, env)
         log(f"idle-cpu: idle {args.minutes:g} min from now, no call into the app")
-        time.sleep(args.minutes * 60)  # the idle period itself
+        time.sleep(args.minutes * 60)  # sleep-ok: the idle period itself (--minutes, no call into the app)
+        return measured(process, bundle, client, env)
+
+    def idle_with_owed_restart(process, bundle, client, env):
+        import idle_cost_load
+        root = Path(tempfile.mkdtemp(prefix="idle-owed-"))
+        peer = idle_cost_load.PeerDaemon(bundle, str(root), args.fake_agent)
+        try:
+            peer.start()
+            made = sum(peer.new_chat(f"idle bench peer chat {i}") is not None for i in range(args.peer_rows))
+            log(f"idle-cpu: the peer daemon has {made} of {args.peer_rows} chats")
+            socket_path = bench_memory.FakeChats.acpmux_socket(bundle)
+            ops = LiveOwedOps(process.pid, bundle, socket_path, peer, made, client, state.get("chat_workspace"))
+            log(f"idle-cpu: idle {args.minutes:g} min from now; the app's acpmux restarts at {args.restart_at:g} min "
+                "with a batch of the peer's rows owed")
+            time.sleep(args.restart_at * 60)  # sleep-ok: the idle period before the restart
+            started = time.monotonic()
+            try:
+                report = owed_restart(ops, args.restart_cycles)
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                verdict.update(status=3, why=f"the owed restart failed: {error}")
+                return [verdict["why"]]
+            result["owed_restart"] = report
+            log("IDLE-CPU-RESTART " + json.dumps(report, sort_keys=True))
+            rest = args.minutes * 60 - args.restart_at * 60 - (time.monotonic() - started)
+            time.sleep(max(0.0, rest))  # sleep-ok: the rest of the idle period, no call into the app
+            return measured(process, bundle, client, env)
+        finally:
+            peer.stop()
+            shutil.rmtree(root, ignore_errors=True)
+
+    def measured(process, bundle, client, env):
         if process.poll() is not None:
             verdict.update(status=1, why=f"the app exited during the idle period (status {process.returncode})")
             return [verdict["why"]]
@@ -553,14 +926,35 @@ def main(argv: list[str] | None = None) -> int:
 
         threads: list = []
         renderer_threads: list = []
+        wake_call = lambda: client.call("debug.wakeups", {"run_loop": True}, timeout=30)  # noqa: E731
+        wakes_before = wake_call() if args.wake_trace else None
         rows = measure(process.pid, bundle, args.windows, args.window,
                        each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
         result["processes"] = rows
+        if args.wake_trace:
+            import thread_wakes
+            result["wakeups"] = wake_report(wakes_before, wake_call())
+            log("IDLE-CPU-WAKE-LEDGER " + json.dumps(result["wakeups"], sort_keys=True)[:4000])
+            traced = thread_wakes.record(process.pid, args.wake_trace)
+            # A sample right after names the threads the trace cannot (no pthread name): same tids.
+            sampled = thread_wakes.sample_threads(sample(process.pid, "app-wake", out))
+            result["thread_wakes"] = traced.get("error") or thread_wake_rows(traced, sampled, executable_name(bundle))
+            log("IDLE-CPU-WAKE-THREADS " + json.dumps(result["thread_wakes"])[:4000])
+        if cef_trace_dir:
+            # Chromium writes the file when the trace's duration from its start has passed.
+            deadline = time.monotonic() + args.cef_trace + 120
+            target = os.path.join(cef_trace_dir, "cef-trace.json")
+            while time.monotonic() < deadline and not (os.path.exists(target) and _settled(target)):
+                time.sleep(2)
+            result["cef_trace"] = read_cef_trace(cef_trace_dir)
+            log("IDLE-CPU-CEF-TRACE " + json.dumps(result["cef_trace"])[:6000])
         result["app_threads"] = threads
         result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
         for entry in result["pages"]:
             log("IDLE-CPU-PAGE " + json.dumps(entry, sort_keys=True))
+        result["chromium_dirs"] = chromium_dirs(Path(env["HOME"]))
+        log("IDLE-CPU-CHROMIUM-DIRS " + json.dumps(result["chromium_dirs"][:24]))
         for index, groups in enumerate(threads):
             log(f"IDLE-CPU-THREADS {index + 1}/{args.windows} app " + " ".join(
                 f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
@@ -619,6 +1013,15 @@ def main(argv: list[str] | None = None) -> int:
     smoke.READY = lambda snap: smoke.visible_windows(snap) > 0
     state: dict = {}
     writer_dir = (out or Path(tempfile.mkdtemp(prefix="idle-cpu-"))) / "writers"
+    cef_trace_dir = None
+    if args.cef_trace:
+        import thread_wakes
+        free = thread_wakes.free_bytes(tempfile.gettempdir())
+        if free < thread_wakes.MIN_FREE:
+            raise SystemExit(f"idle-cpu: only {free >> 30} GiB free; --cef-trace needs {thread_wakes.MIN_FREE >> 30} GiB")
+        cef_trace_dir = tempfile.mkdtemp(prefix="cef-trace-")
+        args.cef_switches = join_switches(args.cef_switches, cef_trace_switches(
+            os.path.join(cef_trace_dir, "cef-trace.json"), args.cef_trace))
     # A person's home has a login keychain: without one Chromium's Safe Storage dialog sits there (cmuxterm-hq#11994).
     smoke.PREPARE_HOME = with_cef_switches(smoke.login_keychain, args.cef_switches)
     if args.history > 0:

@@ -20,7 +20,6 @@ struct TeamSidebar: View {
     @State private var creatingTeam = false
     @State private var joiningTeam = false
     @State private var newTeamName = ""
-    @State private var inviteLink = ""
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -38,6 +37,7 @@ struct TeamSidebar: View {
                         CmuxSpinner(label: Text("Loading teams…"))
                             .padding(.horizontal, theme.metrics.sideMargin)
                             .padding(.vertical, 8)
+                            .placeholderBound("teams.loading", .milliseconds(2000))
                             .accessibilityIdentifier("sidebar.teams.loading")
                     } else if store.teams.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
@@ -71,8 +71,7 @@ struct TeamSidebar: View {
         .background(CmuxMobileBackdrop().ignoresSafeArea())
         .alert("Create team", isPresented: $creatingTeam) {
             TextField("Team name", text: $newTeamName)
-                // Names and prompts are code-like: no autocorrect, no capitals (full verify D5).
-                .autocorrectionDisabled()
+                // Names and prompts are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                 .textInputAutocapitalization(.never)
             Button("Cancel", role: .cancel) { newTeamName = "" }
             Button("Create") { shell.createTeam(named: newTeamName); newTeamName = "" }
@@ -81,11 +80,12 @@ struct TeamSidebar: View {
             Text("Teams share Macs and workspaces.")
         }
         .alert("Join with invite link", isPresented: $joiningTeam) {
-            TextField("Invite link", text: $inviteLink)
+            // The pasted link stays until the join works (ShellModel.inviteLinkDraft).
+            TextField("Invite link", text: Bindable(shell).inviteLinkDraft)
                 .textInputAutocapitalization(.never)
                 .keyboardType(.URL)
-            Button("Cancel", role: .cancel) { inviteLink = "" }
-            Button("Join") { shell.joinTeam(inviteLink: inviteLink); inviteLink = "" }
+            Button("Cancel", role: .cancel) { shell.inviteLinkDraft = "" }
+            Button("Join") { shell.joinTeam(inviteLink: shell.inviteLinkDraft) }
                 .keyboardShortcut(.defaultAction)
         }
     }

@@ -481,7 +481,7 @@ class Gamut:
         if state == "stream":
             # Still streaming: the reply grows over the next 2 s, then the turn is cancelled.
             before = assistant_text(app, chat).count("word")
-            time.sleep(2)
+            time.sleep(2)  # sleep-ok: the 2 s measurement window for stream_words_in_2s
             after = assistant_text(app, chat).count("word")
             row["stream_words_in_2s"] = after - before
             if after <= before:
@@ -549,10 +549,10 @@ class Gamut:
         if path == "after-run":
             # The condition is the app's age itself: it has run AFTER_RUN_S before it is quit.
             row["ran_s"] = round(max(AFTER_RUN_S, time.monotonic() - self.app.started_at), 1)
-            time.sleep(max(0.0, AFTER_RUN_S - (time.monotonic() - self.app.started_at)))
+            time.sleep(max(0.0, AFTER_RUN_S - (time.monotonic() - self.app.started_at)))  # sleep-ok: app age is the condition
         processes_before = set(smoke.own_pids(self.root))
         recorder = self.record_start(name)
-        time.sleep(0.5 if recorder else 0)
+        time.sleep(0.5 if recorder else 0)  # sleep-ok: the video's lead-in before the quit
         try:
             why, quit_ms = quit_app(self.app, path)
         except QuitFailed as error:
@@ -618,7 +618,7 @@ class Gamut:
             if row["prior_chat_live_ms"] and row["warm_switch_ms"]:
                 row["live_over_warm_switch"] = round(row["prior_chat_live_ms"] / max(row["warm_switch_ms"], 1), 1)
         if recorder:
-            time.sleep(8)
+            time.sleep(8)  # sleep-ok: the video's recording tail after the quit
             recorder.terminate()
             try:
                 _, err = recorder.communicate(timeout=10)
@@ -803,7 +803,7 @@ class SparkleUpdate:
             row["installed_build"] = bundle_build(self.bundle)
             row["install_s"] = round(time.monotonic() - started, 1)
             row["prewarm_log"] = self.prewarm_lines()
-            time.sleep(3)  # harness: a relaunch by Sparkle would show by now
+            time.sleep(3)  # sleep-ok: an absence window; no relaunch by Sparkle within it is the check
             executable = str(self.bundle / "Contents" / "MacOS") + "/"
             ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=20).stdout
             relaunched = [line.split()[0] for line in ps.splitlines() if line.strip().split(None, 1)[-1].startswith(executable)]
@@ -916,10 +916,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.paths:
             bundle_id, _ = smoke.bundle_info(bundle)
             with smoke.DefaultsAside(bundle_id, root):
-                env = smoke.fresh_env(root, root / "s.sock", -1)
+                # Only the sparkle-update path keeps the app's own updater on (it stages a real update); every
+                # other path's copy must never download one (fresh_env's UPDATER_OFF_VARIABLE).
+                env = smoke.fresh_env(root, root / "s.sock", -1, updater="sparkle-update" in args.paths)
                 env.pop("CMUX_NEXT_LAUNCH_MARKS_FD", None)
                 ui.login_keychain(env)
-                folder = Path(env["HOME"]) / ".config" / "cmux" / "harnesses"
+                # A DEV build's acpmux reads harnesses from its own build home, not ~/.config/cmux, unless the run
+                # names its config root (acpmux ProfileSources::current): without this a tagged build (quit-gamut.sh
+                # head=) answered "unknown harness" to every round.
+                env["XDG_CONFIG_HOME"] = str(Path(env["HOME"]) / ".config")
+                folder = Path(env["XDG_CONFIG_HOME"]) / "cmux" / "harnesses"
                 folder.mkdir(parents=True, exist_ok=True)
                 (folder / f"{HARNESS}.toml").write_text(
                     f'schema = 1\nid = "{HARNESS}"\nname = "Gamut test agent"\nprotocol = "acp"\n'

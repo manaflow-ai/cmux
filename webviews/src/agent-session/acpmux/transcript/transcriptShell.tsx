@@ -26,6 +26,13 @@ import { FOLLOW_BOTTOM_DEADBAND_PX } from "../virtualTranscriptModel";
 import { standInElements } from "./rowFrames";
 import { JumpToLatest, JumpUp } from "./JumpButtons";
 import { type ScrollAnchor } from "./scrollAnchors";
+import { THREAD_TOP } from "./RowFrame";
+import { Spinner } from "../conversation/icons";
+import { OlderLoadingMark } from "./OlderLoadingMark";
+
+/// The box of the spinner over the loaded rows while older ones load (`.acpmux-older-loading`): it
+/// shows only where the room held for them has this much space above the first loaded row.
+const OLDER_SPINNER_BOX = 32;
 
 /// The live line's box and gap in a run as custom properties on the scroller (transcriptGrid.ts transcriptLiveVars):
 /// conversation.css sizes the line with them. Constant, so the scroller's per-scroll restyle never changes them.
@@ -68,6 +75,8 @@ export type TranscriptShellDeps = {
   livePulse: React.ContextType<typeof LiveLinePulseContext>;
   ref: React.RefObject<HTMLDivElement | null>;
   slimFollow: boolean;
+  /** The live line is among the mounted rows: the scroller's `data-live-line` (conversation.css). */
+  liveLineMounted: boolean;
   onAnchor: ((anchor: ScrollAnchor | null) => void) | undefined;
   t: ReturnType<typeof useT>;
   onScroll: (event: React.UIEvent<HTMLDivElement>) => void;
@@ -91,6 +100,8 @@ export type TranscriptShellDeps = {
   earlier: MinimapProps["earlier"];
   canLoadNewer: boolean;
   canLoadOlder: boolean;
+  /// The chat is still reading its rows.
+  loading: boolean;
   later: MinimapProps["later"];
   promptCount: MinimapProps["promptCount"];
   loadThrough: MinimapProps["loadThrough"];
@@ -119,6 +130,7 @@ export type TranscriptShellDeps = {
   sinceRow: AcpmuxRow | undefined;
   clearTop: number;
   sinceIndex: number;
+  sinceHasNews: boolean;
   jumpUp: boolean;
   upShown: boolean;
   jumpBackHeld: boolean;
@@ -138,6 +150,7 @@ export function drawTranscriptShell({
   livePulse,
   ref,
   slimFollow,
+  liveLineMounted,
   onAnchor,
   t,
   onScroll,
@@ -161,6 +174,7 @@ export function drawTranscriptShell({
   earlier,
   canLoadNewer,
   canLoadOlder,
+  loading,
   later,
   promptCount,
   loadThrough,
@@ -189,6 +203,7 @@ export function drawTranscriptShell({
   sinceRow,
   clearTop,
   sinceIndex,
+  sinceHasNews,
   jumpUp,
   upShown,
   jumpBackHeld,
@@ -210,6 +225,8 @@ export function drawTranscriptShell({
             // paints (Leo, 2026-11-09: "the scroll up is extremely sluggish ... if I send in a prompt like
             // this and it just lags, it's not a good look").
             data-send-entrance={slimFollow ? "fade" : undefined}
+            // The live line is among the mounted rows (`liveLineMounted`).
+            data-live-line={liveLineMounted || undefined}
             // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
             data-read-only-transcript={readOnly ? "" : undefined}
             // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
@@ -257,6 +274,7 @@ export function drawTranscriptShell({
               // Its own MinimapSource takes these values each render; the rail draws only when what it
               // draws changes (ThreadMinimapRail).
               <ThreadMinimap
+                cutoverRow={sinceHasNews ? sinceIndex : undefined}
                 rows={rows}
                 layout={layout}
                 scrollTop={renderScroll.top - origin}
@@ -310,6 +328,21 @@ export function drawTranscriptShell({
                   width: lane > 0 ? `calc(100% + ${lane}px)` : undefined,
                 }}
               >
+                {/* A chat still reading its rows with none to show yet: a spinner, never an empty pane
+                    (cmux#48605). The spacer is at least the view's height, so it sits in the view's middle. */}
+                {loading && rows.length === 0 && (
+                  <output className="acpmux-transcript-loading" aria-label={t("transcript.loading")}>
+                    <Spinner size={20} loading />
+                  </output>
+                )}
+                {/* Older history still to load: a spinner just above the first loaded row, in the room held
+                    for that history, so a reader who scrolls up to the loaded top sees the next page is coming. */}
+                {canLoadOlder && rows.length > 0 && (layout.origin ?? 0) >= OLDER_SPINNER_BOX && (
+                  <OlderLoadingMark
+                    label={t("transcript.loadingOlder")}
+                    style={{ top: lift + topInset + THREAD_TOP + (layout.origin ?? 0) - OLDER_SPINNER_BOX }}
+                  />
+                )}
                 {/* Under the rows, at the thread's place: one empty element per stand-in. */}
                 <div className="acpmux-stand-ins" aria-hidden style={{ top: lift + topInset }}>
                   {standInElements(rows, standIns, layout.geometry, frameKey)}

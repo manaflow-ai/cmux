@@ -30,8 +30,7 @@ struct PanesScreen: View {
                 set: { shown in if !shown { source.renamingPane = nil } }
             ), presenting: source.renamingPane) { pane in
                 TextField(source.title(of: pane), text: $paneName)
-                    // Names are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("panes.rename.field")
                 Button("Cancel", role: .cancel) {}
@@ -106,6 +105,7 @@ struct PanesScreen: View {
             CmuxSpinner(label: Text("Loading panes from \(source.macName)…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("panes.loading")
+                .placeholderBound("panes.loading", .milliseconds(2000))
         } else {
             ContentUnavailableView("No Panes Yet", systemImage: "rectangle.split.2x1",
                                    description: Text("\(source.macName) hasn't listed this workspace's panes."))
@@ -270,7 +270,7 @@ struct PanesScreen: View {
                 }
             }
             if tab.kind == .agent {
-                Menu("Fork Conversation", systemImage: "arrow.triangle.branch") {
+                Menu("Fork Conversation", image: CmuxSymbol.forkImage) {
                     ForEach(ChatForkDestination.allCases) { destination in
                         Button(destination.title) { Task { await source.fork(tab.id, to: destination) } }
                     }

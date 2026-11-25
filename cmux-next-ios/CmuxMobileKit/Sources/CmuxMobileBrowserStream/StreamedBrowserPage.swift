@@ -11,6 +11,9 @@ public struct StreamedBrowserPage: View {
     let model: StreamedBrowserModel
     var insets: EdgeInsets
     var reportScroll: @MainActor (CGFloat) -> Void
+    /// The tab's last-known picture (the phone's own, or the one the Mac pushed): shown dimmed
+    /// under "Loading browser session…" until the first frame decodes, never once it is live.
+    var lastKnown: CGImage?
     @State private var keyboard = false
     /// The keyboard rose because the page focused a field (it goes when the field does).
     @State private var raisedForField = false
@@ -21,10 +24,17 @@ public struct StreamedBrowserPage: View {
     /// What the page says when the Mac cannot stream browser tabs.
     public static let unavailableText = String(localized: "Browser tabs aren't available from this Mac.")
 
-    public init(model: StreamedBrowserModel, insets: EdgeInsets, reportScroll: @escaping @MainActor (CGFloat) -> Void) {
+    public init(model: StreamedBrowserModel, insets: EdgeInsets, lastKnown: CGImage? = nil,
+                reportScroll: @escaping @MainActor (CGFloat) -> Void) {
         self.model = model
         self.insets = insets
+        self.lastKnown = lastKnown
         self.reportScroll = reportScroll
+    }
+
+    /// Whether the page draws the last-known picture: only while connecting.
+    static func showsLastKnown(phase: StreamedBrowserModel.Phase, hasLastKnown: Bool) -> Bool {
+        phase == .connecting && hasLastKnown
     }
 
     public var body: some View {
@@ -44,7 +54,23 @@ public struct StreamedBrowserPage: View {
                     status(reason)
                 }
             } else if model.phase == .connecting {
+                if Self.showsLastKnown(phase: model.phase, hasLastKnown: lastKnown != nil), let lastKnown {
+                    GeometryReader { geo in
+                        Image(decorative: lastKnown, scale: 1).resizable().interpolation(.medium)
+                            .frame(width: geo.size.width,
+                                   height: geo.size.width * CGFloat(lastKnown.height) / CGFloat(max(1, lastKnown.width)))
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                            .clipped()
+                            .opacity(0.55)
+                    }
+                    .background(Color(uiColor: .systemBackground))
+                    .padding(.top, insets.top)
+                    .padding(.bottom, insets.bottom)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
                 status(String(localized: "Loading browser session…"))
+                    .placeholderBound("browser.stream.loading", .milliseconds(2000))
             } else if let notice = model.notice {
                 refusal(notice)
             }
@@ -186,10 +212,11 @@ public struct StreamedBrowserPage: View {
     }
 
     private func linkChip(_ chip: ConnectionChip.Content) -> some View {
-        ConnectionChip(chip)
+        ConnectionChip(chip, downSince: model.waitingSince ?? ConnectionChip.justDropped)
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .accessibilityIdentifier("browser.reconnecting")
+            .placeholderBound("browser.connection.chip", .milliseconds(0))
     }
 }
 
@@ -249,20 +276,36 @@ public struct StreamedBrowserCard: View {
     let placeholder: String
     /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
     let fit: Bool
+    /// A page's insets (`StreamedBrowserPage`'s): its picture sits where the
+    /// page draws it, so the card can stand in for an opening page and the
+    /// live picture replaces it in place. Nil: the picture starts at the top.
+    let insets: EdgeInsets?
+    /// The tab's last-known picture, kept across launches: shown until this launch has a frame.
+    let lastKnown: CGImage?
 
-    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false) {
+    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false,
+                insets: EdgeInsets? = nil, lastKnown: CGImage? = nil) {
         self.model = model
         self.placeholder = placeholder
         self.fit = fit
+        self.insets = insets
+        self.lastKnown = lastKnown
     }
 
     public var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemBackground)
-            if fit, let image = model.snapshot?.image {
+            if fit, let image = model.snapshot?.image ?? lastKnown {
                 Color.black
                 Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
-            } else if let image = model.snapshot?.image {
+            } else if let image = model.snapshot?.image ?? lastKnown, let insets {
+                // The page's layer: the picture fitted in the area between the insets, on black.
+                Color.black
+                Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.top, insets.top)
+                    .padding(.bottom, insets.bottom)
+            } else if let image = model.snapshot?.image ?? lastKnown {
                 GeometryReader { geo in
                     Image(decorative: image, scale: 1).resizable().interpolation(.medium)
                         .frame(width: geo.size.width,
@@ -273,6 +316,7 @@ public struct StreamedBrowserCard: View {
                     .font(.system(size: 72, weight: .light))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .placeholderBound("tabgrid.stream.icon", .milliseconds(1000))
             }
         }
     }

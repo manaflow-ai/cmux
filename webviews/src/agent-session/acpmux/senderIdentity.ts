@@ -1,8 +1,23 @@
 import type { AcpmuxSessionEntry } from "./sessionList";
+import type { HarnessIconSpec } from "../shared/harnessIcons";
 import type { IncomingRelation } from "./conversation/incomingMessage";
 
-export type SenderReference = { name: string; sessionId?: string; relation?: IncomingRelation };
-export type SenderIdentity = SenderReference & { harness?: string; host?: string; known: boolean };
+export type SenderReference = {
+  name: string;
+  sessionId?: string;
+  relation?: IncomingRelation;
+  /** The sender's given name as its message carried it (acpmux `fromDisplayName`). */
+  displayName?: string;
+};
+/** `icon`: the icon the chat set (acpmux `icon`); `formerNames`: its names before its renames,
+ *  oldest first, for a "fka" line. */
+export type SenderIdentity = SenderReference & {
+  harness?: string;
+  host?: string;
+  icon?: HarnessIconSpec;
+  formerNames?: string[];
+  known: boolean;
+};
 
 /** Strip only the peer prefix the session metadata identifies. A slash alone proves no host. */
 export function senderSessionName(name: string, peer?: string): string {
@@ -21,7 +36,12 @@ export function resolveSenderIdentity(
   const relation =
     sender.relation ??
     (sender.sessionId === entry?.sessionId && viewerSessionId && parent === viewerSessionId ? "subsession" : undefined);
+  // A given name reads first (Leo, 2026-11-23: "the send/recieve messages are still only the
+  // older names"): the listed chat's own, else the one its message carried.
+  // The name it was given ("Mango", acpmux `displayName`) is the one every surface shows.
   const name =
+    entry?.displayName?.trim() ||
+    sender.displayName?.trim() ||
     senderSessionName(entry?.shortName ?? "", entry?.peer) ||
     senderSessionName(entry?.name ?? "", entry?.peer) ||
     senderSessionName(sender.name, entry?.peer);
@@ -34,6 +54,8 @@ export function resolveSenderIdentity(
     ...(sender.sessionId && { sessionId: sender.sessionId }),
     ...(entry?.sessionId && { sessionId: entry.sessionId }),
     ...(entry?.harness && { harness: entry.harness }),
+    ...(entry?.icon && { icon: entry.icon }),
+    ...(entry?.formerNames?.length && { formerNames: entry.formerNames }),
     ...(host && { host }),
     ...(relation && { relation }),
   };

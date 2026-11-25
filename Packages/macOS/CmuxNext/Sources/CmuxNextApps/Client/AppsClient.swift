@@ -36,6 +36,9 @@ public final class AppsClient {
     /// An `apps-list` of the current connection landed: until then no app is
     /// known, and surfaces show why instead of "not installed".
     public private(set) var hasList = false
+    /// The toolbar band's app items (`apps.toolbar.list`), listed again on each `apps-changed`; empty
+    /// while no app contributes or the supervisor is unreachable (AppsClient+Toolbar.swift).
+    public internal(set) var toolbarItems: [AppToolbarContribution] = []
     /// The bundled package directory per app id (``AppPlatformResources/bundledDirectories(using:)``):
     /// where icons and scene images are when the supervisor sent no `bundle_dir`.
     public private(set) var bundledDirectories: [String: URL] = [:]
@@ -47,6 +50,7 @@ public final class AppsClient {
     /// Mount, unmount and user events go out one after another, in order.
     @ObservationIgnored var tail: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
+    @ObservationIgnored var toolbarListing: Task<Void, Never>?
     /// Pages that also hear supervisor events (``observeEvents(owner:_:)``); dropped once their owner is gone.
     @ObservationIgnored private var eventListeners: [(owner: WeakOwner, listener: @MainActor (AppsTransportEvent) -> Void)] = []
     /// The availability epoch the client last connected for (one `connected()` per epoch).
@@ -80,6 +84,20 @@ public final class AppsClient {
     /// Visible records (mirror + pending intents), in the owner's order.
     public var apps: [AppRecord] { projection.visible.map(withBundledDirectory) }
     public func app(_ id: String) -> AppRecord? { projection.visible(id).map(withBundledDirectory) }
+
+    /// The app's record as the supervisor lists it now. A mirror without the app lists again first:
+    /// a surface asked for right after the supervisor loaded the app (`cmux customize use`, then a
+    /// New Tab) can arrive before the `apps-changed` list lands, and a refusal then is final for
+    /// that page (it draws cmux's own instead).
+    public func listedApp(_ id: String) async -> AppRecord? {
+        if let record = app(id) { return record }
+        guard availability.isAvailable else { return nil }
+        let request = projection.listRequested()
+        guard let reply = try? await transport.list() else { return app(id) }
+        projection.applyList(reply.apps, revision: reply.revision, request: request)
+        hasList = true
+        return app(id)
+    }
 
     /// Hears every supervisor event after the client handled it, while `owner` lives
     /// (the transport's one callback stays the client's).
@@ -247,6 +265,7 @@ public final class AppsClient {
             self?.hasList = true
             self?.remountListedFailures()
         }
+        refreshToolbar()
     }
 
     private func connected() {
@@ -260,6 +279,8 @@ public final class AppsClient {
 
     private func disconnected() {
         listing?.cancel()
+        toolbarListing?.cancel()
+        toolbarItems = []
         hasList = false
         let reason = AppsStrings.unavailable(unavailableReason ?? .notConnected)
         for mount in mounts.values { mount.model.status = .disconnected(reason) }

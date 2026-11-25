@@ -31,6 +31,8 @@ on:
     paths:
       - "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/Localizable.xcstrings"
       - "schemas/settings/source/general.json"
+      - "schemas/type-scale/scene-type.json"
+      - "webviews/src/apps/scene/fixtures/design-check-scenes.json"
       - "web/public/tui/install-static.sh"
       - "cmux-tui/**"
       - "ghostty-next"
@@ -64,6 +66,7 @@ on:
       - "plans/cmux-next/action-surfaces.json"
       - "plans/cmux-next/daemon-capabilities.json"
       - "plans/cmux-next/spec-proposals/visuals/design-tokens.json"
+      - "schemas/agent-pane/stylesheet-guard.json"
       - "schemas/agent-url-policy/vectors.json"
       - "schemas/automation-input/vectors.json"
       - "schemas/automation-lease/vectors.json"
@@ -76,10 +79,13 @@ on:
       - "schemas/settings/retired-keys.json"
       - "schemas/settings/settings-schema.json"
       - "schemas/settings/source/agent-cache.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/agent-retry.json"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "schemas/settings/source/subsessions.json"
       - "schemas/settings/source/trust.json"
+      - "schemas/settings/source/updates.json"
       - "schemas/terminal-sizing/fixtures.json"
       - "schemas/theme/slots.json"
       - "schemas/transcript-look/transcript-look.json"
@@ -125,6 +131,7 @@ on:
       # (scripts/ci/affected_jobs.py check names the ones a paths list misses).
       - "docs/cmux-next/customize-recipes.md"
       - "examples/looks/**"
+      - "schemas/settings/source/agent-defaults.json"
       - "schemas/settings/source/mcp-servers.json"
       - "skills/cmux-customization/templates/clock-weather/cmux-app.json"
       - "skills/cmux-customization/templates/clock-weather/main.js"
@@ -223,8 +230,17 @@ jobs:
           sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
 
       - name: Cache Zig package downloads
-        if: ${{ steps.tree.outputs.hit != 'true' }}
+        if: ${{ (steps.tree.outputs.hit != 'true') && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/zig
+          key: cmux-tui-zig-${{ hashFiles('ghostty-next/build.zig.zon', 'ghostty-next/build.zig.zon.json') }}
+          restore-keys: |
+            cmux-tui-zig-
+
+      - name: Cache Zig package downloads (restore only off base branches)
+        if: ${{ (steps.tree.outputs.hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.cache/zig
           key: cmux-tui-zig-${{ hashFiles('ghostty-next/build.zig.zon', 'ghostty-next/build.zig.zon.json') }}
@@ -253,6 +269,9 @@ jobs:
         if: ${{ steps.tree.outputs.hit != 'true' }}
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
+          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cmux-tui-windows-gnu-check

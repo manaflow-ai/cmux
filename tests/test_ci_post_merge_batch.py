@@ -61,6 +61,13 @@ class TickTest(unittest.TestCase):
         runs.insert(0, run(2, "a" * 40, "2026-11-21T11:55:00Z"))
         self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "skip")
 
+    def test_a_batch_with_no_verdict_on_an_older_tip_opens_no_window(self) -> None:
+        # Run 45105503067 (2026-11-23): its plan failed on 4ec58f90a4 and the tip moved on; the window held the
+        # next batch back two hours.
+        runs = [run(1, "b" * 40, "2026-11-21T11:30:00Z")]
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: False)[0], "dispatch")
+        self.assertEqual(pmb.tick_decision("a" * 40, runs, NOW, 120, judged=lambda rid: True)[0], "skip")
+
     def test_window_value(self) -> None:
         self.assertEqual(pmb.window_minutes(""), 120)
         self.assertEqual(pmb.window_minutes("bad"), 120)
@@ -428,15 +435,23 @@ class StartBranchTest(unittest.TestCase):
 
 
 class PushTokenTest(unittest.TestCase):
-    """The swap-out or revert pushes with a contents-write token; only a diff that touches .github/workflows/**
-    takes the workflows-write token, and with none it stops with the command and the issue to fix it, never a skip.
+    """The swap-out, probe or revert branch is created and pushed with the workflows-write token when the job has one
+    (a ref at a feat-cmux-next commit needs it, drill 9); else with the contents-write token, and a diff that
+    touches .github/workflows/** then stops with the command and the issue to fix it, never a skip.
     The routing App had no Workflows permission, so a combined contents+workflows mint failed every revert job
     (run 45021631601, hq#18499)."""
 
     ENV = {"PUSH_TOKEN": "contents", "WORKFLOWS_TOKEN": "workflows", "GH_TOKEN": "job"}
 
-    def test_a_diff_with_no_workflow_file_takes_the_contents_token(self) -> None:
+    def test_any_diff_takes_the_workflows_token_when_minted(self) -> None:
+        # A ref at a feat-cmux-next commit needs workflows write whatever the diff: drill 9 run 45096141472 got
+        # HTTP 403 creating its piece probe branch with the contents token.
         with mock.patch.dict(os.environ, self.ENV):
+            self.assertEqual(pmb.push_token([".github/post-merge-drill-red", "webviews/src/pages/a.tsx"]), "workflows")
+            self.assertEqual(pmb.push_token([]), "workflows")
+
+    def test_a_diff_with_no_workflow_file_falls_back_to_the_contents_token(self) -> None:
+        with mock.patch.dict(os.environ, {"PUSH_TOKEN": "contents", "GH_TOKEN": "job"}, clear=True):
             self.assertEqual(pmb.push_token([".github/post-merge-drill-red", "webviews/src/pages/a.tsx"]), "contents")
             self.assertEqual(pmb.push_token([]), "contents")
         with mock.patch.dict(os.environ, {"GH_TOKEN": "job"}, clear=True):

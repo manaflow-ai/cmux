@@ -79,6 +79,22 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// `{id}`: the account's plan usage limits at rest, `{id, usageLimits, skipped?}` (one short-lived
     /// `codex app-server` in its folder; never one whose login may be in the keychain).
     case accountUsage = "_acpmux/account/usage"
+    /// Logins done right (acpmux `server/account_sign_in.rs`; the unix socket and the app only):
+    /// `{account}` or `{family, name?}` starts a sign-in, answering `{loginId, account, url, userCode?,
+    /// autoUrl?, callbackPort?, needsCode, expiresAtMs, added}`.
+    case accountSignIn = "_acpmux/account/sign_in"
+    /// `{loginId, code?}`: waits for the approval (up to the sign-in's 15 minutes), `{signedIn, account}`.
+    case accountSignInFinish = "_acpmux/account/sign_in.finish"
+    /// `{loginId}`: stops a sign-in.
+    case accountSignInCancel = "_acpmux/account/sign_in.cancel"
+    /// `{account}`: its family's default (GitHub: `gh auth switch`).
+    case accountSwitch = "_acpmux/account/switch"
+    /// `{account}`: removes an added account (GitHub: `gh auth logout`).
+    case accountRemove = "_acpmux/account/remove"
+    /// `{account}`: the CLI's own logout in its folder; the row stays, signed out.
+    case accountSignOut = "_acpmux/account/sign_out"
+    /// `{}`: each provider's readiness for onboarding (`{providers: [{family, state, account?, label?}]}`).
+    case accountReadiness = "_acpmux/account/readiness"
     /// Adds a route (here a direct-subscription account in a folder of its own, or an API-key account).
     case routeAdd = "_acpmux/route/add"
     /// `{id}`: removes a route; acpmux keeps a backup of its file.
@@ -126,6 +142,11 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .chatgptWait: .seconds(35)
         // The daemon's own limit for one read is 15 s, after a wait for a free read.
         case .accountUsage: .seconds(40)
+        // A start waits for the CLI's link (acpmux `agent_login::URL_WAIT`, 20 s); a logout runs the CLI.
+        case .accountSignIn, .accountRemove, .accountSignOut: .seconds(40)
+        case .accountSignInCancel, .accountSwitch, .accountReadiness: .seconds(20)
+        // The daemon holds a finish until the approval or the sign-in's expiry (`agent_login::EXPIRY`, 15 min).
+        case .accountSignInFinish: .seconds(16 * 60)
         }
     }
 }

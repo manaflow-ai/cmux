@@ -210,6 +210,49 @@ export const pruneRevokedInstalls = (state: UserState, keep: number = MAX_REVOKE
 }
 
 /**
+ * Most active client installs (mac, ios, cli, web) one user keeps (cmux-platform#1843). A copy of
+ * the app that is deleted without signing out leaves its install active for good: a probe account
+ * that ran a fresh app copy every run filled its head with them until every commit was refused
+ * (owner.state_full), and a person who reinstalls often would reach the same wall. Server kinds
+ * (vm, team-vm, daemon) speak for a running machine or paired server and are never evicted here.
+ */
+export const MAX_ACTIVE_INSTALLS = 200
+
+/**
+ * Makes room for `incoming` new client installs under MAX_ACTIVE_INSTALLS by signing out the
+ * stalest ones: installs no push target or live presence key names go first, then the oldest
+ * created_at, then id. Each is revoked as install.revoke would (push targets, presence key, KRL
+ * notice in ssh_revoke_pending, an install.upsert in the outbox), then dropped from the head with
+ * its grant at once: the KRL notice carries only the install id, the user and the teams, and every
+ * lookup treats a missing install as unknown, so its token stays refused.
+ */
+export const evictStaleInstalls = (state: UserState, now: number, incoming = 1, cap: number = MAX_ACTIVE_INSTALLS): { state: UserState; outbox: Array<OutboxItem>; evicted: Array<string> } => {
+  const active = Object.values(state.installs).filter((i) => i.revoked_at === null && !SERVER_INSTALL_KINDS.has(i.kind))
+  const over = active.length + incoming - cap
+  if (over <= 0) return { state, outbox: [], evicted: [] }
+  const named = new Set([
+    ...Object.values(state.push_targets ?? {}).map((t) => t.install),
+    ...Object.entries(state.confirm?.presence_keys ?? {}).filter(([, k]) => k.revoked_at === null).map(([install]) => install)
+  ])
+  const victims = active
+    .sort((a, b) => Number(named.has(a.id)) - Number(named.has(b.id)) || a.created_at - b.created_at || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+    .slice(0, over)
+  let next = state
+  const outbox: Array<OutboxItem> = []
+  for (const cur of victims) {
+    const r = revokeOne(next, next.installs[cur.id]!, now)
+    if (!r.ok) continue
+    outbox.push(...(r.outbox ?? []))
+    const installs = { ...r.state.installs }
+    const grants = { ...r.state.grants }
+    delete installs[cur.id]
+    if (grants[cur.grant]?.grantee === cur.id) delete grants[cur.grant]
+    next = { ...r.state, installs, grants }
+  }
+  return { state: next, outbox, evicted: victims.map((i) => i.id) }
+}
+
+/**
  * Revokes an install in one commit: the install, its grant and its push targets (so no push
  * reaches a revoked device). Shared by install.revoke, install.sign_out and install.revoke_by_team.
  * The same commit drops the oldest revoked installs past MAX_REVOKED_INSTALLS.
@@ -367,6 +410,9 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
         if (Object.values(base.installs).some((i) => i.thumbprint === thumbprint && i.revoked_at === null)) {
           return reject("validation.invalid", "this public key is already registered")
         }
+        // A new client install past MAX_ACTIVE_INSTALLS signs out the stalest ones in this commit, instead of a head
+        // that grows until owner.state_full locks the account out (cmux-platform#1843).
+        const evict = reserved ? { state: base, outbox: [], evicted: [] } : evictStaleInstalls(base, ctx.now)
         const install = ctx.newId("inst")
         const grant = ctx.newId("grant")
         const left = p.sso_team ? base.sso_left?.[p.sso_team] : undefined
@@ -406,9 +452,9 @@ export const makeUserDomain = (appIdHash: string): Domain<UserState> => withInst
         }
         return {
           ok: true,
-          state: { ...(stampSso && p.sso_team ? withoutSsoLeft(base, p.sso_team) : base), installs: { ...base.installs, [install]: i }, grants: { ...base.grants, [grant]: g } },
+          state: { ...(stampSso && p.sso_team ? withoutSsoLeft(evict.state, p.sso_team) : evict.state), installs: { ...evict.state.installs, [install]: i }, grants: { ...evict.state.grants, [grant]: g } },
           value: i,
-          outbox: [{ kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: base.user.id } }]
+          outbox: [...evict.outbox, { kind: "install.upsert", entity: install, payload: { ...i, public_jwk: undefined, user: base.user.id } }]
         }
       }
       case "install.ios_cloud_link_migrate": {

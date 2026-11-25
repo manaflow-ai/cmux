@@ -44,6 +44,10 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ConversationOpResult, "transaction");
     try expectExplicitNullRejected(protocol.ConversationRunRequest, "after_rev");
     try expectExplicitNullRejected(protocol.ConversationRunAppendRequest, "steps");
+    try expectExplicitNullRejected(protocol.ConversationScheduledOpResult, "change");
+    try expectExplicitNullRejected(protocol.ConversationScheduledOpResult, "removed");
+    try expectExplicitNullRejected(protocol.ConversationScheduledOpResult, "replayed");
+    try expectExplicitNullRejected(protocol.ConversationScheduledOpResult, "rev");
     try expectExplicitNullRejected(protocol.ConversationSnapshotResult, "threads");
     try expectExplicitNullRejected(protocol.ConversationThreadRequest, "after_seq");
     try expectExplicitNullRejected(protocol.CreatePersonalGroupRequest, "collapsed");
@@ -100,6 +104,9 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.SplitRequest, "keep");
     try expectExplicitNullRejected(protocol.TerminalCommandContextRequest, "intent");
     try expectExplicitNullRejected(protocol.TerminalEventsRequest, "after_revision");
+    try expectExplicitNullRejected(protocol.TerminalFindRequest, "case_sensitive");
+    try expectExplicitNullRejected(protocol.TerminalFindRequest, "regex");
+    try expectExplicitNullRejected(protocol.TerminalFindRequest, "whole_word");
     try expectExplicitNullRejected(protocol.UndoLayoutRequest, "confirm_close");
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "since_ms");
     try expectExplicitNullRejected(protocol.AgentChangedEvent, "terminal_id");
@@ -118,6 +125,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "palette");
     try expectExplicitNullRejected(protocol.ColorsChangedEvent, "surface");
     try expectExplicitNullRejected(protocol.ConversationInboxChangedEvent, "pin_position");
+    try expectExplicitNullRejected(protocol.ConversationScheduledChangedEvent, "removed");
+    try expectExplicitNullRejected(protocol.ConversationScheduledChangedEvent, "scheduled");
     try expectExplicitNullRejected(protocol.DaemonShutdownEvent, "restart");
     try expectExplicitNullRejected(protocol.DetachedEvent, "by");
     try expectExplicitNullRejected(protocol.DetachedEvent, "reason");
@@ -297,6 +306,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.ServerStatsWritePath, "registry_wal_frame_bytes");
     try expectExplicitNullRejected(protocol.ServerStatsWritePath, "wal_commits");
     try expectExplicitNullRejected(protocol.ServerStatsWritePath, "wal_synced_commits");
+    try expectExplicitNullRejected(protocol.SetClientInfoResult, "api_revision");
+    try expectExplicitNullRejected(protocol.SetClientInfoResult, "api_version");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "changed");
     try expectExplicitNullRejected(protocol.SetSizeCountsResult, "participant");
     try expectExplicitNullRejected(protocol.SetSizePolicyResult, "state");
@@ -320,6 +331,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.TerminalPlacement, "terminal_resource_id");
     try expectExplicitNullRejected(protocol.TerminalPlacement, "workspace_id");
     try expectExplicitNullRejected(protocol.Tree, "generation");
+    try expectExplicitNullRejected(protocol.Tree, "next");
     try expectExplicitNullRejected(protocol.Tree, "pane_revision");
     try expectExplicitNullRejected(protocol.Tree, "registry_id");
     try expectExplicitNullRejected(protocol.Tree, "terminal_revision");

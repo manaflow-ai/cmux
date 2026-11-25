@@ -203,7 +203,17 @@ pub fn start_at_normal(cmd: &mut tokio::process::Command) {
             Ok(())
         });
     }
-    #[cfg(not(target_os = "macos"))]
+    // A daemon that took a negative nice (`daemon_priority.rs`) starts its harness at no better
+    // than the default: the daemon outranks its agents, never lends them its rank.
+    #[cfg(unix)]
+    // SAFETY: as above: getpriority(2) and setpriority(2) on itself, async-signal-safe.
+    unsafe {
+        cmd.pre_exec(|| {
+            crate::qos::at_least_default_nice();
+            Ok(())
+        });
+    }
+    #[cfg(not(unix))]
     let _ = cmd;
 }
 
@@ -288,7 +298,7 @@ impl HarnessState {
     }
 }
 
-/// The state of the running process `pid` (macOS; elsewhere None). None once it ended or when the
+/// The state of the running process `pid` (macOS, Linux; elsewhere None). None once it ended or when the
 /// kernel refuses (another user's process).
 pub fn harness_state(pid: u32) -> Option<HarnessState> {
     imp::state(pid)
@@ -638,8 +648,130 @@ mod imp {
         ticks(pid)
     }
 
-    pub(super) fn state(_pid: u32) -> Option<HarnessState> {
-        None
+    /// The kernel's clock ticks per second (`USER_HZ`), for `/proc` CPU times.
+    fn clock_ticks() -> u64 {
+        // SAFETY: sysconf reads a constant.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        u64::try_from(hz).ok().filter(|hz| *hz > 0).unwrap_or(100)
+    }
+
+    /// The processes `pid` started, from each of its threads' `children` file (no process
+    /// listing). Empty where the kernel lacks `CONFIG_PROC_CHILDREN`.
+    fn children(pid: u32) -> Vec<u32> {
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return Vec::new() };
+        let mut kids = Vec::new();
+        for task in tasks.flatten() {
+            let Ok(text) = std::fs::read_to_string(task.path().join("children")) else { continue };
+            kids.extend(text.split_whitespace().filter_map(|k| k.parse::<u32>().ok()));
+        }
+        kids
+    }
+
+    /// `pid` and every process under it, `(pid, parent)`, at most 256 (a harness never has
+    /// more; a runaway tree is not walked whole).
+    fn tree(root: u32) -> Vec<(u32, u32)> {
+        let mut out = vec![(root, 0)];
+        let mut i = 0;
+        while i < out.len() && out.len() < 256 {
+            let (pid, _) = out[i];
+            for kid in children(pid) {
+                if !out.iter().any(|(p, _)| *p == kid) {
+                    out.push((kid, pid));
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// How many of `pid`'s threads were on a CPU or ready for one (`R`) when read.
+    fn running_threads(pid: u32) -> i32 {
+        let Ok(tasks) = std::fs::read_dir(format!("/proc/{pid}/task")) else { return 0 };
+        let mut running = 0;
+        for task in tasks.flatten() {
+            let Ok(raw) = std::fs::read_to_string(task.path().join("stat")) else { continue };
+            if raw.rsplit_once(')').and_then(|(_, f)| f.split_whitespace().next()) == Some("R") {
+                running += 1;
+            }
+        }
+        running
+    }
+
+    fn comm(pid: u32) -> String {
+        std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .map(|s| s.trim_end().to_owned())
+            .unwrap_or_default()
+    }
+
+    /// One process's record: CPU ticks, threads, major faults (pages read in), priority, start
+    /// time in ticks since boot.
+    struct Record {
+        ticks: u64,
+        threads: i32,
+        majflt: u64,
+        priority: i32,
+        started: u64,
+    }
+
+    /// `/proc/<pid>/stat` after the command name: index 9 `majflt` (field 12), 11 and 12
+    /// `utime`/`stime`, 15 `priority`, 17 `num_threads`, 19 `starttime`.
+    fn record(pid: u32) -> Option<Record> {
+        let f = stat(pid)?;
+        let num = |i: usize| f.get(i).and_then(|v| v.parse::<u64>().ok());
+        Some(Record {
+            ticks: num(11)?.saturating_add(num(12)?),
+            majflt: num(9).unwrap_or(0),
+            priority: f.get(15).and_then(|v| v.parse::<i32>().ok()).unwrap_or(20),
+            threads: i32::try_from(num(17).unwrap_or(1)).unwrap_or(i32::MAX),
+            started: num(19).unwrap_or(0),
+        })
+    }
+
+    /// The state of `pid` and the processes under it, from `/proc` (no-hangs, 2026-11-24: Linux
+    /// read none, so a start that waited on its harness (`StartWatch`) never ended there however
+    /// long the harness sat idle).
+    pub(super) fn state(pid: u32) -> Option<HarnessState> {
+        let root = record(pid)?;
+        let hz = clock_ticks();
+        let to_ms = |ticks: u64| ticks.saturating_mul(1000) / hz;
+        let (mut ticks, mut threads, mut running, mut pageins, mut processes) =
+            (0u64, 0i32, 0i32, 0u64, 0i32);
+        let mut first: Option<(u64, u32, Record)> = None;
+        for (p, parent) in tree(pid) {
+            let Some(r) = record(p) else { continue };
+            ticks = ticks.saturating_add(r.ticks);
+            threads = threads.saturating_add(r.threads);
+            running = running.saturating_add(running_threads(p));
+            pageins = pageins.saturating_add(r.majflt);
+            processes += 1;
+            if parent == pid && first.as_ref().is_none_or(|(at, k, _)| (r.started, p) < (*at, *k)) {
+                first = Some((r.started, p, r));
+            }
+        }
+        let uptime = std::fs::read_to_string("/proc/uptime")
+            .ok()
+            .and_then(|s| s.split_whitespace().next().and_then(|v| v.parse::<f64>().ok()))
+            .unwrap_or(0.0) as u64;
+        let first_child = first.map(|(_, kid, r)| super::ChildSeen {
+            pid: kid,
+            name: comm(kid),
+            cpu_ms: to_ms(r.ticks),
+            pageins: r.majflt,
+        });
+        Some(HarnessState {
+            pid,
+            priority: root.priority,
+            // Linux has no background class acpmux sets (`set_background`).
+            background: false,
+            ran_secs: uptime.saturating_sub(root.started / hz),
+            cpu_ms: to_ms(ticks),
+            threads,
+            threads_running: running,
+            processes,
+            pageins,
+            name: comm(pid),
+            first_child,
+        })
     }
 }
 
@@ -846,6 +978,39 @@ mod tests {
         let late = std::time::Duration::from_secs(30);
         assert!(!HarnessState { cpu_ms: 114, ..idle.clone() }.worked_since(&idle, late));
         assert!(HarnessState { cpu_ms: 115, ..idle.clone() }.worked_since(&idle, late));
+    }
+
+    /// no-hangs: Linux read no harness state, so `StartWatch` never judged a start there. A
+    /// process that sleeps reads as alive and idle, one that spins as working, and the tree
+    /// counts the process it started.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_harness_state_reads_the_process_tree_and_tells_work_from_idle() {
+        let mut sleeper = std::process::Command::new("sh")
+            .args(["-c", "sleep 30 & wait"])
+            .spawn()
+            .expect("spawn sh");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let a = harness_state(sleeper.id()).expect("read the sleeper");
+        assert_eq!(a.processes, 2, "{a:?}");
+        assert_eq!(a.first_child.as_ref().map(|c| c.name.as_str()), Some("sleep"), "{a:?}");
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        let b = harness_state(sleeper.id()).expect("read the sleeper again");
+        assert!(!b.worked_since(&a, WORK_WINDOW), "a sleeping tree counted as work: {a:?} {b:?}");
+        let _ = sleeper.kill();
+        let _ = sleeper.wait();
+
+        let mut spinner = std::process::Command::new("sh")
+            .args(["-c", "while :; do :; done"])
+            .spawn()
+            .expect("spawn sh");
+        let a = harness_state(spinner.id()).expect("read the spinner");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let b = harness_state(spinner.id()).expect("read the spinner again");
+        let _ = spinner.kill();
+        let _ = spinner.wait();
+        assert!(b.cpu_ms > a.cpu_ms, "{a:?} {b:?}");
+        assert!(b.worked_since(&a, WORK_WINDOW), "{a:?} {b:?}");
     }
 
     #[cfg(target_os = "linux")]

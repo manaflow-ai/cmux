@@ -20,6 +20,8 @@ mod actions;
 #[cfg(unix)]
 mod activation;
 #[cfg(unix)]
+mod app_settings;
+#[cfg(unix)]
 mod budget;
 #[cfg(unix)]
 mod calls;
@@ -27,6 +29,8 @@ mod calls;
 mod cancel;
 #[cfg(unix)]
 mod catalog;
+#[cfg(unix)]
+mod chat_actions;
 #[cfg(unix)]
 mod chat_widgets;
 #[cfg(unix)]
@@ -40,6 +44,10 @@ mod deploy;
 #[cfg(unix)]
 mod egress;
 pub(crate) mod envelope;
+#[cfg(unix)]
+mod git_install;
+#[cfg(unix)]
+mod git_source;
 #[cfg(unix)]
 mod github_gateway;
 #[cfg(unix)]
@@ -79,6 +87,8 @@ mod open_tokens;
 #[cfg(unix)]
 mod openers;
 #[cfg(unix)]
+mod overlay;
+#[cfg(unix)]
 // The `render: web` page bridge: `page_calls` runs each page's calls through it
 // (`allowed_ops` and the rate-limited count are read only by tests).
 #[cfg_attr(not(test), allow(dead_code))]
@@ -97,6 +107,8 @@ pub(crate) mod routing;
 mod runs;
 #[cfg(unix)]
 mod safe_mode;
+#[cfg(unix)]
+mod safe_mode_bisect;
 #[cfg(unix)]
 mod scene_nodes;
 #[cfg(unix)]
@@ -144,6 +156,8 @@ mod terminal_ops;
 #[cfg(unix)]
 pub(crate) mod timer;
 #[cfg(unix)]
+mod toolbar;
+#[cfg(unix)]
 mod widgets;
 
 use std::sync::{Arc, Mutex, OnceLock};
@@ -151,11 +165,17 @@ use std::sync::{Arc, Mutex, OnceLock};
 use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
+pub(crate) use git_install::store_op_fetches;
+#[cfg(unix)]
+pub(crate) use chat_actions::{ChatActionRequest, ChatMessage};
+#[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
 pub(crate) use provider::{ProviderClaim, admit_origin, hosting_app_connection};
 #[cfg(unix)]
 pub(crate) use runs::{Caller, RunRequest};
+#[cfg(unix)]
+pub(crate) use safe_mode_bisect::bisect_step_runs_extensions;
 #[cfg(unix)]
 pub(crate) use store::store_op_mutates;
 #[cfg(unix)]

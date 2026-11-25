@@ -21,6 +21,10 @@ struct CmuxMobileApp: App {
     init() {
         // Launch to first interaction (LaunchMarks): dyld, static initializers and UIKit's start end here.
         LaunchMarks.shared.mark("app_init")
+        #if DEBUG
+        // `CMUX_MOBILE_LAUNCH_MARKS=1`: resume-after-switch marks for ResumeFromSwitchUITests.
+        ResumeMarks.startIfRequested()
+        #endif
         // An update from the classic app (the same bundle id) left its Keychain items and
         // settings here: they are deleted once, before anything reads either, so this app
         // starts signed out instead of half-reading a classic session.
@@ -74,6 +78,9 @@ struct CmuxMobileApp: App {
         LiveFeedFixture.shared.startIfRequested()
         // Input responsiveness: main-thread hitches with stacks, keyboard windows, key and send latency.
         InputLatencyTrace.startIfRequested()
+        if let trace = InputLatencyTrace.shared {
+            ComposerDraftStore.mainThreadWrite = { trace.note("draft_file_write_main") }
+        }
         // CMUX_MOBILE_FEED_TERMINAL_FIXTURE=1 (or =before): terminal agents' events from a fixed Mac.
         TerminalFeedFixture.shared.startIfRequested()
         #endif
@@ -101,6 +108,9 @@ struct CmuxMobileApp: App {
                 AgentCLIHybridBenchRoot()
             } else if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
+            } else if FoldSimulatorFrame<RootView>.isRequested {
+                // A live fold and unfold inside one simulator window (UITests/FoldResizeUITests).
+                FoldSimulatorFrame { RootView(auth: auth, store: .mock()) }
             } else {
                 RootView(auth: auth, store: .mock())
             }
@@ -113,6 +123,7 @@ struct CmuxMobileApp: App {
             // `CMUX_MOBILE_LAUNCH_MARKS=1`: the launch marks for LaunchTTIUITests.
             .overlay(alignment: .topLeading) { LaunchMarksProbe() }
             .overlay(alignment: .topTrailing) { InputLatencyProbe() }
+            .overlay(alignment: .bottomLeading) { ResumeMarksProbe() }
             #endif
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,
@@ -124,6 +135,9 @@ struct CmuxMobileApp: App {
             // App Shortcut's own perform() at launch, as the system would on a tap (a headless
             // simulator's Spotlight opens the app without running an app's intents).
             .task { await NewAgentChatIntent.runFromLaunchArguments() }
+            // `-cmux-mobile-kbd-pin-trace` for every root, not only RootView's (TerminalDemoRoot's
+            // terminal for the keyboard motion bench); it starts once.
+            .task { KeyboardPinTrace.startIfRequested() }
             #endif
         }
     }
