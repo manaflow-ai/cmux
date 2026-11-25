@@ -185,12 +185,6 @@ cmux-tui/crates/cmux-terminal-client/include/cmux_terminal_client.h	cmux_wiregua
 cmux-tui/crates/cmux-terminal-client/include/cmux_terminal_client.h	cmux_wireguard_net_start
 cmux-tui/crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h	cmux_terminal_prediction_abi_version
 cmux-tui/crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h	cmux_terminal_prediction_active
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_abi_version
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_chromium_internal_url
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_chromium_page_route
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_contains_pairing_link
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_is_loopback_host
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_resolve_typed
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_find_utun_fd
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_network_changed
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_start
