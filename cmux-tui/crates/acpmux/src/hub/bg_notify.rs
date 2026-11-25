@@ -239,7 +239,7 @@ comes to you."
         let prompt_id = format!("{PROMPT_PREFIX}{id}");
         let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
         if ok
-            && super::inbox::page_rule::listed(&*self.config.read().await, &session.meta().name)
+            && self.page_rule_lists(&session.meta().name)
             && self.inbox_hold_end(session, &prompt_id, &text, &provenance)
         {
             if let Err(e) = crate::home_fs::write(&mark, b"") {
@@ -672,7 +672,14 @@ mod tests {
         let (hub, session) = hub_with_chat("coord-bg-ok", true).await;
         let dir = cmux_unix_socket::short_test_dir("bg-fold-ok");
         let record = ended("ok1", &session, 0);
-        hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
+        let writer = hub.config.write().await;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            hub.bg_end_to_chat(&session, dir.path(), &record, None),
+        )
+        .await
+        .expect("an exit notice reaches the inbox while configuration is being written");
+        drop(writer);
         hub.bg_end_to_chat(&session, dir.path(), &record, None).await;
         assert!(bg_run::notified_path(dir.path(), "ok1").exists(), "sent: no restart owes it");
         {
