@@ -3,7 +3,7 @@
 //! search can jump over a known nonmatching page without reopening or parsing its JSONL.
 //! Collisions evict an entry. Replacements, appends and rewrites invalidate entries.
 
-use std::fs::{File, Metadata, OpenOptions};
+use std::fs::{File, Metadata};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::time::SystemTime;
@@ -169,7 +169,7 @@ mod tests {
         assert_eq!(reopened.skip(page.end, &term("xyzzy")), Some(4));
         assert!(reopened.file.metadata().unwrap().len() <= SLOTS * RECORD_BYTES as u64);
         drop(reopened);
-        OpenOptions::new().append(true).open(&path).unwrap().write_all(b"append").unwrap();
+        std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"append").unwrap();
         let mut changed =
             Offsets::open(dir.path(), &path, "claude", &path.metadata().unwrap()).unwrap();
         assert_eq!(changed.skip(page.end, &term("xyzzy")), None);
