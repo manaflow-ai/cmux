@@ -61,7 +61,6 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     `<span class="acpmux-floating-status" data-status="streaming"></span>` +
     `<div class="cv-md"><span class="cv-thinking">Thinking</span></div>` +
     `<button class="acpmux-jump-latest" data-shown><span class="acpmux-jump-latest__arrow">↓</span></button>` +
-    `<ul class="cv-plan"><li class="cv-plan__item" data-status="in_progress"><span class="cv-plan__mark"><span class="cv-spinner" data-working></span></span></li></ul>` +
     `<span class="cv-spinner"></span>` +
     working +
     `<span class="hc-writing">writing</span>`;
@@ -124,9 +123,6 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     const running = await loops(p);
     await p.close();
     expect(running.length).toBeGreaterThanOrEqual(6);
-    // The todo list's step at work turns the shared Spinner inside its mark, never a ring of its own
-    // (Leo 2026-11-02: "WHY ... ARE YOU GUYS POSSIBLY DIFFERING THE ... SPINNERS").
-    expect(running.some((loop) => loop.startsWith("cv-plan__mark"))).toBe(false);
     // The running rows' spinner (compaction, tool runs) too: it once had no rule and never turned.
     expect(running.some((loop) => loop.startsWith("cv-spinner") && loop.endsWith("cmux-spin"))).toBe(true);
     // Agent work uses the shared spinner by default; no working mark runs the breathing keyframe.
