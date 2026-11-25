@@ -35,6 +35,7 @@ mod compat;
 pub mod coverage;
 pub mod fixtures;
 pub mod handshake;
+pub mod json_schema;
 pub mod pointer;
 mod schema;
 mod stream;
