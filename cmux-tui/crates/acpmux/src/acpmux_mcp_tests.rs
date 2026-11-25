@@ -93,6 +93,8 @@ fn the_tools_say_they_message_other_sessions_instead_of_the_shell() {
             "race_start",
             "race_show",
             "send_status",
+            "wait",
+            "cancel",
             "machine_read",
             "machine_edit",
             "machine_exec"
@@ -444,7 +446,13 @@ async fn an_attach_to_an_unknown_session_is_refused_not_relayed_as_text() {
     let (to, text) = ("elsewhere".to_owned(), "the broken card".to_owned());
     let target =
         send::Target { index: 0, to: to.clone(), key: to, tag: None, text, file: None, item };
-    let row = send::relay(&target, &anyhow::anyhow!("no session named elsewhere"), None).await;
+    let row = send::relay(
+        &target,
+        &anyhow::anyhow!("no session named elsewhere"),
+        None,
+        tokio::time::Instant::now() + std::time::Duration::from_secs(25),
+    )
+    .await;
     let row = row.expect("a refusal row, not the relay skipped or taken");
     assert_eq!(row["ok"], false, "{row}");
     assert!(row["error"].as_str().unwrap_or_default().contains("attachments"), "{row}");
@@ -631,6 +639,52 @@ fn messages_to_one_session_form_one_chain() {
     .map(|names| names.into_iter().map(str::to_owned).collect())
     .collect();
     assert_eq!(send::same_session(&aliases), vec![vec![0, 2], vec![1, 6, 7], vec![3, 5], vec![4]]);
+}
+
+/// The detailed record is fetched once, and finding aliases for any number of sends uses the
+/// daemon's mirrored list. Only the initial info read may reach the peer.
+#[cfg(unix)]
+#[tokio::test]
+async fn far_work_info_and_batch_aliases_read_each_source_once() {
+    use crate::rpc::Message;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+
+    let dir = cmux_unix_socket::short_test_dir("acpmux-far-info");
+    let socket = dir.path().join("d.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let mut lines = BufReader::new(rd).lines();
+        for expected in [method::INITIALIZE, method::MUX_INFO, method::MUX_RESOLVE] {
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method, params } = Message::parse(&line).unwrap() else {
+                panic!("expected an RPC request");
+            };
+            assert_eq!(method, expected);
+            let params = params.unwrap();
+            let reply = match expected {
+                method::MUX_INFO => {
+                    assert_eq!(params["sessionId"], "far/lane");
+                    assert_ne!(params["row"], true, "info needs the full record");
+                    json!({"sessionId":"abc", "peer":"far", "lastSeq":42})
+                }
+                method::MUX_RESOLVE => {
+                    assert_eq!(params["query"], "far/lane");
+                    json!({"matches":[{"sessionId":"abc","peer":"far","status":"idle"}]})
+                }
+                _ => json!({}),
+            };
+            wr.write_all(Message::ok(id, reply).to_line().as_bytes()).await.unwrap();
+        }
+    });
+    let client = Client::connect(&socket).await.unwrap();
+    let info = call(&client, &tool("info", json!({"name":"far/lane"}))).await;
+    assert_eq!(info["structuredContent"]["lastSeq"], 42, "{info}");
+    let targets = [target(0, "far/lane", "far/lane"), target(1, "far/lane", "far/lane")];
+    let aliases = send::aliases(&client, &targets).await;
+    assert!(aliases.iter().all(|names| names.iter().any(|n| n == "far/abc")), "{aliases:?}");
+    server.await.unwrap();
 }
 
 /// Codex review: a session named by its name in one item and by its id in another is one
@@ -1024,6 +1078,9 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
             "lastPrompt": big, "lastTurn": big, "enforcement": {"detail": big}}),
         );
     }
+    let newest = sessions.last_mut().unwrap();
+    newest["via"] = json!("relay");
+    newest["asOfMs"] = json!(42);
     let all = json!({"sessions": sessions});
 
     let r = ls_result(&all, &json!({}));
@@ -1034,6 +1091,8 @@ fn a_fleet_sized_list_answers_small_and_live_first() {
     assert!(rows.iter().all(|s| s["status"] != "closed"), "closed rows by default");
     assert!(rows[0].get("lastPrompt").is_none(), "rows are slim: {}", rows[0]);
     assert_eq!(rows[0]["name"], "lane-299", "newest first");
+    assert_eq!(rows[0]["via"], "relay");
+    assert_eq!(rows[0]["asOfMs"], 42);
     assert_eq!(r["structuredContent"]["more"], json!(300 - LS_DEFAULT_LIMIT));
     assert!(text(&r).lines().last().unwrap().contains("more"), "{}", text(&r));
 
@@ -1205,7 +1264,7 @@ async fn team_tools_use_the_shared_rpc_paths_and_preserve_receipts_and_refusals(
 }
 
 /// A Chief turn's `CMUX_MCP_TOOLS` reaches this server too (`agent_tools::scoped`): standalone,
-/// without a `cmux` server to fold into, it lists only the seven coordinator tools, never `bg_*` or
+/// without a `cmux` server to fold into, it lists only the ten coordinator tools, never `bg_*` or
 /// `team_*` (#30082 review).
 #[test]
 fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
@@ -1215,7 +1274,18 @@ fn an_allowlist_keeps_only_the_acpmux_tools_it_names() {
     let chief = allowed(all.clone(), Some(crate::agent_tools::CHIEF_TURN_TOOLS));
     assert_eq!(
         names(&chief),
-        ["send", "inbox_read", "inbox_reply", "ls", "last", "info", "send_status"]
+        [
+            "send",
+            "inbox_read",
+            "inbox_reply",
+            "ls",
+            "last",
+            "info",
+            "watch_add",
+            "watch_ls",
+            "watch_rm",
+            "send_status"
+        ]
     );
     assert!(names(&allowed(all, Some("render,agents_wait"))).is_empty());
 }
@@ -1315,6 +1385,42 @@ fn instructions_stay_short() {
     assert!(crate::offer_mcp::INSTRUCTIONS.len() <= 300);
     assert!(crate::subsession_mcp::instructions().len() <= 1_100);
     assert!(crate::computer_use::tools::INSTRUCTIONS.len() <= 900);
+}
+
+/// A thread listing says each thread once: the id it is replied by, not that id again under
+/// another name; the sender's shown name in `from`, not the whole sender record the chat pane
+/// reads; and no flag that is off, no count that is none, no id of the chat doing the reading.
+/// The text line keeps printing the unread count the rows no longer carry.
+#[test]
+fn a_thread_listing_names_its_sender_once_and_the_reader_never() {
+    let as_the_daemon_lists = || {
+        json!({"sessionId": "00000000-0000-4000-8000-000000000001", "threads": [
+            {"threadId": "pr:12", "key": "pr:12", "label": "#12", "class": "action",
+             "from": ["lane-a"], "unread": 0, "new": 0, "count": 3, "newestAt": 1,
+             "surgeHeld": false, "needYou": false, "newestPreview": "merged",
+             "sender": {"label": "lane-a", "session": null, "machine": null, "relay": null,
+                        "harness": null, "kind": null, "pid": null, "owner": null}}]})
+    };
+    let mut listed = as_the_daemon_lists();
+    let text = crate::cli::session_inbox::describe(&listed);
+    trim_threads(&mut listed);
+    assert!(text.contains("0 unread of 3"), "the text line stopped saying it: {text}");
+    assert!(listed.get("sessionId").is_none(), "the reader's own id: {listed}");
+    let row = listed["threads"][0].as_object().unwrap();
+    for gone in ["key", "sender", "unread", "new", "surgeHeld", "needYou"] {
+        assert!(!row.contains_key(gone), "{gone} is said twice or not at all: {listed}");
+    }
+    for kept in ["threadId", "label", "class", "from", "count", "newestPreview"] {
+        assert!(row.contains_key(kept), "{kept} was dropped: {listed}");
+    }
+    let before = as_the_daemon_lists().to_string().len();
+    assert!(listed.to_string().len() * 2 < before, "{listed} of {before} bytes");
+    // A thread's own read is not a listing: every sender it names stays.
+    let mut read = json!({"threadId": "pr:12", "sessionId": "s-1",
+        "messages": [{"from": "lane-a", "text": "hi", "sender": {"label": "lane-a"}}]});
+    let whole = read.clone();
+    trim_threads(&mut read);
+    assert_eq!(read, whole, "a thread read was trimmed like a listing");
 }
 
 /// The census of 2026-11-23 (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md)

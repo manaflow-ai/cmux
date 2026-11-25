@@ -303,6 +303,7 @@ select_packages() {
     CmuxPhonePush
     CmuxConnectivityTelemetry
     CmuxDeviceHub
+    CmuxEgress
     CmuxHomeCore
     CmuxHomeRender
     CmuxMobileBilling
@@ -312,6 +313,7 @@ select_packages() {
     CmuxScreenKit
     CmuxTabsKit
     CmuxVNCWebRTC
+    CmuxVisibleRows
     GlassHost
   )
 
