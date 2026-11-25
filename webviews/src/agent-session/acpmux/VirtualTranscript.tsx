@@ -1812,6 +1812,7 @@ function TranscriptView({
     // perf-hot: one render and two layout reads per growth (not per frame) composer-field-growth
     const grew = (event: Event) => {
       const { detail, target } = event as FieldGrowthEvent;
+      if ((window as any).__noRide) return;
       if (!(target instanceof HTMLElement)) return;
       if (detail.outside) {
         // A send cleared a tall prompt. Under the transaction, sent from the latest row, its collapse
@@ -1852,6 +1853,7 @@ function TranscriptView({
           tx.move(delta, "field");
           return;
         }
+        if ((window as any).__noAnim) return;
         const move = rows.animate(growthTranslate(detail, delta), {
           duration: detail.duration,
           easing: detail.progress ? "linear" : detail.easing,

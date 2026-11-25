@@ -240,6 +240,7 @@ export async function runComposerLoad(
   // traced L1 run the main thread sat idle for half of a 70 to 84 ms wait after the key's frame had painted (keydown
   // to that paint p95 18.4 ms, to the posted task 75 ms), so the proxy read the browser's task order, not the key.
   // WebKit reports no element timing and keeps the proxy.
+  if (process.env.CWP_DUMP) require("node:fs").appendFileSync(process.env.CWP_DUMP, JSON.stringify({ mode, samples, slow: await page.evaluate(() => (window as any).__slowTasks ?? null), origin: await page.evaluate(() => performance.timeOrigin), heights: await page.evaluate(() => (window as any).__heights ?? null) }) + "\n");
   const toPaint = samples.map((s) => (Number.isFinite(s.painted) && s.painted! >= 0 ? s.painted! : s.paint));
   const presented = samples.flatMap((s) => (Number.isFinite(s.submitted) ? [s.submitted!] : []));
   const paintP95 = stage(toPaint, 0.95);
