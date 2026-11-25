@@ -1861,6 +1861,13 @@ classic_mini = selector.replace(
 jit_arm = "github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}"
 accepted = [selector, classic_mini]
 accepted += [s.replace("'blacksmith-2vcpu-ubuntu-2404' }}", jit_arm) for s in accepted]
+# Main's decide runs on the same ephemeral JIT label on every attempt (the hourly :17 tick decides there, so it
+# never waits behind a Mac): the main arm names cmux-gcp-nightly-jit-x64 instead of the nightly slot.
+main_slot = ("github.ref == 'refs/heads/main' && "
+             "(startsWith(vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, 'glaeda-nightly-') && "
+             "vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || 'glaeda-nightly-std-xcode-26.6') || ")
+accepted += [s.replace(main_slot, "github.ref == 'refs/heads/main' && 'cmux-gcp-nightly-jit-x64' || ", 1)
+             for s in accepted if main_slot in s]
 if job.get("runs-on") not in accepted or "environment" in job:
     sys.exit(0)
 if re.search(r"\bsecrets\b|create-github-app-token|\bprivate-key\b",

@@ -1,9 +1,16 @@
 export function headersForCanonicalFetch({
   requestHeaders,
   searchParams,
+  englishOnly = false,
 }: {
   requestHeaders: Headers;
   searchParams: URLSearchParams;
+  /**
+   * The page exists only in English: ask for English whatever the reader's
+   * Accept-Language or NEXT_LOCALE cookie says, so locale negotiation cannot
+   * pick a localized route the page does not have.
+   */
+  englishOnly?: boolean;
 }): Headers {
   const headers = new Headers({
     accept: "text/html",
@@ -11,8 +18,14 @@ export function headersForCanonicalFetch({
   });
 
   copyRequestHeader(requestHeaders, headers, "authorization");
-  copyRequestHeader(requestHeaders, headers, "cookie");
-  copyRequestHeader(requestHeaders, headers, "accept-language");
+  if (englishOnly) {
+    const cookie = englishLocaleCookie(requestHeaders.get("cookie"));
+    if (cookie) headers.set("cookie", cookie);
+    headers.set("accept-language", "en");
+  } else {
+    copyRequestHeader(requestHeaders, headers, "cookie");
+    copyRequestHeader(requestHeaders, headers, "accept-language");
+  }
 
   const protectionBypass =
     requestHeaders.get("x-vercel-protection-bypass") ??
@@ -38,6 +51,15 @@ export function hasSensitiveCanonicalAccess(headers: Headers): boolean {
     headers.has("x-vercel-protection-bypass") ||
     headers.has("x-vercel-set-bypass-cookie")
   );
+}
+
+/** The cookie header with next-intl's NEXT_LOCALE set to English (when present). */
+function englishLocaleCookie(cookie: string | null): string | null {
+  if (!cookie) return null;
+  return cookie
+    .split(";")
+    .map((part) => (/^\s*NEXT_LOCALE=/u.test(part) ? part.replace(/=.*$/u, "=en") : part))
+    .join(";");
 }
 
 function copyRequestHeader(
