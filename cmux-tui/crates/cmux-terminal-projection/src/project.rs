@@ -146,7 +146,14 @@ pub fn wrap_line(
     if let (Some(target), None) = (cursor_offset, cursor_at) {
         // Past the line's end: the blank cells up to the cursor count.
         let blanks = target.saturating_sub(end_offset);
-        if col + blanks < cols {
+        if compact && padded && col + blanks >= cols {
+            // Compact, in the padding it dropped (an app mid-way through
+            // printing a right-aligned row, a network read cut it there):
+            // the cursor waits at the line's last row's end. The padding
+            // goes on no new row: a row added at the screen's bottom
+            // scrolls the phone, and no later frame can take it back.
+            cursor_at = Some((out.len() - 1, col.min(cols - 1)));
+        } else if col + blanks < cols {
             // On the line's last row.
             cursor_at = Some((out.len() - 1, col + blanks));
         } else {
@@ -1330,6 +1337,25 @@ mod tests {
         let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 10)), true);
         assert_eq!(wrapped.cursor, Some((0, 10)));
         assert_eq!(wrapped.rows[0].width(), 2, "the prompt's one trailing space is a cell");
+    }
+
+    #[test]
+    fn compact_keeps_a_cursor_in_dropped_padding_on_the_line() {
+        // A status row cut by a network read inside its padding: 17 glyphs
+        // and 40 written spaces, the cursor after them. Compact drops the
+        // run and the cursor waits on the line's one row (a second row
+        // would scroll the phone, and the rest of the row takes it back
+        // only on the Mac). Exact keeps every space and wraps them.
+        let mut term = Terminal::new(120, 3, 100);
+        for &b in format!("  ? for shortcuts{}", " ".repeat(40)).as_bytes() {
+            term.advance(b);
+        }
+        let rows: Vec<&Row> = term.primary_rows()[..1].iter().collect();
+        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 57)), true);
+        assert_eq!(wrapped.rows.len(), 1);
+        assert_eq!(wrapped.cursor, Some((0, 17)));
+        let wrapped = wrap_line(&term, &rows, 120, 33, Some((0, 57)), false);
+        assert_eq!(wrapped.rows.len(), 2);
     }
 
     #[test]
