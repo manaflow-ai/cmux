@@ -37,7 +37,7 @@ public struct LaunchIdentity: Sendable, Equatable {
     /// (``terminalEnvironment``), so both resolve one build.
     public var build: BuildIdentity
     /// The settings file this launch reads and writes when it is not the
-    /// shared `~/.config/cmux/cmux-next.json`: ``configFileKey`` from the
+    /// shared `~/.config/cmux-next/cmux-next.json`: ``configFileKey`` from the
     /// process (the bundle's `LSEnvironment`, a launch's `--env`, or the DEBUG
     /// `--config-file`), as an absolute path. Its terminals, its daemon and
     /// the acpmux daemon its agents run under get the same value
