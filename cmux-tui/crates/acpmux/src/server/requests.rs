@@ -121,7 +121,20 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     let peers = conn.origin != Origin::Peer;
     // Only `session/new` follows a placed create (`hub/admission_redirect.rs`).
     let redirect = crate::hub::admission_redirect::movable(params);
-    crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name, redirect }
+    // The harness it asks for, as `session/new` reads it; none: the default harness.
+    let harness = mux_meta(params).and_then(|m| m.get("harness")).and_then(Value::as_str);
+    let harness = harness.map(str::to_owned);
+    crate::hub::admission::Ask {
+        force,
+        can_force,
+        person,
+        who,
+        local: !web,
+        peers,
+        name,
+        redirect,
+        harness,
+    }
 }
 
 /// A peer request's `reply` with what its `wait` saw (`Hub::wait_for_peer`) as `wait`; none

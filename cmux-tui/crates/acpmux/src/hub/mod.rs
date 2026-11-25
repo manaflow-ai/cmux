@@ -34,6 +34,7 @@ mod agent_pairs;
 pub(crate) mod agent_vm;
 mod away_recap;
 mod memory_inbox;
+pub(crate) mod pool_pressure;
 mod prompt_coach;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
