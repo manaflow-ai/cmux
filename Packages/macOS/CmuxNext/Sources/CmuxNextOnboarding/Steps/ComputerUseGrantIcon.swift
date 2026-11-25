@@ -14,6 +14,9 @@ enum ComputerUseGrantIcon {
 
     /// The icon's side in points; the bitmap is drawn at 2x.
     nonisolated static let side: CGFloat = 56
+    /// The square a symbol icon fits in, at its own proportions. A symbol's image carries its own margin, so
+    /// fitted to the whole side its glyph comes out as wide as the 56-point app icon's tile beside it (about 46).
+    nonisolated static let symbolFit: CGFloat = side
 
     /// Where macOS keeps the grant's icon, in order; the first file on disk wins.
     static func paths(_ pane: ComputerUsePermissionPane) -> [String] {
