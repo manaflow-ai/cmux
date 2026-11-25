@@ -129,7 +129,7 @@ impl Status {
 /// One seed.
 pub struct Job {
     id: String,
-    folder: PathBuf,
+    pub(super) folder: PathBuf,
     /// With `folder`, what makes a retry this job ([`StartParams::retry_key`]).
     key: String,
     status: Mutex<Status>,
@@ -435,7 +435,6 @@ impl GitSeedService {
         let seed = run::Seed::new(
             job.clone(),
             params,
-            folder,
             bundle,
             carry,
             self.roots.clone(),
