@@ -26,7 +26,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "retry-workspaces", "retry-first-launch", "retry-first-launch-offline", "retry-first-launch-failed", "retry-refresh-failed", "retry-offline", "retry-feed", "retry-terminal", "retry-home-offline", "retry-home-failed", "retry-home-unreachable-empty", "retry-home-asleep-empty", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "chief-open", "chief-settings", "home-showcase", "live", "workspace-new", "connect-mac", "connect-mac-no-account", "connect-mac-elsewhere", "relay-only", "approve", "disclosure-chat", "kbd-chat", "offline-send", "offline-held", "kbd-tab", "kbd-new", "kbd-feed", "kbd-empty", "kbd-chat-empty", "ws-terminal-idle", "ws-terminal-reattach", "ws-terminal-composer", "ws-terminal-kbd-toggles", "ws-terminal-armed", "large-preview", "large-preview-low-space", "voice-chat", "voice-terminal", "workspace-open-top-left", "new-message", "new-message-mac-only", "new-message-forward", "live-terminal", "chief-list", "chief-list-placed", "chief-list-cloud-only", "switcher-retry", "switcher-retry-chat"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -209,10 +209,11 @@ struct DemoDriver {
                 // prose) with two photos attached, focused, caret at its end
                 // (Leo, 2026-11-23: typing lag after two pictures attached
                 // and removed in a long text).
-                // `chars:N:bare`: the same draft with no photos (the control).
+                // `chars:N:bare`: the same draft with no photos (the control);
+                // `:oneline` makes it one paragraph.
                 let parts = mode.split(separator: ":")
                 let count = parts.count > 1 ? Int(parts[1]) ?? 5_000 : 5_000
-                model.demoFillComposer(TerminalModel.demoProse(count), attachments: !parts.contains("bare"), file: false)
+                model.demoFillComposer(TerminalModel.demoProse(count, oneParagraph: parts.contains("oneline")), attachments: !parts.contains("bare"), file: false)
                 model.focusComposer()
             default:
                 model.demoFillComposer("Can you check why the build fails on the\nsecond step? The log is attached, and the\nscreenshots show the error dialog.", attachments: true)
@@ -263,6 +264,18 @@ struct DemoDriver {
                 summary.macName = "Mac"
                 summary.cwd = "~/project"
                 return DisconnectedAgentSource(summary: summary)
+            }
+            shell.tab = .home
+            shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
+        case "offline-held":
+            // A prompt held for a Mac that never answers, back in the composer with the notice
+            // the app's own loading-chat source gives it (HeldPromptDemo; a 2 s hold).
+            AgentSessionDirectory.shared.makeSource = { summary in
+                var summary = summary
+                summary.name = "Offline draft"
+                summary.macName = "Mac"
+                summary.cwd = "~/project"
+                return HeldPromptDemo.source(summary: summary)
             }
             shell.tab = .home
             shell.homePath.append(AgentChatDestination(workspaceID: "ws-cmux", tabID: "t-claude"))
@@ -1339,42 +1352,6 @@ private final class FrameClock: NSObject {
         link?.invalidate()
         link = nil
     }
-}
-/// A demo chat whose history comes `delay` late, as from a slow Mac: it says it loads history
-/// (``AgentSessionSource/loadsHistory``) and says when it caught up.
-@MainActor
-final class DelayedHistorySource: AgentSessionSource {
-    let inner: MockAgentSession
-    let delay: Duration
-
-    init(inner: MockAgentSession, delay: Duration) {
-        self.inner = inner
-        self.delay = delay
-    }
-
-    var summary: AgentSessionSummary { inner.summary }
-    var loadsHistory: Bool { true }
-
-    func events() -> AsyncStream<AgentSessionEvent> {
-        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        let inner = inner, delay = delay
-        Task { @MainActor in
-            // Demo only: stands in for a Mac that answers late.
-            try? await Task.sleep(for: delay)
-            var first = true
-            for await event in inner.events() {
-                continuation.yield(event)
-                if first {
-                    first = false
-                    continuation.yield(.historyLoading(false))
-                }
-            }
-            continuation.finish()
-        }
-        return stream
-    }
-
-    func send(_ intent: AgentClientIntent) { inner.send(intent) }
 }
 /// A demo chat whose last turn failed on a rate limit, after the mock's history: the error card
 /// with Retry and Retry with another model (the mock offers three models).
