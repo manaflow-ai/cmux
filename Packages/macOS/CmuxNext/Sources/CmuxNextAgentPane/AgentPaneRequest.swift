@@ -262,7 +262,7 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tabState(refresh: Bool, terminalSwitch: Bool = false)
     /// `pane.tabRowTools {width, need?}`: the chat header's tools take `width` CSS pixels at the trailing
     /// end of the pane's tab row (``AgentPaneTabRow``), 0 when the page draws none there; `need` is that width less
-    /// what takes only the row's leftover room (the rolling summary), what decides whether the pane offers the row.
+    /// what takes only the row's leftover room, what decides whether the pane offers the row.
     case tabRowTools(width: Double, need: Double? = nil)
     /// The current page-owned Session Info model, or its withdrawal.
     case sessionInfo(AgentPaneSessionInfoModel?)
@@ -344,6 +344,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// document, what moved after its first paint. Forwarded as launch marks only
     /// (``AgentPaneLaunchTimings/layoutSettle(at:maxMovePx:element:shifts:)``).
     case launchSettle(settledAt: Date, maxMovePx: Double, element: String, shifts: Int)
+    /// `pane.inputEchoed {echoedEpochMs}` (webviews launchInputEcho.ts): once per chat document while a launch
+    /// harness reads the marks, the frame where the composer first drew a key the person typed. Forwarded as the
+    /// launch mark `agent_pane.input_echoed` only (``AgentPaneLaunchTimings/inputEchoed(at:)``).
+    case inputEchoed(at: Date)
     /// `pane.clientReady {ready}`: the page's acpmux client finished connecting (its handshake,
     /// machines and first chat list are in, and its page actions answer), or lost its connection.
     /// A prewarmed page serves a tab opening an existing chat only while it is ready

@@ -321,6 +321,9 @@ impl Peer {
                 .into_iter()
                 .collect();
         vias.push(if self.ssh_parts().is_some() { Via::Ssh } else { Via::Url });
+        if self.tailnet_route().is_some() {
+            vias.push(Via::Tailnet);
+        }
         #[cfg(feature = "hub-carrier")]
         if self.has_hub_path() {
             vias.push(Via::Hub);
@@ -372,7 +375,7 @@ impl Peer {
 
     /// The selector moved the session to `to`: the live link moves there at its next quiet
     /// moment (`switch_due`).
-    fn after_switch(&self, switch: Option<Option<Via>>) {
+    pub(super) fn after_switch(&self, switch: Option<Option<Via>>) {
         let Some(Some(to)) = switch else { return };
         let serving = self.serving();
         if serving.is_some_and(|via| via != to) && self.link().is_ready() {
@@ -436,6 +439,8 @@ impl Peer {
     /// tokens, never before the race: a dial with its tokens configured or kept starts at once.
     pub(super) async fn open_first(self: &Arc<Self>) -> Result<(Via, Opened), String> {
         use futures_util::FutureExt;
+        // Opt-in tailnet path: read from the cached snapshot (a first read waits briefly).
+        self.refresh_tailnet(None).await;
         let started = crate::store::now_ms();
         let (order, together) = self.with_paths(|paths| {
             let now = crate::store::now_ms();
@@ -489,9 +494,11 @@ impl Peer {
         let configured = self.token.is_some() && self.peer_token.is_some();
         match via {
             Via::Url => None,
-            Via::Wireguard | Via::Link | Via::Hub if configured => None,
+            Via::Wireguard | Via::Link | Via::Tailnet | Via::Hub if configured => None,
             // What the read would answer at once (`connect_tokens`), without waiting on it.
-            Via::Wireguard | Via::Link | Via::Hub if self.read_tokens.get().is_some() => {
+            Via::Wireguard | Via::Link | Via::Tailnet | Via::Hub
+                if self.read_tokens.get().is_some() =>
+            {
                 self.read_tokens.get().map(|kept| (kept, true))
             }
             _ => read.await,
@@ -504,7 +511,9 @@ impl Peer {
     /// need no read, so a direct path never waits on ssh for them; and a read that fails
     /// (ssh down) leaves the direct path its kept tokens, never stops it.
     async fn direct_tokens(&self, order: &[Via]) -> Option<(tokens::Tokens, bool)> {
-        let direct = order.iter().any(|via| matches!(via, Via::Wireguard | Via::Link | Via::Hub));
+        let direct = order
+            .iter()
+            .any(|via| matches!(via, Via::Wireguard | Via::Link | Via::Tailnet | Via::Hub));
         let configured = self.token.is_some() && self.peer_token.is_some();
         if !direct || configured || self.ssh_parts().is_none() {
             return None;
@@ -544,6 +553,7 @@ impl Peer {
                 let stream = dial_link(&socket, host).await?;
                 Ok((Box::new(stream), "ws://localhost/".to_owned()))
             }
+            Via::Tailnet => self.tailnet_stream().await,
             #[cfg(feature = "hub-carrier")]
             Via::Hub => Ok((Box::new(self.hub_stream().await?), "ws://localhost/".to_owned())),
             other => Err(format!("{} is not a direct stream path", other.as_str())),
@@ -560,7 +570,7 @@ impl Peer {
             .direct_credentials(ssh_tokens)
             .ok_or_else(|| "no token for the peer yet".to_owned())?;
         let deadline = if self.linked_once.load(Ordering::SeqCst)
-            && matches!(via, Via::Wireguard | Via::Link)
+            && matches!(via, Via::Wireguard | Via::Link | Via::Tailnet)
         {
             self.timings.connect.min(DIRECT_REDIAL_CONNECT)
         } else {
@@ -802,7 +812,9 @@ impl Peer {
         let opened = match via {
             Via::Ssh => self.open_ssh(ssh_tokens).await,
             Via::Url => self.open_url().await,
-            Via::Wireguard | Via::Link => self.open_direct(via, ssh_tokens.as_ref()).await,
+            Via::Wireguard | Via::Link | Via::Tailnet => {
+                self.open_direct(via, ssh_tokens.as_ref()).await
+            }
             Via::Hub if via.streams() => self.open_direct(via, ssh_tokens.as_ref()).await,
             Via::Hub => Err("the hub relay carries no live link yet".to_owned()),
         }?;
@@ -851,6 +863,9 @@ impl Peer {
         loop {
             if *stopped.borrow() {
                 return;
+            }
+            if !self.with_paths(|paths| paths.has(via)) {
+                return; // taken out of the live set (a tailnet path no longer offered)
             }
             let now = crate::store::now_ms();
             let serving = self.serving() == Some(via);
@@ -1002,7 +1017,7 @@ impl Peer {
     /// reads tokens over ssh: the link's connect did), and its ssh process for an ssh path.
     async fn open_probe(&self, via: Via) -> Result<(OpenedWs, Option<ProbeTunnel>), String> {
         match via {
-            Via::Wireguard | Via::Link => {
+            Via::Wireguard | Via::Link | Via::Tailnet => {
                 let opened = self.open_direct(via, None).await?;
                 self.note_token_path(via, false);
                 Ok((opened.ws, None))

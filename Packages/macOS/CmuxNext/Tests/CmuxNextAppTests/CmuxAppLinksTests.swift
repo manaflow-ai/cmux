@@ -29,6 +29,8 @@ struct CmuxAppLinksTests {
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
         #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/models/add")!, linkScheme: scheme) == "#/settings/models?focus=models.add")
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/models")!, linkScheme: scheme) == "#/settings/models")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/integrations?connected=linear&id=mcs_1")!, linkScheme: scheme) == "#/settings/integrations")
+        #expect(DeepLink.settingsRoute(for: URL(string: "\(scheme)://settings/connections")!, linkScheme: scheme) == "#/settings/integrations")
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud")!, linkScheme: scheme) == "#/settings/cloud")
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/claude")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.claude")
         #expect(DeepLink.settingsRoute(for: URL(string: "cmux://settings/cloud/chatgpt")!, linkScheme: scheme) == "#/settings/cloud?focus=cloud.chatgpt")
