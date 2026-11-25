@@ -294,6 +294,10 @@ export type PaneComposerDeps = {
   clearProject(): void;
   /// A GitHub repository picked with This Mac picked: the chip's choice only, checked out when Return sends.
   deferGitHub(repo: string, candidates: string[]): void;
+  /// Drops that pick (another machine picked).
+  dropDeferredGitHub(): void;
+  /// The repository the chip names while it waits for Return.
+  pendingGitHub: string | undefined;
   /// Return on a GitHub repository chosen with This Mac picked: starts its checkout and holds the prompt, which
   /// goes once the checkout is the folder. False when the chip names no such repository.
   checkOutGitHubOnSend(): boolean;
@@ -536,6 +540,8 @@ export function drawPaneComposer({
   cloningGitHub,
   clearProject,
   deferGitHub,
+  dropDeferredGitHub,
+  pendingGitHub,
   checkOutGitHubOnSend,
   openEmptyProject,
   pickSourceProject,
@@ -1075,7 +1081,7 @@ export function drawPaneComposer({
               if (holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
               setComputerUseAsked(undefined);
               // A GitHub repository on the chip with This Mac picked: Return checks it out here first (cmux#53226).
-              if (!cloudPicked && !sandboxing && checkOutGitHubOnSend()) return false;
+              if (!sandboxing && checkOutGitHubOnSend()) return false;
               if (cloudPicked) {
                 if (cloudSourceWaiting) return false;
                 const once = cloudFolderOnce.current;
@@ -1507,6 +1513,7 @@ export function drawPaneComposer({
               // Switching away from an explicitly selected Cloud machine must not leave a stale
               // draft target that a later keystroke could wake.
               cloudDraftMachineID.current = null;
+              dropDeferredGitHub();
               rememberNewChatPlace(computer === "local" ? { kind: "local" } : { kind: "machine", peer: computer });
               void callNative("chat.new", computer === "local" ? {} : { peer: computer }).catch(() => undefined);
             }}
@@ -1526,6 +1533,7 @@ export function drawPaneComposer({
             sourceRepository={checkedOutGitHub}
             onCloudFolderWaiting={setCloudSourceWaiting}
             cloningRepository={cloningGitHub}
+            pendingRepository={cloningGitHub ? undefined : pendingGitHub}
             onNoProject={freshChat ? clearProject : undefined}
             // A GitHub repository picked for a new chat on this Mac: its checkout here (cloned first when
             // there is none), then the chat's worktree of it.
