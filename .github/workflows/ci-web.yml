@@ -1416,6 +1416,7 @@ jobs:
           BUNDLES: ${{ steps.bundles.outcome }}
           PLAYWRIGHT_APT: ${{ steps.playwright-apt.outcome }}
           ENGINES: ${{ steps.engines.outcome }}
+          BG_CHECKS: ${{ steps.bg-checks.outcome }}
           MERGE_DRIVER: ${{ steps.merge-driver.outcome }}
           POST_EDIT_FORMAT: ${{ steps.post-edit-format.outcome }}
           EAGER_JS_BUDGET: ${{ steps.eager-js-budget.outcome }}
@@ -1448,6 +1449,7 @@ jobs:
             "BUNDLES|Build the web bundles" \
             "PLAYWRIGHT_APT|Cache Playwright's apt packages" \
             "ENGINES|Install headless engines" \
+            "BG_CHECKS|Start the merge driver test and the PR-scoped webview rules" \
             "MERGE_DRIVER|Generated bundle merge driver" \
             "POST_EDIT_FORMAT|Post-edit formatting hook" \
             "EAGER_JS_BUDGET|Check diff viewer eager JS budget" \
