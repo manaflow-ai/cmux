@@ -9,6 +9,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import urllib.parse
 from unittest import mock
@@ -848,16 +849,17 @@ class UploadTests(unittest.TestCase):
         store = MODULE.MediaBranch("o/r", "pr-media")
         self.assertNotIn("DUMMY_PAT", store.url)
         seen = []
-        real_run = subprocess.run
+        real_popen = subprocess.Popen
 
-        def run(argv, *args, **kwargs):
+        def popen(argv, *args, **kwargs):
             seen.append(" ".join(map(str, argv)))
-            return real_run(argv, *args, **kwargs)
+            return real_popen(argv, *args, **kwargs)
 
-        with mock.patch.object(MODULE.subprocess, "run", side_effect=run), \
+        with mock.patch.object(MODULE.subprocess, "Popen", side_effect=popen), \
                 self.assertRaises(MODULE.MediaError) as raised:
             store.ls_remote("refs/heads/pr-media")
         self.assertNotIn("DUMMY_PAT", str(raised.exception))
+        self.assertTrue([call for call in seen if "ls-remote" in call])
         self.assertFalse([call for call in seen if "DUMMY_PAT" in call])
 
     def test_a_credential_only_in_the_origin_url_still_authenticates_and_is_in_no_arguments(self):
@@ -1034,6 +1036,127 @@ class ApiFallbackUploadTests(unittest.TestCase):
                 mock.patch.object(MODULE, "check_privacy", side_effect=MODULE.PrivacyError("refused")), \
                 self.assertRaises(MODULE.PrivacyError):
             MODULE.put_file("o/r", "pr-media", "1/shot.png", written(scratch, "shot.png", PNG), "m")
+
+
+class StallTests(unittest.TestCase):
+    """Two uploads on a fleet Mac sat silent until their callers killed them at 110 s and 170 s (2026-11-22).
+    Every wait now has a bound, is named on stderr before it starts, and a git path that stalls hands the
+    upload to the API path, which lands it."""
+
+    def run_main(self, argv):
+        started = time.monotonic()
+        with contextlib.redirect_stdout(io.StringIO()) as out, \
+             contextlib.redirect_stderr(io.StringIO()) as err:
+            code = MODULE.main(argv, runner=FakeGh())
+        return code, out.getvalue(), err.getvalue(), time.monotonic() - started
+
+    def test_the_bounded_runner_kills_a_hung_child_and_what_it_spawned(self):
+        # A grandchild holding the pipes is what kept subprocess.run's own timeout waiting.
+        started = time.monotonic()
+        with self.assertRaises(subprocess.TimeoutExpired):
+            MODULE.run_bounded(["/bin/sh", "-c", "sleep 30 & sleep 30"], timeout=0.5)
+        self.assertLess(time.monotonic() - started, 10)
+        done = MODULE.run_bounded(["/bin/sh", "-c", "cat; echo err >&2"], timeout=10, input="hi")
+        self.assertEqual((done.returncode, done.stdout, done.stderr), (0, "hi", "err\n"))
+
+    def test_a_remote_that_never_answers_ends_in_its_bound_and_the_api_lands_the_upload(self):
+        origin = Origin(self)
+        with tempfile.TemporaryDirectory() as scratch:
+            # An ssh that connects and then sends nothing, with a child of its own holding the pipes.
+            ssh = Path(scratch) / "ssh"
+            ssh.write_text("#!/bin/sh\nsleep 30 &\nsleep 30\n")
+            ssh.chmod(0o755)
+            shot = written(scratch, "shot.png", PNG)
+            with mock.patch.dict(os.environ, {"PR_MEDIA_REMOTE_URL": "ssh://git@example.invalid/o/r.git",
+                                              "GIT_SSH_COMMAND": str(ssh)}), \
+                    mock.patch.object(MODULE, "LS_REMOTE_TIMEOUT", 1):
+                code, out, err, took = self.run_main(["--pr", "7", str(shot)])
+        self.assertEqual(code, 0, err)
+        self.assertLess(took, 20)
+        self.assertIn("waiting on git ls-remote", err)
+        self.assertIn("gave no answer in 1 s", err)
+        self.assertIn("going on through the GitHub API", err)
+        self.assertEqual(origin.files()["7/shot.png"], PNG)
+        self.assertIn("![shot](", out)
+
+    def test_a_push_that_stalls_is_killed_and_the_api_lands_the_batch(self):
+        origin = Origin(self)
+        # The far end takes the pack and then never answers.
+        origin.hook("sleep 30 &\nsleep 30\n")
+        with tempfile.TemporaryDirectory() as scratch:
+            first, second = written(scratch, "01-a.png", PNG), written(scratch, "02-b.png", PNG + b"b")
+            with mock.patch.object(MODULE, "PUSH_BASE_TIMEOUT", 1), \
+                    mock.patch.object(MODULE, "TRANSFER_FLOOR_BYTES_PER_SECOND", 1 << 40):
+                code, out, err, took = self.run_main(["--pr", "7", str(first), str(second)])
+        self.assertEqual(code, 0, err)
+        self.assertLess(took, 30)
+        self.assertIn("waiting on git push of 2 file(s)", err)
+        self.assertIn("git push gave no answer in 1 s", err)
+        files = origin.files()
+        self.assertEqual((files["7/01-a.png"], files["7/02-b.png"]), (PNG, PNG + b"b"))
+        self.assertTrue([call for call in origin.api.calls if "createCommitOnBranch" in call["query"]])
+
+    def test_a_lock_another_upload_holds_is_named_and_waited_for_only_so_long(self):
+        origin = Origin(self)
+        # The lock main() takes: the default repository's cache clone.
+        store = MODULE.media_branch(MODULE.REPO, "pr-media")
+        store.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(store.lock_path, "a+") as held, tempfile.TemporaryDirectory() as scratch:
+            MODULE.fcntl.flock(held, MODULE.fcntl.LOCK_EX)
+            held.write("pid 4242 since 10:00:00Z\n")
+            held.flush()
+            shot = written(scratch, "shot.png", PNG)
+            with mock.patch.object(MODULE, "LOCK_TIMEOUT", 1), mock.patch.object(MODULE, "lock_pause"):
+                code, out, err, took = self.run_main(["--pr", "7", str(shot)])
+        self.assertEqual(code, 0, err)
+        self.assertLess(took, 20)
+        self.assertIn("waiting for another pr-media upload on this host (pid 4242 since 10:00:00Z)", err)
+        self.assertIn("for over 1s", err)
+        self.assertEqual(origin.files()["7/shot.png"], PNG)
+
+    def test_the_lock_holder_writes_who_it_is(self):
+        Origin(self)
+        store = MODULE.media_branch("o/r", "pr-media")
+        with store.locked():
+            self.assertRegex(store.lock_holder(), rf"^pid {os.getpid()} since \d\d:\d\d:\d\dZ$")
+
+    def test_a_push_that_landed_before_its_timeout_is_not_written_again_or_called_a_conflict(self):
+        origin = Origin(self)
+        origin.write({"7/shot.png": PNG})
+        before = origin.commits()
+        with tempfile.TemporaryDirectory() as scratch:
+            shot = written(scratch, "shot.png", PNG)
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                MODULE.ApiBranch("o/r", "pr-media").put({"7/shot.png": shot}, "msg", expect={"7/shot.png": None})
+        self.assertEqual(origin.commits(), before)
+        self.assertIn("an earlier try landed", err.getvalue())
+
+    def test_git_never_prompts_and_aborts_a_transfer_that_stops_moving(self):
+        with mock.patch.dict(os.environ, {"GIT_SSH_COMMAND": "", "GIT_SSH": ""}), \
+                mock.patch.object(MODULE, "host_ssh_command", return_value=""):
+            env = MODULE.git_env()
+        self.assertEqual((env["GIT_HTTP_LOW_SPEED_LIMIT"], env["GIT_HTTP_LOW_SPEED_TIME"]), ("1000", "120"))
+        self.assertEqual(env["GIT_TERMINAL_PROMPT"], "0")
+        self.assertIn("BatchMode=yes", env["GIT_SSH_COMMAND"])
+        self.assertIn("ServerAliveInterval", env["GIT_SSH_COMMAND"])
+        # A host's own ssh command (a key, an agent) is kept.
+        with mock.patch.object(MODULE, "host_ssh_command", return_value="ssh -i key"), \
+                mock.patch.dict(os.environ, {"GIT_SSH_COMMAND": ""}):
+            self.assertEqual(MODULE.git_env().get("GIT_SSH_COMMAND"), "")
+
+    def test_a_stalled_conversion_names_ffmpeg_and_the_way_out(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            clip = written(scratch, "drag.mp4", MP4)
+            upload = MODULE.Upload(local=clip, name="drag.gif", kind="gif", label="drag", source_name="drag.mp4")
+
+            def runner(argv, **kwargs):
+                raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+            with mock.patch.object(MODULE.shutil, "which", return_value="/usr/bin/ffmpeg"), \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(MODULE.MediaError) as raised:
+                MODULE.convert(upload, Path(scratch), 10, 900, runner=runner)
+        self.assertIn("ffmpeg gave no answer", str(raised.exception))
+        self.assertIn("--no-gif", str(raised.exception))
 
 
 class MainTests(unittest.TestCase):

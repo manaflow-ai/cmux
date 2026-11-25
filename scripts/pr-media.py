@@ -48,6 +48,14 @@ through `gh api graphql` instead (ApiBranch), never a `contents/` read.
 `--comment` uses `gh` too. `--dry-run` resolves the whole plan and prints it
 without running either; it still runs the privacy check on the files as given
 (no gif yet).
+
+No step waits without a bound, and each one says on stderr what it is waiting
+on before it waits: the host lock another upload holds, git's ls-remote, fetch
+and push, `gh api graphql`, ffmpeg. git runs with a low-speed abort
+(GIT_HTTP_LOW_SPEED_LIMIT/TIME), ssh in batch mode with keepalives, and no
+prompt; a command past its bound is killed with everything it started. A git
+step that stalls, or a lock held past LOCK_TIMEOUT, sends the run to the API
+path above, which needs neither.
 """
 
 from __future__ import annotations
@@ -56,6 +64,7 @@ import argparse
 import base64
 import contextlib
 import fcntl
+import hashlib
 import importlib.util
 import json
 import math
@@ -63,6 +72,7 @@ import os
 import random
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -354,12 +364,12 @@ def source_fps(path: Path, runner=None, env: dict[str, str] | None = None) -> fl
     if shutil.which("ffprobe") is None:
         return None
     try:
-        done = (runner or subprocess.run)(
+        done = (runner or run_bounded)(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=r_frame_rate,avg_frame_rate", "-of", "json", str(path)],
-            capture_output=True, text=True, env=env if env is not None else tool_env())
+            capture_output=True, text=True, env=env if env is not None else tool_env(), timeout=60)
         stream = json.loads(done.stdout or "{}").get("streams", [{}])[0]
-    except (OSError, ValueError, IndexError, AttributeError):
+    except (OSError, ValueError, IndexError, AttributeError, subprocess.TimeoutExpired):
         return None
     for key in ("r_frame_rate", "avg_frame_rate"):
         numerator, _, denominator = str(stream.get(key, "")).partition("/")
@@ -475,6 +485,24 @@ PUSH_ATTEMPTS = 6
 CACHE_ENV = "PR_MEDIA_CACHE_DIR"
 REMOTE_ENV = "PR_MEDIA_REMOTE_URL"
 GIT_TIMEOUT = 300
+# Every wait has a bound well inside a caller's patience (cmuxterm-hq
+# docs/handbook/network-transfer-stalls-the-whole-job.md): two uploads on a fleet Mac sat silent until their
+# callers killed them at 110 s and 170 s (2026-11-22). A transfer that stops moving bytes ends on git's
+# low-speed abort; the wall clocks below catch what that cannot see (ssh, a credential helper, the lock).
+LS_REMOTE_TIMEOUT = 60
+FETCH_TIMEOUT = 180
+PUSH_BASE_TIMEOUT = 120
+# A push gets its base plus its bytes at a slow link's speed, so a 20 MB clip is not cut off mid-way.
+TRANSFER_FLOOR_BYTES_PER_SECOND = 32 * 1024
+LOW_SPEED_ENV = {"GIT_HTTP_LOW_SPEED_LIMIT": "1000", "GIT_HTTP_LOW_SPEED_TIME": "120"}
+# ssh never asks (a passphrase or a new host key with nobody at the terminal is a hang), and a link that dies
+# mid-push ends in about a minute rather than at the far end's TCP timeout.
+SSH_COMMAND = "ssh -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4"
+# Another upload on this host holds the cache clone's lock for its fetch and push; past this the run stops
+# waiting and goes through the API, which needs no lock.
+LOCK_TIMEOUT = 600
+FFMPEG_TIMEOUT = 600
+COMMENT_TIMEOUT = 90
 # What a lost race looks like from `git push`: built again on the new tip and retried, and final (not a reason
 # to try the API) once the attempts run out.
 PUSH_RACE = re.compile(r"non-fast-forward|fetch first|cannot lock ref|failed to update ref|incorrect old value")
@@ -484,6 +512,44 @@ PUSH_TRANSIENT = re.compile(r"HTTP 50[0234]|RPC failed|remote end hung up|early 
 # so this is final and never retried.
 PUSH_REFUSED = re.compile(r"\[remote rejected\]|hook declined")
 DEFAULT_IDENTITY = ("cmux pr-media", "pr-media@users.noreply.github.com")
+
+
+def say(message: str) -> None:
+    """Progress on stderr, flushed: a caller reading a pipe sees each wait as it starts."""
+    print(f"pr-media: {message}", file=sys.stderr, flush=True)
+
+
+def run_bounded(argv: list[str], *, timeout: float, input: str | bytes | None = None,
+                env: dict[str, str] | None = None, text: bool = True, cwd: str | Path | None = None,
+                **_unused) -> subprocess.CompletedProcess:
+    """subprocess.run whose timeout holds.
+
+    subprocess.run kills only its child on a timeout and then reads the child's pipes with no bound, so a
+    grandchild that holds them (git's git-remote-https or ssh, a credential helper) keeps it waiting long
+    after the timeout. This runs the command in its own process group and kills the whole group. stdin is
+    closed when nothing is sent, so nothing can stop to read a prompt from it.
+    """
+    process = subprocess.Popen(argv, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=text, env=env, cwd=cwd,
+                               start_new_session=True)
+    try:
+        out, err = process.communicate(input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        with contextlib.suppress(ProcessLookupError, PermissionError):
+            os.killpg(process.pid, signal.SIGKILL)
+        with contextlib.suppress(subprocess.TimeoutExpired):
+            process.communicate(timeout=5)
+        raise subprocess.TimeoutExpired(argv, timeout) from None
+    return subprocess.CompletedProcess(argv, process.returncode, out, err)
+
+
+def transfer_timeout(size: int) -> float:
+    return PUSH_BASE_TIMEOUT + size / TRANSFER_FLOOR_BYTES_PER_SECOND
+
+
+def git_blob_sha(data: bytes) -> str:
+    """The id git (and GitHub) gives a file with these bytes."""
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
 
 
 def cache_root() -> Path:
@@ -519,8 +585,10 @@ def remote_url(repo: str) -> str:
     if explicit:
         return explicit
     for candidate in (Path.cwd(), Path.home() / "Projects" / "cmux"):
-        done = subprocess.run(["git", "-C", str(candidate), "remote", "get-url", "origin"],
-                              capture_output=True, text=True)
+        try:
+            done = run_bounded(["git", "-C", str(candidate), "remote", "get-url", "origin"], timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
         url = done.stdout.strip()
         if done.returncode == 0 and origin_is(url, repo):
             return url
@@ -535,13 +603,29 @@ def origin_is(url: str, repo: str) -> bool:
 
 
 def git_env(secret_url: str | None = None, url: str | None = None) -> dict[str, str]:
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0",
+    env = {**LOW_SPEED_ENV, **os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never",
            # A blob the branch already holds is never needed here; if something did ask for one, fail rather
            # than download it.
            "GIT_NO_LAZY_FETCH": "1"}
+    if not (env.get("GIT_SSH_COMMAND") or env.get("GIT_SSH")) and not host_ssh_command():
+        env["GIT_SSH_COMMAND"] = SSH_COMMAND
     if secret_url and url and secret_url != url:
         env.update(url_credential_env(env, secret_url, url))
     return env
+
+
+_HOST_SSH_COMMAND: list[str] = []
+
+
+def host_ssh_command() -> str:
+    """The host's own core.sshCommand (a key or an agent it names), which GIT_SSH_COMMAND would override."""
+    if not _HOST_SSH_COMMAND:
+        try:
+            done = run_bounded(["git", "config", "--get", "core.sshCommand"], timeout=10, env=dict(os.environ))
+            _HOST_SSH_COMMAND.append(done.stdout.strip())
+        except (OSError, subprocess.TimeoutExpired):
+            _HOST_SSH_COMMAND.append("")
+    return _HOST_SSH_COMMAND[0]
 
 
 # Answers git's credential request from two environment variables, so no secret is in its text.
@@ -589,7 +673,7 @@ def credential_args() -> list[str]:
 
 
 def safe_branch(branch: str) -> str:
-    if subprocess.run(["git", "check-ref-format", "--branch", branch], capture_output=True).returncode != 0:
+    if run_bounded(["git", "check-ref-format", "--branch", branch], timeout=10).returncode != 0:
         raise MediaError(f"{branch!r} is not a branch name")
     return branch
 
@@ -623,10 +707,10 @@ class MediaBranch:
             check: bool = True) -> subprocess.CompletedProcess:
         command = ["git", *credential_args(), "-C", str(cwd or self.dir), *args]
         try:
-            done = subprocess.run(command, input=input, capture_output=True, text=True, env=self.env(),
-                                  timeout=timeout)
+            done = run_bounded(command, input=input, env=self.env(), timeout=timeout)
         except subprocess.TimeoutExpired as error:
-            raise GitTransportError(f"git {args[0]} took longer than {timeout:.0f} s") from error
+            raise GitTransportError(redact(f"git {args[0]} gave no answer in {timeout:.0f} s "
+                                           f"(remote {self.url})")) from error
         if check and done.returncode != 0:
             raise MediaError(redact(f"git {args[0]} failed: {(done.stderr or done.stdout).strip()}"))
         return done
@@ -635,8 +719,8 @@ class MediaBranch:
         """A local git command whose output is tree records: read and written as bytes, because text mode
         turns a `\r` in a name into `\n` and two names would become one."""
         try:
-            done = subprocess.run(["git", "-C", str(self.dir), *args], input=input, capture_output=True,
-                                  env=self.env(), timeout=GIT_TIMEOUT)
+            done = run_bounded(["git", "-C", str(self.dir), *args], input=input, text=False,
+                               env=self.env(), timeout=GIT_TIMEOUT)
         except subprocess.TimeoutExpired as error:
             raise MediaError(f"git {args[0]} took longer than {GIT_TIMEOUT:.0f} s") from error
         if done.returncode != 0:
@@ -648,7 +732,9 @@ class MediaBranch:
         """REF's commit on the remote, or None when the remote has no such ref."""
         # Run from the cache dir, not the caller's checkout, so no repository's own config applies.
         self.dir.parent.mkdir(parents=True, exist_ok=True)
-        done = self.git("ls-remote", "--exit-code", self.url, ref, cwd=self.dir.parent, check=False, timeout=120)
+        say(redact(f"waiting on git ls-remote {self.url} {ref} (up to {LS_REMOTE_TIMEOUT}s)"))
+        done = self.git("ls-remote", "--exit-code", self.url, ref, cwd=self.dir.parent, check=False,
+                        timeout=LS_REMOTE_TIMEOUT)
         if done.returncode == 2:  # --exit-code: the remote answered and has no such ref
             return None
         if done.returncode != 0:
@@ -662,13 +748,40 @@ class MediaBranch:
 
     @contextlib.contextmanager
     def locked(self):
+        """The host lock on the cache clone, waited for at most LOCK_TIMEOUT. The holder writes its pid and
+        start time into the lock file, so a run that waits can say whose upload it is waiting on."""
         self.lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.lock_path, "a") as handle:
-            fcntl.flock(handle, fcntl.LOCK_EX)
+        with open(self.lock_path, "a+") as handle:
+            deadline = time.monotonic() + LOCK_TIMEOUT
+            told = False
+            while True:
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    holder = self.lock_holder()
+                    if time.monotonic() >= deadline:
+                        raise GitTransportError(f"another pr-media upload on this host ({holder}) held "
+                                                f"{self.lock_path} for over {LOCK_TIMEOUT}s") from None
+                    if not told:
+                        say(f"waiting for another pr-media upload on this host ({holder}) to release "
+                            f"{self.lock_path} (up to {LOCK_TIMEOUT}s)")
+                        told = True
+                    lock_pause(0.5)
             try:
+                handle.seek(0)
+                handle.truncate()
+                handle.write(f"pid {os.getpid()} since {time.strftime('%H:%M:%SZ', time.gmtime())}\n")
+                handle.flush()
                 yield
             finally:
                 fcntl.flock(handle, fcntl.LOCK_UN)
+
+    def lock_holder(self) -> str:
+        try:
+            return self.lock_path.read_text().strip() or "pid unknown"
+        except OSError:
+            return "pid unknown"
 
     def ensure_clone(self) -> None:
         """Make the cache clone (the caller holds the lock), or point an existing one at this run's URL."""
@@ -688,8 +801,9 @@ class MediaBranch:
 
     def fetch(self) -> str:
         """Fetch the branch tip (its trees, no blobs) into the cache clone and return it. Caller holds the lock."""
+        say(f"waiting on git fetch of the {self.branch} tip (up to {FETCH_TIMEOUT}s)")
         done = self.git("fetch", "-q", "--no-tags", "--depth", "1", "--filter=blob:none", "origin",
-                        f"+refs/heads/{self.branch}:{self.tracking}", check=False)
+                        f"+refs/heads/{self.branch}:{self.tracking}", check=False, timeout=FETCH_TIMEOUT)
         if done.returncode != 0:
             said = redact((done.stderr or done.stdout).strip())
             if "couldn't find remote ref" in said:
@@ -760,6 +874,7 @@ class MediaBranch:
         another uploader put there between its check and its push."""
         for path in files:
             safe_remote_path(path)
+        size = sum(local.stat().st_size for local in files.values())
         with self.locked():
             self.ensure_clone()
             blobs = {path: self.git("hash-object", "-w", "--no-filters", "--", str(local.resolve())).stdout.strip()
@@ -773,14 +888,20 @@ class MediaBranch:
                                      "there now, then rename the file or pass --force to replace it.")
                 tree = self.tree_with(f"{tip}^{{tree}}", blobs)
                 env = {**self.env(), **self.identity()}
-                commit = subprocess.run(["git", "-C", str(self.dir), "commit-tree", tree, "-p", tip, "-m", message],
-                                        capture_output=True, text=True, env=env, timeout=60)
+                try:
+                    commit = run_bounded(["git", "-C", str(self.dir), "commit-tree", tree, "-p", tip, "-m", message],
+                                         env=env, timeout=60)
+                except subprocess.TimeoutExpired as error:
+                    raise MediaError("git commit-tree gave no answer in 60 s") from error
                 if commit.returncode != 0:
                     raise MediaError(f"git commit-tree failed: {(commit.stderr or commit.stdout).strip()}")
                 # --no-thin: a thin pack deltas against what the remote has, which means reading the blob a
                 # replaced file had, and this clone has none (and must not fetch one).
+                seconds = transfer_timeout(size)
+                say(f"waiting on git push of {len(files)} file(s), {size / 1024 / 1024:.1f} MB "
+                    f"(up to {seconds:.0f}s)")
                 done = self.git("push", "-q", "--no-thin", "origin",
-                                f"{commit.stdout.strip()}:refs/heads/{self.branch}", check=False)
+                                f"{commit.stdout.strip()}:refs/heads/{self.branch}", check=False, timeout=seconds)
                 if done.returncode == 0:
                     self.tip = commit.stdout.strip()
                     return self.tip
@@ -797,6 +918,11 @@ class MediaBranch:
         raise AssertionError("unreachable")
 
 
+def lock_pause(seconds: float) -> None:
+    """The wait between tries for the host lock; its own function so a test can run it at once."""
+    time.sleep(seconds)
+
+
 def retry_pause(seconds: float) -> None:
     """The wait before a retried push or API write; its own function so a test can count retries without
     patching time.sleep for the whole interpreter (subprocess waits on a child with it)."""
@@ -805,7 +931,7 @@ def retry_pause(seconds: float) -> None:
 
 # Where the API fallback runs `gh`; tests point it at a stand-in.
 API_RUNNER = None
-API_TIMEOUT = 300
+API_TIMEOUT = 90
 API_RACE = re.compile(r"(?i)expected branch to point to|not a fast.forward|reference update failed"
                       r"|HTTP 50[0234]|was submitted too quickly")
 API_REF_QUERY = """query($owner: String!, $name: String!, $ref: String!) {
@@ -836,14 +962,17 @@ class ApiBranch:
         self.owner, _, self.name = repo.partition("/")
         self.runner = runner
 
-    def graphql(self, query: str, variables: dict, allow_missing: bool = False) -> dict:
+    def graphql(self, query: str, variables: dict, allow_missing: bool = False, what: str = "a read",
+                timeout: float = API_TIMEOUT) -> dict:
         body = json.dumps({"query": query, "variables": variables})
-        runner = self.runner or API_RUNNER or subprocess.run
+        runner = self.runner or API_RUNNER or run_bounded
+        say(f"waiting on gh api graphql for {what} (up to {timeout:.0f}s)")
         try:
             done = runner(["gh", "api", "graphql", "--input", "-"], input=body, capture_output=True, text=True,
-                          env={**os.environ, "GLAEDA_GH_CACHE_TTL": "0"}, timeout=API_TIMEOUT)
+                          env={**os.environ, "GLAEDA_GH_CACHE_TTL": "0", "GH_PROMPT_DISABLED": "1"},
+                          timeout=timeout)
         except subprocess.TimeoutExpired as error:
-            raise MediaError(f"gh api graphql took longer than {API_TIMEOUT} s") from error
+            raise MediaError(f"gh api graphql gave no answer in {timeout:.0f} s ({what})") from error
         except FileNotFoundError as error:
             raise MediaError("gh is not installed") from error
         try:
@@ -860,7 +989,7 @@ class ApiBranch:
         return answer["data"]
 
     def ref_tip(self, ref: str) -> str | None:
-        data = self.graphql(API_REF_QUERY, {"owner": self.owner, "name": self.name, "ref": ref})
+        data = self.graphql(API_REF_QUERY, {"owner": self.owner, "name": self.name, "ref": ref}, what=ref)
         found = (data.get("repository") or {}).get("ref")
         return found["target"]["oid"] if found else None
 
@@ -873,13 +1002,14 @@ class ApiBranch:
 
     def has_pull_request(self, number: int) -> bool:
         data = self.graphql(API_PULL_QUERY, {"owner": self.owner, "name": self.name, "number": number},
-                            allow_missing=True)
+                            allow_missing=True, what=f"pull request {number}")
         return bool((data.get("repository") or {}).get("pullRequest"))
 
     def entry(self, commit: str, path: str) -> tuple[str, str] | None:
         """(type, oid) of PATH at COMMIT, or None when nothing is there."""
         data = self.graphql(API_OBJECT_QUERY, {"owner": self.owner, "name": self.name,
-                                               "expression": f"{commit}:{path}"}, allow_missing=True)
+                                               "expression": f"{commit}:{path}"}, allow_missing=True,
+                            what=path)
         found = (data.get("repository") or {}).get("object")
         return (found["__typename"], found["oid"]) if found else None
 
@@ -892,16 +1022,26 @@ class ApiBranch:
         """FILES as one commit on the branch, as MediaBranch.put: EXPECT is checked on every tip it builds on."""
         for path in files:
             safe_remote_path(path)
-        additions = [{"path": path, "contents": base64.b64encode(local.read_bytes()).decode("ascii")}
-                     for path, local in files.items()]
+        contents = {path: local.read_bytes() for path, local in files.items()}
+        additions = [{"path": path, "contents": base64.b64encode(data).decode("ascii")}
+                     for path, data in contents.items()]
+        ours = {path: git_blob_sha(data) for path, data in contents.items()}
+        seconds = transfer_timeout(sum(len(addition["contents"]) for addition in additions))
         headline, _, rest = message.partition("\n")
         for attempt in range(1, PUSH_ATTEMPTS + 1):
             tip = self.tip()
+            seen_at: dict[str, str | None] = {}
             for path in files:
                 found = self.entry(tip, path)
                 if found and found[0] != "Blob":
                     raise MediaError(f"{path} is a folder on {self.branch}, not a file")
-                seen = found[1] if found else None
+                seen_at[path] = found[1] if found else None
+            # A git push that timed out may have landed after all: then these exact bytes are already there,
+            # and writing them again (or calling it a lost race) would be wrong.
+            if all(seen_at[path] == ours[path] for path in files):
+                say(f"{', '.join(files)} already on {self.branch} with these bytes (an earlier try landed)")
+                return tip
+            for path, seen in seen_at.items():
                 if expect is not None and path in expect and seen != expect[path]:
                     raise MediaConflict(f"{path} changed on {self.branch} while this run was uploading "
                                      "(another upload got there first); nothing was written. Check what is "
@@ -913,7 +1053,8 @@ class ApiBranch:
                 data = self.graphql(API_COMMIT_MUTATION, {"input": {
                     "branch": {"repositoryNameWithOwner": self.repo, "branchName": self.branch},
                     "expectedHeadOid": tip, "message": commit_message,
-                    "fileChanges": {"additions": additions}}})
+                    "fileChanges": {"additions": additions}}},
+                    what=f"the commit of {len(files)} file(s)", timeout=seconds)
             except MediaError as error:
                 if attempt == PUSH_ATTEMPTS or not API_RACE.search(str(error)):
                     raise MediaError(f"upload of {', '.join(files)} through the GitHub API failed: {error}") \
@@ -946,6 +1087,7 @@ def with_fallback(repo: str, branch: str, store: MediaBranch | None, by_git, by_
         try:
             return by_git(store or media_branch(repo, branch))
         except GitTransportError as error:
+            say(f"{error}; going on through the GitHub API (gh api graphql)")
             _GIT_FAILED[key] = error
     failed = _GIT_FAILED[key]
     try:
@@ -1021,12 +1163,18 @@ def convert(upload: Upload, into: Path, fps: int | None, width: int, runner=None
     """
     if shutil.which("ffmpeg") is None:
         raise MediaError("ffmpeg is needed to turn an mp4 into a gif; pass --no-gif to skip it")
-    run = runner or subprocess.run
+    run = runner or run_bounded
     destination = into / upload.name
     rate = source_fps(upload.local, run) if fps is None else None
     for attempt_fps, attempt_width in gif_attempts(gif_widths(width), fps, rate):
-        done = run(gif_argv(upload.local, destination, attempt_fps, attempt_width),
-                   capture_output=True, text=True, env=tool_env())
+        say(f"waiting on ffmpeg for {upload.name} at {attempt_fps} fps, {attempt_width} px "
+            f"(up to {FFMPEG_TIMEOUT}s)")
+        try:
+            done = run(gif_argv(upload.local, destination, attempt_fps, attempt_width),
+                       capture_output=True, text=True, env=tool_env(), timeout=FFMPEG_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise MediaError(f"ffmpeg gave no answer in {FFMPEG_TIMEOUT}s on {upload.local.name}; "
+                             "record a shorter clip, or pass --no-gif") from None
         if done.returncode != 0:
             raise MediaError(f"ffmpeg failed on {upload.local.name}: {(done.stderr or done.stdout).strip()}")
         if not destination.exists() or destination.stat().st_size == 0:
@@ -1037,8 +1185,14 @@ def convert(upload: Upload, into: Path, fps: int | None, width: int, runner=None
 
 
 def comment_on_pr(pr: int, repo: str, body: str, runner=None) -> None:
-    done = (runner or subprocess.run)(["gh", "pr", "comment", str(pr), "--repo", repo, "--body-file", "-"],
-                  input=body, capture_output=True, text=True)
+    say(f"waiting on gh pr comment on #{pr} (up to {COMMENT_TIMEOUT}s)")
+    try:
+        done = (runner or run_bounded)(["gh", "pr", "comment", str(pr), "--repo", repo, "--body-file", "-"],
+                                       input=body, capture_output=True, text=True, timeout=COMMENT_TIMEOUT,
+                                       env={**os.environ, "GH_PROMPT_DISABLED": "1"})
+    except subprocess.TimeoutExpired:
+        raise MediaError(f"gh pr comment gave no answer in {COMMENT_TIMEOUT}s; the Markdown above is "
+                         "ready to paste") from None
     if done.returncode != 0:
         raise MediaError(f"posting the comment failed: {(done.stderr or done.stdout).strip()}")
 
@@ -1113,6 +1267,8 @@ def main(argv: list[str] | None = None, runner=None) -> int:
                 warnings.extend(check_size(path, upload.kind))
                 ready.append((upload, path))
             # Exactly what will be uploaded, gifs included, before any of it is.
+            say(f"privacy check of {len(ready)} file(s); Vision reads a clip frame by frame, which can take "
+                "minutes")
             check_privacy([(remote_path(args.pr, upload.name), path) for upload, path in ready], args.repo)
 
             replacing = {
@@ -1162,4 +1318,6 @@ def report(warnings: list[str]) -> None:
 
 
 if __name__ == "__main__":
+    # Line by line even into a pipe, so a caller sees the plan and each step as it happens.
+    sys.stdout.reconfigure(line_buffering=True)
     sys.exit(main())

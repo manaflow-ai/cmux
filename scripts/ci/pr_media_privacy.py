@@ -344,9 +344,13 @@ def ocr_lines(ocr: str, repo: Path, commit: str, path: str) -> list[str]:
         return ocr_file(ocr, local)
 
 
+# One image or clip through Vision (a clip is read frame by frame).
+OCR_SECONDS = 600
+
+
 def ocr_file(ocr: str, local: Path) -> list[str]:
     """The text Vision reads in one local image or video, frame markers dropped."""
-    done = subprocess.run([ocr, str(local)], capture_output=True, text=True, timeout=600)
+    done = subprocess.run([ocr, str(local)], capture_output=True, text=True, timeout=OCR_SECONDS)
     if done.returncode != 0:
         raise RuntimeError(f"OCR exited {done.returncode}")
     return [line for line in done.stdout.splitlines() if not FRAME_SEPARATOR.match(line)]
@@ -367,7 +371,10 @@ def ocr_binary(env: Mapping[str, str] = os.environ, out: TextIO | None = None) -
     if sys.platform != "darwin" or not swiftc or not source.is_file():
         return None
     # /usr/bin/swiftc on a Mac without developer tools is a stub that opens an install dialog.
-    tools = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True)
+    try:
+        tools = subprocess.run(["xcode-select", "-p"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
     if tools.returncode != 0 or not Path(tools.stdout.strip()).is_dir():
         return None
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
@@ -412,8 +419,11 @@ def github_authors(numbers: list[int], repository: str | None = None) -> dict[in
         batch = numbers[start:start + AUTHOR_BATCH]
         fields = " ".join(f"p{n}: pullRequest(number: {n}) {{ author {{ login }} }}" for n in batch)
         query = f'query {{ repository(owner: "{owner_name}", name: "{name}") {{ {fields} }} }}'
-        done = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
-                              capture_output=True, text=True)
+        try:
+            done = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"], capture_output=True,
+                                  text=True, timeout=120, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError):
+            return None
         # A partial answer (one number is an issue, one PR is gone) also exits non-zero:
         # treat it as a failed lookup so nothing in the batch is removed.
         if done.returncode != 0:
@@ -489,6 +499,8 @@ def check_files(items: Iterable[tuple[str, Path]], patterns: list[tuple[str, re.
             if suffix in TEXT_SUFFIXES:
                 lines = local.read_text(encoding="utf-8", errors="replace").splitlines()
             elif suffix in MEDIA_SUFFIXES and ocr is not None:
+                print(f"pr-media privacy: reading {remote} with Vision (up to {OCR_SECONDS}s)",
+                      file=sys.stderr, flush=True)
                 lines = ocr(local) if callable(ocr) else ocr_file(ocr, local)
             else:
                 report["skipped"].append(remote)
