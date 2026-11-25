@@ -92062,7 +92062,8 @@
       "default" : [
         "media",
         "zoom",
-        "downloads"
+        "downloads",
+        "profile"
       ],
       "default_label" : null,
       "group" : {
