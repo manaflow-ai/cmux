@@ -238,6 +238,9 @@ struct CloudMove {
         try place.advance(session, "freeze") // the CLI's answer names no phases: freeze before the move, commit after it
         let owner = await Self.ownerAnswer(machine)
         progress.enter(.agent, name: name)
+        // The one agent move call freezes the chat, carries it with its frozen sync, then commits; it streams no phases, so
+        // `carry` is the call and `commit` its answer: every one of the reducer's steps is reported, in order.
+        place.step(session, "carry")
         let moved: CloudMoveCLI.Answer
         do {
             // A running turn goes on on the machine, with what it wrote since the sync above.
@@ -257,6 +260,7 @@ struct CloudMove {
             services.cloud.movedChats.record(CloudMovedChats.Entry(machineID: machine.machineID, host: host, session: movedSession, harness: record.harness,
                                                                    localRoot: folder.root, localChat: local, remoteFolder: remote.folder,
                                                                    remoteChat: remote.chat, name: Self.movedName(workspace, folder: chat)))
+            services.cloud.place.forgetMachine(of: session) // the ledger names its machine now
             services.cloud.accessAsks.start(services: services)
         }
         // The move committed: from here Retry only opens the chat's tab on the machine.
