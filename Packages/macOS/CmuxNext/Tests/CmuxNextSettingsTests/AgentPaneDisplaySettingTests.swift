@@ -1,4 +1,4 @@
-import CmuxNextSettings
+@testable import CmuxNextSettings
 import Testing
 
 /// The agent chat's look (Settings > Appearance > Agent Chat, the chat's ··· menu Text & Width
