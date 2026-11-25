@@ -309,6 +309,7 @@
         "CmuxNextChromiumWarmup",
         "CmuxNextCloud",
         "CmuxNextCloudCredentials",
+        "CmuxNextCloudPlace",
         "CmuxNextCloudUI",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -478,6 +479,7 @@
         "CmuxNextChiefPetWiring",
         "CmuxNextChromiumRuntime",
         "CmuxNextCloudCredentials",
+        "CmuxNextCloudPlace",
         "CmuxNextCloudUI",
         "CmuxNextCompat",
         "CmuxNextComputerUse",
@@ -633,7 +635,8 @@
         "CmuxNextPagesTestSupport",
         "CmuxNextSettings",
         "CmuxNextSidebar",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [
         "CmuxHomeRender"
@@ -957,6 +960,17 @@
       "packages": [
         "CMUXAuthCore"
       ]
+    },
+    "CmuxNextCloudPlace": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace",
+      "targets": [
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
     },
     "CmuxNextCloudTests": {
       "kind": "test",
@@ -1590,7 +1604,9 @@
     "CmuxNextHostPressure": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure",
-      "targets": [],
+      "targets": [
+        "CmuxNextDesignTokens"
+      ],
       "packages": []
     },
     "CmuxNextHostPressureTests": {
