@@ -110,7 +110,7 @@ extension CloudStartChat {
             invocation.arguments["machine"] = .string(created.machineID)
         }
         let id = invocation.arguments["machine"]?.stringValue, text = CloudStartCore().accountText(account)
-        return try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // a failed pin, attach or route deletes a machine made for this start
+        return try await cloud.startGate.entering(id ?? "") { try await cli.releasing(made: plan.madeForStart ? id : nil, key: start.key, account: text, sameAccount: { account == cloud.account }, delete: { try await cloud.deleteMachine($0) }) { // held from before its connect, so its handshake's automatic update never restarts it under the start (cmux#55519); a failed pin, attach or route deletes a machine made for this start
             // Beside the link's connect (nothing on the machine, cmux#45953): the pin, this Mac's own record, and a new machine's route report (no spare read it ahead), whose exec (1.9-2.5 s) ran after the 8-11 s connect until 2026-11-25; one that does not say the chat starts is read again after (leo: "when you press enter, the stuff should just start playing").
             let pinMachine = plan.machine == nil ? id : nil, key = start.key
             async let pinned: Void = { @MainActor in if let pinMachine { _ = try Self.checked(await cli.startChatPin(key: key, account: text, machine: pinMachine, workspace: workspace)) } }()
@@ -124,7 +124,7 @@ extension CloudStartChat {
             try await CloudMachineRoute(api: cloud.machineAPI, machineID: machineID, start: { @MainActor [invocation] in try await CloudWait.startStopped(status: { session.machine.shownStatus }, within: CloudStartSession.connectWait, read: { await session.refresher?($0) }) { do { try await session.resumer?(machineID, CloudHandlers.connectOrigin(for: invocation)) } catch where !CloudMachineRoute.keepsItsError(error) && CloudMachineCreation.proRefusal(error) == nil { throw CloudMove.Failure(message: CloudMoveStrings.moveFailed(CloudStrings.errorText(error)), retry: .move(machineID: machineID)) } }; _ = try await CloudMove.connected(session, invocation) }).prepare(serves: { services.agentTabs.holdsTabs(session.daemon) && session.daemon.supports(AgentSessionAttachClient.credentialsCapability(harness: start.harness)) }, carriesConnection: connection != nil, family: CloudSetup.family(of: start.harness), ahead: (cloud.spareReadiness.takeRouteReport(machineID, scope: cloud.account, instance: AcpmuxRemotePersonKeys.shared.instance(machine: machineID)) ?? readAhead).flatMap { session.machine.status == .running && session.machine.pendingChange == nil ? $0 : nil }) { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(machineID, services: services) } // checked first: updated only when it lacks what a start uses; its first exec starts a machine that does not run (cmux#47638)
             timeline?.mark("machine.route")
             return (session, plan)
-        }
+        } }
     }
 
     /// `answer`, or its error as the person reads it (``CloudMoveStrings/checked(_:)``).
