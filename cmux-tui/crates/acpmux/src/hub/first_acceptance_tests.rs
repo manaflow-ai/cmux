@@ -26,7 +26,9 @@ async fn wedge_a_resend_answers_with_the_inbox_receipt_its_first_run_got() {
     // gives up).
     let waiting = {
         let session = session.clone();
-        tokio::spawn(async move { first_acceptance(&session, "msg_1", &mut first).await })
+        tokio::spawn(async move {
+            first_acceptance(&session, "msg_1", outcome_token(&outcome), &mut first).await
+        })
     };
     tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(!waiting.is_finished(), "answered before the first run was accepted");
@@ -68,7 +70,7 @@ async fn a_pending_inbox_receipt_survives_a_513_acceptance_burst() {
     let mut first = outcome.subscribe();
     let kept = tokio::time::timeout(
         Duration::from_secs(2),
-        first_acceptance(&session, "msg_pending", &mut first),
+        first_acceptance(&session, "msg_pending", outcome_token(&outcome), &mut first),
     )
     .await
     .expect("the pending acceptance was evicted by the burst")
@@ -85,7 +87,9 @@ async fn wedge_a_resend_of_a_first_run_refused_unaccepted_hears_no_acceptance() 
     let mut first = outcome.subscribe();
     let waiting = {
         let session = session.clone();
-        tokio::spawn(async move { first_acceptance(&session, "msg_2", &mut first).await })
+        tokio::spawn(async move {
+            first_acceptance(&session, "msg_2", outcome_token(&outcome), &mut first).await
+        })
     };
     tokio::time::sleep(Duration::from_millis(20)).await;
     outcome.send_replace(Some(Err(RpcError::invalid_params("refused"))));
@@ -98,21 +102,30 @@ async fn a_refused_new_attempt_does_not_reuse_an_old_acceptance_receipt() {
     let hub = hub();
     let session = chat(&hub, "01-retry", "retry");
     let old = ledger_entry(&session, "reused");
-    let receipt = json!({"sessionId": session.id, "promptId": "reused", "queued": false,
-                         "inbox": true});
-    keep_acceptance(&session, "reused", &receipt);
-    old.send_replace(Some(Err(RpcError::invalid_params("refused"))));
+    let old_token = outcome_token(&old);
+    let mut old_first = old.subscribe();
 
     // A completed outcome may be pruned while the acceptance cache still has room for it.
     // Starting the next attempt must retire that stale receipt atomically with ledger creation.
     session.prompts.lock().unwrap().clear();
     let next = begin_outcome(&session, "reused").expect("the refused retry creates an outcome");
-    assert!(session.accepted_prompts.lock().unwrap().iter().all(|(id, _)| id != "reused"));
-    let mut first = next.subscribe();
+    keep_acceptance(&session, "reused", &json!({"promptId": "reused", "queued": true}));
+    assert!(session.accepted_prompts.lock().unwrap().iter().all(|(id, _, _)| id != "reused"));
     let waiting = tokio::time::timeout(
         Duration::from_millis(50),
-        first_acceptance(&session, "reused", &mut first),
+        first_acceptance(&session, "reused", old_token, &mut old_first),
     )
     .await;
     assert!(waiting.is_err(), "stale receipt acknowledged the new attempt");
+    old.send_replace(Some(Err(RpcError::invalid_params("refused"))));
+    assert!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            first_acceptance(&session, "reused", old_token, &mut old_first),
+        )
+        .await
+        .unwrap()
+        .is_none()
+    );
+    let _ = next;
 }

@@ -496,7 +496,8 @@ pub struct Session {
     /// with it (`turns.rs`). Before, a resend whose first run had no turn yet (an inbox message
     /// has none) heard a turnless duplicate the outbox could not count as taken, and waited for
     /// the first run's end: every redelivery of an inbox message timed out, forever (2026-11-25).
-    pub(super) accepted_prompts: StdMutex<std::collections::VecDeque<(String, serde_json::Value)>>,
+    pub(super) accepted_prompts:
+        StdMutex<std::collections::VecDeque<(String, usize, serde_json::Value)>>,
     /// Bumped as a first run is accepted, for a resend waiting on it.
     pub(super) accepted_seq: tokio::sync::watch::Sender<u64>,
     /// Bumped when a record failed to reach the store; an agent host entry

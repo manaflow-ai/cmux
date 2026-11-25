@@ -168,6 +168,10 @@ const LIVE_CHECK_WITHIN: std::time::Duration = std::time::Duration::from_secs(2)
 /// How many recent first-run acceptances a session keeps for resends (`Session::accepted_prompts`).
 pub(super) const KEPT_ACCEPTS: usize = 512;
 
+fn outcome_token(outcome: &PromptOutcome) -> usize {
+    Arc::as_ptr(outcome) as usize
+}
+
 /// Return the existing outcome, or create a new attempt and retire any receipt for an
 /// older attempt with the same client id. The ledger is bounded and can forget a completed
 /// outcome while the larger acceptance cache still remembers it; leaving that receipt live
@@ -187,7 +191,7 @@ fn begin_outcome(
                 .accepted_prompts
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
-                .retain(|(id, _)| id != prompt_id);
+                .retain(|(id, _, _)| id != prompt_id);
             let outcome = Arc::new(tokio::sync::watch::channel(None).0);
             ledger.push_back((prompt_id.to_owned(), outcome.clone()));
             Ok(outcome)
@@ -211,10 +215,18 @@ fn keep_acceptance(session: &Session, prompt_id: &str, v: &Value) {
         .collect();
     {
         let mut kept = session.accepted_prompts.lock().unwrap_or_else(|e| e.into_inner());
-        kept.retain(|(id, _)| id != prompt_id);
-        kept.push_back((prompt_id.to_owned(), v.clone()));
+        let token = session
+            .prompts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .find(|(id, _)| id == prompt_id)
+            .map(|(_, outcome)| outcome_token(outcome));
+        let Some(token) = token else { return };
+        kept.retain(|(id, _, _)| id != prompt_id);
+        kept.push_back((prompt_id.to_owned(), token, v.clone()));
         while kept.len() > KEPT_ACCEPTS {
-            let Some(i) = kept.iter().position(|(id, _)| !pending.contains(id)) else {
+            let Some(i) = kept.iter().position(|(id, _, _)| !pending.contains(id)) else {
                 break;
             };
             kept.remove(i);
@@ -230,6 +242,7 @@ fn keep_acceptance(session: &Session, prompt_id: &str, v: &Value) {
 async fn first_acceptance(
     session: &Session,
     prompt_id: &str,
+    token: usize,
     first: &mut tokio::sync::watch::Receiver<Option<Result<Value, RpcError>>>,
 ) -> Option<Value> {
     let mut seq = session.accepted_seq.subscribe();
@@ -241,8 +254,8 @@ async fn first_acceptance(
             .unwrap_or_else(|e| e.into_inner())
             .iter()
             .rev()
-            .find(|(id, _)| id == prompt_id)
-            .map(|(_, v)| v.clone());
+            .find(|(id, kept_token, _)| id == prompt_id && *kept_token == token)
+            .map(|(_, _, v)| v.clone());
         if kept.is_some() {
             return kept;
         }
@@ -420,8 +433,13 @@ impl Hub {
                     // first run's end), so it never answers "taken, no turn" for a run that may
                     // yet be refused, nor waits out a whole inbox message's answer (an outbox
                     // retry did, every 120 s, forever: 2026-11-25).
-                    if let Some(kept) =
-                        Box::pin(first_acceptance(session, &prompt_id, &mut first)).await
+                    if let Some(kept) = Box::pin(first_acceptance(
+                        session,
+                        &prompt_id,
+                        outcome_token(&outcome),
+                        &mut first,
+                    ))
+                    .await
                     {
                         let mut notice = duplicate(json!({"_meta": {"acpmux": {
                             "turnId": kept.get("turnId"),
