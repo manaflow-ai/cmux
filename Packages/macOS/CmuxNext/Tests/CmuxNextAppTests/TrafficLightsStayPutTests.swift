@@ -131,6 +131,36 @@ import Testing
         print("DRIFT|\(density.rawValue)|max|\(drift)")
     }
 
+    /// A live resize of the window: each step AppKit moves the lights' container with the window's top edge and widens
+    /// it, and the owner places nothing while every light is still where it put them (`TrafficLightsOwner.Rest`). That
+    /// guard must never keep a light off the line: through the steps they stay put from the window's top-left corner,
+    /// and a light AppKit moves with the window resized still goes back.
+    @Test func theLightsStayPutThroughALiveResize() throws {
+        let design = DesignSettings.shared
+        let saved = (design.titlebar, design.tabBarPosition)
+        defer { (design.titlebar, design.tabBarPosition) = saved }
+        design.titlebar = .minimal
+        design.tabBarPosition = .top
+        let (window, root) = window()
+        defer { window.close() }
+        func fromTop() -> [CGPoint] { lights(window).map { CGPoint(x: $0.minX, y: window.frame.height - $0.maxY) } }
+        let rest = fromTop()
+        try #require(rest.count == 3, "\(rest.count) traffic lights")
+        let start = window.frame
+        for step in 1...6 {
+            let size = NSSize(width: start.width + CGFloat(step * 37), height: start.height - CGFloat(step * 23))
+            window.setFrame(NSRect(origin: start.origin, size: size), display: false)
+            Self.nextFrame()
+            #expect(fromTop() == rest, "resize step \(step): the next frame shows the lights at \(fromTop()), at rest \(rest)")
+            root.layoutSubtreeIfNeeded()
+            #expect(fromTop() == rest, "resize step \(step): after the root's layout the lights sit at \(fromTop()), at rest \(rest)")
+        }
+        let zoom = try #require(window.standardWindowButton(.zoomButton))
+        zoom.setFrameOrigin(NSPoint(x: zoom.frame.minX + 3, y: zoom.frame.minY - 2))
+        Self.nextFrame()
+        #expect(fromTop() == rest, "a light AppKit moved after the resize stays at \(fromTop()), at rest \(rest)")
+    }
+
     private static func moved(_ rest: [CGRect], _ now: [CGRect]) -> CGFloat {
         zip(rest, now).map { max(abs($0.minX - $1.minX), abs($0.minY - $1.minY)) }.max() ?? .infinity
     }

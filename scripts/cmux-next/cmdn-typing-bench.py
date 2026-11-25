@@ -137,6 +137,15 @@ class Bench:
     def focused_tab(self):
         return (self.window().get("model") or {}).get("resolved_tab")
 
+    def spare_ready(self):
+        """The New Tab spare is built and ready (debug.new_tab state): what a Cmd-N takes."""
+        return any(s.get("ready") for s in (self.rpc("debug.new_tab", {"action": "state"}) or {}).get("spares") or [])
+
+    def settled(self, what):
+        """Until the New Tab spare is ready (the launch's or the last run's work is done); best effort, logged."""
+        if not wait(self.spare_ready, 15):
+            print(f"no ready New Tab spare after 15 s: {what}", flush=True)
+
     def field(self):
         reply = self.rpc("debug.new_tab", {"action": "field"})
         return None if "error" in reply else reply
@@ -165,7 +174,8 @@ class Bench:
             row = {"run": name, "arm": arm, "start": start, "pass": False, "lost_keys": None, "error": sent["error"], "keys_to": word}
             print("CMDN-TYPING", json.dumps(row), flush=True)
             return row
-        time.sleep((sent.get("duration_ms") or 0) / 1000)  # bench: the app plays the sequence by its own clock
+        # sleep-ok: the app plays the sequence by its own clock for duration_ms; no reads while it plays
+        time.sleep((sent.get("duration_ms") or 0) / 1000)
         new_page = lambda: self.focused_tab() not in (None, before)
         got = wait(lambda: (lambda f: f if f and f.get("text") == opts.text and new_page() else None)(self.field()), opts.settle_s)
         field = got or self.field() or {}
@@ -208,13 +218,13 @@ def main():
                     rows.append({"run": f"cold-{index + 1}", "arm": "cold", "start": "terminal", "pass": False, "lost_keys": None,
                                  "error": "the app is not active"})
                     continue
-                time.sleep(2)  # bench: the launch's own work settles; the first Cmd-N of the launch is the measured one
+                bench.settled("the cold launch")  # the launch's own work settles; its first Cmd-N is the measured one
                 bench.set_start("terminal")
                 rows.append(bench.run(f"cold-{index + 1}", "cold", "terminal", opts.delay_ms))
         warm = [a for a in ARMS if a in ("now", "late")]
         if warm:
             bench.launch()
-            time.sleep(2)  # bench: the launch settles before the warm runs
+            bench.settled("the warm launch")  # the launch settles before the warm runs
             for arm in warm:
                 for start in STARTS:
                     for index in range(opts.runs):
@@ -224,7 +234,7 @@ def main():
                             print("CMDN-TYPING", json.dumps(row), flush=True)
                             rows.append(row)
                             continue
-                        time.sleep(1)  # bench: the start settles (the New Tab spare refills)
+                        bench.settled(name)  # the start settles: the New Tab spare refilled
                         rows.append(bench.run(name, arm, start, opts.delay_ms if arm == "now" else opts.late_ms))
     finally:
         if bench.app:

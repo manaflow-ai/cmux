@@ -33,6 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from home_pixels import SKIPPED, check_rows  # noqa: E402
 import home_classic  # noqa: E402
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_until, wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -132,8 +133,10 @@ def open_in_home(conversation):
             rpc("action.run", {"id": "home.show", "focus": True})
             last_open["reply"] = rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation},
                                                     "focus": True})
-            time.sleep(1)  # test harness: one request per second while Home starts, not app code
-            return None
+            # Wait for Home to show it before asking again (a window still starting can drop the request).
+            if not wait_until(lambda: shown() == conversation, "Home to show the conversation", timeout=3,
+                              interval=0.1, raise_on_timeout=False):
+                return None
         return view_texts() is not None
     ok = poll(opened, timeout=180)
     if not ok:
@@ -152,7 +155,10 @@ def compare(name, conversation, expected, shot):
     hidden = [e for e in expected if e not in (view or [])]
     check(f"{name}: the Home view shows every message in order", bool(view) and [x for x in view if x in expected] == expected,
           {"hidden": hidden, "view": view, "store": store})
-    time.sleep(1.0)  # test harness: let the newest row's arrival settle before the screenshot
+    # The newest row's arrival settles: the transcript's rows stop changing before the screenshot.
+    if wait_stable(lambda: (rpc("debug.home.drive", {"action": "rows"}) or {}).get("rows"), f"{name}: the transcript rows",
+                   timeout=10, interval=0.1, raise_on_timeout=False) is None:
+        print(f"     {name}: transcript rows never settled before the screenshot", flush=True)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, shot)})
 
 
@@ -221,8 +227,13 @@ try:
         rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
         # The pane's right edge on half a device pixel too (82ccac1: my rows, here the live reply, snap their right edge).
         rpc("debug.home.drive", {"action": "resize", "trims": [0.5]})
-        time.sleep(0.2)  # test harness: one display frame for the move to show
-        half = rpc("debug.home.drive", {"action": "rows"}) or {}
+        # Wait for the rows to report the move (host on half a device pixel); the checks below report a miss.
+        def half_rows():
+            r = rpc("debug.home.drive", {"action": "rows"}) or {}
+            moved = r.get("ok") and all(abs(((r.get(k, 0) * 2) % 1) - 0.5) < 0.01 for k in ("hostX", "hostY", "hostRight"))
+            return r if moved else None
+        half = wait_until(half_rows, "the transcript on half a device pixel", timeout=10, interval=0.05,
+                          raise_on_timeout=False) or rpc("debug.home.drive", {"action": "rows"}) or {}
         half_shot = os.path.join(opts.out, "thread-half-pixel.png")
         rpc("debug.window_snapshot", {"path": half_shot})
         check("thread, half pixel: the transcript sits on half a device pixel (both axes)", bool(half.get("ok"))

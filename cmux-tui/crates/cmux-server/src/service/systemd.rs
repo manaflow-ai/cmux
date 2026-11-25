@@ -254,10 +254,9 @@ fn stop_checked(
 const PROCESS_WAIT_POLLS: u32 = 50;
 const PROCESS_WAIT_POLL: std::time::Duration = std::time::Duration::from_millis(100);
 
-/// Refuses unless systemd says `unit` is stopped (inactive or failed; a
-/// unit systemd does not know is inactive). Any other state, or no answer,
-/// means its processes may still run.
-fn check_stopped(s: &Services<'_>, unit: &str) -> Result<()> {
+/// Refuses unless systemd says `unit` is inactive or failed (a unit systemd
+/// does not know is inactive); its processes may still run.
+fn check_inactive(s: &Services<'_>, unit: &str) -> Result<()> {
     let cmd = systemctl(s).args(["show", "--property=ActiveState", "--value", unit]);
     let out = s.runner.run(&cmd).map_err(|e| Error::io(cmd.display(), e))?;
     let state = out.stdout_text();
@@ -270,6 +269,14 @@ fn check_stopped(s: &Services<'_>, unit: &str) -> Result<()> {
             systemctl(s).args(["stop", unit]).display()
         )));
     }
+    Ok(())
+}
+
+/// Refuses unless systemd says `unit` is stopped (inactive or failed; a
+/// unit systemd does not know is inactive). Any other state, or no answer,
+/// means its processes may still run.
+fn check_stopped(s: &Services<'_>, unit: &str) -> Result<()> {
+    check_inactive(s, unit)?;
     // An inactive unit can keep processes: `KillMode=process` stops only
     // the main one, and the kill that ends the rest may have failed. That
     // kill does not wait, so give the processes it signalled a moment to
@@ -496,7 +503,15 @@ pub fn stop(s: &Services<'_>) -> Result<()> {
     s.runner.check(&systemctl(s).args(["disable", "--now", SYSTEMD_UNIT])).map(|_| ())
 }
 
-pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
+/// What uninstall needs to end the session's terminals ([`super::sweep`]).
+pub(super) fn sweep(s: &Services<'_>) -> Result<Option<super::Sweep>> {
+    if s.session.is_none() {
+        return Ok(None);
+    }
+    super::sweep(s, daemon_pid(s)?, &|key| manager_env(s, key))
+}
+
+pub fn uninstall(s: &Services<'_>, sweep: Option<&super::Sweep>) -> Result<Vec<PathBuf>> {
     let ctl = systemctl(s);
     let dir = unit_dir(s)?;
     let unit_check = |unit: &'static str| {
@@ -507,6 +522,20 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
     // uninstall ends every process of the unit first.
     // (The unit may restart after a kill: `disable --now` below stops it.)
     let kill = ctl.clone().args(["kill", "--kill-whom=all", SYSTEMD_UNIT]);
+    if let Some(sweep) = sweep {
+        // A terminal host ignores the kill's SIGTERM (it does not come from
+        // PID 1): a running daemon ends its own terminals first; then stop
+        // the unit so it cannot restart, end any terminals a daemon that
+        // did not run left (through a daemon of their own), then signal
+        // whatever is left.
+        super::end_running_daemon_terminals(s, sweep)?;
+        let disable = ctl.clone().args(["disable", "--now", SYSTEMD_UNIT]);
+        stop_checked(s, SYSTEMD_UNIT, &unit_check(SYSTEMD_UNIT), &disable, false)?;
+        // Its host processes may stay (KillMode=process); the daemon must
+        // not, or it could start terminals after the sweep.
+        check_inactive(s, SYSTEMD_UNIT)?;
+        super::end_terminal_hosts(s, sweep, "systemd stopped the service")?;
+    }
     stop_checked(s, SYSTEMD_UNIT, &unit_check(SYSTEMD_UNIT), &kill, false)?;
     let mut units = vec![SYSTEMD_UNIT];
     if system(s) {
@@ -534,6 +563,82 @@ pub fn uninstall(s: &Services<'_>) -> Result<Vec<PathBuf>> {
     removed
 }
 
+/// The main pid of the session unit while it runs (`MainPID`, 0 when not).
+fn daemon_pid(s: &Services<'_>) -> Result<Option<u32>> {
+    let cmd = systemctl(s).args(["show", "--property=MainPID", "--value", SYSTEMD_UNIT]);
+    let out = s.runner.check(&cmd)?;
+    let text = out.stdout_text();
+    // No answer: a unit systemd does not know (it prints 0 for one it knows).
+    if text.is_empty() {
+        return Ok(None);
+    }
+    let pid: u32 = text.parse().map_err(|_| {
+        Error::rejected(format!("`{}` answered {text:?}, not a pid", cmd.display()))
+    })?;
+    Ok((pid != 0).then_some(pid))
+}
+
+/// `key` in the environment of the user's service manager (`systemctl
+/// show-environment`, one `KEY=VALUE` per line, the value quoted as
+/// [`unquote_env_value`] reads), which the session unit (it sets no
+/// variable of its own) passes to the daemon. Read only when the daemon
+/// does not run (a running one's own environment is read instead).
+fn manager_env(s: &Services<'_>, key: &str) -> Result<Option<std::ffi::OsString>> {
+    let out = s.runner.check(&systemctl(s).arg("show-environment"))?;
+    let text = String::from_utf8_lossy(&out.stdout).into_owned();
+    let Some(raw) = text.lines().find_map(|line| line.strip_prefix(key)?.strip_prefix('=')) else {
+        return Ok(None);
+    };
+    let value = unquote_env_value(raw).ok_or_else(|| {
+        Error::rejected(format!(
+            "cmux cannot read {key} from `systemctl --user show-environment` ({raw:?})"
+        ))
+    })?;
+    Ok((!value.is_empty()).then(|| value.into()))
+}
+
+/// A value as `systemctl show-environment` prints it: as is when it holds
+/// only plain characters, else `$'...'` with C escapes (systemd
+/// `shell_maybe_quote` with `SHELL_ESCAPE_POSIX`, `cescape`: `\xHH` or
+/// octal `\NNN` for other bytes). `None` for anything else.
+fn unquote_env_value(raw: &str) -> Option<String> {
+    let Some(body) = raw.strip_prefix("$'").and_then(|r| r.strip_suffix('\'')) else {
+        return (!raw.contains(['\'', '"', '\\', '$', '`'])).then(|| raw.to_owned());
+    };
+    let mut bytes = Vec::new();
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            let mut b = [0; 4];
+            bytes.extend_from_slice(c.encode_utf8(&mut b).as_bytes());
+            continue;
+        }
+        let escaped = match chars.next()? {
+            'a' => 0x07,
+            'b' => 0x08,
+            'f' => 0x0c,
+            'n' => b'\n',
+            'r' => b'\r',
+            't' => b'\t',
+            'v' => 0x0b,
+            '\\' => b'\\',
+            '\'' => b'\'',
+            '"' => b'"',
+            'x' => {
+                let hex: String = [chars.next()?, chars.next()?].iter().collect();
+                u8::from_str_radix(&hex, 16).ok()?
+            }
+            first @ '0'..='7' => {
+                let oct: String = [first, chars.next()?, chars.next()?].iter().collect();
+                u8::from_str_radix(&oct, 8).ok()?
+            }
+            _ => return None,
+        };
+        bytes.push(escaped);
+    }
+    String::from_utf8(bytes).ok()
+}
+
 pub fn state(s: &Services<'_>) -> ServiceState {
     let installed = s.unit_path().is_ok_and(|p| p.is_file());
     let query = |verb: &str, yes: &str| {
@@ -551,7 +656,24 @@ pub fn state(s: &Services<'_>) -> ServiceState {
 mod tests {
     use std::path::Path;
 
-    use super::procs_in;
+    use super::{procs_in, unquote_env_value};
+
+    /// What `systemctl show-environment` prints (systemd 255
+    /// `shell_maybe_quote`, POSIX): plain values as they are, others in
+    /// `$'...'` with C escapes.
+    #[test]
+    fn show_environment_values_are_read_as_systemd_quotes_them() {
+        assert_eq!(unquote_env_value("/srv/state").as_deref(), Some("/srv/state"));
+        assert_eq!(
+            unquote_env_value(r"$'/srv/a b\'s \\x\t\x41\101'").as_deref(),
+            Some("/srv/a b's \\x\tAA")
+        );
+        assert_eq!(unquote_env_value(r"$'caf\xc3\xa9'").as_deref(), Some("café"));
+        // Not what systemd prints: refused, never guessed.
+        for raw in ["'/srv/a b'", "\"/srv\"", "$'/srv\\q'", "$'/srv", "a$b"] {
+            assert_eq!(unquote_env_value(raw), None, "{raw}");
+        }
+    }
 
     /// `root` as a mounted hierarchy (its marker file) with `group`'s
     /// `cgroup.procs` listing `pids` (no file when None).

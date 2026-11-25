@@ -41,7 +41,8 @@ for loop in "${list[@]}"; do
   echo "dev-loop-ceiling: $loop (n=$n)"
   if ! "$script" "$out" "$n" >"$out/$loop.log" 2>&1; then
     echo "dev-loop-ceiling: $loop failed after $(( $(date +%s) - start )) s; last lines:" >&2
-    tail -20 "$out/$loop.log" >&2
+    # Without cleanup's "ending pid" lines, which filled the whole tail on 2026-11-22 step a8b4d181c32ad2c06b3a0126.
+    grep -v '] ending pid ' "$out/$loop.log" | tail -20 >&2
     [[ -s "$out/$loop.json" ]] || printf '{"schema":"dev-loop-ceiling/loop/v1","loop":"%s","error":"exited nonzero with no json"}\n' "$loop" >"$out/$loop.json"
   else
     echo "dev-loop-ceiling: $loop done in $(( $(date +%s) - start )) s"

@@ -79,7 +79,7 @@ impl Supervisor {
         if !record.enabled {
             return Err(ApiError::new("apps.disabled", "the app is disabled"));
         }
-        if inner.safe_mode.is_some() {
+        if super::safe_mode_bisect::held_off(inner, app) {
             return Err(ApiError::new("apps.safe_mode", super::safe_mode::OFF));
         }
         Self::server_approved_locked(inner, app)

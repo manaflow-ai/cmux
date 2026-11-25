@@ -47,7 +47,7 @@ public final class BrowserFitFrameView: NSView {
             field.font = .systemFont(ofSize: TypeScale.caption)
             field.lineBreakMode = .byTruncatingTail
         }
-        label.themedToolTip = Strings.explain
+        label.setAccessibilityHelp(Strings.explain) // a label: no tooltip (a1315's cut 2: a control that shows its own text has no tooltip)
         for button in [choose, off] {
             button.isBordered = false
             button.target = self

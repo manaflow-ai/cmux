@@ -31,18 +31,13 @@ impl NameSource {
         if value == "auto" { Self::Auto } else { Self::User }
     }
 
-    /// A new workspace's name source: one the daemon picked itself (no
-    /// requested name) belongs to the automatic namer, a requested name to
-    /// whoever asked. The app sends the daemon's own next
-    /// default (`workspace-N`) with Cmd-N so its row shows the final name at
-    /// once; that is still the daemon's default, not a name a person chose,
-    /// so it stays the automatic namer's (else the first prompt never
-    /// renames the workspace).
-    pub(crate) fn for_requested_workspace_name(name: Option<&str>) -> Self {
-        match name {
-            Some(name) if !is_default_workspace_name(name) => Self::User,
-            _ => Self::Auto,
-        }
+    /// A new workspace's name source: always auto. A name given at creation
+    /// is a starting name, not a pin (the Cmd-N `workspace-N`, a CLI or agent
+    /// `--name`, a moved tab's new workspace), so the automatic namer may
+    /// replace it. Only an explicit rename by a person or agent
+    /// (`NameUpdate::user`) makes a name user-owned and pins it.
+    pub(crate) fn for_requested_workspace_name(_name: Option<&str>) -> Self {
+        Self::Auto
     }
 }
 

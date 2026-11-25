@@ -84,7 +84,7 @@ fn root() -> PathBuf {
 }
 
 /// A session or turn id as one path segment: ids are letters, digits, `-` and `_`.
-fn segment(id: &str) -> Option<&str> {
+pub(super) fn segment(id: &str) -> Option<&str> {
     let safe = !id.is_empty()
         && id.len() <= 128
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
@@ -190,13 +190,38 @@ fn capture(
     tab: Option<&str>,
     out: &Path,
 ) -> Option<String> {
+    capture_in(socket, base, workspace, tab, out, REPL_SESSION, "Turn pictures")
+}
+
+/// The chat's page now, for a turn's frames (`turn_frames.rs`): [`capture`] in the REPL session
+/// `repl` of the browser host this daemon finds, so a frame never queues behind a turn's before or
+/// after. The tab's id, or none with no file left.
+pub(super) fn capture_page(
+    base: &Path,
+    workspace: &str,
+    out: &Path,
+    repl: &str,
+    label: &str,
+) -> Option<String> {
+    capture_in(&host_socket(), base, workspace, None, out, repl, label)
+}
+
+fn capture_in(
+    socket: &Path,
+    base: &Path,
+    workspace: &str,
+    tab: Option<&str>,
+    out: &Path,
+    repl: &str,
+    label: &str,
+) -> Option<String> {
     if !socket.exists() {
         return None;
     }
     let params = json!({
-        "session": REPL_SESSION,
+        "session": repl,
         "engine": "cef",
-        "label": "Turn pictures",
+        "label": label,
         "cwd": base.display().to_string(),
         "code": capture_code(workspace, out, tab),
         "timeoutMs": CAPTURE_LIMIT.as_millis() as u64 - 2_000,
@@ -213,7 +238,7 @@ fn capture(
         std::fs::metadata(out).is_ok_and(|m| m.len() > 0 && m.len() as usize <= MAX_SHOT_BYTES)
     });
     if kept.is_none() {
-        let _ = std::fs::remove_file(out);
+        let _ = crate::home_fs::remove_file(out);
     }
     kept
 }
@@ -221,10 +246,10 @@ fn capture(
 /// Drops a turn's pictures, and its chat's folder once that holds none, so a chat with no pair
 /// never counts toward [`KEEP_CHATS`].
 fn drop_turn(turn_dir: &Path) {
-    let _ = std::fs::remove_dir_all(turn_dir);
+    let _ = crate::home_fs::remove_dir_all(turn_dir);
     if let Some(chat) = turn_dir.parent() {
         // Fails, keeping it, while another turn's pictures are in it.
-        let _ = std::fs::remove_dir(chat);
+        let _ = crate::home_fs::remove_dir(chat);
     }
 }
 
@@ -242,7 +267,7 @@ pub(crate) fn settle(base: &Path, session_dir: &Path, turn_dir: &Path) {
 }
 
 /// Removes all but the `keep` newest folders of `dir` (by modification time).
-fn prune(dir: &Path, keep: usize) {
+pub(super) fn prune(dir: &Path, keep: usize) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     let mut folders: Vec<(std::time::SystemTime, PathBuf)> = entries
         .flatten()
@@ -256,7 +281,7 @@ fn prune(dir: &Path, keep: usize) {
     }
     folders.sort_by_key(|folder| std::cmp::Reverse(folder.0));
     for (_, path) in folders.into_iter().skip(keep) {
-        let _ = std::fs::remove_dir_all(path);
+        let _ = crate::home_fs::remove_dir_all(path);
     }
 }
 
@@ -273,7 +298,7 @@ pub(crate) fn remove_session(id: &str) {
     });
     drop(pending);
     if let Some(id) = segment(id) {
-        let _ = std::fs::remove_dir_all(root().join(id));
+        let _ = crate::home_fs::remove_dir_all(root().join(id));
     }
 }
 
@@ -318,7 +343,7 @@ pub(super) fn turn_began(session: &Session, turn: &str) {
     }
     let socket = host_socket();
     tokio::task::spawn_blocking(move || {
-        let taken = std::fs::create_dir_all(&dir)
+        let taken = crate::home_fs::create_dirs(&dir)
             .ok()
             .and_then(|()| capture(&socket, &base, &workspace, None, &dir.join(BEFORE)));
         let Some(tab) = taken else {

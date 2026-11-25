@@ -401,6 +401,7 @@ impl Brain {
                     attachments: Vec::new(),
                     reply_to: None,
                     long: true,
+                    delay_seconds: None,
                 })?;
                 if let Some(run) = self.wake_run.as_mut() {
                     run.outcome = Some(("ask".into(), question));

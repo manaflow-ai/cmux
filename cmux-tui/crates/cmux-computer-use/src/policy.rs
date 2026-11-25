@@ -61,15 +61,17 @@ impl Mode {
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum SettleMode {
-    /// A fixed floor, then a check for change, with a ceiling (cmux).
-    #[default]
+    /// A fixed floor, then a check for change, with a ceiling (cmux). Only
+    /// when asked for (`settle: "adaptive"`, or a batch step whose outcome
+    /// is required): it is what lets an outcome be confirmed or no_effect.
     Adaptive,
     /// Anthropic's computer-use reference tool: a fixed 2.0 s after every
     /// action but typing, then a screenshot; typing in groups of 50
     /// characters, 12 ms per key, then a screenshot at once.
     Anthropic,
-    /// OpenAI's computer tool: the actions run, then the screenshot is taken
-    /// at once.
+    /// The default. OpenAI's computer tool: the actions run, then the
+    /// screenshot is taken at once, with no wait for the screen.
+    #[default]
     Openai,
 }
 
@@ -123,6 +125,11 @@ pub struct PolicyConfig {
     /// background input to a window go on (`computerUse.whileLocked`,
     /// [`crate::locked`]); off, every call but status is refused.
     pub while_locked: bool,
+    /// `list_alerts` and `dismiss_alert` work: system alerts are read through
+    /// accessibility and put off by a known button (`computerUse.alerts`,
+    /// [`crate::alerts`]); off, both are refused. Every other tool refuses
+    /// those processes either way.
+    pub alerts: bool,
 }
 
 impl Default for PolicyConfig {
@@ -135,10 +142,11 @@ impl Default for PolicyConfig {
             allow_foreground: false,
             show_cursor: true,
             cloud_vm: false,
-            settle: SettleMode::Adaptive,
+            settle: SettleMode::Openai,
             menus: crate::menus::MenuMode::Open,
             live_preview: true,
             while_locked: false,
+            alerts: false,
         }
     }
 }
@@ -155,16 +163,23 @@ impl PolicyConfig {
             allow_foreground: true,
             show_cursor: true,
             cloud_vm: true,
-            settle: SettleMode::Adaptive,
+            settle: SettleMode::Openai,
             menus: crate::menus::MenuMode::Open,
             live_preview: true,
             // A cloud VM never locks (auto-login, lock off).
             while_locked: false,
+            alerts: false,
         }
     }
 }
 
 /// The deny list a new install starts with. The person can remove any entry.
+///
+/// Terminals and cmux itself are not on it (Leo, 2026-11-22: "why not. it
+/// should be able to"): agents may act in cmux and in terminals by default.
+/// What an agent driving cmux must not do itself stays the person's:
+/// Computer Use's approval prompt is cmux Remote's (protected, below), and
+/// cmux's Settings writes `computerUse.*` only behind the person's own input.
 pub fn default_denied_apps() -> &'static [&'static str] {
     &[
         // Password managers and keychains.
@@ -190,7 +205,13 @@ pub fn default_denied_apps() -> &'static [&'static str] {
         "bitwarden",
         // Where an agent could change OS security settings.
         "com.apple.systempreferences",
-        // Terminals: typing there would run commands outside the agent's own sandbox and prompts.
+    ]
+}
+
+/// Entries earlier defaults held that the default no longer does: the
+/// terminals and cmux itself (see [`default_denied_apps`]).
+pub fn retired_default_denied_apps() -> &'static [&'static str] {
+    &[
         "com.apple.Terminal",
         "com.googlecode.iterm2",
         "com.mitchellh.ghostty",
@@ -205,10 +226,24 @@ pub fn default_denied_apps() -> &'static [&'static str] {
         "org.gnome.Terminal",
         "org.gnome.Ptyxis",
         "org.kde.konsole",
-        // cmux itself (an agent driving cmux could approve its own requests).
         "com.cmuxterm.app",
         "com.cmuxterm.app.*",
     ]
+}
+
+/// A stored deny list as it applies today. A list that still holds every
+/// entry of [`retired_default_denied_apps`] was copied from an earlier
+/// default (a person who edited the list kept the defaults they did not
+/// touch): those entries leave it, and every entry the person added stays.
+/// A list missing any of them was shaped by the person and is kept as is,
+/// so a terminal someone denied on purpose stays denied.
+pub fn migrate_denied_apps(list: Vec<String>) -> Vec<String> {
+    let retired = retired_default_denied_apps();
+    let holds = |entry: &str| list.iter().any(|e| e.trim() == entry);
+    if !retired.iter().all(|r| holds(r)) {
+        return list;
+    }
+    list.into_iter().filter(|e| !retired.contains(&e.trim())).collect()
 }
 
 /// The protected apps' exact ids (see [`protected`]: some prefixes too).
@@ -510,6 +545,63 @@ mod tests {
             &req(Access::Act, Some(&safari), &OriginKind::Local),
         );
         assert_eq!(d, Decision::Allow);
+    }
+
+    /// Leo, 2026-11-22, on "Computer Use isn't allowed to act there.": "why
+    /// not. it should be able to". cmux and terminals are usable by default;
+    /// password managers and System Settings stay denied, and cmux Remote
+    /// (where Computer Use's own approval prompt shows) stays protected.
+    #[test]
+    fn agents_act_in_cmux_and_terminals_by_default_but_not_in_password_managers() {
+        let config = PolicyConfig::default();
+        let saved = SavedApprovals::default();
+        let act = |id: &str| {
+            let target = app(id);
+            decide(&config, &saved, &req(Access::Act, Some(&target), &OriginKind::Local))
+        };
+        for id in [
+            "com.cmuxterm.app",
+            "com.cmuxterm.app.nightly",
+            "com.cmuxterm.app.debug.my-tag",
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "com.mitchellh.ghostty",
+            "dev.warp.Warp-Stable",
+            "windowsterminal.exe",
+            "org.gnome.Terminal",
+        ] {
+            assert_eq!(act(id), Decision::Allow, "{id}");
+        }
+        for id in
+            ["com.1password.1password", "com.apple.keychainaccess", "com.apple.systempreferences"]
+        {
+            assert_eq!(act(id), Decision::Refuse(Refusal::Denied), "{id}");
+        }
+        for id in ["com.cmuxterm.remote", "com.cmuxterm.remote.dev", "com.apple.securityagent"] {
+            assert_eq!(act(id), Decision::Refuse(Refusal::Protected), "{id}");
+        }
+        for id in retired_default_denied_apps() {
+            assert!(!default_denied_apps().contains(id), "{id}");
+        }
+    }
+
+    #[test]
+    fn a_copy_of_the_earlier_default_drops_terminals_and_cmux_and_keeps_the_persons_entries() {
+        let mut earlier: Vec<String> = default_denied_apps()
+            .iter()
+            .chain(retired_default_denied_apps())
+            .map(|s| (*s).to_string())
+            .collect();
+        earlier.push("name:Diary".into());
+        let mut want: Vec<String> =
+            default_denied_apps().iter().map(|s| (*s).to_string()).collect();
+        want.push("name:Diary".into());
+        assert_eq!(migrate_denied_apps(earlier), want);
+        // The person removed one retired entry already: their list, kept as is.
+        let shaped: Vec<String> =
+            retired_default_denied_apps().iter().skip(1).map(|s| (*s).to_string()).collect();
+        assert_eq!(migrate_denied_apps(shaped.clone()), shaped);
+        assert!(migrate_denied_apps(vec![]).is_empty());
     }
 
     #[test]

@@ -54,16 +54,23 @@ import Testing
         #expect(keyed.keycap == nil)
     }
 
-    @Test func longTextWrapsInsideTheMaximumWidth() {
-        let content = TooltipContentView()
-        content.set(text: String(repeating: "a long tooltip that has to wrap ", count: 8), shortcut: "⌘K")
-        let size = content.fittingSurfaceSize()
+    /// a1315 (UI simplification lead; Lawrence: "drastically simplify all parts of the UI"): a tooltip is the
+    /// control's name and its shortcut, on one line. Text past the maximum width ends in an ellipsis, and a second
+    /// line never shows.
+    @Test func aTooltipIsOneLineAtMostTheMaximumWidth() {
+        let oneLine = ceil((TooltipMetrics.lineHeight + TooltipMetrics.paddingBlock * 2) * Self.scale)
+        let long = TooltipContentView()
+        long.set(text: String(repeating: "a long tooltip that would wrap ", count: 8), shortcut: "⌘K")
+        let size = long.fittingSurfaceSize()
+        #expect(size.height == oneLine, "a long tooltip took \(size.height) pt, more than one line")
         #expect(size.width <= TooltipMetrics.maxWidth * Self.scale + 0.5)
-        #expect(size.height > (TooltipMetrics.lineHeight * 2) * Self.scale)
+        let twoLines = TooltipContentView()
+        twoLines.set(text: "Reload\nRun the script again from its saved files", shortcut: nil)
+        #expect(twoLines.text.stringValue == "Reload", "the second line showed")
+        #expect(twoLines.fittingSurfaceSize().height == oneLine)
     }
 
-    /// David Beyer, 2026-11-20: tooltips "look strangely wide". A tooltip is as wide as its text; a wrapped one
-    /// keeps its line count and loses the empty room beside its lines.
+    /// David Beyer, 2026-11-20: tooltips "look strangely wide". A tooltip is as wide as its text.
     @Test func aTooltipIsAsWideAsItsText() {
         let scale = Self.scale
         let pad = TooltipMetrics.paddingInline * scale
@@ -71,16 +78,6 @@ import Testing
         short.set(text: "Back", shortcut: nil)
         let label = ("Back" as NSString).size(withAttributes: [.font: TooltipContentView.font]).width
         #expect(short.fittingSurfaceSize().width <= ceil(label) + 2 * pad + 8 * scale, "a one-word tooltip is wider than its word")
-        // Just past one line at the maximum: two lines, each about half, not one full line and a word.
-        let max = TooltipMetrics.maxWidth * scale
-        let words = "Open the session in a new window beside this one, keeping its scroll position"
-        let wrapped = TooltipContentView()
-        wrapped.set(text: words, shortcut: nil)
-        let size = wrapped.fittingSurfaceSize()
-        wrapped.text.preferredMaxLayoutWidth = max - 2 * pad
-        let atMax = wrapped.text.fittingSize.height
-        #expect(size.height == ceil(atMax + TooltipMetrics.paddingBlock * scale * 2), "the fit changed the line count")
-        #expect(size.width < max * 0.9, "a two-line tooltip kept the maximum width: \(size.width) of \(max)")
     }
 
     @Test func thePanelHasTheTooltipCornerWhateverThePaneCorners() {

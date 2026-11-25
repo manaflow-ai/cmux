@@ -2381,6 +2381,23 @@
       "workspace.open_url"
     ]
   };
+  var TYPE_ROLES = {
+    numeral: { size: 34, weight: "semibold" },
+    heading: { size: 20, weight: "semibold" },
+    title: { size: 15, weight: "semibold" },
+    label: { size: 13, weight: "semibold" },
+    body: { size: 13, weight: "regular" },
+    caption: { size: 12, weight: "regular" },
+    footnote: { size: 11, weight: "regular" }
+  };
+  var WIDGET_TYPE = {
+    bigNumber: TYPE_ROLES.numeral.size,
+    title: TYPE_ROLES.title.size,
+    label: TYPE_ROLES.label.size,
+    body: TYPE_ROLES.body.size,
+    caption: TYPE_ROLES.caption.size,
+    footnote: TYPE_ROLES.footnote.size
+  };
   var API_VERSION = scopes_default.apiVersion;
   var g = globalThis;
   var RUNTIME_VERSION = String(globalThis.__cmuxAppRuntimeVersion ?? "");

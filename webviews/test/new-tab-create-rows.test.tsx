@@ -137,8 +137,7 @@ test("Minimal keeps the home clear and shows create rows for a matching search",
   expect(host.querySelector(".nt-create")).toBeNull();
   expect(creates()).toEqual([]);
   await type("ff");
-  // Return asks the chip's agent with no row of its own (David Beyer 2026-11-20).
-  expect(rows().map(label)).toEqual(["ff-scratch", "Search the web for ff"]);
+  expect(rows().map(label)).toEqual(["Ask Claude Code", "ff-scratch", "Search the web for ff"]);
   expect(rows().some((row) => row.dataset.type === "create")).toBe(false);
   await render([]);
   await type("new");
@@ -165,9 +164,8 @@ test("arrows visit suggestions and Return runs the highlighted row", async () =>
   await key(field, "ArrowDown");
   await key(field, "ArrowDown");
   expect(label(rows().find((row) => row.getAttribute("aria-selected") === "true")!)).toBe("Search the web for ff");
-  // Down on the last row wraps to the prompt, which has no row: nothing is lit and Return asks.
   await key(field, "ArrowDown");
-  expect(rows().some((row) => row.getAttribute("aria-selected") === "true")).toBe(false);
+  expect(label(rows().find((row) => row.getAttribute("aria-selected") === "true")!)).toBe("Ask Claude Code");
   await key(field, "Enter");
   expect(calls[0]?.slice(0, 3)).toEqual(["ask", "claude", "ff"]);
 });
@@ -175,8 +173,7 @@ test("arrows visit suggestions and Return runs the highlighted row", async () =>
 test("Ask rows show each harness mark without action or Return hints", async () => {
   for (const harness of ["claude", "codex"]) {
     await render([], harness);
-    // An address leads with Open, so Ask is a drawn row under it (a prompt's own Ask has no row).
-    await type("localhost:3000");
+    await type("ff");
     const ask = rows().find((row) => row.dataset.type === "ask")!;
     expect(ask.querySelector(".agent-mark")?.getAttribute("data-agent")).toBe(
       harness === "codex" ? "openai" : "claude",

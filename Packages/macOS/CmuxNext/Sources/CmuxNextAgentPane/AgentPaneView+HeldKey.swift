@@ -20,6 +20,7 @@ extension AgentPaneView {
     @discardableResult
     public func typeHeldText(of event: NSEvent, appIsActive: Bool = NSApp.isActive) -> Bool {
         guard !appIsActive, chromiumPage != nil, let text = typedText(of: event) else { return false }
+        model.hostTouch.mark("held-key") // this view owes the text to its tab from here: the host says so before the page does
         let before = heldKeyTyping
         heldKeyTyping = Task { [inputReadiness] in
             await before?.value

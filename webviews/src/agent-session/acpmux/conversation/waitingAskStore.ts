@@ -8,6 +8,7 @@
 // keeps it; the card in the transcript stays answerable. Bounded: the newest DISMISSED_CAP per chat
 // and CHATS_CAP chats.
 import type { AcpmuxRow } from "../model";
+import { answerOf } from "./nextStepAsk";
 
 const STORAGE_KEY = "cmux.agentPane.dismissedAsks.v1";
 const DISMISSED_CAP = 50;
@@ -112,26 +113,65 @@ export function claimAnswer(key: string, text: string, at = Date.now()): void {
   }
 }
 
-/// Forgets the claims and dismissals read so far (tests, a storage swap).
+/// Forgets the claims and dismissals read so far, and the answers given (tests, a storage swap).
 export function resetAnswerClaims(): void {
   claims = undefined;
   memory = undefined;
+  answerStates.clear();
+  answered = new Set();
 }
 
-/// An answer on its way from a card, by the card's key: the copy in the transcript and the pinned
-/// copy are the same question, so a click on one disables both, and a failure shows on both.
-/// `sending` is the answer's label while it goes; `failed` that the last one did not.
-export type AnswerState = { sending?: string; failed?: boolean };
+/// The person's words in a prompt a card sent (nextStepAsk.ts `answerPrompt`): the answer they
+/// clicked, without its quote of the ask, for a line that shows the prompt as one line (the queue
+/// row behind a running turn). Undefined for any other prompt. Read from the claims, so a reload
+/// still reads it. Leo, 2026-11-17, on the queue row that showed "> Claude Code: [physical] Plug
+/// your iPhone...": "after i click the behaviour is very weird".
+export function claimedReply(prompt: string): string | undefined {
+  if (!/^\s{0,3}>/.test(prompt)) return undefined;
+  const all = readClaims();
+  for (let index = all.length - 1; index >= 0; index -= 1) {
+    const { key, text } = all[index]!;
+    const question = key.slice(key.indexOf("\u0000") + 1);
+    if (question && answerOf(question, prompt) === text) return text;
+  }
+  return undefined;
+}
+
+/// An answer from a card, by the card's key: the copy in the transcript and the pinned copy are the
+/// same question, so a click on one answers both, and a failure shows on both. `sending` is the
+/// answer's label while it goes, `sent` once it went (it may wait in the queue behind a running
+/// turn, where no prompt row settles the card yet); `failed` that the last one did not, and `typed`
+/// the words of a typed answer that failed, which a copy that left while it went gets back.
+export type AnswerState = { sending?: string; sent?: string; failed?: boolean; typed?: string };
 const answerStates = new Map<string, AnswerState>();
 const listeners = new Set<() => void>();
 const IDLE: AnswerState = {};
 
 export const answerState = (key: string): AnswerState => answerStates.get(key) ?? IDLE;
 
+/// The answer a card gave from this page, on its way or sent: the card draws it answered from the
+/// click on, and its pinned and hat copies leave in the same frame.
+export const givenAnswer = (state: AnswerState): string | undefined =>
+  state.failed ? undefined : (state.sending ?? state.sent);
+
+let answered: ReadonlySet<string> = new Set();
+
+/// The keys of the cards answered from this page (`givenAnswer`); a new set on each change.
+export const answeredAsks = (): ReadonlySet<string> => answered;
+
 export function setAnswerState(key: string, state: AnswerState): void {
-  if (!state.sending && !state.failed) answerStates.delete(key);
+  if (!state.sending && !state.sent && !state.failed) answerStates.delete(key);
   else answerStates.set(key, state);
+  const keys = [...answerStates].filter(([, kept]) => givenAnswer(kept) !== undefined).map(([kept]) => kept);
+  if (keys.length !== answered.size || keys.some((kept) => !answered.has(kept))) answered = new Set(keys);
   for (const listener of listeners) listener();
+}
+
+/// `dismissed` with the cards answered from this page: what the pinned asks and the hat leave out.
+export function withAnswered(dismissed: ReadonlySet<string>, given: ReadonlySet<string>): ReadonlySet<string> {
+  if (!given.size) return dismissed;
+  if (!dismissed.size) return given;
+  return new Set([...dismissed, ...given]);
 }
 
 export function subscribeAnswers(listener: () => void): () => void {

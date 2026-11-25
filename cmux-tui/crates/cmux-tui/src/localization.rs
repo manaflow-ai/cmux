@@ -7,6 +7,7 @@ mod agents_doctor;
 mod app_control;
 mod attach;
 mod attention;
+mod auth_handoff;
 mod auth_token;
 mod automation;
 mod billing;
@@ -44,9 +45,12 @@ mod update_notice;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
 pub(crate) use agents_doctor::AgentsDoctorMessages;
-pub(crate) use app_control::{AppControlMessages, NightlyMessages, TryMessages, VersionLabels};
+pub(crate) use app_control::{
+    AppControlMessages, NightlyMessages, ShareMessages, TryMessages, VersionLabels,
+};
 pub(crate) use attach::AttachMessages;
 pub(crate) use attention::AttentionMessages;
+pub(crate) use auth_handoff::AuthHandoffMessages;
 pub(crate) use auth_token::AuthTokenMessages;
 pub(crate) use automation::AutomationMessages;
 pub(crate) use billing::BillingMessages;
@@ -176,6 +180,7 @@ pub(crate) struct Catalog {
     pub automation: AutomationMessages,
     pub billing: BillingMessages,
     pub auth_token: AuthTokenMessages,
+    pub auth_handoff: AuthHandoffMessages,
     pub live_code: LiveCodeMessages,
     pub sandbox_run: SandboxRunMessages,
     pub update_notice: UpdateNoticeMessages,
@@ -199,6 +204,7 @@ static ENGLISH: Catalog = Catalog {
     automation: automation::ENGLISH,
     billing: billing::ENGLISH,
     auth_token: auth_token::ENGLISH,
+    auth_handoff: auth_handoff::ENGLISH,
     live_code: live_code::ENGLISH,
     sandbox_run: sandbox_run::ENGLISH,
     update_notice: update_notice::ENGLISH,
@@ -240,6 +246,7 @@ static JAPANESE: Catalog = Catalog {
     automation: automation::JAPANESE,
     billing: billing::JAPANESE,
     auth_token: auth_token::JAPANESE,
+    auth_handoff: auth_handoff::JAPANESE,
     live_code: live_code::JAPANESE,
     sandbox_run: sandbox_run::JAPANESE,
     update_notice: update_notice::JAPANESE,

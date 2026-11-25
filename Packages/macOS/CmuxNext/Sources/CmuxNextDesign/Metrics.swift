@@ -14,6 +14,8 @@ public enum Density: String, Sendable, CaseIterable, Codable {
 
 public struct Metrics {
     public init() {}
+    /// The composites a layout reads many times a frame, kept until an input changes (``TokenMemo``).
+    static var memo: TokenMemos { DesignSettings.shared.tokenMemos }
     /// Applies the one live chrome multiplier (when `interfaceScaleEnabled`) to every metric token.
     public static func scale(_ value: CGFloat) -> CGFloat {
         value * (DesignSettings.shared.interfaceScaleEnabled ? DesignSettings.shared.interfaceScale : 1)
@@ -52,7 +54,8 @@ public struct Metrics {
     /// `(strip - tab - stripTopOutset) / 2`, so the padding is the gap the corners nest across).
     /// A tab that follows the sidebar's row (``chromeRowHeight``) grows the strip by as much, so the
     /// room around the pill stays exactly the density's (both pairs resolve and round alike).
-    public static var tabStripHeight: CGFloat {
+    public static var tabStripHeight: CGFloat { memo.tabStripHeight.value { uncachedTabStripHeight } }
+    private static var uncachedTabStripHeight: CGFloat {
         guard let padding = DesignSettings.shared.paneChrome.cornerPadding else {
             let strip = MetricTunables.tabStripHeight
             // A strip the person set (Debug Settings, `appearance.metrics.tabStripHeight`) keeps its height.
@@ -94,7 +97,8 @@ public struct Metrics {
     /// toolbar buttons and its omnibar take too (Lawrence 2026-11-09: "the sizes of the icons/omnibar
     /// etc should match the tabbar tab height, which should match the workspace row height, at all
     /// density levels").
-    public static var chromeRowHeight: CGFloat {
+    public static var chromeRowHeight: CGFloat { memo.chromeRowHeight.value { uncachedChromeRowHeight } }
+    private static var uncachedChromeRowHeight: CGFloat {
         // From the row's own inputs, not `SidebarRowTokens.current`: its corner radius reads the
         // tab strip's inset, which reads the tab height, which reads this.
         let sections = DesignSettings.shared.sidebarSections
@@ -117,7 +121,8 @@ public struct Metrics {
     /// pill, or a set `tabHeight`; under `appearance.metrics.tabStripHeight` the bar's height less the
     /// density's own room around its pill, so a taller bar has taller tabs. The Compact tabs pill is
     /// never taller than the row it tightens: its 22 pt token predates Compact's 20 pt Helium rows.
-    public static var tabHeight: CGFloat {
+    public static var tabHeight: CGFloat { memo.tabHeight.value { uncachedTabHeight } }
+    private static var uncachedTabHeight: CGFloat {
         let metric = MetricTunables.tabHeight
         let tab = metric.explicitValue ?? (compactTabs ? min(metric.value, chromeRowHeight) : chromeRowHeight)
         // A set corner padding derives the strip from this tab, ahead of a strip-height override.
@@ -173,6 +178,9 @@ public struct Metrics {
     /// Height of the fade at a scrolling list's top or bottom edge while
     /// content is hidden beyond it (`ScrollEdgeFade`).
     public static var scrollEdgeFade: CGFloat { MetricTunables.scrollEdgeFade.value }
+    /// Height of the fade at a scrolling list's bottom edge while content is hidden below
+    /// (`ScrollEdgeFade`): taller than the top's.
+    public static var scrollEdgeFadeBottom: CGFloat { MetricTunables.scrollEdgeFadeBottom.value }
 
     public static var dividerThickness: CGFloat { MetricTunables.dividerThickness.value }
     /// Width of the sidebar's resting edge line (`sidebar.border`,

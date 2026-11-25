@@ -3,6 +3,10 @@ import { type Artifact } from "./artifactPreview";
 import { toolArtifacts } from "./artifactWrites";
 import { PrefixFold } from "./prefixFlatMap";
 
+/// A file the app opens in its Markdown page (.md and .markdown; .mdx opens as source, so it gets no preview).
+const MARKDOWN_FILE = /\.(?:md|markdown)$/i;
+export const isMarkdownPath = (path: string) => MARKDOWN_FILE.test(path.trim());
+
 export function writtenArtifacts(rows: readonly AcpmuxRow[]): Artifact[] {
   return rows.flatMap((row) => (row.items ?? []).flatMap((item) => (item.tool ? toolArtifacts(item.tool) : [])));
 }

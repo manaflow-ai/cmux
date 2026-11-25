@@ -653,6 +653,8 @@ impl Inner {
     /// record, except the save that makes the chat's folder: a new chat is shown only once
     /// durable ([`super::new_folders`]).
     pub(super) fn save_meta(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<()> {
+        // A full disk: refused before anything is written (`super::space`).
+        self.space.refuse()?;
         let dir = self.local.dir(&meta.id);
         // The large fields go to the parts file, only when they changed (`store/meta_parts.rs`),
         // before the record: the record's image is the rest. A new chat's folder is made below,
@@ -675,9 +677,11 @@ impl Inner {
         let fields = raw_fields(&image)?;
         let mut order = self.order.lock_or_recover();
         drop(self.local.writable()?);
-        // Checked before the folder is made: a refused save makes nothing.
-        self.journal
-            .check_append(meta_payload_len(&meta.id, saw, &image))
+        // Reserved before the folder is made: a refused save makes nothing, and the record is
+        // taken once it is (log appends of other chats fill the queue meanwhile, off this lock).
+        let room = self
+            .journal
+            .reserve(meta_payload_len(&meta.id, saw, &image))
             .map_err(JournalStore::journal_error)?;
         let made = folder_id(&dir)?.is_none();
         if made {
@@ -726,16 +730,16 @@ impl Inner {
         // change (a prompt) does not sync a burst of drafts in its own turn.
         let append = || {
             if kept {
-                self.journal.append_kept(kind, &payload)
+                room.append_kept(kind, &payload)
             } else {
-                self.journal.append(kind, Class::Ack, &payload)
+                room.append(kind, Class::Ack, &payload)
             }
             .map_err(JournalStore::journal_error)
         };
         // A new folder's record is held back from the gate until the folder's entry is synced.
         let lsn = if made { self.new_folders.append_made(append)? } else { append()? };
-        shown.store(lsn, std::sync::atomic::Ordering::SeqCst);
-        order.applied = lsn;
+        shown.fetch_max(lsn, std::sync::atomic::Ordering::SeqCst);
+        order.applied = order.applied.max(lsn);
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         order.metas.insert(meta.id.clone(), Pending { lsn, meta: meta.clone(), folder });
         let (names, hashes) = shape(&fields);

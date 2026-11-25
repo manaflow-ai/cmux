@@ -1,0 +1,90 @@
+{
+  "family": "workspace",
+  "ops": {
+    "workspace.agent_folder.set": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "32acc06510090d3b"
+    },
+    "workspace.agent_start.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "a186c7399f98ece7"
+    },
+    "workspace.close": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "b3d183e320a49ee8"
+    },
+    "workspace.create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "74a142e5ef9cf165"
+    },
+    "workspace.ensure_app": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "dee747c47389b757"
+    },
+    "workspace.ensure_home": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "4211cb683b24a2b3"
+    },
+    "workspace.focus": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "0c13e069e5a36837"
+    },
+    "workspace.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "d2810105aea89235"
+    },
+    "workspace.layout.apply": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "8d1648341a36576f"
+    },
+    "workspace.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "536c8c44ed3070c4"
+    },
+    "workspace.move": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e43cbfc3df0bc175"
+    },
+    "workspace.open_url": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "4df1472a8539aa42"
+    },
+    "workspace.place": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "c7252308b2b8adaa"
+    },
+    "workspace.placement.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "578a48842c8ab788"
+    },
+    "workspace.rename": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e640dfda25fb0fdb"
+    },
+    "workspace.run": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "f769e49eba2a69c8"
+    },
+    "workspace.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e78eb634fc9e8ffc"
+    }
+  }
+}

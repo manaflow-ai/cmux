@@ -12,6 +12,14 @@ import Testing
         #expect(switches.arguments.contains("cmux-process-per-site-schemes=cmux-page"))
     }
 
+    /// One renderer crash reloads at most 8 chats (Leo, 2026-11-14, process-sharing row 2): the fork
+    /// caps the pages per page-site renderer at the WebKit groups' size.
+    @Test(arguments: ["com.cmuxterm.app.next", "com.cmuxterm.app.debug.tag"])
+    func theBrowserProcessCapsPagesPerPageRenderer(bundle: String) {
+        let switches = CEFSwitches.current(forkAPIVersion: 30, bundleIdentifier: bundle, environment: [:])
+        #expect(switches.arguments.contains("cmux-process-per-site-main-frame-cap=8"))
+    }
+
     @Test func webPagesKeepChromesProcessModel() {
         let switches = CEFSwitches.current(forkAPIVersion: 30, bundleIdentifier: "com.cmuxterm.app.next", environment: [:])
         #expect(!switches.arguments.contains("process-per-site"))

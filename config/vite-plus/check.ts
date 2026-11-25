@@ -17,12 +17,13 @@ export function cmuxCheckConfig({
   allowWarnings = false,
   effectCleanupPlugin = undefined as string | undefined,
   perfPlugin = undefined as string | undefined,
+  a11yPlugin = undefined as string | undefined,
 } = {}) {
   return {
     lint: {
       plugins: ["eslint", "typescript", "unicorn", "oxc", "react", "jsx-a11y", "import"] as LintPlugin[],
       ignorePatterns: BUILD_OUTPUT,
-      jsPlugins: [effectCleanupPlugin, perfPlugin].filter((plugin): plugin is string => plugin !== undefined),
+      jsPlugins: [effectCleanupPlugin, perfPlugin, a11yPlugin].filter((plugin): plugin is string => plugin !== undefined),
       // `typeCheck` replaces a separate tsc/tsgo step and needs `typeAware`. The
       // type-aware rules turned off below are new to these packages and stay off
       // until someone works through their findings.
@@ -36,6 +37,15 @@ export function cmuxCheckConfig({
         "typescript/no-base-to-string": "off" as const,
         "typescript/no-redundant-type-constituents": "off" as const,
         "typescript/unbound-method": "off" as const,
+        // The built-in rule's role table predates ARIA 1.3, where aria-description is global, and it has no
+        // options: a package with the a11y plugin (webviews/scripts/lint/aria-props.mjs) runs the same check with
+        // aria-description allowed on every role in its place. Every other package keeps the built-in rule.
+        ...(a11yPlugin
+          ? {
+              "jsx-a11y/role-supports-aria-props": "off" as const,
+              "cmux-a11y/role-supports-aria-props": "error" as const,
+            }
+          : {}),
       },
       // Tests and benches measure layout on purpose; the perf rules are for code that ships.
       overrides: perfPlugin

@@ -9,6 +9,9 @@
 //!   batches in a second for [`SLOW_AFTER`], the mount is **Slowed**: it gets
 //!   at most one batch per [`SLOWED_INTERVAL`]. Back under the rate for
 //!   [`SLOW_AFTER`], it is Normal again.
+//! - **Node cap** ([`super::scene_nodes`]): a batch that takes a mount past
+//!   [`super::scene_nodes::MAX_NODES`] nodes fails the mount (`app.limit`),
+//!   counted here whatever the VM runtime let through.
 //! - **Paused** ([`AppLadder`]): [`TIMEOUTS_TO_PAUSE`] entry timeouts (or CPU
 //!   window kills) within [`TIMEOUT_WINDOW`], a second memory kill (the
 //!   first one restarted the VM), or a mount Slowed for [`PAUSE_AFTER_SLOWED`].
@@ -22,12 +25,13 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
-use cmux_app_host::FatalReason;
+use cmux_app_host::{FatalReason, ToHost};
 use cmux_json::JsonSet as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::mirror::Origin;
+use super::scene_nodes::{SceneNodes, over_cap_reason};
 use super::supervisor::{ApiError, HostKey, Inner, MountKey, Out, Supervisor};
 use crate::panic_free::RecoverPoison;
 
@@ -79,6 +83,8 @@ pub(super) struct Outcome {
     pub changed: Option<Step>,
     /// The mount was Slowed for [`PAUSE_AFTER_SLOWED`]: pause the app.
     pub pause: bool,
+    /// This batch took the mount past the node cap: fail the mount.
+    pub node_cap: bool,
 }
 
 /// The batch-rate budget of one mount.
@@ -97,6 +103,10 @@ pub(super) struct MountBudget {
     quiet: Option<Duration>,
     /// Until then a widget mount sends at frame rate (after a mount, tick, tap or show).
     settle_until: Option<Instant>,
+    /// The live scene nodes, for the node cap.
+    nodes: SceneNodes,
+    /// Over the node cap: every batch is dropped until the tree starts over.
+    over_cap: bool,
     /// Batches that had to wait (a widget's edit-mode meter).
     pub held: u64,
     /// Batches the app sent, and batches forwarded (perf-gate counters).
@@ -116,6 +126,8 @@ impl Default for MountBudget {
             flush_armed: false,
             quiet: None,
             settle_until: None,
+            nodes: SceneNodes::default(),
+            over_cap: false,
             held: 0,
             batches_in: 0,
             batches_out: 0,
@@ -144,9 +156,12 @@ impl MountBudget {
         self.quiet.is_some() && self.settle_until.is_none_or(|until| now > until)
     }
 
-    /// Drops held ops (the host restarted: they belong to the old tree).
+    /// Drops held ops and the node count (the host restarted or the mount is mounted again:
+    /// they belong to the old tree).
     pub(super) fn clear_pending(&mut self) {
         self.pending.clear();
+        self.nodes.clear();
+        self.over_cap = false;
     }
 
     pub(super) fn step(&self) -> Step {
@@ -156,6 +171,14 @@ impl MountBudget {
     /// One scene batch from the app at `now`.
     pub(super) fn offer(&mut self, now: Instant, ops: Vec<Value>) -> Outcome {
         self.batches_in = self.batches_in.saturating_add(1);
+        if self.over_cap {
+            return Outcome::default();
+        }
+        if !self.nodes.apply(&ops) {
+            self.over_cap = true;
+            self.pending.clear();
+            return Outcome { node_cap: true, ..Outcome::default() };
+        }
         if self.arrivals.len() > MAX_RATE {
             self.arrivals.pop_front();
         }
@@ -379,6 +402,9 @@ impl Supervisor {
         if outcome.pause {
             return self.pause_locked(inner, key, PauseCause::Slowed);
         }
+        if outcome.node_cap {
+            return self.node_cap_locked(inner, key, mount_key);
+        }
         let mut outs = Vec::new();
         if let Some(step) = outcome.changed {
             let message = match step {
@@ -423,6 +449,29 @@ impl Supervisor {
             }
             outs.push(Out::Client(mount_key.client, event));
         }
+        outs
+    }
+
+    /// `mount_key` went past the node cap: the VM drops the mount, and the place shows the
+    /// mount failed, as when its render throws (a widget keeps its last good scene, stale, and
+    /// is mounted again after its backoff).
+    fn node_cap_locked(&self, inner: &mut Inner, key: &HostKey, mount_key: &MountKey) -> Vec<Out> {
+        let reason = over_cap_reason();
+        let mut outs =
+            self.log_locked(inner, &key.app, "error", format!("{}: {reason}", mount_key.mount_id));
+        if let Some(process) = inner.hosts.get(key).and_then(|h| h.process.clone()) {
+            process.send(&ToHost::Unmount { mount: mount_key.wire() });
+        }
+        if inner.mounts.get(mount_key).is_some_and(|m| m.widget.is_some()) {
+            outs.extend(self.widget_mount_failed_locked(inner, mount_key, reason));
+            return outs;
+        }
+        inner.mounts.remove(mount_key);
+        outs.push(Out::Client(
+            mount_key.client,
+            json!({ "event": "apps-mount-failed", "mount_id": mount_key.mount_id, "reason": reason }),
+        ));
+        outs.extend(self.idle_check_locked(inner, key));
         outs
     }
 

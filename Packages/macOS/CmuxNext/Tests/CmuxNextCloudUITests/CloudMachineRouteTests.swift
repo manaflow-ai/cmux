@@ -224,6 +224,87 @@ import Testing
         }
     }
 
+    /// 2026-11-21: the route check ran its command on the machine in every start (1.9 and 2.5 s of two starts on a warm
+    /// spare). A report read ahead that says the chat starts is the check: no command runs, and no update.
+    @Test func aReportReadAheadThatStartsTheChatRunsNoCommand() async throws {
+        let ran = UpdateCount(), updated = UpdateCount(), now = Self.unrouted()
+        let machine = CloudMachineRoute(exec: { _, _ in
+            await ran.add()
+            return CloudExecResult(exitCode: 0, stdout: now, stderr: "")
+        })
+        // The chat carries its connection, and the report says the agent service runs.
+        try await machine.prepare(carriesConnection: true, family: "claude", ahead: Self.unrouted()) { await updated.add() }
+        // The machine's Claude signs in by itself: a Claude chat with no connection starts on it.
+        try await machine.prepare(family: "claude", ahead: Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"])) { await updated.add() }
+        #expect(await ran.count == 0)
+        #expect(await updated.count == 0)
+    }
+
+    /// A report read ahead never refuses a start, and never starts one it cannot vouch for: one that says the chat does
+    /// not start, one with its agent service down, or output that is no report is read again on the machine, whose
+    /// answer now decides.
+    @Test func aReportReadAheadThatDoesNotStartTheChatIsReadAgain() async throws {
+        let now = Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"])
+        for ahead in [Self.unrouted(), Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"], running: false), "", "no report\n"] {
+            let ran = UpdateCount(), updated = UpdateCount()
+            let machine = CloudMachineRoute(exec: { _, _ in
+                await ran.add()
+                return CloudExecResult(exitCode: 0, stdout: now, stderr: "")
+            })
+            // No connection of the chat's own: only the machine's sign-in, which it has now, starts the chat.
+            try await machine.prepare(family: "claude", ahead: ahead) { await updated.add() }
+            #expect(await ran.count == 1, "\(ahead.prefix(40))")
+            #expect(await updated.count == 0)
+        }
+        // And a machine that now reports no route for a chat with no connection still ends with Set up Cloud.
+        let machine = Self.machine(printing: Self.unrouted())
+        await #expect(throws: CloudMachineRoute.NeedsConnection.self) {
+            try await machine.prepare(family: "claude", ahead: Self.unrouted()) {}
+        }
+    }
+
+    /// A machine that does not serve what the start needs is updated as before, whatever was read ahead.
+    @Test func aReportReadAheadDoesNotSkipTheUpdateOfAMachineThatLacksACapability() async throws {
+        let updated = UpdateCount()
+        do {
+            try await Self.machine(printing: Self.unrouted()).prepare(serves: { false }, carriesConnection: true, family: "codex", ahead: Self.unrouted()) { await updated.add() }
+            Issue.record("the start went on with a connection the machine cannot take")
+        } catch let failure as CloudMoveFailure {
+            #expect(failure.message == CloudMachineRoute.tooOld)
+        }
+        #expect(await updated.count == 1)
+    }
+
+    /// The rule of a report read ahead: only a real report that says the chat starts; never the answers for no report.
+    @Test func onlyARealReportThatStartsTheChatCountsAhead() {
+        #expect(CloudMachineRoute.startsAhead(.ready, carriesConnection: false))
+        #expect(CloudMachineRoute.startsAhead(.notEdge, carriesConnection: true))
+        #expect(!CloudMachineRoute.startsAhead(.notEdge, carriesConnection: false))
+        // A machine on software from before the report starts when read now (`starts`), but nothing read ahead vouches for it.
+        for verdict in [CloudMachineRoute.Verdict.unsupported, .invalid, .noDaemon] {
+            #expect(!CloudMachineRoute.startsAhead(verdict, carriesConnection: true), "\(verdict)")
+        }
+        let down = CloudMachineRoute.Agent(daemonRunning: false, routed: false, signsIn: true)
+        #expect(!CloudMachineRoute.startsAhead(.holdsCredential, agent: down, carriesConnection: true))
+    }
+
+    /// What is kept from a read ahead: the output when it holds a report whose agent service runs, nothing when the
+    /// machine printed none, its agent service is down (also on a machine that holds a login, which Rust names first),
+    /// or the command could not run. It never starts the machine.
+    @Test func theReportToKeepIsARealOneWhoseServiceRuns() async {
+        let report = Self.unrouted()
+        #expect(await Self.machine(printing: report).report() == report)
+        let signedIn = Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"])
+        #expect(await Self.machine(printing: signedIn).report() == signedIn)
+        #expect(await Self.machine(printing: "").report() == nil)
+        #expect(await Self.machine(printing: "no report\n").report() == nil)
+        #expect(await Self.machine(printing: Self.unrouted(running: false)).report() == nil)
+        #expect(await Self.machine(printing: Self.unrouted(variables: ["CLAUDE_CODE_OAUTH_TOKEN"], running: false)).report() == nil)
+        let machine = StoppedMachine(report: report)
+        #expect(await CloudMachineRoute(exec: { _, _ in try await machine.exec() }, start: { await machine.start() }).report() == nil)
+        #expect(await machine.starts == 0, "a read ahead never starts a machine")
+    }
+
     /// A machine whose exec route refuses it as not running until it is started, then prints `report`.
     private actor StoppedMachine {
         let report: String

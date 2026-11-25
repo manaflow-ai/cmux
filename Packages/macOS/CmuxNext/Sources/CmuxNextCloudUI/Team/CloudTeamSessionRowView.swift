@@ -112,7 +112,7 @@ final class CloudTeamSessionRowView: NSView {
         actions.open(row)
     }
 
-    override func menu(for event: NSEvent) -> NSMenu? { contextMenu() }
+    override func menu(for event: NSEvent) -> NSMenu? { NSMenu.withoutSystemItems(contextMenu()) }
 
     /// The row's right-click menu (Follow, Reassign To, Copy Link, Archive); nil with no rows.
     func contextMenu() -> NSMenu? {

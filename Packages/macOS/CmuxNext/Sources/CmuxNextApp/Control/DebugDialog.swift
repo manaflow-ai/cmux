@@ -34,6 +34,11 @@ enum DebugDialog {
                                             DaemonPairingStrings.identifier, IPhoneHostService.pairDialogIdentifier, ExternalLinkGate.sshDialogIdentifier,
                                             SessionLinkGate.dialogIdentifier, CmuxRemoteActionEnvironment.confirmIdentifier]).union(CmuxRemoteActionEnvironment.setupIdentifiers)
 
+    /// `debug.key`, `debug.view_key`, `debug.mouse` while a ``userOnly`` dialog shows (`CmuxDialogKeys.syntheticInputRefusal`).
+    static func syntheticInputRefusal(onlyCancels: Bool) -> JSONValue? {
+        CmuxDialogKeys.syntheticInputRefusal(CmuxDialogCenter.shared.records, userOnly: userOnly, onlyCancels: onlyCancels).map { .object(["error": .string($0)]) }
+    }
+
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         #if DEBUG  // `{serverCard: "addServer" | "pairInvite" | "addMachine", state}`: the native server cards from fixtures.
         if let card = params["serverCard"]?.stringValue { return ["shown": .bool(ServerCardsDebug.show(card: card, state: params["state"]?.stringValue ?? "", over: NSApp.mainWindow) { PairingQRCode().pngData(for: $0) })] }
@@ -87,7 +92,7 @@ enum DebugDialog {
                 }
             }
             if let name = params["key"]?.stringValue {
-                result["key"] = .bool(key(name).map { center.key($0.0, modifiers: $0.1, in: target) } ?? false)
+                result["key"] = .bool(CmuxDialogKeys.named(name).map { center.key($0.0, modifiers: $0.1, in: target) } ?? false)
             }
             if let button = params["press"]?.stringValue { result["pressed"] = .bool(center.press(target, button: button)) }
             if params["dismiss"]?.boolValue == true { result["dismissed"] = .bool(center.dismiss(target)) }
@@ -108,18 +113,6 @@ enum DebugDialog {
             holdMs: params["hold_ms"]?.doubleValue ?? 700, tailMs: params["tail_ms"]?.doubleValue ?? 600,
             scale: params["scale"]?.doubleValue ?? 0.5, dir: dir)
         return JSONValue(foundation: report) ?? .null
-    }
-
-    private static func key(_ name: String) -> (CmuxDialogKeys.Key, CmuxDialogKeys.Modifiers)? {
-        switch name {
-        case "return": return (.return, [])
-        case "escape": return (.escape, [])
-        case "tab": return (.tab, [])
-        case "shift-tab": return (.tab, .shift)
-        default:
-            guard name.hasPrefix("cmd-"), name.count == 5, let character = name.last else { return nil }
-            return (.character(character), .command)
-        }
     }
 
     private static func report(_ record: CmuxDialogCenter.Record, dialog: CmuxDialogPresentation?) -> JSONValue {

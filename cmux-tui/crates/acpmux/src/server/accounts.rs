@@ -15,6 +15,10 @@
 //! files and are only read here: no token leaves this module. Settings shows
 //! them, so only the unix socket and the local app may ask; `set` writes a
 //! route file, so only the unix socket.
+//!
+//! The list also carries gh's github.com accounts (`github:<login>`, family
+//! `github`), read by `account_sign_in::github_rows` from `gh auth status`:
+//! login, signed in and active only, never a token.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -50,15 +54,30 @@ pub(super) async fn handle(
     match m {
         method::MUX_ACCOUNTS => {
             let family = params.get("family").and_then(Value::as_str).map(str::to_owned);
-            tokio::task::spawn_blocking(move || {
-                let list = list(dir.as_deref(), &routes::bindings(&state))
+            let wants = |f: &str| family.as_deref().is_none_or(|want| want == f);
+            // gh's accounts (at most `github::ACCOUNTS_WAIT`) while the routes are read.
+            let github = async {
+                if wants("github") {
+                    super::account_sign_in::github_rows(hub).await
+                } else {
+                    Vec::new()
+                }
+            };
+            let filter = family.clone();
+            let listed = tokio::task::spawn_blocking(move || {
+                list(dir.as_deref(), &routes::bindings(&state))
                     .into_iter()
-                    .filter(|a| family.as_deref().is_none_or(|f| a["family"] == f))
-                    .collect::<Vec<_>>();
-                json!({"accounts": list})
-            })
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))
+                    .filter(|a| {
+                        filter
+                            .as_deref()
+                            .is_none_or(|f| a.get("family").and_then(Value::as_str) == Some(f))
+                    })
+                    .collect::<Vec<_>>()
+            });
+            let (listed, github) = tokio::join!(listed, github);
+            let mut list = listed.map_err(|e| RpcError::internal(e.to_string()))?;
+            list.extend(github);
+            Ok(json!({"accounts": list}))
         }
         _ => {
             if origin != Origin::Local {
@@ -82,7 +101,7 @@ pub(super) async fn handle(
 
 /// Every account: the Codex CLI's own login first, then the account routes by
 /// id, then the Claude Code login, each with whether it is its family's default.
-fn list(dir: Option<&Path>, bindings: &routes::Bindings) -> Vec<Value> {
+pub(super) fn list(dir: Option<&Path>, bindings: &routes::Bindings) -> Vec<Value> {
     let mut out = listed(dir);
     for account in &mut out {
         let mut builtin = account["builtin"].as_bool().unwrap_or(false);

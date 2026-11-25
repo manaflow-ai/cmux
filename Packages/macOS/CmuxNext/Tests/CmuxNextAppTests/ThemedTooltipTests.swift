@@ -75,6 +75,7 @@ import CmuxNextTestSupport
                               backing: .buffered, defer: false)
         let header = NSView(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
         let add = NSButton(frame: NSRect(x: 270, y: 2, width: 24, height: 24))
+        add.title = "" // an icon-only button: one that shows its own title has no tooltip (cut 2)
         header.addSubview(add)
         window.contentView?.addSubview(header)
         header.themedToolTip = "This Mac"
@@ -109,6 +110,9 @@ import CmuxNextTestSupport
                               backing: .buffered, defer: false)
         let first = NSButton(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
         let second = NSButton(frame: NSRect(x: 0, y: 72, width: 300, height: 28))
+        // Rows that show no title of their own: one that shows its text has no tooltip (cut 2).
+        first.title = ""
+        second.title = ""
         window.contentView?.addSubview(first)
         window.contentView?.addSubview(second)
         first.themedToolTip = "First"

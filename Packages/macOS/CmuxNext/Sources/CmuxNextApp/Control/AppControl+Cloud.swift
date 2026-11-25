@@ -45,9 +45,9 @@ extension AppControl {
         registerRunMethods(services); CaptureAuthControl().register(on: service?.router, remote: services.cmuxRemote.capture) { [weak services] in services?.cloud.auth }
         registerCloudEnvironmentMethods(services)
         registerVMAgentKeyMethods(services)
-        // `cmux auth token` (cmux-platform#111): the method lives in CmuxNextControl, the mint in CmuxNextCloud.
+        // `cmux auth token` (cmux-platform#111) and `cmux auth handoff`: methods in CmuxNextControl, Cloud calls in CmuxNextCloud and cmux-tui.
         let identity = services.cloud.installIdentity, origin = services.cloud.configuration.ownerAPIBaseURL(), auth = services.cloud.auth
-        service?.router.register([.authToken(
+        service?.router.register([ControlMethod.authToken(
             disabledFeatures: { services.registry.disabledFeatures }, isSignedIn: { services.cloud.isSignedIn },
             mint: { asked in
                 do {
@@ -55,7 +55,7 @@ extension AppControl {
                     return AuthTokenGrant(accessToken: token.accessToken, team: token.team, user: token.user, expiresAt: token.expiresAt, apiOrigin: origin)
                 } catch let refused as CloudAccessToken.Refusal { throw AuthTokenRefusal(code: refused.failure.code, detail: refused.failure.detail, team: refused.team) }
             }),
-        ])
+        ] + ControlMethod.authHandoff(disabledFeatures: { services.registry.disabledFeatures }, relay: CloudCLICall(cli: services.bundledCLI).authHandoffRelay(signedIn: auth)))
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -187,13 +187,13 @@ extension AppControl {
     /// waiting on or cancelling one that exists stays open, so turning it off mid-run never strands
     /// a billable VM without its receipt or its cancel. Not behind Labs (Leo, 2026-10-30): the CLI's
     /// `cmux run --sandboxed` is the person's explicit ask for the run; a new one goes under the account signed in now (`runningAs`).
-    nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudAPIClient {
+    nonisolated private static func runsAPI(_ services: AppServices, newRun: Bool) async throws -> CloudDaemon {
         try await MainActor.run {
             if newRun, let refusal = ControlError.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
             // A managed team missing or a local-only backend: no new run asks the server (mayCallCloud).
             guard !newRun || services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: String(localized: "runs.error.cloudUnavailable", defaultValue: "cmux Cloud is not available for this account or team.", table: "Runs", bundle: .module.inAppLanguage)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux first: run `cmux cloud sign-in`, or choose Sign In in the cmux app.", table: "Runs", bundle: .module.inAppLanguage)) }
-            return newRun ? services.cloud.machineAPI.runningAs(services.cloud.auth.runAccount) : services.cloud.machineAPI.drainingClassic(services.cloud.api)
+            return newRun ? services.cloud.machineAPI.daemon.runningAs(services.cloud.auth.runAccount) : services.cloud.machineAPI.daemon
         }
     }
 

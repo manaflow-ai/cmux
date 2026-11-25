@@ -78,6 +78,20 @@ import Testing
         #expect(r.controller.store?.state.ui.openThread != nil, "the reply view stays open while typing")
     }
 
+    /// A key that keeps the field's height moves no row and no scroll: it places no scroll thumb (each key found
+    /// the first visible row again for it, cmux21 `sample`, 3,000 characters).
+    @Test func aKeyThatKeepsTheFieldPlacesNoThumb() async throws {
+        let r = try await rig()
+        defer { r.close() }
+        r.window.makeFirstResponder(r.field)
+        let demo = try #require(r.controller.demo)
+        r.type("one line")
+        r.frame()
+        let before = demo.thumbPasses
+        r.type(" that stays one line")
+        #expect(demo.thumbPasses == before, "\(demo.thumbPasses - before) thumb passes for 20 keys that keep the field (want 0)")
+    }
+
     /// The median time of one key typed at the end of the field (the field's `insertText`, the
     /// layout and the commit a key's frame does), one key per character of `text`.
     private func medianKey(_ r: Rig, typing text: String) -> Duration {
