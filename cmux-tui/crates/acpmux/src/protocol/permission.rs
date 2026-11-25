@@ -91,6 +91,9 @@ pub struct PermissionRespondParams {
     /// Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Value>,
+    /// "Fork first" (`fork_risky.rs`): the copy the app made of this machine before a risky step, `{machine, fork, forkMs}`. Goes with an allow, from the person only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fork_checkpoint: Option<Value>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<RequestMeta>,
 }
