@@ -1,8 +1,10 @@
-//! A session's harness starts at normal CPU class and runs below the GUI's once its start is over
-//! (macOS, `cpu_class.rs`): background (`PRIO_DARWIN_BG`) unless its profile, the daemon's env or
-//! config asks for `normal`, or it is a Claude Code launcher, which defaults to `normal`. A start has a deadline, and at background class a busy disk held a
-//! harness past it (2026-10-30), so the daemon lowers the running harness only after its
-//! `session/new` answered; the tools its turns start inherit the class. A start that still misses
+//! A session's harness runs as a shell in a terminal does by default (macOS, `cpu_class.rs`): its
+//! starter's CPU priority and the default disk tier, and so do the tools its turns run. A session
+//! whose profile, the daemon's env or config asks for `background` (`PRIO_DARWIN_BG`) starts at
+//! normal class and runs below the GUI's once its start is over: a start has a deadline, and at
+//! background class a busy disk held a harness past it (2026-10-30), so the daemon lowers the
+//! running harness only after its `session/new` answered; the tools its turns start inherit the
+//! class. A start that still misses
 //! its deadline at background class runs once more, and a start that misses it names what its
 //! harness was doing.
 //!
@@ -45,6 +47,10 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude_auto.py");
 /// The scheduler's base priority of a darwinbg process (`MAXPRI_THROTTLE`).
 const BACKGROUND_PRI: u32 = 4;
+/// The base priority at the agent tier's nice (+11, `qos::AGENT_NICE`) or under a utility clamp.
+const AGENT_TIER_PRI: u32 = 20;
+/// `IOPOL_UTILITY`: an agent host's disk tier (`qos.rs`), which a harness must not keep.
+const IOPOL_UTILITY: i64 = 4;
 /// The in-process daemon's person key (`hub/person.rs`), as a daemon the app started holds one.
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
@@ -399,6 +405,9 @@ struct RealDaemon {
     child: Option<std::process::Child>,
     /// The class the daemon's env names; None leaves it to what the harness defaults to.
     class: Option<&'static str>,
+    /// The product's own `ACPMUX_QOS` (unset: agent hosts at the utility disk tier) instead of
+    /// this process's `background`.
+    product_qos: bool,
 }
 
 impl RealDaemon {
@@ -408,6 +417,15 @@ impl RealDaemon {
     }
 
     fn start_with(tag: &str, harness: &Value, class: Option<&'static str>) -> Self {
+        Self::start_full(tag, harness, class, false)
+    }
+
+    fn start_full(
+        tag: &str,
+        harness: &Value,
+        class: Option<&'static str>,
+        product_qos: bool,
+    ) -> Self {
         runs_above_background();
         let root = scratch(tag);
         for sub in ["home", "amx", "work"] {
@@ -419,7 +437,7 @@ impl RealDaemon {
             "permissionPolicy": "approve-all",
         });
         std::fs::write(root.join("amx").join("config.json"), config.to_string()).unwrap();
-        let mut daemon = Self { root, child: None, class };
+        let mut daemon = Self { root, child: None, class, product_qos };
         let mut child = daemon
             .cmd()
             .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
@@ -458,6 +476,9 @@ impl RealDaemon {
             Some(class) => cmd.env(acpmux::cpu_class::ENV, class),
             None => cmd.env_remove(acpmux::cpu_class::ENV),
         };
+        if self.product_qos {
+            cmd.env_remove(acpmux::qos::ENV);
+        }
         cmd
     }
 }
@@ -533,9 +554,44 @@ fn cpu_class_a_claude_launcher_stays_above_background_by_default() {
     assert!(priority > BACKGROUND_PRI, "the launcher runs at background class (pri {priority})");
 }
 
-/// Claude Code itself still runs below the GUI, with the tools its turns start.
+/// Claude Code itself and the tools its turns start run at a terminal's priority by default: at
+/// background class they waited on the disk whenever the Mac was busy (`cpu_class.rs`).
 #[test]
-fn cpu_class_claude_itself_runs_at_background_by_default() {
+fn cpu_class_claude_itself_runs_above_background_by_default() {
+    let own = base_priority(std::process::id() as i32);
     let priority = default_class_of_claude_harness_named("cl", "claude");
-    assert_eq!(priority, BACKGROUND_PRI, "Claude Code is not at background class");
+    assert!(priority > BACKGROUND_PRI, "Claude Code runs at background class (pri {priority})");
+    if own > AGENT_TIER_PRI {
+        assert!(priority > AGENT_TIER_PRI, "Claude Code was reniced (pri {priority}, own {own})");
+    }
+}
+
+/// Through the real daemon with nothing named anywhere and the product's own QoS (agent hosts at
+/// the utility disk tier): a hosted harness and the tool its turn starts run as a terminal's shell
+/// does, at its starter's CPU priority and the default disk tier, once its start is over too.
+#[test]
+fn cpu_class_a_hosted_harness_and_its_tools_run_as_in_a_terminal_by_default() {
+    let own = base_priority(std::process::id() as i32);
+    let dir = scratch("dt");
+    let harness = json!({"argv": ["python3", FAKE], "env": logged(&dir, &[])});
+    let daemon = RealDaemon::start_full("dt", &harness, None, true);
+    let out = dir.join("tool.json");
+    let probe = format!("class-probe: {}", out.display());
+    let ran = daemon.cmd().args(["run", "--timeout", "60", &probe]).output().expect("run acpmux");
+    assert!(ran.status.success(), "acpmux run failed: {}", String::from_utf8_lossy(&ran.stderr));
+    let report = read_json(&out);
+    let tool = report["sleeper"].as_i64().unwrap() as i32;
+    let tool_pri = class_priority(tool);
+    let running = class_priority(parent(tool));
+    kill(tool);
+    drop(daemon);
+    let disk = report["diskio"].as_i64().expect("the harness's disk I/O policy");
+    assert_ne!(disk, IOPOL_UTILITY, "the harness kept its agent host's utility disk tier");
+    assert!(running > BACKGROUND_PRI, "the started harness runs at background class");
+    assert!(tool_pri > BACKGROUND_PRI, "a tool its turn started runs at background class");
+    if own > AGENT_TIER_PRI {
+        assert!(running > AGENT_TIER_PRI, "the harness was reniced (pri {running}, own {own})");
+        assert!(tool_pri > AGENT_TIER_PRI, "its tool was reniced (pri {tool_pri}, own {own})");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
