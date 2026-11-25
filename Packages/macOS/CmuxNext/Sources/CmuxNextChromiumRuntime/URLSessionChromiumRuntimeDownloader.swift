@@ -1,5 +1,8 @@
 import CmuxEgress
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Downloads a pack with `URLSession`, appending to a partial file with a
 /// `Range` request when one exists.

@@ -33,6 +33,7 @@ stopped by exact pid.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import signal
 import hashlib
 import json
@@ -72,7 +73,53 @@ BENCH_CEF_SWITCHES = "disable-component-update"
 # --cef-trace: Chromium's startup trace as a ring buffer (the idle tail stays, the startup goes) of at most this size;
 # the JSON file is a few times that, in a temporary folder removed once read.
 CEF_TRACE_BUFFER_KB = 65536
-CEF_TRACE_CATEGORIES = "toplevel,toplevel.flow,ipc,mojom"
+# loading and blink.resource: each request's URL (a page that polls or streams at idle, 8571eee5's 2.7/s
+# RunReadCallback on the I/O thread).
+CEF_TRACE_CATEGORIES = "toplevel,toplevel.flow,ipc,mojom,loading,blink.resource"
+
+# Argument keys that name what an event serves: a mojo interface or method, a URL, a posting place.
+_NAMING_ARG = re.compile(r"(interface|method|tag|url|func|file|name)", re.I)
+
+
+def _flat_args(args, prefix: str = ""):
+    """`key=value` for each scalar of a trace event's arguments (nested keys joined by dots) whose key names what the
+    event serves (_NAMING_ARG)."""
+    if not isinstance(args, dict):
+        return
+    for key, value in args.items():
+        path = f"{prefix}{key}"
+        if isinstance(value, dict):
+            yield from _flat_args(value, path + ".")
+        elif isinstance(value, (str, int)) and not isinstance(value, bool) and _NAMING_ARG.search(key):
+            yield f"{path}={value}"
+
+
+def _urls(args) -> list:
+    """Every URL among an event's arguments, without its query or fragment."""
+    found = []
+    for pair in _flat_args(args):
+        key, _, value = pair.partition("=")
+        if key.lower().endswith("url") and "://" in value:
+            found.append(value.split("?", 1)[0].split("#", 1)[0])
+    return found
+
+
+BROWSER_THREADS = ("CrBrowserMain", "Chrome_IOThread")
+
+
+@contextlib.contextmanager
+def host_load(count: int):
+    """`count` busy-loop processes (children of this bench) while the block runs, each ended after it: a busy Mac,
+    where every timer wakes late, for a daemon's wakeups under load."""
+    loops = [subprocess.Popen([sys.executable, "-I", "-c", "while True: pass"], stdin=subprocess.DEVNULL,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for _ in range(count)]
+    try:
+        yield loops
+    finally:
+        for loop in loops:
+            loop.kill()
+        for loop in loops:
+            loop.wait()
 
 
 def cef_trace_switches(path: str, seconds: int) -> str:
@@ -123,7 +170,32 @@ def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40) -> dict:
     rows = [{"process": p, "thread": t, "posted_from": f, "count": n, "per_s": round(n / seconds, 2)}
             for (p, t, f), n in counts.items()]
     rows.sort(key=lambda r: (-r["count"], r["process"], r["thread"], r["posted_from"]))
-    return {"seconds": round(seconds, 1), "tasks": rows[:top]}
+    # The browser process's main and I/O threads (only it names them so: a renderer's is Chrome_ChildIOThread): every
+    # other event there by name, the mojom category's IPC messages among them, which RunTask rows do not name.
+    # Each with the arguments that name what it served (a mojo interface, a URL), busiest first.
+    named, named_args, urls = {}, {}, {}
+    for e in events:
+        if e.get("ph") not in ("X", "B", "i", "I", "n") or not start <= e.get("ts", -1) <= end:
+            continue
+        for url in _urls(e.get("args")):
+            ukey = (processes.get(e.get("pid"), str(e.get("pid"))), url)
+            urls[ukey] = urls.get(ukey, 0) + 1
+        thread = threads.get((e.get("pid"), e.get("tid")))
+        if thread not in BROWSER_THREADS or e.get("name") == "ThreadControllerImpl::RunTask":
+            continue
+        key = (thread, e.get("name", "?"))
+        named[key] = named.get(key, 0) + 1
+        per = named_args.setdefault(key, {})
+        for pair in _flat_args(e.get("args")):
+            per[pair] = per.get(pair, 0) + 1
+    event_rows = [{"thread": t, "name": n, "count": c, "per_s": round(c / seconds, 2),
+                   "args": [{"arg": a, "per_s": round(k / seconds, 2)}
+                            for a, k in sorted(named_args[(t, n)].items(), key=lambda i: (-i[1], i[0]))[:6]]}
+                  for (t, n), c in named.items()]
+    event_rows.sort(key=lambda r: (-r["count"], r["thread"], r["name"]))
+    url_rows = [{"process": p, "url": u, "count": c, "per_s": round(c / seconds, 2)} for (p, u), c in urls.items()]
+    url_rows.sort(key=lambda r: (-r["count"], r["process"], r["url"]))
+    return {"seconds": round(seconds, 1), "tasks": rows[:top], "events": event_rows[:top], "urls": url_rows[:top]}
 
 
 def _settled(path: str, wait_s: float = 3.0) -> bool:
@@ -561,8 +633,12 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             if u0 is None or u1 is None:
                 continue
             span = max(t1 - t0, 1e-3)
+            # Package-idle and interrupt wakeups apart (bench_memory.usage): on a busy Mac the first reads near 0.
+            idle = (u1[5] - u0[5]) if len(u0) > 5 and len(u1) > 5 else None
             per.append({"cpu_pct": round(100 * (u1[3] - u0[3]) / 1e9 / span, 3),
                         "wakeups_per_s": round((u1[4] - u0[4]) / span, 2),
+                        "idle_wakeups_per_s": round(idle / span, 2) if idle is not None else None,
+                        "interrupt_wakeups_per_s": round((u1[4] - u0[4] - idle) / span, 2) if idle is not None else None,
                         "switches_per_s": round((c1 - c0) / span, 2) if c0 is not None and c1 is not None else None})
         if not per:
             continue
@@ -572,6 +648,8 @@ def rows_of(procs: dict, spans: list) -> list[dict]:
             return values[len(values) // 2] if values else None
         rows.append({"pid": pid, "kind": kind, "command": cmd[:200], "windows": per,
                      "cpu_pct": mid("cpu_pct"), "wakeups_per_s": mid("wakeups_per_s"),
+                     "idle_wakeups_per_s": mid("idle_wakeups_per_s"),
+                     "interrupt_wakeups_per_s": mid("interrupt_wakeups_per_s"),
                      "switches_per_s": mid("switches_per_s")})
     rows.sort(key=lambda row: -(row["cpu_pct"] or 0))
     return rows
@@ -819,6 +897,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         help="Chromium's own startup trace for this many seconds (30-600; a ring buffer of "
                              f"{CEF_TRACE_BUFFER_KB >> 10} MiB in a temporary folder removed after): tasks per second for "
                              "each thread and the place that posted them, the first 30 s (startup) left out")
+    parser.add_argument("--host-load", type=int, default=0,
+                        help="busy-loop processes run through the measured windows (0-64): the daemons' wakeups on "
+                             "a busy Mac, where every timer wakes late")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     args.parser = parser
@@ -827,6 +908,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def check_args(args: argparse.Namespace) -> None:
     parser = args.parser
+    if not 0 <= args.host_load <= 64:
+        parser.error("--host-load must be 0 to 64 loops")
     if args.cef_trace != 0 and not 30 <= args.cef_trace <= 600:
         parser.error("--cef-trace must be 0 (off) or 30 to 600 seconds")
     if not 0 <= args.wake_trace <= 15:
@@ -928,8 +1011,11 @@ def main(argv: list[str] | None = None) -> int:
         renderer_threads: list = []
         wake_call = lambda: client.call("debug.wakeups", {"run_loop": True}, timeout=30)  # noqa: E731
         wakes_before = wake_call() if args.wake_trace else None
-        rows = measure(process.pid, bundle, args.windows, args.window,
-                       each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
+        with host_load(args.host_load) as loops:
+            if loops:
+                log(f"idle-cpu: {len(loops)} busy loops run through the windows (--host-load)")
+            rows = measure(process.pid, bundle, args.windows, args.window,
+                           each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
         result["processes"] = rows
         if args.wake_trace:
             import thread_wakes
@@ -947,7 +1033,13 @@ def main(argv: list[str] | None = None) -> int:
             while time.monotonic() < deadline and not (os.path.exists(target) and _settled(target)):
                 time.sleep(2)
             result["cef_trace"] = read_cef_trace(cef_trace_dir)
-            log("IDLE-CPU-CEF-TRACE " + json.dumps(result["cef_trace"])[:6000])
+            log("IDLE-CPU-CEF-TRACE " + json.dumps({k: v for k, v in result["cef_trace"].items()
+                                                    if k not in ("events", "urls")})[:6000])
+            # One line per event: its naming arguments make a row long, and a cut line hides the rest.
+            for row in result["cef_trace"].get("events", [])[:25]:
+                log("IDLE-CPU-CEF-EVENT " + json.dumps(row)[:1500])
+            for row in result["cef_trace"].get("urls", [])[:25]:
+                log("IDLE-CPU-CEF-URL " + json.dumps(row)[:600])
         result["app_threads"] = threads
         result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
@@ -965,6 +1057,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"{entry['name']!r}x{entry['threads']}={entry['cpu_ms_per_s']}" for entry in groups[:16]))
         for row in rows:
             log(f"IDLE-CPU {row['kind']} pid={row['pid']} cpu_pct={row['cpu_pct']} wakeups_per_s={row['wakeups_per_s']} "
+                f"idle_wakeups_per_s={row['idle_wakeups_per_s']} interrupt_wakeups_per_s={row['interrupt_wakeups_per_s']} "
                 f"switches_per_s={row['switches_per_s']} windows={json.dumps([[w['cpu_pct'], w['wakeups_per_s']] for w in row['windows']])}")
         kinds: dict = {}
         for row in rows:

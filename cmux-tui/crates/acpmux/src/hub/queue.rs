@@ -392,8 +392,9 @@ impl Hub {
                     }
                     // A rate limit's compaction goes ahead of what the hold queued: those go in
                     // after it, with the continuation (`rate_hold.rs`, `compact_first.rs`).
-                    let rate_compaction =
-                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
+                    let rate_compaction = p.after_turn
+                        && (super::auto_resume::rate_compaction_runs(session)
+                            || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
                     // A prompt that took the turn lock and has not shown its turn yet
                     // (`start_turn` runs after awaits) is a turn too. The count is read before
                     // the claim: a prompt counts in `queued` until it holds the claim.
@@ -495,30 +496,16 @@ impl Hub {
                     // too) may have come after this prompt's admission (review of #37284 at
                     // 4dcbe192, F3): it waits until the restore ends or lapses, as an admission
                     // does, and never runs into the seqs the restore needs.
-                    // It waits for the turn at most `TURN_LOCK_WAIT` under its admission: a lock
-                    // held with no turn shown (a recovered host turn awaiting its old host's
-                    // answer, a restore, a route) never keeps the prompt, and every one admitted
-                    // after it, unanswered. Past the bound it queues durably, is accepted as
-                    // queued and waits for its turn in `queue_turn` without the admission
-                    // (Leo, 2026-11-25: "A delivery always gets an answer within seconds").
-                    let deadline =
-                        tokio::time::Instant::now() + super::prompt_admission::TURN_LOCK_WAIT;
                     let guard = loop {
                         let done = session.restore_done.notified();
                         tokio::pin!(done);
                         done.as_mut().enable();
-                        let Ok(guard) =
-                            tokio::time::timeout_at(deadline, session.turn_lock.lock()).await
-                        else {
-                            break None;
-                        };
+                        let guard = session.turn_lock.lock().await;
                         if !self.restore_holds(session) || self.at_4dcb() {
-                            break Some(guard);
+                            break guard;
                         }
                         drop(guard);
-                        if tokio::time::timeout_at(deadline, done).await.is_err() {
-                            break None;
-                        }
+                        done.await;
                     };
                     // `waiting` was read before the lock: a prompt the owner approved (or a
                     // resumed one) since then waits in the queue ahead of this one and keeps its
@@ -526,12 +513,13 @@ impl Hub {
                     // turn.
                     // A chat the rate limit holds starts nothing now (`rate_hold.rs`): it queues;
                     // only its compaction goes ahead of what the hold queued.
-                    let rate_compaction =
-                        p.after_turn && super::auto_resume::rate_compaction_runs(session);
-                    let Some(guard) = guard.filter(|_| {
-                        !((queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
-                            || Self::rate_holds(session, p.provenance))
-                    }) else {
+                    let rate_compaction = p.after_turn
+                        && (super::auto_resume::rate_compaction_runs(session)
+                            || super::cold_wake::goes_ahead_of_batch(session, p.provenance));
+                    if (queue_waits_for(session, p.agent.is_some()) && !rate_compaction)
+                        || Self::rate_holds(session, p.provenance)
+                    {
+                        drop(guard);
                         // Its `queued` reservation is still counted.
                         let (waits, position) =
                             self.enqueue_or_refuse(session, &p, &turn_id, limits)?;
@@ -540,7 +528,7 @@ impl Hub {
                         );
                         self.persons_prompt_unparks(session, p.agent, p.provenance);
                         break 'run (waits, None);
-                    };
+                    }
                     ClaimedTurn::new(session, guard)
                 };
                 // Claimed before it leaves the count: a prompt that comes between sees one.
