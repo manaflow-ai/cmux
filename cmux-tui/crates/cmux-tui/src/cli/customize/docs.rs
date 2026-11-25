@@ -12,7 +12,7 @@
 //! `cmux ext dev --once --headless --json`. The tests below fail when a page is added
 //! without being listed here, or names a surface or a key this build does not have.
 
-use cmux_action_catalog::{CMD, CTRL, KEYBOARD, OPT, SHIFT, Shortcut};
+use cmux_action_catalog::{CMD, CONTEXT_MENU, CTRL, KEYBOARD, MENU, OPT, SHIFT, Shortcut};
 use cmux_customize::SURFACE_KEYS;
 use cmux_customize::schema::Schema;
 use serde_json::{Value, json};
@@ -76,12 +76,25 @@ const PROMPTS: &[(&str, &str)] = &[
 /// the file `gen-motion-scale.py` writes the pages' `--cmux-motion-*` tokens from.
 const MOTION_SCALE: &str = include_str!("../../../../../../schemas/motion-scale/motion-scale.json");
 
-/// Generated reference surfaces that are neither one recipe nor one brief line: every key
-/// binding action, and the motion settings beside the timings they scale.
+/// Generated reference surfaces that are neither one recipe nor one brief line: every public
+/// action, every key binding action, and the motion settings beside the timings they scale.
 const REFERENCES: &[(&str, &str)] = &[
+    (
+        "actions",
+        "Actions: every public action id, its title and where cmux offers it (no cmux needed)",
+    ),
     ("keybindings", "Key bindings: every action id a key can run, its title and default keys"),
     ("motion", "Animations: the ui.animations.* switches and cmux's default chrome timings"),
 ];
+
+/// A reference surface's summary, by name.
+fn reference_summary(name: &str) -> String {
+    REFERENCES
+        .iter()
+        .find(|(id, _)| *id == name)
+        .map(|(_, summary)| (*summary).to_owned())
+        .unwrap_or_default()
+}
 
 /// Where to look next from a settings surface: the extension surfaces that add to it.
 const SEE_ALSO: &[(&str, &[&str])] = &[
@@ -193,7 +206,31 @@ fn keybindings_surface() -> Surface {
         "# keybindings (reference)\n\nKey bindings live in `keybindings.json` in cmux's config folder (beside `cmux-next.json`), in the common editor \
 format; cmux reloads it on save. Each entry is `{ \"key\": KEYS, \"command\": ACTION_ID }`; a `-` before the id \
 removes that default. With cmux open, `cmux keybinding list --command ID` shows what is bound now and \
-`cmux keybinding resolve KEYS` what keys do.\n\n```json keybindings.json\n[\n  { \"key\": \"cmd+k cmd+p\", \"command\": \"palette.open\" },\n  { \"key\": \"cmd+shift+p\", \"command\": \"-palette.open\" }\n]\n```\n\n## Actions\n\n`id`: title (default keys)\n\n",
+`cmux keybinding resolve KEYS` what keys do.\n\n```json keybindings.json\n[\n  { \"key\": \"cmd+k cmd+p\", \"command\": \"palette.open\" },\n  { \"key\": \"cmd+shift+p\", \"command\": \"-palette.open\" },\n  { \"key\": \"cmd+enter\", \"command\": \"palette.open\", \"when\": \"!terminalFocused && !agentPaneFocused\" },\n  { \"key\": \"g g\", \"command\": \"palette.open\", \"when\": \"diffViewerFocused\" }\n]\n```\n\n\
+## Keys and chords\n\nOne stroke is modifiers joined by `+`, then one key: `cmd`, `shift`, `alt` (or `opt`), `ctrl`, then a \
+character, `f1` to `f20` or a named key (`left`, `enter`, `escape`, `space`, `pageup`, ...). A chord is two strokes \
+separated by a space (`cmd+k cmd+p`): press the first, release, press the second. A first stroke needs `cmd` or \
+`ctrl`, unless it is bare under a `when` that requires a page owning bare keys or a key mode (below).\n\n\
+## `when` clauses\n\nAn entry's optional `when` limits it to a context. The grammar: context keys, `!`, `&&`, `||`, \
+`==`, `!=`, `=~ /regex/`, `in`, `not in`, parentheses, `true`, `false`, and quoted or bare values. \
+An entry without `when` holds everywhere.\n\n",
+    );
+    text.push_str(&format!(
+        "- Focus keys (true while that field or pane has the keyboard): {}\n",
+        code_list(cmux_config::keybindings::bare::TEXT_KEYS)
+    ));
+    text.push_str(&format!(
+        "- Pages that own bare keys (a first stroke with no modifier binds only under one of these, as an `&&` term): {}\n",
+        code_list(cmux_config::keybindings::bare::OWNER_KEYS)
+    ));
+    text.push_str(&format!(
+        "- `{mode}`: the user key mode the person entered with `keyMode.enter` (`{mode} == 'resize'`, or `{mode}` for any mode); \
+it owns bare keys in any focus but a text field\n",
+        mode = cmux_config::keybindings::bare::MODE_KEY
+    ));
+    text.push_str(
+        "- An action's own context facts (the `requires` of `cmux customize docs actions`) also read as keys\n\n\
+## Actions\n\n`id`: title (default keys)\n\n",
     );
     for action in cmux_action_catalog::actions() {
         if action.is_debug_only || action.surfaces & KEYBOARD == 0 {
@@ -216,7 +253,78 @@ removes that default. With cmux open, `cmux keybinding list --command ID` shows 
         name: "keybindings".to_owned(),
         kind: "reference",
         interface: None,
-        summary: REFERENCES[0].1.to_owned(),
+        summary: reference_summary("keybindings"),
+        text,
+    }
+}
+
+/// Names as a comma-separated list of `code` spans.
+fn code_list(names: &[&str]) -> String {
+    names.iter().map(|name| format!("`{name}`")).collect::<Vec<_>>().join(", ")
+}
+
+/// Where the catalog offers an action, in words.
+fn offered_on(action: &cmux_action_catalog::Action) -> Vec<&'static str> {
+    let mut places = Vec::new();
+    if action.is_palette_visible() {
+        places.push("palette");
+    }
+    if action.surfaces & KEYBOARD != 0 {
+        places.push("keys");
+    }
+    if action.surfaces & MENU != 0 || action.main_menu.is_some() {
+        places.push("menu");
+    }
+    if action.surfaces & CONTEXT_MENU != 0 {
+        places.push("context menu");
+    }
+    if action.cli() {
+        places.push("cli");
+    }
+    places
+}
+
+/// `actions`: every public action in the catalog this build carries, grouped as declared, so an
+/// agent finds an id for a keybinding, a palette scope, a button or `action.run` without a
+/// running app (`cmux keybinding list` and `action.list` need one) and without reading source.
+fn actions_surface() -> Surface {
+    let mut text = String::from(
+        "# actions (reference)\n\nEvery public action id of this build, from its action catalog: the ids a \
+`keybindings.json` entry, a `cmux-next.json` button or palette entry, and an extension's `action.run` name. \
+Each line: `id`: title (where cmux offers it; the context facts it requires). With cmux open, \
+`cmux action run ID` runs one and `cmux keybinding list --command ID` shows its keys now.\n",
+    );
+    let mut group = "";
+    for action in cmux_action_catalog::actions() {
+        if action.is_debug_only {
+            continue;
+        }
+        if action.group != group {
+            group = action.group;
+            text.push_str(&format!("\n## {group}\n\n"));
+        }
+        text.push_str(&format!("- `{}`: {}", action.id, action.title.en));
+        let places = offered_on(action);
+        if !places.is_empty() || !action.requires.is_empty() {
+            text.push_str(&format!(" ({}", places.join(", ")));
+            if !action.requires.is_empty() {
+                if !places.is_empty() {
+                    text.push_str("; ");
+                }
+                text.push_str(&format!("requires {}", code_list(action.requires)));
+            }
+            text.push(')');
+        }
+        text.push('\n');
+    }
+    text.push_str(
+        "\nProve it: `cmux customize check` exits 0, so every id your config names is one of these.\n",
+    );
+    Surface {
+        name: "actions".to_owned(),
+        kind: "reference",
+        interface: None,
+        summary: reference_summary("actions"),
         text,
     }
 }
@@ -268,7 +376,7 @@ motion (`.animation`, `.contentTransition`, `.loop`) is in `cmux customize promp
         name: "motion".to_owned(),
         kind: "settings",
         interface: None,
-        summary: REFERENCES[1].1.to_owned(),
+        summary: reference_summary("motion"),
         text,
     }
 }
@@ -366,7 +474,7 @@ pub(super) fn surfaces(schema: &Schema) -> Vec<Surface> {
         .iter()
         .map(|(what, keys)| settings_surface(schema, what, keys))
         .chain(RECIPES.iter().map(|(name, page)| extension_surface(schema, name, page)))
-        .chain([keybindings_surface(), motion_surface(schema)])
+        .chain([actions_surface(), keybindings_surface(), motion_surface(schema)])
         .collect()
 }
 
@@ -413,8 +521,22 @@ or field, and a working example.\n\n",
     text.push_str(
         "\nCopy-paste prompts for common goals (a fresh agent pastes one and finishes): `cmux customize prompts`.\n",
     );
+    text.push_str(COMBINING_LOOKS);
     text
 }
+
+/// How several looks go together, and the install path that works with a pinned config file.
+/// Printed under the index and in `docs --json` (`notes`).
+pub(super) const COMBINING_LOOKS: &str = "\n\
+Combining looks: an app's manifest `implements` is keyed by interface, so one app implements each \
+interface once (one sidebar section, one pane, one New Tab page). To combine feature looks (say a \
+sidebar section from one and a New Tab page from another), make one app per look, each in its own \
+folder with its own `id`, and load each with `cmux ext dev DIR`; settings looks (`sidebar.look`, \
+`agentPane.display.transcriptLook`, `agentPane.composerLook`) combine freely, one key each. A second \
+view of the same interface goes inside the first one's render.\n\n\
+Pinned config: with `CMUX_NEXT_CONFIG_FILE` set, `cmux customize apply` does not write the generation \
+(it reports nothing to apply). Install a customization as a setup instead: \
+`cmux setup install ./DIR` (a folder with a `cmux-setup.json`) or `cmux setup install github.com/OWNER/REPO`.\n";
 
 pub(super) fn surface_json(surface: &Surface) -> Value {
     json!({
@@ -599,6 +721,16 @@ mod tests {
         let keys = super::super::parse(&["docs".to_owned(), "keybindings".to_owned()]).unwrap();
         let (text, _) = answer(&keys).unwrap();
         assert!(text.contains("`palette.open`") && text.contains("cmd+"), "{text}");
+        assert!(
+            text.contains("## `when` clauses") && text.contains("`diffViewerFocused`"),
+            "{text}"
+        );
+        let actions = super::super::parse(&["docs".to_owned(), "actions".to_owned()]).unwrap();
+        let (text, _) = answer(&actions).unwrap();
+        let public = cmux_action_catalog::actions().filter(|action| !action.is_debug_only);
+        for action in public {
+            assert!(text.contains(&format!("- `{}`: ", action.id)), "actions misses {}", action.id);
+        }
         let motion = super::super::parse(&["docs".to_owned(), "motion".to_owned()]).unwrap();
         let (text, _) = answer(&motion).unwrap();
         assert!(

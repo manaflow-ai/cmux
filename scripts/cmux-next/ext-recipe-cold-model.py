@@ -24,6 +24,12 @@ gets only the page's prompt, as a person would paste it, and finds the rest with
 process, so it needs no running cmux (the scheduled customize-prompts-cold-model workflow runs
 `--prompts --headless` on a Linux runner).
 
+Each row also records how the agent got there: `wallSeconds`, `docReads` (its `cmux customize
+docs|prompts` calls), `sourceReads` (a file read or search outside its folder: the docs did not say
+it), `guesses` (a tool call that came back an error, such as a denied tool, an unknown docs surface or
+a failed command, not counting `ext dev`) and `devRuns`. Every source read and every guess is a docs
+bug: `docsBugs` is their sum, and `--max-docs-bugs N` fails a page past N.
+
 Exit 0 when every page passes, 1 when one fails, 2 when a tool is missing.
 """
 
@@ -36,6 +42,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,10 +62,55 @@ tried five times. Do not install packages. Reply with one line: done, or what st
 """
 
 
-def run_model(prompt: str, folder: Path, model: str) -> tuple[int, str]:
+SEARCH = re.compile(r"\b(?:cat|grep|rg|find|head|tail|sed|less)\b")
+
+
+def trace(stream: str, folder: Path) -> tuple[dict, str]:
+    """What the agent did, from Claude Code's stream-json events, and its last words."""
+    calls: dict[str, tuple[str, dict]] = {}
+    counts = {"docReads": 0, "sourceReads": 0, "guesses": 0, "devRuns": 0}
+    said = ""
+    inside = str(folder.resolve())
+    for line in stream.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "result":
+            said = str(event.get("result") or "")
+        content = (event.get("message") or {}).get("content")
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "tool_use":
+                name, given = item.get("name", ""), item.get("input") or {}
+                calls[item.get("id", "")] = (name, given)
+                command = str(given.get("command", ""))
+                path = str(given.get("file_path") or given.get("path") or "")
+                if name == "Bash" and "cmux customize " in command:
+                    counts["docReads"] += 1
+                elif name == "Bash" and "cmux ext dev" in command:
+                    counts["devRuns"] += 1
+                elif name in ("Grep", "Glob") or (name == "Bash" and SEARCH.search(command)):
+                    counts["sourceReads"] += 1
+                elif name == "Read" and path and not str(Path(path).resolve()).startswith(inside):
+                    counts["sourceReads"] += 1
+            elif item.get("type") == "tool_result" and item.get("is_error"):
+                name, given = calls.get(item.get("tool_use_id", ""), ("", {}))
+                if not (name == "Bash" and "cmux ext dev" in str(given.get("command", ""))):
+                    counts["guesses"] += 1
+    counts["docsBugs"] = counts["sourceReads"] + counts["guesses"]
+    return counts, said
+
+
+def run_model(prompt: str, folder: Path, model: str) -> tuple[int, str, dict]:
+    started = time.monotonic()
     argv = [
         "claude", "-p", prompt,
         "--model", model,
+        "--output-format", "stream-json", "--verbose",
         "--allowedTools",
         "Read,Write,Edit,Bash(cmux ext dev:*),Bash(cmux customize docs:*),Bash(cmux customize prompts:*),"
         "Bash(mkdir:*),Bash(ls:*)",
@@ -66,9 +118,13 @@ def run_model(prompt: str, folder: Path, model: str) -> tuple[int, str]:
     ]
     try:
         done = subprocess.run(argv, cwd=folder, capture_output=True, text=True, timeout=TIMEOUT_S)
-    except subprocess.TimeoutExpired:
-        return 124, f"the model did not finish in {TIMEOUT_S} s"
-    return done.returncode, (done.stdout or done.stderr).strip()[-2000:]
+        code, stream, stderr = done.returncode, done.stdout or "", done.stderr or ""
+    except subprocess.TimeoutExpired as expired:
+        code, stream = 124, expired.stdout.decode() if isinstance(expired.stdout, bytes) else (expired.stdout or "")
+        stderr = f"the model did not finish in {TIMEOUT_S} s"
+    counts, said = trace(stream, folder)
+    counts["wallSeconds"] = round(time.monotonic() - started, 1)
+    return code, (said or stderr).strip()[-2000:], counts
 
 
 def check(folder: Path, shows: str | None, no_daemon_ok: bool, headless: bool) -> dict:
@@ -102,6 +158,8 @@ def main() -> int:
     parser.add_argument("--headless", action="store_true", help="check with ext dev --once --headless (no cmux)")
     parser.add_argument("--keep", action="store_true", help="keep each page's folder and print it")
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--max-docs-bugs", type=int, default=None,
+                        help="fail a page whose agent read source or guessed more than N times")
     args = parser.parse_args()
 
     for tool in ("claude", "cmux"):
@@ -131,9 +189,12 @@ def main() -> int:
             prompt = block.group(1) + "\nDo not install packages. End with one line: done, or what stopped you.\n"
         else:
             prompt = PROMPT.format(page=text)
-        model_exit, said = run_model(prompt, folder, args.model)
-        row = {"recipe": page.stem, "model": args.model, "modelExit": model_exit, "said": said}
+        model_exit, said, counts = run_model(prompt, folder, args.model)
+        row = {"recipe": page.stem, "model": args.model, "modelExit": model_exit, "said": said, **counts}
         row.update(check(folder, match.group(1) if match else None, args.no_daemon_ok, args.headless))
+        if row["passed"] and args.max_docs_bugs is not None and counts["docsBugs"] > args.max_docs_bugs:
+            row["passed"] = False
+            row["why"] = f"{counts['docsBugs']} source reads or guesses (at most {args.max_docs_bugs})"
         if args.keep:
             row["folder"] = str(folder)
         else:
@@ -141,6 +202,7 @@ def main() -> int:
         report.append(row)
         if not args.json:
             verdict = "pass" if row["passed"] else f"FAIL ({row['why']})"
+            verdict += f"  {counts['wallSeconds']} s, {counts['sourceReads']} source reads, {counts['guesses']} guesses"
             print(f"{page.stem}: {verdict}" + (f"  {folder}" if args.keep else ""))
             if not row["passed"]:
                 print(f"  errors: {row['errors']}\n  model: {said[-400:]}")

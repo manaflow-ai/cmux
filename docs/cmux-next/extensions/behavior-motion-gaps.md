@@ -40,8 +40,14 @@ the profiles lane goes here first, then into a PR.
 
 ## Gaps from the profiles lane
 
-None are recorded here yet. On 2026-11-25 goal-customize-app-profiles-a had been closed for 22 hours and had
-not written its gaps down. When the lane that adopts it finds one, it adds a row above.
+Found by the profile helpers on 2026-11-25 (ask-aad661801e). Docs-only gaps from the same pass were fixed in
+`cmux customize docs`, which now prints `actions` (every public action id, no cmux needed), `keybindings` (`when`
+clauses and chords) and, under its index, how to combine looks and how to install with a pinned config file.
+
+| Surface | Expressible today? | Missing piece |
+| --- | --- | --- |
+| "Next chat that needs you" (go to the next agent chat waiting on the person) | No: `jumpToUnread` goes to the latest unread notification, which may be a terminal bell, not a chat waiting for an answer | An action `agentChat.nextNeedingAttention` (keys, palette, cli) that walks the chats whose status is needs-attention, oldest first. The claude-code-app and codex-app profiles each want it on a key |
+| `cmux customize apply` with `CMUX_NEXT_CONFIG_FILE` pinned | No: it exits 0 and prints "nothing to apply", and nothing was applied | Exit non-zero with the reason (the pinned file is the config, so no generation is written), naming `cmux setup install ./DIR` as the path that works. Until then the docs index says so |
 
 ## Order
 

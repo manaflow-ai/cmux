@@ -114,7 +114,7 @@ your sidebar as it was. Empty (the default) draws no block. Together with `sideb
 `sidebar.look` draws the sidebar like another app's: `claude` (the Claude desktop app), `codex`
 (the Codex app), `studio` (a coding studio: threads under a heading per project, status in words and icons) or
 `cmux`, the default, which is today's sidebar. The transcript (`agentPane.display.transcriptLook`)
-and the composer (`agentPane.display.composerLook`) use the same four names, so one word sets the
+and the composer (`agentPane.composerLook`) use the same four names, so one word sets the
 whole window's look.
 
 ```sh
