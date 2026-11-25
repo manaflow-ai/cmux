@@ -69,6 +69,11 @@ impl Hub {
                                     .map(|tag| tag.value.clone())
                             })
                             .flatten(),
+                        former_names: crate::mesh::heartbeat_former_names(
+                            &m.former_names,
+                            &m.succeeds,
+                        ),
+                        roles: crate::mesh::heartbeat_roles(&m.roles),
                     };
                     (rank(m.status), m.updated_at, row)
                 })
