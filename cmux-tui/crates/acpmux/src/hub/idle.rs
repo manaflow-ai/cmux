@@ -6,7 +6,8 @@
 //! runs or waits, nothing is queued, no permission or question is pending, no
 //! start holds its spawn lock, no background command or subagent runs, and
 //! nothing was logged for `idle_child` (2 min, `IDLE_CHILD`;
-//! `ACPMUX_IDLE_CHILD_SECS`). A client attached to it, the open chat on screen
+//! `ACPMUX_IDLE_CHILD_SECS`; 30 s for background work while the sr2 model pool sheds,
+//! `pool_pressure.rs`). A client attached to it, the open chat on screen
 //! included, does not keep it awake: the chat stays where it is and only the
 //! agent goes. Its harness is then stopped through `detach_child`: the record
 //! and the agent session id stay, so the next prompt resumes it
@@ -321,8 +322,9 @@ impl Hub {
         futures::stream::iter(due)
             .for_each_concurrent(IDLE_EXITS_AT_ONCE, |session| {
                 let moving = self.host_moves(&session);
+                let pressed = !moving && self.pool_pressure_sleeps(&session);
                 let idle = period(&session);
-                self.idle_exit(session, idle, now, moving)
+                self.idle_exit(session, idle, now, moving, pressed)
             })
             .await;
     }
@@ -330,8 +332,16 @@ impl Hub {
     /// One due session of [`Self::stop_idle_children`]: its harness exits when it is still idle,
     /// nothing but its MCP servers runs under it, and nothing moved its deadline meanwhile.
     /// `moving`: its host is below this build's level and moves onto the installed one
-    /// (`host_level.rs`), after `idle`, its shorter period.
-    async fn idle_exit(&self, session: Arc<Session>, idle: u64, now: u64, moving: bool) {
+    /// (`host_level.rs`), after `idle`, its shorter period. `pressed`: it sleeps sooner while the
+    /// sr2 pool sheds (`pool_pressure.rs`), logged as cause `pool-pressure`.
+    async fn idle_exit(
+        &self,
+        session: Arc<Session>,
+        idle: u64,
+        now: u64,
+        moving: bool,
+        pressed: bool,
+    ) {
         if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > now {
             return;
         }
@@ -421,7 +431,9 @@ impl Hub {
         drop((turn, using, spawning));
         tracing::info!(
             session = %session.id,
-            cause = if !moving {
+            cause = if pressed {
+                "pool-pressure"
+            } else if !moving {
                 "idle"
             } else if quiet {
                 "restart-when-quiet"
