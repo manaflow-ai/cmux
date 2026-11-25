@@ -88,6 +88,17 @@ import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEn
 ///   seems to grow out of the first folded row down through the work;
 /// - `defer`: the old frame stays drawn until the reader scrolls, types or points (or the large step
 ///   four times over passes), then wipes: nothing changes under an eye that is reading.
+///
+/// The lift looks, rule 3 of hq RFD transcript-ordering (cmuxterm-hq#25873; Leo, 2026-11-25: "cuz the
+/// final ultra fold simply... takes it all away. we simply need to make sure it looks good while doing
+/// so. aka fast fades and comfy (maybe eased) and fast and snappy and satisfying transition
+/// animations"). The turn's final fold may lift its work across the person's steers into the one
+/// Worked for (`foldCrossesPerson` lets it play; the steers and the reply stay). No lead and no
+/// stagger: the folded rows fade out on an ease-out over the look's fade while every row that stays
+/// moves on one clock and one eased curve over the look's move, both from the first painted frame.
+/// - `lift-snappy`: a 120 ms fade, a 180 ms move;
+/// - `lift-mid`: a 140 ms fade, a 200 ms move;
+/// - `lift-comfy`: a 160 ms fade, a 220 ms move.
 export type TurnEndLook =
   | "fade"
   | "tuck"
@@ -108,7 +119,10 @@ export type TurnEndLook =
   | "snapshot"
   | "wipe"
   | "sprout"
-  | "defer";
+  | "defer"
+  | "lift-snappy"
+  | "lift-mid"
+  | "lift-comfy";
 export const TURN_END_LOOKS: readonly TurnEndLook[] = [
   "fade",
   "tuck",
@@ -130,7 +144,18 @@ export const TURN_END_LOOKS: readonly TurnEndLook[] = [
   "wipe",
   "sprout",
   "defer",
+  "lift-snappy",
+  "lift-mid",
+  "lift-comfy",
 ];
+/// Each lift look's fade (the folded rows' ink to 0, ease-out) and move (the kept rows, one curve), ms.
+export const LIFT_TIMINGS: Readonly<Record<string, { fadeMs: number; moveMs: number }>> = {
+  "lift-snappy": { fadeMs: 120, moveMs: 180 },
+  "lift-mid": { fadeMs: 140, moveMs: 200 },
+  "lift-comfy": { fadeMs: 160, moveMs: 220 },
+};
+/// The lift timing of `look`, when it is one of the lift looks.
+export const liftTiming = (look: TurnEndLook) => LIFT_TIMINGS[look];
 /// The looks that replace in place (`playReplace`) rather than slide.
 const REPLACE_LOOKS: ReadonlySet<TurnEndLook> = new Set(["snapshot", "wipe", "sprout", "defer"]);
 /// Set on a moved row's snapshot: the id of the row it pictures (the recorder pairs the two).
@@ -279,13 +304,16 @@ const isPersonMessage = (node: HTMLElement) =>
 /// fold and it folds up past my [...] steer ... the way i see that [...] passing over my [...]
 /// message is so dumb"). A fold plays only under the person's newest message drawn then. Read off
 /// the capture alone: no layout, O(rows drawn).
-export function foldCrossesPerson(capture: TurnEndCapture): boolean {
+/// `lifts` (the lift looks, rule 3): the fold may take rows from above the person's steers, so only
+/// taking one of their messages away counts: their messages never fold.
+export function foldCrossesPerson(capture: TurnEndCapture, lifts = false): boolean {
   let lowest = -Infinity;
   for (const row of capture.rows) {
     if (!row.person) continue;
     if (row.copy) return true;
     lowest = Math.max(lowest, row.top);
   }
+  if (lifts) return false;
   return capture.rows.some((row) => row.copy !== undefined && row.top < lowest);
 }
 const heightOf = (node: HTMLElement) => node.offsetHeight;
@@ -467,6 +495,8 @@ const ridesSheet = (look: TurnEndLook) => look === "sheet" || look === "water";
 
 /// The look's clock: `glide`, `spring`, `capped` and `water` play their own; the rest the house settle.
 function lookTiming(look: TurnEndLook, settled: { ms: number; easing: string }): { ms: number; easing: string } {
+  const lift = liftTiming(look);
+  if (lift) return { ms: lift.moveMs, easing: settled.easing };
   if (look === "glide") return GLIDE;
   if (look === "spring") return { ms: SPRING_MS, easing: SPRING_EASING };
   if (look === "capped") return { ms: settled.ms, easing: CAPPED_EASING };
@@ -1140,9 +1170,11 @@ export function playTurnEnd(
   // Out of the reader's view there is nothing to play: its caller has settled what the turn's end
   // settles (the fold before it, the follow motion, the tail glide) and the swap is already drawn.
   if (capture.silent || capture.sessionId !== sessionId || foldMs(thread) <= 0) return undefined;
-  // Never across a message the person sent: the swap stays as it rendered, in one frame.
-  if (foldCrossesPerson(capture)) return undefined;
   const look = turnEndLook(thread);
+  const lift = liftTiming(look);
+  // Never across a message the person sent: the swap stays as it rendered, in one frame. A lift look
+  // (rule 3) lifts the work across the person's steers, and only never takes one of them away.
+  if (foldCrossesPerson(capture, lift !== undefined)) return undefined;
   if (REPLACE_LOOKS.has(look)) return playReplace(thread, capture, look, scroller);
   const recapLook = turnEndRecap(thread);
   const subagentLook = turnEndSubagent(thread);
@@ -1170,13 +1202,14 @@ export function playTurnEnd(
   // away has no lead. Leo, 2026-11-21: "that text hiding as it travels so it doesnt show weird overlays
   // is the big one ... we must hide text faster and sooner".
   // `wait` holds the work in sight first; `crossfade` and `cascade` fade the copies on the move's clock.
-  const lead = !capture.rows.some((row) => row.copy)
-    ? 0
-    : look === "wait"
-      ? WAIT_HOLD_MS
-      : look === "crossfade" || look === "cascade" || ridesSheet(look)
-        ? 0
-        : exitLeadMs(ms, 1, thread);
+  const lead =
+    !capture.rows.some((row) => row.copy) || lift
+      ? 0
+      : look === "wait"
+        ? WAIT_HOLD_MS
+        : look === "crossfade" || look === "cascade" || ridesSheet(look)
+          ? 0
+          : exitLeadMs(ms, 1, thread);
   /// The first painted frame (the exit's clock), and when the move's clock starts.
   let startedAt: number | undefined;
   let movesAt: number | undefined;
@@ -1218,7 +1251,13 @@ export function playTurnEnd(
   /// clock started again (`starts` has its drawn ink) goes on from that ink over the exit left.
   // With no lead (the gallery's `none` arm, the look before) the copy fades on the move's own clock,
   // gone by 60% of it, as #41078 had it.
-  const exitMs = look === "crossfade" || look === "cascade" || ridesSheet(look) ? ms : lead > 0 ? lead : ms * 0.6; // motion-allow: the `none` arm's share of the settle
+  const exitMs = lift
+    ? lift.fadeMs
+    : look === "crossfade" || look === "cascade" || ridesSheet(look)
+      ? ms
+      : lead > 0
+        ? lead
+        : ms * 0.6; // motion-allow: the `none` arm's share of the settle
   /// `wait`: the copies keep their ink through the hold, and fade over the house exit lead at its end.
   /// `sheet` and `water`: the copies keep their ink over the move's first half, riding in under the line.
   const exitFrom =

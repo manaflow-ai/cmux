@@ -94,6 +94,23 @@ export const turnEndFoldLook = defineExperiment({
       label: "Defer, then wipe",
       description: `The old frame stays until you scroll, type or click (at most ${MOTION_MS.large * 4} ms), then wipes.`,
     },
+    // Rule 3 of hq RFD transcript-ordering (cmuxterm-hq#25873), Leo, 2026-11-25: "fast fades and comfy
+    // (maybe eased) and fast and snappy and satisfying transition animations". Default off.
+    "lift-snappy": {
+      label: "Lift, snappy",
+      description:
+        "The work fades out in 120 ms (ease-out) as the rows below rise as one in 180 ms; it may lift across your steers.",
+    },
+    "lift-mid": {
+      label: "Lift, mid",
+      description:
+        "The work fades out in 140 ms (ease-out) as the rows below rise as one in 200 ms; it may lift across your steers.",
+    },
+    "lift-comfy": {
+      label: "Lift, comfy",
+      description:
+        "The work fades out in 160 ms (ease-out) as the rows below rise as one in 220 ms; it may lift across your steers.",
+    },
   },
   defaultArm: "fade",
 });

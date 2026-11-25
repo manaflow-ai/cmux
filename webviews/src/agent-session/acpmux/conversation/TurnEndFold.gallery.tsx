@@ -20,6 +20,11 @@
 // `crossfade`, `morph`, `cascade`, `glide`, `spring`, `wait` and `dissolve` (turnEndFold.ts `TurnEndLook`),
 // each short and `-long`; the motion-path looks `sheet`, `capped`, `viscous`, `water`, `edge` and `anchored` the same way. The dev setting `turn-end-fold-look` picks one in the running pane;
 // scripts/fold-variants-record.ts records and measures each in the big Claude turn.
+// The `lift-*` arms are rule 3 of hq RFD transcript-ordering (cmuxterm-hq#25873; Leo, 2026-11-25: "cuz the
+// final ultra fold simply... takes it all away. we simply need to make sure it looks good while doing so.
+// aka fast fades and comfy (maybe eased) and fast and snappy and satisfying transition animations"): no
+// lead, no stagger, the work's fade and the rows' one move from the first frame, at 120/180, 140/200 and
+// 160/220 ms. `-steered` puts the person's steer mid-turn: it and the answer stay through the fold.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -96,7 +101,7 @@ const HISTORY: AcpmuxRow[] = Array.from({ length: 4 }, (_, index) => [
 ]).flat();
 
 /// The turn after `steps` of its calls, and whether it ended.
-function turnRows(steps: number, ended: boolean, long = false): AcpmuxRow[] {
+function turnRows(steps: number, ended: boolean, long = false, steered = false): AcpmuxRow[] {
   const rows: AcpmuxRow[] = [
     ...HISTORY,
     { id: "fold-user", kind: "user", version: 1, at: at(60), text: "Fix the flaky retry test" },
@@ -110,6 +115,15 @@ function turnRows(steps: number, ended: boolean, long = false): AcpmuxRow[] {
       at: at(61),
       items: first,
       toolCount: first.length,
+    });
+  if (steered && steps > FIRST.length)
+    rows.push({
+      id: "fold-steer",
+      kind: "user",
+      version: 1,
+      at: at(68),
+      text: "also check the backoff cap",
+      steer: "landed",
     });
   if (steps > FIRST.length)
     rows.push({
@@ -167,10 +181,12 @@ function TurnEndFoldGallery({
   variant,
   long = false,
   lead,
+  steered = false,
 }: {
   variant: Variant;
   long?: boolean;
   lead?: ExitLeadLook;
+  steered?: boolean;
 }) {
   const turnSteps = long ? STEPS + THIRD.length : STEPS;
   const [steps, setSteps] = useState(0);
@@ -180,12 +196,12 @@ function TurnEndFoldGallery({
   useEffect(() => () => timers.current.forEach((timer) => window.clearTimeout(timer)), []);
   const rows = useMemo(
     () =>
-      turnView(turnRows(steps, ended, long), new Set(), {
+      turnView(turnRows(steps, ended, long, steered), new Set(), {
         working: state === "running" && !ended,
         agentFamily: "claude",
         now: at(95),
       }),
-    [steps, ended, state, long],
+    [steps, ended, state, long, steered],
   );
   // gallery-capture: runs only from Run the turn, which each arm's play clicks and then waits for its end state.
   const start = () => {
@@ -246,7 +262,7 @@ const runLive: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ testId: "turn-end-state" }).textContent === `Step ${STEPS}`, { capMs: 4_000 });
 };
 
-export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLeadLook }>({
+export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLeadLook; steered?: boolean }>({
   id: "agent-pane.turn-end-fold",
   title: "Turn end fold",
   area: "Agent pane",
@@ -309,5 +325,14 @@ export default componentEntry<{ variant: Variant; long?: boolean; lead?: ExitLea
     "wipe-long": { props: { variant: "wipe", long: true }, play: runToFold },
     snapshot: { props: { variant: "snapshot" }, play: runToFold },
     "snapshot-long": { props: { variant: "snapshot", long: true }, play: runToFold },
+    "lift-snappy": { props: { variant: "lift-snappy" }, play: runToFold },
+    "lift-snappy-long": { props: { variant: "lift-snappy", long: true }, play: runToFold },
+    "lift-snappy-steered": { props: { variant: "lift-snappy", steered: true }, play: runToFold },
+    "lift-mid": { props: { variant: "lift-mid" }, play: runToFold },
+    "lift-mid-long": { props: { variant: "lift-mid", long: true }, play: runToFold },
+    "lift-mid-steered": { props: { variant: "lift-mid", steered: true }, play: runToFold },
+    "lift-comfy": { props: { variant: "lift-comfy" }, play: runToFold },
+    "lift-comfy-long": { props: { variant: "lift-comfy", long: true }, play: runToFold },
+    "lift-comfy-steered": { props: { variant: "lift-comfy", steered: true }, play: runToFold },
   },
 });
