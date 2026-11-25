@@ -253,11 +253,12 @@ process.once("SIGINT", () => void release().then(() => process.exit(130)));
 
 try {
   const out = fs.mkdtempSync(path.join(process.env.TMPDIR ?? os.tmpdir(), "chat-100k-flat-"));
-  releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+  if (!process.env.KEEP_BUILD) releases.push(() => fs.rmSync(out, { recursive: true, force: true }));
+  else console.log(`build kept: ${out}`);
   const { build } = await import("vite");
   await build({
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT },
+    build: { outDir: out, emptyOutDir: true, sourcemap: PAINT || !!PROFILE },
     logLevel: "error",
   });
   // The paint windows name the sites that ask for frames by their source (the build's maps; PAINT above).
