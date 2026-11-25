@@ -2233,6 +2233,18 @@
   background: var(--cv-codeblock-bg);
   box-shadow: inset 0 0 0 1px var(--cv-codeblock-ring);
 }
+/* An edit drawn inside a card of its own (EditDiff `flat`, the edited-files card): that card is the one
+   container, so the header and diff sit directly on its fill, edge to edge, with no second ring,
+   corner, fill or margin (#56442: "a container inside of container"). */
+.cv-edit-diff[data-flat] {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.cv-edit-diff[data-flat] > .cv-edit-diff__header {
+  border-bottom-color: var(--ds-surface-card-line);
+}
 .cv-edit-diff__header {
   display: flex;
   align-items: center;
