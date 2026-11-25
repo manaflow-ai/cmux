@@ -72,7 +72,6 @@ test/chat-under-glass.test.ts
 test/chief-usage-page.test.tsx
 test/chief-views-page.test.tsx
 test/classic-new-tab-composer.test.tsx
-test/cloud-environment-chip.test.tsx
 test/cloud-signin-card.test.tsx
 test/cmux-exec-rows.test.tsx
 test/cmux-link-chip-followups.test.tsx
