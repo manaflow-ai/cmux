@@ -78,7 +78,7 @@ def git(repo: str, *args: str) -> str:
 
 def show_many(repo: str, specs: list[str]) -> list[str]:
     """The text of each `<rev>:<path>` blob of SPECS, in order, from one `cat-file --batch` (a `git show` a lock cost
-    about 0.5 s on big-red's cmux mirror, 2026-11-21). Like `git show`, a spec that names no blob raises
+    about 0.5 s on a Linux workstation's cmux mirror, 2026-11-21). Like `git show`, a spec that names no blob raises
     CalledProcessError. The request goes through a file, never a pipe (git_batch.py: a big piped stdin can hang)."""
     if not specs:
         return []
