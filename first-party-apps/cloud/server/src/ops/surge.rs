@@ -10,7 +10,7 @@
 //! as two, and one surge's slots (created in one call) read as one.
 
 use crate::api::models::Machine;
-use cmux_cloud_wire::CloudMachineStatus;
+use cmux_cloud_wire::{CloudMachineOriginKind, CloudMachineStatus};
 use serde::Serialize;
 
 /// The most time between two machines of one burst, by `created_at`.
@@ -47,10 +47,9 @@ pub struct Surge {
 
 /// Whether `machine` is a surge slot.
 fn is_surge(machine: &Machine) -> bool {
-    let Some(origin) = machine.extra.origin.as_ref() else { return false };
-    let label = origin.get("label").and_then(|v| v.as_str());
-    let kind = origin.get("kind").and_then(|v| v.as_str());
-    label == Some(SURGE_LABEL) && kind.is_none_or(|k| k == "person")
+    let Some(origin) = machine.record.origin.as_ref() else { return false };
+    origin.label == SURGE_LABEL
+        && matches!(origin.kind, None | Some(CloudMachineOriginKind::Person))
 }
 
 /// The latest surge among `machines`, or `None` when none is listed.

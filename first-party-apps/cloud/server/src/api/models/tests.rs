@@ -117,7 +117,6 @@ fn the_extra_fields_never_shadow_a_catalog_field() {
         provider_operations: vec!["x".into()],
         disk_health: Some(json!({ "free_mb": 1 })),
         idle_pause: Some(json!({})),
-        origin: Some(json!({ "label": "Surge" })),
     })
     .expect("extra encodes");
     for key in extra.as_object().expect("extra").keys() {

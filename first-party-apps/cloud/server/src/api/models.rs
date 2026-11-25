@@ -68,12 +68,6 @@ pub struct MachineExtra {
         skip_serializing_if = "Option::is_none"
     )]
     pub idle_pause: Option<Value>,
-    /// Who started the machine, as its create said (cmux-platform
-    /// `MachineOrigin`: `{kind?, label, url?, ...}`); a surge slot is
-    /// `{kind: "person", label: "Surge"}`. Opaque here, like `disk_health`;
-    /// [`crate::ops::surge`] reads only its kind and label.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub origin: Option<Value>,
 }
 
 /// Classify a guest disk report before it reaches a web client. Capacity
