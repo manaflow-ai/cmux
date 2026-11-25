@@ -656,11 +656,14 @@ pub(super) async fn aliases(daemon: &Arc<Client>, targets: &[Target]) -> Vec<Vec
                 if tokio::time::Instant::now() >= deadline {
                     return (name, None, true);
                 }
-                let id =
-                    tokio::time::timeout_at(deadline, crate::cli::run::resolve_id(&daemon, &name))
-                        .await
-                        .ok()
-                        .and_then(Result::ok);
+                let id = tokio::time::timeout_at(
+                    deadline,
+                    crate::cli::resolve::control_route(&daemon, &name),
+                )
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .and_then(|(id, current)| current.then_some(id));
                 (name, id, false)
             }
             .boxed()
