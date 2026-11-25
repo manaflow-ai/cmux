@@ -71,7 +71,9 @@ async fn a_direct_redial_has_its_own_deadline_through_the_websocket_upgrade() {
             finished,
             "direct redial still waits on the 30-second deadline; upgrade={during_upgrade}"
         );
-        assert!(dial.await.unwrap().unwrap_err().contains("timed out"));
+        let error = dial.await.unwrap().unwrap_err();
+        assert!(error.text.contains("timed out"), "{error}");
+        assert_eq!(error.fail, Some(crate::protocol::peer_state::DialFail::Timeout));
         tokio::time::resume();
     }
 }
