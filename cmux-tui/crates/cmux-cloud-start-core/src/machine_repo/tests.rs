@@ -502,6 +502,187 @@ fn a_store_cmux_off_the_path_is_the_github_path() {
 }
 
 #[cfg(unix)]
+/// Where the platform edge's name resolves, the machine's git reaches github.com through the
+/// platform (cmux-platform GitHubEgress.ts), which adds the repository token: the step clones by
+/// the rewrite alone, with no helper, and the checkout keeps the rewrite (a URL) for push and pull.
+/// Here the edge is a folder of bare repositories at `edge/OWNER/REPO.git`.
+#[test]
+fn a_machine_behind_the_platform_edge_clones_through_it_with_no_helper() {
+    let Some(machine) = Machine::new(false) else { return };
+    machine.cmux("#!/bin/sh\nexit 2\n");
+    let edge = machine.0.join("edge");
+    let made = std::process::Command::new("git")
+        .arg("clone")
+        .arg("-q")
+        .arg("--bare")
+        .arg(machine.0.join("src"))
+        .arg(edge.join("o/r.git"))
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let base = format!("file://{}/", edge.display());
+    let step = Repo::new("o", "r")
+        .step()
+        .replace("getent hosts platform.cmux.internal", "true")
+        .replace("https://platform.cmux.internal/v1/cloud/git/github.com/", &base);
+    let inherited = std::env::var("PATH").unwrap_or_default();
+    let path = format!("{}:{inherited}", machine.0.join("bin").display());
+    let (code, record) = machine.run_step(&step, crate::machine_bootstrap::NO_SCRIPT, &path);
+    assert_eq!(code, 0, "{record}");
+    assert_eq!(
+        (record["status"].as_str(), record["credential"].as_str()),
+        (Some("cloned"), Some("edge"))
+    );
+    assert!(machine.checkout().join("lib/y.rs").is_file());
+    assert_eq!(machine.git(&["config", "remote.origin.url"]), "https://github.com/o/r.git");
+    assert_eq!(
+        machine.git(&["config", "--local", &format!("url.{base}.insteadOf")]),
+        "https://github.com/",
+        "the checkout keeps the rewrite"
+    );
+    assert_eq!(
+        machine.git(&["config", "--local", "--get-all", "credential.https://github.com.helper"]),
+        "",
+        "and no helper"
+    );
+    let fetched = std::process::Command::new("git")
+        .arg("-C")
+        .arg(machine.checkout())
+        .args(["fetch", "-q", "origin"])
+        .env("HOME", machine.0.join("home"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .status()
+        .unwrap();
+    assert!(fetched.success(), "the agent's own fetch goes through the edge too");
+}
+
+/// What a machine can get of a GitHub token after the step, on one harness for both paths: its `cmux` (with the agent
+/// socket, so the helper path is on offer either way) hands a fake installation token to anyone who
+/// asks `github credential get`. Counted: tokens the machine's own git gets (`git credential fill`, as a push asks),
+/// files under the machine's home and boot folders that hold the token, and the minting calls.
+#[cfg(unix)]
+fn github_token_on_the_machine(through_edge: bool) -> Option<(usize, usize, usize)> {
+    const TOKEN: &str = "ghs_cmuxEdgeProbe0000000000000000000000000";
+    let machine = Machine::new(false)?;
+    let calls = machine.0.join("mint-calls");
+    let mint = format!(
+        "#!/bin/sh\n[ \"$1 $2 $3\" = \"github credential get\" ] || exit 2\necho x >> '{}'\n\
+         printf 'username=x-access-token\\npassword={TOKEN}\\n'\n",
+        calls.display()
+    );
+    machine.cmux(&mint);
+    let socket = machine.0.join("agent.sock");
+    let _listener = std::os::unix::net::UnixListener::bind(&socket).ok()?;
+    let edge = machine.0.join("edge");
+    let mut step = Repo::new("o", "r")
+        .step()
+        .replace("/run/cmux-vm-agent/agent.sock", &socket.display().to_string());
+    if through_edge {
+        let made = std::process::Command::new("git")
+            .args(["clone", "-q", "--bare"])
+            .arg(machine.0.join("src"))
+            .arg(edge.join("o/r.git"))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        step = step.replace("getent hosts platform.cmux.internal", "true").replace(
+            "https://platform.cmux.internal/v1/cloud/git/github.com/",
+            &format!("file://{}/", edge.display()),
+        );
+    } else {
+        let url = format!("file://{}", machine.0.join("src").display());
+        step = step.replace("https://github.com/o/r.git", &url);
+    }
+    let path = format!("{}:/usr/bin:/bin", machine.0.join("bin").display());
+    let (code, record) = machine.run_step(&step, crate::machine_bootstrap::NO_SCRIPT, &path);
+    assert_eq!((code, record["status"].as_str()), (0, Some("cloned")), "{record}");
+    let want = if through_edge { "edge" } else { "cmux-github" };
+    assert_eq!(record["credential"].as_str(), Some(want), "{record}");
+
+    // A push's question, asked by the machine's git in the checkout, with the machine's own config only.
+    let mut fill = std::process::Command::new("git")
+        .arg("-C")
+        .arg(machine.checkout())
+        .args(["credential", "fill"])
+        .env("HOME", machine.0.join("home"))
+        .env("XDG_CONFIG_HOME", machine.0.join("home/.config"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("PATH", &path)
+        .env_remove("GIT_ASKPASS")
+        .env_remove("SSH_ASKPASS")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    use std::io::Write as _;
+    fill.stdin
+        .take()
+        .unwrap()
+        .write_all(b"protocol=https\nhost=github.com\npath=o/r.git\n\n")
+        .unwrap();
+    let answer = fill.wait_with_output().unwrap();
+    let from_git = String::from_utf8_lossy(&answer.stdout).matches(TOKEN).count();
+
+    fn files_holding(dir: &std::path::Path, needle: &[u8]) -> usize {
+        let Ok(entries) = std::fs::read_dir(dir) else { return 0 };
+        entries
+            .flatten()
+            .map(|entry| {
+                let path = entry.path();
+                match entry.file_type() {
+                    Ok(kind) if kind.is_dir() => files_holding(&path, needle),
+                    Ok(kind) if kind.is_file() => std::fs::read(&path)
+                        .map(|bytes| usize::from(bytes.windows(needle.len()).any(|w| w == needle)))
+                        .unwrap_or(0),
+                    _ => 0,
+                }
+            })
+            .sum()
+    }
+    let on_disk = ["home", "boot"]
+        .iter()
+        .map(|dir| files_holding(&machine.0.join(dir), TOKEN.as_bytes()))
+        .sum();
+    let minted = std::fs::read_to_string(&calls).map(|log| log.lines().count()).unwrap_or(0);
+    Some((from_git, on_disk, minted))
+}
+
+#[cfg(unix)]
+/// The stop condition of the egress pursuit: behind the edge the machine holds no way to a GitHub token. Today's
+/// helper path is measured on the same harness, so the numbers say what the edge removed: the machine's git got the
+/// token (1), behind the edge it gets none (0), and no file and no mint holds or makes one.
+#[test]
+fn behind_the_edge_no_github_token_reaches_the_machine() {
+    let Some((helper_git, helper_disk, helper_minted)) = github_token_on_the_machine(false) else {
+        return;
+    };
+    let Some((edge_git, edge_disk, edge_minted)) = github_token_on_the_machine(true) else {
+        return;
+    };
+    eprintln!(
+        "github token on the machine: git fill {helper_git} -> {edge_git}, files {helper_disk} -> {edge_disk}, \
+         mints {helper_minted} -> {edge_minted}"
+    );
+    assert_eq!(helper_git, 1, "the harness sees today's helper path reach the token");
+    assert_eq!(
+        (edge_git, edge_disk, edge_minted),
+        (0, 0, 0),
+        "behind the edge no token reaches the machine"
+    );
+}
+
+#[test]
+fn the_edge_path_is_offered_on_github_only_and_before_the_cmux_helper() {
+    let step = Repo::new("o", "r").step();
+    let edge = step.find(r#"if [ "$github" = 1 ] && getent hosts platform.cmux.internal"#).unwrap();
+    let helper = step.find(r#"creds="$creds cmux-github""#).unwrap();
+    assert!(edge < helper, "the edge is tried before a helper that mints in the machine");
+    assert!(step.contains(r#"if [ -n "$rewrite" ]; then set -- -c "$rewrite" "$@"; fi"#));
+}
+
+#[cfg(unix)]
 /// Review F2 (cmux#38099, e473b67ec61): a depth-1 clone tracks only the default branch, so once
 /// the history came in, a later start on another branch found no such branch.
 #[test]

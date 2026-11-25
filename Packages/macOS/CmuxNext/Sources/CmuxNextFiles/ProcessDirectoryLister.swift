@@ -1,9 +1,13 @@
+#if canImport(CCmuxFilesListerFFI)
+import CCmuxFilesListerFFI
+#endif
 public import Foundation
 import CmuxNextCompat
 
 /// Lists folders in a child process that speaks cmux-tui's `__files-lister` protocol
-/// (cmux-tui `files_lister.rs`): one JSON request per line on its stdin, one reply per line on its
-/// stdout.
+/// (cmux-tui `files_lister.rs`) through the app FFI's client (cmux-app-ffi `src/files_lister.rs`,
+/// module `CCmuxFilesListerFFI`), which starts the child, matches replies to requests and stops
+/// trying after repeated failures.
 ///
 /// A DEV build runs that child under its "cmux Files (dev)" helper (``FilesHost``), so macOS
 /// charges the Files pane's reads of Desktop, Documents and Downloads to the helper, which every
@@ -11,11 +15,8 @@ import CmuxNextCompat
 /// as it does for the terminals (docs/cmux-files-host.md, "The Files pane"). Shipped builds never
 /// start one (``forThisBuild()`` answers nil to every request without a ``FilesHost``).
 ///
-/// The child starts at the first request and serves until this app ends (its stdin closes). A
-/// child that fails to start, exits, or answers a line it did not understand makes that request
-/// return nil, and the caller reads in its own process as before; after
-/// ``maximumConsecutiveFailures`` failures without an answer in between it stops trying. Reads of
-/// the reply happen on Foundation's pipe queue, writes on the request feed's queue: nothing here
+/// The child starts at the first request and serves until this lister ends. A request the child
+/// cannot answer returns nil, and the caller reads in its own process as before. Nothing here
 /// blocks the caller's thread.
 public final class ProcessDirectoryLister: Sendable {
     /// One child's answer.
@@ -28,28 +29,9 @@ public final class ProcessDirectoryLister: Sendable {
         case unreadable(Int32)
     }
 
-    /// Failures in a row (no answer in between) after which every request reads in process.
-    static let maximumConsecutiveFailures = 3
-    /// The longest reply line read: a listing of a few hundred thousand items.
-    static let maximumReplyBytes = 256 << 20
-
-    private struct Pending {
-        var parent: URL
-        var continuation: CheckedContinuation<Reply?, Never>
-    }
-
-    private struct State {
-        var process: Process?
-        var feed: PipeFeed?
-        var nextID = 1
-        var pending: [Int: Pending] = [:]
-        var buffer = Data()
-        var failures = 0
-    }
-
     private let resolve: @Sendable () -> [String]?
     private let arguments = Mutex<[String]??>(nil)
-    private let state = Mutex(State())
+    private let client = Mutex<FilesListerClient??>(nil)
 
     /// - Parameter arguments: the child's argv; the first is the executable.
     public convenience init(arguments: [String]) {
@@ -98,78 +80,30 @@ public final class ProcessDirectoryLister: Sendable {
         }
     }
 
-    deinit {
-        let (feed, pending) = state.withLock { state in
-            defer { state.pending.removeAll() }
-            return (state.feed, state.pending.values.map(\.continuation))
-        }
-        feed?.close()
-        for continuation in pending { continuation.resume(returning: nil) }
-    }
-
-    // MARK: - Requests
-
     private func request(op: String, path: String, parent: URL) async throws -> Reply? {
+        guard let client = resolvedClient() else { return nil }
         let id = RequestID()
-        let reply = await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Reply?, Never>) in
-                let started = state.withLock { state -> (PipeFeed, Int)? in
-                    guard state.failures < Self.maximumConsecutiveFailures, let feed = start(&state) else { return nil }
-                    let next = state.nextID
-                    state.nextID += 1
-                    state.pending[next] = Pending(parent: parent, continuation: continuation)
-                    return (feed, next)
-                }
-                guard let (feed, next) = started else { return continuation.resume(returning: nil) }
-                id.value.withLock { $0 = next }
-                let line = (try? JSONSerialization.data(withJSONObject: ["id": next, "op": op, "path": path])) ?? Data()
-                feed.write(line + Data([0x0A]))
-                if Task.isCancelled { cancel(id.value.withLock { $0 }) }
+        let line = await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+                let sent = client.send(op: op, path: path, continuation)
+                id.value.withLock { $0 = sent }
+                if Task.isCancelled { client.cancel(sent) }
             }
         } onCancel: {
-            cancel(id.value.withLock { $0 })
+            client.cancel(id.value.withLock { $0 })
         }
         try Task.checkCancellation()
-        return reply
+        guard let line, let wire = try? JSONDecoder().decode(WireReply.self, from: line) else { return nil }
+        return wire.reply(in: parent)
     }
 
-    private func cancel(_ id: Int?) {
-        guard let id else { return }
-        let pending = state.withLock { $0.pending.removeValue(forKey: id) }
-        pending?.continuation.resume(returning: nil)
-    }
-
-    /// The running child's request feed, starting the child when there is none.
-    private func start(_ state: inout State) -> PipeFeed? {
-        if let feed = state.feed { return feed }
-        guard let argv = resolvedArguments(), let executable = argv.first else { return nil }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = Array(argv.dropFirst())
-        let input = Pipe(), output = Pipe()
-        process.standardInput = input
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        let feed = PipeFeed(input.fileHandleForWriting)
-        output.fileHandleForReading.readabilityHandler = { [weak self] handle in
-            switch handle.readReady() {
-            case .bytes(let data): self?.received(data)
-            case .retry: return
-            case .end: handle.readabilityHandler = nil
-            }
+    private func resolvedClient() -> FilesListerClient? {
+        client.withLock { cached in
+            if let cached { return cached }
+            let made = resolvedArguments().flatMap(FilesListerClient.init(arguments:))
+            cached = .some(made)
+            return made
         }
-        process.terminationHandler = { [weak self] finished in self?.ended(finished) }
-        do {
-            try process.run()
-        } catch {
-            output.fileHandleForReading.readabilityHandler = nil
-            feed.close()
-            state.failures += 1
-            return nil
-        }
-        state.process = process
-        state.feed = feed
-        return feed
     }
 
     private func resolvedArguments() -> [String]? {
@@ -180,86 +114,96 @@ public final class ProcessDirectoryLister: Sendable {
             return resolved
         }
     }
-
-    /// The child exited: every request it had not answered reads in process.
-    private func ended(_ process: Process) {
-        let (feed, pending) = state.withLock { state -> (PipeFeed?, [CheckedContinuation<Reply?, Never>]) in
-            guard state.process === process else { return (nil, []) }
-            let feed = state.feed
-            state.process = nil
-            state.feed = nil
-            state.buffer.removeAll()
-            if !state.pending.isEmpty { state.failures += 1 }
-            defer { state.pending.removeAll() }
-            return (feed, state.pending.values.map(\.continuation))
-        }
-        feed?.close()
-        for continuation in pending { continuation.resume(returning: nil) }
-    }
-
-    private func received(_ data: Data) {
-        let lines = state.withLock { state -> [Data] in
-            state.buffer.append(data)
-            var lines: [Data] = []
-            while let newline = state.buffer.firstIndex(of: 0x0A) {
-                lines.append(Data(state.buffer[state.buffer.startIndex..<newline]))
-                state.buffer.removeSubrange(state.buffer.startIndex...newline)
-            }
-            if state.buffer.count > Self.maximumReplyBytes { state.buffer.removeAll() }
-            return lines
-        }
-        for line in lines { answer(line) }
-    }
-
-    private func answer(_ line: Data) {
-        guard let wire = try? JSONDecoder().decode(WireReply.self, from: line), let id = wire.id else { return }
-        let pending = state.withLock { state -> Pending? in
-            guard let pending = state.pending.removeValue(forKey: id) else { return nil }
-            if wire.error == nil { state.failures = 0 } else { state.failures += 1 }
-            return pending
-        }
-        guard let pending else { return }
-        pending.continuation.resume(returning: wire.reply(in: pending.parent))
-    }
 }
 
 /// The id a request was sent with, for its cancel handler.
 private final class RequestID: Sendable {
-    let value = Mutex<Int?>(nil)
+    let value = Mutex<UInt64?>(nil)
 }
 
-/// One reply line of `__files-lister` (files_lister.rs).
+/// The app FFI's lister: freeing it answers every pending request with nil and ends the child.
+private final class FilesListerClient: Sendable {
+    #if canImport(CCmuxFilesListerFFI)
+    /// The handle's address: its calls are thread-safe (src/files_lister.rs); freed once, in deinit.
+    private let address: UInt
+    private var handle: OpaquePointer? { OpaquePointer(bitPattern: address) }
+
+    init?(arguments: [String]) {
+        let strings = arguments.map { strdup($0) }
+        defer { strings.forEach { free($0) } }
+        let pointers = strings.map { UnsafePointer($0) }
+        guard let handle = pointers.withUnsafeBufferPointer({ cmux_files_lister_new($0.baseAddress, $0.count) })
+        else { return nil }
+        address = UInt(bitPattern: handle)
+    }
+
+    deinit { cmux_files_lister_free(handle) }
+
+    /// Sends one request: its id, or nil (and `continuation` already resumed with nil) when refused.
+    func send(op: String, path: String, _ continuation: CheckedContinuation<Data?, Never>) -> UInt64? {
+        let context = Unmanaged.passRetained(ReplySlot(continuation)).toOpaque()
+        let id = op.withCString { op in
+            path.withCString { path in
+                // The one callback: the reply line, or none (read in process).
+                cmux_files_lister_request(handle, op, path, { context, bytes, count in
+                    guard let context else { return }
+                    let slot = Unmanaged<ReplySlot>.fromOpaque(context).takeRetainedValue()
+                    slot.continuation.resume(returning: bytes.map { Data(bytes: $0, count: count) })
+                }, context)
+            }
+        }
+        guard id != 0 else {
+            Unmanaged<ReplySlot>.fromOpaque(context).release()
+            continuation.resume(returning: nil)
+            return nil
+        }
+        return id
+    }
+
+    func cancel(_ id: UInt64?) {
+        guard let id else { return }
+        _ = cmux_files_lister_cancel(handle, id)
+    }
+    #else
+    init?(arguments: [String]) { nil }
+    func send(op: String, path: String, _ continuation: CheckedContinuation<Data?, Never>) -> UInt64? {
+        continuation.resume(returning: nil)
+        return nil
+    }
+    func cancel(_ id: UInt64?) {}
+    #endif
+}
+
+#if canImport(CCmuxFilesListerFFI)
+/// One request's continuation, handed to the FFI and resumed by its one callback.
+private final class ReplySlot {
+    let continuation: CheckedContinuation<Data?, Never>
+    init(_ continuation: CheckedContinuation<Data?, Never>) { self.continuation = continuation }
+}
+#endif
+
+/// One reply line of `__files-lister` (files_lister.rs) the FFI passed on: never an `error` one.
 private struct WireReply: Decodable {
-    var id: Int?
     var entries: [WireEntry]?
     var entry: WireEntry?
     var hasEntry: Bool
     var errno: Int32?
-    var error: String?
 
-    enum CodingKeys: String, CodingKey { case id, entries, entry, errno, error }
+    enum CodingKeys: String, CodingKey { case entries, entry, errno }
 
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try? container.decodeIfPresent(Int.self, forKey: .id)
         entries = try container.decodeIfPresent([WireEntry].self, forKey: .entries)
         hasEntry = container.contains(.entry)
         entry = try container.decodeIfPresent(WireEntry.self, forKey: .entry)
         errno = try container.decodeIfPresent(Int32.self, forKey: .errno)
-        error = try container.decodeIfPresent(String.self, forKey: .error)
     }
 
     func reply(in parent: URL) -> ProcessDirectoryLister.Reply? {
-        if error != nil { return nil }
         if let errno { return .unreadable(errno) }
-        if let entries {
-            var packages: [String: Bool] = [:]
-            return .entries(entries.map { $0.fileEntry(in: parent, packages: &packages) })
-        }
-        if hasEntry {
-            var packages: [String: Bool] = [:]
-            return .entry(entry?.fileEntry(in: parent, packages: &packages))
-        }
+        var packages: [String: Bool] = [:]
+        if let entries { return .entries(entries.map { $0.fileEntry(in: parent, packages: &packages) }) }
+        if hasEntry { return .entry(entry?.fileEntry(in: parent, packages: &packages)) }
         return nil
     }
 }

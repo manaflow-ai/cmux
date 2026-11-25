@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 7u
+#define CMUX_RD_FFI_ABI_VERSION 9u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -105,6 +105,7 @@ typedef struct CmuxRdStats {
     uint64_t frames_lost;
     uint32_t acked_frame;
     bool need_recovery;
+    uint64_t frames_skipped; /* frames a newer keyframe replaced on the ready queue (ABI 9) */
 } CmuxRdStats;
 
 /* One viewer input event. Fields the kind does not use are ignored. */
@@ -125,8 +126,11 @@ typedef struct CmuxRdInputEvent {
 
 uint32_t cmux_rd_ffi_abi_version(void);
 
-/* Returns NULL for an unknown carrier. deadline_us: how long a frame may wait
-   for missing shards; nack_after_us: how long before its gaps are NACKed. */
+/* Returns NULL for an unknown carrier. deadline_us: the longest a frame may
+   wait for missing shards (each is NACKed and retried every RTT + 10 ms, at most 50 ms,
+   and the frame waits two RTT + 10 ms windows after the request, the RTT measured by the
+   receiver; deadline_us caps that wait);
+   nack_after_us: how long before its gaps are NACKed. */
 CmuxRdReceiver *cmux_rd_receiver_new(uint32_t carrier, uint64_t deadline_us, uint64_t nack_after_us);
 void cmux_rd_receiver_free(CmuxRdReceiver *receiver);
 
@@ -218,10 +222,30 @@ int32_t cmux_rd_session_request_keyframe(CmuxRdSession *session, uint16_t stream
 int32_t cmux_rd_session_feedback(CmuxRdSession *session, uint64_t now_us, uint8_t *out, size_t cap, size_t *out_len);
 uint64_t cmux_rd_session_next_deadline_us(const CmuxRdSession *session);
 int32_t cmux_rd_session_stats(const CmuxRdSession *session, uint16_t stream, CmuxRdStats *out);
+/* ABI 8. 1 when the host went silent for 1.5 s (as of the last tick or push)
+   while it sends heartbeats (cursor positions, clock pongs: at least one a
+   second from a live host, even on a still screen): the network dropped and
+   the picture is frozen. 0 otherwise, including a host that sends no
+   heartbeats (an idle screen sends nothing else). The next bytes received
+   clear it. next_deadline_us includes the stall time, so the caller's one
+   timer wakes for it. */
+int32_t cmux_rd_session_stalled(const CmuxRdSession *session);
 /* Starts session clock probes (rd change C8). Call only when welcome lists
    the "clock" cap: an older host refuses the probe kinds. Pings then leave
    through cmux_rd_session_feedback; pongs are consumed, not queued. */
 int32_t cmux_rd_session_enable_clock(CmuxRdSession *session);
+/* Stage ledger (cmux.rd-stage-ledger/1). Frame `frame` of `stream` finished
+   decoding at decoded_at_us (the clock passed to push_*) after decode_us; also
+   feeds the feedback median like cmux_rd_session_note_decode. */
+int32_t cmux_rd_session_note_frame_decoded(CmuxRdSession *session, uint16_t stream, uint32_t frame,
+                                           uint32_t decode_us, uint64_t decoded_at_us);
+/* Frame `frame` of `stream` reached the glass at presented_at_us (the clock
+   passed to push_*; the drawable's presented time). */
+int32_t cmux_rd_session_note_frame_presented(CmuxRdSession *session, uint16_t stream, uint32_t frame,
+                                             uint64_t presented_at_us);
+/* Writes the stage ledger so far as one UTF-8 JSON object. CMUX_RD_ERR_BUFFER
+   when cap is too small; *out_len then holds the size needed. */
+int32_t cmux_rd_session_stage_ledger(CmuxRdSession *session, uint8_t *out, size_t cap, size_t *out_len);
 /* The offset of the host's clock from this viewer's (host = viewer +
    *offset_us) and the round trip of the best sample: 1 when an estimate
    exists, 0 before the first answer. */

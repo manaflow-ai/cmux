@@ -218,7 +218,7 @@ extension DaemonStore {
             snapshotMemo.untracked = true
         case .connected, .disconnected, .daemonShutdown, .screenDeviceChanged, .treeChanged, .personalChanged, .sessionState, .scrollChanged, .bell,
              .frontendProjectionChanged, .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged,
-             .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged,
+             .agentSessionShareChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged,
              .cloudConversations, .terminalClipboardRead, .terminalClipboardReadCancelled, .client, .unknown:
             // No confirmed tree record changes (a resync, a connection change, side state).
             break

@@ -403,7 +403,7 @@ struct CheckpointsScreen: View {
         .navigationTitle("Checkpoints")
         .navigationBarTitleDisplayMode(.inline)
         .cmuxMobileToast($toast)
-        .sensoryFeedback(.success, trigger: restoredTrigger)
+        .cmuxMobileSensoryFeedback(.success, trigger: restoredTrigger)
         .confirmationDialog("Restore this checkpoint?", isPresented: Binding(get: { confirming != nil }, set: { if !$0 { confirming = nil } }),
                             titleVisibility: .visible, presenting: confirming) { checkpoint in
             Button("Restore Files", role: .destructive) { restore(checkpoint) }
@@ -569,28 +569,11 @@ struct HandoffScreen: View {
     }
 }
 
-/// A round agent mark: the harness glyph on a raised circle (as Feed avatars).
+/// A round agent mark, as the Feed's avatars (`AgentAvatarMark`): the agent's own mark on its tinted circle.
 struct AgentGlyph: View {
     let harness: String
 
-    var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 14, weight: .medium))
-            .frame(width: 32, height: 32)
-            .background(Color.cmuxMobileSurfaceRaised, in: .circle)
-            .accessibilityHidden(true)
-    }
-
-    private var symbol: String {
-        switch harness {
-        case "claude": "asterisk"
-        case "codex": "chevron.left.forwardslash.chevron.right"
-        case "cursor": "cursorarrow.rays"
-        case "gemini": "sparkles"
-        case "opencode": "curlybraces"
-        default: "sparkle"
-        }
-    }
+    var body: some View { AgentAvatar(harness: harness, side: 32) }
 }
 
 /// Review of one continuation: what it carries, the capsule text, the checkpoint attestation.
@@ -644,7 +627,7 @@ struct HandoffReviewScreen: View {
         .chatDemoReceiver(store: store, surface: surface)
         .navigationTitle("Review continuation")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.success, trigger: receipt)
+        .cmuxMobileSensoryFeedback(.success, trigger: receipt)
         .task { await prepare() }
         .onChange(of: surface.demoHandoffFill) { _, value in
             guard let value else { return }
@@ -782,7 +765,7 @@ struct SessionArtifactsSheet: View {
     let surface: AgentChatSurface
 
     var body: some View {
-        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+        let collected = store.artifacts
         ArtifactsBrowser(
             title: "Files and Artifacts",
             artifacts: collected.artifacts,

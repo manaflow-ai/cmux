@@ -40,7 +40,7 @@ public final class TabStripView: NSView {
 
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
-    /// The + button's tooltip ("New Tab (hold for more)"); nil: none.
+    /// The + button's tooltip ("New Tab"); nil: none.
     public var newTabToolTip: String? {
         get { newTabButton.themedToolTip }
         set { newTabButton.themedToolTip = newValue }
@@ -54,7 +54,6 @@ public final class TabStripView: NSView {
     public var opensNewTabMenuOnPress = false {
         didSet {
             newTabButton.showsChevron = opensNewTabMenuOnPress
-            newTabButton.themedToolTip = opensNewTabMenuOnPress ? Strings.axNewTab : Strings.newTabHoldHint
             applyTokens(animated: false)
         }
     }
@@ -87,6 +86,8 @@ public final class TabStripView: NSView {
         }
     }
     var windowControlsInset: CGFloat = 0
+    /// ``naturalWidth`` as the last layout told the strip's superview (``noteNaturalWidth()``).
+    var reportedNaturalWidth: CGFloat = -1
     /// The tabs' top the last layout applied (``computeTabTop()``); a move in the window that changes it lays out again.
     var appliedTabTop: CGFloat?
     /// Called after the strip's pane moved in the window (``updateWindowControlsAvoidance()``): the pane's toolbar

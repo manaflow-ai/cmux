@@ -19,12 +19,16 @@ public nonisolated struct ActionTargetChoices: Sendable, Hashable {
         return kind
     }
 
+#if canImport(AppKit)
     /// The argument a choices submenu picks, its values and the checked one:
     /// an enumeration or suggested string first, else a listed target kind.
     @MainActor
     static func resolve(_ descriptor: ActionDescriptor, target: ActionTargetRef?,
                         in registry: ActionRegistry) -> (ActionArgument, [ActionEnumCase], String?)? {
-        if let (argument, cases) = descriptor.arguments.lazy.compactMap(ActionRegistry.menuChoices).first {
+        let live = { (argument: ActionArgument) -> (ActionArgument, [ActionEnumCase])? in
+            argument.suggestions.flatMap { registry.menuChoices?($0.source) }.map { (argument, $0) }
+        }
+        if let (argument, cases) = descriptor.arguments.lazy.compactMap({ live($0) ?? ActionRegistry.menuChoices($0) }).first {
             let own = registry.action(for: descriptor.id)?.choiceState
             return (argument, cases, own.map { $0(target) } ?? registry.choiceState?(descriptor.id, target))
         }
@@ -33,4 +37,5 @@ public nonisolated struct ActionTargetChoices: Sendable, Hashable {
               let listed = registry.targetChoices?(descriptor.id, kind, target) else { return nil }
         return (argument, listed.cases, listed.current)
     }
+#endif
 }

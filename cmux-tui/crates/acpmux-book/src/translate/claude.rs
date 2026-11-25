@@ -211,6 +211,12 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                         }
                         "image" => {
                             let mut row = state.row(RowKind::Image, out)?;
+                            // Its size from its header, on the row, so the page reserves the
+                            // image's box before it reads the body (out of line past 16 KB).
+                            if let Some((w, h)) = block.source.and_then(image_size) {
+                                row.fields.insert("w".into(), w.to_string());
+                                row.fields.insert("h".into(), h.to_string());
+                            }
                             out.row(&row);
                             if let Some(raw) = block.source {
                                 out.body(row.id, BodyField::Source, false, raw);
@@ -230,6 +236,18 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
         _ => {}
     }
     Ok(())
+}
+
+/// An image block's `source` (`{"type":"base64","media_type":..,"data":..}`) sized by its
+/// header, decoding a bounded start of `data` alone. `None` for a URL source or an unread header.
+fn image_size(source: &RawValue) -> Option<(u32, u32)> {
+    #[derive(Deserialize)]
+    struct Source<'a> {
+        #[serde(borrow)]
+        data: Cow<'a, str>,
+    }
+    let source: Source<'_> = serde_json::from_str(source.get()).ok()?;
+    crate::image_dims::base64_image_dims(&source.data)
 }
 
 /// Read the identity used to reconcile a followed prompt with a durable act. This deliberately
