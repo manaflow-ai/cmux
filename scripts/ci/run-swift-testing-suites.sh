@@ -38,7 +38,11 @@ if repo_root="$(git -C "$package_path" rev-parse --show-toplevel 2>/dev/null)"; 
 fi
 # Keep process-global test state inside one suite. Some packages otherwise
 # finish every assertion but leave the aggregate Swift Testing runner waiting.
-swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
+# package-test-lane.sh exports SWIFT_BACKTRACE=enable=yes for crash stacks.
+# Listing runs no test, and on a runner where the process is privileged
+# (issetugid) the runtime prints "swift runtime: backtrace-on-crash is not
+# supported for privileged executables." into the listing. Keep it out.
+SWIFT_BACKTRACE=enable=no swift test list --package-path "$package_path" > "$evidence_dir/discovered-tests.txt"
 python3 "$script_dir/require_swift_test_execution.py" \
   --list-filters "$evidence_dir/discovered-tests.txt" > "$evidence_dir/filters.txt"
 

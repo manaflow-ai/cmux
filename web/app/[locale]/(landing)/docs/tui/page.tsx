@@ -123,6 +123,21 @@ export default async function TuiDocsPage() {
 cmux attach --session agents`}</CodeBlock>
       <p>{t("sessionsBody")}</p>
 
+      <DocsHeading level={2} id="server">
+        {t("serverTitle")}
+      </DocsHeading>
+      <p>{t("serverIntro")}</p>
+      <CodeBlock lang="bash">{`cmux server install
+cmux server status
+cmux server logs --follow
+cmux server uninstall`}</CodeBlock>
+      <p>{t("serverSsh")}</p>
+      <CodeBlock lang="bash">{`cmux server install ssh://alice@build.example.com
+cmux server uninstall ssh://alice@build.example.com`}</CodeBlock>
+      <p>{t("serverOptions")}</p>
+      <CodeBlock lang="bash">{`curl -fsSL https://cmux.com/tui/install.sh | sh -s -- --server`}</CodeBlock>
+      <Callout>{t("serverNote")}</Callout>
+
       <DocsHeading level={2} id="remote">
         {t("remoteTitle")}
       </DocsHeading>

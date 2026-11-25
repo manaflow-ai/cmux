@@ -380,6 +380,7 @@
     "typingCodingAgents": "kodlama ajanları",
     "typingMultitasking": "çoklu görev",
     "subtitle": "Ghostty üzerine kurulu ücretsiz ve açık kaynaklı yerel macOS terminali. Dikey sekmeler, ajanlar ilgi gerektirdiğinde bildirim halkaları, bölünmüş paneller ve programlanabilirlik için bir <cliLink>CLI</cliLink>.",
+    "nextCallout": "Yeni: Bir sonraki cmux'un önizlemesi olan <link>cmux NEXT</link>'i deneyin.",
     "features": "Özellikler",
     "faq": "SSS",
     "communitySection": "Topluluk",
@@ -5773,5 +5774,13 @@
     "unavailableTitle": "Oturum açmanız doğrulanamadı",
     "unavailableBody": "Oturum açma sağlayıcımız yoğun. Birkaç saniye bekleyin, ardından daveti yeniden açın. Yeniden oturum açmanız gerekmez.",
     "retry": "Tekrar dene"
+  },
+  "analyticsConsent": {
+    "label": "Analiz",
+    "message": "Sitenin nasıl kullanıldığını görmek için analiz kullanabilir miyiz? İzin vermediğiniz sürece hiçbir şey toplanmaz ve analiz çerezi ayarlanmaz.",
+    "privacy": "Gizlilik politikası",
+    "accept": "İzin ver",
+    "decline": "Hayır, teşekkürler",
+    "settings": "Analiz ayarları"
   }
 }

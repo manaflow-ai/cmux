@@ -386,7 +386,11 @@ class Fuzzer:
 
     def new_session(self, workdir: Path) -> tuple[AppSession, Context]:
         session = AppSession(self.app, tag=self.tag, workdir=workdir)
-        session.launch()
+        try:
+            session.launch()
+        except BaseException:
+            session.close()
+            raise
         return session, Context(session, self.cua, workdir)
 
     def fuzz(self, minutes: float, *, steps_per_session: int = 400, max_findings: int = 5,
@@ -461,7 +465,7 @@ class Fuzzer:
                 result = run_steps(ctx, steps, checker=checker, shots=ring, deadline=deadline, on_step=on_step)
             finally:
                 self._evidence(session, workdir, result)
-                session.stop()
+                session.close()
         (workdir / "disabled-oracles.json").write_text(json.dumps(sorted(checker.disabled)))
         return result
 
@@ -493,7 +497,7 @@ class Fuzzer:
             result = run_steps(ctx, steps, checker=checker)
             return result.failure is not None and want.same_bug(result.failure.signature)
         finally:
-            session.stop()
+            session.close()
 
     def _capture(self, workdir: Path, session_seed: int, planned: list[dict], result: SessionResult,
                  minimize_minutes: float) -> dict:
@@ -568,12 +572,12 @@ class Fuzzer:
                 [{"i": r.index, "step": r.step, "outcome": r.outcome, "note": r.note} for r in result.steps], indent=1))
             return result.failure is not None and want.same_bug(result.failure.signature)
         finally:
-            session.stop()
+            session.close()
 
     def _cleanup(self) -> None:
         session = getattr(self, "_session", None)
         if session is not None:
-            session.stop()
+            session.close()
 
 
 def replay(app: Path, repro: dict, out: Path, *, use_pointer: bool = True, tag: str = "fuzz") -> SessionResult:
@@ -588,7 +592,7 @@ def replay(app: Path, repro: dict, out: Path, *, use_pointer: bool = True, tag: 
         return result
     finally:
         fz._evidence(session, out, result)
-        session.stop()
+        session.close()
 
 
 def env_flag(name: str) -> bool:

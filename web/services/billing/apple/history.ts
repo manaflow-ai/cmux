@@ -8,6 +8,7 @@
 
 import { appleNotificationHistorySources, type AppleNotificationHistorySource } from "./config";
 import { errorText } from "./effects";
+import { isProductionLocked, withProductionAccess } from "./productionAccess";
 import { AppleHistoryPaginationError } from "./serverApi";
 import { receiveAppleNotification, type AppleIapDependencies, type AppleNotificationOutcome } from "./service";
 import type { AppleNotificationHistoryCursor } from "./store";
@@ -53,6 +54,12 @@ export type AppleHistorySourceResult = AppleNotificationHistorySource & {
   readonly notifications: AppleHistoryCounts;
   /** The window was read to its end and the cursor moved past it. */
   readonly complete: boolean;
+  /**
+   * Production refused the key until the app's first App Store release
+   * (productionAccess.ts): nothing was read, the cursor did not move, and it
+   * is not a failure.
+   */
+  readonly locked: boolean;
   readonly error: string | null;
 };
 
@@ -179,8 +186,10 @@ async function backfillSource(
   const now = deps.now();
   const counts = emptyCounts();
   let pages = 0;
-  const result = (complete: boolean, error: string | null): AppleHistorySourceResult =>
-    ({ ...source, pages, notifications: counts, complete, error });
+  const result = (complete: boolean, error: string | null, locked = false): AppleHistorySourceResult =>
+    ({ ...source, pages, notifications: counts, complete, locked, error });
+  const production = source.environment === "Production" ? deps.productionAccess ?? null : null;
+  if (production?.isLocked(source.bundleId)) return result(false, null, true);
   const cursor = await deps.store.notificationHistoryCursor(source.bundleId, source.environment);
   let window = historyWindow(cursor, now);
   // What is persisted; a retryable stop keeps it and only counts the run.
@@ -195,6 +204,7 @@ async function backfillSource(
   try {
     while (pages < pagesPerSource && Date.now() < deadlineMs) {
       const page = await serverApi.notificationHistory({ ...source, ...window });
+      production?.markOk(source.bundleId);
       pages += 1;
       // Only the page the stall counter was earned on (the run's first page).
       await ingestPage(page.signedPayloads, source, counts, deps, skipRetryable && pages === 1);
@@ -211,6 +221,8 @@ async function backfillSource(
     }
     return result(false, null);
   } catch (error) {
+    // Locked until release: skip this history quietly and keep its cursor.
+    if (await isProductionLocked(production, error, source.bundleId)) return result(false, null, true);
     return await backfillFailure(error, source, saved, window, deps, () => result(false, errorText(error)), () => result(false, null));
   }
 }
@@ -255,10 +267,11 @@ async function backfillFailure(
  * fully ingested (ledger rows written), so a failed run re-reads that page.
  */
 export async function backfillAppleNotifications(
-  deps: AppleIapDependencies,
+  dependencies: AppleIapDependencies,
   options: AppleHistoryOptions = {},
 ): Promise<AppleHistoryResult> {
-  if (!deps.serverApi) return { configured: false, sources: [], failures: 0 };
+  if (!dependencies.serverApi) return { configured: false, sources: [], failures: 0 };
+  const deps = withProductionAccess(dependencies);
   const sources: AppleHistorySourceResult[] = [];
   const pagesPerSource = options.pagesPerSource ?? PAGES_PER_SOURCE;
   const deadlineMs = options.deadlineMs ?? Number.POSITIVE_INFINITY;
