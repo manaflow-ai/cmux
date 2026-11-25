@@ -272,6 +272,9 @@ pub async fn connect_local(
         relay_only: false,
         force_relay: false,
         block_udp: false,
+        // A Mac on this network: no corporate-network simulation (it is a test of the paths this one skips).
+        proxy_only: false,
+        drop_wireguard: false,
         video_lane: true,
         webrtc_media: false,
         ultra: cmux_mobile_link::UltraSetting::parse("auto"),
