@@ -586,3 +586,19 @@ fn a_plain_transcript_keeps_no_records() {
     paged.apply_event(&user(1, "x"));
     assert_eq!(paged.raw_events.len(), 1);
 }
+
+#[test]
+fn available_commands_keep_what_each_does() {
+    // The terminal's / rows say what a command does, as the GUI's do (cmux#50541).
+    let mut t = Transcript::default();
+    t.apply_session_update(
+        &json!({"sessionUpdate": "available_commands_update", "availableCommands": [
+            {"name": "compact", "description": " Summarize the chat "},
+            {"name": "review", "description": ""},
+            {"name": "init"},
+        ]}),
+    );
+    assert_eq!(t.available_commands, ["compact", "review", "init"]);
+    assert_eq!(t.command_descriptions.len(), 1);
+    assert_eq!(t.command_descriptions["compact"], "Summarize the chat");
+}
