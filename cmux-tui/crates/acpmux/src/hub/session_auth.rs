@@ -807,6 +807,36 @@ fn target_home(
 mod tests {
     use super::*;
 
+    #[tokio::test]
+    async fn antigravity_chat_accepts_its_gemini_login_and_invalidates_old_failure() {
+        let home = tempfile::tempdir().unwrap();
+        let cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"antigravity": {"argv": ["agy", "acp"],
+                "env": {"GEMINI_CLI_HOME": home.path()}}},
+            "store": {"mode": "memory"}
+        }))
+        .unwrap();
+        let store = crate::store::open(&cfg.store, home.path()).unwrap();
+        let hub = Hub::new(cfg, store);
+        let meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "agy-login", "name": "agy-login",
+            "harness": "antigravity", "cwd": home.path(), "status": "idle",
+            "createdAt": 1, "updatedAt": 1,
+            "lastTurn": {"turnId": "failed-turn", "status": "failed", "endedAt": 2,
+                "errorKind": "auth.signed_out", "errorText": "Authentication required"}
+        }))
+        .unwrap();
+        hub.install_stored_session(meta, false, false, true);
+        let session = hub.resolve("agy-login").unwrap();
+        let (profile, route) = hub.login_profile(&session, "gemini").await.unwrap();
+        let store = home.path().join(".gemini");
+        assert_eq!(account_home("gemini", &profile.env), Some(store.clone()));
+        assert!(hub.login_profile(&session, "codex").await.is_err());
+        hub.login_changed("gemini", &store, route.as_deref()).await.unwrap();
+        assert!(session.meta().auth_change.is_some());
+        assert_eq!(session_evidence(&session.meta()).unwrap().state, State::Unknown);
+    }
+
     fn turn(status: &str, kind: Option<&str>, text: &str, at: u64) -> Value {
         json!({"status": status, "errorKind": kind, "errorText": text, "endedAt": at})
     }
