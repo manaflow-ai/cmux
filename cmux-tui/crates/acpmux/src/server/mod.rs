@@ -2283,8 +2283,9 @@ async fn serve_connection_from(
                                 "retryable": true,
                             }));
                         // In the lane of its method's answer: a busy refusal of a cheap read (the
-                        // pane's liveness probe) proves the daemon alive only if it arrives.
-                        let reply_to = outbound::is_cheap_read(&m).then_some(m.as_str());
+                        // pane's liveness probe) proves the daemon alive only if it arrives, and
+                        // a tool call's refusal is its answer.
+                        let reply_to = outbound::reads_ahead(&m).then_some(m.as_str());
                         conn.send_replying(&Message::err(id, error), reply_to);
                         continue;
                     }
@@ -3041,6 +3042,7 @@ mod media_forward;
 mod mesh_control_send;
 pub mod mesh_relay;
 pub(super) mod mesh_send;
+mod send_check;
 mod stream_cursor;
 #[cfg(test)]
 #[path = "stream_cursor_tests.rs"]
