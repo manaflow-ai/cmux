@@ -97,21 +97,19 @@ pub(super) struct MentionParams {
     limit: Option<u32>,
 }
 
-fn string(entry: &Value, key: &str) -> Option<String> {
+pub(super) fn string(entry: &Value, key: &str) -> Option<String> {
     entry.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
 /// The options of `interface` for every app that contributes, with the
 /// app's id and name, in app id order.
-fn places<'a>(inner: &'a Inner, interface: &str) -> Vec<(&'a str, String, &'a Value)> {
-    if inner.safe_mode.is_some() {
-        return Vec::new();
-    }
+pub(super) fn places<'a>(inner: &'a Inner, interface: &str) -> Vec<(&'a str, String, &'a Value)> {
     inner
         .mirror
         .apps
         .iter()
         .filter(|(_, record)| record.installed && record.enabled && !record.hidden)
+        .filter(|(app, _)| !super::safe_mode_bisect::held_off(inner, app))
         .filter_map(|(app, _)| {
             let manifest = &inner.catalog.packages.get(app)?.manifest;
             let options = manifest.get("implements")?.get(interface)?.get("options")?;

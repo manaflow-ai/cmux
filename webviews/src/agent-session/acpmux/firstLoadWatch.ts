@@ -84,7 +84,7 @@ export function firstLoadFields(frames: FrameRecord[], painted?: number): FirstL
 /// One frame of `doc` as firstLoadFrames.ts reads it.
 export function readFrame(doc: Document, now: number): FrameRecord {
   const drawn = doc.querySelector<HTMLElement>(SNAPSHOT_HOST_TAG);
-  const host = drawn && drawn.style.visibility !== "hidden" ? drawn : null;
+  const host = drawn && drawn.style.visibility !== "hidden" && drawn.style.opacity !== "0" ? drawn : null;
   const scope: ParentNode = host?.shadowRoot ?? doc;
   const rootHidden = !host && doc.getElementById("root")?.style.opacity === "0";
   const scroller = scope.querySelector<HTMLElement>(".acpmux-scroll");

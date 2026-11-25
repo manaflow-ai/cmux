@@ -5,6 +5,7 @@ import { isImageOriginal } from "./userBubbleModel";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { readsAsText } from "./inlinePromptContentModel";
+import { sentVideosOf, withoutRepeatedVideos } from "./sentVideos";
 import type { AttachmentView } from "../composerSettings";
 
 /// The paths of the originals a prompt's images kept (an image the composer converted sends its
@@ -65,6 +66,33 @@ export function bubbleLayout(
   const parts = recorded.filter((part) => !isImageOriginal(part, originals));
   const inline = inlineBubbleParts(parts);
   if (!inline) return undefined;
-  if (view === "strip") return { parts: parts.filter((part) => !isStripMedia(part)), band: parts.filter(isStripMedia) };
-  return { parts: inline, band: parts.filter(isStripMedia).filter((part) => !inline.includes(part)) };
+  // A video attached twice is one tile (sentVideos.ts `withoutRepeatedVideos`).
+  const sentVideos = sentVideosOf(row);
+  if (view === "strip")
+    return {
+      parts: withoutRepeatedVideos(
+        parts.filter((part) => !isStripMedia(part)),
+        sentVideos,
+      ),
+      band: withoutRepeatedVideos(parts.filter(isStripMedia), sentVideos),
+    };
+  return {
+    parts: withoutRepeatedVideos(inline, sentVideos),
+    band: withoutRepeatedVideos(
+      parts.filter(isStripMedia).filter((part) => !inline.includes(part)),
+      sentVideos,
+    ),
+  };
+}
+
+/// The attachments an attachment-only prompt draws in its strip (UserBubble.tsx `stripMedia`), in
+/// their order: its recorded parts less its videos' frames and its images' retained originals. The
+/// row's estimate (model.ts) measures each at its own sent size.
+export function stripAttachments(
+  row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "retryAttachments">,
+): Exclude<PromptContentPart, { kind: "text" }>[] {
+  const originals = imageOriginals(row);
+  return (withoutVideoFrames(row).inlineParts ?? [])
+    .filter((part) => !isImageOriginal(part, originals))
+    .filter(isStripMedia);
 }

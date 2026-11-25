@@ -187,6 +187,9 @@
         "$ref": "#/$defs/interfaceName"
       },
       "properties": {
+        "cmux.chat.action/1": {
+          "$ref": "#/$defs/dataImplementation"
+        },
         "cmux.composer.chip/1": {
           "$ref": "#/$defs/dataImplementation"
         },

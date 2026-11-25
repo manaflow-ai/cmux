@@ -72,8 +72,9 @@
     try { window.webkit.messageHandlers.cmuxMobile.postMessage({ type: 'height', height: h }); } catch (e) {}
   }
   // Renders and returns the laid-out height synchronously (used for measuring too).
-  window.cmuxMobileRender = function (markdown, compact) {
+  window.cmuxMobileRender = function (markdown, compact, selectable) {
     document.body.className = compact ? 'compact' : '';
+    document.body.classList.toggle('selectable', !!selectable);
     content.innerHTML = markdown ? marked.parse(markdown) : '';
     fitMath();
     markScrollers();

@@ -7,9 +7,9 @@ import {
   type AppContribution,
   type AppDeploy,
   type AppDetail,
+  type AppGitSource,
   type AppInstance,
   type AppIconRef,
-  type AppShelf,
   type AppSource,
   type AppTier,
   type AppVersion,
@@ -19,6 +19,7 @@ import {
   type InstalledApp,
   type ScopeRequest,
   type UpdatesListResult,
+  type AppShelf,
 } from "./types";
 
 export interface WireInstallState {
@@ -34,7 +35,16 @@ export interface WireInstallState {
 
 export type WireIcon = { asset: string } | { symbol: string } | null;
 
-export interface WireListing {
+/** Where an app installed from git came from; every field absent for any other app. */
+export interface WireGitSource {
+  repository?: string;
+  path?: string;
+  ref?: string;
+  commit?: string;
+  tag?: string;
+}
+
+export interface WireListing extends WireGitSource {
   app: string;
   name: string;
   summary: string;
@@ -47,6 +57,8 @@ export interface WireListing {
   categories: string[];
   keywords?: string[];
   hide_only: boolean;
+  /** `cmux.newtab/1`: the app draws on the New Tab page; absent from an older owner. */
+  new_tab?: boolean;
   /** Absent from an owner older than shelves. */
   shelf?: AppShelf;
   install: WireInstallState | null;
@@ -72,11 +84,12 @@ export interface WireCatalogPage {
   examples?: boolean;
 }
 
-export interface WireInstalledApp {
+export interface WireInstalledApp extends WireGitSource {
   app: string;
   name: string;
   tier: AppTier;
   hide_only: boolean;
+  new_tab?: boolean;
   state: WireInstallState;
   grants: unknown[];
   /** The deployed instance; null or absent for an app with none. */
@@ -126,9 +139,21 @@ export function fromListing(listing: WireListing): CatalogApp {
     enabled: listing.install?.enabled,
     hidden: listing.install?.hidden,
     hide_only: listing.hide_only,
+    ...gitSourceFrom(listing),
+    new_tab: listing.new_tab === true,
     shelf: listing.shelf ?? "store",
     failed: typeof listing.install?.failure === "string" && listing.install.failure.trim() !== "",
   };
+}
+
+/** The git source fields that are non-empty strings; none for an app that did not come from git. */
+function gitSourceFrom(row: WireGitSource): AppGitSource {
+  const source: AppGitSource = {};
+  for (const key of ["repository", "path", "commit", "tag"] as const) {
+    const value = row[key];
+    if (typeof value === "string" && value !== "") source[key] = value;
+  }
+  return source;
 }
 
 /** A non-blank string, trimmed; anything else (null, absent, a number) is undefined. */
@@ -196,9 +221,11 @@ export function fromInstalled(row: WireInstalledApp): InstalledApp {
     source: row.state.source,
     tier: row.tier,
     hide_only: row.hide_only,
+    new_tab: row.new_tab === true,
     update: row.state.update ?? undefined,
     failure: row.state.failure ?? undefined,
     instance: instanceFrom(row.instance),
+    ...gitSourceFrom(row),
   };
 }
 

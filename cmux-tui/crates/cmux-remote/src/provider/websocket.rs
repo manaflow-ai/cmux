@@ -6,7 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use axum::extract::ws::{Message as AxumMessage, WebSocket};
 use bytes::Bytes;
-use cmux_tui_core::net_keepalive::WebSocketKeepalive;
+use cmux_terminal_host_protocol::net_keepalive::WebSocketKeepalive;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};

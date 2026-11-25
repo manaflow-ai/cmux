@@ -276,6 +276,137 @@ fn the_three_requests_are_exact() {
     assert!(trigger_body(&p, "vm_fork").get("installation").is_none());
 }
 
+#[test]
+fn match_sets_conditions_the_platform_takes() {
+    let p = plan(&with(&[
+        "--match",
+        "branch=main,release",
+        "--match",
+        "workflow^=ci",
+        "--match=actor!=dependabot",
+        "--match",
+        "labels~=agent",
+        "--match",
+        "pull_request>=100",
+        "--match",
+        "draft=false",
+        "--match",
+        "!draft",
+        "--match",
+        "base?",
+        "--match",
+        "actor!=a,b",
+    ]))
+    .unwrap_or_else(|_| panic!("refused"));
+    assert_eq!(
+        p.conditions,
+        vec![
+            json!({"path": "branch", "op": "in", "value": ["main", "release"]}),
+            json!({"path": "workflow", "op": "prefix", "value": "ci"}),
+            json!({"path": "actor", "op": "not_equals", "value": "dependabot"}),
+            json!({"path": "labels", "op": "contains", "value": "agent"}),
+            json!({"path": "pull_request", "op": "gte", "value": 100}),
+            json!({"path": "draft", "op": "equals", "value": "false"}),
+            json!({"path": "draft", "op": "missing"}),
+            json!({"path": "base", "op": "exists"}),
+            json!({"path": "actor", "op": "not_in", "value": ["a", "b"]}),
+        ]
+    );
+    let body = trigger_body(&p, "vm_fork");
+    assert_eq!(body["conditions"], Value::Array(p.conditions.clone()));
+    // No --match sends no conditions: the trigger starts on every event, as before.
+    assert!(trigger_body(&base_plan(), "vm_fork").get("conditions").is_none());
+}
+
+#[test]
+fn a_webhook_source_takes_its_own_events_and_body_paths() {
+    let p = plan(&with(&[
+        "--source",
+        "webhook",
+        "--events",
+        "deploy.failed,alert",
+        "--match",
+        "level=error,critical",
+        "--match",
+        "data.service^=api",
+        "--match",
+        "alerts.0.count>=3",
+        "--match",
+        "!data.muted",
+    ]))
+    .unwrap_or_else(|_| panic!("refused"));
+    assert_eq!(p.source, "webhook");
+    assert_eq!(p.events, vec!["deploy.failed", "alert"]);
+    assert_eq!(
+        p.conditions,
+        vec![
+            json!({"path": "level", "op": "in", "value": ["error", "critical"]}),
+            json!({"path": "data.service", "op": "prefix", "value": "api"}),
+            json!({"path": "alerts.0.count", "op": "gte", "value": 3}),
+            json!({"path": "data.muted", "op": "missing"}),
+        ]
+    );
+    let body = trigger_body(&p, "vm_fork");
+    assert_eq!(body["source"], "webhook");
+    assert_eq!(body["events"], json!(["deploy.failed", "alert"]));
+    // GitHub stays the default, and its body names no source, exactly as before.
+    assert!(trigger_body(&base_plan(), "vm_fork").get("source").is_none());
+    let v = created(&p, "https://api.example.test", &registered());
+    assert_eq!(
+        v["url"],
+        "https://api.example.test/v1/triggers/0b6c1a52-5f0e-4c1e-9d55-6f2f3e1a9b70/webhook"
+    );
+    assert_eq!(v["github_events"], json!([]));
+    let text = human_lines(&p, &v).join("\n");
+    assert!(text.contains("x-cmux-webhook-signature"), "{text}");
+    assert!(text.contains("webhook fire 0b6c1a52-5f0e-4c1e-9d55-6f2f3e1a9b70"), "{text}");
+    assert!(!text.contains("Workflow runs"), "{text}");
+    // No --events: the body's event defaults to `webhook`, so that is what it takes.
+    let plain = plan(&with(&["--source", "webhook"])).unwrap_or_else(|_| panic!("refused"));
+    assert_eq!(plain.events, vec!["webhook"]);
+}
+
+#[test]
+fn a_bad_webhook_source_is_a_usage_error() {
+    assert_eq!(
+        refused(&with(&["--source", "gitlab"])),
+        messages().webhook_bad_source.replace("{value}", "gitlab")
+    );
+    for bad in ["has space", "x/y", ""] {
+        let refusal = refused(&with(&["--source", "webhook", "--events", bad]));
+        assert!(refusal.starts_with("--events"), "{bad}: {refusal}");
+    }
+    for bad in ["data..level=x", "level", "a.b.c.d.e.f.g.h.i=1", "level>x"] {
+        assert_eq!(
+            refused(&with(&["--source", "webhook", "--match", bad])),
+            messages().webhook_bad_hook_match.replace("{value}", bad),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn a_bad_match_is_a_usage_error() {
+    for bad in [
+        "secret=x",
+        "branch",
+        "branch=",
+        "branch>main",
+        "pull_request>=ten",
+        "branch=a,,b",
+        "!secret",
+        "data.level=error",
+    ] {
+        assert_eq!(
+            refused(&with(&["--match", bad])),
+            messages().webhook_bad_match.replace("{value}", bad),
+            "{bad}"
+        );
+    }
+    let many: Vec<&str> = (0..17).flat_map(|_| ["--match", "base?"]).collect();
+    assert!(refused(&with(&many)).starts_with("--match"));
+}
+
 fn registered() -> Registered {
     Registered {
         machine: "vm_fork".into(),
@@ -300,6 +431,8 @@ fn the_answer_has_every_field_once() {
             "session": "auto-ci-fix",
             "repository": "acme/api",
             "events": ["ci_failure", "pr_review_comment"],
+            "conditions": [],
+            "source": "github",
             "url": "https://api.example.test/v1/triggers/0b6c1a52-5f0e-4c1e-9d55-6f2f3e1a9b70/github",
             "content_type": "application/json",
             "github_events": ["Workflow runs", "Pull request reviews", "Pull request review comments"],

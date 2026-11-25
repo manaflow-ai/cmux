@@ -41,8 +41,14 @@ for (const key of Object.getOwnPropertyNames(dom.window))
 const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
 Object.assign(scope, replacements);
 // jsdom has no layout. A tall viewport mounts every row of the small chat.
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", {
+  configurable: true,
+  get: () => 10_000,
+});
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", {
+  configurable: true,
+  get: () => 760,
+});
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
@@ -51,7 +57,7 @@ const { GuestPage, loadGuestTranscript, endedBy } = await import("../src/agent-s
 await loadGuestTranscript();
 const { attemptId } = await import("../src/agent-session/guest/redeem");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
-const { askingRecords, fakeRoom, joinFrames, memoryStorage, workingRecords } =
+const { askingRecords, fakeRoom, joinFrames, memoryStorage, queuedRecords, workingRecords } =
   await import("../src/agent-session/guest/fixtures/liveChat");
 type Props = Parameters<typeof GuestPage>[0];
 type RedeemRequest = Parameters<Props["redeem"]>[1];
@@ -149,7 +155,11 @@ test("the owner offline: the page says so, and Join again is the same attempt", 
   expect(page.host.querySelector("[role=alert]")?.textContent).toBe(translate("guest.join.hostOffline"));
   await submit(page.host);
   expect(asked.length).toBe(2);
-  expect(asked[0]).toEqual({ attempt_id: asked[1]!.attempt_id, secret: "c2VjcmV0LWFiY2RlZmdo", name: "Ana" });
+  expect(asked[0]).toEqual({
+    attempt_id: asked[1]!.attempt_id,
+    secret: "c2VjcmV0LWFiY2RlZmdo",
+    name: "Ana",
+  });
   await page.unmount();
 });
 
@@ -188,6 +198,39 @@ test("joined, the owner's transcript draws read only; an ask shows who it waits 
   expect(
     page.host.querySelector(".guest-live__transcript textarea, .guest-live__transcript [contenteditable='true']"),
   ).toBeNull();
+  await page.unmount();
+});
+
+test("the owner's follow-up queued behind a running turn shows at once, read only", async () => {
+  const followUp = "Then run the whole suite 20 times to be sure.";
+  const page = await mount({
+    guestId: "g1",
+    role: "view",
+    openSocket: fakeRoom(joinFrames(queuedRecords([followUp]))),
+  });
+  await roomFrames();
+  const queue = page.host.querySelector('[data-testid="guest-queue"]')!;
+  expect(queue.textContent).toContain(followUp);
+  expect(queue.textContent).toContain(translate("composer.queued"));
+  expect(queue.querySelector("button, textarea, input")).toBeNull();
+  await page.unmount();
+});
+
+test("another guest's message still waiting on the owner is not in the guest's queue", async () => {
+  const held = {
+    sessionId: "s",
+    seq: 99,
+    at: Date.UTC(2026, 9, 6, 9, 41, 0),
+    dir: "mux",
+    kind: "queued",
+    msg: { promptId: "g-other-1", text: "Held words", awaitingOwner: true, position: 1 },
+  };
+  const page = await mount({
+    guestId: "g1",
+    openSocket: fakeRoom(joinFrames([...workingRecords(), held as never])),
+  });
+  await roomFrames();
+  expect(page.host.querySelector('[data-testid="guest-queue"]')).toBeNull();
   await page.unmount();
 });
 
@@ -244,7 +287,11 @@ for (const [error, shown] of [
   ["share.host_offline", "guest.join.hostOffline"],
 ] as const)
   test(`an invite accept answered ${error} says so, and Join stays to try again`, async () => {
-    const page = await mount({ secret: undefined, invite: true, accept: async () => ({ ok: false, error }) });
+    const page = await mount({
+      secret: undefined,
+      invite: true,
+      accept: async () => ({ ok: false, error }),
+    });
     await submit(page.host);
     expect(page.host.querySelector("[role=alert]")?.textContent).toContain(translate(shown));
     expect(joinButton(page.host).disabled).toBe(false);
@@ -273,7 +320,11 @@ test("a link guest watches unless the redeem names talk (a signed-in account on 
 });
 
 test("a view invitee watches: no composer, and the page says it can only watch", async () => {
-  const page = await mount({ guestId: "g1", role: "view", openSocket: fakeRoom(joinFrames(workingRecords())) });
+  const page = await mount({
+    guestId: "g1",
+    role: "view",
+    openSocket: fakeRoom(joinFrames(workingRecords())),
+  });
   await roomFrames();
   expect(page.host.textContent).toContain(translate("guest.live.viewOnly"));
   expect(page.host.querySelector("textarea, [contenteditable='true']")).toBeNull();
@@ -291,7 +342,11 @@ test("the invite join text hedges message approval in every app locale", () => {
 // The owner's thread rail is pane chrome: on the guest page it drew a lone tick at the left edge (#33925).
 for (const role of ["view", "talk"] as const)
   test(`the guest page draws no thread rail (${role})`, async () => {
-    const page = await mount({ guestId: "g1", role, openSocket: fakeRoom(joinFrames(workingRecords())) });
+    const page = await mount({
+      guestId: "g1",
+      role,
+      openSocket: fakeRoom(joinFrames(workingRecords())),
+    });
     await roomFrames();
     expect(page.host.textContent).toContain("Fix the flaky upload retry test");
     expect(page.host.querySelector(".acpmux-minimap, .acpmux-minimap__tick")).toBeNull();
@@ -440,14 +495,51 @@ test("anonymous, an older room without whoami, or a failure: the name prompt as 
   }
 });
 
+test("a signed-out link guest is offered sign-in back to the same link, and can still join by name", async () => {
+  const page = await mount({ whoami: async () => ({ signedIn: false }) });
+  await roomFrames();
+  const offer = page.host.querySelector("[data-testid=guest-join-sign-in]");
+  expect(offer?.textContent).toContain(translate("guest.join.signInOffer"));
+  const href = offer?.querySelector("a")?.getAttribute("href") ?? "";
+  // The room's sign-in returns to /g/<id>; the secret stays in this tab's storage, never in the URL.
+  expect(href).toBe(`/g/${SHARE}?sign_in=1`);
+  expect(href).not.toContain("c2VjcmV0LWFiY2RlZmdo");
+  expect(href).not.toContain("#");
+  const nameField = page.host.querySelector("input") as HTMLInputElement | null;
+  expect(nameField?.disabled).toBe(false);
+  await page.unmount();
+});
+
+test("no sign-in offer on a link that lost its secret, a room without whoami, or a signed-in visitor", async () => {
+  const noSecret = await mount({ whoami: async () => ({ signedIn: false }), secret: undefined });
+  const oldRoom = await mount({});
+  const signedInPage = await mount({ whoami: async () => ({ signedIn: true, name: "Priya Raman" }) });
+  await roomFrames();
+  for (const page of [noSecret, oldRoom, signedInPage])
+    expect(page.host.querySelector("[data-testid=guest-join-sign-in]")).toBeNull();
+  expect(signedInPage.host.querySelector("[data-testid=guest-join-as]")).not.toBeNull();
+  await noSecret.unmount();
+  await oldRoom.unmount();
+  await signedInPage.unmount();
+});
+
 test("an invite or a tab that already joined never asks whoami", async () => {
   const asked: string[] = [];
   const whoami = async (share: string) => {
     asked.push(share);
     return { signedIn: false } as const;
   };
-  const invite = await mount({ whoami, secret: undefined, invite: true, accept: () => new Promise(() => undefined) });
-  const joined = await mount({ whoami, guestId: "g1", openSocket: fakeRoom(joinFrames(workingRecords())) });
+  const invite = await mount({
+    whoami,
+    secret: undefined,
+    invite: true,
+    accept: () => new Promise(() => undefined),
+  });
+  const joined = await mount({
+    whoami,
+    guestId: "g1",
+    openSocket: fakeRoom(joinFrames(workingRecords())),
+  });
   await roomFrames();
   expect(asked).toEqual([]);
   await invite.unmount();
@@ -471,7 +563,11 @@ test("another guest's message draws as a prompt under their picture and name", a
       },
     },
   };
-  const page = await mount({ guestId: "g1", role: "talk", openSocket: fakeRoom(joinFrames(records)) });
+  const page = await mount({
+    guestId: "g1",
+    role: "talk",
+    openSocket: fakeRoom(joinFrames(records)),
+  });
   await roomFrames();
   const author = page.host.querySelector(".cv-author");
   expect(author?.textContent).toBe(translate("multiplayer.guestName", { name: "Priya Raman" }));

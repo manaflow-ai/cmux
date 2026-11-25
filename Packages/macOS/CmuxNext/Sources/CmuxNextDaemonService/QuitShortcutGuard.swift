@@ -89,8 +89,10 @@ public final class QuitShortcutGuard {
     /// Whether this run of Quit waits instead of quitting. Only a person's in-app run from the
     /// shortcut (`event`, the key-down being dispatched) with the setting on (`enabled`) is guarded;
     /// its first press calls `warn` with the shortcut's keys ("⌘Q"), which answers whether the
-    /// warning shows (no window to show it in: quit at once).
-    public func holds(_ invocation: ActionInvocation, event: NSEvent?, enabled: Bool, warn: (_ shortcut: String) -> Bool) -> Bool {
+    /// warning shows (no window to show it in: quit at once). `qwerty` is `app.shortcutLayout`'s Keep QWERTY
+    /// Positions (``ActionRegistry/matchesQwertyPositions``), so the keys it names are the ones that matched.
+    public func holds(_ invocation: ActionInvocation, event: NSEvent?, enabled: Bool, qwerty: Bool = false,
+                      warn: (_ shortcut: String) -> Bool) -> Bool {
         guard enabled, invocation.origin == .user, !invocation.viaControlSocket, !invocation.menuPick,
               let event, Self.isShortcutPress(event) else {
             disarm()
@@ -102,7 +104,7 @@ public final class QuitShortcutGuard {
         case .wait:
             return true
         case .warn:
-            guard warn(ActionRegistry.shortcuts(for: event).first?.displayString ?? "⌘Q") else {
+            guard warn(ActionRegistry.shortcuts(for: event, qwerty: qwerty).first?.displayString ?? "⌘Q") else {
                 disarm()
                 return false
             }

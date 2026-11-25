@@ -19,12 +19,19 @@
 // box's corner and controls, and no thumb while its box settles (Leo 2026-11-22: "the thumb only
 // appears when it's relevant INSTEAD OF ALWAYS SHOWING UP").
 //
-// Every scroller drawn here also widens and darkens its thumb while the pointer is over its
-// scrollbar lane (`NEAR_ATTRIBUTE`, `installScrollerProximity`), as a macOS overlay scroller does,
-// so it is easy to grab. The lane is exactly where the engine takes a press on the scrollbar, so the
+// Hover never shows a thumb (Leo 2026-11-22: "when hovering your mouse to the sidebar, do you want
+// to see the thumb? claude code, you dont see it... unless you scroll first. hovering only doesnt
+// show."). A thumb shows only while its element scrolls plus `SCROLLING_HIDE_MS`, or while it is
+// dragged, or where it is drawn at rest by design (a shown or sideways scroller without the fade). A thumb that is shown may stay and widen while the pointer is over its
+// scrollbar lane (`NEAR_ATTRIBUTE`, `installScrollerProximity`), so it is easy to grab; a hidden one
+// stays hidden there. The lane is exactly where the engine takes a press on the scrollbar, so the
 // thumb widens where a press grabs it and nowhere else (Lawrence 2026-11-20, msg 42498: "it is
 // possible for me to hover close, and for the width to change, but after i mousedown and drag, it
 // fails to scroll").
+//
+// A resize handle (`RESIZE_HANDLE_ATTRIBUTE`) always beats a scrollbar lane it overlaps: the pointer
+// over one never marks a scroller near, and the handle stacks above the lane, so a press anywhere
+// across its band resizes and never grabs a thumb.
 //
 // Libraries that draw their own scrollers (Monaco; the @pierre/diffs code rows and the
 // @pierre/trees list show theirs on hover) follow the same rule: hidden at rest and while the
@@ -410,11 +417,59 @@ export function installScrollingMarks(document: Document, timers: ScrollTimers =
   );
 }
 
-/** On a scroller while the pointer is over its scrollbar lane (`scrollbarLane`): its thumb shows
-    and widens, as a macOS overlay scroller does (Lawrence 2026-10-23, msg 11494: "grows bigger on
-    near-hover so it's easier to grab"), exactly where a press grabs it (Lawrence 2026-11-20, msg
-    42498). */
+/** On a scroller whose thumb is shown (`thumbShown`) while the pointer is over its scrollbar lane
+    (`scrollbarLane`): the thumb stays and widens, as a macOS overlay scroller does (Lawrence
+    2026-10-23, msg 11494: "grows bigger on near-hover so it's easier to grab"), exactly where a
+    press grabs it (Lawrence 2026-11-20, msg 42498). Never set on a hidden thumb: hover alone shows
+    nothing (Leo 2026-11-22). */
 export const NEAR_ATTRIBUTE = "data-cmux-scroller-near";
+
+/**
+ * On every resize handle and splitter band (SplitEdge's edge, Session Info's edge, the model
+ * menu's grips, the composer hat's rim, Home's divider, the diff viewer's files edge, a Markdown
+ * table's column grip). The one marker for "resize handle": `RESIZE_HANDLE_SELECTOR` in script,
+ * `RESIZE_HANDLE_CSS` in style. Spread `RESIZE_HANDLE_PROPS` on the handle's element.
+ */
+export const RESIZE_HANDLE_ATTRIBUTE = "data-cmux-resize-handle";
+export const RESIZE_HANDLE_SELECTOR = `[${RESIZE_HANDLE_ATTRIBUTE}]`;
+export const RESIZE_HANDLE_PROPS = { [RESIZE_HANDLE_ATTRIBUTE]: "" } as const;
+
+/**
+ * Handle beats scrollbar: a resize handle stacks one layer above raised content
+ * (`--cmux-resize-handle-layer`), so where its band overlaps a scroller's lane the handle is what the
+ * engine hit-tests and a press at any x across the band resizes, never grabs the thumb. A handle
+ * must never be `pointer-events: none` while it is shown (its drawn line, an `::after`, may be). The
+ * `:root` prefix outranks a component's own `z-index` on the handle's class; an id rule (the diff
+ * viewer's files edge, z-index 3) keeps its higher layer. Anything meant to sit over a handle (the
+ * hat's tuck over the rim) takes `calc(var(--cmux-resize-handle-layer) + 1)`.
+ */
+export const RESIZE_HANDLE_CSS = `
+:root {
+  --cmux-resize-handle-layer: calc(var(--layer-raised, 1) + 1);
+}
+:root ${RESIZE_HANDLE_SELECTOR} {
+  z-index: var(--cmux-resize-handle-layer);
+}
+`;
+
+/** Whether `node` is a resize handle (a pointer event's path holds every element it is inside). */
+function inResizeHandle(node: EventTarget): boolean {
+  const element = node as Element;
+  return typeof element.matches === "function" && element.matches(RESIZE_HANDLE_SELECTOR);
+}
+
+/**
+ * Whether `element`'s thumb is drawn now, so the pointer near its lane may hold and widen it: it is
+ * scrolling (`SCROLLING_ATTRIBUTE`), or it is drawn at rest by design (a shown or sideways scroller,
+ * the composer's minimal one included unless it is settling, while the page has no scrollbar fade).
+ */
+export function thumbShown(element: Element): boolean {
+  if (element.hasAttribute(SCROLLING_ATTRIBUTE)) return true;
+  if (element.hasAttribute(MINIMAL_SCROLLER_ATTRIBUTE) && element.hasAttribute(SETTLING_SCROLLER_ATTRIBUTE))
+    return false;
+  if (element.ownerDocument.documentElement.hasAttribute(SCROLLER_FADE_ATTRIBUTE)) return false;
+  return element.hasAttribute(SHOWN_SCROLLER_ATTRIBUTE) || element.hasAttribute(SIDEWAYS_ATTRIBUTE);
+}
 
 type Box = { left: number; right: number; top: number; bottom: number };
 
@@ -476,9 +531,12 @@ function overflows(element: Element, axis: "x" | "y"): boolean {
  * The scroller the pointer is near: the first element on `path` (the pointer event's composed path,
  * innermost first, shadow roots included, so a diff's code rows count) that scrolls vertically with
  * the pointer over its vertical bar's lane, or sideways with the pointer over its sideways bar's lane
- * (`scrollbarLane`); the page's own scroller as <html>, whose edges are the viewport's.
+ * (`scrollbarLane`); the page's own scroller as <html>, whose edges are the viewport's. None while
+ * the pointer is over a resize handle (`RESIZE_HANDLE_ATTRIBUTE`): the handle takes that press, so
+ * no thumb widens or lights under it.
  */
 export function nearScroller(path: readonly EventTarget[], x: number, y: number): Element | null {
+  if (path.some(inResizeHandle)) return null;
   for (const node of path) {
     const element = node as Element;
     if (typeof element.getBoundingClientRect !== "function" || typeof element.scrollHeight !== "number") continue;
@@ -511,16 +569,23 @@ export function nearScroller(path: readonly EventTarget[], x: number, y: number)
 const proximityInstalled = new WeakSet<Document>();
 
 /**
- * Keeps `NEAR_ATTRIBUTE` on the scroller the pointer is near (at most one per document), from
- * pointer moves only (passive capture listener, one per document, coalesced to a frame). Idempotent.
+ * Keeps `NEAR_ATTRIBUTE` on the scroller the pointer is near (at most one per document) while its
+ * thumb is shown (`thumbShown`): a pointer that comes near a hidden thumb marks nothing, and one that
+ * stays near a marked scroller holds it after it stops scrolling, until the pointer leaves the lane.
+ * Read on pointer moves and again on every wheel and scroll (the pointer resting on a lane while the
+ * element scrolls under it), from passive capture listeners, one each per document, coalesced to a
+ * frame. Idempotent.
  */
 export function installScrollerProximity(document: Document): void {
   const view = document.defaultView;
   if (proximityInstalled.has(document) || !view) return;
   proximityInstalled.add(document);
   let marked: Element | null = null;
-  // The last move's path and point: a path read after its event has dispatched is empty.
-  let pending: { path: EventTarget[]; x: number; y: number } | null = null;
+  // The last move's path and point: a path read after its event has dispatched is empty. Kept, so a
+  // scroll under a resting pointer is read against it.
+  let pointer: { path: EventTarget[]; x: number; y: number } | null = null;
+  // While a button is down (a thumb drag, a selection) the marked scroller stays.
+  let held = false;
   let frame = 0;
   const mark = (next: Element | null) => {
     if (next === marked) return;
@@ -528,25 +593,36 @@ export function installScrollerProximity(document: Document): void {
     marked = next;
     marked?.setAttribute(NEAR_ATTRIBUTE, "");
   };
+  const read = () => {
+    if (frame || held || !pointer) return;
+    frame = view.requestAnimationFrame(() => {
+      frame = 0;
+      if (held || !pointer) return;
+      const near = nearScroller(pointer.path, pointer.x, pointer.y);
+      // Hover alone never shows a hidden thumb; a marked one holds while the pointer stays.
+      mark(near && (near === marked || thumbShown(near)) ? near : null);
+    });
+  };
   document.addEventListener(
     "pointermove",
     (event) => {
-      // While a button is down (a thumb drag, a selection) the marked scroller stays.
-      const pointer = event as PointerEvent;
-      if (pointer.buttons !== 0) return;
-      pending = { path: pointer.composedPath(), x: pointer.clientX, y: pointer.clientY };
-      if (frame) return;
-      frame = view.requestAnimationFrame(() => {
-        frame = 0;
-        const last = pending;
-        pending = null;
-        if (last) mark(nearScroller(last.path, last.x, last.y));
-      });
+      const move = event as PointerEvent;
+      held = move.buttons !== 0;
+      if (held) return;
+      pointer = { path: move.composedPath(), x: move.clientX, y: move.clientY };
+      read();
     },
     { capture: true, passive: true },
   );
-  document.documentElement.addEventListener("pointerleave", () => mark(null), { passive: true });
-  view.addEventListener("blur", () => mark(null));
+  // After installScrollingMarks' listeners (installScrollers installs those first), so the
+  // scrolling mark is set by the frame this reads in.
+  for (const type of ["wheel", "scroll"]) document.addEventListener(type, read, { capture: true, passive: true });
+  const leave = () => {
+    pointer = null;
+    mark(null);
+  };
+  document.documentElement.addEventListener("pointerleave", leave, { passive: true });
+  view.addEventListener("blur", leave);
 }
 
 /**
@@ -567,13 +643,48 @@ export function monacoScrollerOptions(_style: ScrollerStyle): {
   };
 }
 
+/** On a Monaco editor while the pointer is on its scrollbar and the slider was shown by a scroll:
+    the slider stays until the pointer leaves, as `NEAR_ATTRIBUTE` holds the other scrollers'. */
+export const MONACO_HELD_ATTRIBUTE = "data-cmux-monaco-held";
+
+const MONACO_BAR = ".monaco-scrollable-element > .scrollbar";
+
+/** Holds Monaco's slider under the pointer once a scroll showed it; hover alone marks nothing. */
+const monacoHoldInstalled = new WeakSet<Document>();
+
+export function installMonacoThumbHold(document: Document): void {
+  if (monacoHoldInstalled.has(document)) return;
+  monacoHoldInstalled.add(document);
+  const editorOf = (target: EventTarget | null): Element | null =>
+    typeof (target as Element | null)?.closest === "function" && (target as Element).closest(MONACO_BAR)
+      ? (target as Element).closest(".monaco-editor")
+      : null;
+  document.addEventListener(
+    "pointerover",
+    (event) => {
+      const editor = editorOf(event.target);
+      if (editor?.hasAttribute(SCROLLING_ATTRIBUTE)) editor.setAttribute(MONACO_HELD_ATTRIBUTE, "");
+    },
+    { capture: true, passive: true },
+  );
+  document.addEventListener(
+    "pointerout",
+    (event) => {
+      const editor = editorOf(event.target);
+      const to = (event as PointerEvent).relatedTarget as Element | null;
+      if (editor && !to?.closest?.(MONACO_BAR)) editor.removeAttribute(MONACO_HELD_ATTRIBUTE);
+    },
+    { capture: true, passive: true },
+  );
+}
+
 /**
  * Monaco's slider shows only while the editor scrolls (the page marks the editor's node
- * with `markScrolling` on every scroll change), while it is dragged, or while the pointer is on
- * the scrollbar itself, where AppKit reveals an overlay scroller too.
+ * with `markScrolling` on every scroll change) or while it is dragged; never for a pointer that
+ * only hovers the editor or its scrollbar (Leo 2026-11-22: "hovering only doesnt show").
  */
 export const MONACO_SCROLLER_CSS = `
-.monaco-editor:not([${SCROLLING_ATTRIBUTE}]) .monaco-scrollable-element > .scrollbar:not(:hover) > .slider:not(.active) {
+.monaco-editor:not([${SCROLLING_ATTRIBUTE}]):not([${MONACO_HELD_ATTRIBUTE}]) .monaco-scrollable-element > .scrollbar > .slider:not(.active) {
   opacity: 0;
   transition: opacity var(--cmux-motion-large);
 }
@@ -601,7 +712,8 @@ const SIDEWAYS_NEAR_THUMB = "var(--cmux-scroller-thumb-near, color-mix(in srgb, 
 
 /**
  * Appended to every @pierre/diffs `unsafeCSS`. The library's code rows have a custom horizontal
- * scrollbar whose thumb shows on hover; here it shows only while the row scrolls
+ * scrollbar whose thumb shows on hover; the first rule below overrides that hover (it must stay, or
+ * hover alone would show the thumb), so it shows only while the row scrolls
  * (`--cmux-scroller-rest` is unset: nothing at rest), except in a transcript block whose rows run
  * past its edge (`SIDEWAYS_ATTRIBUTE`), where it stays, in the same color while it scrolls, unless
  * the page's scrollbar fade sets `--cmux-sideways-rest` (it inherits into Pierre's shadow root:
@@ -643,7 +755,8 @@ export const SIDEWAYS_SCROLLER_ATTRIBUTE = "data-cmux-sideways-scroller";
 /**
  * The page side of `SIDEWAYS_ATTRIBUTE`: such a box's scrollbar is a thin thumb on no track, drawn
  * whenever it has one (an `overflow: auto` box has one only while its lines run past it), at rest
- * too, or under the scrollbar fade only while it scrolls or the pointer is near it (wide then). `--cmux-sideways-lane` is its lane's height while it has one. The `:root` prefix outranks
+ * too, or under the scrollbar fade only while it scrolls (and wide while the pointer is near its
+ * shown thumb). `--cmux-sideways-lane` is its lane's height while it has one. The `:root` prefix outranks
  * the "Always" rule's hidden thumb (`SCROLLER_ROOT_CSS`).
  */
 export const SIDEWAYS_SCROLLER_CSS = `
@@ -684,8 +797,8 @@ export const SIDEWAYS_SCROLLER_CSS = `
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
   --cmux-sideways-ink: 100%;
 }
-/* Near the pointer (a hover on the thumb is near too) it widens and takes the near colour, faded
-   there and back by followShownScrollerFade, never in one frame. */
+/* Near the pointer, once shown (NEAR_ATTRIBUTE is never set on a hidden thumb), it widens and takes
+   the near colour, faded there and back by followShownScrollerFade, never in one frame. */
 :root [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}],
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${SIDEWAYS_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}] {
   --cmux-sideways-ink: 100%;
@@ -702,7 +815,8 @@ export function installSidewaysScrollers(document: Document): void {
   (document.head ?? document.documentElement).appendChild(style);
 }
 
-/** Appended to every @pierre/trees `unsafeCSS`: the same rule for the tree's list. */
+/** Appended to every @pierre/trees `unsafeCSS`: the same rule for the tree's list. Its `:hover`
+    selector overrides the library's own hover reveal; it shows nothing. */
 export const PIERRE_TREES_SCROLLER_CSS = `
 [data-file-tree-virtualized-scroll='true'],
 [data-file-tree-virtualized-scroll='true']:hover {
@@ -716,8 +830,8 @@ export const PIERRE_TREES_SCROLLER_CSS = `
 /**
  * The one scrollbar style, for "Always" (WebKit draws overlay scrollers otherwise): a thin thumb in
  * the theme's text color (`--cmux-scroller-thumb`), on no track, hidden at rest and shown while the
- * element scrolls, while its thumb is dragged or under the pointer (where AppKit reveals an overlay
- * scroller too).
+ * element scrolls or while its thumb is dragged; a pointer over it shows nothing (Leo 2026-11-22),
+ * and near a shown thumb it widens (`NEAR_ATTRIBUTE`).
  */
 export const SCROLLER_ROOT_CSS = `
 :root {
@@ -744,7 +858,6 @@ html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb {
 html[data-scrollers="legacy"] [${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 html[data-scrollers="legacy"][${SCROLLING_ATTRIBUTE}] > body::-webkit-scrollbar-thumb,
-html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:hover,
 html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
   background-color: var(--cmux-scroller-thumb);
 }
@@ -786,8 +899,8 @@ html[data-scrollers="legacy"][${NEAR_ATTRIBUTE}] > body::-webkit-scrollbar-thumb
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}] {
   --cmux-shown-scroller-ink: 38%;
 }
-/* Near the pointer it widens and darkens through the same properties, so the script fades it there
-   and back instead of the frame the pointer comes or goes (a hover on the thumb is near too). */
+/* Near the pointer, once shown, it widens and darkens through the same properties, so the script
+   fades it there and back instead of the frame the pointer comes or goes. */
 :root [${SHOWN_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}],
 :root[${SCROLLER_FADE_ATTRIBUTE}] [${SHOWN_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}] {
   --cmux-shown-scroller-ink: 55%;
@@ -867,7 +980,7 @@ export function installScrollEdges(element: HTMLElement): () => void {
 
 /**
  * The card scroller (every scrollable card, 2026-10-20): a 3 px thumb on no track, hidden at rest
- * and shown while the card scrolls or its thumb is under the pointer, whatever the macOS setting
+ * and shown while the card scrolls or its thumb is dragged (never on hover), whatever the macOS setting
  * (the native twin is ThinScroller.swift). An edge with more content past it fades out over
  * `--cmux-card-fade`; the scroller's own column never fades.
  */
@@ -887,7 +1000,6 @@ export const CARD_SCROLLER_CSS = `
   background: transparent padding-box;
 }
 [${CARD_SCROLL_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
-[${CARD_SCROLL_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
 [${CARD_SCROLL_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
   background-color: var(--cmux-scroller-thumb);
 }
@@ -895,7 +1007,8 @@ export const CARD_SCROLLER_CSS = `
   border-width: 0.5px;
   background-color: var(--cmux-scroller-thumb-near);
 }
-/* Picker columns opt out of hover-only reveal: the thumb appears only during a scroll. */
+/* Picker columns (data-cmux-scroll-only): no card's thumb shows on hover any more; these also keep
+   the scroll ink near the pointer instead of the near ink, so only a scroll ever colours them. */
 :root [${CARD_SCROLL_ATTRIBUTE}][data-cmux-scroll-only] {
   --cmux-card-scroll-only-thumb: transparent;
 }
@@ -956,21 +1069,24 @@ export const MINIMAL_SCROLLER_CSS = `
   margin-bottom: var(--cmux-minimal-scroller-inset-end, var(--cmux-minimal-scroller-inset, 0px));
 }
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+:root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}][${NEAR_ATTRIBUTE}]::-webkit-scrollbar-thumb,
 :root [${MINIMAL_SCROLLER_ATTRIBUTE}][${SETTLING_SCROLLER_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb {
   background: transparent;
 }
 `;
 
-/** Installs the root rules, the card and minimal scrollers, the Monaco rule, the wheel marks and
-    the pointer-near marks once per document. */
+/** Installs the root rules, the card and minimal scrollers, the Monaco rule, the resize handles'
+    layer, the wheel marks and the pointer-near marks once per document. */
 export function installScrollers(document: Document, timers: ScrollTimers = defaultTimers): void {
   if (!document.getElementById("cmux-scrollers")) {
     const style = document.createElement("style");
     style.id = "cmux-scrollers";
-    style.textContent = SCROLLER_ROOT_CSS + CARD_SCROLLER_CSS + MINIMAL_SCROLLER_CSS + MONACO_SCROLLER_CSS;
+    style.textContent =
+      SCROLLER_ROOT_CSS + CARD_SCROLLER_CSS + MINIMAL_SCROLLER_CSS + MONACO_SCROLLER_CSS + RESIZE_HANDLE_CSS;
     (document.head ?? document.documentElement).appendChild(style);
   }
   installSidewaysScrollers(document);
   installScrollingMarks(document, timers);
   installScrollerProximity(document);
+  installMonacoThumbHold(document);
 }
