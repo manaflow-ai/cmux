@@ -61,7 +61,6 @@ import {
   sessionLogin,
   useRouteAuthSwitch,
   useSessionAuth,
-  UNKNOWN_AUTH,
 } from "./sessionAuth";
 import { hasNativeHost, postNative } from "./native";
 import { reportToastAvoidance } from "./toastAvoidance";
@@ -183,6 +182,7 @@ import {
 } from "./folderContinuation";
 import type { BrowseRequest } from "./browseProject";
 import { cloudRepositoryPick } from "./sourcePickerModel";
+import { onHandedBackRecorded } from "./handedBack";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
   linkAttachment,
@@ -1997,15 +1997,24 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     setChatRoute,
     useCallback(() => setAuthRouteVersion((version) => version + 1), []),
   );
+  // The read keeps its identity across a drop and a reconnect: a new `read` is a new selection to
+  // useSessionAuth, which drops the answer it holds and reads "Checking…" (authBlock) until the next
+  // one, so each drop and each reconnect drew the composer twice with Send disabled between (Leo,
+  // 2026-11-22: "idk if the waiting for agent service bullshit has anything to do with it"). With no
+  // connection the read fails, which keeps the answer the chat had; the reconnect reads it again
+  // (`authObservation`) and the answer replaces it only when it differs.
+  const authConnected = useRef(connected);
+  authConnected.current = connected;
   const readAuth = useCallback<NonNullable<SignIn["readSessionAuth"]>>(
     (query, refresh) =>
-      connected && directClient.current
+      authConnected.current && directClient.current
         ? directClient.current.sessionAuth(query, refresh)
-        : Promise.resolve(UNKNOWN_AUTH),
-    [connected],
+        : Promise.reject(new Error("acpmux.notConnected")),
+    [],
   );
   const authEpoch = authRouteVersion;
-  const authObservation = snapshot.isWorking ? 1 : 0;
+  // A turn's start or end and the link coming back each read the chat's sign-in again, keeping the answer meanwhile.
+  const authObservation = (snapshot.isWorking ? 1 : 0) + (connected ? 2 : 0);
   // Before the first prompt there is no session id, so ask acpmux about the exact harness the
   // composer displays. An unknown target answer stays unknown; it must never become a sign-in card.
   const authQuery = snapshot.sessionId
@@ -3381,7 +3390,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // runs or a command is known to run (the hook stays on while one it knows runs, so its end
   // arrives). The one registry for the pane: the Inspector, the card, the tray and the counts all
   // read it. The tray shows a registry command between turns while the hook knows it runs; a quiet
-  // chat sends no `_acpmux/process/list`.
+  // chat sends one `_acpmux/process/list` as it opens (so a command still running from an earlier
+  // turn is in the hat before the next send) and none after, unless that read finds one running.
   // The same pass finds what Session Info's Background tasks lists (the palette's Show Background Tasks).
   const transcriptWork = useMemo(() => transcriptBackground(snapshot.rows), [snapshot.rows]);
   const transcriptTasks = transcriptWork.tasks;
@@ -3885,6 +3895,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   ]);
   // Declared before the turn actions, which read them (pane/useTurnActions.ts `turnActionsFrom`).
   const composerHandle = useRef<ComposerHandle | null>(null);
+  // A prompt that timed out and came back to the composer, which acpmux took after all, leaves it again.
+  useEffect(() => onHandedBackRecorded((back) => composerHandle.current?.withdraw(back.text, back.attachments)), []);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(initialChat?.snapshot);
   const turnActions = useMemo<TurnActions>(
@@ -7290,6 +7302,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   // Extension slash commands (`cmux.composer.command/1`), as the daemon lists them.
   const extensionCommands = useExtensionCommands();
+  // The chat list across a reconnect: the pane connects a new client, whose snapshots hold no list until
+  // it has read one (`listedSessions` unset), so the list the composer and its pickers read went empty
+  // and back, twice in a slow reattach, and each drew the composer again (Leo, 2026-11-22: "idk if the
+  // waiting for agent service bullshit has anything to do with it"). The same chat keeps the list it
+  // had until the new client has one.
+  const heldList = useRef<{ sessionId: string; sessions: AcpmuxSnapshot["sessions"] } | undefined>(undefined);
+  const listUnread =
+    snapshot.sessions.length === 0 &&
+    !snapshot.listedSessions &&
+    snapshot.sessionId !== undefined &&
+    heldList.current?.sessionId === snapshot.sessionId;
+  const listShown = listUnread ? heldList.current!.sessions : snapshot.sessions;
+  if (!listUnread)
+    heldList.current = snapshot.sessionId ? { sessionId: snapshot.sessionId, sessions: snapshot.sessions } : undefined;
   // Computer use and browser use in the `/` and `$` menus (toolMentions.ts), beside the skills.
   const toolCommands = useMemo(() => toolSlashCommands(t), [t]);
   const composerSnapshot = useMemo(() => {
@@ -7319,6 +7345,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     if (snapshot.sessionId && !isSideSession && !quick) enabledCmuxActions.add("btw");
     const withCommands = {
       ...snapshot,
+      ...(listShown !== snapshot.sessions && { sessions: listShown }),
       commands: withToolCommands(
         withExtensionCommands(mergedCommands(snapshot.commands, enabledCmuxActions), extensionCommands),
         toolCommands,
@@ -7367,6 +7394,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudPicked,
     cloudModePick,
     extensionCommands,
+    listShown,
     toolCommands,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
@@ -7382,7 +7410,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       machineCatalog === composerSnapshot.catalog ? composerSnapshot : { ...composerSnapshot, catalog: machineCatalog },
     [composerSnapshot, machineCatalog],
   );
-  const composerDrawn = useComposerView(composerOnMachine);
+  // acpmux's queue for the composer's queued cards: the same list while it holds the same prompts, so a
+  // reattach that reads the queue again (a new empty list) leaves the composer be.
+  const composerTurnQueue = useSameValue(snapshot.queue);
+  // The link's state reaches the composer only while it offers Resume, the one thing it draws from it.
+  const composerDrawn = useComposerView(composerOnMachine, interruptedResumeOwner !== undefined);
   useEffect(() => {
     if (!snapshot.sessionId) return;
     setProjectDraft(undefined);
@@ -10258,6 +10290,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   }, [placeSession, notices.transient]);
   const composer = drawPaneComposer({
     markDockEdge,
+    composerTurnQueue,
     hostOverload,
     readOnlySubagent,
     subagentRelay,
@@ -10820,6 +10853,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     previewBeside,
     jumpPlaceArm,
     trayHandle,
+    hatPill: trayPlacement === "tray" && trayTucked && trayNode ? hatPillArm : undefined,
     chatMinimapBeside,
     hasBottomAsk,
     setPaneMain,
