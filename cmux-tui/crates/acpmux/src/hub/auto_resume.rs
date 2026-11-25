@@ -47,7 +47,9 @@
 //!   decision for no retry records `auto_resume_settled` `{turnId, why}`, so a peer that keeps
 //!   the row hears it too.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
-//!   is the provider's whatever account asks, so the session waits where it is.
+//!   is the provider's whatever account asks, so the session waits where it is. After
+//!   `capacityFallbackAfter` capacity failures of one prompt (default 1), its attempts run on a
+//!   smaller model of the same harness until a turn there ends well ([`capacity_failover`]).
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
 //!   only those: they waited only because of the connection. A failed attempt holds nothing
 //!   new (the cut turn already holds them), so attempt `n` follows the attempts before it back
@@ -126,6 +128,9 @@ mod unread_steers;
 /// A turn the agent failed on its model goes again once, under the model's catalog id.
 mod model_reroute;
 
+/// A sustained overload goes on on a smaller model, and back once a turn there ends well.
+mod capacity_failover;
+
 /// The loop as Settings > Agents > Retry After Errors sets it (`agents.autoRetry.*`).
 mod settings;
 pub(in crate::hub) use settings::effective_delays;
@@ -169,10 +174,18 @@ pub const CAPACITY_MAX_WAIT_MS: u64 = 300_000;
 /// it out?"). On 2026-11-23 18 lanes on one machine sat failed for 18 h: the 503s ran out of
 /// their four attempts (before #53115), and the 429s ran out at their fifth strike, one short of
 /// parking. A rate limit's waits are its chat's backoff (`rate_hold.rs`), whose park now
-/// lifts itself; a capacity wait is [`capacity_wait`]. Off (`[]`) stays off.
-pub(in crate::hub) fn waits_it_out(reason: RetryReason, delays: &[u64]) -> bool {
-    matches!(reason, RetryReason::Capacity | RetryReason::RateLimit | RetryReason::Disk)
-        && !delays.is_empty()
+/// lifts itself; a capacity wait is [`capacity_wait`]. A refused connection (`error` says
+/// `ECONNREFUSED`: the inference gateway is down, [`super::turn_errors::is_refused_connection`])
+/// is a transport error waited out the same way, with capacity's capped waits: its outage ends
+/// when the gateway listens again, which four attempts over 26 minutes may not see. Every other
+/// transport error keeps its configured attempts. Off (`[]`) stays off.
+pub(in crate::hub) fn waits_it_out(reason: RetryReason, error: &str, delays: &[u64]) -> bool {
+    let outage = match reason {
+        RetryReason::Capacity | RetryReason::RateLimit | RetryReason::Disk => true,
+        RetryReason::Transport => super::turn_errors::is_refused_connection(error),
+        RetryReason::AgentExited | RetryReason::Context => false,
+    };
+    outage && !delays.is_empty()
 }
 
 /// The wait before capacity attempt `index` (from 0): the configured wait, at most
@@ -842,10 +855,10 @@ impl Hub {
             let delays = if context { compact_first::waits(&delays) } else { delays };
             // A move's continuation is no failed attempt and uses up no wait (`restart_resume.rs`).
             let moves = if done == 0 { 0 } else { hub.moves_behind(&session, &root) };
-            // A capacity outage or an account's rate limit is waited out, however long it
-            // lasts: never used up ([`waits_it_out`]).
+            // A capacity outage, an account's rate limit or a refused connection is waited
+            // out, however long it lasts: never used up ([`waits_it_out`]).
             let index = done.saturating_sub(moves);
-            let unbounded = waits_it_out(reason, &delays);
+            let unbounded = waits_it_out(reason, &error, &delays);
             let delay = if unbounded {
                 Some(capacity_wait(index, &delays, &session.id))
             } else {
@@ -1694,6 +1707,10 @@ impl Hub {
             self.clear_fired(session, cut_turn, fired_gen);
             skip("superseded");
             return;
+        }
+        // A sustained overload: this attempt runs on a smaller model (`capacity_failover.rs`).
+        if reason == "capacity" {
+            self.fail_over_on_capacity(session, root, attempt).await;
         }
         let held = self.held_by(session, root, cut_turn);
         // At a rate limit's reset, what queued meanwhile goes in as the one next turn, carrying

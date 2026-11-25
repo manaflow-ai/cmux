@@ -310,6 +310,9 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // still of its never-attached surface is a blank page (`TerminalFrameKeep`).
         var frame = key.flatMap { lastFrames.removeValue(forKey: $0) ?? framesBeingWritten[$0] } ?? previous?.model.frameToKeep()
         if frame == nil, let key, let data = frameStore?.load(key) { frame = UIImage(data: data) }
+        #if DEBUG
+        if frame == nil, live == nil, TerminalColdFrameDemo.servesFrame { frame = TerminalColdFrameDemo.frame() }
+        #endif
         model.restoreLastFrame(frame)
         // Its rows, fed to the new surface before the attach: the page is live at once.
         var rows = key.flatMap { lastRows.removeValue(forKey: $0) } ?? previous?.model.rowsToKeep()
@@ -409,7 +412,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         // A web link that opens on the Mac opens beside the terminal, in this workspace (the Mac's
         // Cmd-click); a public page opens on this iPhone (TerminalLinkRoute).
         host.model.linkOpener = context.openLink
-        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, isInteractive: context.isInteractive))
+        return AnyView(TerminalTabSlotPage(slot: slot, insets: context.safeAreaInsets, chromeTop: context.chromeTop,
+                                           isInteractive: context.isInteractive, isOnPage: context.isOnPage))
     }
 
     /// Releases a tab that fell out of the warm set: its Mac attach and its
@@ -895,10 +899,13 @@ final class TerminalTabSlot {
 struct TerminalTabSlotPage: View {
     let slot: TerminalTabSlot
     let insets: EdgeInsets
+    var chromeTop: CGFloat?
     let isInteractive: Bool
+    let isOnPage: Bool
 
     var body: some View {
-        TerminalTabPage(host: slot.host, insets: insets, isInteractive: isInteractive)
+        TerminalTabPage(host: slot.host, insets: insets, chromeTop: chromeTop, isInteractive: isInteractive,
+                        isOnPage: isOnPage)
             .id(ObjectIdentifier(slot.host))
     }
 }

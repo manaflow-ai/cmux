@@ -217,6 +217,19 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // An Auto chat another holder runs takes the prompt through its Cloud inbox
+        // (`auto_hold.rs`); nothing starts here.
+        if self.auto_held(session) {
+            // Only the prompt's id goes across the wait: the options hold what no other thread
+            // may. On the heap (`heap_future.rs`): a prompt is polled deep in a worker's stack.
+            let away_id = opts.prompt_id.clone();
+            let away = crate::heap_future::heap(|| {
+                self.auto_away_prompt(session, &blocks, client, away_id.as_deref())
+            });
+            if let Some(answer) = away.await {
+                return answer;
+            }
+        }
         // A watched Claude chat whose app still runs it takes the prompt into that app (`bridge.rs`).
         if let Some(answer) = self.bridged_prompt(session, &blocks, client, &mut opts).await {
             return answer;
@@ -1322,7 +1335,7 @@ impl Hub {
             || super::inbox::is_notice(provenance.as_ref());
         if resumed {
             // Its own transcript is what it goes on from.
-        } else if session.rehydrate.swap(false, Ordering::SeqCst)
+        } else if session.take_rehydrate()
             && let Some(transcript) = self.transcript(session, REPLAY_CHARS, &prompt_id)
         {
             // The whole transcript covers what an older agent session lacked too.
@@ -1626,7 +1639,7 @@ impl Hub {
                         // The rules this message carries: owed here, or kept from the first
                         // attempt's blocks, whose write may have failed before it was confirmed.
                         let rules_in_message = rules_owed || rules_owed_here;
-                        if session.rehydrate.swap(false, Ordering::SeqCst)
+                        if session.take_rehydrate()
                             && let Some(transcript) =
                                 self.transcript(session, REPLAY_CHARS, &prompt_id)
                         {
@@ -1787,6 +1800,15 @@ impl Hub {
             _ => None,
         };
         self.schedule_auto_resume(session, &turn_id, cut);
+        // A turn that ended well on a capacity fallback puts the chat's own model back
+        // (`auto_resume/capacity_failover.rs`).
+        if !detached
+            && result
+                .as_ref()
+                .is_ok_and(|v| v.get("stopReason").and_then(Value::as_str) != Some("cancelled"))
+        {
+            self.restore_after_capacity(session);
+        }
         // The agent a Stop ended starts again on the same conversation now, while this turn's
         // lock is still held: the next queued turn finds it running (`cancel.rs`).
         self.respawn_stopped_agent(session, &turn_id, stops).await;
@@ -2599,11 +2621,23 @@ impl Hub {
         mode_id: &str,
         granted: bool,
     ) -> Result<Value, RpcError> {
+        // The mode the chat already records (a start's, a wake's or a policy's set of the same
+        // mode), read before the harness's answer writes it: the harness is still told, but the
+        // log gets no `mode` record (idle-gpu-disk). Only a declared mode: a harness's undeclared
+        // one is kept in memory alone, its record the one trace of it. The save stays: it
+        // journals nothing when the image is unchanged (`store/journal_store/meta.rs`), and it
+        // keeps a harness's move that lands between this read and the writes below.
+        let unchanged = session.read_meta(|m| {
+            m.modes.as_ref().and_then(|modes| modes.get("currentModeId")).and_then(Value::as_str)
+                == Some(mode_id)
+        });
         let r = self
             .forward_as(session, method::SESSION_SET_MODE, json!({"modeId": mode_id}), granted)
             .await?;
         self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode_id))]);
-        self.append(session, "mux", "mode", json!({"modeId": mode_id}));
+        if !unchanged {
+            self.append(session, "mux", "mode", json!({"modeId": mode_id}));
+        }
         self.save_meta_answered(session)?;
         Ok(r)
     }
@@ -3221,3 +3255,7 @@ fn restored_transcript(session: &Session, transcript: &str) -> Value {
 #[cfg(test)]
 #[path = "close_why_tests.rs"]
 mod close_why_tests;
+
+#[cfg(test)]
+#[path = "set_mode_unchanged_tests.rs"]
+mod set_mode_unchanged_tests;
