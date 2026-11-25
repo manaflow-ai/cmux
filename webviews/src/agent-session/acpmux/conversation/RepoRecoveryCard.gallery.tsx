@@ -216,6 +216,16 @@ export default componentEntry<Props>({
       note: "Picked: the organization named, Install on acme and Request access on GitHub, and Try again, which adds the repository again here once access is granted.",
       props: { recovery: noAccess },
     },
+    "no-access-grant": {
+      note: "Gap 1: the chat's grant does not cover manaflow-ai (the App is not installed there): one line saying so, Install on manaflow-ai opening its installation, and Try again.",
+      props: {
+        recovery: {
+          ...noAccess,
+          org: "manaflow-ai",
+          retry: { action: "cloud.repo.add", args: { session: "cloud-demo", repo: "manaflow-ai/cmux" } },
+        },
+      },
+    },
     "no-access-no-link": {
       note: "Picked: no install link for the organization. Request access, then Try again here.",
       props: { recovery: noAccessNoLink },

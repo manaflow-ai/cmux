@@ -218,6 +218,18 @@ export default componentEntry<Props>({
       note: "The connection leaves the repository out: Connect opens GitHub's page to add it.",
       props: { need: need("not-covered") },
     },
+    "not-installed": {
+      note: "The team's grant leaves the org out (no cmux GitHub App installation there): one line naming it, one Install GitHub App.",
+      props: { need: need("not-installed", "manaflow-ai/cmux") },
+    },
+    "not-installed-dark": {
+      note: "The team's grant leaves the org out: the same card on a dark page.",
+      props: { need: need("not-installed", "manaflow-ai/cmux"), scheme: "dark" },
+    },
+    "not-installed-no-repo": {
+      note: "git or gh's refusal names no repository the card trusts: the line says the owner, Install asks GitHub without one.",
+      props: { need: need("not-installed", undefined) },
+    },
     waiting: {
       note: "After the tap: finish on GitHub; the chat goes on when the person is back. Continue does it by hand.",
       props: {
