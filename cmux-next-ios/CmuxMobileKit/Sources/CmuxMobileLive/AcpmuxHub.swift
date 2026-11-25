@@ -1125,7 +1125,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let cwd = baseDirectory
         let macName = summary.macName
         var upload: AttachmentPrestager.Upload?
-        if let link: any MacLink = hub?.macLink {
+        if hub?.isReady == true, let link: any MacLink = hub?.macLink {
             upload = { @Sendable (payload: LinkUpload.Payload, name: String) async throws -> String in
                 try await AcpmuxSessionSource.upload(payload, name: name, cwd: cwd, link: link, macName: macName)
             }
