@@ -2646,7 +2646,8 @@ struct WorkspaceTabPage: View {
                                   isInteractive: context.isInteractive,
                                   isZoomGestureActive: context.isZoomGestureActive,
                                   reportScroll: { context.reportScroll(fingerDelta: $0) },
-                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } })
+                                  openLink: { [weak source] url in Task { await source?.openLink(url, fromTab: tabID) } },
+                                  isOnPage: context.isOnPage)
     }
 }
 

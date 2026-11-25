@@ -68,7 +68,9 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxTheme"),
     ],
     targets: [
-        .target(name: "CmuxMobileDesign", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner"), .product(name: "CmuxTheme", package: "CmuxTheme")], resources: [.process("Resources")]),
+        // CmuxMobileDesign's pure rules (no UI framework), which build and test on Linux; CmuxMobileDesign re-exports it.
+        .target(name: "CmuxMobileDesignCore"),
+        .target(name: "CmuxMobileDesign", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxSpinner", package: "CmuxSpinner"), .product(name: "CmuxTheme", package: "CmuxTheme")], resources: [.process("Resources")]),
         // Push payloads, notification buttons, the App Group outbox and chat
         // snapshots: Foundation and UserNotifications only, so the notification
         // extensions link it without the app's modules (verify/rich-push.md).
@@ -257,6 +259,7 @@ let package = Package(
             ]
         ),
         .testTarget(name: "CmuxMobileRealtimeTests", dependencies: ["CmuxMobileRealtime"]),
+        .testTarget(name: "CmuxMobileDesignCoreTests", dependencies: ["CmuxMobileDesignCore"]),
         .testTarget(name: "CmuxMobileVoiceTests", dependencies: [
             "CmuxMobileVoice", "CmuxMobileChief", "CmuxMobileModel",
             .product(name: "CmuxConversationCore", package: "CmuxConversation"),
@@ -285,6 +288,8 @@ let package = Package(
         ]),
         .testTarget(name: "CmuxMobileLiveTests", dependencies: [
             "CmuxMobileLive", "CmuxMobileChief", "CmuxMobileNotifications", "CmuxMobileTransport", "CmuxMobileModel", "CmuxMobileAgentChat", "CmuxMobileFeed", "CmuxMobileTerminal", "CmuxMobileDesign", "CmuxMobileMarkdown",
+            // TypingUnderLinkChurnTests: the workspace list and tabs source on screen while typing.
+            "CmuxMobileWorkspaces",
             .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
             .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
@@ -320,7 +325,8 @@ let package = Package(
 // iOS and macOS, and keeps the whole package. cmux-next-ios-kit.yml skips these test targets on the Mac.
 if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     let linuxModules: Set<String> = [
-        "CmuxMobileModel", "CmuxMobileRealtime", "CmuxMobileTransport",
+        "CmuxMobileAuth", "CmuxMobileDesignCore", "CmuxMobileModel", "CmuxMobileNotifications", "CmuxMobileRealtime",
+        "CmuxMobileTransport",
     ]
     let linuxTests = Set(linuxModules.map { $0 + "Tests" })
     package.products.removeAll { !linuxModules.contains($0.name) }
@@ -331,6 +337,27 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
             return false
         }
     }
-    package.dependencies = [.package(path: "../../Packages/Shared/CMUXAuthCore")]
+    // CmuxMobileAuth's portable TeamInviteFailure uses StackAuth's error protocol. The rest of
+    // the target is the iOS-only coordinator and its Apple frameworks, so leave those package
+    // products out of the Linux projection instead of making Linux resolve the app's auth graph.
+    if let auth = package.targets.first(where: { $0.name == "CmuxMobileAuth" }) {
+        auth.dependencies = [
+            "CmuxMobileModel",
+            .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+        ]
+    }
+    if let authTests = package.targets.first(where: { $0.name == "CmuxMobileAuthTests" }) {
+        authTests.dependencies = ["CmuxMobileAuth", "CmuxMobileModel"]
+    }
+    package.dependencies = [
+        .package(path: "../../Packages/Shared/CMUXAuthCore"),
+        .package(path: "../../Packages/Shared/CmuxEgress"),
+        .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
+        // CryptoKit's API for CmuxMobileNotifications (`import Crypto` where CryptoKit is absent).
+        .package(url: "https://github.com/apple/swift-crypto.git", exact: "3.15.1"),
+    ]
+    for target in package.targets where target.name == "CmuxMobileNotifications" || target.name == "CmuxMobileNotificationsTests" {
+        target.dependencies.append(.product(name: "Crypto", package: "swift-crypto"))
+    }
 }
 #endif
