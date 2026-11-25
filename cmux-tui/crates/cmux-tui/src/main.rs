@@ -141,6 +141,8 @@ mod sidebar_projection;
 mod sidebar_status;
 #[cfg(unix)]
 mod staged_update;
+/// The interactive client's UI-loop hang watchdog (sample, report, cancel, restart).
+mod ui_watchdog;
 // The staged swap probes builds through cmux-remote, a unix-only dependency:
 // elsewhere nothing is ever staged and no notice waits.
 #[cfg(not(unix))]
@@ -2333,14 +2335,12 @@ fn relay_daemon_options(
     slots: Vec<String>,
     credentials: Vec<RelayCredentialArg>,
 ) -> anyhow::Result<Vec<remote_runtime::RelayDaemonOptions>> {
-    const MAX_DAEMON_RELAYS: usize = 4;
+    // Relay registrations are not capped by count: each is one tokio task holding one
+    // WebSocket to its relay, a constant cost.
     if endpoints.len() != slots.len() || endpoints.len() != credentials.len() {
         anyhow::bail!(
             "each relay registration needs one --relay, one --relay-slot, and one relay credential source"
         );
-    }
-    if endpoints.len() > MAX_DAEMON_RELAYS {
-        anyhow::bail!("a daemon supports at most {MAX_DAEMON_RELAYS} relay registrations");
     }
     endpoints
         .into_iter()
