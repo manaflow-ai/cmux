@@ -6,7 +6,7 @@ license = "GPL-3.0-or-later"
 publish = false
 description = "Synthetic coordinator chats and a multi-coordinator load driver: generates chats shaped like a heavy coordinator session from histograms only (no real transcripts), streams N of them at once into acpmux and the apps, and reports one set of numbers per run"
 
-# Own workspace, as cmux-cellgrid-bench: a bench tool the cmux-tui workspace build never pulls in.
+# Own workspace: a bench tool the cmux-tui workspace build never pulls in.
 [workspace]
 
 [[bin]]

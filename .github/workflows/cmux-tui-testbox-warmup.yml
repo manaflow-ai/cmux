@@ -128,6 +128,10 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
+            scripts/ci/toolchain-r2.sh
+            scripts/ci/toolchain-archives.sha256
+            scripts/ci/r2-cache.sh
+            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
           ref: ${{ github.sha }}
 
@@ -206,7 +210,30 @@ jobs:
       # CARGO_HOME takes 2.2 s.
       - name: Install repository-pinned Zig
         shell: bash
-        run: ./scripts/install-zig-ci.sh
+        run: |
+          set -euo pipefail
+          source scripts/ghostty-zig-version.sh
+          want="$(GHOSTTY_ZIG_SOURCE=ghostty-next ghostty_minimum_zig_version "$PWD")"
+          install_root="/opt/zig-$want"
+          if [ "$("$install_root/zig" version 2>/dev/null || true)" != "$want" ]; then
+            GHOSTTY_ZIG_SOURCE=ghostty-next \
+              ZIG_REQUIRED="$want" \
+              ZIG_FORCE_LOCAL_INSTALL=1 \
+              ZIG_INSTALL_ROOT="$install_root" \
+              ./scripts/install-zig-ci.sh
+          fi
+          zig_path="$(find "$install_root" -mindepth 2 -maxdepth 2 -type f -name zig -perm -111 -print -quit)"
+          test -n "$zig_path"
+          test "$("$zig_path" version)" = "$want"
+          zig_lib_dir="$(dirname "$zig_path")/lib"
+          cat > "$install_root/zig" <<EOF
+          #!/usr/bin/env bash
+          export ZIG_LIB_DIR=$(printf '%q' "$zig_lib_dir")
+          exec $(printf '%q' "$zig_path") "\$@"
+          EOF
+          chmod 0755 "$install_root/zig"
+          test "$("$install_root/zig" version)" = "$want"
+          echo "CMUX_ZIG=$install_root/zig" >> "$GITHUB_ENV"
 
       - name: Fetch Ghostty Zig dependencies without compiling
         working-directory: ghostty-next

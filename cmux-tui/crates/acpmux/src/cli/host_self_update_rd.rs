@@ -8,16 +8,21 @@
 //! (`share_host/linux.rs`) and sets the screen host up again. Nobody at the machine does
 //! anything.
 //!
-//! - Only a machine whose join wanted cmux-rd gets it: one with a cmux-rd (a regular file), or
-//!   whose join line could not install it ([`INSTALL_FAILED`] in the acpmux home, the
-//!   reason it wrote, removed once installed). A cmux-rd that is a symlink was put there on
+//! - Only a joined machine gets it: one that holds its join (`share_host::joined`), one with a
+//!   cmux-rd (a regular file), or one whose join line could not install it ([`INSTALL_FAILED`]
+//!   in the acpmux home, the reason it wrote, removed once installed). A machine joined before
+//!   the join line installed cmux-rd had neither of the last two, so it never got a screen
+//!   host (2026-11-23: a fleet Linux desktop had no cmux-rd and no unit, while its row offered a share); the
+//!   decided design installs it on every joined Linux machine (remote-screen-share-zero-touch
+//!   L1). A cmux-rd that is a symlink was put there on
 //!   purpose (a test build) and is kept, as the join line keeps it.
 //! - A channel without a cmux-rd build changes nothing.
 //! - A new tree can carry a new cmux-rd binary (nothing makes its build reproducible), and
 //!   setting the host up again restarts it, which ends a share. So an installed cmux-rd is replaced at most once per
 //!   [`REPLACE_EVERY`] (its modification time is when it was installed), unless `--now`, and
 //!   never while the on-demand virtual display runs (a share, or a window on it, in its last
-//!   ten minutes): the next run after does it.
+//!   ten minutes; an older cmux-rd's always-on display says nothing, `virtual_display_runs`):
+//!   the next run after does it.
 //! - It never fails the self-update: its outcome is one more line, and `cmuxRd` in `--json`.
 
 use super::Channel;
@@ -51,6 +56,8 @@ pub(crate) struct RdPaths {
     pub(crate) min_age: Duration,
     /// Whether a share may be live: the on-demand virtual display runs.
     pub(crate) display_busy: fn() -> bool,
+    /// This machine holds its join (`share_host::joined`): it gets cmux-rd with none installed.
+    pub(crate) joined: bool,
 }
 
 impl RdPaths {
@@ -62,6 +69,7 @@ impl RdPaths {
             target: gnu_target(acpmux_target)?,
             min_age: if now { Duration::ZERO } else { REPLACE_EVERY },
             display_busy: virtual_display_runs,
+            joined: machine_joined(),
         })
     }
 }
@@ -75,9 +83,45 @@ pub(crate) fn gnu_target(acpmux_target: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether this machine holds its join: the share host's own test (`share_host::joined`).
+fn machine_joined() -> bool {
+    #[cfg(unix)]
+    {
+        crate::share_host::joined().is_ok()
+    }
+    #[cfg(not(unix))]
+    {
+        false
+    }
+}
+
+/// Whether a share may be live on the virtual display. A display unit that is not enabled at
+/// boot is the on-demand one: the host starts it for a share or a window and stops it after ten
+/// idle minutes, so its running is the answer. One enabled at boot was written by a cmux-rd from
+/// before on-demand displays (the one this replacement exists to retire): it always runs and that
+/// host never stops it, so its running says nothing about a share, and it never counts. Waiting
+/// on it deferred every replacement for good (78 of 78 runs on a lane VM, hq
+/// docs/findings/2026-11-23-screen-host-restart-loop.md) while the old cmux-rd went on restarting
+/// the host, cutting any share, at every daemon start; the replacement's own enable makes the
+/// display on-demand, so this can cut a share once, not every hour.
 fn virtual_display_runs() -> bool {
+    display_busy(
+        systemctl_ok(&["is-active", "--quiet", DISPLAY_UNIT]),
+        systemctl_ok(&["is-enabled", "--quiet", DISPLAY_UNIT]),
+    )
+}
+
+/// [`virtual_display_runs`] from its facts: whether the display unit is active, and whether it
+/// is enabled at boot (the always-on display of an older cmux-rd).
+pub(crate) fn display_busy(active: bool, always_on: bool) -> bool {
+    active && !always_on
+}
+
+/// `systemctl --user ARGS` exits 0.
+fn systemctl_ok(args: &[&str]) -> bool {
     std::process::Command::new("systemctl")
-        .args(["--user", "is-active", "--quiet", DISPLAY_UNIT])
+        .arg("--user")
+        .args(args)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -88,7 +132,7 @@ fn virtual_display_runs() -> bool {
 /// What one run did with cmux-rd.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum RdOutcome {
-    /// This machine's join did not install cmux-rd.
+    /// This machine is not joined, and no join installed cmux-rd.
     NotJoined,
     /// cmux-rd is a symlink, kept.
     Symlink,
@@ -142,7 +186,7 @@ pub(crate) async fn refresh(
         return RdOutcome::Symlink;
     }
     let file = meta.filter(|m| m.file_type().is_file());
-    if file.is_none() && !paths.install_failed.is_file() {
+    if file.is_none() && !paths.install_failed.is_file() && !paths.joined {
         return RdOutcome::NotJoined;
     }
     let name = format!("cmux-tui-rd-{}", paths.target);
@@ -152,7 +196,7 @@ pub(crate) async fn refresh(
     }
     if let Some(meta) = &file {
         if std::fs::read(&paths.rd).is_ok_and(|b| crate::sha256::sha256_hex(&b) == *sha) {
-            let _ = std::fs::remove_file(&paths.install_failed);
+            let _ = crate::home_fs::remove_file(&paths.install_failed);
             return RdOutcome::Current;
         }
         let age = meta.modified().ok().and_then(|t| now.duration_since(t).ok());
@@ -165,7 +209,7 @@ pub(crate) async fn refresh(
     }
     match install(paths, fetch, feed, &name, sha).await {
         Ok(()) => {
-            let _ = std::fs::remove_file(&paths.install_failed);
+            let _ = crate::home_fs::remove_file(&paths.install_failed);
             RdOutcome::Installed(sha.clone())
         }
         Err(e) => RdOutcome::Failed(format!("{e:#}")),

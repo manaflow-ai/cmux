@@ -12,7 +12,7 @@ export type KeyedBlock = { key: string; block: MdBlock };
 /// its whole text again on the frame that shows it. Least recently used out past the caps (entries,
 /// and characters of text held, so a few huge replies cannot pin megabytes).
 type WholeParse = {
-  closed: KeyedBlock[];
+  closed: readonly KeyedBlock[];
   closedEnd: number;
   tail: KeyedBlock[];
   closedFences: number;
@@ -43,9 +43,14 @@ export class IncrementalMarkdown {
   private source = "";
   private streaming = false;
   private messageAt?: number;
-  private closed: KeyedBlock[] = [];
+  /// Replaced, never changed in place, when blocks close: the same array until the next one does,
+  /// so a caller can keep what it drew from it (Markdown's closed blocks).
+  private closed: readonly KeyedBlock[] = [];
   private closedEnd = 0;
   private tail: KeyedBlock[] = [];
+  /// Counts the times the closed blocks were dropped or replaced by another text's: within one
+  /// generation the closed text only grows, so a scan of it (replyScan.ts) only adds to what it read.
+  private generation = 0;
   /// The fence lines before `closedEnd`, counted as `fenceLines` counts them. It can be odd: a
   /// fence line inside a `$$` display counts here but does not open a fence for the boundary.
   private closedFences = 0;
@@ -54,12 +59,38 @@ export class IncrementalMarkdown {
   /// The characters the last update parsed (for tests and the debug perf report).
   lastParsedLength = 0;
 
+  /// How many of the blocks the last update returned are closed: they lie before the last safe
+  /// boundary, keep their objects and never parse again. The rest (the tail) is the open part.
+  get closedCount(): number {
+    return this.closed.length;
+  }
+
   /// `streaming`: the tail draws only what is safe to draw half-written (safeTail.ts).
   update(source: string, options: { streaming?: boolean; messageAt?: number } = {}): KeyedBlock[] {
+    this.advance(source, options);
+    return [...this.closed, ...this.tail];
+  }
+
+  /// The blocks before the last boundary, which never change again in this generation.
+  get closedBlocks(): readonly KeyedBlock[] {
+    return this.closed;
+  }
+
+  /// The blocks after it, parsed again on every update.
+  get tailBlocks(): readonly KeyedBlock[] {
+    return this.tail;
+  }
+
+  /// Where the closed blocks' text ends in the source, and the generation they belong to.
+  get closedState(): { end: number; generation: number } {
+    return { end: this.closedEnd, generation: this.generation };
+  }
+
+  /// `update` without joining the blocks into one list (Markdown reads them closed and tail apart).
+  advance(source: string, options: { streaming?: boolean; messageAt?: number } = {}): void {
     const streaming = options.streaming ?? false;
     const messageAt = options.messageAt;
-    if (source === this.source && streaming === this.streaming && messageAt === this.messageAt)
-      return [...this.closed, ...this.tail];
+    if (source === this.source && streaming === this.streaming && messageAt === this.messageAt) return;
     // A parser that has drawn nothing yet, given a finished text it parsed before: the same blocks.
     const fresh = this.source === "" && this.closedEnd === 0 && !streaming && source !== "";
     if (fresh) {
@@ -72,12 +103,13 @@ export class IncrementalMarkdown {
         this.messageAt = messageAt;
         this.source = source;
         this.lastParsedLength = 0;
-        this.closed = [...known.closed];
+        this.generation += 1;
+        this.closed = known.closed;
         this.closedEnd = known.closedEnd;
         this.tail = known.tail;
         this.closedFences = known.closedFences;
         this.fenceOpen = known.fenceOpen;
-        return [...this.closed, ...this.tail];
+        return;
       }
     }
     this.streaming = streaming;
@@ -88,7 +120,7 @@ export class IncrementalMarkdown {
     const boundary = lastBlockBoundary(source, this.closedEnd);
     if (boundary > this.closedEnd) {
       const closing = source.slice(this.closedEnd, boundary);
-      this.closed.push(...this.parse(closing, this.closed.length));
+      this.closed = [...this.closed, ...this.parse(closing, this.closed.length)];
       this.closedFences += fenceLines(closing);
       this.closedEnd = boundary;
     }
@@ -101,7 +133,7 @@ export class IncrementalMarkdown {
     if (fresh) {
       const key = wholeKey(source, messageAt);
       wholeParses.set(key, {
-        closed: [...this.closed],
+        closed: this.closed,
         closedEnd: this.closedEnd,
         tail: this.tail,
         closedFences: this.closedFences,
@@ -114,10 +146,10 @@ export class IncrementalMarkdown {
         wholeChars -= oldest.length;
       }
     }
-    return [...this.closed, ...this.tail];
   }
 
   private reset(): void {
+    this.generation += 1;
     this.source = "";
     this.messageAt = undefined;
     this.closed = [];
