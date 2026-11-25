@@ -272,6 +272,8 @@ pub const FORK_BUDGET: std::time::Duration = std::time::Duration::from_secs(2);
 pub const WARM_TTL: std::time::Duration = std::time::Duration::from_secs(600);
 
 /// The one warm fork of this daemon's Cloud backend.
+// test-hook-allow: not a test hook; the `fn() -> M` is WarmSlot's PhantomData variance marker,
+// and no test sets this daemon-wide slot
 static CLOUD_WARM: std::sync::OnceLock<Arc<WarmSlot<CloudMachines>>> = std::sync::OnceLock::new();
 
 /// A fork made ahead of need: of `source`, at the snapshot `base_tree`.
@@ -615,7 +617,7 @@ fn scratch_index(checkout: &Path, base: Option<&str>) -> Result<tempfile::TempPa
         .map_err(|e| format!("scratch index: {e}"))?
         .into_temp_path();
     // git refuses an empty file as an index; it creates one where none exists.
-    std::fs::remove_file(&file).map_err(|e| format!("scratch index: {e}"))?;
+    crate::home_fs::remove_file(&file).map_err(|e| format!("scratch index: {e}"))?;
     match base {
         Some(tree) => {
             git(checkout, Some(&file), &["read-tree", tree], None)?;

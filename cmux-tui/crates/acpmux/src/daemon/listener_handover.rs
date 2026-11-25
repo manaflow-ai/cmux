@@ -170,7 +170,7 @@ impl Side {
         if !cmux_unix_socket::fits(&path) {
             return None;
         }
-        let _ = std::fs::remove_file(&path);
+        let _ = crate::home_fs::remove_file(&path);
         let listener = match UnixListener::bind(&path) {
             Ok(l) => l,
             Err(e) => {
@@ -179,7 +179,7 @@ impl Side {
             }
         };
         use std::os::unix::fs::PermissionsExt as _;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        let _ = crate::home_fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
         Some(Side { listener, path })
     }
 
@@ -240,7 +240,7 @@ impl Side {
 
 impl Drop for Side {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
+        let _ = crate::home_fs::remove_file(&self.path);
     }
 }
 

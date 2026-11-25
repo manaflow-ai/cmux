@@ -397,15 +397,21 @@ impl Engine {
                 .with_context(|| format!("create {}", parent.display()))?;
         }
         let temp = temp_beside(&path);
-        crate::home_fs::write(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
-        let now = self.read_local(rel)?.map(|b| sha256_hex(&b));
-        if now.as_deref() != expect {
-            let _ = crate::home_fs::remove_file(&temp);
-            return Ok(false);
-        }
-        crate::home_fs::rename(&temp, &path)
-            .with_context(|| format!("rename into {}", path.display()))?;
-        Ok(true)
+        let written = {
+            let _turn = crate::dead_temps::hold(&temp);
+            fill_temp(&temp, bytes).with_context(|| format!("write {}", temp.display()))?;
+            let now = self.read_local(rel)?.map(|b| sha256_hex(&b));
+            if now.as_deref() == expect {
+                crate::home_fs::rename(&temp, &path)
+                    .with_context(|| format!("rename into {}", path.display()))?;
+                true
+            } else {
+                let _ = crate::home_fs::remove_file(&temp);
+                false
+            }
+        };
+        sweep_dead_temps(&path);
+        Ok(written)
     }
 
     fn remove_local(&self, rel: &str, expect: Option<&str>) -> Result<()> {
@@ -563,12 +569,31 @@ pub fn safe_rel(rel: &str) -> bool {
         && rel.split('/').all(|p| !p.is_empty() && p != "." && p != "..")
 }
 
+/// The hidden copy a write of `path` fills before its rename: one name per file and process,
+/// the same on every write, never one per write (each new name is one more path fseventsd keeps,
+/// `dead_temps`). This process's writers of one name take turns (`dead_temps::hold`).
 fn temp_beside(path: &Path) -> PathBuf {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static N: AtomicU64 = AtomicU64::new(0);
+    path.with_file_name(format!("{}{}", temp_prefix(path), std::process::id()))
+}
+
+fn temp_prefix(path: &Path) -> String {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let n = N.fetch_add(1, Ordering::Relaxed);
-    path.with_file_name(format!(".{name}.memtmp-{}-{n}", std::process::id()))
+    format!(".{name}.memtmp-")
+}
+
+/// Fill `temp` from nothing (0600 when new): the caller holds its turn, so no other writer of
+/// this process fills it meanwhile.
+fn fill_temp(temp: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut file = crate::home_fs::create_file(temp)?;
+    file.write_all(bytes)
+}
+
+/// Remove the copies of `path` a process that is gone left behind (`dead_temps::remove`).
+fn sweep_dead_temps(path: &Path) {
+    if let Some(dir) = path.parent() {
+        crate::dead_temps::remove(dir, &temp_prefix(path));
+    }
 }
 
 /// Write through a hidden temp beside `path`, then rename over it.
@@ -577,10 +602,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         crate::home_fs::create_dirs(parent)?;
     }
     let temp = temp_beside(path);
-    crate::home_fs::write(&temp, bytes)?;
-    crate::home_fs::rename(&temp, path).inspect_err(|_| {
-        let _ = crate::home_fs::remove_file(&temp);
-    })
+    let done = {
+        let _turn = crate::dead_temps::hold(&temp);
+        fill_temp(&temp, bytes).and_then(|()| crate::home_fs::rename(&temp, path)).inspect_err(
+            |_| {
+                let _ = crate::home_fs::remove_file(&temp);
+            },
+        )
+    };
+    sweep_dead_temps(path);
+    done
 }
 
 fn mtime_ms(path: &Path) -> Option<u64> {

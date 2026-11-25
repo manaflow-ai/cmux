@@ -43,13 +43,8 @@ impl Offsets {
             source.update(metadata.ctime().to_le_bytes());
             source.update(metadata.ctime_nsec().to_le_bytes());
         }
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create(true).truncate(false);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt as _;
-            options.mode(0o600);
-        }
+        let mut options = crate::home_fs::OpenOptions::new();
+        options.read(true).write(true).create(true).truncate(false).mode(0o600);
         let file = options.open(home.join("terminal-transcript-offsets.v2")).ok()?;
         // Best effort. A second reader can always page the transcript directly.
         file.try_lock().ok()?;

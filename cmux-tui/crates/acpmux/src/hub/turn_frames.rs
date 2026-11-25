@@ -516,9 +516,9 @@ fn keep(
         hash,
         url,
     };
-    let written =
-        std::fs::write(dir.join(format!("{}.png", frame.index)), &full_bytes).and_then(|()| {
-            std::fs::write(dir.join(format!("{}.thumb.png", frame.index)), &thumb_bytes)
+    let written = crate::home_fs::write(dir.join(format!("{}.png", frame.index)), &full_bytes)
+        .and_then(|()| {
+            crate::home_fs::write(dir.join(format!("{}.thumb.png", frame.index)), &thumb_bytes)
         });
     if written.is_err() {
         return None;
@@ -526,7 +526,7 @@ fn keep(
     turn.frames.push(frame.clone());
     let index = serde_json::to_vec(&turn.frames).unwrap_or_default();
     drop(all);
-    let _ = std::fs::write(dir.join(INDEX), index);
+    let _ = crate::home_fs::write(dir.join(INDEX), index);
     if frame.index == 0 {
         // A new turn's folder: the oldest turns and chats go.
         if let Some(chat) = dir.parent() {
