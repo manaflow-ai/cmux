@@ -223,6 +223,16 @@ public nonisolated final class AgentPanePromptJournal: Sendable {
         return claimed
     }
 
+    /// Whether prompt `promptId` is still kept for `daemon`, unacknowledged and not past
+    /// ``maximumAge``: the relay sends a refused resend again only while it is.
+    func keeps(daemon: String, promptId: String) -> Bool {
+        let cutoff = now().addingTimeInterval(-Self.maximumAge)
+        return state.withLock { state in
+            load(&state)
+            return state.entries.contains { $0.daemon == daemon && $0.promptId == promptId && $0.at >= cutoff }
+        }
+    }
+
     /// Claimed prompts connection `owner` did not send after all: left over again.
     func unclaim(_ entries: [Entry], owner: UUID) {
         state.withLock { state in

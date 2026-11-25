@@ -9,9 +9,11 @@
 //! streamed copy instead is `{"ok":false,"code":CODE,"why":TEXT}`, exit 1
 //! ([`plan::FallbackCode`]). Bad usage exits 64.
 
+pub(crate) mod carry;
 mod git;
 // The per-workspace remote of a folder with no remote (RFD 0066 piece 7).
 mod github;
+pub(crate) mod lfs;
 pub(crate) mod plan;
 mod secrets;
 #[cfg(test)]
