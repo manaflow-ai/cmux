@@ -2,7 +2,7 @@ public import CmuxNextDesign
 import CmuxNextCompat
 public import Foundation
 
-/// One theme file (`appearance.themeFile`, `~/.config/cmux/themes/<name>.json`) read as a look: a
+/// One theme file (`appearance.themeFile`, `~/.config/cmux-next/themes/<name>.json`) read as a look: a
 /// partial overlay of the look settings, applied over cmux-next.json and under managed values. The
 /// file is JSONC in cmux-next.json's own shape, nested (`{"appearance": {"accent": "blue"}}`) or
 /// dotted at the top (`{"appearance.accent": "blue"}`), so a block copies between the two. Each value

@@ -1727,6 +1727,13 @@ export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[], inOr
   });
 }
 
+/// Work that is a compaction's note and nothing else (the person's steers after it aside): a
+/// /compact the person steered into.
+export const onlyCompaction = (rows: readonly AcpmuxRow[]) => {
+  const own = rows.filter((row) => row.kind !== "user");
+  return own.length > 0 && own.every((row) => row.kind === "compaction");
+};
+
 /// The calls `rows` made, as a fold's line counts them.
 const callsIn = (rows: readonly AcpmuxRow[]) =>
   rows
@@ -2208,11 +2215,17 @@ function shapeTurn(
     // Only with no reply of its own: a reply's turn folds a subagent's end under its Worked for, as a
     // call (Leo, 2026-11-24: "we can indeed treat them as tool calls").
     const lone = said === undefined && subagentsOnly(work, shown);
+    // A stretch before a steer whose only work was compacting the conversation draws no "Worked
+    // for" of its own: its note stays in place, and the turn's one fold is the work after the steer
+    // (Leo, 2026-11-25: "the worked for for collapsing the compaction and then the next worked for
+    // + thinking is weird. layout shifts and awkward looking animations").
+    const compactOnly = !final && said === undefined && onlyCompaction(work);
     const unlabeled =
-      previous === undefined &&
-      messages.sent + messages.received === 0 &&
-      ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
-        ((durationMs === undefined || durationMs < 1000) && lone));
+      compactOnly ||
+      (previous === undefined &&
+        messages.sent + messages.received === 0 &&
+        ((durationMs === undefined && !toolCount && callsIn(work) === 0) ||
+          ((durationMs === undefined || durationMs < 1000) && lone)));
     if ((work.length && !dialogue && !unlabeled) || promptOnly) {
       if (!promptOnly) folded = style.conclusion;
     } else if (lone) {
@@ -3423,7 +3436,36 @@ function shapeLiveRows(
     ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
   };
   if (folds) header.foldOpen = workOpen;
+  // A /compact the person steered into: the stretch before the steer is the compaction alone, which
+  // the ended turn draws with no fold (`compactOnly`, shapedTurn), so the line stands under the
+  // steer, where that turn's one "Worked for" lands, one row from the start: it never stands over
+  // the compaction's note and then moves below the steer at the end (Leo, 2026-11-25: "the worked
+  // for for collapsing the compaction and then the next worked for + thinking is weird").
+  const steer = compactedSteer(drawn);
+  if (steer) {
+    const below = shaped.findIndex((row) => row.id === steer.id);
+    if (below >= 0) {
+      header.id = `${WORKED}-${steer.id}`;
+      header.at = steer.at + clockOffset;
+      delete header.durationMs;
+      return [...shaped.slice(0, below + 1), header, ...shaped.slice(below + 1)];
+    }
+  }
   return [header, ...shaped];
+}
+
+/// The person's last steer into the running turn when everything before it is a compaction's note
+/// and the person's steers: its "Working for" goes under it (``shapeLiveRows``).
+function compactedSteer(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
+  let steer: AcpmuxRow | undefined;
+  let compacted = false;
+  for (const row of drawn) {
+    if (row.kind === "compaction") compacted = true;
+    else if (personCameIn(row)) steer = row;
+    else if (row.kind === STARTED_SESSIONS) continue;
+    else return compacted ? steer : undefined;
+  }
+  return compacted ? steer : undefined;
 }
 
 /// Whether the running turn draws its "Working for" over its work (`shapeLiveRows`). Only once the
@@ -3549,7 +3591,18 @@ function codexLiveTurn(
   // "Working for" over the turn (with steers it stood above all of them, far from the line; Leo,
   // 2026-10-21). Between steps it reads "Thinking 18s", timed from the prompt.
   const line: AcpmuxRow = { id: LIVE_THINKING, version: 1, at, kind: THINKING, below: true, verbKey: user.id };
-  if (!last) return [...rows, line];
+  // A /compact (typed, a Compact button's, the cache timer's) compacts from its send: the line reads
+  // "Compacting conversation" from the first frame, never "Thinking" until the harness's own
+  // compaction row comes (Leo, 2026-11-25: "the compaction starting from idle should not go from
+  // thinking to idle potentially. just the compacting conversation to start with so it skips the
+  // unnecesssary animation").
+  if (!last) {
+    if (compactPrompt(user)) {
+      line.liveState = "compacting";
+      line.doingAt = sentTime(user, clockOffset) + clockOffset;
+    }
+    return [...rows, line];
+  }
   const compactingRow = named ? undefined : liveCompaction(drawn);
   if (named) {
     const call = named.tool;
@@ -3672,6 +3725,11 @@ function liveCompaction(drawn: readonly AcpmuxRow[]): AcpmuxRow | undefined {
   }
   return undefined;
 }
+
+/// A prompt that is the harness's /compact, with or without its instructions ("/compact keep the
+/// plan"): its turn compacts first. ``isCacheCompaction``'s timer sends the same text.
+export const compactPrompt = (row: AcpmuxRow) =>
+  row.kind === "user" && !row.incoming && !row.received && /^\/compact(?:\s|$)/.test((row.text ?? "").trimStart());
 
 /// The person's own prompt (typed here or on another of their devices), not another agent's
 /// message, a task's result or harness bookkeeping.
