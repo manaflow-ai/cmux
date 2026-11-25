@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45627322887",
+  "recorded_at": "2026-11-25T14:02:11Z",
+  "reason": "image inputs changed in fa051a52f3e4d0e122f947848e5abb9947a6faaa..144b8776da4dcc6707765267c57c1c8b44269d5a",
+  "dry_run": false,
+  "cmux_tui": "67d01201b152cf703af3a9adab5bba27544acf99",
+  "fixes": [
+    {
+      "sha": "144b8776da4dcc6707765267c57c1c8b44269d5a",
+      "mergedAt": "2026-11-25T13:48:12Z",
+      "subject": "Cloud VM bake: tmp-no-writer names its leftovers (fuser takes no --) (#56583)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-25T14:02:11Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
