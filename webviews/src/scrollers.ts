@@ -68,6 +68,18 @@ const SHOWN_NEAR_INK = 55;
 /// Reduce Motion and animations off, so 0 stays 0): the pane's 180 ms move is 240 ms, the motion
 /// scale's longest step, so the thumb is seen to fade (Leo 2026-10-29).
 const FADE_OUT_STRETCH = 4 / 3;
+/// Under Reduce Motion the host zeroes only its move step and keeps its crossfades (theme.ts
+/// applyAgentTheme): a fade out then runs this many fade-in steps (120 ms in: 240 ms out), so the
+/// thumb still fades instead of vanishing. With animations off the fade in is 0 too, and so is this.
+const REDUCED_FADE_OUT_STEPS = 2;
+
+/** The fade out's duration in ms (`--cmux-scroller-fade-out`, stretched), or under Reduce Motion
+    the crossfade's (`REDUCED_FADE_OUT_STEPS` of `--cmux-scroller-fade-in`). */
+function fadeOutMs(element: Element): number {
+  const out = durationMs(element, "--cmux-scroller-fade-out");
+  if (out > 0) return out * FADE_OUT_STRETCH;
+  return durationMs(element, "--cmux-scroller-fade-in") * REDUCED_FADE_OUT_STEPS;
+}
 
 /**
  * The custom properties a scroller's thumb is drawn from: its ink (`property`, percent) in full and
@@ -177,9 +189,7 @@ export function followShownScrollerFade(
     const from = drawn;
     // In when the ink rises (at the same ink, when the thumb widens), else out.
     const rising = to.ink !== from.ink ? to.ink > from.ink : to.near > from.near;
-    const ms = rising
-      ? durationMs(element, "--cmux-scroller-fade-in")
-      : durationMs(element, "--cmux-scroller-fade-out") * FADE_OUT_STRETCH;
+    const ms = rising ? durationMs(element, "--cmux-scroller-fade-in") : fadeOutMs(element);
     view.cancelAnimationFrame(frame);
     if (ms <= 0) return settle();
     // The fade's clock is the frames' own: a frame's time can run on a clock other than

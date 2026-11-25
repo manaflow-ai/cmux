@@ -2408,9 +2408,10 @@ pre.cv-math-source {
   overflow-anchor: none;
   /* Its scrollbar stays shown (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE); under the opt-in fade it
      paces with the pane's other fades, the host's durations after ui.animationSpeed and Reduce
-     Motion (0 with animations off). */
-  --cmux-scroller-fade-in: var(--agent-motion-in, 120ms);
-  --cmux-scroller-fade-out: var(--agent-motion-move, 180ms);
+     Motion (0 with animations off), as the root holds them: the chat's minimal motion under load
+     leaves the thumb's fade alone (composerStates.css --agent-motion-in-root). */
+  --cmux-scroller-fade-in: var(--agent-motion-in-root, 120ms);
+  --cmux-scroller-fade-out: var(--agent-motion-move-root, 180ms);
 }
 /* Where Session Info lies over the chat, the transcript leaves its box out (session-info/chatCut.ts):
    nothing scrolls behind its glass, so it never flickers under a scroll (Leo, 2026-11-03). Only the
