@@ -1101,6 +1101,20 @@ class WebUiTests(unittest.TestCase):
                          "a chat bench that gave nothing marks the report incomplete")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no launch.relaunch.warm.chat_live_ms"]}))
 
+    def test_the_relaunch_part_times_the_chat_seen_from_the_first_frame(self):
+        """Leo 2026-11-24, Restart to Update: "the agent pane blanked". The chat's transcript (its saved picture or its
+        rows) is on screen in the window's first frame, or the row is over its budget."""
+        rw = self.relaunch_wake()
+        reconnect = {"rounds": [
+            {"mode": "update", "phases": {"first window frame": 900.0}, "seen": {"(c) chat rows": 8.0}},
+            {"mode": "update", "phases": {"first window frame": 900.0}, "seen": {"(c) chat rows": 1700.0}},
+            {"mode": "warm", "phases": {"first window frame": 450.0}, "seen": {"(c) chat rows": None}}]}
+        rows = {r["name"]: r for r in rw.reconnect_rows(reconnect)}
+        self.assertEqual(rows["launch.relaunch.update.chat_seen_ms"]["p95"], 1700.0)
+        self.assertEqual(rows["launch.relaunch.update.chat_seen_ms"]["budget"], 50)
+        self.assertNotIn("launch.relaunch.warm.chat_seen_ms", rows, "no value, no row")
+        self.assertTrue(cron.over_target("launch.relaunch.update.chat_seen_ms@h", rows["launch.relaunch.update.chat_seen_ms"], 8.33))
+
     def test_the_wake_part_owns_its_proxy_rows(self):
         """A measure Mac can't sleep in a step: the wake rows are a freeze proxy and say so in their name."""
         rw = self.relaunch_wake()
@@ -3669,6 +3683,17 @@ class NoHostTipTests(OneRunRule):
         self.assertEqual(cur["parts"]["web-ui-flat"]["state"], "failed")
         cron.record_part(cur, "web-ui-flat-grown", {"state": "failed", "worker": LINUX, "tail": ["bench: exit 1"]}, "r")
         self.assertEqual(cur["parts_todo"], [], "a failure of the bench itself is not retried")
+
+    def test_a_sim_chrome_devtools_setup_failure_runs_once_more(self):
+        cur = cron.new_measurement(self.NEW, "tip", ["web-ui-ladder", "web-ui-fidelity"], T0)
+        no_devtools = {"state": "failed", "worker": LINUX, "tail": [
+            "sim-ladder: Chrome printed no DevTools endpoint: unprivileged user namespaces with AppArmor"
+        ]}
+        cron.record_part(cur, "web-ui-ladder", no_devtools, "r")
+        self.assertIn("web-ui-ladder", cur["parts_todo"], "a Chrome setup failure is retried once")
+        self.assertIn("Chrome printed no DevTools endpoint", cur["parts"]["web-ui-ladder"]["setup_retried"])
+        cron.record_part(cur, "web-ui-ladder", no_devtools, "r")
+        self.assertNotIn("web-ui-ladder", cur["parts_todo"], "a second Chrome setup failure ends it")
 
 
 class PendingAndBuildingTests(unittest.TestCase):
