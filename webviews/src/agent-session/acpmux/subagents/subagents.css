@@ -1710,7 +1710,7 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agent-line__latest.is-code,
 .acpmux-agent-line__latest-inline.is-code {
-  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 .acpmux-agent-line__via {
   margin-left: var(--ds-space-2);
@@ -2421,7 +2421,7 @@ button.cv-subagent > :last-child {
   font-variant-numeric: tabular-nums;
 }
 .acpmux-running-tray__head > .acpmux-running-tray__latest.is-code {
-  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
 }
 .acpmux-running-tray__head[data-lone] > .acpmux-running-tray__time {
   flex: none;

@@ -3473,7 +3473,7 @@ body {
   min-width: 0;
   overflow: hidden;
   color: var(--cv-text-muted);
-  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: inherit;
@@ -5044,7 +5044,7 @@ button.cv-video-frames__frame:focus-visible {
 .cv-bgtask__raw-command {
   min-width: 0;
   overflow: hidden;
-  font-family: var(--cv-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-family: var(--cv-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: inherit;

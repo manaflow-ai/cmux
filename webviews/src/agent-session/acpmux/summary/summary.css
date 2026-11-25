@@ -162,7 +162,7 @@
 .acpmux-summary-task[data-state=stopped]>.acpmux-summary-row>svg,.acpmux-summary-task[data-state=lost]>.acpmux-summary-row>svg{color:var(--agent-muted)}
 .acpmux-summary-task__body{display:flex;min-width:0;flex-direction:column;align-items:flex-start;line-height:16px}
 .acpmux-summary-task__description,.acpmux-summary-task__command{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-summary-task__command{color:var(--agent-muted);font-family:var(--cv-font-mono,ui-monospace,monospace);font-size:var(--text-detail)}
+.acpmux-summary-task__command{color:var(--agent-muted);font-family:var(--cv-mono,ui-monospace,monospace);font-size:var(--text-detail)}
 .acpmux-summary-finished{display:flex;align-items:center;gap:var(--ds-space-2)}
 /* Experimental workflow summary (WorkflowSummary.tsx): Labs-only and absent until acpmux sends a
    typed workflow record. The detail keeps phases and the selected agents in two quiet columns. */
