@@ -40,9 +40,15 @@ BUILDER_SCRIPT = "cmux-next-ios/scripts/testflight-build.sh"
 FAILURE_BACKOFF_START = dt.timedelta(minutes=30)
 FAILURE_BACKOFF_MAX = dt.timedelta(hours=6)
 # At most one upload per MIN_UPLOAD_GAP, counted from the newest successful or in-flight build's dispatch. Every
-# upload mails App Store Connect's notices to the team (2026-11-22: eight cmux INTERNAL uploads in five hours, each
-# an ITMS-90725 email). A person's dispatch (force) skips the gap.
-MIN_UPLOAD_GAP = dt.timedelta(hours=3)
+# upload mailed the team an ITMS-90725 email while builds used the iOS 26 SDK (2026-11-22: eight in five hours), so
+# the gap was 3 h. The archive and the signer now pin Xcode 27 (that warning is gone), and the 3 h gap alone held
+# every iPhone fix up to 3 h before its build began (2026-11-25: 8c8416506ba1 uploaded 20:09Z, the next head waited
+# until 22:04Z; merge to TestFlight p50 7.9 h over 299 iOS commits since 11-24). Leo, 2026-11-25: "Why are these
+# iPhone builds still so slow and unverified?" The goal is merge to INTERNAL within about 1 h, so the gap is under
+# one build (dispatch to upload about 40 to 65 min): a head merged during a build is dispatched once the build is
+# MIN_UPLOAD_GAP old and waits in the concurrency group, starting the moment the build ends. A person's dispatch
+# (force) skips the gap.
+MIN_UPLOAD_GAP = dt.timedelta(minutes=30)
 # iPhone YOLO builds (scripts/ci/ios_internal_yolo.py): feat-cmux-next plus a named list of PRs, stacked on a branch
 # under this prefix and built by the same builder. The plan tells them from nightlies by that branch's tip.
 YOLO_PREFIX = "ios-yolo/"
