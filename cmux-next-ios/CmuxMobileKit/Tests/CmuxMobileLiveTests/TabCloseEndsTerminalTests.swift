@@ -46,9 +46,11 @@ import Testing
     ]}
     """#
 
-    nonisolated static func daemon(_ seen: Requests, refusingCloseTabs: Bool = false) -> MockMacLink {
+    /// `roundTrip`: how long the mock Mac takes to answer each write (one link round trip).
+    nonisolated static func daemon(_ seen: Requests, refusingCloseTabs: Bool = false, roundTrip: TimeInterval = 0) -> MockMacLink {
         MockMacLink { _, data in
-            data.split(separator: 0x0A).map { request -> Data in
+            if roundTrip > 0 { Thread.sleep(forTimeInterval: roundTrip) }
+            return data.split(separator: 0x0A).map { request -> Data in
                 let object = try! JSONSerialization.jsonObject(with: Data(request)) as! [String: Any]
                 seen.append(object)
                 let id = object["id"] as! String
@@ -73,13 +75,13 @@ import Testing
         }
     }
 
-    func connected(_ seen: Requests, refusingCloseTabs: Bool = false) async throws -> (LiveWorkspaceCreationBackend, WorkspaceSync) {
+    func connected(_ seen: Requests, refusingCloseTabs: Bool = false, roundTrip: TimeInterval = 0) async throws -> (LiveWorkspaceCreationBackend, WorkspaceSync) {
         let controller = LinkController(transport: .wireGuard, dialer: MockDialer(fail: false), accessToken: { _ in "t" })
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
         for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
         let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
-        await sync.bind(try await Self.daemon(seen, refusingCloseTabs: refusingCloseTabs).openChannel(service: "daemon", args: [:]), macID: "m")
+        await sync.bind(try await Self.daemon(seen, refusingCloseTabs: refusingCloseTabs, roundTrip: roundTrip).openChannel(service: "daemon", args: [:]), macID: "m")
         return (LiveWorkspaceCreationBackend(sync: sync, link: controller), sync)
     }
 

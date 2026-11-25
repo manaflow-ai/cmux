@@ -48,7 +48,7 @@ public enum PhoneTrace {
         let start = Recorder.now()
         defer {
             var fields: [String: Any] = args
-            fields["round_trips"] = count.value
+            fields["round_trips"] = count.finish()
             if let floorRoundTrips { fields["floor_round_trips"] = floorRoundTrips }
             recorder?.record(name: name, category: "action", start: start, traceID: id, args: fields)
         }
@@ -67,12 +67,17 @@ public enum PhoneTrace {
         sink.record(name: name, category: "daemon", start: start, traceID: traceID, args: args)
     }
 
-    /// One action's round-trip count, shared by the requests it makes concurrently.
+    /// One action's round-trip count, shared by the requests it makes concurrently. A request
+    /// that ends after the action (work the action left running, such as the tree reload after a
+    /// close: a `Task` inherits the task locals) is still a span but not one the action waited for.
     final class TripCount: @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0
+        private var finished = false
         var value: Int { lock.withLock { count } }
-        func add() { lock.withLock { count += 1 } }
+        func add() { lock.withLock { if !finished { count += 1 } } }
+        /// Ends the count and returns it.
+        func finish() -> Int { lock.withLock { finished = true; return count } }
     }
 
     /// Writes one JSON event per finished span. Perfetto reads the array without its closing `]`,
@@ -81,12 +86,15 @@ public enum PhoneTrace {
         private let lock = NSLock()
         private let handle: FileHandle
         private let pid = Int(ProcessInfo.processInfo.processIdentifier)
+        /// The trace file.
+        public let path: String
 
         public init?(path: String) {
             guard FileManager.default.createFile(atPath: path, contents: Data("[\n".utf8)),
                   let handle = FileHandle(forWritingAtPath: path) else { return nil }
             handle.seekToEndOfFile()
             self.handle = handle
+            self.path = path
         }
 
         /// Now, in wall-clock microseconds since 1970 (the events' `ts`).
