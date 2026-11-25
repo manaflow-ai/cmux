@@ -188,15 +188,6 @@ export function FolderPopover({
       ),
     [cloudFolders, typed],
   );
-  const sections = useMemo(() => {
-    const headings = new Map<string, string>();
-    let previousPeer: string | undefined;
-    for (const [value, folder] of cloudRows) {
-      if (folder.peer !== previousPeer) headings.set(value, folder.machine);
-      previousPeer = folder.peer;
-    }
-    return headings;
-  }, [cloudRows]);
   // Actions stay under the folders; the arrows reach them after the last folder.
   // The two actions under the list: Add project… and No folder (always there; checked while nothing is
   // picked and no new project is the choice).
@@ -218,6 +209,19 @@ export function FolderPopover({
     () => (keptNow ? keptRows(keptNow, rowBlocks, current) : rowBlocks.flatMap((block) => block.rows)),
     [keptNow, rowBlocks, current],
   );
+  // Each machine's heading is on its first folder as the list shows it: the kept order, not the live one, so a folder
+  // that arrives first for its machine while the menu is open never takes the heading off the rows shown.
+  const sections = useMemo(() => {
+    const headings = new Map<string, string>();
+    let previousPeer: string | undefined;
+    for (const value of listValues) {
+      const folder = cloudRows.get(value);
+      if (!folder) continue;
+      if (folder.peer !== previousPeer) headings.set(value, folder.machine);
+      previousPeer = folder.peer;
+    }
+    return headings;
+  }, [cloudRows, listValues]);
   // A heading under other rows opens with a hairline; the list's first row has the field's line over it.
   const dividerOf = (value: string) => (sections.has(value) && value !== listValues[0] ? "" : undefined);
   const suggestions = [...pinned, ...listValues];
@@ -711,8 +715,9 @@ function shownRows(blocks: readonly RowBlock[], folds: unknown): ShownRows {
 /// The list as `kept` showed it, while the menu stays open with nothing typed (cmux#53226: rows moved under the
 /// pointer as chats, folders and repositories arrived or re-sorted, and the menu grows up from its chip, so even a row
 /// added at the end moved every row above it). Each block keeps its place and its rows, found by its folders, so a
-/// repository whose details arrive late is the same block. A block that arrives later waits for the next open, except
-/// the current folder's (listed after the kept ones); a block that went away leaves.
+/// repository whose details arrive late is the same block, and its lead row is always the live one (a main checkout
+/// that arrives under listed worktrees leads it, with its disclosure). A block that arrives later waits for the next
+/// open, except the current folder's (listed after the kept ones); a block that went away leaves.
 export function keptRows(kept: ShownRows, blocks: readonly RowBlock[], current: string | undefined): string[] {
   const placed: { at: number; rows: string[] }[] = [];
   const late: string[] = [];
@@ -726,8 +731,7 @@ export function keptRows(kept: ShownRows, blocks: readonly RowBlock[], current: 
       if (current !== undefined && block.ids.includes(current)) late.push(...block.rows);
       return;
     }
-    const rows = block.rows.filter((row) => kept.rows.has(row));
-    placed.push({ at, rows: rows.length ? rows : block.rows.slice(0, 1) });
+    placed.push({ at, rows: block.rows.filter((row, index) => index === 0 || kept.rows.has(row)) });
   });
   placed.sort((left, right) => left.at - right.at);
   return [...placed.flatMap((block) => block.rows), ...late];

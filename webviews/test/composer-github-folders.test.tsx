@@ -1551,6 +1551,100 @@ test("the kept rows survive late repository details and late worktrees, and the 
   }
 });
 
+test("an opened repository whose main checkout arrives while the menu is open is led by it, with its disclosure (cmux#53226)", async () => {
+  const gh = host({ "github.status": status("not_connected") });
+  type Choice = { cwd: string; label: string; repo?: { root: string; name: string; branch?: string } };
+  const API = "/Users/me/src/api";
+  const worktree = (name: string): Choice => ({
+    cwd: `/Users/me/.cmux/worktrees/api/${name}`,
+    label: `worktrees/${name}`,
+    repo: { name: "api", root: API, branch: name },
+  });
+  let setChoices: (choices: Choice[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [choices, set] = useState<Choice[]>([{ cwd: FOLDER, label: "app" }, worktree("blue"), worktree("green")]);
+    setChoices = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={choices}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        onNewWorktree={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "persistent", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    await press(doc().querySelector<HTMLButtonElement>("button[aria-label^='Show']")!);
+    expect(doc().querySelector("button[aria-label='Hide worktrees']")).not.toBeNull();
+    // api's main checkout arrives: it leads the repository's rows, which keep their disclosure.
+    await act(async () =>
+      setChoices([
+        { cwd: FOLDER, label: "app" },
+        { cwd: API, label: "api", repo: { name: "api", root: API, branch: "main" } },
+        worktree("blue"),
+        worktree("green"),
+      ]),
+    );
+    await settle();
+    // Before: the main checkout's row was left out (it was not shown at first paint), and the repository's
+    // disclosure with it, until the menu opened again.
+    expect(option("api")).toBeDefined();
+    expect(doc().querySelector("button[aria-label='Hide worktrees']")).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a Cloud machine's heading stays on its first shown folder when a folder arrives ahead of it while open (cmux#53226)", async () => {
+  const gh = host({ "github.status": status("not_connected") });
+  const north = (id: string, cwd: string) => ({ id, peer: "peer-north", host: "North", hostKind: "cloud", cwd });
+  let setSessions: (sessions: unknown[]) => void = () => {};
+  function Tray() {
+    const github = useGitHubPicker(gh.store);
+    const [sessions, set] = useState<unknown[]>([north("1", "/home/cmux/work/api")]);
+    setSessions = set;
+    return (
+      <ComposerContext
+        summary={{ sessionId: "", cwd: FOLDER }}
+        projectChoices={[{ cwd: FOLDER, label: "app" }]}
+        sessions={sessions as never}
+        peers={["peer-north"]}
+        peerKinds={{ "peer-north": "cloud" }}
+        peerConnected={{ "peer-north": true }}
+        onProject={() => {}}
+        onNoProject={() => {}}
+        localName="This Mac"
+        runMode={{ mode: "cloud", onMode: () => {} }}
+        github={github}
+      />
+    );
+  }
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  await act(async () => root.render(<Tray />));
+  try {
+    await openFolderMenu();
+    const headings = () =>
+      [...doc().querySelectorAll<HTMLElement>(".ui-combobox-scroll [role=option] [data-section]")].map(
+        (row) => row.dataset.section,
+      );
+    expect(headings()).toEqual(["North"]);
+    await act(async () => setSessions([north("2", "/home/cmux/work/web"), north("1", "/home/cmux/work/api")]));
+    await settle();
+    // Before: the heading moved to the new folder, which waits for the next open, so North lost its heading.
+    expect(headings()).toEqual(["North"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("the folder chip draws GitHub's mark only for a repository picked as one, never for a folder of this Mac (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   const chipIcon = () =>
