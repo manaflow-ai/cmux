@@ -574,6 +574,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-felt"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-follow-cam"
 version = "0.1.0"
 dependencies = [
@@ -676,6 +683,7 @@ dependencies = [
  "cmux-rd-link",
  "cmux-rd-proto",
  "cmux-share-approval",
+ "cmux-tab-snapshots",
  "cmux-terminal-prediction",
  "cmux-terminal-projection",
  "cmux-window-rules",
@@ -814,6 +822,9 @@ dependencies = [
 [[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
+dependencies = [
+ "cmux-felt",
+]
 
 [[package]]
 name = "cmux-terminal-projection"
