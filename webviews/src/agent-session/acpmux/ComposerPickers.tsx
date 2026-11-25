@@ -1323,7 +1323,7 @@ export function ComposerPickers({
     (snapshot.catalog.length > 0 || Boolean(harness) || Boolean(pickerCatalog?.harnesses.length && !harnessesListed));
   const chips = (
     <div className="acpmux-chips">
-      {claudeConnect.dialog}
+      {claudeConnect.card}
       {picksModel ? (
         <ModelPicker
           catalog={pickerEntries}

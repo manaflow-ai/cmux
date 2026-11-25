@@ -11,7 +11,8 @@ import CmuxNextWakeups
 /// is kept, the stack's order and the rule that the higher entry that is on wins, so the card and
 /// the CLI never differ, and this type keeps no state.
 ///
-/// `list` only reads, so the page may ask for it; `on`, `off`, `order` and `remove` rewrite the
+/// `list` and `standup` (one line per entry, to read out at standup) only read, so the page may ask
+/// for them; `on`, `off`, `order` and `remove` rewrite the
 /// person's settings and files, so they run only on the person's click or key in the page
 /// (`context.userGesture`, the host's record) or a call they approved, as Agent integrations'
 /// installs do: a page script alone gets `cmux.app.user_only`.
@@ -22,7 +23,7 @@ import CmuxNextWakeups
 /// (cmux-customize `checklist.rs`); `has` names the connections the page already holds. It only reads.
 ///
 /// The customize doctor (cmux-customize `library/doctor.rs`, Settings' doctor card) rides the same
-/// op: `doctor` reads `cmux --json customize doctor`; `doctor-fix` {id, fix: off|remove|restore|follow-default},
+/// op: `doctor` reads `cmux --json customize doctor`; `doctor-fix` {id, fix: off|remove|restore},
 /// `doctor-dismiss` {id} and `doctor-recover` run its `fix`, `dismiss` and `recover` verbs;
 /// `doctor-open` {id} reads the report
 /// and opens the finding's `path` (a folder revealed in Finder, a file in its default app), the
@@ -139,16 +140,16 @@ public final class SettingsCustomizeLibrary: PageProvider {
             return doctor
         case "doctor-fix":
             let id = try findingID()
-            guard let fix = params["fix"]?.stringValue, ["off", "remove", "restore", "follow-default"].contains(fix) else {
-                throw PageError.invalidParams("fix is off, remove, restore or follow-default")
+            guard let fix = params["fix"]?.stringValue, ["off", "remove", "restore"].contains(fix) else {
+                throw PageError.invalidParams("fix is off, remove or restore")
             }
             return doctor + ["fix", id, fix]
         case "doctor-dismiss":
             return doctor + ["dismiss", try findingID()]
         case "doctor-recover":
             return doctor + ["recover"]
-        case "list":
-            return base + ["list"]
+        case "list", "standup":
+            return base + [verb]
         case "reset":
             // Every entry off (`cmux customize library reset`), the palette's Reset Customization Library.
             return base + ["reset"]
@@ -162,7 +163,7 @@ public final class SettingsCustomizeLibrary: PageProvider {
             }
             return base + [verb, name, position]
         default:
-            throw PageError.invalidParams("verb is list, on, off, order, remove, reset, doctor, doctor-fix, doctor-dismiss, doctor-open or doctor-recover")
+            throw PageError.invalidParams("verb is list, standup, on, off, order, remove, reset, doctor, doctor-fix, doctor-dismiss, doctor-open or doctor-recover")
         }
     }
 

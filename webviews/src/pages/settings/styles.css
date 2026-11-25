@@ -383,6 +383,22 @@ mark {
   padding-top: var(--ds-space-2);
 }
 
+/* A Remote machine's AutoCloud capabilities (Mac, Xcode, Simulator, GPU), under its policy line. */
+.autocloud-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+  padding-top: var(--ds-space-1);
+}
+
+.autocloud-cap {
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
 .row-label {
   flex: 1;
   min-width: 0;
@@ -2553,7 +2569,7 @@ button.menu-disclosure {
   inset-inline-end: 0;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 1;
+  z-index: var(--layer-raised);
   display: inline-flex;
   opacity: 0;
   transition: var(--cmux-hover-reveal-out-transition);
@@ -3990,6 +4006,48 @@ button.menu-disclosure {
 .customize-progress__ring-fill {
   stroke: var(--ds-color-accent);
   stroke-linecap: round;
+}
+
+/* Add a Connection > Claude Code's Paste a token instead: a collapsed disclosure in the help line's
+   type under Connect Claude, the paste form inside it once opened. */
+.models-claude-paste > summary {
+  width: fit-content;
+  cursor: pointer;
+}
+.models-claude-paste[open] > summary {
+  margin-bottom: 8px;
+}
+
+/* Settings > General's Replay the Intro card (ReplayIntroCard), right under Text Size: a line and a button that
+   reopens the Make cmux Yours step. */
+.replay-intro-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  padding: var(--ds-space-3);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--ds-radius-control) + var(--ds-space-3));
+}
+
+.replay-intro-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+
+.replay-intro-card__text .group-title {
+  margin: 0;
+}
+
+.replay-intro-card__detail {
+  margin: 0;
+  color: var(--muted-text);
+}
+
+.replay-intro-card__run {
+  flex: none;
 }
 
 /* A card's slot: no box of its own, so a deep link can find any card without changing the layout. */

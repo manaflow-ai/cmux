@@ -62,7 +62,7 @@ from workflow_paths_cover_inputs import (  # noqa: E402
 # no test file): scripts/ci/tooling-step-inputs.json. A change to it runs every step, as a change to this router does.
 DECLARED = "scripts/ci/tooling-step-inputs.json"
 ROUTER_FILES = ("scripts/ci/tooling_steps.py", "scripts/ci/workflow_paths_cover_inputs.py",
-                "scripts/ci/gh_expressions.py", DECLARED)
+                "scripts/ci/gh_expressions.py", "scripts/ci/tooling_reuse.py", DECLARED)
 SETUP_ID = "setup-"
 # Imports no repository file can satisfy: what the job pip-installs (PyYAML, pytest) and Pillow. Any other import the
 # walker cannot resolve may be a repository module it missed, so the step runs.
@@ -818,6 +818,9 @@ def main(argv: list[str] | None = None) -> int:
         started = time.monotonic()
         results = run_steps(steps, args.jobs, environ)
         write_run_summary(results, time.monotonic() - started, args.summary, sys.stdout)
+        if args.github_output:  # each step's own outcome is skipped now: tooling_reuse.py record reads these
+            with args.github_output.open("a", encoding="utf-8") as stream:
+                stream.write("passed= " + " ".join(r.step.key for r in results if r.code == 0) + " \n")
         return 1 if any(r.code for r in results) else 0
     if args.command == "verify":
         problems = verify(Path(args.root), args.workflow, args.job, args.step)
