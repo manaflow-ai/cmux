@@ -127,8 +127,8 @@ await requireBrowserLane("background-tasks-drill-perf.test.ts", async () => {
     const old = await sample(
       before,
       ".acpmux-running-tray .acpmux-agent-line__button:not(:disabled)",
-      ".cv-subagent-of",
-      ".cv-subagent-of__pill",
+      ".acpmux-view-corner",
+      ".cv-subagent-corner__close",
     );
     await before.close();
     const page = await open("alone");

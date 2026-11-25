@@ -1,0 +1,24 @@
+{
+ "title": "Home swipe-to-reply (user 2026-11-20: \"using two fingers to swipe on home chief imessage messages fails to reply it\"): two-finger trackpad swipes on the newest Chief bubble of the Home fixture, played in real time through the app's event dispatch (debug.home.drive swipe), each recorded as a display video (displayRecord, a whole capture mini): a partial swipe that springs back, a full swipe that opens the reply, a slow full swipe, then a diagonal scroll that must stay a scroll. thread_state after each records what it did. Record with: cmux-ci capture SHA --state scripts/cmux-next/media/states/home-swipe-reply-motion.json --mac",
+ "launch_args": ["--skip-onboarding"],
+ "steps": [
+  {"title": "Launch", "wait": 3, "shot": false},
+  {"title": "Motion on, whatever the host's Reduce Motion says", "rpc": {"method": "debug.motion", "params": {"action": "reduce", "value": false}}, "wait": 0.5, "shot": false},
+  {"title": "A fixed window size", "rpc": {"method": "debug.window_frame", "params": {"frame": [160, 85, 1100, 820]}}, "wait": 0.3, "shot": false},
+  {"title": "The Home chat over the fixture's Chief history", "rpc": {"method": "debug.home_native_fixture.open", "params": {}}, "wait": 3},
+  {"title": "Partial swipe: 40 pt in 0.3 s, held 0.3 s (springs back, no reply)", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe", "dx": "40", "duration": "0.3", "hold": "0.3"}}, "record": true, "wait": 1.6, "shot": false, "displayRecord": true},
+  {"title": "After the partial swipe: no thread", "rpc": {"method": "debug.home.drive", "params": {"action": "thread_state"}}, "record": true, "wait": 0.2, "shot": false},
+  {"title": "Its events, as the swipe took or left them", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe_trail"}}, "record": true, "wait": 0.1, "shot": false},
+  {"title": "Full swipe: 160 pt in 0.35 s (opens the reply)", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe", "dx": "160", "duration": "0.35"}}, "record": true, "wait": 1.8, "shot": false, "displayRecord": true},
+  {"title": "After the full swipe: the reply is open", "rpc": {"method": "debug.home.drive", "params": {"action": "thread_state"}}, "record": true, "wait": 0.2},
+  {"title": "Its events, as the swipe took or left them", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe_trail"}}, "record": true, "wait": 0.1, "shot": false},
+  {"title": "Esc", "rpc": {"method": "debug.home.drive", "params": {"action": "escape"}}, "record": true, "wait": 1, "shot": false},
+  {"title": "Slow full swipe: 120 pt in 0.9 s, held 0.4 s", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe", "dx": "120", "duration": "0.9", "hold": "0.4"}}, "record": true, "wait": 2.6, "shot": false, "displayRecord": true},
+  {"title": "After the slow swipe: the reply is open", "rpc": {"method": "debug.home.drive", "params": {"action": "thread_state"}}, "record": true, "wait": 0.2, "shot": false},
+  {"title": "Its events, as the swipe took or left them", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe_trail"}}, "record": true, "wait": 0.1, "shot": false},
+  {"title": "Esc again", "rpc": {"method": "debug.home.drive", "params": {"action": "escape"}}, "record": true, "wait": 1, "shot": false},
+  {"title": "Diagonal scroll on the bubble: 100 pt right, 90 pt down in 0.4 s (stays a scroll: the transcript moves, no reply)", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe", "dx": "100", "dy": "90", "duration": "0.4"}}, "record": true, "wait": 1.6, "shot": false, "displayRecord": true},
+  {"title": "After the diagonal scroll: no thread", "rpc": {"method": "debug.home.drive", "params": {"action": "thread_state"}}, "record": true, "wait": 0.2},
+  {"title": "Its events, as the swipe took or left them", "rpc": {"method": "debug.home.drive", "params": {"action": "swipe_trail"}}, "record": true, "wait": 0.1, "shot": false}
+ ]
+}

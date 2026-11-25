@@ -5,6 +5,7 @@
 // was known for the model. Beside the cost: what cache reads saved and how much of the input they
 // were, and a CSV of the rows shown, for an audit or a spreadsheet. Save writes the same range and
 // grouping to a file, as that CSV or as JSON (`ledgerJson`), every row the read returned.
+import { intl } from "../../../ui/intl";
 
 export const LEDGER_METHOD = "_acpmux/ledger";
 
@@ -278,7 +279,7 @@ function sessionDetail(row: LedgerSession): { detail?: string } {
 /// Money, in the page's language: cents always, and a positive amount under a cent says so
 /// instead of reading as nothing.
 export function formatCost(usd: number, locale?: string): string {
-  const format = new Intl.NumberFormat(locale, {
+  const format = intl.NumberFormat(locale, {
     style: "currency",
     currency: "USD",
     minimumFractionDigits: 2,
@@ -290,7 +291,7 @@ export function formatCost(usd: number, locale?: string): string {
 
 /// A token or call count, short (1.2K, 3.4M).
 export function formatCount(n: number, locale?: string): string {
-  return new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(n);
+  return intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }).format(n);
 }
 
 /// Agent time as hours and minutes, in the page's language.
@@ -298,7 +299,7 @@ export function formatDuration(ms: number, locale?: string): string {
   const minutes = Math.round(ms / 60_000);
   const hours = Math.floor(minutes / 60);
   const unit = (value: number, kind: "hour" | "minute") =>
-    new Intl.NumberFormat(locale, { style: "unit", unit: kind, unitDisplay: "narrow" }).format(value);
+    intl.NumberFormat(locale, { style: "unit", unit: kind, unitDisplay: "narrow" }).format(value);
   if (hours === 0) return unit(minutes, "minute");
   const rest = minutes % 60;
   return rest === 0 ? unit(hours, "hour") : `${unit(hours, "hour")} ${unit(rest, "minute")}`;
@@ -308,9 +309,9 @@ export function formatDuration(ms: number, locale?: string): string {
 export function groupLabel(group: LedgerGroup, line: LedgerLine, locale?: string): string {
   if (group !== "day" || !/^\d{4}-\d{2}-\d{2}$/.test(line.key)) return line.label;
   const date = new Date(`${line.key}T12:00:00Z`);
-  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", weekday: "short", timeZone: "UTC" }).format(
-    date,
-  );
+  return intl
+    .DateTimeFormat(locale, { month: "short", day: "numeric", weekday: "short", timeZone: "UTC" })
+    .format(date);
 }
 
 /// The CSV columns after the group and its label, as acpmux names them (`acpmux ledger --csv`).

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Session launcher",
+  "version": "1.0.0",
+  "description": "Create a terminal tab or a workspace on a connected host.",
+  "engines": {
+    "cmux": "^2.0"
+  },
+  "runtime": {
+    "main": "main.js"
+  },
+  "implements": {
+    "cmux.newtab/1": {
+      "export": "renderLauncher",
+      "title": "New Tab",
+      "symbol": "plus"
+    }
+  },
+  "scopes": {
+    "actions:run": "Open a terminal or a workspace on the machine you choose."
+  },
+  "activation": [
+    "onInterface:cmux.newtab/1"
+  ],
+  "files": [
+    "main.js"
+  ]
+}

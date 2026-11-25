@@ -1,0 +1,110 @@
+{
+  "family": "feed",
+  "ops": {
+    "feed.adopt": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "ef04c93422b98c6e"
+    },
+    "feed.adopt.cancel": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "731c14911f642b7f"
+    },
+    "feed.answer": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "7f23f8fcba54a340"
+    },
+    "feed.archive": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "cb2ccd49c94f52d9"
+    },
+    "feed.cancel": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "ef7aca43f36bf6f1"
+    },
+    "feed.counts": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "ea91014bf000e5bc"
+    },
+    "feed.get": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "24098b0e800bc54b"
+    },
+    "feed.kinds": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "2cfee70d2fa335b9"
+    },
+    "feed.list": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "read",
+      "risk": "read",
+      "digest": "d30ccbe3e9399cb3"
+    },
+    "feed.post": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "a71470b4a2b3aafa"
+    },
+    "feed.prefs.set": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "169004a663a76e40"
+    },
+    "feed.read": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "8a2ee16d89b3822b"
+    },
+    "feed.seen": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "17a252de0c70610b"
+    },
+    "feed.snooze": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "17ad7efd694b8c0d"
+    },
+    "feed.unarchive": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "91fa6fd14cca7c97"
+    }
+  }
+}

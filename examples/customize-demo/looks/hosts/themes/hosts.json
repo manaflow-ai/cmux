@@ -5,7 +5,7 @@
   "description": "Near-black chrome, rounded panes beside a quiet sidebar, a mint accent.",
 
   "appearance.theme": "Builtin Dark",
-  "colors": { "background": "#0b0c0e", "foreground": "#e4e6eb", "selection": "#23272e", "cursor": "#7ee2b8", "accent": "#5fd4a4" },
+  "colors": { "background": "#0b0c0e", "foreground": "#e4e6eb", "selection": "#71757c", "cursor": "#7ee2b8", "accent": "#5fd4a4" },
   "appearance.accent": "theme",
 
   "appearance.background": "none",
@@ -22,5 +22,11 @@
   "appearance.statusIndicator.style": "arc",
 
   "appearance.density": "comfortable",
-  "ui.animationSpeed": "fast"
+  "ui.animationSpeed": "fast",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): an operations console: a wide 320 pt sidebar with tall computer headers and big status dots, 8 pt corners, gooey flush tabs into the panes, the top right buttons always shown, Session Info over the terminal.
+  "density": { "basedOn": "comfortable", "tokens": {"tabCornerRadius": 8, "verticalTabCornerRadius": 8, "sidebarCornerRadius": 8, "itemCornerRadius": 6, "sidebarWidth": 320, "sidebarRowHeight": 30, "sidebarHeaderHeight": 30, "sidebarStatusDot": 9, "sidebarRowGap": 2, "tabGap": 3, "browserRowHeight": 28 } },
+  "appearance.cornerFlush": "flush-goo",
+  "window.titlebarButtons": "always",
+  "agentPane.display.sessionInfo.placement": "overlay"
 }

@@ -31,7 +31,8 @@ extension UpdaterService {
         switchesBuilds ? nil : UpdaterStrings.channelsSwitchUnavailable
     }
 
-    /// The nightly track's recent builds, newest first, from the files the feed already publishes.
+    /// The nightly track's recent builds, newest first: every build the appcast offers (the one the
+    /// updater installs from), plus older ones the notes index lists, with the notes' titles.
     public func recentBuilds(limit: Int = 10) async -> [RecentBuild] {
         let tracks = await channelTracks(limit: limit)
         let builds = tracks.first(where: { $0.ring == .nightly && !$0.builds.isEmpty })?.builds

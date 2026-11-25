@@ -289,7 +289,9 @@ public struct DaemonTree: Sendable {
             workspace.isHome = isHome
             workspace.hasCustomTitle = (ws["title"] as? String).map { !$0.isEmpty && $0 != ws["name"] as? String } ?? false
             workspace.isPinned = legacyPinned.contains(key)
-            workspace.layout = layoutScreens.isEmpty ? nil : WorkspaceLayout(screens: layoutScreens)
+            // An empty layout is still a successful Mac list. Keeping the empty value lets a
+            // relaunch distinguish "the Mac has no panes" from "the Mac has never answered".
+            workspace.layout = WorkspaceLayout(screens: layoutScreens)
             workspace.screens = screens
             if isHome { home.append(workspace) } else { result.append(workspace) }
         }

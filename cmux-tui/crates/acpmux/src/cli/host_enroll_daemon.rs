@@ -153,36 +153,30 @@ pub(super) fn daemon(
     (sandbox(r, result, bwrap.into_inner().as_deref(), fix), port)
 }
 
-/// Installs bubblewrap where sudo needs no password, then checks it makes a sandbox.
-const SANDBOX_INSTALL: &str = "sudo -n apt-get install -y bubblewrap >/dev/null 2>&1 && /usr/bin/bwrap --unshare-user --unshare-net --disable-userns --ro-bind / / true";
-
 /// The daemon step with the host's sandbox (`bwrap`, [`PROBE_BWRAP`]): a Linux
 /// host that cannot make one refuses every session another machine starts
 /// there, so a passing step warns with the fix; `fix` installs a missing
-/// bubblewrap when sudo needs no password. A failed step stays as it is.
+/// bubblewrap as root or when sudo needs no password. A failed step stays as it is.
 fn sandbox(r: &dyn Remote, result: StepResult, bwrap: Option<&str>, fix: bool) -> StepResult {
     let passed = matches!(result.state, StepState::Ok | StepState::Fixed | StepState::Warn);
     let Some(state) = bwrap.filter(|s| passed && *s != "ok") else { return result };
-    if fix && state == "missing" && hosts::run(r, SANDBOX_INSTALL).is_ok() {
+    if fix
+        && state == "missing"
+        && hosts::run(r, &super::super::host_sandbox::install_script()).is_ok()
+    {
         let detail = format!(
             "{}; installed bubblewrap, so sessions from other machines run sandboxed here",
             result.detail
         );
         return StepResult { state: StepState::Fixed, detail, ..result };
     }
-    let why = if state == "missing" {
-        "bwrap is not installed"
-    } else {
-        "bwrap is installed but cannot make a sandbox (older than 0.9, or user namespaces are off)"
-    };
-    let detail = format!(
-        "{}; {why}: sessions another machine starts here are refused until it works",
-        result.detail
-    );
-    let fix = format!(
-        "On {} run `sudo apt-get install -y bubblewrap` (--fix does it when sudo needs no password).",
-        r.host()
-    );
+    let detail = format!("{}; {}", result.detail, super::super::host_sandbox::detail(state));
+    let command = r
+        .exec(&super::super::host_sandbox::fix_script(), None)
+        .ok()
+        .filter(|out| out.ok)
+        .map(|out| out.stdout);
+    let fix = format!("On {}: {}", r.host(), super::super::host_sandbox::fix(command.as_deref()));
     StepResult { state: StepState::Warn, detail, fix: Some(fix), ..result }
 }
 

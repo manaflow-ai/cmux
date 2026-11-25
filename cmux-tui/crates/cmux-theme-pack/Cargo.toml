@@ -1,0 +1,20 @@
+[package]
+name = "cmux-theme-pack"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "cmux-next theme packs: a folder (cmux-pack.json and its assets) read, checked per key against the capabilities it declares, and compiled to a theme file the app already reloads live; swap, undo, redo and live edit across a whole pack."
+
+[lints]
+workspace = true
+
+[dependencies]
+cmux-config.workspace = true
+cmux-file-lock.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

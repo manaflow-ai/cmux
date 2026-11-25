@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 public import Foundation
 
 /// The web engine that shows a page.
@@ -15,11 +16,16 @@ public struct PageHostMessage {
     public var isMainFrame: Bool
     /// The envelope, JSON-compatible.
     public var body: Any
+    /// The envelope as a ``JSONValue`` when the engine bridge made it off the main actor (Chromium parses
+    /// each binding call off it); nil when the main actor converts ``body`` (a WebKit message is a
+    /// non-Sendable object graph that only the main actor may read).
+    public var json: JSONValue?
 
-    public init(frameURL: URL?, isMainFrame: Bool, body: Any) {
+    public init(frameURL: URL?, isMainFrame: Bool, body: Any, json: JSONValue? = nil) {
         self.frameURL = frameURL
         self.isMainFrame = isMainFrame
         self.body = body
+        self.json = json
     }
 }
 

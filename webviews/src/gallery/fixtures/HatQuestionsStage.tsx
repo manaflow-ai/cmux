@@ -67,6 +67,34 @@ export const CHILD_QUESTION: HatQuestion = {
   typed: true,
 };
 
+/// The ask Leo could not read (2026-11-11): a coordinator's [irreversible] deploy ask whose head and
+/// line under the question were cut mid-word. More opens all of it.
+export const LONG_ASK: HatQuestion = {
+  id: "acpmux:perm-deploy",
+  source: "child",
+  sessionId: "coord",
+  who: "From claude-sr2-coord: coord-deputy needs a decision before the nightly promote window closes",
+  about: "Production deploy",
+  prompt:
+    "[irreversible] Promote tonight's nightly to everyone now? It carries the session store migration, which rewrites every saved chat on first launch and cannot be rolled back once a machine has run it.",
+  detail:
+    "The canary group ran it for six hours with no crash reports; two machines took about forty seconds on first launch while the store was rewritten.",
+  answers: [
+    { id: "Promote now", label: "Promote now" },
+    { id: "Wait for the morning", label: "Wait for the morning", recommended: true },
+  ],
+  typed: true,
+};
+
+/// The same ask, short enough to show whole: no More.
+export const SHORT_ASK: HatQuestion = {
+  ...LONG_ASK,
+  id: "acpmux:perm-deploy-short",
+  who: "coord-deputy",
+  prompt: "[irreversible] Promote tonight's nightly now?",
+  detail: "The canary ran it for six hours.",
+};
+
 export function HatQuestionsStage({
   count = 3,
   look,
@@ -75,7 +103,10 @@ export function HatQuestionsStage({
   refuse = false,
   dismissLook,
   first,
+  ask,
 }: {
+  /// One deploy ask: long (its head and tail cut until More) or short (shown whole).
+  ask?: "long" | "short";
   count?: number;
   look?: "band" | "line" | "chip";
   /// Leo's case: one started chat's question, answered in the hat.
@@ -88,6 +119,7 @@ export function HatQuestionsStage({
   first?: "child";
 }) {
   const start = (): readonly HatQuestion[] => {
+    if (ask) return [ask === "long" ? LONG_ASK : SHORT_ASK];
     if (child) return [CHILD_QUESTION];
     const some = STAGE_QUESTIONS.slice(0, count);
     return first === "child"

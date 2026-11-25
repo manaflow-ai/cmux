@@ -38,6 +38,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp  # noqa: E402
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -133,6 +134,24 @@ def panes(workspace):
     return [p for s in (workspace or {}).get("screens") or [] for p in s.get("panes") or [] if not p.get("dock")]
 
 
+def agent_pages():
+    """The agent pages Chromium lists on the DevTools port (needs --cdp-port)."""
+    import urllib.request
+    targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{opts.cdp_port}/json", timeout=10))
+    return [t for t in targets if t.get("type") == "page" and "cmux.agent" in t.get("url", "")]
+
+
+def settle_pages(what):
+    """Until the workspaces' tabs (and, with --cdp-port, Chromium's agent pages) stop changing."""
+    def read():
+        tabs = sorted((t.get("id") or "", t.get("kind") or "") for w in workspaces() for p in panes(w) for t in p.get("tabs") or [])
+        return tabs, (len(agent_pages()) if opts.cdp_port else None)
+    try:
+        wait_stable(read, what, timeout=60, interval=0.25, reads=4)
+    except StateWaitTimeout as error:
+        print(f"note: {error}; going on", flush=True)
+
+
 def open_chats(count):
     """`count` agent chats, each in a new workspace's pane (palette.newAgentChat aimed at the pane, no focus), as a
     person with many chats open has; returns how many showed up as conversation tabs."""
@@ -152,11 +171,12 @@ def open_chats(count):
     return opened
 
 
-def field_text():
-    """The New Tab field's text (`.nt-field`), as the page shows it."""
+def field_length():
+    """The New Tab field's whole text length: the query's `length` past 120 characters, else its text's."""
     field = page("query", selector=".nt-field [contenteditable='true']")
     elements = field.get("elements") or [] if isinstance(field, dict) else []
-    return "".join(str(e.get("text", "")) for e in elements if isinstance(e, dict))
+    return sum(int(e["length"]) if isinstance(e.get("length"), (int, float)) else len(str(e.get("text", "")))
+               for e in elements if isinstance(e, dict))
 
 
 def type_text(text, gap):
@@ -179,7 +199,11 @@ try:
                 wait(lambda: len(workspaces()) >= have + index + 1, 60)
         results["workspaces"] = len(wait(lambda: (lambda w: w if len(w) >= have + opts.workspaces else None)(workspaces()), 120) or workspaces())
         print(f"workspaces: {results['workspaces']} in {time.monotonic() - start:.0f} s", flush=True)
-        time.sleep(3.0)  # the new workspaces' terminals start (harness, not app code)
+        # The new workspaces' terminals started: no terminal tab still has its pending id.
+        if not wait_until(lambda: not any(str(t.get("id") or "").startswith("pending_") for w in workspaces() for p in panes(w)
+                                          for t in p.get("tabs") or [] if t.get("kind") == "terminal"),
+                          "every new workspace's terminal started", timeout=120, interval=0.5, raise_on_timeout=False):
+            print("note: some terminals still pending after 120 s; going on", flush=True)
     if opts.placeholder_workspaces:
         start = time.monotonic()
         have = len(workspaces())
@@ -226,21 +250,17 @@ try:
             rpc("action.run", {"action": "newTab.page", "args": {}, "focus": False, "origin": "script",
                                "target": f"pane:{panes(ws)[0]['id']}"})
             made += 1
-        time.sleep(3.0)  # the pages load (harness, not app code)
+        settle_pages("the new tab pages")
         if opts.cdp_port:
-            import urllib.request
-            targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{opts.cdp_port}/json", timeout=10))
-            results["agent_pages"] = len([t for t in targets if t.get("type") == "page" and "cmux.agent" in t.get("url", "")])
+            results["agent_pages"] = len(agent_pages())
         results["new_tabs"] = made
         print(f"new tab pages opened: {made}; agent pages in Chromium: {results.get('agent_pages')}", flush=True)
     if opts.chats:
         results["chats"] = open_chats(opts.chats)
         print(f"chats open: {results['chats']} of {opts.chats}", flush=True)
-        time.sleep(3.0)  # the chat pages' first renders (harness, not app code)
+        settle_pages("the chat pages")
         if opts.cdp_port:
-            import urllib.request
-            targets = json.load(urllib.request.urlopen(f"http://127.0.0.1:{opts.cdp_port}/json", timeout=10))
-            pages = [t for t in targets if t.get("type") == "page" and "cmux.agent" in t.get("url", "")]
+            pages = agent_pages()
             results["agent_pages"] = len(pages)
             renderers = subprocess.run(["pgrep", "-f", "--", "--type=renderer"], capture_output=True, text=True).stdout.split()
             print(f"agent pages in Chromium: {len(pages)}; renderer processes on the host: {len(renderers)}", flush=True)
@@ -267,11 +287,11 @@ try:
         # `composer_focused` reads the chat composer (`.acpmux-composer`), which a New Tab page does not have: the
         # check is whether a typed probe key lands in the New Tab field (`.nt-field`), then is deleted.
         def caret():
-            before = field_text()
+            before = field_length()
             key("z")
-            landed = wait(lambda: field_text() != before, 2, step=0.1)
+            landed = wait(lambda: field_length() != before, 2, step=0.1)
             key("delete")
-            wait(lambda: field_text() == before, 2, step=0.1)
+            wait(lambda: field_length() == before, 2, step=0.1)
             if landed:
                 return True
             page("click", selector=".nt-field [contenteditable='true']")
@@ -286,7 +306,7 @@ try:
         if not opts.no_marks:
             page("reset_typing")
         rpc("debug.hangs", {"clear": True})
-        before_keys = field_text()
+        before_keys = field_length()
         profiler = None
         if opts.cdp_port and opts.trace:
             node = os.environ.get("NODE") or shutil.which("node") or "node"
@@ -319,10 +339,9 @@ try:
             print(text, flush=True)
         stats = {} if opts.no_marks else page("typing_stats")
         # The measured keys typed into the field (else to_paint is not a key's text paint).
-        after_keys = field_text()
-        # The page's query reads 120 characters of an element's text (PageWebView+DebugProbe.swift): past
-        # that a draft's growth cannot be read there, and the page's own key count stands for it.
-        stats["typed_chars"] = len(after_keys) - len(before_keys) if len(before_keys) < 120 else None
+        # The page's query cuts an element's text at 120 characters and answers the whole `length` past that
+        # (PageWebView+DebugProbe.swift), so a long draft's growth is read too: a lost key reads short.
+        stats["typed_chars"] = field_length() - before_keys
         hangs = rpc("debug.hangs", {"limit": 20}) or {}
         stats["hangs"] = {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "max_gap_ms")}
         stats["long_hangs"] = [r for r in (hangs.get("records") or []) if isinstance(r, dict) and (r.get("duration_ms") or 0) >= 250]
@@ -337,7 +356,7 @@ try:
             f"draft {length:4d}: keys {stats.get('keys')} to_paint p50 {paint.get('p50_ms')} p95 {paint.get('p95_ms')} "
             f"max {paint.get('max_ms')} | to_listener p50 {listener.get('p50_ms')} p95 {listener.get('p95_ms')} | "
             f"to_work p50 {work.get('p50_ms')} p95 {work.get('p95_ms')} | to_submitted p50 {sub.get('p50_ms')} p95 {sub.get('p95_ms')} | "
-            f"typed {stats['typed_chars'] if stats['typed_chars'] is not None else 'unread (draft past 120 characters)'} of {opts.keys} | hangs {stats['hangs']} long {len(stats['long_hangs'])} | native posts {stats['native_posts']}",
+            f"typed {stats['typed_chars']} of {opts.keys} | hangs {stats['hangs']} long {len(stats['long_hangs'])} | native posts {stats['native_posts']}",
             flush=True,
         )
         for _ in range(typed["n"] + 2):

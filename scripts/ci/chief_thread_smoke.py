@@ -17,8 +17,7 @@ Exit 0: every shown thread met the spec. 1: a thread broke it (the violations ar
 "chief_thread"), or the app crashed or never rendered Home. 3: it could not run (no
 GUI session, no accessibility trust for the dumper, no thread container on any surface: a fresh home's
 first-run panel instead of a transcript). Run it yourself on a candidate build before you ship a
-Chief, Home or transcript change (Lawrence, 2026-10-23: "not to add gates/tests in CI, but you have to
-run them yourself").
+Chief, Home or transcript change (docs/cmux-next/code-rules.md: CI is in addition to your own run, never instead of it).
 """
 from __future__ import annotations
 

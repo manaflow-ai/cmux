@@ -17,15 +17,22 @@ largest process of 10.9 GB. So scripts/ci/cmux-tui-mac-cargo-builds.sh reads hw.
 time and runs them at once only at 40 GiB or more (the 48 GB minis), else one after another as
 before.
 
+At once also needs cores: a 48 GB mini admitted with 3 (CMUX_CI_CPU_BUDGET=3, CARGO_BUILD_JOBS=3)
+ran the six groups at once in 2h01m (run 44947539922), cmux-tui-core and acpmux compiling in both
+heavy groups' target directories over 3 time-sliced cores. So the script runs them at once only with
+a CPU budget of 8 or more (CMUX_CI_CPU_BUDGET, else hw.ncpu), else one after another in one target
+directory, where the heavy builds share what they build alike.
+
 This runs each Mac build step's own script with a fake cargo that takes SLEEP seconds per call
-and a fake sysctl that reports FAKE_MEMSIZE, and checks that:
-- with 48 GiB the step takes about one call's time, not the sum of six (the groups run at once);
-- with 16 GiB, or when sysctl cannot say, no two cargo calls overlap (one after another);
+and a fake sysctl that reports FAKE_MEMSIZE and FAKE_NCPU, and checks that:
+- with 48 GiB and 8 or more cores the step takes about one call's time, not the sum of six (the groups run at once);
+- with 16 GiB, under 8 cores (CMUX_CI_CPU_BUDGET first, else hw.ncpu), or when sysctl cannot
+  say, no two cargo calls overlap (one after another) and all build in one target directory;
 - every binary and its .dSYM (CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO=packed) ends in
   target/<triple>/release, where "Stage binary" and the dSYM upload read them;
 - acpmux is staged from acpmux-standalone, with the shipping features for the target.
 
-lane = "manual" (no new CI tests, Lawrence 2026-10-23).
+lane = "manual" (no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18).
 Run: python3 tests/test_ci_cmux_tui_mac_legs_cargo_groups.py
 """
 
@@ -53,9 +60,15 @@ BINARIES = ("cmux-tui", "cmux-tui-hook", "cmux-tui-host", "cmux-holder", "cmux-a
             "cmux-relay", "chatmux-relay", "acpmux-standalone")
 
 FAKE_SYSCTL = r"""#!/usr/bin/env bash
-# Fake sysctl: `sysctl -n hw.memsize` prints FAKE_MEMSIZE; an empty FAKE_MEMSIZE fails as on Linux.
-[[ "$*" == "-n hw.memsize" && -n "${FAKE_MEMSIZE:-}" ]] || { echo "sysctl: unknown oid '$*'" >&2; exit 1; }
-echo "$FAKE_MEMSIZE"
+# Fake sysctl: `sysctl -n hw.memsize` prints FAKE_MEMSIZE and `sysctl -n hw.ncpu` FAKE_NCPU; an
+# empty value fails as on Linux.
+case "$*" in
+  "-n hw.memsize") v=${FAKE_MEMSIZE:-} ;;
+  "-n hw.ncpu") v=${FAKE_NCPU:-} ;;
+  *) v="" ;;
+esac
+[[ -n "$v" ]] || { echo "sysctl: unknown oid '$*'" >&2; exit 1; }
+echo "$v"
 """
 GIB = 1024 ** 3
 
@@ -133,7 +146,8 @@ def expected_features(root: Path, triple: str) -> str:
 
 class MacLegsRunCargoAtOnce(unittest.TestCase):
     def run_step(self, name: str, triple: str, memsize: int | None = 48 * GIB,
-                 sleep: float = SLEEP) -> tuple[float, Path, str, str]:
+                 sleep: float = SLEEP, ncpu: int | None = 12,
+                 budget: str | None = None) -> tuple[float, Path, str, str]:
         script = str(step(name)["run"]).replace("${{ matrix.build_target }}", triple)
         self.assertNotIn("${{", script, "the step reads an expression this test does not fill")
         tmp = Path(tempfile.mkdtemp(prefix="mac-legs-"))
@@ -156,11 +170,15 @@ class MacLegsRunCargoAtOnce(unittest.TestCase):
             "PACKAGE_NPM": "false",
             "FAKE_CARGO_SLEEP": str(sleep),
             "FAKE_MEMSIZE": "" if memsize is None else str(memsize),
+            "FAKE_NCPU": "" if ncpu is None else str(ncpu),
             "FAKE_CARGO_LOG": str(log),
         })
         env.pop("CARGO_TARGET_DIR", None)
         env.pop("CARGO_BUILD_JOBS", None)
         env.pop("GITHUB_ACTIONS", None)
+        env.pop("CMUX_CI_CPU_BUDGET", None)
+        if budget is not None:
+            env["CMUX_CI_CPU_BUDGET"] = budget
         started = time.monotonic()
         done = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
                               cwd=root / "cmux-tui", env=env, capture_output=True, text=True)
@@ -168,9 +186,13 @@ class MacLegsRunCargoAtOnce(unittest.TestCase):
         self.assertEqual(done.returncode, 0, f"{name} failed:\n{done.stdout}\n{done.stderr}")
         return took, root / "cmux-tui" / "target" / triple / "release", log.read_text(), expected_features(root, triple)
 
-    def check(self, name: str, triple: str, memsize: int | None = 48 * GIB) -> None:
-        concurrent = memsize is not None and memsize >= 40 * GIB
-        took, release, log, features = self.run_step(name, triple, memsize, SLEEP if concurrent else 0.2)
+    def check(self, name: str, triple: str, memsize: int | None = 48 * GIB, ncpu: int | None = 12,
+              budget: str | None = None) -> None:
+        valid_budget = budget is not None and budget.isdigit() and int(budget) > 0
+        cpus = int(budget) if valid_budget else (ncpu or 0)
+        concurrent = memsize is not None and memsize >= 40 * GIB and cpus >= 8
+        took, release, log, features = self.run_step(name, triple, memsize, SLEEP if concurrent else 0.2,
+                                                     ncpu, budget)
         self.assertEqual(log.count(" start"), CALLS, log)
         if concurrent:
             # One after another this is CALLS * SLEEP (12 s); at once about SLEEP plus the setup.
@@ -185,8 +207,13 @@ class MacLegsRunCargoAtOnce(unittest.TestCase):
                 running += 1 if kind == "start" else -1
                 peak = max(peak, running)
             mem = "no hw.memsize" if memsize is None else f"hw.memsize {memsize}"
+            mem += f", {cpus} cores"
             self.assertEqual(peak, 1, f"{name} ran {peak} cargo builds at once with {mem}: a 16 GB mini "
-                             "runs out of memory that way (scripts/ci/cmux-tui-mac-cargo-builds.sh)\n" + log)
+                             "runs out of memory that way, and 3 cores took 2h01m (run 44947539922) "
+                             "(scripts/ci/cmux-tui-mac-cargo-builds.sh)\n" + log)
+            groups = release.parent.parent / "groups"
+            self.assertFalse(groups.exists(), f"{name} built in per-group target dirs ({groups}) one after "
+                             "another: the heavy builds then compile cmux-tui-core and acpmux twice")
         for b in BINARIES:
             self.assertTrue((release / b).is_file(), f"{name}: no {b} in {release}")
             self.assertTrue((release / f"{b}.dSYM" / "Contents" / "Resources" / "DWARF" / b).is_file(),
@@ -216,6 +243,28 @@ class MacLegsRunCargoAtOnce(unittest.TestCase):
 
     def test_native_leg_without_hw_memsize_runs_its_cargo_builds_one_after_another(self) -> None:
         self.check("Build cmux-tui (native)", "aarch64-apple-darwin", None)
+
+    def test_native_leg_with_a_cpu_budget_of_3_runs_its_cargo_builds_one_after_another(self) -> None:
+        # Run 44947539922: 48 GiB, CMUX_CI_CPU_BUDGET=3, at once took 2h01m.
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", 48 * GIB, budget="3")
+
+    def test_mac_cross_leg_with_a_cpu_budget_of_3_runs_its_cargo_builds_one_after_another(self) -> None:
+        self.check("Build cmux-tui (macOS cross)", "x86_64-apple-darwin", 48 * GIB, budget="3")
+
+    def test_native_leg_with_a_cpu_budget_of_8_runs_its_cargo_builds_at_once(self) -> None:
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", 48 * GIB, ncpu=4, budget="8")
+
+    def test_native_leg_with_a_cpu_budget_of_7_runs_its_cargo_builds_one_after_another(self) -> None:
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", 48 * GIB, ncpu=14, budget="7")
+
+    def test_native_leg_without_a_budget_on_4_cores_runs_its_cargo_builds_one_after_another(self) -> None:
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", 48 * GIB, ncpu=4)
+
+    def test_native_leg_with_a_bad_budget_falls_back_to_hw_ncpu(self) -> None:
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", 48 * GIB, ncpu=12, budget="0")
+
+    def test_native_leg_without_hw_ncpu_runs_its_cargo_builds_one_after_another(self) -> None:
+        self.check("Build cmux-tui (native)", "aarch64-apple-darwin", 48 * GIB, ncpu=None)
 
 
 if __name__ == "__main__":

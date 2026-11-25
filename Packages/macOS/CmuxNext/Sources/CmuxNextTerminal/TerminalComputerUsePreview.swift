@@ -7,7 +7,11 @@ import ImageIO
 /// card (webviews `ComputerUsePreviewCard.tsx`): while the agent running in this terminal drives an
 /// app, a live view of that app's window at the pane's top-trailing corner, the agent's cursor
 /// drawn where it acts; when its Computer Use ends, the last frame dims under a green check.
-/// A click on the card enlarges it (and back); the close button hides it for that session.
+/// A click on the card enlarges it (and back); a drag moves it anywhere inside the pane; the
+/// full-size button makes it fill the pane; the close button hides it to a "Show Preview" chip
+/// that brings it back (Leo, 2026-11-22, asking for "the ability to drag it around and" hide it).
+/// Where it sits, its size and whether it is hidden are the daemon's, per session (each card
+/// carries them); the card keeps the person's own move until a card echoes it.
 ///
 /// It only draws: what to show, when, and for which agent is cmux Computer Use's (the worker's
 /// preview hub, routed by the App), and a frame's JPEG is decoded off the main thread.
@@ -22,14 +26,21 @@ public final class TerminalComputerUsePreview: NSView {
         /// The agent's cursor as a fraction of the window (0...1 from the top left), and its clicks.
         public var pointer: CGPoint?
         public var clicks: Int
+        /// Where the daemon keeps the card; nil from a daemon that keeps none.
+        public var place: Place?
+        /// The person hid the card: it shows as the chip.
+        public var hidden: Bool
 
-        public init(session: String, app: String, done: Bool, frame: String, pointer: CGPoint? = nil, clicks: Int = 0) {
+        public init(session: String, app: String, done: Bool, frame: String, pointer: CGPoint? = nil, clicks: Int = 0,
+                    place: Place? = nil, hidden: Bool = false) {
             self.session = session
             self.app = app
             self.done = done
             self.frame = frame
             self.pointer = pointer
             self.clicks = clicks
+            self.place = place
+            self.hidden = hidden
         }
 
         /// The card of a preview line's `card` object; nil for none or a malformed one.
@@ -43,8 +54,46 @@ public final class TerminalComputerUsePreview: NSView {
                 pointer = CGPoint(x: x, y: y)
                 clicks = (p["click"] as? NSNumber)?.intValue ?? 0
             }
+            var place: Place?
+            if let p = json["place"] as? [String: Any], let x = (p["x"] as? NSNumber)?.doubleValue,
+               let y = (p["y"] as? NSNumber)?.doubleValue {
+                place = Place(x: x, y: y, size: (p["size"] as? String).flatMap(Size.init(rawValue:)) ?? .small)
+            }
             self.init(session: session, app: json["app"] as? String ?? "", done: json["done"] as? Bool ?? false,
-                      frame: frame, pointer: pointer, clicks: clicks)
+                      frame: frame, pointer: pointer, clicks: clicks, place: place, hidden: json["hidden"] as? Bool ?? false)
+        }
+    }
+
+    /// The card's size: small, enlarged, or filling the pane.
+    public enum Size: String, Equatable, Sendable {
+        case small, large, full
+    }
+
+    /// Where the card sits: fractions of the room the pane leaves around it (`x` 0 at the leading
+    /// edge, 1 at the trailing; `y` 0 at the top, 1 at the bottom), and its size.
+    public struct Place: Equatable, Sendable {
+        public var x: Double
+        public var y: Double
+        public var size: Size
+
+        /// The top-trailing corner, small: where the card sat before it could move.
+        public init(x: Double = 1, y: Double = 0, size: Size = .small) {
+            self.x = min(1, max(0, x))
+            self.y = min(1, max(0, y))
+            self.size = size
+        }
+    }
+
+    /// The person's change to the card (a nil keeps its value).
+    public struct Move: Equatable, Sendable {
+        public var x: Double?
+        public var y: Double?
+        public var size: Size?
+
+        public init(x: Double? = nil, y: Double? = nil, size: Size? = nil) {
+            self.x = x
+            self.y = y
+            self.size = size
         }
     }
 
@@ -57,13 +106,51 @@ public final class TerminalComputerUsePreview: NSView {
     public static let expandedWidth: CGFloat = 560
     public static let expandedFraction: CGFloat = 0.6
 
+    /// A press that moves less than this is a click (enlarge), more a drag.
+    static let dragSlop: CGFloat = 4
+
     /// The person closed it: the App hides this session's card from now on.
     public var onClose: (@MainActor (_ session: String) -> Void)?
+    /// The person brought the hidden card back (the chip).
+    public var onShow: (@MainActor (_ session: String) -> Void)?
+    /// The person dragged or resized the card.
+    public var onMove: (@MainActor (_ session: String, _ move: Move) -> Void)?
     /// The card shown, nil while none.
     public private(set) var card: Card?
-    public private(set) var expanded = false
+    /// Where the card sits: the daemon's place, with the person's move over it until echoed.
+    public private(set) var place = Place()
+    /// The person's move not yet echoed by a card.
+    private var pending: Move?
+    /// The person hid the card and no card said so yet (an old daemon never will).
+    private var hiddenHere = false
+    /// Dragging, full size and the "Show Preview" chip (Settings > Advanced > Labs > Show Preview
+    /// Features, off by default). Off, the card is the top right card a click enlarges and the close
+    /// button hides for the session; a place or hidden flag the daemon keeps is not drawn.
+    public var movable = false {
+        didSet {
+            guard oldValue != movable else { return }
+            sizeChanged()
+            layoutContents()
+            if gone { isHidden = true } else if isHidden, frameLayer.contents != nil || collapsed { isHidden = false }
+        }
+    }
+    /// The place drawn: ``place``, or with the controls off the top right at small or large.
+    private var drawn: Place { movable ? place : Place(size: place.size == .large ? .large : .small) }
+    public var expanded: Bool { drawn.size == .large }
+    public var full: Bool { drawn.size == .full }
+    /// The person (or the daemon) hid the card.
+    private var hiddenCard: Bool { card != nil && (hiddenHere || card?.hidden == true) }
+    /// Showing as the "Show Preview" chip.
+    public var collapsed: Bool { movable && hiddenCard }
+    /// Hidden with the controls off: no chip, no card.
+    private var gone: Bool { !movable && hiddenCard }
     /// The width of the pane the card sits in (the host sets it on layout).
     var paneWidth: CGFloat = 800 { didSet { if oldValue != paneWidth { invalidateIntrinsicContentSize() } } }
+    /// Where the card may go in its host: the pane less its margins and the find bar (the host
+    /// sets it on layout).
+    var area: CGRect = CGRect(x: 12, y: 12, width: 776, height: 576) {
+        didSet { if oldValue.size != area.size, full { invalidateIntrinsicContentSize() } }
+    }
 
     private let frameLayer = CALayer()
     private let dim = CALayer()
@@ -71,6 +158,8 @@ public final class TerminalComputerUsePreview: NSView {
     private let badge = CAShapeLayer()
     private let checkmark = CAShapeLayer()
     private let closeButton = NSButton()
+    private let fullButton = NSButton()
+    private let chip = NSButton()
     private var aspect: CGFloat = 0.625
     private var decoding: String?
 
@@ -118,8 +207,27 @@ public final class TerminalComputerUsePreview: NSView {
         closeButton.layer?.cornerRadius = 9 // radius-allow: an 18 pt circle (bezelStyle .circular) floating over the window preview, not a toolbar button
         closeButton.target = self
         closeButton.action = #selector(close)
-        closeButton.setAccessibilityLabel(String(localized: "terminal.computerUsePreview.close", defaultValue: "Hide Preview", bundle: .module))
+        closeButton.setAccessibilityLabel(String(localized: "terminal.computerUsePreview.close", defaultValue: "Hide Preview", bundle: .localizedModule))
         addSubview(closeButton)
+        fullButton.image = NSImage.icon(.viewExpand, size: 10)
+        fullButton.contentTintColor = .white
+        fullButton.bezelStyle = .circular
+        fullButton.isBordered = false
+        fullButton.wantsLayer = true
+        fullButton.layer?.cornerRadius = 9 // radius-allow: the 18 pt circle beside the close button, the same chrome
+        fullButton.target = self
+        fullButton.action = #selector(toggleFull)
+        addSubview(fullButton)
+        chip.title = String(localized: "terminal.computerUsePreview.show", defaultValue: "Show Preview", bundle: .localizedModule)
+        chip.image = NSImage.icon(.computeruseObserve, size: 12)
+        chip.imagePosition = .imageLeading
+        chip.bezelStyle = .rounded
+        chip.controlSize = .small
+        chip.target = self
+        chip.action = #selector(showAgain)
+        chip.isHidden = true
+        addSubview(chip)
+        updateFullLabel()
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         isHidden = true
@@ -136,17 +244,78 @@ public final class TerminalComputerUsePreview: NSView {
         self.card = card
         guard let card else {
             isHidden = true
-            expanded = false
+            place = Place()
+            pending = nil
+            hiddenHere = false
             frameLayer.contents = nil
             decoding = nil
             superview?.needsLayout = true
             return
         }
-        if previous?.session != card.session { expanded = false }
+        let wasCollapsed = movable && previous != nil && (hiddenHere || previous?.hidden == true)
+        let before = place
+        if previous?.session != card.session {
+            place = card.place ?? Place()
+            pending = nil
+            hiddenHere = false
+        } else if let echoed = card.place {
+            if let pending, !Self.echoes(echoed, pending) {
+                // A frame sent before the daemon had the person's move: keep the move.
+            } else {
+                pending = nil
+                place = echoed
+            }
+        }
+        if hiddenHere, card.hidden { hiddenHere = false }
         setAccessibilityLabel(Self.label(card))
         if card.frame != previous?.frame { decode(card.frame) }
-        if previous?.done != card.done || previous?.pointer != card.pointer { layoutContents() }
-        if isHidden, frameLayer.contents != nil { isHidden = false }
+        if place.size != before.size || collapsed != wasCollapsed { sizeChanged() } else if place != before { superview?.needsLayout = true }
+        if previous?.done != card.done || previous?.pointer != card.pointer || collapsed != wasCollapsed { layoutContents() }
+        if gone { isHidden = true } else if isHidden, frameLayer.contents != nil || collapsed { isHidden = false }
+    }
+
+    /// Whether the daemon's `place` has every part of the person's `move`.
+    static func echoes(_ place: Place, _ move: Move) -> Bool {
+        (move.x.map { abs($0 - place.x) < 0.0005 } ?? true) && (move.y.map { abs($0 - place.y) < 0.0005 } ?? true)
+            && (move.size.map { $0 == place.size } ?? true)
+    }
+
+    /// The person's change: drawn now, sent to the App, kept until a card echoes it.
+    func move(_ change: Move) {
+        guard let session = card?.session else { return }
+        let before = place
+        place = Place(x: change.x ?? place.x, y: change.y ?? place.y, size: change.size ?? place.size)
+        pending = Move(x: change.x ?? pending?.x, y: change.y ?? pending?.y, size: change.size ?? pending?.size)
+        if place.size != before.size { sizeChanged() } else { superview?.needsLayout = true }
+        onMove?(session, change)
+    }
+
+    private func sizeChanged() {
+        updateFullLabel()
+        invalidateIntrinsicContentSize()
+        superview?.needsLayout = true
+    }
+
+    private func updateFullLabel() {
+        fullButton.setAccessibilityLabel(full
+            ? String(localized: "terminal.computerUsePreview.exitFullSize", defaultValue: "Exit Full Size", bundle: .localizedModule)
+            : String(localized: "terminal.computerUsePreview.fullSize", defaultValue: "Full Size", bundle: .localizedModule))
+    }
+
+    /// The card's origin in its host for a card of `size`: its place in the room ``area`` leaves.
+    func origin(for size: CGSize) -> CGPoint {
+        let room = CGSize(width: max(0, area.width - size.width), height: max(0, area.height - size.height))
+        // AppKit grows up: y 0 (the top) is the area's top edge.
+        let place = drawn
+        return CGPoint(x: area.minX + CGFloat(place.x) * room.width, y: area.maxY - size.height - CGFloat(place.y) * room.height)
+    }
+
+    /// The place of a card whose origin is `origin`: the inverse of ``origin(for:)``, clamped.
+    func fractions(of origin: CGPoint, size: CGSize) -> (x: Double, y: Double) {
+        let room = CGSize(width: max(0, area.width - size.width), height: max(0, area.height - size.height))
+        let x = room.width > 0 ? (origin.x - area.minX) / room.width : place.x
+        let y = room.height > 0 ? (area.maxY - size.height - origin.y) / room.height : place.y
+        return (min(1, max(0, Double(x))), min(1, max(0, Double(y))))
     }
 
     private func decode(_ url: String) {
@@ -181,6 +350,11 @@ public final class TerminalComputerUsePreview: NSView {
     }
 
     public override var intrinsicContentSize: NSSize {
+        if collapsed { return chip.fittingSize }
+        if full {
+            let width = max(Self.width, min(area.width, area.height / max(aspect, 0.01)))
+            return NSSize(width: width.rounded(), height: (width * aspect).rounded())
+        }
         let width = expanded ? min(Self.expandedWidth, max(Self.width, paneWidth * Self.expandedFraction)) : Self.width
         return NSSize(width: width, height: (width * aspect).rounded())
     }
@@ -193,6 +367,12 @@ public final class TerminalComputerUsePreview: NSView {
     }
 
     private func layoutContents() {
+        let collapsed = collapsed
+        chip.isHidden = !collapsed
+        frameLayer.isHidden = collapsed
+        closeButton.isHidden = collapsed
+        fullButton.isHidden = collapsed || !movable
+        if collapsed { chip.frame = bounds }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         frameLayer.frame = bounds
@@ -211,19 +391,48 @@ public final class TerminalComputerUsePreview: NSView {
         }
         CATransaction.commit()
         closeButton.frame = CGRect(x: 6, y: bounds.height - 24, width: 18, height: 18)
+        fullButton.frame = CGRect(x: 28, y: bounds.height - 24, width: 18, height: 18)
         performWithTheme {
             frameLayer.borderColor = Palette.separator.cgColor
             closeButton.layer?.backgroundColor = Self.closeFill.cgColor
+            fullButton.layer?.backgroundColor = Self.closeFill.cgColor
         }
     }
 
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
-    /// A press on the card enlarges or shrinks it, at once (the pane's window may route the release
-    /// elsewhere), and never reaches the terminal under the card.
+    /// A press on the card that does not move enlarges or shrinks it; one that moves past
+    /// ``dragSlop`` drags the card inside the pane and leaves it there. The press follows its own
+    /// drag and release (the pane's window may route the release elsewhere), never past a few
+    /// seconds of silence, and never reaches the terminal under the card.
     public override func mouseDown(with event: NSEvent) {
-        guard card != nil else { return }
-        toggleExpanded()
+        guard card != nil, !collapsed else { return }
+        guard movable, let window, superview != nil, !full else { return toggleExpanded() }
+        let start = event.locationInWindow
+        let origin = frame.origin
+        var dragged = false
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp], until: Date(timeIntervalSinceNow: 5),
+                                          inMode: .eventTracking, dequeue: true) {
+            let delta = CGPoint(x: next.locationInWindow.x - start.x, y: next.locationInWindow.y - start.y)
+            if !dragged, hypot(delta.x, delta.y) >= Self.dragSlop { dragged = true }
+            if dragged {
+                let to = fractions(of: CGPoint(x: origin.x + delta.x, y: origin.y + delta.y), size: frame.size)
+                setFrameOrigin(self.origin(for: frame.size, at: to))
+            }
+            if next.type == .leftMouseUp { break }
+        }
+        if dragged {
+            let to = fractions(of: frame.origin, size: frame.size)
+            move(Move(x: to.x, y: to.y))
+        } else {
+            toggleExpanded()
+        }
+    }
+
+    /// ``origin(for:)`` at the fractions `at` instead of the card's place.
+    private func origin(for size: CGSize, at: (x: Double, y: Double)) -> CGPoint {
+        let room = CGSize(width: max(0, area.width - size.width), height: max(0, area.height - size.height))
+        return CGPoint(x: area.minX + CGFloat(at.x) * room.width, y: area.maxY - size.height - CGFloat(at.y) * room.height)
     }
 
     public override func mouseUp(with event: NSEvent) {}
@@ -233,29 +442,53 @@ public final class TerminalComputerUsePreview: NSView {
         return true
     }
 
-    /// The small card enlarges, the large one shrinks back.
+    /// The small card enlarges, the large one (or the full one) shrinks back.
     public func toggleExpanded() {
-        expanded.toggle()
-        invalidateIntrinsicContentSize()
-        superview?.needsLayout = true
+        guard card != nil else { return }
+        move(Move(size: drawn.size == .small ? .large : .small))
     }
 
+    /// The card fills the pane, or goes back to small.
+    @objc public func toggleFull() {
+        guard movable, card != nil else { return }
+        move(Move(size: full ? .small : .full))
+    }
+
+    /// The person hid the card: it shows as the chip (with the controls off, it goes); the App tells
+    /// the daemon.
     @objc private func close() {
         guard let session = card?.session else { return }
-        show(nil)
+        guard movable else {
+            show(nil)
+            onClose?(session)
+            return
+        }
+        hiddenHere = true
+        sizeChanged()
+        layoutContents()
         onClose?(session)
+    }
+
+    /// The chip: the card comes back.
+    @objc private func showAgain() {
+        guard let session = card?.session else { return }
+        hiddenHere = false
+        card?.hidden = false
+        sizeChanged()
+        layoutContents()
+        onShow?(session)
     }
 
     private static func label(_ card: Card) -> String {
         let app = card.app.trimmingCharacters(in: .whitespaces)
         if card.done {
             return app.isEmpty
-                ? String(localized: "terminal.computerUsePreview.doneNoApp", defaultValue: "App preview, done", bundle: .module)
-                : String(localized: "terminal.computerUsePreview.done", defaultValue: "\(app), done", bundle: .module)
+                ? String(localized: "terminal.computerUsePreview.doneNoApp", defaultValue: "App preview, done", bundle: .localizedModule)
+                : String(localized: "terminal.computerUsePreview.done", defaultValue: "\(app), done", bundle: .localizedModule)
         }
         return app.isEmpty
-            ? String(localized: "terminal.computerUsePreview.runningNoApp", defaultValue: "Live app preview", bundle: .module)
-            : String(localized: "terminal.computerUsePreview.running", defaultValue: "\(app), live", bundle: .module)
+            ? String(localized: "terminal.computerUsePreview.runningNoApp", defaultValue: "Live app preview", bundle: .localizedModule)
+            : String(localized: "terminal.computerUsePreview.running", defaultValue: "\(app), live", bundle: .localizedModule)
     }
 
     /// The agent cursor's arrow (the worker's cursor shape, small), tip at the layer's origin.

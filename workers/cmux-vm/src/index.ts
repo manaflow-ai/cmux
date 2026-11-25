@@ -55,6 +55,10 @@ export interface Env {
   readonly MANAFLOW_TEAM_TENANT_IDS?: string;
   /** Service key ids (CMUX_VM_SERVICE_KEYS `id`) whose requests are entitled for the team they act for; comma or space separated. */
   readonly CMUX_VM_ENTITLED_SERVICE_IDS?: string;
+  /** Service key ids whose image creates boot the image's large snapshot when they ask for exactly its size; comma or space separated. Default: none. */
+  readonly CMUX_VM_SIZED_IMAGE_SERVICE_IDS?: string;
+  /** Service key ids whose creates send no provider read before the create; comma or space separated. Default: none. */
+  readonly CMUX_VM_CREATE_NO_READS_SERVICE_IDS?: string;
   /** JSON object of Stack team id to live VM limit, overriding the default. */
   readonly TENANT_VM_QUOTAS?: string;
   /** Mesh experiment (cx-0op): "1" turns it on for the tenants in CMUX_VM_MESH_TENANT_IDS; anything else is off. */
@@ -75,6 +79,8 @@ export interface Env {
   readonly CMUX_VM_SERVICE_KEY_SCOPE_GRANTS?: string;
   /** GitHub Actions jobs trusted by their OIDC token, a JSON array of trust rows (no secret). See src/auth/ci-trust.ts. */
   readonly CMUX_VM_CI_TRUST?: string;
+  /** Team keys: a JSON array of { id, team, sha256[], scopes, labels, maxVms, maxUsdPerHour }; hashes only. See src/auth/team-keys.ts. */
+  readonly CMUX_VM_TEAM_KEYS?: string;
   /** Staging only: the database fault switch, off unless set (src/db/fault.ts). Every other environment ignores it. */
   readonly CMUX_VM_DB_FAULT?: string;
 }
@@ -90,6 +96,8 @@ const liveServices = (env: Env) => {
     devTestTenantIds: parseTenantList(env.DEV_TEST_TENANT_IDS),
     manaflowTenantIds: parseTenantList(env.MANAFLOW_TEAM_TENANT_IDS),
     entitledServiceIds: parseTenantList(env.CMUX_VM_ENTITLED_SERVICE_IDS),
+    sizedImageServiceIds: parseTenantList(env.CMUX_VM_SIZED_IMAGE_SERVICE_IDS),
+    createNoReadsServiceIds: parseTenantList(env.CMUX_VM_CREATE_NO_READS_SERVICE_IDS),
     vmQuotas: withCiTeamQuotas(parseVmQuotas(env.TENANT_VM_QUOTAS), parseCiTrust(env.CMUX_VM_CI_TRUST).rows),
   });
   return Layer.mergeAll(
@@ -99,7 +107,7 @@ const liveServices = (env: Env) => {
     ),
     policy,
     vmImagesLayer(env.VM_BOOT_IMAGES),
-    serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS, env.CMUX_VM_SERVICE_KEY_SCOPE_GRANTS),
+    serviceKeysLayer(env.CMUX_VM_SERVICE_KEYS, env.CMUX_VM_SERVICE_KEY_SCOPE_GRANTS, env.CMUX_VM_TEAM_KEYS),
     ciTrustLayer(env.CMUX_VM_CI_TRUST),
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),

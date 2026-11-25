@@ -84,6 +84,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     /// The usage rules the session breaks, one line each (acpmux `usageWarnings[].text`: no
     /// autocompact cap, a context or a subagent rate above its limit). Empty when it breaks none.
     public let usageWarnings: [String]
+    /// What is done and next across the chat's turns (the summary's `taskList`); nil without one.
+    public let taskList: AgentTaskList?
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
                 workspaceID: String? = nil, harness: String? = nil, step: String? = nil, unread: Bool = false, project: String? = nil,
@@ -92,8 +94,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                 usageWarnings: [String] = [], sidebarRequiresOpen: Bool = false,
                 turnPrompt: String? = nil, turnActivity: String? = nil, turnPlanStep: String? = nil,
                 chiefChildren: String? = nil, chiefParticipant: String? = nil,
-                agentSession: String? = nil, shortName: String? = nil) {
+                agentSession: String? = nil, shortName: String? = nil, taskList: AgentTaskList? = nil) {
         self.id = id
+        self.taskList = taskList
         self.agentSession = agentSession
         self.shortName = shortName
         self.name = name
@@ -165,7 +168,8 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
                                  turnActivity: nonEmpty(turn?["activity"]), turnPlanStep: nonEmpty(turn?["planStep"]),
                                  chiefChildren: nonEmpty((summary["tags"] as? [String: Any])?["mux.children"]),
                                  chiefParticipant: nonEmpty((summary["tags"] as? [String: Any])?["cmux.chief.participant"]),
-                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]))
+                                 agentSession: nonEmpty(summary["agentSessionId"]), shortName: nonEmpty(summary["shortName"]),
+                                 taskList: AgentTaskList.of(summary["taskList"]))
     }
 
     /// A summary's epoch-milliseconds field as a date; nil when absent or not a number.

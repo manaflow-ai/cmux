@@ -4,7 +4,8 @@
   "id": "local/showcase-weather",
   "name": { "en": "Weather" },
   "version": "1.0.0",
-  "description": { "en": "An example extension built only on cmux-extension-sdk: the current weather for a place you choose, in a sidebar section." },
+  "description": { "en": "The temperature, sky, feels-like, today's high and low and the wind for one place, in your sidebar. Type a city in the section or set it in Settings; it refreshes every 15 minutes." },
+  "tagline": { "en": "Today's weather for a place you choose, in your sidebar" },
   "publisher": { "name": "cmux examples", "url": "https://cmux.com" },
   "repository": "https://github.com/manaflow-ai/cmux",
   "license": "MIT",
@@ -22,8 +23,8 @@
     }
   },
   "scopes": {
-    "net:geocoding-api.open-meteo.com": "Find the place you type on the map (Open-Meteo, no account).",
-    "net:api.open-meteo.com": "Read the current weather for that place (Open-Meteo, no account)."
+    "net:geocoding-api.open-meteo.com": "Look up the place you type (Open-Meteo, no account needed).",
+    "net:api.open-meteo.com": "Read the current weather for that place (Open-Meteo, no account needed)."
   },
   "settings": {
     "type": "object",

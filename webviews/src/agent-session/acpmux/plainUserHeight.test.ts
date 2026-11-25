@@ -120,3 +120,28 @@ test("plain height follows width and font changes without stale placement", () =
   // A repeated layout at the same metrics remains stable for the rows below it.
   expect(estimate(1400)).toBe(larger);
 });
+
+// Leo, 2026-11-22: "THE FUCSKING COLLAPSING OF THE FUCKING COMPOSER / IT TAKES TOO FUCKING LONG". A
+// prompt sent from a draft of thousands of lines is shut on its fold: its estimate is the fold's,
+// read from its head, never a lex and layout of every line in the send's own task.
+test("a long prompt shut on its fold lexes and measures only its head, at the fold's height", () => {
+  const lines = (count: number) =>
+    Array.from({ length: count }, (_, index) => `Line ${index + 1} of the draft, a few more words here`).join("\n\n");
+  const lexer = spyOn(marked, "lexer");
+  try {
+    for (const count of [300, 2000]) {
+      const value = lines(count);
+      for (const width of [320, 720, 1400]) {
+        lexer.mockClear();
+        expect(height(prompt(value, { id: `long-${count}-${width}` }), width)).toBeCloseTo(folded(), 5);
+        const lexed = lexer.mock.calls.reduce((sum, [source]) => sum + String(source).length, 0);
+        expect(lexed).toBeLessThan(5_000);
+      }
+    }
+    // One long line, no Markdown: the plain path measures its head too.
+    const block = Array.from({ length: 2000 }, (_, index) => `word${index} of the long block`).join(" ");
+    for (const width of [320, 720, 1400]) expect(height(prompt(block), width)).toBeCloseTo(folded(), 5);
+  } finally {
+    lexer.mockRestore();
+  }
+});

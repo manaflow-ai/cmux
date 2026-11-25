@@ -27,12 +27,12 @@ test("a route the host opens moves the section list's mark with the page", async
   expect(current(page)).toEqual(["appearance"]);
   await run(() => page!.history.push("/settings/appearance?focus=appearance.borders"));
   expect(current(page)).toEqual(["appearance"]);
-  // A link to Density opens Personalization and marks its Text and Density child.
+  // A link to Density stays on Appearance, which draws the density card.
   await run(() => page!.history.push("/settings/appearance?focus=appearance.density"));
-  expect(current(page)).toEqual([]);
-  expect(page.container.querySelector('[data-part-link][aria-current="page"]')?.getAttribute("data-part-link")).toBe(
-    "text",
-  );
+  expect(current(page)).toEqual(["appearance"]);
+  // An old Personalization link opens the page that draws its part now.
+  await run(() => page!.history.push("/settings/personalization?part=sounds"));
+  expect(current(page)).toEqual(["notifications"]);
 });
 
 // Regression (gallery `*-group-N` variants never scrolled): the page's own query string is not
@@ -54,7 +54,6 @@ test("the route comes from the fragment alone, never the page's query string", a
     section: "general",
     focus: "app.quitBehavior",
     workspace: null,
-    part: null,
     query: "",
   });
   expect(history.createHref("/settings/browser")).toBe("/frame.html?entry=pages.settings&variant=x#/settings/browser");

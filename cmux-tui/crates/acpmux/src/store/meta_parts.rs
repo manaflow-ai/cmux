@@ -317,6 +317,15 @@ pub fn to_vec(meta: &SessionMeta, fingerprint: &str) -> serde_json::Result<Vec<u
     split(|| serde_json::to_vec(&Marked { meta, mark: fingerprint }))
 }
 
+/// `meta` as compact JSON without its parts, into `writer`: what a save writes, less the parts the
+/// caller compares by their shared copies (the metadata writer's digest, `hub/meta_save.rs`).
+pub(crate) fn to_writer_without_parts(
+    writer: impl std::io::Write,
+    meta: &SessionMeta,
+) -> serde_json::Result<()> {
+    split(|| serde_json::to_writer(writer, meta))
+}
+
 /// `to_vec`, pretty (`session.json`).
 pub fn to_string_pretty(meta: &SessionMeta, fingerprint: &str) -> serde_json::Result<String> {
     split(|| serde_json::to_string_pretty(&Marked { meta, mark: fingerprint }))

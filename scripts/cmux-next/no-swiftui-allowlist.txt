@@ -23,12 +23,16 @@ Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryChangeRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryInspectorView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextChiefMemory/ChiefMemoryLineRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationChip.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationFormView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationListRow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsHostingView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageHost.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPageView.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/Automations/AutomationsPalette.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogActionButton.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonFace.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonFaceView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Dialog/CmuxDialogButtonStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/GlassButtonStyle.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/HairlineDivider.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/Motion+AppKit.swift
@@ -73,6 +77,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugSettin
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugSettingsWindowController.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableControls.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DebugSettings/DebugTunableRowView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundView.swift
+Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/DensityPlayground/DensityPlaygroundWindow.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/SettingsPane.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelView.swift  # Debug panel built from SwiftUI helpers in 6 allowlisted files (2 Debug settings controls, SettingsStyle, 3 shared ones); no Swift code opens it yet
 Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/TuningPanel/TuningPanelWindow.swift  # hosts TuningPanelView in an NSHostingView; no Swift code opens it yet
@@ -86,4 +92,5 @@ Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedNoticeControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/ThemedSwiftUIControlsTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsPageTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextCloudUITests/AutomationsSignInTests.swift
+Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/NativeControlContrastAuditTests.swift
 Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/ThinSwiftUIScrollersTests.swift

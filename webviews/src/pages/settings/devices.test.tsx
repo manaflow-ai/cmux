@@ -132,6 +132,19 @@ test("the sharing switch sends setSharing; a permission's button sends openPermi
   page.unmount();
 });
 
+test("the agents switch is off by default and sends setAgentsMayShare", async () => {
+  const page = await open();
+  const row = () =>
+    card(page.container).querySelector<HTMLElement>('[data-devices-group="sharing"] [data-devices-agents]')!;
+  expect(row().textContent).toContain("My agents can turn screen sharing and control on my machines");
+  const toggle = () => row().querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(toggle().getAttribute("aria-checked")).toBe("false");
+  await click(toggle());
+  expect(nonRefresh(page.provider.deviceRuns).at(-1)).toEqual({ action: "setAgentsMayShare", on: true });
+  expect(toggle().getAttribute("aria-checked")).toBe("true");
+  page.unmount();
+});
+
 test("Add Relay… switches its secret fields by mode, sends saveRelay once and clears the secret", async () => {
   const page = await open();
   const group = () => card(page.container).querySelector<HTMLElement>('[data-devices-group="relays"]')!;

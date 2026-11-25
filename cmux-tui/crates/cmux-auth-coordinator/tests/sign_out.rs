@@ -22,14 +22,19 @@ fn sign_out_runs_local_first_in_order() {
     assert!(fx.contains(&Effect::PublishSessionIdentity(None)));
     assert!(fx.contains(&Effect::PublishTeamScope(None)));
     assert!(fx.contains(&Effect::ClearPhaseDampers(SIGN_OUT_CLEARED_PHASES)));
-    assert_eq!(fx.last(), Some(&Effect::CaptureTeardownCredentialsAndClearLocalSession));
+    assert_eq!(
+        fx.last(),
+        Some(&Effect::CaptureTeardownCredentialsAndClearLocalSession {
+            sign_out_epoch: revision + 1
+        })
+    );
     assert_eq!(d.c.sign_out_revision(), revision + 1);
     // The flag flips only when the local clear lands, but the identity is gone at once.
     assert!(d.c.is_authenticated());
     assert_eq!(d.c.published_session_identity(), None);
     assert!(d.c.session_token_transition_is_active());
 
-    let fx = d.send(Event::SignOutLocalCleared);
+    let fx = d.local_cleared();
     assert_eq!(fx[0], Effect::EndSignOutCredentialCapture);
     let tail: Vec<_> = fx.iter().rev().take(2).cloned().collect();
     assert_eq!(tail, vec![Effect::ServerTeardown, Effect::WaitForPostSignInHooks]);

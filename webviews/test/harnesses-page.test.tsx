@@ -423,16 +423,33 @@ test("Install runs the install command in place, shows its progress, then checks
   expect(refreshed).toEqual(["catalog"]);
 });
 
-test("an install acpmux still cannot find afterwards says so, never offers Install again", async () => {
-  const container = await renderPage([], [], {
+// First-run findings row 3: Codex installed, then the row said "Finished, but cmux can't run it yet"
+// and offered only the vendor's setup guide. It now says what is missing (cmux can't find it on this
+// Mac yet) and offers the one-click fix, Check Again, which has acpmux look for it again.
+test("an install acpmux still cannot find afterwards says what is missing and offers Check Again", async () => {
+  const calls: Call[] = [];
+  const container = await renderPage(calls, [], {
     shell: { output: ["added 1 package in 3s\n"], code: 0 },
   });
   await act(async () => row(container, "OpenCode")!.querySelector<HTMLButtonElement>("button")!.click());
   await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the install to end");
   const after = row(container, "OpenCode")!;
   expect(after.dataset.harnessStatus).toBe("failed");
-  expect(after.querySelector(".acpmux-harness-detail")?.textContent).toBe("Finished, but cmux can't run it yet");
-  expect([...after.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Setup guide"]);
+  expect(after.querySelector(".acpmux-harness-detail")?.textContent).toBe(
+    "Installed, but cmux can't find OpenCode on this Mac yet",
+  );
+  expect([...after.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Check again"]);
+  const looks = () =>
+    calls.filter((call) => call.method === "harness.health" && call.params.id === "opencode" && call.params.rescan)
+      .length;
+  const before = looks();
+  await act(async () => after.querySelector<HTMLButtonElement>("button")!.click());
+  await until(() => looks() === before + 1, "Check Again's look");
+  // Coming back to the page (a terminal tab, Finder) looks again by itself.
+  await until(() => row(container, "OpenCode")!.dataset.harnessStatus === "failed", "the look to end");
+  const seen = looks();
+  await act(async () => window.dispatchEvent(new window.Event("focus")));
+  await until(() => looks() === seen + 1, "the look on coming back");
 });
 
 test("unmounting the page stops an install it started", async () => {
@@ -652,4 +669,47 @@ test("the New Tab page has no Integrate a harness button (and no tools row)", as
   // The calm default New Tab has no tools row (Leo 2026-10-11).
   expect(container.querySelector(".nt-tools")).toBeNull();
   expect(container.querySelector(".nt-no-agent, .acpmux-add-harness")).toBeNull();
+});
+
+// First-run findings row 7: the sheet said "Chief: Ready" on a Mac with no Claude Code while Chief
+// refused every message. Chief answers through Claude Code, so its row is what Claude Code's is.
+const withChief = (claude: boolean): AcpmuxSnapshot["catalog"] => [
+  { id: "chief", name: "Chief", family: "chief", models: [] },
+  ...(claude ? [{ id: "claude", name: "Claude Code", family: "claude", models: [] }] : []),
+  { id: "codex", name: "Codex", family: "codex", models: [], auth: { login: "codex login" } },
+];
+
+test("Chief is never Ready while the agent it answers through is missing: it says so and installs it", async () => {
+  const calls: Call[] = [];
+  const container = await renderPage(calls, [], {
+    acpmux: withChief(false),
+    shell: { output: ["installed\n"], code: 0 },
+  });
+  const chief = row(container, "Chief")!;
+  expect(chief.dataset.harnessStatus).toBe("notInstalled");
+  expect(status(container, "Chief")).toBe("Needs Claude Code");
+  expect([...chief.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Install Claude Code"]);
+  await act(async () => chief.querySelector<HTMLButtonElement>("button")!.click());
+  expect(calls.find((call) => call.method === "shell.run")?.params).toEqual({
+    command: INSTALL_COMMANDS.claude,
+    cwd: "/Users/you/src/cmux",
+  });
+});
+
+test("Chief's row signs in Claude Code when Claude Code is signed out, and is Ready once it is", async () => {
+  const calls: Call[] = [];
+  const container = await renderPage(calls, [], { acpmux: withChief(true), auth: { claude: "signedOut" } });
+  const chief = row(container, "Chief")!;
+  expect(chief.dataset.harnessStatus).toBe("signIn");
+  expect(status(container, "Chief")).toBe("Sign in to Claude Code first");
+  expect([...chief.querySelectorAll("button")].map((button) => button.textContent)).toEqual(["Sign In"]);
+  await act(async () => chief.querySelector<HTMLButtonElement>("button")!.click());
+  expect(calls.find((call) => call.method === "tab.open")?.params).toMatchObject({
+    kind: "terminal",
+    text: "claude login",
+    run: true,
+  });
+
+  const ready = await renderPage([], [], { acpmux: withChief(true) });
+  expect(row(ready, "Chief")!.dataset.harnessStatus).toBe("ready");
 });

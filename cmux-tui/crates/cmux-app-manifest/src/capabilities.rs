@@ -186,12 +186,23 @@ pub const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
 /// an app shows or follows hints only in answer to a key or a tap.
 pub const PAGE_VIEW_OPS: &[&str] = &["page.hints", "page.follow"];
 
+/// Ops that start, stop or move what plays: an app plays, pauses or skips
+/// only in answer to a tap, so no extension starts sound on its own.
+pub const PLAYBACK_OPS: &[&str] = &["media.control"];
+
+/// Ops that show a system permission prompt (provider family `system_calendar`, the
+/// Mac app's CalendarAppOps): an app asks the person only in answer to a key
+/// or a tap, never on its own. `system_calendar.events` never prompts.
+pub const SYSTEM_PROMPT_OPS: &[&str] = &["system_calendar.request_access"];
+
 /// Whether an app call of `op` needs a live user gesture.
 pub fn needs_gesture(op: &str) -> bool {
     VIEW_STATE_OPS.contains(&op)
         || PANEL_OPS.contains(&op)
         || PERSON_MARK_OPS.contains(&op)
         || PAGE_VIEW_OPS.contains(&op)
+        || PLAYBACK_OPS.contains(&op)
+        || SYSTEM_PROMPT_OPS.contains(&op)
 }
 
 /// The escalation of `op`, if it has one.
@@ -509,6 +520,12 @@ mod tests {
         assert_eq!(row["escalation"]["scope"], "workspace:execute");
         assert!(row["consent"].as_str().is_some_and(|t| !t.is_empty()));
         assert_eq!(table.describe("tab.focus").expect("tab.focus")["gesture"], true);
+        let media = table.describe("media.control").expect("media.control");
+        assert_eq!(
+            (media["scope"].as_str(), media["risk"].as_str(), media["gesture"].as_bool()),
+            (Some("media:control"), Some("sensitive"), Some(true))
+        );
+        assert_eq!(table.describe("media.get").expect("media.get")["gesture"], false);
         let never = table.never().next().expect("a never op");
         assert_eq!(table.describe(never).expect("never row")["never"], true);
         assert_eq!(table.describe("made.up"), None);
