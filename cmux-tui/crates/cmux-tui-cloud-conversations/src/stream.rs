@@ -191,6 +191,8 @@ impl CloudEvent {
             Self::ConversationResynced { .. } => "cloud-conversation-resynced",
             Self::InboxChanged { .. } => "cloud-inbox-changed",
             Self::InboxReset { .. } => "cloud-inbox-reset",
+            Self::AppKvReset { .. } => "cloud-appkv-reset",
+            Self::AppKvChanged { .. } => "cloud-appkv-changed",
             Self::MuxWake { .. } => "cloud-mux-wake",
             Self::MuxResynced { .. } => "cloud-mux-resynced",
             Self::SubscriptionState { .. } => "cloud-subscription-state",

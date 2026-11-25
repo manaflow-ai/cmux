@@ -22,6 +22,9 @@ pub(crate) struct CloudServices {
     pub(crate) feed_reply: OnceLock<crate::feed_client::ReplySender>,
     /// Synced app storage's stream events (set when the apps supervisor starts).
     appkv: OnceLock<AppKvSink>,
+    /// The Forum page's hosted forum (server/forum_routed.rs), set up on the first `forum.*` op.
+    #[cfg(unix)]
+    pub(crate) forum: OnceLock<crate::server::forum_routed::ForumOwner>,
 }
 
 /// Whether `event` belongs to the daemon's own `appkv:<user>` stream.
@@ -31,9 +34,6 @@ fn is_appkv(event: &CloudEvent) -> bool {
         CloudEvent::SubscriptionState { target, .. } => *target == Target::AppKv,
         _ => false,
     }
-    /// The Forum page's hosted forum (server/forum_routed.rs), set up on the first `forum.*` op.
-    #[cfg(unix)]
-    pub(crate) forum: OnceLock<crate::server::forum_routed::ForumOwner>,
 }
 
 impl Mux {
