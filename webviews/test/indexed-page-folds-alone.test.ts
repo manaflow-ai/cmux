@@ -52,7 +52,13 @@ async function jump(events: EventRecord[], whole: boolean, gapFill: boolean, pic
     tries: 1,
     retryAt: 0,
     heads: PromptHeads.fromRows(
-      prompts.map((event): AcpmuxRow => ({ id: `user-${event.seq}`, version: 1, at: event.at, kind: "user", text: "p" })),
+      prompts.map((event): AcpmuxRow => ({
+        id: `user-${event.seq}`,
+        version: 1,
+        at: event.at,
+        kind: "user",
+        text: "p",
+      })),
     ),
   };
   // The clicks whose page folded alone (`olderIndexedRecords` let it).

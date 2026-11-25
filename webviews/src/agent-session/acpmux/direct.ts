@@ -16669,6 +16669,11 @@ export class AcpmuxDirectClient {
   /// both sides; no forced Stop's result or compaction fence moves a held prompt; no turn opener or shed split
   /// stands in for the records the page brings.
   private olderIndexedRecords(page: readonly EventRecord[], tailStart: number): EventRecord[] | undefined {
+    const r = this.olderIndexedRecordsX(page, tailStart);
+    console.error("PROBE", r ? "alone" : "whole", startsTurn(this.events[0]!), !!this.turnOpener, this.splits.size, this.events.length, page.length, page.filter(e=>e.seq<tailStart).length);
+    return r;
+  }
+  private olderIndexedRecordsX(page: readonly EventRecord[], tailStart: number): EventRecord[] | undefined {
     if (!Number.isFinite(tailStart) || this.events.length === 0 || !startsTurn(this.events[0]!)) return undefined;
     if (this.turnOpener || this.splits.size > 0) return undefined;
     if (this.compactionFenceSeq !== undefined || this.retiredCompactionTurnId !== undefined) return undefined;
