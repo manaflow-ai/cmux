@@ -128,7 +128,12 @@ async fn pump(inner: Arc<RouteInner>) {
         let port = ports.borrow_and_update().clone();
         let mut replaced = false;
         if let Some(port) = port.filter(|p| !p.is_dead()) {
-            let mut frames = port.subscribe();
+            let (unread, mut frames) = port.subscribe();
+            for frame in unread {
+                if let Some(event) = lock(&inner.sender).on_frame(&frame, now_ms()) {
+                    let _ = inner.events.send(event);
+                }
+            }
             // A new socket: every unanswered send again, under its own id.
             for frame in lock(&inner.sender).resend() {
                 port.send_text(frame);
@@ -187,35 +192,49 @@ where
         let port = ports.borrow_and_update().clone();
         let mut replaced = false;
         if let Some(port) = port.filter(|p| !p.is_dead()) {
-            let mut frames = port.subscribe();
+            let (unread, mut frames) = port.subscribe();
             let mut dead = port.dead();
-            let mut later: Vec<HeldItem> = Vec::new();
+            // What the relay drained before this reader started goes first.
+            let mut later: Vec<HeldItem> = unread
+                .into_iter()
+                .filter_map(|frame| match frame {
+                    Incoming::HeldItem { id, from, sealed, at, expires_at } => {
+                        Some(HeldItem { id, from, sealed, at, expires_at })
+                    }
+                    _ => None,
+                })
+                .collect();
+            let mut first = !later.is_empty();
             let mut retry = tokio::time::interval_at(tokio::time::Instant::now() + HELD_RETRY, HELD_RETRY);
             loop {
-                let batch = tokio::select! {
-                    frame = frames.recv() => match frame {
-                        Ok(Incoming::HeldItem { id, from, sealed, at, expires_at }) => {
-                            let mut batch = vec![HeldItem { id, from, sealed, at, expires_at }];
-                            // What else arrived with it (a join drains the whole queue at once).
-                            while let Ok(next) = frames.try_recv() {
-                                if let Incoming::HeldItem { id, from, sealed, at, expires_at } = next {
-                                    batch.push(HeldItem { id, from, sealed, at, expires_at });
+                let batch = if std::mem::take(&mut first) {
+                    std::mem::take(&mut later)
+                } else {
+                    tokio::select! {
+                        frame = frames.recv() => match frame {
+                            Ok(Incoming::HeldItem { id, from, sealed, at, expires_at }) => {
+                                let mut batch = vec![HeldItem { id, from, sealed, at, expires_at }];
+                                // What else arrived with it (a join drains the whole queue at once).
+                                while let Ok(next) = frames.try_recv() {
+                                    if let Incoming::HeldItem { id, from, sealed, at, expires_at } = next {
+                                        batch.push(HeldItem { id, from, sealed, at, expires_at });
+                                    }
                                 }
+                                batch
                             }
-                            batch
+                            Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        },
+                        _ = retry.tick() => {
+                            if later.is_empty() { continue }
+                            std::mem::take(&mut later)
                         }
-                        Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                        Err(broadcast::error::RecvError::Closed) => break,
-                    },
-                    _ = retry.tick() => {
-                        if later.is_empty() { continue }
-                        std::mem::take(&mut later)
-                    }
-                    changed = dead.changed() => if changed.is_err() || *dead.borrow() { break } else { continue },
-                    changed = ports.changed() => {
-                        if changed.is_err() { return }
-                        replaced = true;
-                        break;
+                        changed = dead.changed() => if changed.is_err() || *dead.borrow() { break } else { continue },
+                        changed = ports.changed() => {
+                            if changed.is_err() { return }
+                            replaced = true;
+                            break;
+                        }
                     }
                 };
                 let settled = apply(batch.clone()).await;

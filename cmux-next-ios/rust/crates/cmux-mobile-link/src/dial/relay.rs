@@ -217,6 +217,9 @@ pub struct RelayCarrier {
 pub struct HoldPort {
     text: mpsc::Sender<String>,
     frames: broadcast::Sender<crate::relay_hold::Incoming>,
+    /// Frames that came before anyone subscribed (the relay drains held items
+    /// the moment the socket joins, maybe before the session's reader starts).
+    unread: Arc<std::sync::Mutex<std::collections::VecDeque<crate::relay_hold::Incoming>>>,
     dead: watch::Receiver<bool>,
 }
 
@@ -238,9 +241,14 @@ impl HoldPort {
         !*self.dead.borrow() && self.text.try_send(text).is_ok()
     }
 
-    /// The relay's hold frames from now on (`held`, `hold_refused`, `held_item`, `delivered`).
-    pub fn subscribe(&self) -> broadcast::Receiver<crate::relay_hold::Incoming> {
-        self.frames.subscribe()
+    /// The relay's hold frames (`held`, `hold_refused`, `held_item`, `delivered`): those that
+    /// arrived while nobody was subscribed, then the rest as they come, with no gap between.
+    pub fn subscribe(
+        &self,
+    ) -> (Vec<crate::relay_hold::Incoming>, broadcast::Receiver<crate::relay_hold::Incoming>) {
+        let mut unread = self.unread.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let frames = self.frames.subscribe();
+        (unread.drain(..).collect(), frames)
     }
 
     pub fn is_dead(&self) -> bool {
@@ -308,7 +316,13 @@ impl RelayCarrier {
         let (peer_tx, peer_online) = watch::channel(false);
         let (text_tx, mut text_rx) = mpsc::channel::<String>(HOLD_TEXT_QUEUE);
         let (frames_tx, _) = broadcast::channel(HOLD_FRAMES);
-        let hold = HoldPort { text: text_tx, frames: frames_tx.clone(), dead: dead.clone() };
+        let unread = Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        let hold = HoldPort {
+            text: text_tx,
+            frames: frames_tx.clone(),
+            unread: Arc::clone(&unread),
+            dead: dead.clone(),
+        };
         let writer = {
             let (queue, dead_tx) = (Arc::clone(&queue), Arc::clone(&dead_tx));
             tokio::spawn(async move {
@@ -423,8 +437,17 @@ impl RelayCarrier {
                                 }
                                 Some("held" | "hold_refused" | "held_item" | "delivered") => {
                                     if let Some(frame) = crate::relay_hold::Incoming::parse(&text) {
-                                        // No subscriber: nobody uses the queue on this socket.
-                                        let _ = frames_tx.send(frame);
+                                        // No subscriber yet: keep it for the first (bounded).
+                                        let mut unread =
+                                            unread.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                                        if frames_tx.receiver_count() > 0 {
+                                            let _ = frames_tx.send(frame);
+                                        } else {
+                                            if unread.len() == HOLD_FRAMES {
+                                                unread.pop_front();
+                                            }
+                                            unread.push_back(frame);
+                                        }
                                     }
                                 }
                                 _ => {}
