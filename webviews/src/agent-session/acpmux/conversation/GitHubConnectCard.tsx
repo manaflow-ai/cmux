@@ -9,6 +9,7 @@ import { useT, type StringKey } from "../i18n";
 import { actionRefusal } from "../actionRefusal";
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
+import { settingsAskCard } from "./settingsAskCard.experiment";
 import { GitHubMark } from "./icons";
 import { useTranscriptReadOnly } from "./readOnly";
 import { TurnActionsContext } from "./turnActions";
@@ -26,6 +27,7 @@ const CAUSE: Record<GitHubConnectNeed["reason"], StringKey> = {
   "needs-reauth": "githubConnect.needsReauth",
   "not-covered": "githubConnect.notCovered",
   "not-installed": "githubConnect.notInstalled",
+  asked: "githubConnect.asked",
 };
 
 /// The card as drawn for one phase. `offer` absent: a pane that cannot run the app's actions (View
@@ -44,11 +46,21 @@ export function GitHubConnectCardView({
   onContinue?: () => void;
 }) {
   const t = useT();
-  const arm = experimentArm(turnErrorCard);
+  // An agent's own ask (`settings_ask`) draws as the settings-ask-card experiment says; a failed
+  // call's card keeps the turn error card's look.
+  const asked = need.reason === "asked";
+  const askArm = asked ? experimentArm(settingsAskCard) : undefined;
+  const arm = askArm === "needs" ? "card" : (askArm ?? experimentArm(turnErrorCard));
   const repo = need.repo;
   const owner = repo?.split("/")[0];
-  const cause =
-    need.reason === "not-installed" && owner
+  const cause = asked
+    ? (need.why ??
+      (repo
+        ? t("githubConnect.askedOrg", { org: repo })
+        : need.org
+          ? t("githubConnect.askedOrg", { org: need.org })
+          : t("githubConnect.asked")))
+    : need.reason === "not-installed" && owner
       ? t("githubConnect.notInstalledOwner", { owner })
       : need.reason === "not-covered" && repo
         ? t("githubConnect.notCoveredRepo", { repo })
@@ -63,10 +75,31 @@ export function GitHubConnectCardView({
         : phase.kind === "refused"
           ? (phase.reason ?? t("githubConnect.notRun"))
           : cause;
+  if (askArm === "needs")
+    return (
+      <section
+        className="cv-settings-ask cv-github-connect"
+        data-github-connect={phase.kind}
+        data-settings-ask="needs"
+        role={phase.kind === "refused" ? "alert" : undefined}
+        aria-live={phase.kind === "refused" ? undefined : "polite"}
+        aria-label={t("githubConnect.needsYou")}
+      >
+        <div className="cv-settings-ask__header">{t("githubConnect.needsYou")}</div>
+        <div className="cv-settings-ask__row">
+          <GitHubMark size={16} className="cv-settings-ask__icon" />
+          <span className="cv-settings-ask__line text-fg">{line}</span>
+          {offer && phase.kind !== "continuing" && (
+            <ConnectButton phase={phase} install={need.reason === "not-installed"} onConnect={onConnect} onContinue={onContinue} />
+          )}
+        </div>
+      </section>
+    );
   return (
     <div
       className={`cv-turn-note cv-turn-error cv-turn-error--${arm}${arm === "card" ? " ui-glass" : ""} cv-github-connect`}
       data-github-connect={phase.kind}
+      data-settings-ask={askArm}
       role={phase.kind === "refused" ? "alert" : undefined}
       aria-live={phase.kind === "refused" ? undefined : "polite"}
     >
@@ -76,29 +109,47 @@ export function GitHubConnectCardView({
       </span>
       {offer && phase.kind !== "continuing" && (
         <span className="cv-turn-error__actions">
-          {phase.kind === "waiting" ? (
-            // GitHub's page is open: the chat goes on when the person is back. Continue is the same
-            // step by hand, for a return the page did not see.
-            <button type="button" className="cv-turn-auth-action" onClick={onContinue}>
-              {t("turn.continue")}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="cv-turn-auth-action cv-turn-error__primary"
-              disabled={phase.kind === "opening"}
-              onClick={onConnect}
-            >
-              {phase.kind === "refused"
-                ? t("githubConnect.tryAgain")
-                : need.reason === "not-installed"
-                  ? t("githubConnect.install")
-                  : t("githubConnect.connect")}
-            </button>
-          )}
+          <ConnectButton phase={phase} install={need.reason === "not-installed"} onConnect={onConnect} onContinue={onContinue} />
         </span>
       )}
     </div>
+  );
+}
+
+/// The card's one button: Connect GitHub (Install for an owner without the App, Try again after a refusal), or Continue while GitHub's
+/// page is open.
+function ConnectButton({
+  phase,
+  install,
+  onConnect,
+  onContinue,
+}: {
+  phase: GitHubConnectPhase;
+  /// The App is not installed on the repository's owner: the button installs it.
+  install?: boolean;
+  onConnect?: () => void;
+  onContinue?: () => void;
+}) {
+  const t = useT();
+  return phase.kind === "waiting" ? (
+    // GitHub's page is open: the chat goes on when the person is back. Continue is the same
+    // step by hand, for a return the page did not see.
+    <button type="button" className="cv-turn-auth-action" onClick={onContinue}>
+      {t("turn.continue")}
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="cv-turn-auth-action cv-turn-error__primary"
+      disabled={phase.kind === "opening"}
+      onClick={onConnect}
+    >
+      {phase.kind === "refused"
+        ? t("githubConnect.tryAgain")
+        : install
+          ? t("githubConnect.install")
+          : t("githubConnect.connect")}
+    </button>
   );
 }
 
@@ -155,7 +206,7 @@ export function GitHubConnectCard({ need, phaseKey }: { need: GitHubConnectNeed;
   const connect = () => {
     if (!offer) return;
     set({ kind: "opening" });
-    offer.connect(need.repo).then(
+    offer.connect(need.repo, need.org).then(
       () => cardPhase(phaseKey).kind === "opening" && set({ kind: "waiting", left: false }),
       (error: unknown) => set({ kind: "refused", reason: actionRefusal(error) }),
     );
