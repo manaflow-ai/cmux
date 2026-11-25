@@ -45,7 +45,7 @@ import {
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
-import { FolderPopover } from "./FolderPopover";
+import { FolderPopover, isGitHubLocation } from "./FolderPopover";
 import { cloudRepositoryPick, cloudSourceFolders, type CloudFolder } from "./sourcePickerModel";
 import { GitHubGlyph } from "./GitHubIcons";
 import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
@@ -668,6 +668,8 @@ export function ComposerContext({
   const currentRepo = currentLocation ? folderRepo(currentLocation) : undefined;
   // A GitHub repository picked for a new Cloud chat (`github:owner/name`) reads `owner/name`.
   const currentGitHub = githubFolderRepo(currentFolder) ?? (currentFolder === pickedFolder ? pickedRepo : undefined);
+  // The chip names a GitHub repository that stands for a folder of this Mac picked here (its checkout, sent to Cloud).
+  const isGitHubCheckoutPick = pickedFolder?.startsWith("/") === true && isGitHubLocation(currentFolder);
   const place = !currentLocation
     ? undefined
     : branch
@@ -1093,9 +1095,12 @@ export function ComposerContext({
               face={
                 <LocationFace
                   icon={
-                    // A folder on this Mac is a folder, its `origin` on GitHub or not (FolderPopover LocationGlyph).
-                    githubFolderRepo(currentFolder) ? (
+                    // GitHub's mark only for a repository picked as one (FolderPopover isGitHubLocation): a folder of
+                    // this Mac picked here that Cloud starts as its repository stays a folder (cmux#53226).
+                    isGitHubLocation(currentFolder) && !isGitHubCheckoutPick ? (
                       <GitHubGlyph />
+                    ) : isGitHubCheckoutPick ? (
+                      <FolderIcon />
                     ) : currentLocation ? (
                       <ProjectBadge
                         project={{
