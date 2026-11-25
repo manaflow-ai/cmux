@@ -333,7 +333,9 @@ const TranscriptRow = memo(
     if (row.kind === "assistant" && row.text)
       return (
         <div className="acpmux-bg__reply" data-row-id={row.id}>
-          <Markdown streaming={row.streaming === true}>{row.text}</Markdown>
+          <Markdown streaming={row.streaming === true} messageAt={row.at}>
+            {row.text}
+          </Markdown>
         </div>
       );
     if (row.kind === "user" && row.text)

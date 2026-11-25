@@ -104,7 +104,7 @@ package nonisolated struct UpdateFeedCard: Sendable, Equatable {
     }
 
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, bundle: .module)
+        String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
     /// A change on its first line without a list marker (a changelog line can hold a nested list);

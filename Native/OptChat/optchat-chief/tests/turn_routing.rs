@@ -68,6 +68,7 @@ fn routing_changes_each_turn_and_records_the_pick() {
             place: Some("local".into()),
             harness: None,
             machines: Vec::new(),
+            taken: Vec::new(),
             reply,
         });
         let spawn = answer

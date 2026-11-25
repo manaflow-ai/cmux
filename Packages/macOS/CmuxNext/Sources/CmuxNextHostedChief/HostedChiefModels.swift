@@ -1,3 +1,4 @@
+public import CmuxChiefList
 public import Foundation
 
 /// One of the user's cloud chiefs (`chief.list`, `HomeChief`), the fields the
@@ -91,8 +92,7 @@ public nonisolated struct HomeCloudChiefs: Sendable, Equatable {
 
     /// The active chief with no machine placed: the default one, else the first.
     public static func hosted(in chiefs: [CloudChief]) -> CloudChief? {
-        let hosted = chiefs.filter { $0.brainPlace == nil && $0.mainConversation != nil }
-        return hosted.first(where: \.isDefault) ?? hosted.first
+        ChiefList.hosted(in: chiefs)  // the one rule, the iPhone's too
     }
 
 }
@@ -117,23 +117,28 @@ public nonisolated enum HomeChiefChoice: String, Sendable {
 extension HomeCloudChiefs {
     /// The name of the placed Chief once the Hosted Chief is the default.
     public static var placedName: String {
-        String(localized: "home.chief.placedName", defaultValue: "Chief (Mac mini)", table: "HostedChief", bundle: .module)
+        String(localized: "home.chief.placedName", defaultValue: "Chief (Mac mini)", table: "HostedChief", bundle: .localizedModule)
     }
 
     public static var brainFailed: String {
         String(localized: "home.chief.hostedBrainFailed",
                defaultValue: "Your cloud Chief could not be turned on, so it does not answer yet. cmux tries again at the next launch.",
-               table: "HostedChief", bundle: .module)
+               table: "HostedChief", bundle: .localizedModule)
     }
 
     public static var brainOff: String {
         String(localized: "home.chief.hostedBrainOff", defaultValue: "Your cloud Chief is turned off, so it does not answer messages.",
-               table: "HostedChief", bundle: .module)
+               table: "HostedChief", bundle: .localizedModule)
     }
 
     public static var copyFailed: String {
         String(localized: "home.chief.hostedCopyFailed",
                defaultValue: "Your Chief's history could not be copied to the cloud yet. cmux tries again at the next launch.",
-               table: "HostedChief", bundle: .module)
+               table: "HostedChief", bundle: .localizedModule)
     }
+}
+
+/// A cloud Chief as the shared Chief list rule reads it (CmuxChiefList).
+nonisolated extension CloudChief: ChiefListCloudChief {
+    public var isPlaced: Bool { brainPlace != nil }
 }

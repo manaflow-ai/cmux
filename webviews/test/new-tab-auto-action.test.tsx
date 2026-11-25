@@ -147,9 +147,9 @@ test("there is no Search | Ask switch and no Tab hint", async () => {
   const editor = field.querySelector<HTMLElement>("[contenteditable]")!;
   expect(editor.getAttribute("aria-describedby")).toBeNull();
   expect(field.getAttribute("aria-describedby")).toBeNull();
-  expect(editor.getAttribute("aria-label")).toBe("Ask anything or type a URL");
+  expect(editor.getAttribute("aria-label")).toBe("Type a question, command, or URL");
   const placeholder = field.querySelector<HTMLElement>(".acpmux-md-placeholder")!;
-  expect(placeholder.textContent).toBe("Ask anything or type a URL");
+  expect(placeholder.textContent).toBe("Type a question, command, or URL");
   expect(placeholder.hidden).toBe(false);
   expect(placeholder.querySelector(".acpmux-md-placeholder-key")).toBeNull();
 });

@@ -15,6 +15,17 @@ public nonisolated enum HomeChiefName {
         CreateConversationRequest(idempotencyKey: createKey, title: HomeStrings.chiefName, participants: [user, mux])
     }
 
+    /// The name of another Chief: the Chief's own name while no Chief has it, else the first free
+    /// "Chief 2", "Chief 3", … (`taken`: the names Chiefs have now). Two Chiefs never share a name:
+    /// their rows could not be told apart, and `cmux chief` could not pick one of them by name.
+    public static func next(taken: some Collection<String>) -> String {
+        let base = HomeStrings.chiefName
+        guard taken.contains(base) else { return base }
+        var number = 2
+        while taken.contains("\(base) \(number)") { number += 1 }
+        return "\(base) \(number)"
+    }
+
     /// The rename of `summary` to the chief name, or nil when none is due.
     /// Only the old default titles ("Home", localized or not, or none) are
     /// renamed; a title the user chose stays.

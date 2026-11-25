@@ -1,5 +1,6 @@
 import { agentKey } from "../shared/agentKey";
-import type { Translate } from "./i18n";
+import { currentLanguage, type Translate } from "./i18n";
+import { resetTime } from "./usageLimits";
 
 /// Why a turn failed, as the user can act on it (ROUTES R0, cx-w10a). Errors from harnesses are user-facing
 /// text, but a 401 from a proxy, a bad API key, a rate limit that mentions authentication and the CLI's own
@@ -12,6 +13,8 @@ export type FailureKind =
   | "team-cap"
   | "no-credit"
   | "cloud-auth-expired"
+  | "usage-limit"
+  | "account-disabled"
   | "rate-limited"
   | "unreachable"
   | "invalid-key"
@@ -38,6 +41,10 @@ export type FailureRoute = {
   /// The AWS profile the chat's agent signs in with (its `AWS_PROFILE`), when the host knows it: an
   /// expired SSO sign-in names it in `aws sso login --profile`.
   awsProfile?: string;
+  /// A Cloud chat whose machine's acpmux runs no in-card sign-in (an older machine, no
+  /// `agent-login-v1`): the card's Sign in again runs the agent's own login in a terminal on that
+  /// machine instead (``terminalSignIn`` in cloudAgentLogin.ts), and its sentence says why.
+  terminalSignIn?: boolean;
 };
 
 /// CodeRouter's refusal on a team Cloud machine whose team has no account for the agent: a 403
@@ -129,9 +136,6 @@ const MISSING_CREDENTIAL =
   /(?:provider )?credentials? (?:is |are )?(?:missing|not configured|not set)|no provider credentials?/i;
 const EXPIRED_CREDENTIAL =
   /(?:credential|token|session).{0,24}(?:expired|revoked)|(?:expired|revoked).{0,24}(?:credential|token|session)/i;
-/// The Cloud machine's provider answered that the stored Claude login is no longer accepted.
-/// This exact family is the only auth failure eligible for silent cached-login recovery.
-const CLOUD_REJECTED_CREDENTIAL = /provider rejected Claude Code[’']s credentials on this Cloud machine/i;
 /// A full disk, here or on the chat's machine: before every other kind, since what it broke (a
 /// write, a socket, the agent) reads as that kind too.
 const DISK_FULL = /ENOSPC|no space left on device|disk (?:is )?full|out of disk space|disk quota exceeded|EDQUOT/i;
@@ -159,6 +163,9 @@ const SPAWN_FAILED =
 /// acpmux's typed reasons (`errorCode`), by the words in them: the kind its text would give, when
 /// the text says less.
 const TYPED: readonly [RegExp, FailureKind][] = [
+  // acpmux's account kinds (recovery.rs `usage.limit`, `account.disabled`; cmux#55066).
+  [/^usage\.limit$/i, "usage-limit"],
+  [/^account\.disabled$/i, "account-disabled"],
   // The cmux model router's own codes, when they reach the turn typed.
   [/inference\.plan_required|credits\.insufficient/i, "needs-credits"],
   [/insufficient[_.-]?quota|billing|credit/i, "no-credit"],
@@ -179,6 +186,69 @@ const TYPED: readonly [RegExp, FailureKind][] = [
 const CODEX_CONFIG = /failed to (?:re)?load workspace requirements/i;
 /// The path may hold spaces; it ends at the first `:LINE:COLUMN` that ends a word.
 const CODEX_CONFIG_AT = /invalid configuration at (.+?):\d+:\d+(?!\S)/i;
+/// The agent's account used up a usage limit that resets later (cmux#55066): Claude Code's "You've hit
+/// your weekly limit · resets Nov 27, 7am (UTC)" and "Claude AI usage limit reached|1764000000", Codex's
+/// "You've hit your usage limit. … try again at 6:43 PM." Retrying fails the same way until the reset:
+/// another agent or another account goes on now. acpmux types the same words `usage.limit`
+/// (usage_limit.rs); this reads an older machine's untyped text. Never the cmux model router's own codes.
+const USAGE_LIMIT =
+  /hit your (?:(?:[\w-]+ ){0,2}(?:usage|weekly|session|daily|monthly|5-hour|five-hour|opus|sonnet|fable) )?limit\b|(?:usage|weekly|session) limit reached|reached your (?:weekly|session|usage) limit|out of extra usage/i;
+/// The agent's provider turned the account off: "This organization has been disabled.", a suspended or
+/// banned account. No wait helps: another agent or another account does.
+const ACCOUNT_DISABLED = /\b(?:organization|account) (?:has been|is|was) (?:disabled|suspended|banned|deactivated)\b/i;
+/// The reset a used-up limit states in words: after "resets" (Claude Code) or "try again at/in"
+/// (Codex), to the end of its sentence, without a bracket it did not open.
+const RESET_WORDS = /\b(?:resets|reset at|try again (?:at|in|after))\s+([^\n|"`]+)/i;
+
+/// The reset `message` states in words ("Nov 27, 7am (UTC)", "6:43 PM", "in 3h"), or undefined.
+export function limitResetWords(message: string | undefined): string | undefined {
+  const found = message ? RESET_WORDS.exec(message)?.[1] : undefined;
+  if (!found) return undefined;
+  let depth = 0;
+  let end = found.length;
+  for (let i = 0; i < found.length; i++) {
+    const c = found[i];
+    if (c === "(") depth++;
+    else if (c === ")") {
+      if (depth === 0) {
+        end = i;
+        break;
+      }
+      depth--;
+    } else if (c === "." && depth === 0 && found[i + 1] === " ") {
+      end = i;
+      break;
+    }
+  }
+  const words = found
+    .slice(0, end)
+    .trim()
+    .replace(/[.,;]+$/, "")
+    .trim();
+  return words && words.length <= 80 ? words : undefined;
+}
+
+/// When a used-up limit resets, where the refusal says so as a time: Claude Code's subscription limit
+/// ("Claude AI usage limit reached|1764000000", epoch seconds) and a JSON `resets_at` / `resetsAt`
+/// (ISO or epoch seconds). A wait that only says "in 3h" names no time to show.
+const RESET_EPOCH = /limit reached\|(\d{10})\b/i;
+const RESET_FIELD = /"resets?_?[aA]t"\s*:\s*(?:"([^"]+)"|(\d{10}))/;
+
+/// The reset time (epoch seconds) a rate-limited `message` names, or undefined.
+export function limitResetsAt(message: string | undefined): number | undefined {
+  if (!message) return undefined;
+  const epoch = RESET_EPOCH.exec(message)?.[1];
+  const field = RESET_FIELD.exec(message);
+  const seconds = epoch
+    ? Number(epoch)
+    : field?.[2]
+      ? Number(field[2])
+      : field?.[1]
+        ? Date.parse(field[1]) / 1000
+        : Number.NaN;
+  return Number.isFinite(seconds) && seconds > 0 ? Math.floor(seconds) : undefined;
+}
+
 const URL_HOST = /https?:\/\/([^\s/'")\]]+)/i;
 const STATUS = /\b([45]\d\d)\b/;
 /// Harness profiles that reach their provider through a proxy acpmux knows by name.
@@ -202,10 +272,6 @@ export function isTeamMachineSignIn(kind: FailureKind, route?: FailureRoute): bo
     (kind === "auth" || kind === "subscription-login") &&
     agentKey(route.harness?.split("/").pop() ?? "claude") === "claude"
   );
-}
-
-export function isCloudRejectedCredential(message: string | undefined, route?: FailureRoute): boolean {
-  return route?.hostKind === "cloud" && CLOUD_REJECTED_CREDENTIAL.test(message ?? "");
 }
 
 /// The proxy or endpoint a failure names: a host in the message that is not the provider's, else the
@@ -239,6 +305,9 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
     (NO_CREDIT.test(message) || (INSUFFICIENT_QUOTA.test(message) && !ROUTER_LIMIT.test(message)))
   )
     return "no-credit";
+  // Before capacity: an account out of usage until a reset, or turned off, is not a moment's limit.
+  if (!ROUTER_CODE.test(message) && ACCOUNT_DISABLED.test(message)) return "account-disabled";
+  if (!ROUTER_CODE.test(message) && USAGE_LIMIT.test(message)) return "usage-limit";
   if (cloudSignIn(message)) return "cloud-auth-expired";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
@@ -287,9 +356,12 @@ function cloudSignIn(message: string, route?: FailureRoute): { command?: string;
   return { command: `aws sso login --profile ${profile}` };
 }
 
-/// The way out a failure's card offers first: send the prompt again, move to another model (with
-/// Retry after it), compact a chat that outgrew its context window, or sign the agent in again
-/// (each with Retry after it, for once that is done). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
+/// Whether a failure is the agent's account itself (out of usage until a reset, or turned off): its card
+/// offers another agent and Sign in with another account (cmux#55066).
+export function isAccountLimit(kind: FailureKind): boolean {
+  return kind === "usage-limit" || kind === "account-disabled";
+}
+
 /// Whether a failed turn offers cmux's own route, CodeRouter, beside Switch model (Lawrence
 /// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
 /// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
@@ -303,10 +375,14 @@ export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean
     kind === "subscription-login" ||
     kind === "auth" ||
     kind === "rate-limited" ||
+    kind === "usage-limit" ||
     kind === "no-credit"
   );
 }
 
+/// The way out a failure's card offers first: send the prompt again, move to another model (with
+/// Retry after it), compact a chat that outgrew its context window, or sign the agent in again
+/// (each with Retry after it, for once that is done). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.
 export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "compact" | "sign-in" | undefined {
   switch (kind) {
     case "context-full":
@@ -320,6 +396,10 @@ export function failureRecovery(kind: FailureKind): "retry" | "switch-model" | "
     case "invalid-key":
     case "proxy-auth":
     case "no-credit":
+    // An account out of usage or turned off fails the same way on Retry: another agent or another
+    // account goes on (cmux#55066).
+    case "usage-limit":
+    case "account-disabled":
     // At the team's cap every cmux-routed call is refused until an admin raises it: a model on the
     // person's own account is the way on.
     case "team-cap":
@@ -344,9 +424,13 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
   const status = message ? STATUS.exec(message)?.[1] : undefined;
   if (isTeamMachineSignIn(kind, route)) return t("turn.failure.cloudTeamMachineNoLogin", { harness });
   if (route?.hostKind === "cloud" && (kind === "auth" || kind === "subscription-login")) {
-    if (MISSING_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthMissing", { harness });
-    if (EXPIRED_CREDENTIAL.test(message ?? "")) return t("turn.failure.cloudAuthExpired", { harness });
-    return t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
+    const cause = MISSING_CREDENTIAL.test(message ?? "")
+      ? t("turn.failure.cloudAuthMissing", { harness })
+      : EXPIRED_CREDENTIAL.test(message ?? "")
+        ? t("turn.failure.cloudAuthExpired", { harness })
+        : t("turn.failure.cloudAuthRejected", { harness, status: status ? ` (HTTP ${status})` : "" });
+    // An older machine signs in through Sign in again's terminal there, not in the card: say why.
+    return route.terminalSignIn ? `${cause} ${t("turn.failure.cloudSignInInTerminal", { harness })}` : cause;
   }
   switch (kind) {
     case "trust-pending":
@@ -368,8 +452,21 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
         ? t("turn.failure.cloudSsoExpired", { harness })
         : t("turn.failure.cloudCredentialsExpired", { harness });
     }
-    case "rate-limited":
-      return t("turn.failure.rateLimited", { harness });
+    case "usage-limit": {
+      // The reset as a time where the refusal gives one, else in its own words ("Nov 27, 7am (UTC)").
+      const resets = limitResetsAt(message);
+      const time = resets !== undefined ? resetTime(resets, currentLanguage()) : limitResetWords(message);
+      return time ? t("turn.failure.usageLimitUntil", { harness, time }) : t("turn.failure.usageLimit", { harness });
+    }
+    case "account-disabled":
+      return t("turn.failure.accountDisabled", { harness });
+    case "rate-limited": {
+      // A used-up limit that names its reset says when, not "in a moment" (it can be hours or days).
+      const resets = limitResetsAt(message);
+      return resets === undefined
+        ? t("turn.failure.rateLimited", { harness })
+        : t("turn.failure.usageLimitResets", { harness, time: resetTime(resets, currentLanguage()) });
+    }
     case "unreachable":
       return via ? t("turn.failure.unreachableVia", { harness, via }) : t("turn.failure.unreachable", { harness });
     case "invalid-key":

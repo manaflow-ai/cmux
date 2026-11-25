@@ -108,6 +108,39 @@ def version(cli: Path) -> str:
     return subprocess.run([str(cli), "--version"], capture_output=True, text=True).stdout.strip()
 
 
+HOST_MARKS = ("cmux-tui-host", "__terminal-host", "cmux-holder", "__holder")
+
+
+def processes() -> list[dict]:
+    rows = []
+    for line in subprocess.run(["ps", "-axww", "-o", "pid=,ppid=,command="], capture_output=True,
+                               text=True).stdout.splitlines():
+        pid, ppid, command = (line.split(None, 2) + ["", ""])[:3]
+        if pid.isdigit():
+            rows.append({"pid": int(pid), "ppid": int(ppid), "command": command})
+    return rows
+
+
+def terminal_hosts(app: Path, terms: list[dict]) -> dict:
+    """The copy's terminal-host processes (pid, ppid, command) and the host each shell runs under (its
+    parent): a host no shell runs under is the standby spare the daemon keeps for its next terminal."""
+    rows = processes()
+    hosts = [r for r in rows if str(app) in r["command"] and any(m in r["command"] for m in HOST_MARKS)]
+    parent = {r["pid"]: r["ppid"] for r in rows}
+    shells = {t["terminal_id"]: {"shell_pid": t["shell_pid"], "host_pid": parent.get(int(t["shell_pid"] or 0))}
+              for t in terms}
+    serving = {v["host_pid"] for v in shells.values()}
+    return {"hosts": [dict(h, command=h["command"][:300], serves_a_shell=h["pid"] in serving) for h in hosts],
+            "shells": shells}
+
+
+def same_hosts(before: dict, after: dict) -> bool:
+    """Every shell runs under the host it ran under before, and that host is still up."""
+    up = {h["pid"] for h in after["hosts"]}
+    return all(after["shells"].get(t, {}).get("host_pid") == v["host_pid"] and v["host_pid"] in up
+               for t, v in before["shells"].items())
+
+
 def shells_survive(sock: str, terms: list[dict], token: str) -> dict:
     """Each shell still runs (same shell pid), its marker is on screen, and new input echoes."""
     out = {}
@@ -203,6 +236,7 @@ def main() -> int:
                 if r.get("socket") == other["socket"]]
         return rows[0] if rows else {}
 
+    receipt["terminal_hosts"] = {"before_apply": terminal_hosts(app, terms)}
     if args.prefetch:
         # As once CI publishes SHA: everything apply needs is fetched and checked first, so the apply only swaps.
         code, fetched = run_hot("prefetch", args.sha, "--app", str(app))
@@ -218,6 +252,9 @@ def main() -> int:
     receipt["checks"]["bin_is_published_sha"] = sha256(cli) == rust.get("to") and rust.get("to") != before
     receipt["checks"]["new_daemon_owner"] = bool(rust.get("new_pid")) and rust.get("new_pid") != rust.get("old_pid")
     receipt["after_apply_shells"] = shells_survive(sock, terms, "applied")
+    receipt["terminal_hosts"]["after_apply"] = terminal_hosts(app, terms)
+    receipt["checks"]["apply_keeps_each_shell_s_host"] = same_hosts(receipt["terminal_hosts"]["before_apply"],
+                                                                    receipt["terminal_hosts"]["after_apply"])
     if other:
         row = handed(applied)
         receipt["other_session_apply"] = row
@@ -232,6 +269,9 @@ def main() -> int:
     receipt["checks"]["bin_is_nightly_sha_again"] = sha256(cli) == before
     receipt["checks"]["rollback_new_daemon_owner"] = bool(back.get("new_pid")) and back.get("new_pid") != back.get("old_pid")
     receipt["after_rollback_shells"] = shells_survive(sock, terms, "rolledback")
+    receipt["terminal_hosts"]["after_rollback"] = terminal_hosts(app, terms)
+    receipt["checks"]["rollback_keeps_each_shell_s_host"] = same_hosts(receipt["terminal_hosts"]["before_apply"],
+                                                                       receipt["terminal_hosts"]["after_rollback"])
     if other:
         row = handed(rolled)
         receipt["other_session_rollback"] = row

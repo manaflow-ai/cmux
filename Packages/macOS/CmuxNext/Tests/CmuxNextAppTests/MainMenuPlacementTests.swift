@@ -76,8 +76,8 @@ import Testing
             result[menu] = Self.topMenu(menu, in: bar)?.items.filter { !$0.isSeparatorItem && !$0.isAlternate }.count ?? 0
         }
         // Install an Earlier Nightly… (Leo 2026-11-02); Customize… beside Settings… (#43304, Leo 2026-11-15); one Quit
-        // (CMUX-630, Leo 2026-11-15).
-        #expect(counts[.app] == 10)
+        // (CMUX-630, Leo 2026-11-15); Set Up cmux… (#46793, Leo 2026-11-18).
+        #expect(counts[.app] == 11)
         #expect(counts[.file] == 16) // Screen Sharing, beside Connect to Machine… and Add Device…
         #expect(counts[.edit] == 7)
         #expect(counts[.view] == 10) // the right sidebar and Feed rows left with #41025

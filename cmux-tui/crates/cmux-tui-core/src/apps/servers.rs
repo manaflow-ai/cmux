@@ -3,11 +3,30 @@
 //!
 //! Runs now: first-party `native` servers whose binary ships in the cmux
 //! bundle (`binaries`), resolved next to `cmux-app-host`
-//! ([`super::host::resolve_server_dir`]). Third-party native servers
-//! (`artifacts`), `external` and `js` servers answer
-//! `apps.server_unsupported` until artifact verification and credential
-//! admission land. A declared binary that is not in the bundle answers
+//! ([`super::host::resolve_server_dir`]); `js` and `external` servers of any
+//! tier, once the person approved them. Third-party native servers
+//! (`artifacts`) answer `apps.server_unsupported` until artifact
+//! verification lands. A declared binary that is not in the bundle answers
 //! `apps.server_missing`; nothing retries it, so there is no crash loop.
+//!
+//! Approval ([`APPROVAL_SCOPE`]): a `js` or `external` server runs only
+//! while the app holds `server:execute`, a scope the manifest asks for with
+//! its reason and the consent card grants at install (revocable in
+//! Settings, like any scope). Without it every op answers
+//! `apps.server_unapproved`. A manifest that declares no server never runs
+//! one, so both kinds are off unless the manifest declares them.
+//!
+//! - `js`: the catalog ops run as exports of the app's own QuickJS host
+//!   (`runtime.main`, each op's `export`), the process a view gets: the same
+//!   sandbox, VM limits and budget ladder (`budget.rs`). The server gate
+//!   ([`Supervisor::admit_server_op`]) runs first. `lifecycle.start: always`
+//!   keeps the host up with no view (`activation.rs`).
+//! - `external`: a process the person starts, in any language, connects to
+//!   the daemon's control socket with the app's credential
+//!   (`server_external.rs`): only a credential the person approved in the
+//!   cmux app (origin user), local connections only, one connection per
+//!   app. It speaks this wire inside `apps-server-line` frames and may send
+//!   `result` and `event` lines only.
 //!
 //! Lifecycle (`server.lifecycle`): `always` starts the server when the app is
 //! installed and enabled (and when the supervisor starts for an app that
@@ -86,8 +105,19 @@ fn platform() -> Option<&'static str> {
     }
 }
 
-/// The server `package` declares: `None` without one, `Err` when it cannot
-/// run here.
+/// The scope that approves an app's `js` or `external` server: asked for in
+/// the manifest's `scopes`, granted on the consent card (module docs).
+pub(super) const APPROVAL_SCOPE: &str = "server:execute";
+
+/// The `server.kind` `package` declares, if it declares a server.
+pub(super) fn kind(package: &Package) -> Option<&str> {
+    package.manifest.get("server")?.get("kind")?.as_str()
+}
+
+/// The server process `package` declares: `None` without one (a `js`
+/// server runs in the app host, not in a process of its own), `Err` when it
+/// cannot run here. The daemon never starts an `external` server: until its
+/// process connects, a call answers `apps.server_unavailable` at once.
 pub(super) fn spec(
     package: &Package,
     dir: Option<&Path>,
@@ -96,12 +126,23 @@ pub(super) fn spec(
     let server = package.manifest.get("server")?;
     let id = &package.id;
     let kind = server["kind"].as_str().unwrap_or_default();
+    if kind == "js" {
+        return None;
+    }
+    if kind == "external" {
+        return Some(Err(ApiError::new(
+            "apps.server_unavailable",
+            format!(
+                "the external server of {id} is not connected: start it with the credential you approved"
+            ),
+        )));
+    }
     let binaries = server.get("binaries").and_then(Value::as_object);
     let Some(binaries) = binaries.filter(|_| kind == "native" && package.tier == Tier::FirstParty)
     else {
         return Some(Err(ApiError::new(
             "apps.server_unsupported",
-            format!("{id} declares a {kind} server; only first-party native servers run for now"),
+            format!("{id} declares a {kind} server; native servers run for first-party apps only"),
         )));
     };
     // The schema limits names to [a-z0-9-], so a name never leaves the directory.
@@ -150,6 +191,8 @@ pub(super) struct Server {
     /// Asked to exit (idle, disable, uninstall); the exit is expected.
     pub stopping: bool,
     pub kill: Option<TimerId>,
+    /// An `external` server: the control connection it attached on.
+    pub client: Option<u64>,
 }
 
 /// Restart spacing of crashed `always` servers, per app.
@@ -172,6 +215,9 @@ pub(super) struct ServerProcess {
     /// The child's pid until the reader thread reaps it; a kill only signals
     /// a pid that is not reaped yet.
     pid: Arc<Mutex<Option<u32>>>,
+    /// An external server's connection: set, its writer sends nothing more
+    /// and ends (`server_external.rs`).
+    detached: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// A started server that no thread owns yet: dropped, it is killed and
@@ -305,7 +351,44 @@ impl ServerProcess {
             };
             on_exit(exit);
         })?;
-        Ok(Self { queue, pid })
+        Ok(Self { queue, pid, detached: None })
+    }
+
+    /// An external server's end of the wire: each line goes to the control
+    /// connection that attached it, as `apps-server-line {app, line}`
+    /// through `deliver` (false: the connection is gone or full), on a
+    /// writer thread, so the supervisor lock never waits on the connection.
+    /// A close sends `{"type":"stop"}` first. `on_exit` runs once when the
+    /// writer ends: closed, detached, or the connection refused a line.
+    pub fn external(
+        app: &str,
+        deliver: impl Fn(&Value) -> bool + Send + 'static,
+        on_exit: impl FnOnce(Exit) + Send + 'static,
+    ) -> std::io::Result<Self> {
+        let detached = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (queue, outgoing) = sync_channel::<Outgoing>(QUEUE);
+        let (name, gone) = (app.to_string(), detached.clone());
+        thread(format!("cmux-app-server-x:{name}"), move || {
+            let frame =
+                |line: Value| json!({ "event": "apps-server-line", "app": name, "line": line });
+            while let Ok(item) = outgoing.recv() {
+                if gone.load(std::sync::atomic::Ordering::Acquire) {
+                    break;
+                }
+                let line = match item {
+                    Outgoing::Line(line) => serde_json::from_slice(&line).unwrap_or(Value::Null),
+                    Outgoing::Close => {
+                        deliver(&frame(json!({ "type": "stop" })));
+                        break;
+                    }
+                };
+                if !deliver(&frame(line)) {
+                    break;
+                }
+            }
+            on_exit(Exit { code: Some(0), signal: None });
+        })?;
+        Ok(Self { queue, pid: Arc::new(Mutex::new(None)), detached: Some(detached) })
     }
 
     /// Queues one line. A server whose queue is full is stuck and is killed.
@@ -326,6 +409,12 @@ impl ServerProcess {
     }
 
     pub fn kill(&self) {
+        if let Some(detached) = &self.detached {
+            detached.store(true, std::sync::atomic::Ordering::Release);
+            // Wakes a writer waiting for a line; a full queue wakes it anyway.
+            let _ = self.queue.try_send(Outgoing::Close);
+            return;
+        }
         if let Some(pid) = *self.pid.lock().unwrap() {
             // SAFETY: the pid is ours and not reaped (the reader takes it first).
             unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
@@ -378,6 +467,26 @@ impl Supervisor {
         spec(package, self.config.server_dir.as_deref(), self.config.idle_stop)
     }
 
+    /// Whether `app`'s server may run: a `js` or `external` server needs the
+    /// person's approval ([`APPROVAL_SCOPE`] granted); other kinds have
+    /// their own checks ([`spec`]).
+    pub(super) fn server_approved_locked(inner: &Inner, app: &str) -> Result<(), ApiError> {
+        let Some(kind) = inner.catalog.packages.get(app).and_then(kind) else { return Ok(()) };
+        if !matches!(kind, "js" | "external") {
+            return Ok(());
+        }
+        let key = super::supervisor::HostKey { app: app.to_string(), preview: false };
+        if Self::grant_for(inner, &key).scopes.contains(APPROVAL_SCOPE) {
+            return Ok(());
+        }
+        Err(ApiError::new(
+            "apps.server_unapproved",
+            format!(
+                "{app} declares a {kind} server you have not approved: its manifest asks for {APPROVAL_SCOPE}, which you grant when you install it"
+            ),
+        ))
+    }
+
     /// The supervisor's own check of a server op, before the server's (a
     /// second layer): a `gesture: required` op needs origin user (admitted
     /// on the wire only from the hosting app connection, A2), and the app
@@ -424,9 +533,11 @@ impl Supervisor {
 
     /// True when `app` declares a server and `op` is one of its catalog ops,
     /// or a backend op it serves that a server may run (`serves`).
+    /// A `js` server's ops run in the app host instead (`runs.rs`).
     pub(super) fn server_op_locked(inner: &Inner, app: &str, op: &str) -> bool {
         inner.catalog.packages.get(app).is_some_and(|package| {
             package.manifest.get("server").is_some()
+                && kind(package) != Some("js")
                 && (package.catalog_ops().iter().any(|(name, _)| name == op)
                     || package.served_op(op).is_some())
         })
@@ -558,6 +669,7 @@ impl Supervisor {
                 idle: None,
                 stopping: false,
                 kill: None,
+                client: None,
             },
         );
         let mut outs = self.log_locked(inner, app, "info", "server started".into());
@@ -610,6 +722,10 @@ impl Supervisor {
             inner.server_crashes.remove(app);
             return self.stop_server_locked(inner, app, "disabled");
         }
+        // A revoked approval ends a connected external server.
+        if let Err(error) = Self::server_approved_locked(inner, app) {
+            return self.stop_server_locked(inner, app, &error.message);
+        }
         let gave_up = inner.server_crashes.get(app).is_some_and(|c| c.count > MAX_CRASHES);
         match self.server_spec_locked(inner, app) {
             Some(Ok(spec)) if spec.always && !gave_up => match self.start_server_locked(inner, app)
@@ -643,7 +759,7 @@ impl Supervisor {
         self.emit(outs);
     }
 
-    fn server_line(&self, app: &str, generation: u64, value: Value) {
+    pub(super) fn server_line(&self, app: &str, generation: u64, value: Value) {
         let outs = {
             let mut inner = self.inner.lock().unwrap();
             if inner.servers.get(app).is_none_or(|s| s.generation != generation) {
@@ -753,7 +869,7 @@ impl Supervisor {
         vec![]
     }
 
-    fn server_exit(&self, app: &str, generation: u64, exit: Exit) {
+    pub(super) fn server_exit(&self, app: &str, generation: u64, exit: Exit) {
         // The path is read under the lock; the folder goes after it is released.
         let (outs, gone) = {
             let mut inner = self.inner.lock().unwrap();

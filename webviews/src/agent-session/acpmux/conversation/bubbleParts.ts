@@ -5,6 +5,8 @@ import { isImageOriginal } from "./userBubbleModel";
 import { withoutVideoFrames } from "../composer/videoPrompt";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { readsAsText } from "./inlinePromptContentModel";
+import { sentVideosOf, withoutRepeatedVideos } from "./sentVideos";
+import type { AttachmentView } from "../composerSettings";
 
 /// The paths of the originals a prompt's images kept (an image the composer converted sends its
 /// original file after it).
@@ -34,32 +36,63 @@ export function attachmentOnlyPrompt(row: Pick<AcpmuxRow, "text" | "inlineParts"
   );
 }
 
-/// The parts a recorded prompt's bubble draws in their order (`bubbleLayout`), or undefined when it
-/// keeps the legacy bands above a bubble of its recorded text: its parts without its videos' frames
-/// and notes (which went to the agent only), its images' retained originals and its attachments,
-/// which draw in the block above it. UserBubble.tsx draws these; Find searches their text, so it
-/// never reads a part the bubble does not draw, nor misses words the block's leaving joined.
+/// The parts a recorded prompt's bubble draws in their order in the pane's attachment view
+/// (`bubbleLayout`), or undefined when it keeps the legacy bands above a bubble of its recorded text:
+/// its parts without its videos' frames and notes (which went to the agent only) and its images'
+/// retained originals, less the attachments that draw in the band above it (every one in the strip
+/// view; a placed prompt's unmarked ones in the others, promptCollapse.ts `inlineBubbleParts`).
+/// UserBubble.tsx draws these; Find searches their text, so it never reads a part the bubble does
+/// not draw, nor misses words the band's leaving joined.
 export function bubbleParts(
   row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "pasted" | "retryAttachments">,
+  view: AttachmentView,
 ): PromptContentPart[] | undefined {
-  return bubbleLayout(row)?.parts;
+  return bubbleLayout(row, view)?.parts;
 }
 
-/// A prompt drawn in its parts' order as UserBubble.tsx lays it out: `band`, every attachment it
-/// sent, in one block above the bubble at the sent tile's size, and `parts`, the bubble's text
-/// (typed words, pastes, a text file's body behind its chip) as plain flow below it. A sent message
-/// draws so in every attachment view (Leo, 2026-11-17: "Attachments render inline in the middle of
-/// the text line, at odd sizes. Put them in a block above the text."); the view
-/// (composerSettings.ts `attachmentView`) places attachments in the composer only. Undefined for a
-/// prompt that keeps the legacy bands. The row's estimate (model.ts) measures both, so the row does
-/// not shift when it mounts.
+/// A prompt drawn in its parts' order as UserBubble.tsx lays it out in the pane's attachment view
+/// (composerSettings.ts `attachmentView`): `parts` in its bubble, and `band`, the attachments it
+/// draws in the row above the bubble. The strip view draws every attachment in that row and leaves
+/// the bubble its text; the others ("both" draws as "inline") leave only a placed prompt's unmarked
+/// attachments there. Undefined for a prompt that keeps the legacy bands. The row's estimate
+/// (model.ts) measures both, so a strip prompt is not estimated as an inline one.
 export function bubbleLayout(
   row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "pasted" | "retryAttachments">,
+  view: AttachmentView,
 ): { parts: PromptContentPart[]; band: Exclude<PromptContentPart, { kind: "text" }>[] } | undefined {
   const recorded = withoutVideoFrames(row).inlineParts;
   if (!recorded) return undefined;
   const originals = imageOriginals(row);
   const parts = recorded.filter((part) => !isImageOriginal(part, originals));
-  if (!inlineBubbleParts(parts)) return undefined;
-  return { parts: parts.filter((part) => !isStripMedia(part)), band: parts.filter(isStripMedia) };
+  const inline = inlineBubbleParts(parts);
+  if (!inline) return undefined;
+  // A video attached twice is one tile (sentVideos.ts `withoutRepeatedVideos`).
+  const sentVideos = sentVideosOf(row);
+  if (view === "strip")
+    return {
+      parts: withoutRepeatedVideos(
+        parts.filter((part) => !isStripMedia(part)),
+        sentVideos,
+      ),
+      band: withoutRepeatedVideos(parts.filter(isStripMedia), sentVideos),
+    };
+  return {
+    parts: withoutRepeatedVideos(inline, sentVideos),
+    band: withoutRepeatedVideos(
+      parts.filter(isStripMedia).filter((part) => !inline.includes(part)),
+      sentVideos,
+    ),
+  };
+}
+
+/// The attachments an attachment-only prompt draws in its strip (UserBubble.tsx `stripMedia`), in
+/// their order: its recorded parts less its videos' frames and its images' retained originals. The
+/// row's estimate (model.ts) measures each at its own sent size.
+export function stripAttachments(
+  row: Pick<AcpmuxRow, "text" | "images" | "inlineParts" | "retryAttachments">,
+): Exclude<PromptContentPart, { kind: "text" }>[] {
+  const originals = imageOriginals(row);
+  return (withoutVideoFrames(row).inlineParts ?? [])
+    .filter((part) => !isImageOriginal(part, originals))
+    .filter(isStripMedia);
 }

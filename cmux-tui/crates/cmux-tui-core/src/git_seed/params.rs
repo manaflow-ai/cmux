@@ -46,6 +46,15 @@ struct Wire {
     /// With `head_first`: the folder below the repository's root the chat opens in.
     #[serde(default)]
     subpath: Option<String>,
+    /// `git-seed-carry-v1`: the uploaded pack of `base` at depth 1 ([`StartParams::carry`]).
+    #[serde(default)]
+    carry: Option<String>,
+    /// A warm mirror of the repository on this machine ([`StartParams::mirror`]).
+    #[serde(default)]
+    mirror: Option<String>,
+    /// Where missing objects come from, in order ([`StartParams::promisors`]).
+    #[serde(default)]
+    promisors: Vec<String>,
 }
 
 /// A checked start request. The paths are not yet placed in the sandbox
@@ -72,6 +81,23 @@ pub struct StartParams {
     /// The checkout opens at its head first: only for a whole seed (no `since`) without
     /// the Mac's sparse patterns, and only when the subpath can be written as a pattern.
     pub head_first: Option<HeadFirst>,
+    /// `git-seed-carry-v1`: the path (under the roots, like `bundle`) of a pack the sender made
+    /// from its own objects with `base`, its tree and every blob of it, and nothing older. A fresh
+    /// folder becomes a shallow repository at `base` from it instead of a clone (no GitHub, no
+    /// credential); a folder with a repository already, or a pack that does not index, clones as
+    /// before. Only for a whole seed (no `since`).
+    pub carry: Option<String>,
+    /// A warm mirror of the same repository on this machine (an absolute path: a bare
+    /// repository or a checkout, such as `wt`'s blobless mirror). A fresh folder borrows its
+    /// objects through `objects/info/alternates` instead of a carry or a clone when the mirror's
+    /// `origin` is this repository and the base with its whole tree is in it (`run/borrow.rs`);
+    /// otherwise the seed carries or clones as before. Only for a whole seed (no `since`).
+    pub mirror: Option<String>,
+    /// Where a borrowed or carried folder lazily fetches what it lacks (history, old blobs), in
+    /// the order git tries them: each `url` itself (the forge) or an absolute path on this machine
+    /// to a repository of the same repository (a peer). Empty: a borrowed folder fetches from
+    /// `origin`, a carried one stays shallow as before. Only for a whole seed (no `since`).
+    pub promisors: Vec<String>,
 }
 
 /// A seed that marks its head (`cmux_git::sync_barrier::Sync::head_ready`) before it fills
@@ -171,6 +197,18 @@ impl StartParams {
         {
             return Err(SeedRefusal::bad_request("invalid sparse patterns"));
         }
+        if wire.carry.is_some() && wire.since.is_some() {
+            return Err(SeedRefusal::bad_request("carry is for a whole seed, not a delta"));
+        }
+        if (wire.mirror.is_some() || !wire.promisors.is_empty()) && wire.since.is_some() {
+            return Err(SeedRefusal::bad_request(
+                "mirror and promisors are for a whole seed, not a delta",
+            ));
+        }
+        if let Some(mirror) = &wire.mirror {
+            check_local_path("mirror", mirror)?;
+        }
+        check_promisors(&wire.promisors, &wire.url)?;
         let head_first = (wire.head_first && wire.since.is_none() && wire.sparse.is_none())
             .then(|| HeadFirst::of(wire.subpath.as_deref()))
             .flatten();
@@ -189,6 +227,9 @@ impl StartParams {
             since: wire.since,
             clone_only: None,
             head_first,
+            carry: wire.carry,
+            mirror: wire.mirror,
+            promisors: wire.promisors,
         })
     }
 
@@ -198,6 +239,12 @@ impl StartParams {
         }
         if wire.sparse.is_some() {
             return Err(SeedRefusal::bad_request("sparse needs a seed bundle"));
+        }
+        if wire.carry.is_some() {
+            return Err(SeedRefusal::bad_request("carry needs a seed bundle"));
+        }
+        if wire.mirror.is_some() || !wire.promisors.is_empty() {
+            return Err(SeedRefusal::bad_request("mirror and promisors need a seed bundle"));
         }
         Ok(Self {
             folder: wire.folder,
@@ -214,8 +261,46 @@ impl StartParams {
             since: None,
             clone_only: Some(wire.git_ref),
             head_first: None,
+            carry: None,
+            mirror: None,
+            promisors: Vec::new(),
         })
     }
+}
+
+/// Most promisor sources a start names.
+const MAX_PROMISORS: usize = 8;
+/// Longest local path (`PATH_MAX`).
+const MAX_PATH: usize = 4096;
+
+/// An absolute path git reads as one line (`objects/info/alternates`, a remote's URL): no
+/// control character, no `..` part.
+fn check_local_path(name: &str, path: &str) -> Result<(), SeedRefusal> {
+    let fine = path.starts_with('/')
+        && path.len() <= MAX_PATH
+        && !path.chars().any(char::is_control)
+        && !path.split('/').any(|part| part == "..");
+    if fine {
+        Ok(())
+    } else {
+        Err(SeedRefusal::bad_request(format!("{name} must be an absolute path")))
+    }
+}
+
+/// Each promisor is `url` itself or a local path, and none twice.
+fn check_promisors(promisors: &[String], url: &str) -> Result<(), SeedRefusal> {
+    if promisors.len() > MAX_PROMISORS {
+        return Err(SeedRefusal::bad_request(format!("at most {MAX_PROMISORS} promisors")));
+    }
+    for (at, promisor) in promisors.iter().enumerate() {
+        if promisor != url {
+            check_local_path("a promisor other than url", promisor)?;
+        }
+        if promisors[..at].contains(promisor) {
+            return Err(SeedRefusal::bad_request("a promisor is named twice"));
+        }
+    }
+    Ok(())
 }
 
 /// A clone's `ref`: a full object name, or a branch or tag name in
@@ -303,106 +388,5 @@ fn check_head_ref(head_ref: &str) -> Result<String, SeedRefusal> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn urls_are_exactly_github_https_matching_repo() {
-        assert!(check_url("https://github.com/o/n.git", "o/n").is_ok());
-        assert!(check_url("https://github.com/manaflow-ai/cmux.git", "manaflow-ai/cmux").is_ok());
-        for (url, repo) in [
-            ("https://github.com/o/n.git", "o/m"),
-            ("https://github.com/o/n", "o/n"),
-            ("http://github.com/o/n.git", "o/n"),
-            ("https://x@github.com/o/n.git", "o/n"),
-            ("https://github.com.evil.com/o/n.git", "o/n"),
-            ("https://github.com/o/n/x.git", "o/n/x"),
-            ("https://github.com/-o/n.git", "-o/n"),
-            ("https://github.com/./n.git", "./n"),
-            ("https://github.com/o/n?.git", "o/n?"),
-            ("git@github.com:o/n.git", "o/n"),
-            ("file:///tmp/o/n.git", "o/n"),
-        ] {
-            assert!(check_url(url, repo).is_err(), "{url} {repo}");
-        }
-    }
-
-    #[test]
-    fn shas_are_full_lowercase_hex() {
-        assert!(check_sha("x", &"a".repeat(40)).is_ok());
-        assert!(check_sha("x", &"0".repeat(64)).is_ok());
-        for sha in ["", "abc", &"A".repeat(40), &"g".repeat(40), &"a".repeat(41), "HEAD"] {
-            assert!(check_sha("x", sha).is_err(), "{sha}");
-        }
-    }
-
-    #[test]
-    fn clone_refs_are_a_safe_subset() {
-        for git_ref in ["main", "feature/x", "v1.2.3", &"a".repeat(40)] {
-            assert!(check_clone_ref(git_ref).is_ok(), "{git_ref}");
-        }
-        for git_ref in ["", "HEAD", "-x", "a..b", "a b", "x.lock", "a~1", "/a", "a/", ".a", "a//b"]
-        {
-            assert!(check_clone_ref(git_ref).is_err(), "{git_ref}");
-        }
-    }
-
-    #[test]
-    fn a_start_is_a_seed_or_a_clone_never_half_of_each() {
-        let clone = StartParams::parse(&serde_json::json!({
-            "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n", "ref": "v1",
-        }))
-        .unwrap();
-        assert_eq!(clone.clone_only, Some(Some("v1".into())));
-        let default = StartParams::parse(&serde_json::json!({
-            "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n",
-            "bundle": null, "head": null, "index": null, "work": null, "stash": null, "since": null, "base": null,
-        }))
-        .unwrap();
-        assert_eq!(default.clone_only, Some(None));
-        let half = StartParams::parse(&serde_json::json!({
-            "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n", "bundle": "/h/b",
-        }));
-        assert_eq!(half.unwrap_err().code, "seed.bad_request");
-    }
-
-    #[test]
-    fn a_head_first_start_is_only_a_whole_seed_with_a_literal_subpath() {
-        let sha = "a".repeat(40);
-        let parse = |extra: Value| {
-            let mut params = serde_json::json!({
-                "folder": "/h/p", "url": "https://github.com/o/n.git", "repo": "o/n",
-                "base": sha, "bundle": "/h/b", "head": sha, "index": sha, "work": sha,
-                "head_first": true,
-            });
-            params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-            StartParams::parse(&params).unwrap().head_first
-        };
-        assert_eq!(parse(serde_json::json!({})), Some(HeadFirst { subpath: vec![] }));
-        let nested = parse(serde_json::json!({"subpath": "/app/web/"})).unwrap();
-        assert_eq!(nested.folders(), ["app", "app/web"]);
-        assert_eq!(parse(serde_json::json!({"since": sha})), None, "a delta");
-        assert_eq!(parse(serde_json::json!({"sparse": "/a\n"})), None, "the Mac's patterns");
-        assert_eq!(parse(serde_json::json!({"head_first": false})), None);
-        for subpath in ["a/../b", "a//b", "a/*", "!a", "#a", "a/[x]", "a\\b", " a", "./a"] {
-            assert_eq!(parse(serde_json::json!({ "subpath": subpath })), None, "{subpath}");
-        }
-    }
-
-    #[test]
-    fn head_refs_are_checked_by_git() {
-        assert_eq!(check_head_ref("refs/heads/feature/x").unwrap(), "feature/x");
-        for head_ref in [
-            "refs/heads/",
-            "refs/tags/v1",
-            "main",
-            "refs/heads/-x",
-            "refs/heads/a..b",
-            "refs/heads/a b",
-            "refs/heads/x.lock",
-            "refs/heads/a~1",
-        ] {
-            assert!(check_head_ref(head_ref).is_err(), "{head_ref}");
-        }
-    }
-}
+#[path = "params_tests.rs"]
+mod tests;

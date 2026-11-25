@@ -3,7 +3,7 @@ import Foundation
 /// Refusals of the accounts actions (Resources/Accounts.xcstrings).
 enum AccountsAppStrings {
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Accounts", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Accounts", bundle: .module.inAppLanguage)
     }
 
     static func unknownProvider(_ raw: String) -> String {

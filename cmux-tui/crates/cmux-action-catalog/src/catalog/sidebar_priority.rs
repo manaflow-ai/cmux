@@ -65,6 +65,19 @@ pub static ACTIONS: &[Action] = &[
         ..Action::DEFAULT
     },
     Action {
+        id: "sidebar.priority.restore",
+        group: GROUP,
+        title: t("SidebarSectionActions", "action.sidebar.priority.restore", "Restore Archived Chat"),
+        keywords: &["sidebar", "priority", "chat", "agent", "restore", "unarchive", "archived", "bring back"],
+        category: "sidebar",
+        symbol: "arrow.uturn.backward",
+        surfaces: CONTEXT_MENU,
+        surface_plan: SurfacePlan { cli: Some(Decision::Exempt("guiOnly")), context_menus: &[Placement::at("priorityRow", "close", 0).label(t("SidebarSectionActions", "menu.sidebar.priority.restore", "Restore"))], ..SurfacePlan::DEFAULT },
+        targets: &["agent-chat"],
+        cli_name: "action sidebar-priority-restore",
+        ..Action::DEFAULT
+    },
+    Action {
         id: "sidebar.priority.moveEarlier",
         group: GROUP,
         title: t("SidebarSectionActions", "action.sidebar.priority.moveEarlier", "Move Chat Earlier in Priority…"),

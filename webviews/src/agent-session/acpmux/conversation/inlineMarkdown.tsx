@@ -8,7 +8,7 @@ import { codeSpans } from "../slashCommands";
 import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
 import { isBareFileName, ReplyFoldersContext } from "../chips/replyFolders";
 import { SoftBroken } from "./softBreaks";
-import { codePath, foreignFileId, isTemplatePath, linkPath, pathName } from "../chips/paths";
+import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, lineOf } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import { StartedSessionChip } from "../started/StartedSessionCard";
 import { CmuxLinkChip } from "../chips/CmuxLinkChip";
@@ -58,6 +58,9 @@ export type InlineOptions = {
   /** A sent prompt's skills by shown name, with their descriptions: each `/name` in the renderer's
    *  plain text draws as a skill word (SkillWord.tsx), never in code. */
   skills?: ReadonlyMap<string, string>;
+  /** A sent prompt: each `@computer-use` / `@browser-use` in the renderer's plain text draws as its
+   *  badge (chips/ToolBadge.tsx), as the composer drew it; never in code. */
+  tools?: boolean;
   /** Inline code read as CommonMark reads it (slashCommands.ts codeSpans: a span closes on a run of
    *  as many backticks, so ``a ` b`` is one span), as a sent prompt's is. */
   commonmark?: boolean;
@@ -77,7 +80,7 @@ export type FootnoteNumbers = { numbers: Map<string, number>; anchor: (id: strin
 
 /// `src/app.ts:12` keeps its line in the chip's label (the chip opens the file).
 function lineLabel(path: string, written: string): string | undefined {
-  const line = /:(\d+)(?::\d+)?$/.exec(written)?.[1];
+  const line = lineOf(written);
   return line ? `${pathName(path)}:${line}` : undefined;
 }
 
@@ -151,7 +154,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         ) : ref ? (
           <SessionRefCode key={k++} text={inner} agentRef={ref} fallback={code} />
         ) : path ? (
-          <PathChip key={k++} path={path} written={inner} label={lineLabel(path, inner)} />
+          <PathChip key={k++} path={path} line={lineOf(inner)} written={inner} label={lineLabel(path, inner)} />
         ) : isBareFileName(inner) ? (
           // A file name with no folder: its chip when it is in a folder the reply names.
           <SiblingFileChip key={k++} name={inner} fallback={code} />
@@ -194,7 +197,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
       else if (named)
         out.push(<StartedSessionChip key={k++} mention={named} text={lm[1]} onOpen={opts.started!.open} />);
-      else if (path) out.push(<PathChip key={k++} path={path} label={linkLabel(lm[1], labelOpts)} />);
+      else if (path)
+        out.push(<PathChip key={k++} path={path} line={lineOf(lm[2])} label={linkLabel(lm[1], labelOpts)} />);
       else if (app) {
         // A cmux app link: a plain anchor, so the click takes the host's link path (opened in the app).
         // One that names a chat or a place the page knows draws as its chip, with the author's label

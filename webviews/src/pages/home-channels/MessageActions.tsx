@@ -91,7 +91,9 @@ export function MessageActions({
   const moreMenu = (
     <Menu open={menu} onOpenChange={setMenu}>
       <MenuButton
-        className={one ? "hc-tool hc-msg-more" : "hc-tool ui-toolbar-button"}
+        className={
+          one ? "hc-tool hc-msg-more ui-glass ui-glass-floats ui-glass-transient" : "hc-tool ui-toolbar-button"
+        }
         label={one ? t("message.actions") : t("action.more")}
       >
         <HomeIcon name="more" />
@@ -119,7 +121,10 @@ export function MessageActions({
           {one ? (
             moreMenu
           ) : (
-            <Toolbar label={t("message.actions")} className="hc-msg-toolbar">
+            <Toolbar
+              label={t("message.actions")}
+              className="hc-msg-toolbar ui-glass ui-glass-floats ui-glass-transient"
+            >
               {QUICK_REACTIONS.map((value) => (
                 <ToolbarButton
                   key={value}

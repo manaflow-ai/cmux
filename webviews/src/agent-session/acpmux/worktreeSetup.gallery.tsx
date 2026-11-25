@@ -10,7 +10,7 @@ import type { WorktreeSetupRun } from "../../worktreeRecipe";
 import type { SetupView } from "./worktreeSetup";
 
 type Look = "line" | "card" | "tail";
-type Props = { look?: Look; creating?: boolean; view?: SetupView; open?: boolean };
+type Props = { look?: Look; creating?: boolean; view?: SetupView; open?: boolean; runnable?: boolean };
 
 const STARTED = 1_762_500_000_000;
 const OUTPUT = [
@@ -56,6 +56,27 @@ const copiedOnly: SetupView = (() => {
   const { setup: _setup, ...run } = base.run;
   return { ...base, run };
 })();
+
+// A repository's `.cmux/worktree.toml` waits for the person before anything copies or runs.
+const recipe = (approved: boolean) => ({
+  setup: "bun install && cp .env.example .env.local",
+  run: "bun run dev --port $CMUX_PORT",
+  teardown: "docker compose down",
+  include: [".env", "config/local.json"],
+  repository: {
+    setup: "bun install && cp .env.example .env.local",
+    teardown: "docker compose down",
+    include: [".env"],
+  },
+  files: [".worktreeinclude", ".cmux/worktree.toml"],
+  approval: { fingerprint: "3f9a1c", approved },
+});
+const awaiting: SetupView = (() => {
+  const base = view("awaiting_approval", {}, "");
+  const { startedMs: _startedMs, setup: _setup, ...run } = base.run;
+  return { ...base, run, recipe: recipe(false) };
+})();
+const retryable: SetupView = { ...failed, recipe: recipe(true) };
 
 export default componentEntry<Props>({
   id: "agent-pane.worktree-setup",
@@ -110,8 +131,15 @@ export default componentEntry<Props>({
       );
     }
 
-    return function GalleryWorktreeSetup({ look = "line", creating = false, view: shown, open = false }: Props) {
+    return function GalleryWorktreeSetup({
+      look = "line",
+      creating = false,
+      view: shown,
+      open = false,
+      runnable = false,
+    }: Props) {
       const [dismissed, setDismissed] = useState(false);
+      const [ran, setRan] = useState(false);
       return (
         <div className="acpmux-shell">
           <div style={{ height: 96 }} aria-hidden />
@@ -125,6 +153,8 @@ export default componentEntry<Props>({
               view={shown}
               defaultOpen={open}
               onDismiss={() => setDismissed(true)}
+              {...(runnable ? { onRun: () => setRan(true) } : {})}
+              runPending={ran}
             />
           )}
           <div className="acpmux-composer-box" style={{ height: 96 }} />
@@ -161,6 +191,24 @@ export default componentEntry<Props>({
     failed: {
       props: { view: failed },
       note: "Failed with exit 1: the line says so in the danger ink and opens its output once by itself.",
+    },
+    "awaiting-approval": {
+      props: { view: awaiting, runnable: true },
+      note: "A repository's setup waits for the person: its commands and the ignored files it copies (this worktree only), open, with Run Setup.",
+    },
+    "run-setup": {
+      props: { view: awaiting, runnable: true },
+      note: "Play: Run Setup approves the recipe read above it; the button waits until the host answers.",
+      play: (async (ctx) => {
+        await ctx.click({ role: "button", name: "Run Setup" });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector<HTMLButtonElement>(".acpmux-worktree-setup button:disabled"),
+        );
+      }) satisfies Play,
+    },
+    retry: {
+      props: { view: retryable, runnable: true },
+      note: "A failed setup of an approved recipe offers Retry next to Dismiss.",
     },
     "look-card": {
       props: { look: "card", view: running },

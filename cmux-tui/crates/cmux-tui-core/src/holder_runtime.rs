@@ -11,8 +11,13 @@
 //! (`mux::holder_adoption`); a holder crash loses no shell, because the
 //! daemon still holds every master and hands them to a new holder.
 //!
-//! Off unless `CMUX_TUI_TERMINAL_HOST_MODEL=holder` (slice 2: behind a flag,
-//! the per-terminal hosts stay the default).
+//! On by default on macOS, where cmux NEXT runs: one holder instead of a
+//! `cmux-tui-host` per terminal (Leo's infinite-tabs ask: 500 tabs, 200
+//! workspaces and 100 chats within 1.2x an empty app; the per-terminal hosts
+//! cost 821 MB of it). `CMUX_TUI_TERMINAL_HOST_MODEL=hosts` keeps a host per
+//! terminal; `=holder` turns the holder on elsewhere. Every other platform
+//! keeps the hosts by default. With the holder on, a holder that cannot start never
+//! costs a terminal: the create runs it on a host of its own ([`serves`]).
 
 mod service;
 mod sink;
@@ -24,10 +29,61 @@ pub(crate) use service::{HolderReach, HolderService};
 pub(crate) use sink::HolderSink;
 pub(crate) use terminal::{HolderTerminal, holder_local_launch};
 
-/// New session-owned terminals run on the holder.
+/// New session-owned terminals run on the holder (when it is available:
+/// [`serves`]).
 pub(crate) fn enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| {
-        std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").is_ok_and(|model| model == "holder")
+        model_enabled(std::env::var("CMUX_TUI_TERMINAL_HOST_MODEL").ok().as_deref())
     })
+}
+
+/// Whether a new terminal of `host_root` runs on the holder: the model is
+/// on and the holder runs or starts ([`HolderService::available`]). `false`
+/// sends the create to a host process of its own, the path every terminal
+/// took before the holder.
+pub(crate) fn serves(host_root: &std::path::Path) -> bool {
+    enabled() && HolderService::for_root(host_root).is_ok_and(|service| service.available())
+}
+
+/// Whether `model` (the value of `CMUX_TUI_TERMINAL_HOST_MODEL`) puts new
+/// terminals on the holder: `holder` does, `hosts` does not, and unset, empty
+/// or unknown take the platform's default ([`HOLDER_BY_DEFAULT`]).
+fn model_enabled(model: Option<&str>) -> bool {
+    model_enabled_with_default(model, HOLDER_BY_DEFAULT)
+}
+
+/// The holder is the default terminal model on macOS (cmux NEXT).
+const HOLDER_BY_DEFAULT: bool = cfg!(target_os = "macos");
+
+fn model_enabled_with_default(model: Option<&str>, default: bool) -> bool {
+    match model.map(str::trim) {
+        Some("holder") => true,
+        Some("hosts") => false,
+        _ => default,
+    }
+}
+
+#[cfg(test)]
+mod model_tests {
+    use super::{HOLDER_BY_DEFAULT, model_enabled, model_enabled_with_default};
+
+    #[test]
+    fn the_model_names_win_over_the_default() {
+        for default in [false, true] {
+            assert!(model_enabled_with_default(Some("holder"), default));
+            assert!(model_enabled_with_default(Some(" holder "), default));
+            assert!(!model_enabled_with_default(Some("hosts"), default));
+            assert_eq!(model_enabled_with_default(None, default), default);
+            assert_eq!(model_enabled_with_default(Some(""), default), default);
+            assert_eq!(model_enabled_with_default(Some("bogus"), default), default);
+        }
+    }
+
+    #[test]
+    fn the_holder_is_the_default_on_macos_only() {
+        assert_eq!(HOLDER_BY_DEFAULT, cfg!(target_os = "macos"));
+        assert_eq!(model_enabled(None), cfg!(target_os = "macos"));
+        assert!(!model_enabled(Some("hosts")));
+    }
 }

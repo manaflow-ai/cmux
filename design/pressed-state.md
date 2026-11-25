@@ -26,6 +26,18 @@ Use the shared look of the layer you are in; do not draw a pressed state by hand
 SwiftUI's own `.plain`, `.borderless` and `.link` styles dim the label while it is held, so cmux code uses the
 styles above instead.
 
+## The wash takes the label's shape
+
+Leo, 2026-11-21: "when i click tje jump to bottom in ios it has a gray square outline". The default wash is a
+rounded square over the label's whole frame. Behind a circle, a capsule or a glass disc that square shows. A
+button whose label is round or glass names its shape:
+
+| Label | Style (iOS and macOS) |
+| --- | --- |
+| Interactive Liquid Glass (`.glassEffect(... .interactive())`) | `.cmuxPressGlass`: no wash, the glass's own press is the look |
+| A circle or capsule the size of the label's frame | `.cmuxPressFillCircle`, `.cmuxPressFillCapsule` (or `shape:`) |
+| A filled shape smaller than the hit target (a 22 pt badge in 44 pt, a 34 pt chip in a 44 pt row) | iOS: `.cmuxPressFillInLabel`, and the label's `.background(fill, in: shape)` becomes `.cmuxMobilePressBackground(fill, in: shape)` |
+
 ## Enforcement
 
 - `scripts/cmux-next/check-pressed-state.py` (run by the pre-push gate and by cmux-next.yml's "Buttons change
@@ -33,7 +45,9 @@ styles above instead.
   the background (ink, a ring or a shadow pass only when the same rule also styles `:hover`); a weight, size or
   transform on an on toggle; a Tailwind `active:` class other than `active:bg-*`; Swift that reads `isPressed`,
   `pressed` or `isHighlighted` and changes a font, weight, scale, frame, padding, offset, transform, image or
-  the label's opacity; and `.buttonStyle(.plain | .borderless | .link)`.
+  the label's opacity; `.buttonStyle(.plain | .borderless | .link)`; and the default rounded-square wash
+  (`.cmuxPressFill`, `.cmuxPressFillTinted`, a style made with no `shape:`) on a button whose label's edge is
+  a glass effect or a circle or capsule background, clip, overlay or hit shape.
 - A deliberate exception (a drag handle that follows the pointer, a key cap that travels) carries
   `pressed-state: allow <reason>` on the line or the line above it. The reason must say why the press is not a
   button press; "looks nicer" is not one.

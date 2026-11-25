@@ -17,10 +17,29 @@ public struct StatusMapping {
     let turns: AgentTurnStateStore
     /// This client's seen OSC 7501 `done` and `error` records.
     let seen: ProgramStatusSeenStore
+    /// Shared workspace-row seen state for every mapped status source.
+    let statusSeen: SidebarStatusSeenStore
 
-    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared) {
+    public init(turns: AgentTurnStateStore = .shared, seen: ProgramStatusSeenStore = .shared,
+                statusSeen: SidebarStatusSeenStore = .init()) {
         self.turns = turns
         self.seen = seen
+        self.statusSeen = statusSeen
+    }
+
+    /// Marks every source that contributes a workspace row as seen.
+    @discardableResult
+    public func markSeen(tabs: [TabModel], status: WorkspaceStatus?, workspaceID: String) -> Bool {
+        statusSeen.markSeen(tabs.flatMap(reports) + reports(status), workspaceID: workspaceID)
+    }
+
+    /// A look at `tab` (focus, a click, opening it; typing and the timeout do not call this) sees its
+    /// workspace row's symbols, as it reads the row's blue dot. O(1) lookup by the
+    /// store's indexes; client view state, the daemon keeps the reports.
+    @discardableResult
+    public func markSeen(workspaceOf tab: TabModel, in store: DaemonStore) -> Bool {
+        guard let pane = store.pane(holding: tab), let workspace = store.workspace(containing: pane.handle) else { return false }
+        return markSeen(tabs: workspace.screens.flatMap(\.panes).flatMap(\.tabs), status: workspace.status, workspaceID: workspace.id)
     }
 
     /// The reports one tab contributes.
@@ -171,31 +190,64 @@ public struct StatusMapping {
     }
 
     /// A workspace's merged status over its tabs and its `cmux status set` entries.
-    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil) -> StatusSummary {
-        StatusStack.resolve(tabs.flatMap(reports) + reports(status), honoring: honored)
+    public func summary(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil) -> StatusSummary {
+        let superseded = supersededFailures(tabs)
+        let reports = tabs.flatMap(reports).filter { !superseded.contains($0.id) } + reports(status)
+        return StatusStack.resolve(statusSeen.visible(reports, workspaceID: workspaceID ?? status?.workspaceID.rawValue), honoring: honored)
+    }
+
+    /// The report ids (`acp:<session>`) of each failed or lost agent chat that another chat of the same
+    /// workspace went on past (cmux#48434: "just because one of them is red and open but something else is
+    /// running means that this shouldnt be red again"): one that works or waits on the person now, or one
+    /// that came to rest after the failure (acpmux's `lane.since`), the chat continued or forked and
+    /// finished. The workspace's merged mark leaves them out; the failed chat's own tab keeps its mark. A
+    /// failure with nothing after it, or beside only other failures, stays.
+    func supersededFailures(_ tabs: [TabModel]) -> Set<String> {
+        struct Chat { let id: String; let state: AgentTurnState?; let since: UInt64? }
+        var chats: [String: Chat] = [:]
+        for tab in tabs {
+            guard let ref = tab.agentSession else { continue }
+            let id = ref.session ?? tab.id
+            let detail = turns.detail(for: ref)
+            chats[id] = Chat(id: id, state: turn(tab), since: detail?.laneSinceMs)
+        }
+        let failed = chats.values.filter { $0.state == .failed || $0.state == .lost }
+        guard !failed.isEmpty, failed.count < chats.count else { return [] }
+        let others = chats.values.filter { $0.state != .failed && $0.state != .lost }
+        let active = others.contains { $0.state == .working || $0.state == .needsInput }
+        let lastRest = others.filter { $0.state == .done || $0.state == nil }.compactMap(\.since).max()
+        return Set(failed.filter { chat in
+            if active { return true }
+            guard let lastRest, let since = chat.since else { return false }
+            return lastRest > since
+        }.map { "acp:\($0.id)" })
     }
 
     /// A workspace's merged status, each tab's own (a hover card tab row's mark) and whether any tab has
     /// agent work, from one read of each tab's reports: ``summary(tabs:status:)``, ``summary(_:)``
     /// per tab and ``isWorking(tabs:)`` at once (u9696, Lawrence's scratch/a-hover-tabs).
-    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil)
+    public func summaries(tabs: [TabModel], status: WorkspaceStatus? = nil, workspaceID: String? = nil)
         -> (workspace: StatusSummary, tabs: [StatusIndicatorState], working: Bool) {
         let honored = honored
+        let superseded = supersededFailures(tabs)
         var all: [StatusReport] = []
         var states: [StatusIndicatorState] = []
         states.reserveCapacity(tabs.count)
         var working = false
+        let seenWorkspace = workspaceID ?? status?.workspaceID.rawValue
         for tab in tabs {
             let own = reports(tab)
-            if own.isEmpty {
+            let visible = statusSeen.visible(own, workspaceID: seenWorkspace)
+            if visible.isEmpty {
                 states.append(.idle)
                 continue
             }
-            states.append(StatusStack.resolve(own, honoring: honored).state)
-            working = working || own.contains { $0.state.isWorking }
-            all += own
+            states.append(StatusStack.resolve(visible, honoring: honored).state)
+            working = working || visible.contains { $0.state.isWorking }
+            all += visible.filter { !superseded.contains($0.id) }
         }
-        return (StatusStack.resolve(all + reports(status), honoring: honored), states, working)
+        let workspaceReports = statusSeen.visible(all + reports(status), workspaceID: seenWorkspace)
+        return (StatusStack.resolve(workspaceReports, honoring: honored), states, working)
     }
 
     /// The reports of a workspace's status entries that carry a state (`cmux status set --state`,

@@ -8,6 +8,7 @@ import {
   setDiffChangeColors,
 } from "../appearance";
 import { installSolidBackdrop } from "../backdrop";
+import { diffPageFontZoom } from "../diff-viewer/fontZoom";
 import { createDiffViewerLabelResolver, loadDiffViewerLabels, shouldAssertMissingLabels } from "../labels";
 import { installDiffLanguageHostAPI } from "../diff-languages/host";
 import { diffPageClient } from "../diff/page";
@@ -46,6 +47,8 @@ function readEmbeddedConfig(): DiffViewerConfig | null {
  */
 export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
   markDiffOpen("boot");
+  // The chrome follows the app density (pages/shared/pageDensity.css, diff-viewer/density.ts).
+  document.documentElement.dataset.pageDensity = "";
   const embedded = readEmbeddedConfig();
   if (embedded) {
     return renderDiffSurface(rootElement, embedded, embedded.payload?.languages);
@@ -94,6 +97,8 @@ export async function renderDiffSurface(
   // Diff Colors seeds with the other display prefs; the stored prefs re-sync it after boot.
   setDiffChangeColors(sanitizeViewerPrefs(config.payload?.viewerOptions).colors);
   followHostTerminalTheme(() => applyDiffViewerAppearance(resolveDiffViewerAppearance(config.payload?.appearance)));
+  // The code's size: the host's appearance size when it sends one, else the chat's (diff-viewer/fontZoom.ts).
+  diffPageFontZoom().setHostSize(config.payload?.appearance?.fontSize);
   installSolidBackdrop();
   if (typeof config.payload?.title === "string" && config.payload.title.trim() !== "") {
     document.title = config.payload.title;

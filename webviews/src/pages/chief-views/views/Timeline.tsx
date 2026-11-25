@@ -7,6 +7,7 @@ import { agentsOf, Loaded, machineLabel, PRChip } from "../parts";
 import type { ChiefViewProps } from "../registry";
 import type { StatusGlyphName } from "../../../ui/statusGlyphs.generated";
 import { StatusGlyph } from "../../../ui/StatusGlyph";
+import { intl } from "../../../ui/intl";
 
 const GLYPH: Record<TimelineKind, StatusGlyphName> = {
   spawned: "working",
@@ -22,7 +23,7 @@ export function TimelineView({ data, strings, today, onOpenAgent, onOpenURL }: C
   const landing = data.landing.status === "ready" ? data.landing.reply : undefined;
   const events = useMemo(() => timeline(agents, landing, today), [agents, landing, today]);
   const clock = useMemo(
-    () => new Intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
+    () => intl.DateTimeFormat(strings.language, { hour: "numeric", minute: "2-digit" }),
     [strings.language],
   );
   return (

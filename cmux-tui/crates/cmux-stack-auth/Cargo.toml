@@ -8,6 +8,7 @@ publish.workspace = true
 description = "The Stack Auth REST calls the app's CmuxAuthRuntime makes (token refresh, sign-in exchanges, user and teams, session revoke) and the cmux account calls beside them, with their rate-limit and timeout rules. No Keychain, no UI."
 
 [dependencies]
+cmux-egress.workspace = true
 base64.workspace = true
 getrandom.workspace = true
 httpdate = "1"

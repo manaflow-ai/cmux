@@ -8,7 +8,8 @@
 //! that may read the file proves it runs as this machine's user with the daemon's own home, as
 //! the person's terminal does; the file adds what the shared unix account cannot say, that the
 //! sender is one the owner set up. The CLI sends it from `ACPMUX_SENDER_TOKEN`, or from the file
-//! `--sender-token-file PATH` names, never in argv (a process listing shows argv), as
+//! `--sender-token-file PATH` names, never in argv (a process listing shows argv), else from its own
+//! daemon home's file, so no sender has to remember to present it ([`of_this_send`]), as
 //! `_meta.acpmux.senderToken`. The daemon takes it out of the request before anything else reads
 //! it ([`take`]): no record, event, log line, outbox entry or peer forward ever holds it.
 //!
@@ -75,9 +76,27 @@ impl Presented {
 }
 
 /// The token this CLI presents: the file `file` names (`--sender-token-file`), else
-/// `ACPMUX_SENDER_TOKEN`. A file that cannot be read is an error, so a tool that asked to prove
-/// itself learns it did not.
+/// `ACPMUX_SENDER_TOKEN`, else the token in this CLI's own daemon home ([`of_home`]). A file that
+/// cannot be read is an error, so a tool that asked to prove itself learns it did not.
+///
+/// The home's own file comes last and always: a sender never has to remember to present it.
+/// Leo, 2026-11-20, on agent messages that came in unverified: "sometimes you guys litearlly
+/// dont announce your permissions apparently which fucks it up". Only tools that went through
+/// leo-workspace's `acpmux_sender.env` (a list of first-party names) presented it, so every
+/// other named send (a `reach` hop's `ACPMUX_FROM`, a timer, a desktop chat naming its harness,
+/// a tool missing from that list) drew as "Unverified sender". Reading the file proves no more
+/// than the explicit forms do (a process of this user that may read the daemon's home), and the
+/// daemon still only labels a named sender with it (`label`) and drops a token that does not match.
 pub fn of_this_send(file: Option<&Path>) -> anyhow::Result<Option<Presented>> {
+    of_this_send_in(file, std::env::var(ENV).ok().as_deref(), &crate::config::home())
+}
+
+/// [`of_this_send`] with its environment and daemon home given.
+pub(crate) fn of_this_send_in(
+    file: Option<&Path>,
+    env: Option<&str>,
+    home: &Path,
+) -> anyhow::Result<Option<Presented>> {
     if let Some(path) = file {
         let text = std::fs::read_to_string(path).map_err(|e| {
             anyhow::anyhow!("--sender-token-file {}: cannot read it: {}", path.display(), e.kind())
@@ -86,7 +105,16 @@ pub fn of_this_send(file: Option<&Path>) -> anyhow::Result<Option<Presented>> {
             .map(Some)
             .ok_or_else(|| anyhow::anyhow!("--sender-token-file {}: empty", path.display()));
     }
-    Ok(std::env::var(ENV).ok().as_deref().and_then(Presented::new))
+    if let Some(token) = env.and_then(Presented::new) {
+        return Ok(Some(token));
+    }
+    Ok(of_home(home))
+}
+
+/// The token in the daemon home `home`, when it is a file to trust ([`read_trusted`]): what a
+/// send presents when its caller named none. Missing or untrusted, the send goes on without one.
+pub fn of_home(home: &Path) -> Option<Presented> {
+    read_trusted(&path_in(home)).as_deref().and_then(Presented::new)
 }
 
 /// Takes the presented token out of a request (`_meta.acpmux.senderToken`, and a queued send's

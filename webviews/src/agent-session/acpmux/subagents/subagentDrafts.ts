@@ -1,4 +1,4 @@
-// Each subagent's unsent prompt (SubagentComposer.tsx), by its draft key (its chat and the
+// Each subagent's unsent prompt (Composer.tsx `relay`, App.tsx), by its draft key (its chat and the
 // subagent). The composer unmounts when the person opens the chat ("Subagent of") or another
 // subagent, and its page is let go while hidden, reloaded by a web update or quit: a draft outlives
 // all of them, as the chat composer's does (composerDraft.ts keeps its text the same way). Review of

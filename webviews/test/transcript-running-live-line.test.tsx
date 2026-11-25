@@ -80,7 +80,23 @@ test("a command still running in an earlier run is the live line, not Thinking u
         />,
       ),
     ),
-  ).toBe(`Running ${cp} 12s ⌃B to run in background`);
+  ).toBe(`${cp} 12s ⌃B to run in background`);
+});
+
+test("the live line shows the shell description in prose and retains its background shortcut", () => {
+  const command = "timeout 30 acpmux session inbox session-id";
+  const description = "Read the three non-notice inbox threads";
+  const line = codex([
+    row("u", "user"),
+    row("r", "activity", { items: [call(command, "in_progress", { description })] }),
+  ]).at(-1)!;
+  expect(line).toMatchObject({ kind: THINKING, doing: description, doingCommand: true });
+  const html = withCtrlB(
+    <Thinking since={line.at} doing={line.doing} doingShell={line.doingShell} command={line.doingCommand} />,
+  );
+  expect(words(html)).toContain(description);
+  expect(words(html)).toContain("⌃B to run in background");
+  expect(html).not.toContain(command);
 });
 
 test("the call in the latest step still names the line before an older command", () => {
@@ -90,7 +106,7 @@ test("the call in the latest step still names the line before an older command",
     row("a", "assistant", { text: LONG_NOTE }),
     row("r2", "activity", { items: [call("bun test", "in_progress")] }),
   ]);
-  expect(shaped.at(-1)).toMatchObject({ doing: "bun test", doingCommand: true });
+  expect(shaped.at(-1)).toMatchObject({ doing: "Running tests", doingCommand: true });
   expect(shaped.at(-1)!.linedCall).toBeUndefined();
   // The older command keeps its row, which says it is still running and offers no ⌃B.
   expect(shaped.find((entry) => entry.id === "r1")?.items?.map((item) => item.tool?.id)).toEqual(["cp a b"]);
@@ -110,12 +126,13 @@ test("a backgrounded command stays in its run and never takes the line", () => {
   expect(shaped.some((entry) => entry.id === "r1")).toBe(true);
 });
 
-test("a running command's row has no ⌃B hint and reads Running, then what it did", () => {
+test("a running command's row has no ⌃B hint and reads the command, then what it did", () => {
   const running = call("cp a b", "in_progress").tool!;
   const item = { kind: "tool", text: "", tool: running } as AcpmuxActivity;
   for (const html of [withCtrlB(<CommandRow item={item} />), withCtrlB(<ToolRow item={item} />)]) {
     expect(html).not.toContain("cv-command__bg");
-    expect(words(html)).toContain("Running cp a b");
+    expect(words(html)).toContain("cp a b");
+    expect(words(html)).not.toContain("Running ");
     expect(words(html)).not.toContain("Ran ");
   }
   const done = { ...item, tool: { ...running, status: "completed", exitCode: 0 } } as AcpmuxActivity;
