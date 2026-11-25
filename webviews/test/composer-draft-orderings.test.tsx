@@ -154,9 +154,15 @@ const page = () =>
     cmuxAcpmuxActions?: Record<string, (params: Record<string, unknown>) => Promise<unknown>>;
   };
 
+/// The person types `text` and pauses: a typed change's draft writes run just after its keys
+/// (Composer.tsx `flushTyped`, 150 ms), so each step after an edit sees its write out, as it did
+/// when the key's own task wrote it. composer-typed-flush.test.tsx covers the keys before that.
 async function type(text: string) {
   await act(async () => markdownField()!.setCaret(Number.MAX_SAFE_INTEGER));
   await act(async () => markdownField()!.insertTyped(text));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
 }
 
 /// acpmux's drafts for one chat, with reads and writes the steps can hold and answer.

@@ -215,6 +215,8 @@ const STOP_GUARD_MS = 600;
 const UNSENT_DRAFT_INTERVAL_MS = 300;
 /// A field change this soon after the person's key, text input or composition is their edit.
 const TYPED_WINDOW_MS = 250;
+/// How long a typed change's draft writes wait (`flushTyped`): the key's own task does none of them.
+const TYPED_FLUSH_MS = 150;
 /// With Cmd held, the keys that edit the prompt (undo, redo, cut, paste, delete a line); any other
 /// Cmd chord (select all, copy, a shortcut) changes nothing the person typed.
 const CMD_EDIT_KEYS = new Set(["z", "y", "x", "v", "Backspace", "Delete"]);
@@ -893,16 +895,48 @@ function ComposerFrame({
   /// asked for (`pendingCaret`) is applied after the field takes the text.
   const [, setWrites] = useState(0);
   const writeText = (value: string, at: number) => {
+    flushTyped();
     promptRef.current.set(value, at);
     setWrites((count) => count + 1);
   };
   /// Runs a text change's draft writes (the text effects of before) once per change, after the
   /// handler that made it, as React's flush of the change ran them.
   const textChanged = useRef<() => void>(() => {});
+  /// The session `textChanged` writes for, so a switch runs a typed change's writes for the chat it was typed in.
+  const textChangedFor = useRef<string | undefined>(undefined);
+  /// The person's typing presence (`onTyping`) for the text as it is now.
+  const typingSignal = useRef<() => void>(() => {});
+  /// The text change being made is the person's own key (`promptChange`): its writes wait.
+  const typingChange = useRef(false);
+  /// A typed change's draft writes (remount cache, acpmux's draft, a new chat's `chat.unsentDraft`) and
+  /// typing presence, run once `TYPED_FLUSH_MS` after the first key of a run, never in the key's own
+  /// task (goals/typing-latency.md: together about 0.5 ms a key on Linux WebKit). Each reads the text
+  /// as it is when it runs, so the keys in between cost one write. Any other write of the text, a
+  /// send, a blur, the page hidden, a switch, a quit and the composer going run them first, at once.
+  const typedFlush = useRef<{ timer: ReturnType<typeof setTimeout>; text: boolean; signal: boolean } | undefined>(
+    undefined,
+  );
+  const flushTyped = () => {
+    const pending = typedFlush.current;
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    typedFlush.current = undefined;
+    if (pending.text) textChanged.current();
+    if (pending.signal) typingSignal.current();
+  };
+  const holdTyped = (part: "text" | "signal") => {
+    const pending = (typedFlush.current ??= {
+      timer: setTimeout(() => flushTyped(), TYPED_FLUSH_MS),
+      text: false,
+      signal: false,
+    });
+    pending[part] = true;
+  };
   useEffect(() => {
     let live = true;
     let queued = false;
     const stop = promptRef.current.subscribeText(() => {
+      if (typingChange.current) return holdTyped("text");
       if (queued) return;
       queued = true;
       queueMicrotask(() => {
@@ -910,9 +944,18 @@ function ComposerFrame({
         if (live) textChanged.current();
       });
     });
+    const hidden = () => {
+      if (document.visibilityState === "hidden") flushTyped();
+    };
+    window.addEventListener("pagehide", flushTyped);
+    document.addEventListener("visibilitychange", hidden);
     return () => {
+      // Unmounting (or a new store): what was typed is written before the composer goes.
+      flushTyped();
       live = false;
       stop();
+      window.removeEventListener("pagehide", flushTyped);
+      document.removeEventListener("visibilitychange", hidden);
     };
   }, [promptText]);
   const [doneWhen, setDoneWhen] = useState("");
@@ -1467,6 +1510,8 @@ function ComposerFrame({
         };
       },
       async settleDraft() {
+        // A typed change's writes still waiting go first: what follows compares with what they queued.
+        flushTyped();
         // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
         let typed = field.current?.value() ?? promptRef.current.text;
         const session = persistedSession.current;
@@ -1733,9 +1778,16 @@ function ComposerFrame({
     if (cloudStarting) unsentDraft.current?.flush();
   }, [sessionId, onUnsentDraft, cloudStarting]);
   useInsertionEffect(() => {
+    // Another chat now: a typed change still waiting is the previous chat's, written with its own writes.
+    if (textChangedFor.current !== sessionId) flushTyped();
+    textChangedFor.current = sessionId;
     textChanged.current = () => {
       persistText(sessionId, promptRef.current.text);
       pushUnsent(promptRef.current.text);
+    };
+    typingSignal.current = () => {
+      const value = promptRef.current.text;
+      if (value.trim()) onTyping?.(value, sessionId);
     };
   });
   const commands = snapshot.commands;
@@ -1903,6 +1955,7 @@ function ComposerFrame({
     // Esc closes a list for the text it was pressed on; an edit ends that, even one that comes back to
     // the same text (Backspace and the letter again, or the prompt cleared and typed again), so the @
     // and emoji lists come back as the / list does.
+    if (!typingChange.current) flushTyped();
     promptRef.current.set(value, at, true);
     if (!typed) setWrites((count) => count + 1);
     // Emptied (a command run, a prompt sent, the text deleted): this pane no longer types, and the
@@ -2259,6 +2312,7 @@ function ComposerFrame({
     const fromSend = document.activeElement?.classList.contains("acpmux-send") ?? false;
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
+    flushTyped();
     unsentDraft.current?.flush();
     // Each paste still in the text as pasted goes as a pasted block, never as typed words
     // (composer/pasteMarks.ts); a slash command's text stays the command.
@@ -2650,6 +2704,7 @@ function ComposerFrame({
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    flushTyped();
     unsentDraft.current?.flush();
     const unrendered = plusDraft.current?.shown === false;
     const original = unwrapped();
@@ -3201,14 +3256,24 @@ function ComposerFrame({
     // IME composition. A value applied from outside (a draft coming back on open or a switch, a
     // failed prompt restored, the field normalizing either) comes with none.
     promptChange.current = (value, at) => {
-      edit(value, at, true);
-      if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
+      const typing = performance.now() - typedAt.current < TYPED_WINDOW_MS;
+      // The person's key: its draft writes and typing presence wait (`flushTyped`). Not while a Cloud
+      // start is out: the host may open its chat at any moment, seeded with what it holds then.
+      typingChange.current = typing && !cloudStarting;
+      try {
+        edit(value, at, true);
+      } finally {
+        typingChange.current = false;
+      }
+      if (!typing) return;
       if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
       // Kept past this mount: a composer that comes back keeps the person's text over acpmux's.
       noteDraftEdited(sessionId);
       // One change per key: what the field does after it (normalizing) is not another.
       typedAt.current = Number.NEGATIVE_INFINITY;
-      if (value.trim()) onTyping?.(value, sessionId);
+      if (value.trim() && cloudStarting) onTyping?.(value, sessionId);
+      else if (value.trim()) holdTyped("signal");
+      // The key's own gesture wakes a paused Cloud machine: at once.
       if (value.trim()) onPromptEdit?.(value);
     };
     promptCaret.current = promptRef.current.setCaret;
