@@ -136,6 +136,25 @@
     ".github/workflows/screen-share-drop-gate.yml"
    ],
    "affects_why": "The gate builds cmux-rd from cmux-rd-host (its own Cargo workspace, which pulls the link, proto and transport crates by path) and runs scripts/screen-share-netem.py from cmux-rd-host's tree; nothing else changes what it measures."
+  },
+  "swift-logic-ratchet.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "edited",
+    "ready_for_review"
+   ],
+   "affects": [
+    "**/*.swift",
+    "scripts/cmux-next/swift-logic-lines.py",
+    "scripts/cmux-next/swift-logic-delta.py",
+    "scripts/cmux-next/arch_counts.py",
+    "plans/cmux-next/swift-logic-classes.tsv",
+    ".github/workflows/swift-logic-ratchet.yml"
+   ],
+   "affects_why": "swift-logic-delta.py --gate counts swift_logic_lines + mirror_lines (swift-logic-lines.py) at the base and the merge commit: it reads only Swift files, the class table plans/cmux-next/swift-logic-classes.tsv and its own counter. A change touching none of them moves neither number. Before: the 400 feat-cmux-next merges to 2026-11-25T23Z added 3,334 lines in 43 PRs, none asked why.",
+   "skip_docs_only": true
   }
  }
 }
