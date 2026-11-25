@@ -19,6 +19,9 @@ import { backgroundReactionLook } from "../agent-session/acpmux/conversation/bac
 import { backgroundTurnLook } from "../agent-session/acpmux/conversation/backgroundTurnLook.experiment";
 import { cloudStartLook, cloudStartQuietLook } from "../agent-session/acpmux/cloudStart.experiment";
 import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartComposer.experiment";
+import { composerFooterFacts } from "../agent-session/acpmux/composerFooterFacts.experiment";
+import { composerMachineAtRest } from "../agent-session/acpmux/composerMachineAtRest.experiment";
+import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
@@ -62,10 +65,13 @@ import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.
 import { workedForMessages } from "../agent-session/acpmux/conversation/workedForMessages.experiment";
 import { bareWorkedTurns } from "../agent-session/acpmux/conversation/bareWorkedTurns.experiment";
 import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCard.experiment";
+import { settingsAskCard } from "../agent-session/acpmux/conversation/settingsAskCard.experiment";
+import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
 import { codeRouterOffer } from "../agent-session/acpmux/conversation/codeRouterOffer.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
+import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
 import { hoverLook } from "../ui/hoverLook.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
@@ -73,11 +79,14 @@ import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.exp
 import { composerHatLook } from "../agent-session/acpmux/subagents/composerHat.experiment";
 import { hatCountMotion } from "../agent-session/acpmux/subagents/hatCount.experiment";
 import { hatQuestionsLook } from "../agent-session/acpmux/question/hatQuestions.experiment";
-import { hatChevronLook, hatDoneCheckPlace, hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
-import { hatTuckLook } from "../agent-session/acpmux/subagents/hatTuck.experiment";
+import { hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experiment";
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
+import { subagentForkChipsLook } from "../agent-session/acpmux/subagents/subagentForkChips.experiment";
+import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
+import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
+import { trayColumnLook } from "../agent-session/acpmux/subagents/trayColumn.experiment";
 import { trayFoldHeadLook } from "../agent-session/acpmux/subagents/trayFoldHead.experiment";
 import { trayKindLineLook } from "../agent-session/acpmux/subagents/trayKindLine.experiment";
 import { trayHeadClockLook } from "../agent-session/acpmux/subagents/trayHeadClock.experiment";
@@ -131,11 +140,14 @@ import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.ex
 import { composerFooterControls } from "../agent-session/acpmux/composer/footerControls.experiment";
 import { composerEmptyHeight } from "../agent-session/acpmux/composer/emptyHeight.experiment";
 import { toastsV2 } from "../ui/toastsV2.experiment";
+import { toastGlass } from "../ui/toastGlass.experiment";
+import { diffViewedProgress } from "../diff-viewer/viewedProgress.experiment";
 import type { Experiment } from "./experiment";
 
 export const EXPERIMENTS: readonly Experiment[] = [
   diffTreeDisclosure,
   treeNameFade,
+  diffViewedProgress,
   sessionReplay,
   steerQueueExperiment,
   statusIslandExperiment,
@@ -175,12 +187,15 @@ export const EXPERIMENTS: readonly Experiment[] = [
   chatMinimapPlaceholder,
   codeActionsLook,
   turnErrorCard,
+  settingsAskCard,
+  capacityWaitLook,
   pausedMachineResume,
   codeRouterOffer,
   stoppedTurnLook,
   timeHoverWording,
   timeHoverDate,
   chromiumGlassUnderlay,
+  glassEngine,
   hoverLook,
   questionPreviewLayout,
   toolErrorLook,
@@ -211,13 +226,14 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerHatLook,
   hatCountMotion,
   hatQuestionsLook,
-  hatChevronLook,
-  hatTuckLook,
   hatOpenLook,
+  subagentForkChipsLook,
+  hatHeaderLook,
   goalHatPlace,
+  customizeBarPlace,
   hatDoneLook,
-  hatDoneCheckPlace,
   trayHeadLook,
+  trayColumnLook,
   trayFoldHeadLook,
   trayHeadKindsLook,
   trayKindLineLook,
@@ -237,6 +253,9 @@ export const EXPERIMENTS: readonly Experiment[] = [
   promptSuggestionLook,
   composerControlsAnchor,
   cloudStartComposerLook,
+  composerFooterFacts,
+  composerMachineAtRest,
+  cloudStartJustGo,
   cmuxLinkLook,
   sentPasteJoin,
   sentMessageLook,
@@ -271,6 +290,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   menuStyleV2,
   menuRowStates,
   toastsV2,
+  toastGlass,
 ];
 
 export function experimentById(id: string): Experiment | undefined {

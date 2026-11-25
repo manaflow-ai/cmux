@@ -97,7 +97,9 @@ def key_plan(args) -> int:
         raise Refused(f"{args.key!r} is not a helper source key")
     url = f"{BASE}/{PREFIX}/{args.key}/{RECORD}"
     try:
-        with urllib.request.urlopen(f"{url}?plan=1", timeout=30):
+        # files.cmux.com answers urllib's default User-Agent with 403, which read as "needed" on every run.
+        request = urllib.request.Request(f"{url}?plan=1", headers={"User-Agent": "cmux-ci screen_sharing_helper_release"})
+        with urllib.request.urlopen(request, timeout=30):
             needed = False
     except urllib.error.HTTPError as error:
         if error.code not in (403, 404):

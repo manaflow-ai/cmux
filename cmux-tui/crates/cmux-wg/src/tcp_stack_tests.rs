@@ -56,6 +56,7 @@ fn a_new_connection_buffers_one_stream_window() {
     let socket = TcpStack::new_socket(
         std::time::Duration::from_secs(60),
         smoltcp::socket::tcp::CongestionControl::Cubic,
+        crate::tcp_stack::TCP_INITIAL_RTO,
         crate::tcp_stack::DEFAULT_STREAM_WINDOW,
     );
     assert_eq!(socket.recv_capacity(), crate::tcp_stack::DEFAULT_STREAM_WINDOW);

@@ -20,7 +20,7 @@ use cmux_transport::PathId;
 
 use crate::pacing::Priority;
 use crate::underlay_batch::STAGE_LIMIT;
-pub use crate::underlay_batch::{ReceiveBatch, SendBatch};
+pub use crate::underlay_batch::{Mark, ReceiveBatch, SendBatch};
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tokio::time::{Instant, Sleep};
@@ -95,12 +95,8 @@ pub struct Received {
 }
 
 /// Pings a probing underlay wants sent now (path, probe id), and when it
-/// next wants anything: a ping, or the deadline of an unanswered one.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct DueProbes {
-    pub pings: Vec<(PathId, u64)>,
-    pub next: Option<Instant>,
-}
+/// next wants anything (shared with every path set, `cmux-braid-path`).
+pub use cmux_braid_path::DueProbes;
 
 /// A carrier of one peer's encrypted datagrams.
 ///
@@ -141,6 +137,10 @@ pub trait Underlay: Send + 'static {
 
     /// Probes due at `now`. The driver calls this only while the session
     /// carries traffic; a carrier with one path never probes.
+    /// Hold routine path probes until `floor`, or lift the hold
+    /// (`PathWatch::hold_routine`). An underlay without probes ignores it.
+    fn hold_routine_probes(&mut self, _floor: Option<Instant>) {}
+
     fn poll_probes(&mut self, _now: Instant) -> DueProbes {
         DueProbes::default()
     }
@@ -307,6 +307,22 @@ impl DatagramSocket for UdpSocket {
         })
     }
 
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    fn try_send_batch(&mut self, batch: &SendBatch, from: usize) -> io::Result<usize> {
+        use std::os::fd::AsRawFd;
+        let Some((datagram, target)) = batch.get(from) else { return Ok(0) };
+        if batch.mark(from) == Mark::Voice && crate::underlay_batch::marking() {
+            let fd = self.as_raw_fd();
+            match self.try_io(tokio::io::Interest::WRITABLE, || {
+                crate::underlay_batch::apple::send_voice(fd, datagram, target)
+            }) {
+                Err(error) if crate::underlay_batch::marks_refused(&error, true) => {}
+                result => return result.map(|_| 1),
+            }
+        }
+        UdpSocket::try_send_to(self, datagram, target).map(|_| 1)
+    }
+
     #[cfg(target_os = "linux")]
     fn poll_recv_batch(
         &mut self,
@@ -404,18 +420,24 @@ impl<S: DatagramSocket> SocketPath<S> {
     /// the socket is unwritable. The mesh addresses each peer this way on
     /// one shared socket.
     pub(crate) fn send_to(&mut self, datagram: &[u8], peer: SocketAddr) {
+        self.send_marked(datagram, peer, Mark::Plain);
+    }
+
+    /// As [`send_to`](Self::send_to), asking the networks on the way to
+    /// queue it as `mark` says.
+    pub(crate) fn send_marked(&mut self, datagram: &[u8], peer: SocketAddr, mark: Mark) {
         if self.waiting {
             self.flush();
         }
         if self.waiting {
             if self.queue.len() < SEND_QUEUE_DEPTH {
-                self.queue.push(datagram, peer);
+                self.queue.push_marked(datagram, peer, mark);
             } else {
                 eprintln!("wireguard UDP send to {peer} dropped: the socket never drained");
             }
             return;
         }
-        self.queue.push(datagram, peer);
+        self.queue.push_marked(datagram, peer, mark);
         let unbatched = self.unbatched_until.is_some_and(|until| Instant::now() < until);
         if unbatched || self.queue.len() >= STAGE_LIMIT {
             self.send_queued();
@@ -462,6 +484,12 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
     fn send(&mut self, datagram: &[u8]) {
         if let Some(peer) = self.peer {
             self.send_to(datagram, peer);
+        }
+    }
+
+    fn send_classified(&mut self, datagram: &[u8], priority: Priority) {
+        if let Some(peer) = self.peer {
+            self.send_marked(datagram, peer, mark_for(priority));
         }
     }
 
@@ -569,6 +597,16 @@ impl<S: DatagramSocket> Underlay for SocketPath<S> {
 
     fn take_path_change(&mut self) -> bool {
         std::mem::take(&mut self.roamed)
+    }
+}
+
+/// The [`Mark`] a class asks for: input and screen state (classes 0 and 1)
+/// go in the voice queue; media and bulk keep best effort, so a download
+/// is not pushed into Wi-Fi's background queue behind other people's traffic.
+pub(crate) fn mark_for(priority: Priority) -> Mark {
+    match priority {
+        Priority::Screen | Priority::Interactive => Mark::Voice,
+        Priority::Media | Priority::Bulk => Mark::Plain,
     }
 }
 

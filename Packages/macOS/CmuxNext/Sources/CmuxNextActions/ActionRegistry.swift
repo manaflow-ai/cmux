@@ -37,6 +37,11 @@ public final class ActionRegistry {
     /// does not depend on what the person focuses. Published by the App.
     @ObservationIgnored public var targetContext: (@MainActor (ActionInvocation) -> ActionContext)?
 
+    /// `app.shortcutLayout` is Keep QWERTY Positions: Command and Control shortcuts
+    /// match by US QWERTY key position (``shortcuts(for:)``). Observable so
+    /// global hot keys re-register. `SettingsApplier` sets it.
+    public var matchesQwertyPositions = false
+
     /// User shortcut overrides (from `cmux.json` `shortcuts`). A stored nil
     /// removes the default shortcut.
     public internal(set) var shortcutOverrides: [ActionID: Shortcut?] = [:] {
