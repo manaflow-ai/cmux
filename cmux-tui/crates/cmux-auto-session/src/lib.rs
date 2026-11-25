@@ -18,6 +18,8 @@ pub mod consts;
 #[cfg(any(test, feature = "test-support"))]
 pub mod fake;
 pub mod holder;
+#[cfg(test)]
+mod persisted_format_tests;
 pub mod wire;
 
 pub use cloud::{AutoCloud, AutoCloudError, CloudResult};

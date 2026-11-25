@@ -1,0 +1,23 @@
+{
+  "v": 1,
+  "at": 1795579200000,
+  "lastSeq": 42,
+  "harness": "claude",
+  "harnessSessionId": "h-persisted-format",
+  "cwd": {
+    "kind": "git",
+    "remote": "https://github.com/example/repo.git",
+    "branch": "main",
+    "base": "0123456789abcdef0123456789abcdef01234567",
+    "bundle": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    "patch": ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]
+  },
+  "queue": [{ "id": "p-1", "text": "next prompt" }],
+  "draft": "half typed",
+  "openTurn": {
+    "turnId": "t-1",
+    "promptId": "p-0",
+    "tool": { "name": "Bash", "args": "{\"command\":\"ls\"}" }
+  },
+  "native": [{ "label": "claude-project", "path": "claude/project.jsonl", "chunks": ["cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"] }]
+}

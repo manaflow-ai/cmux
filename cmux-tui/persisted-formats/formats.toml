@@ -58,6 +58,16 @@ name = "acpmux/plan#STATE_VERSION"
 policy = "unreviewed"
 
 [[format]]
+file = "crates/cmux-auto-session/src/consts.rs"
+const = "MANIFEST_VERSION"
+name = "auto-session-manifest"
+about = "the Cloud store's snapshot manifest: a holder on another build reads it to take a chat over (auto mode, #54159)"
+policy = "migrate"
+floor = 1
+fixtures = "auto-session-manifest"
+test = "cmux_next_persisted_auto_session_manifest"
+
+[[format]]
 file = "crates/cmux-chat-index/src/index.rs"
 const = "CACHE_VERSION"
 name = "chat-index-cache"
