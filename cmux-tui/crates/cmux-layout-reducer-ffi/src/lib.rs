@@ -19,6 +19,8 @@
 //! are discarded or are kept),
 //! Keep Mac Awake's command rule (`keep_awake_plan`: which terminal commands
 //! hold off idle sleep and when to look again),
+//! the onboarding tool window's rules (`onboarding_*`: its footer, Import
+//! from Browser's selection rules),
 //! `cmux-bookmarks-core`'s optimistic bookmark tree (`bookmarks_apply`: the
 //! confirmed listing with the pending ops applied by the daemon's rules),
 //! `cmux-cloud-start-core`'s Cloud start decisions (`cloud_start_*`:
@@ -90,6 +92,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod onboarding;
 pub mod scroll;
 pub mod shown_resize;
 pub mod sidebar_caps;
@@ -609,6 +612,7 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if cloud_machine::handles(operation) => {
                 cloud_machine::respond(operation, request)?
             }
+            operation if onboarding::handles(operation) => onboarding::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
             }
