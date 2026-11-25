@@ -695,6 +695,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 scripts/generate-claude-launch-environment-policy.py --check
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Set up Bun for guard tests
         if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -1718,6 +1724,10 @@ jobs:
       - name: Validate the Zig tarball restore from the CI cache bucket
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_zig_tarball_r2.sh
+
+      - name: Validate the Node, Bun and Rust restore from the CI cache bucket
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_ci_toolchain_r2.sh
 
       - name: Validate curl-seeded Ghostty Zig package archives
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}

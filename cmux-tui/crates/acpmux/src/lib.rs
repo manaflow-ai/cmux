@@ -49,6 +49,7 @@ pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
