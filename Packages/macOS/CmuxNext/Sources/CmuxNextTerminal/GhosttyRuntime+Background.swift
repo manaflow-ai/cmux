@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 import Foundation
+import GhosttyNextKit
 
 /// cmux's own window background (`appearance.backgroundOpacity`,
 /// `appearance.backgroundBlur` in cmux.json), loaded after the Ghostty
@@ -39,6 +40,29 @@ extension GhosttyRuntime {
             seeThroughReloadPending = false
             if seeThroughShown != seeThroughLoaded { shared.reloadConfig() }
         }
+    }
+
+    /// The config's `background-image` as the surfaces draw it, for the iPhone's wallpaper
+    /// (ask-87d30da8e5); nil without one or without a config. Its opacity is what an opaque pixel
+    /// of the picture shows at: the applied `background-image-opacity` times the applied
+    /// `background-opacity`, as Ghostty draws it. That product is the user's own
+    /// `background-image-opacity * background-opacity` whether or not the surface policy raised
+    /// the image's opacity over a carrier background (`GhosttyRuntimeSurfacePolicy`).
+    public var backgroundImage: TerminalBackgroundImage? {
+        guard let config else { return nil }
+        return Self.backgroundImage(of: config)
+    }
+
+    static func backgroundImage(of config: ghostty_config_t) -> TerminalBackgroundImage? {
+        var path = ghostty_config_path_s()
+        guard configGet(config, &path, key: "background-image"), let raw = path.path.map({ String(cString: $0) }),
+              !raw.isEmpty else { return nil }
+        var imageOpacity: Float = 1
+        _ = configGet(config, &imageOpacity, key: "background-image-opacity")
+        var opacity: Double = 1
+        _ = configGet(config, &opacity, key: "background-opacity")
+        let url = URL(fileURLWithPath: (raw as NSString).expandingTildeInPath)
+        return TerminalBackgroundImage(url: url, opacity: Double(imageOpacity) * min(max(opacity, 0), 1))
     }
 
     /// The ``seeThroughShown`` the loaded config's surface policy read.

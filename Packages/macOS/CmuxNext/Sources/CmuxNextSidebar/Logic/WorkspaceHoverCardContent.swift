@@ -43,6 +43,8 @@ struct WorkspaceHoverCardContent: Equatable {
         var isPreview = false
         /// The machine a machine row names: its icon draws that machine's color pick, if any.
         var machine: String?
+        /// What a click on the row opens in a browser tab of the workspace (a port link's "http://localhost:5173/").
+        var link: String?
 
         /// The row the shared hover card row draws (`HoverCardRowView`).
         var row: HoverCardRowContent {
@@ -78,10 +80,13 @@ struct WorkspaceHoverCardContent: Equatable {
     var stats: String?
     /// The options the card was made with (its layout picks the card's width and history height).
     var options = WorkspaceHoverCardOptions()
+    /// The ports the workspace's terminals serve, one row each ("localhost:5173", `WorkspacePortLinks`): shown under
+    /// the tab list with details open or not, so a port opens with one click on the card. A workspace on another
+    /// machine opens the same address; its browser tab reaches that machine's localhost through the Remote carrier.
+    var ports: [Fact] = []
+    /// The `ports` entry the port rows come from, for the user's card (`cardFacts`).
+    var portsText: String?
 
-    /// CPU of at least half a core, or memory of at least 1 GB, is worth a line.
-    static let notableCPU = 0.5
-    static let notableMemoryBytes: UInt64 = 1 << 30
     /// The card lists this many checklist items, then how many more.
     static let visibleChecklistLimit = 6
 
@@ -99,7 +104,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// home folder, which is no fact.
     static func make(_ workspace: SidebarWorkspace, machine: SidebarMachine?, now: Date,
                      options: WorkspaceHoverCardOptions, timeline: [SidebarTimelineEntry], looked: Date? = nil,
-                     pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory()) -> Self {
+                     pullRequests: SidebarPullRequestBadge? = nil, home: String = NSHomeDirectory(),
+                     portLinks: (String) -> [WorkspacePortLinks.Link]? = { WorkspacePortLinks().links($0) }) -> Self {
         var card = facts(workspace, machine: machine, now: now, pullRequests: pullRequests, home: home, showsGit: options.showsGit)
         // Keep the hover card in step with the row: a local host plus the same
         // session title is metadata without information and gets no fact row.
@@ -116,7 +122,11 @@ struct WorkspaceHoverCardContent: Equatable {
             timeline[0].text = needsInputReason(workspace)
         }
         if !options.showsGit { card.facts.removeAll { $0.kind == "branch" || $0.kind == "pullRequest" } }
-        if options.showsPorts, let ports = workspace.ports, !ports.isEmpty {
+        if options.showsPorts, let ports = workspace.ports, !ports.isEmpty, let links = portLinks(ports), !links.isEmpty {
+            card.ports = links.map { Fact(icon: .network, text: $0.label, kind: "ports", link: $0.url) }
+            card.portsText = ports
+        } else if options.showsPorts, let ports = workspace.ports, !ports.isEmpty {
+            // No port to open in the entry (a hook's words), or no answer: the entry reads as before.
             let at = card.facts.firstIndex { $0.kind == "machine" || $0.kind == "status" || $0.kind == "more" || $0.isPreview }
             card.facts.insert(Fact(icon: .network, text: ports, kind: "ports"), at: at ?? card.facts.count)
         }
@@ -143,11 +153,11 @@ struct WorkspaceHoverCardContent: Equatable {
             if options.showsTimings { card.stats = stats(timeline, now: now) }
         case .log:
             // The history alone: only why the workspace waits (its reason, else "Needs you") stays above it.
-            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != needsYouKind && $0.kind != sinceLookedKind }
+            card.facts.removeAll { !Self.keptOverHistory.contains($0.kind) }
             card.timeline = Array(shown.prefix(options.historyRows))
             if options.showsTimings { card.stats = stats(timeline, now: now) }
         case .minimal:
-            card.facts.removeAll { $0.kind != "needsInput" && $0.kind != needsYouKind && $0.kind != "task" && $0.kind != sinceLookedKind }
+            card.facts.removeAll { !Self.keptOverHistory.contains($0.kind) && $0.kind != "task" }
             if !card.facts.contains(where: { $0.kind == "task" }),
                let prompt = timeline.first(where: { $0.kind == .prompt && $0.text != nil })?.text {
                 // Above the "Needs you" line, which stays the card's last.
@@ -224,6 +234,13 @@ struct WorkspaceHoverCardContent: Equatable {
         if let reason = needsInputReason(workspace) {
             facts.append(Fact(icon: .statusNeedsinput, text: reason, lines: 3, kind: "needsInput", iconTone: .attention))
         }
+        // What the row's marks mean, which their tooltips said before rows lost them (a1315's cut 3): each usage
+        // rule acpmux found broken, with its number, and that notifications are muted.
+        for warning in workspace.usageWarnings {
+            facts.append(Fact(icon: .statusNeedsinput, text: warning, mark: "exclamationmark.triangle.fill", lines: 2,
+                              kind: usageWarningKind, iconTone: .attention))
+        }
+        if workspace.muted { facts.append(Fact(icon: .notification, text: Strings.notificationsMuted, mark: "bell.slash", kind: mutedKind)) }
         // The person's own notes and the lane they pinned (classic's description and status).
         if let notes = workspace.workspaceDescription?.trimmingCharacters(in: .whitespacesAndNewlines), !notes.isEmpty {
             facts.append(Fact(icon: .textDescription, text: notes, lines: 6, kind: "description"))
@@ -238,14 +255,22 @@ struct WorkspaceHoverCardContent: Equatable {
         } else if case let .count(n) = workspace.unread, n > 0 {
             facts.append(Fact(icon: .notification, text: Strings.unreadCount(n), kind: "unread"))
         }
-        if let agent = workspace.agentName {
-            facts.append(Fact(icon: .agentChat, text: [agent, detail.model].compactMap { $0 }.joined(separator: " · "), kind: "agent"))
+        let identity = workspace.agentDisplayName.map { name in
+            workspace.agentFormerName.flatMap { $0 == name ? nil : Strings.formerlyKnownAs(name, former: $0) } ?? name
+        }
+        if workspace.agentName != nil || identity != nil {
+            let text = [identity, workspace.agentName, detail.model].compactMap { $0 }.joined(separator: " · ")
+            facts.append(Fact(icon: .agentChat, text: text, kind: "agent"))
         }
         if let usage = usageFact(detail) { facts.append(usage) }
         if let task = detail.task { facts.append(Fact(icon: .textDescription, text: task, lines: 3, kind: "task")) }
         // What its agents run below their turns now: how many subagents and commands, and which
         // (Leo 2026-11-01: "being able to see the # of associated subagents and whatnot").
         facts += WorkspaceHoverCardWork.facts(detail)
+        // Who made it and why, when an agent or a script did (Leo 2026-11-19: "acpmux should
+        // expose these a lot better"); a workspace the person made says nothing new.
+        let origin = WorkspaceHoverCardOrigin.shipped
+        if !WorkspaceHoverCardOrigin.isFooter(origin) { facts += WorkspaceHoverCardOrigin.facts(detail, style: origin, title: workspace.title) }
         // Terminals the freeing tier ended at their prompt; showing the workspace starts them again.
         if case let freed = workspace.tabs.filter(\.isFreed).count, freed > 0 {
             facts.append(Fact(icon: .actionSnooze, text: Strings.freedTerminals(freed), lines: 2, kind: "freed"))
@@ -300,6 +325,7 @@ struct WorkspaceHoverCardContent: Equatable {
         case .empty:
             break
         }
+        if WorkspaceHoverCardOrigin.isFooter(origin) { facts += WorkspaceHoverCardOrigin.facts(detail, style: origin, title: workspace.title) }
         return WorkspaceHoverCardContent(
             title: workspace.title, icon: remote.map(hostIcon) ?? workspace.kind.iconName,
             age: workspace.lastActivity.flatMap { age(since: $0, now: now) }, facts: facts, host: facts.first { $0.kind == "machine" },
@@ -319,6 +345,14 @@ struct WorkspaceHoverCardContent: Equatable {
         /// Nothing to preview.
         case empty
     }
+
+    /// The facts the history-first layouts (`log`, `minimal`) keep above it: why the workspace
+    /// waits and what changed since the person looked.
+    static let keptOverHistory: Set<String> = ["needsInput", usageWarningKind, mutedKind, needsYouKind, sinceLookedKind]
+    /// A usage rule acpmux found broken (`SidebarWorkspace.usageWarnings`), one fact each.
+    static let usageWarningKind = "usageWarning"
+    /// The workspace's notifications are muted.
+    static let mutedKind = "muted"
 
     /// The fact kind of the preview's "Needs you" line.
     static let needsYouKind = "needsYou"
@@ -351,7 +385,8 @@ struct WorkspaceHoverCardContent: Equatable {
     var cardFacts: SidebarCardFacts {
         SidebarCardFacts(
             title: title, status: Strings.activity(activity), statusSinceMs: activitySince.map { $0.timeIntervalSince1970 * 1000 },
-            age: age, facts: facts.map { .init(kind: $0.kind, text: $0.text, sinceMs: $0.since.map { $0.timeIntervalSince1970 * 1000 }) })
+            age: age, facts: facts.map { .init(kind: $0.kind, text: $0.text, sinceMs: $0.since.map { $0.timeIntervalSince1970 * 1000 }) }
+                + (portsText.map { [.init(kind: "ports", text: $0, sinceMs: nil)] } ?? []))
     }
 
     /// The icon of what an agent is doing (`SidebarPresence.Activity`).
@@ -386,16 +421,16 @@ struct WorkspaceHoverCardContent: Equatable {
         return text + " · " + elapsed(since: since, now: now)
     }
 
-    /// The one resource line, or nil while the workspace is quiet.
+    /// The one resource line, or nil before the first sample. Resources are sampled only behind
+    /// Show details, so a quiet workspace says so too (Leo 2026-11-22: "some of this is info that
+    /// you can fit right in the details area, chief among them the ram and cpu used by a given thing").
     static func resourceLine(_ report: ResourceReport?) -> String? {
-        guard let total = report?.total,
-              (total.cpu ?? 0) >= notableCPU || total.memoryBytes >= notableMemoryBytes else { return nil }
-        return ResourceFormat.line(total)
+        report.map { ResourceFormat.line($0.total) }
     }
 
     /// The resource row: CPU and memory with the last seconds of CPU as bars, warm when hot
-    /// (Leo 2026-10-19: "the CPU related stuff, I think people want to know"); nil while the
-    /// workspace is quiet. `history` is the CPU of each sample since the card showed, newest last.
+    /// (Leo 2026-10-19: "the CPU related stuff, I think people want to know"); muted while the
+    /// workspace is quiet, nil before the first sample. `history` is the CPU of each sample since the card showed, newest last.
     static func resourceRow(_ report: ResourceReport?, history: [Double]) -> HoverCardRowContent? {
         guard let line = resourceLine(report), let total = report?.total else { return nil }
         let cpu = total.cpu ?? 0
@@ -410,8 +445,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// grey when paused (it resumes on attach).
     static func connectionTone(_ status: SidebarMachine.Status) -> HoverCardTone {
         switch status {
-        case .connected, .updateAvailable: .success
-        case .connecting, .reconnecting, .installing, .updateRequired, .installRequired, .pausing, .resuming, .deleting, .disconnected: .attention
+        case .connected, .updateAvailable, .connecting, .reconnecting: .success
+        case .installing, .updateRequired, .installRequired, .pausing, .resuming, .deleting, .disconnected: .attention
         case .offline, .authFailed, .unreachable, .failed: .danger
         case .paused, .pausedIdle: .secondary
         }
@@ -420,9 +455,8 @@ struct WorkspaceHoverCardContent: Equatable {
     /// What a machine that is not plainly connected is doing, nil when connected.
     static func connectionWord(_ status: SidebarMachine.Status) -> String? {
         switch status {
-        case .connected, .updateAvailable: nil
+        case .connected, .updateAvailable, .connecting, .reconnecting: nil
         case .offline: Strings.statusOffline
-        case .connecting: Strings.statusConnecting
         case .installing: Strings.statusInstalling
         default: Strings.attentionStatus(status)
         }

@@ -57,6 +57,8 @@ ALLOWED: dict[str, str] = {
         "a few kB of test durations; the next run restores the newest by prefix",
     "indexnow.yml: Save submitted URLs":
         "a few kB of submitted URLs, one scheduled job; the next run restores the newest by prefix",
+    "base-coalesce.yml: Record this tip as tested":
+        "a 41-byte marker per tip a coalesced run started on (one a window); the next push finds the newest by prefix",
     "cmux-next-web.yml: Record this push as the last covered one":
         "an empty marker per feat-cmux-next push that the next push reads to coalesce",
     "cmux-next.yml: Save the DEV compile cache (Blacksmith)":
@@ -65,8 +67,9 @@ ALLOWED: dict[str, str] = {
         "a release upload, by hand: per-commit Xcode compilation cache; a candidate for a stable key",
     "ios-testflight.yml: Save iOS compilation cache":
         "per TestFlight upload: per-commit Xcode compilation cache; a candidate for a stable key",
-    "seed-derived-data.yml: Save seed":
-        "the DerivedData seed in the R2 store (not the GitHub store), restored by prefix",
+    "cmux-tui-spec.yml: Save the base's last test log":
+        "a few hundred kB gzipped log per feat-cmux-next push of the acpmux tests; pull requests restore the newest by prefix "
+        "so their reds need no rebuild of the merge parent",
 }
 
 
@@ -154,6 +157,7 @@ class NoRunScopedCacheKeys(unittest.TestCase):
 BASE_REF = re.compile(
     r"refs/heads/(feat-cmux-next|main)\b|ref_name\s*==\s*'(feat-cmux-next|main)'|default_branch"
 )
+PR_REF = re.compile(r"github\.(base_ref|head_ref)\s*==")
 PER_REF_SAVERS = SAVES + ("Swatinem/rust-cache@",)
 PER_REF_BASELINE_FILE = ROOT / "tests" / "ci_per_ref_cache_saves_baseline.txt"
 UNRESTRICTED_EVENTS = {
@@ -216,7 +220,19 @@ def per_ref_saves() -> list[str]:
                     if save_if.strip().lower() == "false":
                         continue
                     condition += f" {save_if}"
+                # A same-tree receipt (scripts/ci/same_tree_reuse.py) is one JSON file of a few hundred bytes,
+                # keyed by the tree it vouches for: it cannot crowd the 10 GB store, and the same pull request's
+                # re-runs and re-pushes of that tree are what read it. A react shard's receipt
+                # (scripts/ci/react_shard_receipt.py, a green shard's result map and summaries, a few kB) is the same.
+                if str(inputs.get("path", "")).startswith(".same-tree/"):
+                    continue
                 # A composite that takes its condition from an input leaves the ref to its callers.
+                # `github.base_ref == 'feat-cmux-next'` is true on every pull request into it, so a condition that ORs it
+                # with a base push still saves per pull request (ci-web.yml's agent-pane rust-cache, 53 GB in 6 h, 2026-11-24).
+                # Only the step's own gate: a job's `if:` routes pull requests in with `base_ref` and is no save gate.
+                if PR_REF.search(f"{step.get('if', '')} {inputs.get('save-if', '')}"):
+                    found.append(f"{_label(path)}: {job_id}: {step.get('name') or uses.split('@')[0]}")
+                    continue
                 if base_only or BASE_REF.search(condition) or (composite and "inputs." in condition):
                     continue
                 name = step.get("name") or uses.split("@")[0]
@@ -251,6 +267,44 @@ class NoPerRefCacheSaves(unittest.TestCase):
         self.assertTrue(_workflow_base_only({"on": {"push": {"branches": ["feat-cmux-next"]}, "schedule": []}}))
         self.assertFalse(_workflow_base_only({"on": {"push": {"branches": ["**"]}}}))
         self.assertFalse(_workflow_base_only({"on": ["pull_request"]}))
+
+
+# --- rust-cache keys that move with the lockfile --------------------------------------------
+# With `add-rust-environment-hash-key: false` (note-210) and a key that never changes, the first
+# entry saved is restored forever: rust-cache skips the save when the restore was an exact match,
+# so third-party crates added or bumped since rebuild on every run (run 45512288219: 70 crates
+# built in the debug and release `cargo test`). The key carries a `hashFiles` of the lockfile,
+# so a lockfile change makes a new entry that a base push saves.
+# The two iOS ones get theirs in #55162; cloud-journey-prod runs main's copy on its schedule and needs a main twin PR. Drop the entries once they land.
+LOCK_KEY_PENDING = {"first-user-journey-ios.yml", "ios-reliability-matrix.yml", "cloud-journey-prod.yml"}
+
+
+def rust_cache_keys_without_lockfile() -> list[str]:
+    bad: list[str] = []
+    for path in _files():
+        if path.name in LOCK_KEY_PENDING:
+            continue
+        doc = yaml.safe_load(path.read_text())
+        for step in _steps(doc):
+            if not str(step.get("uses", "")).startswith("Swatinem/rust-cache@"):
+                continue
+            inputs = step.get("with") or {}
+            if str(inputs.get("add-rust-environment-hash-key", "")).lower() != "false":
+                continue
+            keys = f"{inputs.get('key', '')} {inputs.get('shared-key', '')}"
+            if "hashFiles(" not in keys or "Cargo.lock" not in keys:
+                bad.append(f"{_label(path)}: {step.get('name') or step.get('uses')}")
+    return bad
+
+
+class RustCacheKeyFollowsLockfile(unittest.TestCase):
+    def test_every_rust_cache_key_hashes_a_lockfile(self) -> None:
+        bad = rust_cache_keys_without_lockfile()
+        self.assertEqual(bad, [], (
+            "\nrust-cache with add-rust-environment-hash-key: false needs a key (or shared-key) that includes "
+            "hashFiles('<toolchain file>', '<workspace>/Cargo.lock', '.cargo/config.toml'), or a stale entry is "
+            "restored forever:\n" + "\n".join(bad)
+        ))
 
 
 if __name__ == "__main__":

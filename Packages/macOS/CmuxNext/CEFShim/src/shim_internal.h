@@ -130,6 +130,8 @@ struct ForkApi {
   int (*set_keychain_item)(const char*, const char*) = nullptr;
   // API version 35: draw on input (a page's key frame without waiting for the next vsync).
   int (*browser_set_draw_on_input)(int, int) = nullptr;
+  // API version 35: frames that mode drew for a key, so a bench can prove it is live, not inert.
+  int (*draw_on_input_key_frames)(int) = nullptr;
 };
 
 struct Host {
@@ -316,6 +318,10 @@ void ForgetDownloads();
 CefRefPtr<CefPermissionHandler> PermissionHandler();
 // Releases every waiting prompt callback (before CefShutdown).
 void ForgetPermissionPrompts();
+// A waiting HTTP sign-in (AUTH_PROMPT), by token; ends it cancelled. UI thread.
+int AddAuthPrompt(CefRefPtr<CefAuthCallback> callback);
+int ContinueAuthPrompt(int token, const char* user, const char* password);
+void ForgetAuthPrompts();
 
 // Before CefShutdown: page requests waiting for their frame's URL (DeferredPageResource) stop
 // polling and are judged at once.

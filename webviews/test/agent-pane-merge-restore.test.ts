@@ -6,6 +6,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { JSDOM } from "jsdom";
+import { SENT_IMAGE_HEIGHT } from "../src/agent-session/acpmux/conversation/userBubbleModel";
 
 const read = (path: string) => readFileSync(join(import.meta.dir, "../src/agent-session/acpmux", path), "utf8");
 const app = read("App.tsx");
@@ -24,11 +25,12 @@ const styleRules = (css: string) => {
 const conversation = styleRules(read("conversation/conversation.css"));
 const rule = (selector: string) => conversation.find((r) => r.selectorText === selector);
 
-test("a sent image keeps its 120px slot while it loads (#21383)", () => {
-  // Square until its shape is known; UserBubble.tsx sentImageSize then sets its width and aspect ratio.
+test("a sent image keeps its slot while it loads (#21383)", () => {
+  // Square at a sent image's height (SENT_IMAGE_HEIGHT, 160px since #48558) until its shape is known;
+  // userBubbleModel.ts sentImageSize then sets its width and aspect ratio.
   const slot = rule(".cv-user__image-placeholder");
-  expect(slot?.style.width).toBe("120px");
-  expect(slot?.style.getPropertyValue("aspect-ratio")).toBe("1 / 1");
+  expect(slot?.style.width).toBe(`${SENT_IMAGE_HEIGHT}px`);
+  expect(slot?.style.getPropertyValue("aspect-ratio").replace(/\s/g, "")).toMatch(/^1(\/1)?$/);
 });
 
 test("a loaded reply image has no entrance animation", () => {

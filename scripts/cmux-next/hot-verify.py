@@ -68,11 +68,13 @@ Exit 0 looked (or nothing in the app changes), 1 the look failed, 2 usage, 3 the
 The copy is stopped at the end; --watch leaves it and its dev server running (edits to a dir: source then show
 live) until `hot-verify.py stop --side NAME`, which stops the copy and everything the look started.
 
-`run` is `cmux app try .`: the same plan and the same side copy, made fresh from APP (the golden copy) on every
-run, with the change's web and Rust put in and left running, and no screenshots, video or steps. Its last stdout
-line is JSON {side, from, copy, socket, pid, plan, applied, errors, edit_to_live_s, phases}; exit 0 running,
-1 failed (the copy stopped), 3 needs a build (no copy made). `extract --side NAME` keeps the code a run swapped in:
-the branch cmux-try/NAME at the commit it ran and a patch of the change (JSON {branch, patch, files, ...}).
+`run` is `cmux app try .`: the same plan and the same side copy, cloned from APP (the golden copy), with the
+change's web and Rust put in and left running, and no screenshots, video or steps. A later run reuses the kept copy
+when it came from the same APP and no layer of the last run would stay (reusable_copy); else it clones afresh. Its
+last stdout line is JSON {side, from, copy, copy_reused, socket, pid, plan, applied, errors, edit_to_live_s,
+phases}; exit 0 running, 1 failed (the copy stopped), 3 needs a build (no copy made). `extract --side NAME`
+keeps the code a run swapped in: the branch cmux-try/NAME at the commit it ran and a patch of the change (JSON
+{branch, patch, files, ...}).
 `stop --remove` also deletes the copy.
 """
 from __future__ import annotations
@@ -96,8 +98,11 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from xml.etree import ElementTree
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from state_wait import StateWaitTimeout, wait_stable, wait_until  # noqa: E402
 ROOT = HERE.parents[1]
 BASE_BRANCH = "feat-cmux-next"
 NO_APP = "/nonexistent/hot-verify-no-app"
@@ -109,6 +114,20 @@ WEB_ABI = "webviews/src/web-abi.json"
 ROUTE = "scripts/ci/cmux_next_route.py"
 WEB_BASE = os.environ.get("CMUX_WEB_BUNDLES_BASE") or "https://files.cmux.com/cmux-next-web"
 EXIT_LOOKED, EXIT_FAILED, EXIT_USAGE, EXIT_NEEDS_BUILD = 0, 1, 2, 3
+# The golden copy `run --pick` takes when the installed NIGHTLY needs a build for the tree: the NIGHTLY feed's builds,
+# the tip feed's signed DEV builds of recent feat-cmux-next commits, and the nearest finished fleet app build.
+NIGHTLY_FEED = (os.environ.get("CMUX_HOT_VERIFY_NIGHTLY_FEED")
+                or "https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+TIP_FEED = os.environ.get("CMUX_HOT_VERIFY_TIP_FEED") or "https://files.cmux.com/nightly-next/tip/appcast-arm64.xml"
+SPARKLE = "{http://www.andymatuschak.org/xml-namespaces/sparkle}"
+CMUX_XML = "https://cmux.com/xml-namespaces/cmux"
+# Each kind's app identity, in the order a tie prefers them: a nightly first (its copy is a nightly).
+IDENTITY = {"nightly": "nightly", "tip": "dev", "fleet": "dev"}
+GOLDEN_FLEET_DEPTH = 8  # first-parent commits from the merge base asked for a fleet build
+GOLDEN_KEEP = 3  # downloaded golden apps kept (250 MB to 1.1 GB each)
+GOLDEN_SECONDS = 1800
+GOLDEN_READY = "golden.json"
+GOLDEN_FIELDS = ("kind", "commit", "label", "url", "job", "identity")
 DEFAULT_SIDE = "hot-verify"
 SIDE_LABEL = "cmux hot-verify"
 STATE_FILE = "hot-verify.json"
@@ -128,15 +147,19 @@ WEB_SPARSE = ["/*", "!/cmux-next-ios/", "!/web/", "!/cmux-tui/crates/", "!/ghost
 # Bounds, in seconds.
 GIT_SECONDS = 600
 LAUNCH_SECONDS = 120
+# side-instance.sh launch first waits for room in the Mac's memory budget for agents' apps (mac-budget admit,
+# SIDE_INSTANCE_BUDGET_WAIT_S, default 1800) and only then opens the copy, so its bound is that wait plus
+# LAUNCH_SECONDS. A bound under the wait killed the launcher mid-wait: a bare TimeoutExpired, no copy, and none of
+# the launcher's own "the memory budget stayed full" message naming who holds it (Air Blue, 2026-11-23).
 WINDOW_SECONDS = 60
 STEP_SECONDS = 45
 APPLY_SECONDS = 900
-# The app repainting after a theme change or an overlay reload: a capture's own bounded delay, never a wait on
-# a condition (the release socket says nothing about paint).
-SETTLE_LAUNCH = 4.0
-SETTLE_THEME = 1.5
-SETTLE_WEB = 5.0
-SETTLE_DEV_SERVER = 10.0
+# The most a look waits for the copy's window to repaint (the release socket says nothing about paint, so the
+# window's own pixels are read: Repaint): after launch, a theme change, and an overlay reload.
+REPAINT_LAUNCH = 20.0
+REPAINT_THEME = 10.0
+REPAINT_WEB = 20.0
+REPAINT_DEV_SERVER = 30.0
 MAX_STEPS = 60
 ENGINES = ("webkit", "chromium")
 DEFAULT_ENGINE = "webkit"
@@ -169,7 +192,9 @@ def log(message: str) -> None:
 
 # A line where a tool says why it failed: cargo's and git's `error:`/`fatal:`, rustc's `error[E0425]:`, and a
 # compiler's `path:line:col: error: ...` (Zig, Swift, clang).
-ERROR_LINE = re.compile(r"(?:error(?:\[\w+\])?|fatal):\s|:\d+:\d+: error: ")
+# Also a script's thrown error (`TypeError: ...`, Node's `ENOENT: no such file or directory, scandir ...`): bun's
+# "error: postinstall script ... exited with 1" alone hid that a sparse checkout lacked release-notes/ (2026-11-22).
+ERROR_LINE = re.compile(r"(?:error(?:\[\w+\])?|fatal):\s|:\d+:\d+: error: |(?:^|\s)(?:[A-Z]\w*Error|E[A-Z]{2,}):\s")
 
 
 def why_failed(output: str, most: int = 300) -> str:
@@ -192,6 +217,13 @@ def why_failed(output: str, most: int = 300) -> str:
         kept.append(line)
         size += len(line) + 3
     return " | ".join(reversed(kept))[:most] if kept else text[-most:]
+
+
+def why_exited(done: subprocess.CompletedProcess, most: int = 300) -> str:
+    """Why a step failed, never empty: its own words (why_failed of stderr, else stdout), else its exit status and
+    that it printed nothing (an empty "web-overlay.sh server --local:" said nothing at all, 2026-11-22)."""
+    said = why_failed(done.stderr or done.stdout, most)
+    return said or f"exited {done.returncode} and printed nothing"
 
 
 def git(repo: Path, *args: str, check: bool = True, env: dict | None = None, timeout: float = GIT_SECONDS) -> str:
@@ -481,6 +513,9 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
             out["tree_key"] = planned.get("tree_key")
             if baseline:
                 out["ffi_baseline"] = baseline
+            # A worker reads it to build the head's daemon and pass it as look --rust-binary-head (no tree is
+            # ever published for a lane head).
+            out["tree_published"] = bool(planned.get("published"))
             if not planned.get("published"):
                 out["notes"].append("the head's cmux-tui tree is not published yet (CI publishes it after the "
                                     "push); a look waits for it or builds it locally")
@@ -676,6 +711,12 @@ class Side:
         if not self.exists():
             return errors
         state = self.state()
+        # A dev server still starting behind a run (start_dev_server_behind) would point the copy at it after the
+        # `server off` below: its starting script, in its own process group, goes first.
+        starter = state.get("dev_server_starter_pid")
+        if isinstance(starter, int) and starting_dev_server(starter):
+            with contextlib.suppress(OSError):
+                os.killpg(starter, 15)
         if state.get("dev_server"):
             with contextlib.suppress(LookError, OSError, subprocess.SubprocessError):
                 env = {**os.environ, **self.env()}
@@ -695,8 +736,21 @@ class Side:
         if tree and repo:
             git(Path(repo), "worktree", "remove", "--force", tree, check=False)
         with contextlib.suppress(LookError):
-            self.remember(dev_server=False, recorder_pid=None, recorder_name=None, worktree=None)
+            self.remember(dev_server=False, dev_server_starter_pid=None, recorder_pid=None, recorder_name=None,
+                          worktree=None)
         return errors
+
+
+def starting_dev_server(pid: int) -> bool:
+    """PID is still the web-overlay.sh a run started, the leader of its own process group, so killing that group
+    stops nothing else."""
+    try:
+        if os.getpgid(pid) != pid:
+            return False
+    except OSError:
+        return False
+    done = subprocess.run(["ps", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
+    return "web-overlay.sh" in done.stdout
 
 
 def process_runs(pid: int, name: str) -> bool:
@@ -747,6 +801,17 @@ def rpc(path: str, method: str, params: dict | None = None, timeout: float = STE
         return {"error": reply.get("error")}
     result = reply.get("result")
     return result if isinstance(result, dict) else {"value": result}
+
+
+
+def launch_seconds(env=None) -> float:
+    """The bound for `side-instance.sh launch`: the launcher's memory-budget wait, then LAUNCH_SECONDS to open."""
+    raw = (os.environ if env is None else env).get("SIDE_INSTANCE_BUDGET_WAIT_S", "1800")
+    try:
+        wait = max(0.0, float(raw))
+    except ValueError:
+        wait = 1800.0
+    return wait + LAUNCH_SECONDS
 
 
 def until(what: str, seconds: float, probe):
@@ -1285,6 +1350,15 @@ def fetch_json(url: str) -> dict | None:
     return data if isinstance(data, dict) else None
 
 
+def fetch_text(url: str) -> str | None:
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "cmux-hot-verify"}),
+                                    timeout=30) as answer:
+            return answer.read().decode("utf-8", "replace")
+    except (urllib.error.URLError, OSError, ValueError):
+        return None
+
+
 def published_web_key(repo: Path, planned: dict) -> str | None:
     """The web bundles CI published for exactly the head: a pull request's own layer (its pointer names this
     head), else the head's web source key when that key is published. None when neither is."""
@@ -1315,26 +1389,123 @@ def web_checkout(repo: Path, head: str, scratch: Path) -> Path:
     return tree
 
 
-def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path) -> dict:
-    """The head's web into the copy: published bundles as its overlay, else a dev server of the head."""
+# Besides the bundles' inputs, what webviews/dev-server and vite.config.ts read at start: the markdown viewer's
+# shell (plugins.ts), the gallery's fixtures and themes (galleryHost.ts), the looks, and the Swift design tunables.
+DEV_SERVER_READS = ["schemas", "Resources/markdown-viewer", "Resources/cmux-themes", "Resources/ghostty/themes",
+                    "examples", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign"]
+
+
+def widen_sparse(tree: Path) -> None:
+    """A sparse checkout (wt's default) gets the files its webviews read (web-bundle-key.py --inputs: the string
+    catalogs, release-notes highlights, schemas), so its dev server's install and string tables find them: from
+    a wt checkout with only /scripts/ and /webviews/, `cmux app try .` stopped at bun's postinstall
+    (gen-strings.mjs: ENOENT release-notes/next/highlights, 2026-11-22). Adding is all it does; nothing leaves."""
+    if git(tree, "config", "--bool", "core.sparseCheckout", check=False).strip() != "true":
+        return
+    done = subprocess.run([sys.executable, str(tree / "scripts/cmux-next/web-bundle-key.py"), str(tree), "--inputs"],
+                          capture_output=True, text=True, timeout=120)
+    if done.returncode != 0:
+        raise LookError(f"web-bundle-key.py --inputs: {why_exited(done)}")
+    cone = git(tree, "config", "--bool", "core.sparseCheckoutCone", check=False).strip() == "true"
+    patterns = []
+    for name in [*done.stdout.split(), *DEV_SERVER_READS]:
+        name = name.removeprefix(":(glob)").strip("/")
+        if cone:  # cone mode takes directories only: the part before the first wildcard, else the file's folder
+            glob = re.search(r"[*?\[]", name)
+            name = name[:glob.start()].rstrip("/") if glob else (name if (tree / name).is_dir() else str(Path(name).parent))
+            if name in ("", "."):
+                continue
+        entry = name if cone else f"/{name}"
+        if name and entry not in patterns:
+            patterns.append(entry)
+    if not patterns:
+        return
+    listed = set(git(tree, "sparse-checkout", "list", check=False).split())
+    missing = [p for p in patterns if p not in listed]
+    if missing:
+        log(f"sparse checkout: adding the files its web UI reads ({len(missing)} paths: {' '.join(missing[:4])}...)")
+        git(tree, "sparse-checkout", "add", *missing)
+
+
+def tree_web_key(tree: Path) -> str | None:
+    """TREE's web source key as it is on disk, edits and untracked files included (web-bundle-key.py hashes
+    every file git sees under the bundle inputs), when CI published bundles for exactly that key; else None."""
+    script = tree / "scripts/cmux-next/web-bundle-key.py"
+    if not script.is_file():
+        return None
+    try:
+        done = subprocess.run([sys.executable, str(script), str(tree), "--source"], capture_output=True, text=True,
+                              timeout=120)
+    except (OSError, subprocess.SubprocessError) as error:
+        log(f"no web source key for {tree}: {error}")
+        return None
+    key = (done.stdout or "").strip()
+    if done.returncode != 0 or not re.fullmatch(r"[0-9a-f]{64}", key):
+        return None
+    return key if fetch_json(f"{WEB_BASE}/{key}/manifest.json") else None
+
+
+def fetch_bundles(key: str) -> Path:
+    """The published bundles of KEY, unpacked once into the cache: a key names its inputs' content, so a later
+    try of the same web takes them with no download."""
+    bundles = cache_dir() / "web-bundles" / key
+    if (bundles / ".manifest.json").is_file():
+        return bundles
+    bundles.parent.mkdir(parents=True, exist_ok=True)
+    done = subprocess.run([str(HERE / "fetch-web-bundles.sh"), "--key", key, "--out", str(bundles)],
+                          capture_output=True, text=True, timeout=APPLY_SECONDS)
+    if done.returncode != 0:
+        raise LookError(f"fetch-web-bundles.sh --key {key[:12]}: {why_failed(done.stderr, 300)}")
+    return bundles
+
+
+def start_dev_server_behind(tree: Path, side: Side, env: dict) -> int | None:
+    """A dev server of TREE, started without waiting for it: the copy already shows TREE's web from its
+    published bundles, and once the server answers it wins over them (web-overlay.sh), so later edits under
+    webviews/ hot reload as before. Its pid of the starting script, or None with no bun here."""
+    if not shutil.which("bun"):
+        return None
+    side.remember(dev_server=True)
+    logged = cache_dir() / f"dev-server-start-{side.name}.log"
+    logged.parent.mkdir(parents=True, exist_ok=True)
+    with open(logged, "w") as out:
+        started = subprocess.Popen([str(HERE / "web-overlay.sh"), "server", "--local", "--worktree", str(tree),
+                                    "--port", str(free_port())], env=env, stdin=subprocess.DEVNULL, stdout=out,
+                                   stderr=subprocess.STDOUT, start_new_session=True)
+    side.remember(dev_server_starter_pid=started.pid)
+    return started.pid
+
+
+def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
+              settle: bool = True) -> dict:
+    """The head's web into the copy: published bundles as its overlay, else a dev server of the head. web-overlay.sh
+    server returns once the server answers the agent pane. A look (SETTLE, whose after shot follows) then waits for
+    the copy's window to repaint (Repaint, in look); a run takes no shot, so it waits for nothing more (cmux app
+    try .: about 10 of its 11.7-14.9 s edit_to_live were a fixed wait here, 2026-11-18)."""
     env = {**os.environ, **side.env()}
     head = planned["head"]
-    key = None if src_tree is not None else published_web_key(repo, planned)
+    # A run (no settle) of a checkout whose web, as it is on disk, CI already published (a pushed branch, an
+    # unedited clone) takes those bundles: no cold dev server stands between the command and a live copy. Its
+    # dev server still starts, behind them. A look of a checkout keeps its dev server first, as before.
+    if src_tree is None:
+        key = published_web_key(repo, planned)
+    else:
+        key = None if settle else tree_web_key(src_tree)
     if key:
-        bundles = scratch / "web-bundles"
-        done = subprocess.run([str(HERE / "fetch-web-bundles.sh"), "--key", key, "--out", str(bundles)],
-                              capture_output=True, text=True, timeout=APPLY_SECONDS)
-        if done.returncode != 0:
-            raise LookError(f"fetch-web-bundles.sh --key {key[:12]}: {why_failed(done.stderr, 300)}")
+        bundles = fetch_bundles(key)
         done = subprocess.run([str(HERE / "web-overlay.sh"), "install", str(bundles), "--commit", head], env=env,
                               capture_output=True, text=True, timeout=300)
         if done.returncode != 0:
-            raise LookError(f"web-overlay.sh install: {why_failed(done.stderr, 300)}")
-        time.sleep(SETTLE_WEB)
-        return {"how": "published bundles", "key": key}
+            raise LookError(f"web-overlay.sh install: {why_exited(done)}")
+        applied = {"how": "published bundles", "key": key}
+        if src_tree is not None:
+            applied["dev_server_starter_pid"] = start_dev_server_behind(src_tree, side, env)
+        return applied
     if not shutil.which("bun"):
         raise LookError("no web bundles are published for the head and no bun here serves its webviews")
     tree = src_tree
+    if tree is not None:
+        widen_sparse(tree)
     if tree is None:
         # A dev server runs the head's own code here: only a head on a branch of origin or already merged.
         tips = git(repo, "ls-remote", "--heads", "origin", check=False).split()
@@ -1349,8 +1520,7 @@ def apply_web(repo: Path, planned: dict, src_tree: Path | None, side: Side, scra
     done = subprocess.run([str(HERE / "web-overlay.sh"), "server", "--local", "--worktree", str(tree), "--port",
                            str(port)], env=env, capture_output=True, text=True, timeout=APPLY_SECONDS)
     if done.returncode != 0:
-        raise LookError(f"web-overlay.sh server --local: {why_failed(done.stderr or done.stdout, 300)}")
-    time.sleep(SETTLE_DEV_SERVER)
+        raise LookError(f"web-overlay.sh server --local: {why_exited(done)}")
     return {"how": "dev server", "port": port}
 
 
@@ -1372,16 +1542,41 @@ def apply_ffi_baseline(rules: Path, planned: dict, side: Side) -> dict:
             "applied": receipt.get("applied")}
 
 
+# A local `cargo build --release -p cmux-tui` on an M-series mini (2026-11-18): cold (no target/release) and warm.
+CARGO_COLD_S, CARGO_WARM_S = 628, 261
+
+
+def cargo_note(key: str | None, src_tree: Path) -> str:
+    """What a run says before a local cargo build of the tree's daemon starts: that it builds, about how long, and
+    the fleet route instead."""
+    warm = (src_tree / "cmux-tui/target/release/cmux-tui").is_file()
+    seconds = CARGO_WARM_S if warm else CARGO_COLD_S
+    tree = f"cmux-tui tree {key[:12]}" if key else "the cmux-tui tree"
+    return (f"no published build of {tree}: building the daemon here with cargo, about {round(seconds / 60)} min "
+            f"({'warm' if warm else 'cold: no cmux-tui/target/release yet'}). Instead of waiting: commit and push, "
+            "and CI publishes the tree's daemon for the next run to take; or build the app with it on the fleet, "
+            "`cmux-ci build cmux --ref SHA`")
+
+
+# The copy's acpmux daemons take the change too. bin/acpmux is the same file as bin/cmux, but a running daemon keeps
+# the build it mapped until it restarts: without this, a look at an acpmux change showed the old daemon (the
+# hot-swap end to end test, 2026-11-21). hot-apply restarts only a daemon whose chats resume and whose launch
+# environment it can read, and names every other one in its receipt (acpmux_left_on_old_build).
+RESTART_ACPMUX = ("--restart-acpmux",)
+
+
 def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, scratch: Path,
-               given: Path | None = None) -> dict:
+               given: Path | None = None, head_binary: Path | None = None) -> dict:
     """The change's daemon into the copy (hot-apply.py apply --branch --parts rust): the published build of the
     head's cmux-tui tree, else a local cargo build of a dir: source. A plan with daemon_from (the change applied
     onto the app's commit) takes that commit's published build, else GIVEN (look --rust-binary), never the
-    head's: the head's daemon is the skew the plan stepped around."""
+    head's: the head's daemon is the skew the plan stepped around. HEAD_BINARY (look --rust-binary-head) is a cmux-tui
+    the caller built from the head itself: it goes in only when the head's tree has no published build (a sha:
+    source of a lane head, whose tree CI never publishes), the published build otherwise."""
     onto = planned.get("daemon_from")
     if onto:
         argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", onto, "--branch",
-                "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+                "--parts", "rust", "--app", str(side.app()), "--repo", str(rules), *RESTART_ACPMUX]
         if given is None and not hot().published(planned["tree_key"]):
             raise LookError(f"the daemon of the change applied onto the app's commit ({onto[:12]}) is not "
                             "published: build that commit's cmux-tui and pass it as --rust-binary")
@@ -1391,7 +1586,7 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
                else "published tree build of the change applied onto the app's commit")
         return run_hot_apply_rust(argv, side, how)
     argv = [sys.executable, str(rules / "scripts/cmux-next/hot-apply.py"), "apply", planned["head"], "--branch",
-            "--parts", "rust", "--app", str(side.app()), "--repo", str(rules)]
+            "--parts", "rust", "--app", str(side.app()), "--repo", str(rules), *RESTART_ACPMUX]
     if given is not None:
         # The look's own plan has no daemon_from, so a binary built for one (the worker's plan) is not this change's
         # daemon: swapping it in would label another daemon as the head's.
@@ -1400,17 +1595,31 @@ def apply_rust(rules: Path, planned: dict, src_tree: Path | None, side: Side, sc
     if planned.get("ffi_baseline"):
         argv.append("--ffi-in")  # apply_ffi_baseline put the release in before the copy opened
     binary = None
-    if src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
+    if head_binary is not None:
+        # Hot-verify of a lane head (2026-11-23): CI publishes no cmux-tui tree for lane/** heads, so every rust
+        # look of one failed on hot-apply's fetch (8 of 63 looks done in a day). The worker builds the head's
+        # daemon with its warm Cargo home and passes it; a published build of the same tree still wins.
+        if not (planned.get("tree_key") and hot().published(planned["tree_key"])):
+            binary = head_binary
+    elif src_tree is not None and (src_tree / "cmux-tui/Cargo.toml").is_file() and shutil.which("cargo"):
         published = hot().published(planned["tree_key"]) if planned.get("tree_key") else False
         if not published:
+            log(cargo_note(planned.get("tree_key"), src_tree))
             done = subprocess.run(["cargo", "build", "--release", "-p", "cmux-tui", "--bin", "cmux-tui"],
                                   cwd=src_tree / "cmux-tui", capture_output=True, text=True, timeout=3600)
             if done.returncode != 0:
                 raise LookError(f"cargo build cmux-tui: {why_failed(done.stderr, 300)}")
             binary = src_tree / "cmux-tui/target/release/cmux-tui"
+    elif (src_tree is not None and not shutil.which("cargo") and planned.get("tree_key")
+          and not hot().published(planned["tree_key"])):
+        # No cargo here and nothing published for the tree: hot-apply would only say its fetch failed.
+        raise LookError(f"no published build of cmux-tui tree {planned['tree_key'][:12]} and no cargo on this Mac to "
+                        "build the daemon: commit and push (CI publishes the tree's daemon for the next run), or "
+                        "build the app with it on the fleet, `cmux-ci build cmux --ref SHA`")
     if binary is not None:
         argv += ["--binary", str(binary)]
-    how = "local cargo build" if binary is not None else "published tree build"
+    how = ("given binary built from the head" if binary is not None and binary == head_binary
+           else "local cargo build" if binary is not None else "published tree build")
     return run_hot_apply_rust(argv, side, how)
 
 
@@ -1423,7 +1632,12 @@ def run_hot_apply_rust(argv: list[str], side: Side, how: str) -> dict:
     receipt = {}
     with contextlib.suppress(ValueError, IndexError):
         receipt = json.loads(done.stdout.strip().splitlines()[-1])
-    return {"how": how, "phases": receipt.get("phases")}
+    steps = receipt.get("steps") if isinstance(receipt.get("steps"), dict) else {}
+    rust = steps.get("rust") if isinstance(steps.get("rust"), dict) else {}
+    # What the look's receipt says about the copy's acpmux: each daemon restarted onto the change, and each left on
+    # the build it had, with why (hot-apply's own receipt, which the look used to drop).
+    return {"how": how, "phases": receipt.get("phases"), "acpmux": steps.get("acpmux"),
+            "acpmux_left_on_old_build": rust.get("acpmux_left_on_old_build") or []}
 
 
 # ---------------------------------------------------------------- look
@@ -1436,7 +1650,56 @@ def set_theme(sock: str, mode: str) -> None:
     answer = rpc(sock, "settings.set", {"path": "appearance.theme", "value": THEMES[mode]}, timeout=30)
     if "error" in answer:
         raise LookError(f"settings.set appearance.theme: {answer['error']}")
-    time.sleep(SETTLE_THEME)
+
+
+def png_pixels(path: Path) -> str:
+    """A digest of a PNG's image data (its IDAT chunks, not its metadata), or of the whole file if it is no PNG."""
+    data = path.read_bytes()
+    if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return hashlib.sha256(data).hexdigest()
+    digest, at = hashlib.sha256(), 8
+    while at + 8 <= len(data):
+        size = int.from_bytes(data[at:at + 4], "big")
+        if data[at + 4:at + 8] == b"IDAT":
+            digest.update(data[at + 8:at + 8 + size])
+        at += 12 + size
+    return digest.hexdigest()
+
+
+class Repaint:
+    """Waits for the copy's window to finish repainting, by its own pixels: shots into a scratch file until they
+    stop changing (and, after a change the window must show, until they first differ from the last shot). Best
+    effort: past the bound the look goes on and logs it, as the fixed delays this replaces did. A shot that fails
+    ends the wait at once; the look's own shot then says why."""
+
+    def __init__(self, shoot: Shooter, pid: int, scratch: Path):
+        self.shoot, self.pid, self.path = shoot, pid, scratch / "repaint.png"
+        self.last = None
+
+    def pixels(self):
+        try:
+            self.shoot(self.pid, self.path)
+            return png_pixels(self.path)
+        except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
+            return ("no shot", str(error)[:200])
+
+    def saw(self, path: Path) -> None:
+        """PATH is the look's latest shot of the window: a later wait(changed=True) waits to differ from it."""
+        with contextlib.suppress(OSError):
+            self.last = png_pixels(path)
+
+    def wait(self, what: str, seconds: float, changed: bool = False) -> None:
+        began = time.monotonic()
+        if changed and self.last is not None:
+            last = self.last
+            if not wait_until(lambda: self.pixels() != last, f"the window to change after {what}", seconds,
+                              interval=0.2, raise_on_timeout=False):
+                log(f"the window did not change within {seconds:g} s after {what}; shooting it as it is")
+        left = max(5.0, seconds - (time.monotonic() - began))
+        try:
+            self.last = wait_stable(self.pixels, f"the window after {what}", left, interval=0.2, reads=3)
+        except StateWaitTimeout as error:
+            log(f"{error}; shooting it as it is")
 
 
 def commit_time(repo: Path, sha: str) -> float | None:
@@ -1487,7 +1750,7 @@ def command_look(args) -> int:
         receipt["marker"] = marker(planned["head"], receipt["app"].get("commit") or receipt["app"].get("version")
                                    or "unknown", planned["layers"], planned["source"])
         return look(args, repo, planned, side, the_app, out, receipt, phases, began)
-    except (LookError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
+    except (RuntimeError, Usage, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
         if not args.watch:
             with phases("stop"):
@@ -1540,7 +1803,9 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
             set_browser_engine(Path(side.env()["CMUX_NEXT_CONFIG_FILE"]), engine)
             if planned.get("ffi_baseline"):
                 receipt["ffi_baseline"] = apply_ffi_baseline(rules, planned, side)
-            launched = side.run("launch", timeout=LAUNCH_SECONDS)
+            # The kit's Recorder records the main display (Video), so a kit look shows the copy there; else the copy
+            # is parked on a display no person looks at (side-instance.sh launch, "parked") and shot by its window.
+            launched = side.run("launch", *(["--shown"] if kit is not None else []), timeout=launch_seconds())
             found = re.search(r"pid (\d+)", launched)
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
@@ -1548,11 +1813,15 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
             named = side.socket()
             sock = until("the copy's control socket", LAUNCH_SECONDS, lambda: control_socket(pid, named))
             until("the copy's window", WINDOW_SECONDS, lambda: window_id(pid) if kit is None else True)
-            time.sleep(SETTLE_LAUNCH)
+            repaint = Repaint(shoot, pid, scratch)
+            repaint.wait("launch", REPAINT_LAUNCH)
         with phases("before"):
-            for mode in ("light", "dark"):
+            for index, mode in enumerate(("light", "dark")):
                 set_theme(sock, mode)
+                # The first theme may be the one the copy has: only a later switch must show a change.
+                repaint.wait(f"the {mode} theme", REPAINT_THEME, changed=index > 0)
                 shoot(pid, out / "before" / f"{mode}.png")
+                repaint.saw(out / "before" / f"{mode}.png")
         if not args.no_video:
             with phases("video"):
                 video = Video(out, kit)
@@ -1566,14 +1835,22 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
         with phases("apply"):
             if "rust" in planned["layers"]:
                 given = Path(args.rust_binary).resolve() if getattr(args, "rust_binary", None) else None
-                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given)
+                head_binary = (Path(args.rust_binary_head).resolve() if getattr(args, "rust_binary_head", None)
+                               else None)
+                applied["rust"] = apply_rust(rules, planned, src_tree, side, scratch, given, head_binary)
             if "web" in planned["layers"]:
                 applied["web"] = apply_web(rules, planned, src_tree, side, scratch)
+                # The copy's pages reload on the new overlay: wait for the window to change from the before shot
+                # and settle (a change the main window does not show waits out the bound).
+                dev = applied["web"].get("how") == "dev server"
+                repaint.wait("the web reload", REPAINT_DEV_SERVER if dev else REPAINT_WEB, changed=True)
         receipt["applied"] = applied
         with phases("after"):
             for index, mode in enumerate(("light", "dark")):
                 set_theme(sock, mode)
+                repaint.wait(f"the {mode} theme", REPAINT_THEME, changed=True)
                 shoot(pid, out / "after" / f"{mode}.png")
+                repaint.saw(out / "after" / f"{mode}.png")
                 if index == 0:
                     receipt["edit_to_visible_s"] = round(time.monotonic() - handed, 3)
                     pushed = commit_time(repo, planned["head"])
@@ -1588,7 +1865,7 @@ def look(args, repo, planned, side, the_app, out, receipt, phases, began) -> int
                                 else run_steps(steps, pid, sock, side.app(), out, shoot))
         if video is not None:
             video = stop_video(video, receipt, side, phases)
-    except (LookError, OSError, ValueError, subprocess.SubprocessError) as error:
+    except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
         receipt["errors"].append(f"{type(error).__name__}: {str(error)[:500]}")
     finally:
         if video is not None and video.running:
@@ -1621,6 +1898,293 @@ def command_stop(args) -> int:
     for error in errors:
         log(error)
     return EXIT_FAILED if errors else EXIT_LOOKED
+
+
+# ---------------------------------------------------------------- the golden copy: the closest published build
+
+
+def appcast_builds(text: str, kind: str) -> list[dict]:
+    """A Sparkle feed's builds, newest first: {kind, commit, label, url}. The commit is the item's
+    cmux:sourceCommit (the NIGHTLY feed), else the commit its release notes link names (the tip feed); an item
+    with neither, or with no https enclosure, is not a candidate."""
+    try:
+        items = list(ElementTree.fromstring(text).iter("item"))
+    except ElementTree.ParseError:
+        return []
+    builds = []
+    for item in items:
+        commit = (item.findtext(f"{{{CMUX_XML}}}sourceCommit") or "").strip()
+        if not SHORT_SHA.fullmatch(commit):
+            found = re.search(r"/commit/([0-9a-f]{40})", item.findtext(f"{SPARKLE}fullReleaseNotesLink") or "")
+            commit = found.group(1) if found else ""
+        enclosure = item.find("enclosure")
+        url = enclosure.get("url", "") if enclosure is not None else ""
+        if commit and url.startswith("https://"):
+            builds.append({"kind": kind, "commit": commit, "url": url,
+                           "label": item.findtext(f"{SPARKLE}shortVersionString") or item.findtext("title") or ""})
+    return builds
+
+
+def cmux_ci() -> str | None:
+    """The fleet client (`cmux-ci`), when this Mac has one: fleet Macs and the team's own do."""
+    found = shutil.which("cmux-ci")
+    if found:
+        return found
+    kept = Path.home() / ".local/bin/cmux-ci"
+    return str(kept) if os.access(kept, os.X_OK) else None
+
+
+def fleet_build(repo: Path, anchor: str, notes: list[str]) -> dict | None:
+    """The nearest finished fleet app build (`cmux-ci build cmux`, which feat-cmux-next's own commits get as
+    `ahead-*` builds) on ANCHOR or one of its first-parents, GOLDEN_FLEET_DEPTH at most; None without cmux-ci."""
+    tool = cmux_ci()
+    if tool is None:
+        return None
+    for commit in git(repo, "rev-list", "--first-parent", "-n", str(GOLDEN_FLEET_DEPTH), anchor).split():
+        try:
+            done = subprocess.run([tool, "status", "--ref", commit], capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError) as error:
+            notes.append(f"fleet builds: cmux-ci status did not answer ({error})")
+            return None
+        if done.returncode != 0:
+            notes.append(f"fleet builds: cmux-ci status --ref exited {done.returncode} (no controller?)")
+            return None
+        try:
+            jobs = json.loads(done.stdout or "[]")
+        except ValueError:
+            jobs = []
+        finished = sorted((job for job in jobs if isinstance(job, dict) and job.get("kind") == "cmux"
+                           and job.get("state") == "done" and job.get("artifact")),
+                          key=lambda job: str(job.get("updated_at") or ""), reverse=True)
+        if finished:
+            job = finished[0]
+            return {"kind": "fleet", "commit": commit, "job": str(job.get("id")),
+                    "label": str(job.get("tag") or job.get("id"))}
+    return None
+
+
+def golden_candidates(repo: Path, anchor: str, installed: str | None, notes: list[str]) -> list[dict]:
+    """The published app builds a tree at ANCHOR (its merge base with feat-cmux-next) could be swapped into, nearest
+    to ANCHOR first, a nightly before a DEV build at the same distance: the NIGHTLY feed's builds, the tip feed's
+    signed DEV builds, and the nearest finished fleet build. Only builds on ANCHOR or behind it: a newer one has
+    commits the tree lacks. INSTALLED (the installed NIGHTLY's commit, already planned) is left out."""
+    found = []
+    for kind, feed in (("nightly", NIGHTLY_FEED), ("tip", TIP_FEED)):
+        text = fetch_text(feed)
+        if text is None:
+            notes.append(f"{kind} feed: {feed} did not answer")
+        found += appcast_builds(text or "", kind)
+    if (fleet := fleet_build(repo, anchor, notes)) is not None:
+        found.append(fleet)
+    if any(not has_commit(repo, build["commit"]) for build in found):
+        # A build of a commit this clone has not fetched yet: feat-cmux-next once, then whatever is still missing
+        # is not a candidate.
+        git(repo, "fetch", "-q", "--no-tags", "origin", f"+refs/heads/{BASE_BRANCH}:refs/remotes/origin/{BASE_BRANCH}",
+            check=False)
+    ranked, seen = [], {installed} if installed else set()
+    for build in found:
+        commit = git(repo, "rev-parse", "--verify", "-q", f"{build['commit']}^{{commit}}", check=False)
+        if not SHA.fullmatch(commit) or commit in seen:
+            continue
+        seen.add(commit)
+        if subprocess.run(["git", "-C", str(repo), "merge-base", "--is-ancestor", commit, anchor],
+                          capture_output=True).returncode != 0:
+            continue
+        behind = int(git(repo, "rev-list", "--count", f"{commit}..{anchor}") or 0)
+        ranked.append({**build, "commit": commit, "behind": behind, "identity": IDENTITY[build["kind"]]})
+    ranked.sort(key=lambda build: (build["behind"], list(IDENTITY).index(build["kind"])))
+    return ranked
+
+
+def golden_anchor(repo: Path, head: str) -> str:
+    """The commit a tree's golden copy should be built at: its merge base with feat-cmux-next (HEAD itself for a
+    checkout of a feat-cmux-next commit)."""
+    return git(repo, "merge-base", head, base_tip(repo))
+
+
+def describe(build: dict) -> str:
+    """One build, as `cmux app try .` names it."""
+    where = {"installed": "the installed app", "nightly": "NIGHTLY", "tip": "tip DEV build",
+             "fleet": "fleet build"}[build["kind"]]
+    label = f" {build['label']}" if build.get("label") else ""
+    return f"{where}{label} at {build['commit'][:12]}"
+
+
+def pick_golden(repo: Path, source: str, installed: Path) -> dict:
+    """The golden copy for SOURCE: INSTALLED when the change goes into it with no build, else the nearest published
+    build it does go into (golden_candidates, each planned against its commit). Nothing is downloaded here:
+    {kind, commit, label, identity, plan, why, tried, notes} and the build's url or fleet job; with no build that
+    fits, INSTALLED's plan (needs_build) and what was tried."""
+    planned = plan(repo, source, str(installed), None)
+    mine = {"kind": "installed", "commit": planned["base"], "label": app_info(installed).get("version", ""),
+            "identity": "nightly", "app": str(installed), "plan": planned, "tried": [], "notes": []}
+    if not planned["needs_build"]:
+        return {**mine, "why": f"{describe(mine)} takes this tree with no build"}
+    reasons = "; ".join(planned["build"])
+    anchor = golden_anchor(repo, planned["head"])
+    notes: list[str] = []
+    tried = [{"build": describe(mine), "build_reasons": list(planned["build"])}]
+    for build in golden_candidates(repo, anchor, planned["base"], notes):
+        theirs = plan(repo, source, None, build["commit"])
+        if not theirs["needs_build"]:
+            count = build["behind"]
+            behind = ("at the tree's merge base" if count == 0 else
+                      f"{count} commit{'s' if count != 1 else ''} behind the tree's merge base {anchor[:12]}")
+            why = (f"{describe(build)} ({behind}) takes this tree with no build; {describe(mine)} needs one "
+                   f"({reasons})")
+            return {**build, "plan": theirs, "why": why, "tried": tried, "notes": notes}
+        tried.append({"build": describe(build), "build_reasons": list(theirs["build"])})
+    why = f"no published build takes this tree with no build: {describe(mine)} needs one ({reasons})"
+    return {**mine, "why": why, "tried": tried, "notes": notes}
+
+
+def golden_root() -> Path:
+    return cache_dir() / "golden"
+
+
+def golden_use_lock(root: Path, name: str):
+    """The in-use lock of cached golden app NAME (root/.NAME.use, beside the app so removing the app keeps it): a try
+    holds it shared until its clone is made; the cache's cleanup removes an app only when it can take it exclusive."""
+    return open(root / f".{name}.use", "a")
+
+
+def fetch_golden(build: dict, hold: contextlib.ExitStack | None = None) -> Path:
+    """BUILD's app, downloaded and checked once into the cache (golden/<kind>-<commit>/), the newest GOLDEN_KEEP
+    kept; each try then clones it (side-instance.sh make: an APFS clone). With HOLD, the app's in-use lock is taken
+    shared before the cache lock is let go and stays held until HOLD closes, so another try's cleanup never removes
+    the app while this try clones it."""
+    if build["kind"] == "installed":
+        return Path(build["app"])
+    root = golden_root()
+    root.mkdir(parents=True, exist_ok=True)
+    dest = root / f"{build['kind']}-{build['commit'][:12]}"
+    with open(root / ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if not (dest / GOLDEN_READY).is_file():
+            shutil.rmtree(dest, ignore_errors=True)
+            part = Path(tempfile.mkdtemp(prefix=".part-", dir=root))
+            try:
+                log(f"golden copy: downloading {describe(build)} once (later tries clone it)")
+                download_golden(build, part)
+                app = golden_app(part)
+                check_golden(app, build)
+                stamp_commit(app, build["commit"])
+                (part / GOLDEN_READY).write_text(json.dumps({k: build.get(k) for k in GOLDEN_FIELDS}) + "\n")
+                os.replace(part, dest)
+            finally:
+                shutil.rmtree(part, ignore_errors=True)
+        os.utime(dest)
+        if hold is not None:
+            mine = hold.enter_context(golden_use_lock(root, dest.name))
+            fcntl.flock(mine, fcntl.LOCK_SH)
+        kept = sorted((p for p in root.iterdir() if p.is_dir() and (p / GOLDEN_READY).is_file()),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in kept[GOLDEN_KEEP:]:
+            if old == dest:
+                continue
+            with golden_use_lock(root, old.name) as used:
+                try:
+                    fcntl.flock(used, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    continue  # a try is cloning it now: the next fetch removes it
+                shutil.rmtree(old, ignore_errors=True)
+    return golden_app(dest)
+
+
+def download_golden(build: dict, part: Path) -> None:
+    """BUILD's app into PART: a feed's DMG (curl, mounted read-only, the app copied out), or a fleet job's app
+    (cmux-ci artifact: its per-file bundle when the store has one and zstd is here, else its zip)."""
+    if build["kind"] == "fleet":
+        tool = cmux_ci()
+        if tool is None:
+            raise LookError("a fleet build needs cmux-ci")
+        bundle = part / "bundle"
+        done = subprocess.run([tool, "artifact", build["job"], str(bundle), "--bundle"], capture_output=True,
+                              text=True, timeout=GOLDEN_SECONDS)
+        if done.returncode == 0:
+            return
+        shutil.rmtree(bundle, ignore_errors=True)
+        archive = part / "app.zip"
+        done = subprocess.run([tool, "artifact", build["job"], str(archive)], capture_output=True, text=True,
+                              timeout=GOLDEN_SECONDS)
+        if done.returncode != 0:
+            raise LookError(f"cmux-ci artifact {build['job']}: {(done.stderr or done.stdout).strip()[-300:]}")
+        unzip = subprocess.run(["ditto", "-x", "-k", str(archive), str(part / "app")], capture_output=True, text=True,
+                               timeout=GOLDEN_SECONDS)
+        archive.unlink(missing_ok=True)
+        if unzip.returncode != 0:
+            raise LookError(f"ditto -x {archive.name}: {unzip.stderr.strip()[-300:]}")
+        return
+    image = part / "app.dmg"
+    done = subprocess.run(["curl", "-fsSL", "--proto", "=https", "-o", str(image), build["url"]], capture_output=True,
+                          text=True, timeout=GOLDEN_SECONDS)
+    if done.returncode != 0:
+        raise LookError(f"curl {build['url']}: {done.stderr.strip()[-300:]}")
+    mount = part / "mnt"
+    mount.mkdir()
+    done = subprocess.run(["hdiutil", "attach", "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", str(mount),
+                           str(image)], capture_output=True, text=True, timeout=600)
+    if done.returncode != 0:
+        raise LookError(f"hdiutil attach {image.name}: {done.stderr.strip()[-300:]}")
+    try:
+        app = golden_app(mount)
+        done = subprocess.run(["ditto", str(app), str(part / "app" / app.name)], capture_output=True, text=True,
+                              timeout=GOLDEN_SECONDS)
+        if done.returncode != 0:
+            raise LookError(f"ditto {app.name}: {done.stderr.strip()[-300:]}")
+    finally:
+        subprocess.run(["hdiutil", "detach", str(mount)], capture_output=True, timeout=120)
+    image.unlink(missing_ok=True)
+
+
+def golden_app(root: Path) -> Path:
+    apps = sorted(root.glob("*.app")) or sorted(root.glob("*/*.app")) or sorted(root.glob("*/*/*.app"))
+    if not apps:
+        raise LookError(f"{root} holds no .app")
+    return apps[0]
+
+
+def check_golden(app: Path, build: dict) -> None:
+    """The downloaded app is BUILD's: its CMUXCommit (when it has one: a fleet DEV build has none, and cmux-ci
+    checked its artifact's sha256) is the build's commit, and a feed's signed app verifies."""
+    commit = app_info(app).get("commit") or ""
+    if commit and not build["commit"].startswith(commit) and not commit.startswith(build["commit"]):
+        raise LookError(f"{describe(build)}'s app says CMUXCommit {commit[:12]}")
+    if build["kind"] != "fleet":
+        done = subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], capture_output=True, text=True,
+                              timeout=600)
+        if done.returncode != 0:
+            raise LookError(f"{app.name} does not verify: {done.stderr.strip()[-300:]}")
+
+
+def stamp_commit(app: Path, commit: str) -> None:
+    """A fleet DEV build names no CMUXCommit, and hot-apply refuses to put a daemon into an app it cannot place
+    ("has no CMUXCommit (a DEV build)", the first fleet golden copy's Rust apply on a fleet Mac, 2026-11-19): the
+    cached app is stamped with the commit its job built, which `--from` that app then plans against too. Its seal
+    breaks, as every copy's does; side-instance.sh make re-seals the copy."""
+    path = app / "Contents/Info.plist"
+    with open(path, "rb") as handle:
+        info = plistlib.load(handle)
+    if info.get("CMUXCommit"):
+        return
+    info["CMUXCommit"] = commit
+    with open(path, "wb") as handle:
+        plistlib.dump(info, handle, fmt=plistlib.FMT_XML)
+
+
+def command_golden(args) -> int:
+    """The golden copy `run --pick` would take for SOURCE, planned only: nothing is downloaded."""
+    chosen = pick_golden(Path(args.repo).resolve(), args.source, real_app(args.app) or Path(NO_APP))
+    if args.json:
+        print(json.dumps(chosen, indent=2))
+    else:
+        print(f"golden: {describe(chosen)}\nwhy: {chosen['why']}")
+        for tried in chosen["tried"]:
+            print(f"tried: {tried['build']}: needs a build ({'; '.join(tried['build_reasons'])})")
+        for note in chosen["notes"]:
+            print(f"note: {note}")
+        print(plan_text(chosen["plan"]), end="")
+    return EXIT_NEEDS_BUILD if chosen["plan"]["needs_build"] else EXIT_LOOKED
 
 
 # ---------------------------------------------------------------- run and extract: `cmux app try .`
@@ -1706,11 +2270,32 @@ def build_swift_app(repo: Path, planned: dict, source: str, out: Path) -> Path:
     return _artifact_app(bundle)
 
 
+def reusable_copy(state: dict, the_app: Path, label: str, layers: list[str]) -> str | None:
+    """Why the kept copy must be made again for this try, or None when it can be reused as it is: stopped, the
+    layers put in, relaunched. A remake (APFS clone, ad hoc re-seal, lsregister) costs about 5 s, and a new
+    bundle's first launch pays about 1.7 s of policy check (goal team-dev-build-is-swap's Ceiling: a re-try's
+    side phase read 8.6 s). So a copy is reused when it was cloned from the same golden app at the same version,
+    under the same label, and this try's layers overwrite every layer the last try put in, so none of the last
+    branch's code stays behind."""
+    if state.get("try_from") != str(the_app):
+        return "another golden app"
+    if not state.get("try_app") or state.get("try_app") != app_info(the_app):
+        return "the golden app changed"
+    if state.get("try_label") != label:
+        return "another label"
+    left = sorted(set(state.get("try_layers") or []) - set(layers))
+    if left:
+        return f"the last try's {', '.join(left)} would stay"
+    return None
+
+
 def command_run(args) -> int:
-    """`cmux app try .`: a fresh clone of APP (the golden copy; by default the installed NIGHTLY) beside everything
-    else, the source's web and Rust swapped in, left running. No screenshots, video or steps: the copy and its dev
-    server keep running (saves under webviews/ show live) until `stop --side NAME`. Swift-only app changes use
-    a complete per-commit fleet app before launch; other build-required changes exit 3 with their plan and make no copy."""
+    """`cmux app try .`: a clone of APP (the golden copy; by default the installed NIGHTLY) beside everything
+    else, the source's web and Rust swapped in, left running. The kept copy of the last try is reused when it was
+    cloned from the same APP and nothing of the last try would stay (reusable_copy); else it is cloned fresh.
+    No screenshots, video or steps: the copy and its dev server keep running (saves under webviews/ show live)
+    until `stop --side NAME`. Swift-only app changes use a complete per-commit fleet app before launch; other
+    build-required changes exit 3 with their plan and make no copy."""
     began = time.monotonic()
     phases = hot().Phases()
     repo = Path(args.repo).resolve()
@@ -1721,13 +2306,24 @@ def command_run(args) -> int:
     result = {"schema": 1, "side": side.name, "from": str(the_app), "app": app_info(the_app), "plan": None,
               "copy": None, "socket": None, "pid": None, "applied": {}, "errors": [], "edit_to_live_s": None}
     scratch = None
+    golden_held = contextlib.ExitStack()  # the cached golden app's in-use lock, until the copy is made
     try:
         with phases("plan"):
-            planned = plan(repo, args.source, str(the_app), None)
+            if args.pick:
+                golden = pick_golden(repo, args.source, the_app)
+                result["golden"] = {k: golden.get(k) for k in (*GOLDEN_FIELDS, "why", "tried", "notes")}
+                log(f"golden copy: {golden['why']}")
+                planned = golden["plan"]
+            else:
+                golden, planned = None, plan(repo, args.source, str(the_app), None)
         result["plan"] = planned
         built_app = None
         if planned["needs_build"] and not can_build_swift_app(planned):
             return emit(result, phases, began, EXIT_NEEDS_BUILD)
+        if golden is not None and golden["kind"] != "installed":
+            with phases("golden"):
+                the_app = fetch_golden(golden, golden_held)
+            result.update({"from": str(the_app), "app": app_info(the_app)})
         unsupported = [layer for layer in planned["layers"] if layer not in ("web", "rust")]
         if unsupported:
             raise LookError(f"this engine applies no {', '.join(unsupported)} layer yet")
@@ -1748,16 +2344,37 @@ def command_run(args) -> int:
                 shutil.rmtree(scratch, ignore_errors=True)
                 scratch = None
                 raise
+        label = args.label or f"cmux {side.name}"
+        layers = sorted(planned["layers"])
         with phases("side"):
-            # A fresh clone per try: the last one, its dev server too, goes first.
+            # The kept copy, when nothing it holds differs from what this try puts in (reusable_copy): stopped,
+            # not made again, so its relaunch is a warm one. Else a fresh clone: the last one, its dev server too,
+            # goes first. Its own Cloud session stays either way (side-instance.sh remove --keep-sign-in): a person
+            # signs a copy in once, not every try. A built app is new each time, so it always makes a fresh clone.
+            remake = "no copy yet"
             if side.exists():
+                remake = "an app was built" if built_app is not None else \
+                    reusable_copy(side.state(), the_app, label, layers)
                 side.stop()
-                side.run("remove", timeout=300)
-            make = ["make", "--from", str(built_app or the_app), "--label", args.label or f"cmux {side.name}"]
-            side.run(*make, timeout=600)
+            if remake is None:
+                golden_held.close()
+                result["copy_reused"] = True
+            else:
+                result["copy_reused"] = False
+                result["remade_because"] = remake
+                if side.exists():
+                    side.run("remove", "--keep-sign-in", timeout=300)
+                make = ["make", "--from", str(built_app or the_app), "--label", label]
+                try:
+                    side.run(*make, timeout=600)
+                finally:
+                    golden_held.close()
             side.remember(try_source=args.source, try_repo=str(repo), try_head=planned["head"],
-                          try_fork=planned["fork"], try_from=str(the_app))
-            launched = side.run("launch", timeout=LAUNCH_SECONDS)
+                          try_fork=planned["fork"], try_from=str(the_app),
+                          # A copy of a built app never passes for a clone of the golden one (reusable_copy).
+                          try_app=app_info(the_app) if built_app is None else {"built": planned["head"]},
+                          try_label=label, try_layers=layers)
+            launched = side.run("launch", timeout=launch_seconds())
             found = re.search(r"pid (\d+)", launched)
             if not found:
                 raise LookError(f"side-instance.sh launch said no pid: {launched[-200:]}")
@@ -1771,7 +2388,7 @@ def command_run(args) -> int:
                 if built_app is None and "rust" in planned["layers"]:
                     result["applied"]["rust"] = apply_rust(rules, planned, src_tree, side, scratch)
                 if built_app is None and "web" in planned["layers"]:
-                    result["applied"]["web"] = apply_web(rules, planned, src_tree, side, scratch)
+                    result["applied"]["web"] = apply_web(rules, planned, src_tree, side, scratch, settle=False)
             result["edit_to_live_s"] = round(time.monotonic() - handed, 3)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
@@ -1783,6 +2400,8 @@ def command_run(args) -> int:
         if scratch is not None:
             shutil.rmtree(scratch, ignore_errors=True)
         return emit(result, phases, began, EXIT_FAILED)
+    finally:
+        golden_held.close()
 
 
 def command_extract(args) -> int:
@@ -1833,6 +2452,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-video", action="store_true")
     p.add_argument("--rust-binary", help="the cmux-tui built from the plan's daemon_from (the change applied onto "
                    "the app's commit), when no CI build of it is published")
+    p.add_argument("--rust-binary-head", help="the cmux-tui built from the head itself, for a plan with no "
+                   "daemon_from whose head tree CI has not published (a lane head): used only while it is unpublished")
     p.add_argument("--watch", action="store_true")
     p.add_argument("--pr", type=int, help="the pull request a sha: source is the head of: its published web layer")
     p.set_defaults(func=command_look)
@@ -1842,7 +2463,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--repo", default=str(ROOT))
     p.add_argument("--side", required=True)
     p.add_argument("--label")
+    p.add_argument("--pick", action="store_true",
+                   help="when APP needs a build for the source, copy the nearest published build that does not")
     p.set_defaults(func=command_run)
+    p = sub.add_parser("golden")
+    p.add_argument("--source", required=True)
+    p.add_argument("--app", required=True)
+    p.add_argument("--repo", default=str(ROOT))
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(func=command_golden)
     p = sub.add_parser("extract")
     p.add_argument("--side", required=True)
     p.add_argument("--out")

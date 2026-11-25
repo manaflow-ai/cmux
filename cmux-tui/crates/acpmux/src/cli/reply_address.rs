@@ -113,6 +113,41 @@ pub async fn start(
     }
 }
 
+/// How long `acpmux register --renew` waits for the daemon: a hook runs it at every session's
+/// start and turn end, so it must never hold Claude Code up.
+// timeout: a hook's side step; past it the session goes on, and the next hook asks again.
+const RENEW_WAIT: Duration = Duration::from_secs(3);
+
+/// `acpmux register --renew`, from a Claude Code hook: hands the session's new token to this
+/// machine's daemon, which takes it only for a chat registered before a restart with `--resume`
+/// (`hub/register.rs` `renewed_name`), so `acpmux send NAME` reaches the restarted session with
+/// no one running `register` in it (Leo, 2026-11-20: "isn't one I can message through acpmux /
+/// well figure out a way then"). Starts no daemon and delivers no code; the daemon's answer, or
+/// why there was none, for `--json`.
+pub async fn renew() -> Value {
+    let Some(want) = of_this_process(false) else {
+        return json!({"renewed": false, "reason": "not a Claude Code shell acpmux did not start"});
+    };
+    renew_at(&crate::config::socket_path(), want, RENEW_WAIT).await
+}
+
+async fn renew_at(path: &std::path::Path, want: AutoRegister, wait: Duration) -> Value {
+    let params = json!({
+        "name": want.name, "socket": want.socket, "token": want.token, "renew": true,
+    });
+    let ask = crate::client::Client::renew_registration(path, params);
+    match tokio::time::timeout(wait, ask).await {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) if e.is::<crate::client::DaemonError>() => {
+            json!({"renewed": false, "reason": e.to_string()})
+        }
+        Ok(Err(e)) => json!({"renewed": null, "reason": e.to_string(), "retryable": true}),
+        Err(_) => {
+            json!({"renewed": null, "reason": "the daemon did not answer in time", "retryable": true})
+        }
+    }
+}
+
 /// What the daemon did with the first step.
 #[derive(Debug)]
 enum Outcome {
@@ -126,17 +161,18 @@ enum Outcome {
 /// The line a send prints for `outcome`: none once the chat has an address, or for a failure
 /// the daemon already reported to an earlier send (`repeat`).
 fn line(name: &str, host: &str, outcome: Outcome) -> Option<String> {
+    let program = crate::cli::entry::program();
     let v = match outcome {
         Outcome::Answer(v) => v,
         Outcome::Refused(why) => {
             return Some(format!(
-                "the receiver cannot reply to this chat: it has no acpmux address, and registering it did not start ({why}); run `acpmux register {name}` in this shell, then the `--code` line it delivers"
+                "the receiver cannot reply to this chat: it has no acpmux address, and registering it did not start ({why}); run `{program} register {name}` in this shell, then the `--code` line it delivers"
             ));
         }
         // A manual `register` now would send a second code, which replaces the first.
         Outcome::NoAnswer => {
             return Some(format!(
-                "the receiver cannot reply to this chat until it is registered; registering it did not answer within {}s, and a one-time code may still arrive in this chat's inbox (a message from acpmux): run the `acpmux register ... --code ...` line it gives",
+                "the receiver cannot reply to this chat until it is registered; registering it did not answer within {}s, and a one-time code may still arrive in this chat's inbox (a message from acpmux): run the `{program} register ... --code ...` line it gives",
                 WAIT.as_secs()
             ));
         }
@@ -149,11 +185,11 @@ fn line(name: &str, host: &str, outcome: Outcome) -> Option<String> {
     // for is the one to finish. A step another send started has none yet.
     match v.get("name").and_then(Value::as_str) {
         Some(name) => Some(format!(
-            "the receiver cannot reply to this chat until it is registered: a one-time code is in this chat's inbox (a message from acpmux); run the `acpmux register {name} --code ...` it gives, and replies then reach {host}/{name}"
+            "the receiver cannot reply to this chat until it is registered: a one-time code is in this chat's inbox (a message from acpmux); run the `{program} register {name} --code ...` it gives, and replies then reach {host}/{name}"
         )),
-        None => Some(
-            "the receiver cannot reply to this chat until it is registered: a one-time code is coming to this chat's inbox (a message from acpmux); run the `acpmux register ... --code ...` line it gives, and replies then reach the name it names on this machine".to_owned()
-        ),
+        None => Some(format!(
+            "the receiver cannot reply to this chat until it is registered: a one-time code is coming to this chat's inbox (a message from acpmux); run the `{program} register ... --code ...` line it gives, and replies then reach the name it names on this machine"
+        )),
     }
 }
 
@@ -179,6 +215,74 @@ mod tests {
 
     fn swap(key: &str, value: &'static str) -> Vec<(&'static str, &'static str)> {
         DESKTOP.iter().map(|&(k, v)| (k, if k == key { value } else { v })).collect()
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn renew_hook_uses_one_frame_even_when_the_daemon_is_late() {
+        use crate::rpc::{Message, method};
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("daemon.sock");
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        for late in [false, true] {
+            let want = auto_register_in(env(&DESKTOP), false).unwrap();
+            let path = socket.clone();
+            let hook = tokio::spawn(async move { renew_at(&path, want, RENEW_WAIT).await });
+            let (stream, _) = listener.accept().await.unwrap();
+            let (rd, mut wr) = stream.into_split();
+            let mut lines = BufReader::new(rd).lines();
+            let line = lines.next_line().await.unwrap().unwrap();
+            let Message::Request { id, method, params } = Message::parse(&line).unwrap() else {
+                panic!("expected registration");
+            };
+            assert_eq!(method, method::MUX_REGISTER);
+            assert_eq!(params.unwrap()["renew"], true);
+            if late {
+                tokio::time::pause();
+                tokio::time::advance(RENEW_WAIT).await;
+                let reply = hook.await.unwrap();
+                assert!(reply["renewed"].is_null());
+                assert_eq!(reply["retryable"], true);
+                tokio::time::resume();
+            } else {
+                wr.write_all(Message::ok(id, json!({"renewed": true})).to_line().as_bytes())
+                    .await
+                    .unwrap();
+                assert_eq!(hook.await.unwrap(), json!({"renewed": true}));
+            }
+            assert!(lines.next_line().await.unwrap().is_none(), "exactly one request");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn renew_hook_distinguishes_a_missing_daemon_from_its_refusal() {
+        use crate::rpc::{Message, RpcError};
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("daemon.sock");
+        let want = auto_register_in(env(&DESKTOP), false).unwrap();
+        let absent = renew_at(&socket, want.clone(), RENEW_WAIT).await;
+        assert!(absent["renewed"].is_null());
+        assert_eq!(absent["retryable"], true);
+
+        let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        let hook = tokio::spawn(async move { renew_at(&socket, want, RENEW_WAIT).await });
+        let (stream, _) = listener.accept().await.unwrap();
+        let (rd, mut wr) = stream.into_split();
+        let line = BufReader::new(rd).lines().next_line().await.unwrap().unwrap();
+        let Message::Request { id, .. } = Message::parse(&line).unwrap() else {
+            panic!("expected renewal");
+        };
+        wr.write_all(
+            Message::err(id, RpcError::invalid_params("wrong inbox")).to_line().as_bytes(),
+        )
+        .await
+        .unwrap();
+        let refusal = hook.await.unwrap();
+        assert_eq!(refusal["renewed"], false);
+        assert_eq!(refusal["reason"], "wrong inbox");
     }
 
     /// Repro (ask-828b64b532): a desktop chat on cosmic-gray that never registered sent the

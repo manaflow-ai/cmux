@@ -20,6 +20,7 @@ struct NewTabContextPartsTests {
             tabs: [tab], workspaces: [.init(id: "workspace", name: "Workspace", detail: "detail")],
             folders: ["/folder"], projects: ["/project"], actions: [action], commands: ["ls"],
             history: [.init(url: "https://example.com", title: "Example", icon: icon)],
+            bookmarks: [.init(url: "https://swift.org", title: "Swift", icon: icon)],
             uses: ["workspace:workspace": 1.5], profiles: [.init(id: "profile", name: "Profile", color: "#336699")])
         let picks = AgentPaneLastPicks(
             global: .init(harness: "harness", model: "model"),
