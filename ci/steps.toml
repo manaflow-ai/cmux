@@ -1889,8 +1889,9 @@ swift test --package-path cmux-next-ios/CmuxMobileKit --no-parallel --filter Ter
 # simulator slice.
 # The fleet pool runs these simulator tests too when the job submitted them (scripts/ci/ios-sim-pool.sh, the ios
 # job's "Fleet pool" steps). vars.CMUX_IOS_SIM_LINUX=on: the pool's verdict is the check, and this Mac runs them only
-# when the pool gave none (a logged Mac fallback). shadow (unset): this Mac runs them and the pool is timed beside it.
-mode="${CMUX_IOS_SIM_LINUX:-shadow}"
+# when the pool gave none (a logged Mac fallback). shadow: this Mac runs them and the pool is timed beside it.
+# Unset or off: the pool is left out.
+mode="${CMUX_IOS_SIM_LINUX:-off}"
 pool_dir="${CMUX_IOS_SIM_POOL_DIR:-${RUNNER_TEMP:-$CI_TOOLS}/sim-pool}"
 pool=""
 sim=0

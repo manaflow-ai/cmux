@@ -338,11 +338,11 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
       # The kit's simulator tests on the fleet pool (scripts/ci/ios-sim-pool.sh): this Mac builds for testing and
-      # the pool runs them; the ios-kit step reads the verdict. vars.CMUX_IOS_SIM_LINUX: shadow (unset) times both,
-      # on uses the pool's verdict with this Mac as the fallback, off skips it. Same-repo pull requests only.
+      # the pool runs them; the ios-kit step reads the verdict. vars.CMUX_IOS_SIM_LINUX: shadow times both,
+      # on uses the pool's verdict with this Mac as the fallback, unset or off skips it (shadow spends Mac minutes). Same-repo pull requests only.
       - name: Fleet pool, build the kit's simulator tests
         id: sim-pool
-        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["", "shadow", "on"]'), vars.CMUX_IOS_SIM_LINUX) && vars.CMUX_FLEET_CONTROLLER != '' }}
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["shadow", "on"]'), vars.CMUX_IOS_SIM_LINUX) && vars.CMUX_FLEET_CONTROLLER != '' }}
         continue-on-error: true
         timeout-minutes: 25
         run: |

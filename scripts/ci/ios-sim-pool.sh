@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The CmuxMobileKit iOS simulator tests on the fleet pool, for pr-pipeline.yml's ios job and its ios-kit step
-# (ci/steps.toml). vars.CMUX_IOS_SIM_LINUX picks the mode: "shadow" (unset) runs the pool beside the Mac's own
+# (ci/steps.toml). vars.CMUX_IOS_SIM_LINUX picks the mode: "shadow" runs the pool beside the Mac's own
 # simulator run, advisory, so both are timed on one head; "on" makes the pool's verdict the check, and the Mac runs
-# the simulator tests only when the pool gave none (a logged Mac fallback); anything else leaves the pool out.
+# the simulator tests only when the pool gave none (a logged Mac fallback); unset or anything else leaves the pool out.
 #
 #   ios-sim-pool.sh pack      build for testing on this Mac and pack the products into $DIR/products
 #   ios-sim-pool.sh submit    submit the pool run (products: CMUX_IOS_PRODUCTS=<run id>/<artifact>) and return;
