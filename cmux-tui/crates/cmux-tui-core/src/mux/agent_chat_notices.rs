@@ -1380,8 +1380,9 @@ impl Chat {
         // Work it started past its turn ended in this change.
         let below_ended = before.is_some_and(|chat| chat.works_below) && !self.works_below;
         let lost_was_notified = before.is_some_and(|chat| chat.notified_lost);
-        let failed_turn_was_notified = self.last_turn.as_ref().is_some_and(|(turn, _)| {
-            before.is_some_and(|chat| chat.notified_turn.as_ref() == Some(turn))
+        let failed_turn_was_notified = self.last_turn.as_ref().is_some_and(|(turn, status)| {
+            status == "failed"
+                && before.is_some_and(|chat| chat.notified_turn.as_ref() == Some(turn))
         });
         let mut failed_turn_notice_posted = false;
         if let Some((turn, status)) = &self.last_turn

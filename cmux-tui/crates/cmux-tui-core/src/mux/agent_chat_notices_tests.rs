@@ -765,6 +765,19 @@ fn a_new_lost_transition_after_a_new_turn_still_notifies() {
 }
 
 #[test]
+fn a_lost_active_turn_is_not_suppressed_by_a_previous_completed_turn() {
+    let mut before = Chat::of(&summary("working", 10, false, Some(("t1", "completed")), false))
+        .expect("a working chat");
+    before.notified_turn = Some("t1".into());
+    let mut lost = Chat::of(&summary("lost", 12, false, Some(("t1", "completed")), false))
+        .expect("a lost chat");
+    lost.notified_turn = before.notified_turn.clone();
+    let notices = lost.notices(Some(&before));
+    assert_eq!(notices.len(), 1);
+    assert!(notices[0].title.ends_with("stopped responding"));
+}
+
+#[test]
 fn a_later_lost_transition_is_not_suppressed_by_an_older_failed_turn() {
     let mut before = Chat::of(&summary("done", 10, false, Some(("t1", "failed")), false))
         .expect("a failed chat");
