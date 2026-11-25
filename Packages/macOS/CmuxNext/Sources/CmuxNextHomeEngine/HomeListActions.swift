@@ -90,5 +90,5 @@ public struct HomeListActions {
 
 /// Delete Conversation's toast (Resources/Home.xcstrings).
 nonisolated enum HomeListStrings {
-    static var conversationDeleted: String { String(localized: "handlers.misc.home.conversationDeleted", defaultValue: "Conversation deleted", table: "Home", bundle: .module) }
+    static var conversationDeleted: String { String(localized: "handlers.misc.home.conversationDeleted", defaultValue: "Conversation deleted", table: "Home", bundle: .localizedModule) }
 }

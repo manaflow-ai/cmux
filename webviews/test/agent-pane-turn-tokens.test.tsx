@@ -94,6 +94,7 @@ function fakeDaemon(
   let socket: any;
   let liveOnAttach: Recorded[] = [];
   let gapFails = false;
+  let pageLimit = 400;
   let holdIndex = false;
   let indexReply: (() => void) | undefined;
   const session = {
@@ -115,6 +116,17 @@ function fakeDaemon(
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach": {
+        // `afterSeq` alone pages forward, oldest first, `pageLimit` records at most (acpmux
+        // requests.rs): a reconnect's read of what it missed.
+        if (typeof params?.afterSeq === "number") {
+          const after = history.filter((event) => event.seq > params.afterSeq && passes(params?.kinds, event));
+          return {
+            session,
+            lastSeq: lastSeq(),
+            events: after.slice(0, pageLimit),
+            hasMore: after.length > pageLimit,
+          };
+        }
         const events = history.filter((event) => event.seq >= attachFrom && passes(params?.kinds, event));
         return {
           session,
@@ -188,6 +200,8 @@ function fakeDaemon(
   const onAttach = (events: Recorded[]) => (liveOnAttach = events);
   /// Whether the reconnect's gap read fails.
   const failGap = (fails: boolean) => (gapFails = fails);
+  /// How many records a forward attach page holds (acpmux's `limit` and byte bound).
+  const forwardLimit = (limit: number) => (pageLimit = limit);
   return {
     open,
     push,
@@ -196,6 +210,7 @@ function fakeDaemon(
     pageFrom,
     onAttach,
     failGap,
+    forwardLimit,
     holdIndex: () => {
       holdIndex = true;
     },
@@ -253,6 +268,12 @@ async function until(ready: () => boolean, what: string) {
 }
 const prompt = (text: string): Step => ["mux", "user_message", { text }];
 const started: Step = ["mux", "turn_started", {}];
+/// A line of the agent's reply: a transcript row, which usage records are not.
+const reply = (text: string): Step => [
+  "in",
+  "agent_message_chunk",
+  update({ sessionUpdate: "agent_message_chunk", content: { type: "text", text } }),
+];
 
 test("a Claude turn's output tokens are the sum of its model calls since it started, live", async () => {
   const daemon = fakeDaemon(
@@ -415,7 +436,17 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
   // The attach page starts after the turn's first calls; an older page brings the start, but
   // pages carry no usage, so a count from it would leave those calls out. Each later rebuild of
   // the held events (a lag resync, a Debug toggle, a reconnect's attach) must not count it either.
-  const history = record([prompt("fix the build"), started, call(41_200), call(43_800), call(46_000), call(9_000)]);
+  // The page draws a line of the reply: an open whose page draws nothing reads the older page
+  // itself before its first snapshot (#45859), and then no older history is left to page in.
+  const history = record([
+    prompt("fix the build"),
+    started,
+    call(41_200),
+    call(43_800),
+    call(46_000),
+    reply("Reading the build log."),
+    call(9_000),
+  ]);
   const daemon = fakeDaemon(history, { attachFrom: 5 });
   daemon.holdIndex();
   const { client, snapshot, snapshots, attached, resynced } = await connect(daemon);
@@ -457,7 +488,7 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
     expect(snapshot().turnTokens).toBeUndefined();
 
     // A turn that starts while the client watches counts from its start.
-    daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 7));
+    daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 8));
     await until(() => snapshot().turnTokens !== undefined, "the new turn's call");
     expect(snapshot().turnTokens).toBe(7_000);
   } finally {
@@ -526,6 +557,8 @@ test("a reconnect whose gap read fails hides the count it can no longer add up",
     expect(snapshot().turnTokens).toBe(85_000);
     history.push(...record([call(46_000), call(1_000), call(2_000), call(3_000)], 5));
     daemon.pageFrom(7);
+    // The reconnect's forward page holds two of the four calls missed; reading the rest fails.
+    daemon.forwardLimit(2);
     daemon.failGap(true);
     daemon.drop();
     await until(() => snapshot().turnTokens === undefined, "the gap read to fail");
@@ -613,12 +646,6 @@ test("a usage record's reported setup reaches the context summary while the tool
 // The line under the work (`below`); "Working for" over the work says only the turn's time.
 const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: START, below: true };
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   ...extra,
 });
 const drawn = (row: AcpmuxRow, value: WorkingCounts) =>
@@ -637,8 +664,8 @@ test("the line keeps elapsed time and background work counts without token amoun
   // Before the first call reports, or with no token data, the time stands alone.
   expect(drawn(status, counts())).toBe("Working for 5m 54s");
   expect(drawn(status, counts({ tokens: 0 }))).toBe("Working for 5m 54s");
-  // Background work counts remain even when usage data is present.
-  expect(drawn(status, counts({ tokens: 2_140_000, agents: 2 }))).toBe("Working for 5m 54s · 2 subagents");
+  // Usage data adds nothing to the line: the tray counts the background work, never the line.
+  expect(drawn(status, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
   // Over the work, as the Codex app's "Working for 32s": the time alone.
   expect(drawn({ ...status, below: undefined }, counts({ tokens: 2_140_000 }))).toBe("Working for 5m 54s");
 });

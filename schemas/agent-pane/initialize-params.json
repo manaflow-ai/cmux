@@ -1,0 +1,18 @@
+{
+  "$comment": "The initialize the agent page sends (webviews direct.ts initializeParams). webviews/test/agent-pane-initialize-params-contract.test.ts holds the page to this file; AcpmuxPaneInitializeParamsContractTests runs it through the app relay's params rule (AcpmuxPaneMethods+Params.swift knownParams), which refuses an unknown key as transport.intent_invalid. cmux#46563 added _meta.acpmux.peerRowBatches without the rule, and every chat reconnected every few seconds (ask-0e0d5a479b).",
+  "initialize": {
+    "protocolVersion": 1,
+    "clientInfo": {
+      "name": "cmux-react-agent-pane",
+      "version": "1"
+    },
+    "clientCapabilities": {},
+    "_meta": {
+      "acpmux": {
+        "peerRowBatches": true,
+        "chunkDeltas": true,
+        "sessionChangedDelta": true
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-16",
+  "row": "app_lines",
+  "allow": 68,
+  "why": "The existing App binding must pin the selected tab and owning machine across the asynchronous palette request, present the standard turn/dirty-work dialog, and reopen the imported chat through AppServices. Rust owns machine enumeration, placement, eligibility, preflight and command/result planning; the process adapter stays in the existing Cloud module. This adds only service and presentation glue to the original 66-line move binding allowance; it moves with the Cloud handlers under architecture-refactor-DESIGN.md section 4.",
+  "author": "move-chat-any-machine (Codex)",
+  "owner": "move-chat-any-machine / Cloud handlers extraction",
+  "receipt": "Review (independent Codex move_turn subagent): SHIP at 9e66708d114b3aa4cccb850d9d34aae9963ca259",
+  "expiry": "2026-11-23"
+}

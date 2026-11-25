@@ -1,7 +1,7 @@
-// Settings > Agents > Agents on This Mac, under the `agents.cmuxMcp` choice row (the onboarding step's
-// question): each coding agent found on this Mac and whether it gets cmux's MCP server when cmux starts
-// it (its terminals and agent chats), read with `cmux setup mcp` (nothing is written). Turn On answers
-// yes, only on a click (the host refuses a page script). An agent whose own settings hold a `cmux`
+// Settings > Agents > Agents on This Mac, under the `agents.cmuxMcp` choice row (on by default): each
+// coding agent found on this Mac and whether it gets cmux's MCP server when cmux starts it (its
+// terminals and agent chats), read with `cmux setup mcp` (nothing is written). While the row is off,
+// Turn On sets it on, only on a click (the host refuses a page script). An agent whose own settings hold a `cmux`
 // entry that runs `cmux mcp serve` (used outside cmux; not this build's own manual line) shows a
 // notice with the exact line that removes it and a Remove button: only the person's click runs it.
 // When cmux keeps the entry (settings it could not put back), the host's `note` says why. Below, the
@@ -39,7 +39,7 @@ export function AgentToolsCard() {
   };
   const rows = state?.rows ?? [];
   const manual = state?.manual ?? [];
-  const on = state?.choice === "on";
+  const on = state?.choice !== "off";
   const working = busy || (state?.applying ?? false);
   return (
     <section className="group" data-card="agentTools" ref={mounted}>

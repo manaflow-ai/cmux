@@ -2,7 +2,9 @@
 //! parser and the daemon in frames of the bytes the PTY held, not one frame per
 //! PTY read. A macOS PTY read returns at most 1 KiB, so a `cat` of a large file
 //! cost one parser hand-off, one daemon frame and one mirror parse per KiB. A
-//! lone key echo still goes out at once, as its own frame.
+//! lone key echo still goes out at once, as its own frame. The host reads its
+//! PTY non-blocking and drains a flood without a poll per read; a blocking
+//! descriptor is polled before each read. Each test runs both.
 
 use super::super::super::shared::host_start::read_pty_output;
 use super::*;
@@ -18,7 +20,13 @@ impl Read for MacOsSizedReads {
     }
 }
 
-fn start_reader() -> (Receiver<ParserCommand>, UnixStream, thread::JoinHandle<()>, HostStream) {
+/// The descriptor modes a reader sees: the host's own (non-blocking) and a
+/// blocking one.
+const MODES: [bool; 2] = [true, false];
+
+fn start_reader(
+    nonblocking: bool,
+) -> (Receiver<ParserCommand>, UnixStream, thread::JoinHandle<()>, HostStream) {
     let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
     let (parser_commands, parsed) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
     let host = host_fixture::test_host_shared_with_budget(
@@ -30,6 +38,7 @@ fn start_reader() -> (Receiver<ParserCommand>, UnixStream, thread::JoinHandle<()
     // A socket stands in for the PTY master: the reader polls and reads a
     // descriptor either way.
     let (pty, program) = UnixStream::pair().unwrap();
+    pty.set_nonblocking(nonblocking).unwrap();
     let pty_fd = pty.as_raw_fd();
     let (drain_waker, drain_waiter) = HostStream::pair().unwrap();
     let reader = thread::Builder::new()
@@ -56,50 +65,56 @@ fn next_output(parsed: &Receiver<ParserCommand>) -> Vec<u8> {
 fn a_flood_reaches_the_parser_in_frames_of_the_waiting_bytes_not_one_per_read() {
     // One 12 KiB write: twelve 1 KiB reads.
     let flood: Vec<u8> = (0..12 * 1024).map(|i| b'a' + (i % 26) as u8).collect();
-    let (parsed, mut program, reader, drain_waker) = start_reader();
-    program.write_all(&flood).unwrap();
-    let first = next_output(&parsed);
-    assert_eq!(
-        first.len(),
-        flood.len(),
-        "the reader published the flood's first {} bytes alone: one frame per PTY read",
-        first.len()
-    );
-    assert_eq!(first, flood);
-    drop(program);
-    reader.join().unwrap();
-    drop(drain_waker);
+    for nonblocking in MODES {
+        let (parsed, mut program, reader, drain_waker) = start_reader(nonblocking);
+        program.write_all(&flood).unwrap();
+        let first = next_output(&parsed);
+        assert_eq!(
+            first.len(),
+            flood.len(),
+            "non-blocking {nonblocking}: the reader published the flood's first {} bytes alone",
+            first.len()
+        );
+        assert_eq!(first, flood);
+        drop(program);
+        reader.join().unwrap();
+        drop(drain_waker);
+    }
 }
 
 #[test]
 fn a_lone_echo_goes_out_at_once_in_its_own_frame() {
-    let (parsed, mut program, reader, drain_waker) = start_reader();
-    program.write_all(b"x").unwrap();
-    assert_eq!(next_output(&parsed), b"x");
-    program.write_all(b"y").unwrap();
-    assert_eq!(next_output(&parsed), b"y");
-    drop(program);
-    reader.join().unwrap();
-    drop(drain_waker);
+    for nonblocking in MODES {
+        let (parsed, mut program, reader, drain_waker) = start_reader(nonblocking);
+        program.write_all(b"x").unwrap();
+        assert_eq!(next_output(&parsed), b"x", "non-blocking {nonblocking}");
+        program.write_all(b"y").unwrap();
+        assert_eq!(next_output(&parsed), b"y", "non-blocking {nonblocking}");
+        drop(program);
+        reader.join().unwrap();
+        drop(drain_waker);
+    }
 }
 
 #[test]
 fn bytes_written_before_the_end_of_stream_all_reach_the_parser() {
-    let (parsed, mut program, reader, drain_waker) = start_reader();
     let tail: Vec<u8> = (0..5000).map(|i| b'0' + (i % 10) as u8).collect();
-    program.write_all(&tail).unwrap();
-    drop(program);
-    let mut got = Vec::new();
-    loop {
-        match parsed.recv_timeout(Duration::from_secs(10)).unwrap() {
-            ParserCommand::Output { frame, .. } => got.extend_from_slice(&frame.payload),
-            ParserCommand::Drain => break,
-            _ => {}
+    for nonblocking in MODES {
+        let (parsed, mut program, reader, drain_waker) = start_reader(nonblocking);
+        program.write_all(&tail).unwrap();
+        drop(program);
+        let mut got = Vec::new();
+        loop {
+            match parsed.recv_timeout(Duration::from_secs(10)).unwrap() {
+                ParserCommand::Output { frame, .. } => got.extend_from_slice(&frame.payload),
+                ParserCommand::Drain => break,
+                _ => {}
+            }
         }
+        assert_eq!(got, tail, "non-blocking {nonblocking}");
+        reader.join().unwrap();
+        drop(drain_waker);
     }
-    assert_eq!(got, tail);
-    reader.join().unwrap();
-    drop(drain_waker);
 }
 
 /// The bench's terminal text (scripts/cmux-next/terminal-throughput-bench.py):
@@ -147,7 +162,9 @@ fn bench_payload(bytes: usize) -> Vec<u8> {
 /// line discipline holds (about 1.3 KiB a read in the daemon bench, cmux-tui
 /// tests/terminal_throughput_stages.rs), a macOS one at most 1 KiB; this
 /// stage fixes the read size, so it measures the host alone on any machine.
-/// `CMUX_HOST_STAGE_MB` sets the payload (default 200).
+/// The `-poll` arms read a blocking descriptor, polled before every read (the
+/// reader before CMUX-571's drain); the others read it non-blocking, as the
+/// host reads its PTY. `CMUX_HOST_STAGE_MB` sets the payload (default 200).
 #[test]
 #[ignore = "a throughput bench; run with --ignored --nocapture"]
 fn host_stage_throughput_bench() {
@@ -157,7 +174,12 @@ fn host_stage_throughput_bench() {
         .filter(|value| *value > 0)
         .unwrap_or(200);
     let payload = Arc::new(bench_payload(mb * 1_000_000));
-    for (label, macos_reads) in [("host-1KiB-reads", true), ("host-whole-reads", false)] {
+    for (label, macos_reads, nonblocking) in [
+        ("host-1KiB-reads-poll", true, false),
+        ("host-1KiB-reads", true, true),
+        ("host-whole-reads-poll", false, false),
+        ("host-whole-reads", false, true),
+    ] {
         let term = Terminal::new(120, 40, 10_000_000, Callbacks::default()).unwrap();
         let (parser_commands, receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
         let host = host_fixture::test_host_shared_with_budget(
@@ -182,6 +204,7 @@ fn host_stage_throughput_bench() {
             })
             .unwrap();
         let (pty, mut program) = UnixStream::pair().unwrap();
+        pty.set_nonblocking(nonblocking).unwrap();
         let pty_fd = pty.as_raw_fd();
         let (drain_waker, drain_waiter) = HostStream::pair().unwrap();
         let reader_host = host.clone();

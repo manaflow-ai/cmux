@@ -53,6 +53,13 @@ impl DirReplica {
         }
     }
 
+    /// A replica that starts as snapshot `generation` (a seed numbers its snapshots per machine).
+    pub fn with_generation(root: impl Into<PathBuf>, max_file_bytes: u64, generation: u64) -> Self {
+        let replica = Self::new(root, max_file_bytes);
+        replica.generation.store(generation, Ordering::SeqCst);
+        replica
+    }
+
     pub fn root(&self) -> &Path {
         &self.root
     }

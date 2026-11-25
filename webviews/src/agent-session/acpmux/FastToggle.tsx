@@ -1,10 +1,11 @@
 import { useT } from "./i18n";
+import { BoltIcon } from "./BoltIcon";
 
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { type SpeedTiers } from "./fastToggleModel";
 import { tooltipProps } from "./shortcuts";
-/// The bolt: a plain outline glyph in muted ink while off, in the theme accent while a tier runs. No
-/// disc, no fill at rest; hover draws the row's soft pill (composerLocation.css `.acpmux-fast`). A
+/// The bolt: the shared soft glyph (BoltIcon.tsx) in muted ink while off, in the theme accent while a
+/// tier runs. No disc; hover draws the row's soft pill (composerLocation.css `.acpmux-fast`). A
 /// click steps to the next offered tier, and from the last one back to off; with one tier it is
 /// on/off.
 export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inline?: boolean }) {
@@ -82,25 +83,5 @@ export function FastToggle({ speed, inline = false }: { speed: SpeedTiers; inlin
         </Menu>
       )}
     </span>
-  );
-}
-
-function BoltIcon() {
-  return (
-    <svg
-      className="acpmux-icon"
-      width={16}
-      height={16}
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.25}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M9.2 1.5 3.6 9h4.1l-1 5.5L12.4 7H8.3Z" />
-    </svg>
   );
 }

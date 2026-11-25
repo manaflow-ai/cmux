@@ -1109,7 +1109,10 @@ fn blocked_in(
 
 #[test]
 fn a_denied_app_is_never_reachable_through_menus_in_any_language() {
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default()); // Terminal, Keychain, System Settings, Ghostty, ...
+    // Keychain, System Settings, ... (the default) plus Terminal and Ghostty.
+    let mut config = crate::policy::PolicyConfig::default();
+    config.denied_apps.extend(["com.apple.Terminal".into(), "com.mitchellh.ghostty".into()]);
+    let guard = PolicyGuard(config);
     // German Apple menu > Benutzte Objekte (Recent Items): by structure (Apple menu, a submenu), not by title.
     let recent = ["Programme", "Terminal", "TextEdit", "notizen.txt", "Menü löschen"];
     assert!(blocked_in(&guard, Some(0), 2, &recent, "Terminal"));
@@ -1209,6 +1212,62 @@ fn keys_and_menu_commands_reach_only_the_key_window() {
     assert_eq!(roles::submenu_refusal("AXMenuItem", false), None);
     assert!(roles::submenu_refusal("AXMenuItem", true).is_some());
     assert_eq!(roles::submenu_refusal("AXMenuBarItem", true), None);
+}
+
+#[test]
+fn keys_reach_an_inline_editor_over_the_target_only() {
+    let target = Rect { x: 544.0, y: 94.0, width: 920.0, height: 436.0 };
+    // Finder's rename field, measured: no focused window, the Finder window
+    // as main window, a text field in no window, inside the target.
+    let field = roles::OverlayEditor {
+        role: "AXTextField".into(),
+        in_other_window: false,
+        frame: Some(Rect { x: 759.0, y: 228.0, width: 54.0, height: 21.0 }),
+    };
+    assert!(roles::keys_reach_overlay_editor(false, true, Some(&field), &target));
+    // A focused window (a sheet, an alert, another document) keeps the
+    // key-window rule.
+    assert!(!roles::keys_reach_overlay_editor(true, true, Some(&field), &target));
+    // The editor is over another window of the app.
+    assert!(!roles::keys_reach_overlay_editor(false, false, Some(&field), &target));
+    let elsewhere = roles::OverlayEditor {
+        frame: Some(Rect { x: 10.0, y: 40.0, width: 54.0, height: 21.0 }),
+        ..field.clone()
+    };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&elsewhere), &target));
+    // In another window, not a text input, or no frame: refused.
+    let other = roles::OverlayEditor { in_other_window: true, ..field.clone() };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&other), &target));
+    let button = roles::OverlayEditor { role: "AXButton".into(), ..field.clone() };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&button), &target));
+    let unread = roles::OverlayEditor { frame: None, ..field.clone() };
+    assert!(!roles::keys_reach_overlay_editor(false, true, Some(&unread), &target));
+    assert!(!roles::keys_reach_overlay_editor(false, true, None, &target));
+    // A window as big as the target is not an editor inside it.
+    assert!(!roles::rect_within(&target, &target));
+}
+
+#[test]
+fn an_inline_editor_window_id_names_the_window_keys_go_to() {
+    let hint = roles::overlay_editor_window_hint(3910, "AXTextField", Some(3902));
+    assert!(hint.contains("window 3910 is an inline editor (a text field"), "{hint}");
+    assert!(hint.contains("window_id 3902"), "{hint}");
+    let hint = roles::overlay_editor_window_hint(3910, "AXTextField", None);
+    assert!(hint.contains("the window it lies over"), "{hint}");
+}
+
+#[test]
+fn set_value_focuses_a_native_field_that_commits_when_editing_ends() {
+    // Finder's Get Info name field: not focused, AXConfirm offered.
+    assert!(roles::focus_before_value_write("AXTextField", false, false, Some(false), true));
+    // Already being edited, web content, the person's app, no confirm, an
+    // unreadable focus or a text area: left as it is.
+    assert!(!roles::focus_before_value_write("AXTextField", false, false, Some(true), true));
+    assert!(!roles::focus_before_value_write("AXTextField", true, false, Some(false), true));
+    assert!(!roles::focus_before_value_write("AXTextField", false, true, Some(false), true));
+    assert!(!roles::focus_before_value_write("AXTextField", false, false, Some(false), false));
+    assert!(!roles::focus_before_value_write("AXTextField", false, false, None, true));
+    assert!(!roles::focus_before_value_write("AXTextArea", false, false, Some(false), true));
 }
 
 #[test]
@@ -2099,7 +2158,9 @@ fn a_shortcut_blocked_only_while_names_load_says_they_are_loading() {
 #[test]
 fn a_menu_item_check_tells_a_real_block_from_a_name_not_resolved_yet() {
     use roles::{ItemCheck, MenuItemContext, menu_item_check};
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    let mut config = crate::policy::PolicyConfig::default();
+    config.denied_apps.push("com.apple.Terminal".into());
+    let guard = PolicyGuard(config);
     let ctx =
         |t| MenuItemContext { title: t, top_index: None, depth: 1, siblings: &[], launch: None };
     let loading = |_: &str| -> Option<Vec<String>> { None };
@@ -2171,8 +2232,10 @@ fn a_refusal_names_why_an_item_is_blocked() {
 #[test]
 fn an_open_with_item_naming_an_allowed_app_is_allowed_once_the_index_is_built() {
     use crate::menus::BlockReason;
-    // The default deny list is not empty (Terminal is on it).
-    let guard = PolicyGuard(crate::policy::PolicyConfig::default());
+    // The default deny list is not empty; Terminal is denied on top of it.
+    let mut config = crate::policy::PolicyConfig::default();
+    config.denied_apps.push("com.apple.Terminal".into());
+    let guard = PolicyGuard(config);
     let open_with = vec!["Open With".to_string()];
     let index = |n: &str| -> Option<Vec<String>> {
         Some(match n.to_lowercase().as_str() {

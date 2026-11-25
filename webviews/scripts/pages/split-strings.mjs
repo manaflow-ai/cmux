@@ -25,10 +25,15 @@ export function splitStrings(table, { global = "__cmuxStrings", dir = "locales",
   }
   // The same resolution as strings.ts resolveLocale, over the shipped locales. It runs before the
   // app, as a classic script, and writes one same-origin script tag (document.write from a
-  // parser-blocking script, so the locale runs before the page's module).
+  // parser-blocking script, so the locale runs before the page's module). The language is the app's
+  // Language setting when the host set it before the page loaded (window.__cmuxAppLanguage), else
+  // the browser's; the shipped locales stay on window.__cmuxStringLocales for a live switch
+  // (src/pages/shared/appLanguage.ts).
   const select = `(function () {
   var known = ${JSON.stringify(locales)};
-  var tag = (navigator.language || "en").replace(/_/g, "-");
+  window.__cmuxStringLocales = known;
+  var chosen = window.__cmuxAppLanguage;
+  var tag = (typeof chosen === "string" && chosen && chosen !== "system" ? chosen : navigator.language || "en").replace(/_/g, "-");
   var parts = tag.split("-"), lang = parts[0].toLowerCase(), rest = parts.slice(1);
   var candidates = [tag];
   if (lang === "zh") candidates.push(rest.some(function (p) { return /^(hant|tw|hk|mo)$/i.test(p); }) ? "zh-Hant" : "zh-Hans");

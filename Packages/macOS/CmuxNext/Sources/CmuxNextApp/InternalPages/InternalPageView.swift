@@ -26,11 +26,7 @@ final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
     let topBar: NSView?
     /// The edge `topBar` sits on (`browser.toolbarPosition`); the pane sets it.
     var toolbarPosition: ToolbarPosition = .top {
-        didSet {
-            guard toolbarPosition != oldValue else { return }
-            barEdge.activate(toolbarPosition)
-            needsLayout = true
-        }
+        didSet { if toolbarPosition != oldValue { barEdge.activate(toolbarPosition); needsLayout = true } }
     }
     /// The constraints that put `topBar` above or below the content; one set is active.
     private let barEdge = ToolbarEdgeConstraints()
@@ -113,6 +109,7 @@ final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
 }
 
 extension InternalPageView: ToolbarEdgeHosting { var showsToolbarRow: Bool { topBar.map { !$0.isHidden } ?? false } }
+extension InternalPageView { var meetsTabStrip: Bool { get { (topBar as? MarkdownOmnibarBar)?.toolbar.meetsTabStrip ?? false } set { (topBar as? MarkdownOmnibarBar)?.toolbar.meetsTabStrip = newValue } } }
 
 /// A two-finger swipe over the page (PageSwipeForwarder) runs `navigate` too.
 extension InternalPageView: PageHistoryHosting {}

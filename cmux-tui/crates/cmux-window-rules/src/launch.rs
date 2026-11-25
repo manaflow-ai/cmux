@@ -23,6 +23,8 @@
 //! window is open.
 
 use serde::{Deserialize, Serialize};
+use std::io::Read;
+use std::path::Path;
 
 /// What the app knows once the live tree applied.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
@@ -75,6 +77,37 @@ pub fn verdict(facts: &SnapshotFacts) -> Verdict {
     let shown_missing = facts.shown.as_ref().is_some_and(|shown| !has(shown));
     let listed_missing = !facts.listed.is_empty() && !facts.listed.iter().any(has);
     if shown_missing || listed_missing { Verdict::UnknownWorkspaces } else { Verdict::Current }
+}
+
+/// The registry file's name prefix: `cmux-next/launch-snapshot-registry.<session>`
+/// under a home's Application Support.
+pub const REGISTRY_FILE_PREFIX: &str = "launch-snapshot-registry.";
+/// A registry id longer than this is not one the app wrote.
+pub const MAX_REGISTRY_ID_BYTES: usize = 256;
+
+/// The registry id (session) this home's app last saw live for `session`:
+/// what its last handshake wrote to
+/// `<app_support>/cmux-next/launch-snapshot-registry.<session>` (the id alone,
+/// UTF-8). The one reader of that file: the app's launch read compares it with
+/// the launch snapshot's before drawing (`verdict`), and the launch shell's
+/// stage 0 with its launch record's. `app_support` is the home's
+/// `Library/Application Support`; `session` the daemon session name as in the
+/// app's `cmuxNext.launchSnapshotPath.<session>` default. None when the file is
+/// missing, empty, not UTF-8 or longer than [`MAX_REGISTRY_ID_BYTES`].
+pub fn current_registry_id(app_support: &Path, session: &str) -> Option<String> {
+    if session.is_empty() || session.contains(['/', '\0']) {
+        return None;
+    }
+    let path = app_support.join("cmux-next").join(format!("{REGISTRY_FILE_PREFIX}{session}"));
+    let mut bytes = Vec::with_capacity(64);
+    let file = std::fs::File::open(path).ok()?;
+    // One byte past the bound tells an over-long file from a full one.
+    file.take(MAX_REGISTRY_ID_BYTES as u64 + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() > MAX_REGISTRY_ID_BYTES {
+        return None;
+    }
+    let id = std::str::from_utf8(&bytes).ok()?.trim();
+    (!id.is_empty()).then(|| id.to_owned())
 }
 
 /// Where the person last was, from the daemon's saved front window (its record, not the launch snapshot). Home is
@@ -166,6 +199,51 @@ pub fn landing(facts: &LandingFacts) -> Landing {
             pane: pane.clone(),
             tab: tab.clone().filter(|_| facts.tab != TabStanding::Gone),
         },
+    }
+}
+
+/// A relaunch's Home landing for a saved workspace the daemon lacks (`HomeWhy::UnknownWorkspace`) that Home's
+/// workspace was not listed for yet when the restore ended: the app asks again each time what it reads changes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PendingHome {
+    /// The saved front window the landing is for.
+    pub window: String,
+    /// The window that is active now (never the target: a second saved window can be active).
+    pub active: Option<String>,
+    /// `window` is still open.
+    pub window_open: bool,
+    /// Home's workspace is listed.
+    pub home_ready: bool,
+    /// `window` shows another workspace or page than the restore did, now.
+    pub moved: bool,
+    /// `window` showed another workspace or page at any time since the restore, latched by the app: leaving and
+    /// coming back before Home is listed still drops the landing (review F1 of #46087).
+    pub moved_since_restore: bool,
+}
+
+/// The pending landing's next step.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "step", rename_all = "camelCase")]
+pub enum HomeStep {
+    /// Home is not listed yet: ask again on the next change.
+    Wait,
+    /// Show Home in `window`, the saved front window, and stop.
+    Land { window: String },
+    /// The window closed or the person moved on: stop without landing.
+    Stop,
+}
+
+/// The next step of a pending Home landing: it stops once the window closed or the person moved (now or at any time
+/// since the restore: once they left, the landing is dropped for good), lands in the saved front window (never the
+/// active one) once Home is listed, and waits otherwise.
+pub fn pending_home(facts: &PendingHome) -> HomeStep {
+    if !facts.window_open || facts.moved || facts.moved_since_restore {
+        HomeStep::Stop
+    } else if facts.home_ready {
+        HomeStep::Land { window: facts.window.clone() }
+    } else {
+        HomeStep::Wait
     }
 }
 

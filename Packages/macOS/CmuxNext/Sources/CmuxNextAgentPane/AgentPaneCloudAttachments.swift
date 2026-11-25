@@ -146,7 +146,7 @@ public nonisolated struct AgentPaneCloudAttachments: Sendable {
         if !manager.fileExists(atPath: folder.path) { try manager.createDirectory(at: folder, withIntermediateDirectories: false, attributes: owner) }
         let parent = folder.appendingPathComponent("staged-\(index)", isDirectory: true)
         try manager.createDirectory(at: parent, withIntermediateDirectories: false, attributes: owner)
-        let url = parent.appendingPathComponent(URL(fileURLWithPath: path).lastPathComponent, isDirectory: false)
+        let url = parent.appendingPathComponent((path as NSString).lastPathComponent, isDirectory: false)
         // The file a link names, never the link itself (a relative one would dangle in the copy).
         try manager.copyItem(at: URL(fileURLWithPath: path).resolvingSymlinksInPath(), to: url)
         try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)

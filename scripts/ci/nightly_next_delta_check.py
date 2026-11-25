@@ -29,7 +29,8 @@ merge LIVE GENERATED --build N --out PATH
     build N, skipping a sparkle:deltaFrom LIVE already lists, so the nearest deltas the publication shipped
     stay byte for byte. Exit 1 when LIVE has no item for build N.
 
-usage: nightly_next_delta_check.py prune FEED --base URL
+usage: nightly_next_delta_check.py newest --feed-url URL --build N   (exit 0 only while N is the feed's newest)
+       nightly_next_delta_check.py prune FEED --base URL
        nightly_next_delta_check.py check --feed-url URL --build N [--min-deltas 1]
        nightly_next_delta_check.py keep-item FEED --build N
        nightly_next_delta_check.py merge LIVE GENERATED --build N --out PATH
@@ -43,6 +44,9 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 SPARKLE_NS = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 S = f"{{{SPARKLE_NS}}}"
@@ -134,19 +138,19 @@ def newest_item(xml: bytes) -> ET.Element | None:
 def http_length(url: str) -> int | None:
     request = urllib.request.Request(url, method="HEAD", headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            if response.status != 200:
-                return None
-            length = response.headers.get("Content-Length")
-            return int(length) if length and length.isdigit() else None
+        status, _, headers = deadline_http.request(request, 30)
+        if status != 200:
+            return None
+        length = headers.get("Content-Length")
+        return int(length) if length and length.isdigit() else None
     except Exception:  # an unserved delta is the finding, whatever the error
         return None
 
 
 def fetch(url: str) -> bytes:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Cache-Control": "no-cache"})
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return response.read()
+    _, body, _ = deadline_http.request(request, 30, raise_errors=True)
+    return body
 
 
 def check(xml: bytes, build: int, min_deltas: int, served: Callable[[str], int | None]) -> tuple[int, list[str]]:
@@ -196,6 +200,11 @@ def main(argv: list[str]) -> int:
     ki = sub.add_parser("keep-item")
     ki.add_argument("feed", type=Path)
     ki.add_argument("--build", type=int, required=True)
+    nw = sub.add_parser("newest")
+    nw_src = nw.add_mutually_exclusive_group(required=True)
+    nw_src.add_argument("--feed-url")
+    nw_src.add_argument("--feed-file", type=Path)
+    nw.add_argument("--build", type=int, required=True)
     mg = sub.add_parser("merge")
     mg.add_argument("live", type=Path)
     mg.add_argument("generated", type=Path)
@@ -206,6 +215,14 @@ def main(argv: list[str]) -> int:
         dropped = keep_item(args.feed, args.build)
         print(f"{args.feed.name}: kept build {args.build}'s item, dropped {dropped} earlier item(s)")
         return 0
+    if args.command == "newest":
+        # Exit 0 only while the live feed's newest item is this build: the post-feed delta part stops at once
+        # otherwise (a newer build's own publication owns its deltas).
+        # --feed-file: the merged feed about to be written, so the write's newest is checked, not only the live one.
+        item = newest_item(args.feed_file.read_bytes() if args.feed_file else fetch(args.feed_url))
+        version = (item.findtext(f"{S}version") or "").strip() if item is not None else ""
+        print(f"live feed's newest build is {version or 'unknown'}; this build is {args.build}")
+        return 0 if version == str(args.build) else 1
     if args.command == "merge":
         text, added = merge(args.live.read_text(encoding="utf-8"), args.generated.read_text(encoding="utf-8"),
                             args.build)

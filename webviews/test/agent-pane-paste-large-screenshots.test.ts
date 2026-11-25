@@ -156,7 +156,7 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
   // a spinner while it loads, Retry when it failed (inlineAttachments.tsx).
   const INLINE = ".acpmux-composer-prompt .acpmux-md-inline-chip";
   const LOADING = `${INLINE}[data-state="loading"]`;
-  const FAILED = `${INLINE}[data-state="failed"]`;
+  const FAILED = `${INLINE} .acpmux-attachment-failed`;
 
   /// The prompt's text, without the attachments placed in it (each an atom in the line).
   const promptText = (page: Page) =>
@@ -241,13 +241,21 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     const failed = page.locator(FAILED);
     await failed.waitFor();
     expect(await failed.getAttribute("title")).toContain("The disk is full.");
+    const before = (await failed.boundingBox())!;
+    const composer = page.locator(".acpmux-composer-box");
+    const composerHeight = (await composer.boundingBox())!.height;
     // The host takes it this time.
     await page.evaluate(() => {
       (window as unknown as { host: Record<string, string> }).host["chat.upload.begin"] = "ok";
     });
-    await failed.locator(".acpmux-md-inline-retry").click();
-    await page.locator(".acpmux-attachment-link").waitFor();
+    await failed.locator(".acpmux-attachment-retry").click();
+    const ready = page.locator(`${INLINE} .acpmux-attachment-link`);
+    await ready.waitFor();
     expect(await failed.count()).toBe(0);
+    const after = (await ready.boundingBox())!;
+    expect(after.width).toBeCloseTo(before.width);
+    expect(after.height).toBeCloseTo(before.height);
+    expect((await composer.boundingBox())!.height).toBeCloseTo(composerHeight);
     await page.close();
   });
 

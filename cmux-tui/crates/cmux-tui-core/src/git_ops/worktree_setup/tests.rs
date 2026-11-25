@@ -119,7 +119,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_above_the_size_limit() {
     fs::write(&ports_file, &ports).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place, recipe);
+    let reply = start(place, recipe, None);
 
     assert_eq!(reply, json!({"state": "failed", "port": null}));
     assert_eq!(read_status(&root).map(|status| status.state), Some("failed".to_string()));
@@ -279,7 +279,7 @@ fn own_tree_a_setup_log_is_not_written_through_a_link() {
 fn own_tree_a_teardown_log_is_not_written_through_a_link() {
     let top = folder_with_a_link_in_its_git_folder_at(LOG_FILE);
 
-    let reply = teardown(&place_in(&top), Some("touch ran"));
+    let reply = teardown(&place_in(&top), Some("touch ran"), None);
 
     assert!(!made_elsewhere(&top), "the open followed the link");
     assert_eq!(reply, None, "a teardown with no log does not run");
@@ -419,7 +419,7 @@ fn own_tree_a_setup_log_with_a_second_name_is_made_new() {
 fn own_tree_a_teardown_log_with_a_second_name_is_made_new() {
     let top = folder_with_a_second_name_in_its_git_folder_at(LOG_FILE);
 
-    let reply = teardown(&place_in(&top), Some("touch ran")).unwrap_or_default();
+    let reply = teardown(&place_in(&top), Some("touch ran"), None).unwrap_or_default();
 
     let log = fs::read_to_string(top.join("git-folder").join(LOG_FILE)).unwrap_or_default();
     assert_eq!(
@@ -444,7 +444,7 @@ fn own_tree_a_log_with_one_name_keeps_its_lines() {
     let log_path = top.join("git-folder").join(LOG_FILE);
     fs::write(&log_path, "a line of the setup\n").unwrap();
 
-    let reply = teardown(&place_in(&top), Some("touch ran")).unwrap_or_default();
+    let reply = teardown(&place_in(&top), Some("touch ran"), None).unwrap_or_default();
 
     let log = fs::read_to_string(&log_path).unwrap_or_default();
     assert!(log.starts_with("a line of the setup\n$ touch ran\n"), "the log: {log}");
@@ -621,7 +621,7 @@ fn own_tree_the_log_of_a_setup_that_does_not_start_is_made_new_with_a_second_nam
     fs::write(top.join("git-folder/cmux-worktree-ports.json"), ports).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place_in(&top), recipe);
+    let reply = start(place_in(&top), recipe, None);
 
     let log = fs::read_to_string(top.join("git-folder").join(LOG_FILE)).unwrap_or_default();
     let (text, started) = (text_elsewhere(&top), top.join("root/started").exists());
@@ -718,7 +718,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_a_list() {
     fs::write(&ports_file, ports).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place_in(&top), recipe);
+    let reply = start(place_in(&top), recipe, None);
 
     assert_eq!(reply, json!({"state": "failed", "port": null}));
     assert_eq!(read_status(&git_dir).map(|status| status.state), Some("failed".to_string()));
@@ -759,7 +759,7 @@ fn own_tree_a_setup_does_not_start_with_a_ports_file_that_is_not_written() {
     fs::create_dir(git_dir.join("cmux-worktree-ports.json.partial")).unwrap();
     let recipe = Recipe { setup: Some("touch started".into()), ..Recipe::default() };
 
-    let reply = start(place_in(&top), recipe);
+    let reply = start(place_in(&top), recipe, None);
 
     assert_eq!(reply, json!({"state": "failed", "port": null}));
     assert_eq!(read_status(&git_dir).map(|status| status.state), Some("failed".to_string()));
@@ -1145,7 +1145,7 @@ fn own_tree_a_setup_keeps_the_ports_file_of_the_folder_that_it_opened() {
     std::os::unix::fs::symlink(top.join("elsewhere"), top.join("repository")).unwrap();
 
     // A recipe with no file list and no command: the start gives the work tree its ports only.
-    let reply = start(place, Recipe::default());
+    let reply = start(place, Recipe::default(), None);
 
     let elsewhere = names_in(&top.join("elsewhere"));
     fs::remove_dir_all(top).unwrap();

@@ -58,8 +58,10 @@ export function createTextMeasure(fontFamily: string): MeasureText {
 
 function symbolWidth(stats: DiffFileStats, measure: MeasureText): number {
   const parts = diffStatParts(stats);
-  const text = [parts?.added, parts?.deleted].filter(Boolean).join(" ");
-  // Slack for tabular digits, which the canvas does not measure.
+  // The counts draw in tabular figures, every digit as wide as the widest; the canvas measures the
+  // font's proportional ones, where a "1" is narrow. Measured with zeros, "+14 -14" gets the width
+  // its tabular text takes, so the right-aligned text never loses its "+" off the symbol's left.
+  const text = [parts?.added, parts?.deleted].filter(Boolean).join(" ").replace(/[0-9]/g, "0");
   return Math.ceil(measure(text) * 1.04) + 2;
 }
 

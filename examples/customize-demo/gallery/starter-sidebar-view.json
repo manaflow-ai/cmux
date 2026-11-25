@@ -1,0 +1,19 @@
+{
+  "cmuxProfile": 1,
+  "name": "setup-manaflow-ai-starter-sidebar-view",
+  "description": "A customize app that implements cmux.hovercard/1 (a three-line card: title and age, the agent's status, the branch) and cmux.sidebar.rows/1 (rows that show a dot while an agent works). While it is installed it stands in for your own customize/ view; removing it puts yours back.",
+  "created_ms": 0,
+  "settings": {
+    "sidebar.hoverCards.enabled": true,
+    "sidebar.hoverCards.delay": 300
+  },
+  "files": {
+    "customize/cmux-app.json": "{\n  \"$schema\": \"https://cmux.dev/schemas/cmux-app/2.json\",\n  \"manifestVersion\": 2,\n  \"id\": \"local/customize\",\n  \"name\": { \"en\": \"Starter sidebar view\" },\n  \"version\": \"1.0.0\",\n  \"description\": \"A three-line hover card (title and age, status, branch) and rows with a dot while an agent works.\",\n  \"engines\": { \"cmux\": \"^2.0\" },\n  \"repository\": \"https://github.com/local/customize\",\n  \"runtime\": { \"main\": \"main.js\" },\n  \"implements\": {\n    \"cmux.hovercard/1\": { \"export\": \"renderCard\" },\n    \"cmux.sidebar.rows/1\": { \"export\": \"decorateRows\" }\n  },\n  \"scopes\": { \"workspace:read\": \"Name the rows to decorate.\" },\n  \"activation\": [\"onInterface:cmux.hovercard/1\", \"onInterface:cmux.sidebar.rows/1\"],\n  \"files\": [\"main.js\"]\n}\n",
+    "customize/main.js": "// The starter sidebar view: the two sidebar interfaces of the Scene SDK in their smallest form.\n// Public surfaces only: cmux.hovercard/1 and cmux.sidebar.rows/1\n// (docs/cmux-next/sidebar-customization.md). VStack, HStack, Text, Icon, Spacer, ForEach and\n// Group are the SDK's view kit; they follow the theme you wear, so the file names no color.\n\n// The hover card. ctx.card is what the built-in card would show: {title, age, status, facts}.\nfunction renderCard(ctx) {\n  const card = ctx.card\n  const branch = card.facts.find((fact) => fact.kind === \"branch\")\n  return VStack({ spacing: 4, alignment: \"leading\" }, [\n    HStack({ spacing: 8 }, [Text(card.title).bold().lineLimit(1), Spacer(), Text(card.age ?? \"\").secondary()]),\n    card.status ? Text(card.status).secondary().lineLimit(2) : null,\n    branch ? HStack({ spacing: 6 }, [Icon(\"arrow.triangle.branch\"), Text(branch.text).secondary().lineLimit(1)]) : null,\n  ])\n}\n\n// The rows: one decoration per workspace, named by id (`row`). The title stays the row's own\n// name; a dot stands in for the spinner while an agent works.\nfunction decorateRows() {\n  const workspaces = cmux.live(\"workspace.list\", {})\n  return VStack([\n    ForEach({ items: () => workspaces() ?? [], key: (w) => w.id }, (w) =>\n      Group({ row: () => w().id, title: () => w().name, indicator: () => \"dot\" }, []),\n    ),\n  ])\n}\n\nglobalThis.__cmuxAppExports = { renderCard, decorateRows }\n"
+  },
+  "x-setup": {
+    "id": "manaflow-ai/starter-sidebar-view",
+    "name": "Starter Sidebar View",
+    "source": "gallery/sidebar-view"
+  }
+}

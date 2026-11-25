@@ -57,6 +57,10 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     /// the same id replaces only within its window. A long run's working toast (Moving to Cloud,
     /// ``untilClosed``) whose result shows after the person switched windows ends with it.
     public var oneWindow: Bool
+    /// Says how a run is going (Moving to Cloud, its step and about how long is left), shown again under
+    /// its id as the run goes on. Once the person closes one, later working toasts under that id stay
+    /// closed until one that is not working (the run's result) shows, or ``CmuxToastCenter/close(id:)``.
+    public var working: Bool
     /// The toast shows for exactly ``duration``: it echoes a live change (a zoom percent, a density
     /// level) and would linger past it. Every other toast shows longer (``CmuxToastTuning``).
     public var keepsDuration: Bool
@@ -67,7 +71,8 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
 
     public init(id: String, kind: String? = nil, message: String, detail: String? = nil, action: Action? = nil,
                 secondaryAction: Action? = nil, duration: Duration = .seconds(6), tone: CmuxToastTone? = nil,
-                oneWindow: Bool = false, keepsDuration: Bool = false, style: CmuxToastStyle? = nil) {
+                oneWindow: Bool = false, keepsDuration: Bool = false, style: CmuxToastStyle? = nil,
+                working: Bool = false) {
         self.id = id
         self.secondaryAction = secondaryAction
         self.tone = tone ?? (id == Self.refusalID ? .error : .neutral)
@@ -75,6 +80,7 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
         self.kind = kind ?? id
         self.keepsDuration = keepsDuration
         self.oneWindow = oneWindow
+        self.working = working
         self.message = message
         self.detail = detail?.isEmpty == false ? detail : nil
         self.action = action
@@ -113,11 +119,13 @@ public nonisolated struct CmuxToastStack: Equatable, Sendable {
     public init() {}
 
     /// Adds toast `serial`; returns the serials it replaces (same id, then
-    /// the oldest over the limit).
-    public mutating func push(serial: Int, id: String, undo isUndo: Bool) -> [Int] {
+    /// the oldest over the limit). With `keepsSlot` it takes the slot of the toast with its id (a working
+    /// toast's result, ``CmuxToastTone/working``) instead of resting newest.
+    public mutating func push(serial: Int, id: String, undo isUndo: Bool, keepsSlot: Bool = false) -> [Int] {
+        let slot = keepsSlot ? serials.firstIndex { ids[$0] == id } : nil
         var removed = serials.filter { ids[$0] == id }
         for old in removed { remove(old) }
-        serials.append(serial)
+        serials.insert(serial, at: slot ?? serials.endIndex)
         ids[serial] = id
         if isUndo { undo.insert(serial) }
         while serials.count > Self.limit {
