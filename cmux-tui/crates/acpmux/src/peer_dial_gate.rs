@@ -9,6 +9,13 @@
 //! single dropped link (or a handful) redials exactly as before; past them, a dial a client is
 //! not waiting on draws a start in the next [`SPREAD`], and every dial waits for a free slot.
 //!
+//! A burst is dials that wait on each other: a dial counts in its burst from when it enters until
+//! it ends (or gives its slot back). Dials one after another, each done before the next (a Mac
+//! adding machines in a row, one link redialing), are never a burst, however many come in a
+//! second. Counting every dial that entered within [`BURST`], done or not, held the 7th quick
+//! connect in a row back for up to the whole [`SPREAD`]: every 7th 157 ms cold connect took
+//! 0.3 to 1.6 s (`peer_cold_connect_bench.rs`, 2026-11-24).
+//!
 //! A slot is given back when the dial's connection opens or fails, or after [`HOLD`] at most,
 //! so a path that hangs (a dead relay) cannot hold the gate shut for its whole connect timeout.
 //! A freed slot goes to a waiting wanted dial first, then to the others in the order they came
@@ -27,7 +34,8 @@ pub const SLOTS: usize = 6;
 pub const SPREAD: Duration = Duration::from_millis(1500);
 /// The longest one dial holds its slot.
 pub const HOLD: Duration = Duration::from_secs(2);
-/// Dials entering within this of a burst's first are the same burst.
+/// Dials entering within this of a burst's first, while its earlier dials have not ended, are the
+/// same burst.
 pub const BURST: Duration = Duration::from_secs(1);
 
 /// The daemon's gate.
@@ -41,7 +49,6 @@ pub struct DialGate {
     size: usize,
     spread: Duration,
     hold: Duration,
-    burst: Mutex<Burst>,
     /// Dials that waited on the gate (spread, or no free slot), since start.
     waited: AtomicU64,
 }
@@ -49,7 +56,25 @@ pub struct DialGate {
 #[derive(Default)]
 struct Burst {
     since: Option<Instant>,
+    /// Dials of this burst that entered and have not ended.
     entered: usize,
+    /// Which burst this is, so a dial of an earlier one that ends does not count down this one.
+    epoch: u64,
+}
+
+/// A dial's place in its burst, held until the dial ends: dropped, it no longer counts.
+struct Entered {
+    slots: Arc<Slots>,
+    epoch: u64,
+}
+
+impl Drop for Entered {
+    fn drop(&mut self) {
+        let mut burst = self.slots.burst.lock().unwrap_or_else(PoisonError::into_inner);
+        if burst.epoch == self.epoch {
+            burst.entered = burst.entered.saturating_sub(1);
+        }
+    }
 }
 
 impl DialGate {
@@ -58,11 +83,11 @@ impl DialGate {
         Self {
             slots: Arc::new(Slots {
                 waiting: Mutex::new(Waiting { free: slots, ..Waiting::default() }),
+                burst: Mutex::default(),
             }),
             size: slots,
             spread,
             hold,
-            burst: Mutex::default(),
             waited: AtomicU64::new(0),
         }
     }
@@ -86,29 +111,30 @@ impl DialGate {
         }
     }
 
-    /// Wait for this dial's turn: at once while the burst is within the slots, else (unless a
+    /// Wait for this dial's turn: at once while the burst (the dials that entered within
+    /// [`BURST`] of its first and have not ended) is within the slots, else (unless a
     /// client waits on the peer, `wanted`) after a start drawn in the spread with `jitter` (in
     /// `0.0..1.0`); then for a free slot, which the dial holds until it drops it. A wanted dial
     /// skips the spread, so it queues for a slot ahead of the burst's spread ones.
     pub async fn enter(&self, wanted: bool, jitter: f64) -> Option<Slot> {
         let now = Instant::now();
-        let place = {
-            let mut burst = self.burst.lock().unwrap_or_else(PoisonError::into_inner);
+        let (place, entered) = {
+            let mut burst = self.slots.burst.lock().unwrap_or_else(PoisonError::into_inner);
             if burst.since.is_none_or(|since| now.saturating_duration_since(since) >= BURST) {
-                *burst = Burst { since: Some(now), entered: 0 };
+                *burst = Burst { since: Some(now), entered: 0, epoch: burst.epoch + 1 };
             }
             burst.entered += 1;
-            burst.entered
+            (burst.entered, Entered { slots: self.slots.clone(), epoch: burst.epoch })
         };
         let spread = place > self.size && !wanted;
         if !spread && let Some(slot) = Slots::try_take(&self.slots) {
-            return Some(slot);
+            return Some(slot.entered(entered));
         }
         self.waited.fetch_add(1, Ordering::Relaxed);
         if spread {
             tokio::time::sleep(self.spread.mul_f64(jitter.clamp(0.0, 1.0))).await;
         }
-        Slots::take(&self.slots, wanted).await
+        Slots::take(&self.slots, wanted).await.map(|slot| slot.entered(entered))
     }
 
     /// Dials holding a slot now.
@@ -125,6 +151,7 @@ impl DialGate {
 /// The gate's slots: a count of free ones, and the dials waiting for one, wanted ones apart.
 struct Slots {
     waiting: Mutex<Waiting>,
+    burst: Mutex<Burst>,
 }
 
 #[derive(Default)]
@@ -138,10 +165,25 @@ struct Waiting {
 /// A slot handed to a waiter that was cancelled is dropped with the channel, so it comes back too.
 pub struct Slot {
     slots: Option<Arc<Slots>>,
+    /// The dial's place in its burst, given up with the slot.
+    entered: Option<Entered>,
+}
+
+impl Slot {
+    fn new(slots: &Arc<Slots>) -> Self {
+        Self { slots: Some(slots.clone()), entered: None }
+    }
+
+    fn entered(mut self, entered: Entered) -> Self {
+        self.entered = Some(entered);
+        self
+    }
 }
 
 impl Drop for Slot {
     fn drop(&mut self) {
+        // Out of the burst first: the dial that takes this slot next may enter one at once.
+        drop(self.entered.take());
         if let Some(slots) = self.slots.take() {
             Slots::give_back(&slots);
         }
@@ -159,7 +201,7 @@ impl Slots {
             return None;
         }
         waiting.free -= 1;
-        Some(Slot { slots: Some(slots.clone()) })
+        Some(Slot::new(slots))
     }
 
     /// A free slot now, else the next one given back that no wanted dial (or, for a wanted
@@ -169,7 +211,7 @@ impl Slots {
             let mut waiting = slots.lock();
             if waiting.free > 0 {
                 waiting.free -= 1;
-                return Some(Slot { slots: Some(slots.clone()) });
+                return Some(Slot::new(slots));
             }
             let (tx, rx) = oneshot::channel();
             let queue = if wanted { &mut waiting.wanted } else { &mut waiting.rest };
@@ -193,7 +235,7 @@ impl Slots {
                     }
                 }
             };
-            match next.send(Slot { slots: Some(slots.clone()) }) {
+            match next.send(Slot::new(slots)) {
                 Ok(()) => return,
                 // That waiter was cancelled: this slot goes to the next one, not back through drop.
                 Err(mut slot) => slot.slots = None,
@@ -365,6 +407,37 @@ mod tests {
             dial.await.unwrap();
         }
         assert_eq!(gate.in_flight(), 0);
+    }
+
+    /// Dials one after another, each done before the next, are no burst however quick: the 7th
+    /// quick cold connect in a second waited up to the whole spread (2026-11-24).
+    #[tokio::test(start_paused = true)]
+    async fn dials_one_after_another_in_a_second_all_go_at_once() {
+        let gate = gate();
+        let started = Instant::now();
+        for _ in 0..20 {
+            gate.pass(false, 0.9, tokio::time::sleep(Duration::from_millis(10))).await;
+        }
+        assert_eq!(started.elapsed(), Duration::from_millis(200));
+        assert_eq!(gate.waited(), 0);
+    }
+
+    /// A dial still in flight counts in its burst: past the slots, the next ones spread.
+    #[tokio::test(start_paused = true)]
+    async fn dials_still_in_flight_count_in_the_burst() {
+        let gate = gate();
+        let held: Vec<_> = futures::future::join_all((0..3).map(|_| gate.enter(false, 0.0))).await;
+        let started = Instant::now();
+        let fourth = tokio::spawn({
+            let gate = gate.clone();
+            async move { gate.enter(false, 0.5).await.is_some() }
+        });
+        tokio::task::yield_now().await;
+        // The slots come free at once, but the fourth entered behind three in flight: it spreads.
+        drop(held);
+        assert!(fourth.await.unwrap());
+        assert_eq!(started.elapsed(), Duration::from_millis(750));
+        assert_eq!(gate.waited(), 1);
     }
 
     /// A burst ends: a dial a while later is one link dropping on its own, and goes at once.
