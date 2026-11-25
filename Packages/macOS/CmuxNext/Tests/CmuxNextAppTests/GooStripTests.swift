@@ -81,7 +81,7 @@ import Testing
         #expect(cell.gooFill == nil && cell.runsIntoCard)
         let clip = try #require(strip.tabsClip.layer)
         let folder = try #require(cell.folderPath())
-        let expected = TabStripView.map(folder, from: cell.layer!, to: clip).intersection(CGPath(rect: clip.bounds, transform: nil))
+        let expected = TabStripView.map(folder, from: cell.layer, to: clip).intersection(CGPath(rect: clip.bounds, transform: nil))
         #expect(strip.selectedFolderPath(in: clip)?.boundingBoxOfPath == expected.boundingBoxOfPath,
                 "off: the chrome's hole is the selected tab's folder, not the row")
         let before = strip.layer?.sublayers?.count
