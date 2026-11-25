@@ -15,6 +15,7 @@
 #![cfg_attr(not(unix), allow(dead_code, unused_imports, unused_variables, unused_mut))]
 
 pub mod accept_errors;
+pub(crate) mod acp_key_auth;
 pub mod acp_todo_plan;
 pub mod acpmux_mcp;
 pub mod acpmux_mcp_names;
@@ -66,6 +67,7 @@ pub mod client;
 pub mod clock;
 pub(crate) mod clock_text;
 pub mod close_why;
+pub mod cloud_folder;
 pub mod cloud_host;
 pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
@@ -333,6 +335,7 @@ pub mod secret_mcp;
 pub mod secret_scan;
 pub mod self_command;
 pub mod send_fanout;
+pub mod send_trace;
 pub(crate) mod sender_env;
 pub mod sender_harness;
 pub mod sender_program;
@@ -355,6 +358,7 @@ pub mod session_search;
 pub mod session_service;
 pub mod session_status;
 mod session_store;
+mod session_total;
 pub mod sha256;
 /// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
 pub mod share_approval;
