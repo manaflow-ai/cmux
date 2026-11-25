@@ -383,6 +383,22 @@ mark {
   padding-top: var(--ds-space-2);
 }
 
+/* A Remote machine's AutoCloud capabilities (Mac, Xcode, Simulator, GPU), under its policy line. */
+.autocloud-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-1);
+  padding-top: var(--ds-space-1);
+}
+
+.autocloud-cap {
+  padding: 0 var(--ds-space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-radius-sm);
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
 .row-label {
   flex: 1;
   min-width: 0;
@@ -2553,7 +2569,7 @@ button.menu-disclosure {
   inset-inline-end: 0;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 1;
+  z-index: var(--layer-raised);
   display: inline-flex;
   opacity: 0;
   transition: var(--cmux-hover-reveal-out-transition);
