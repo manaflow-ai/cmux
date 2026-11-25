@@ -310,7 +310,15 @@ public nonisolated struct ThemeFileOverlay: Sendable, Equatable {
                 return refuse(descriptor.id, written, "a theme file sets only look settings")
             }
             let pictures = [BackdropSelectionSetting.configPath, BackdropSelectionSetting.lightPath, BackdropSelectionSetting.darkPath]
-            var value = pictures.contains(descriptor.path) ? picture(written) : written
+                + ThemeFlourishSetting.picturePaths
+            var value: JSONValue
+            if pictures.contains(descriptor.path) {
+                value = picture(written)
+            } else if ThemeFlourishSetting.pictureListPaths.contains(descriptor.path), case .array(let items) = written {
+                value = .array(items.map(picture))
+            } else {
+                value = written
+            }
             // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
             if descriptor.path == AgentPaneDisplaySettingsSchema.facesPath, case .object(let faces) = written {
                 value = .object(faces.mapValues(picture))

@@ -115,6 +115,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `machines.hosts` | string | `[]` |  | Hosts. Computers you reach over ssh, each a label and the addresses tried in order. cmux hosts check says which ones answer. |
 | `cloud.newWorkspacesInCloud` | boolean | `false` |  | Run New Workspaces in Cloud. Each new workspace gets its own Cloud machine, and its chats run there. |
 | `cloud.newWorkspaceFolder` | string | `"inherit"` | `inherit`, `empty` | New Cloud Workspaces Start In. Current Folder copies your git working copy to the new machine. |
+| `cloud.defaultImage` | string | `"auto"` |  | Default Image. The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine. |
 | `cloud.agentsStartWithoutAsking` | boolean | `true` |  | Let Agents Use Cloud Without Asking. Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this. |
 | `cloud.turnCheckpoints` | boolean | `false` |  | Save a Checkpoint Before Each Cloud Chat Turn. Back to Before This Turn restores the machine in seconds. Keeps the newest few. |
 | `cloud.autoCloud` | boolean | `false` |  | Auto Places Chats in Cloud. Auto runs a new chat on this Mac when it has room, else on a Cloud machine. |
@@ -270,6 +271,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.twoTone` | string | `"off"` | `off`, `auto`, `inkSakura`, `charcoalRose`, `inkMagenta`, `creamForest`, `navySand`, `boneOxblood`, `slateMatcha`, `plumAmber` | Two-Tone. The sidebar and tab bar in one tone, the panes in another. Works with every window style and theme. |
 | `appearance.cornerFlush` | string | `"flush"` | `off`, `flush`, `flush-tight`, `flush-goo` | Selected Tab Shape. How the selected tab meets the content below it: a pill, flush with it, or flowing into it like a drop of water. |
 | `appearance.tabShape` | string | `"block"` | `block`, `rounded` | Tab Shape. The tabs and the sidebar's rows: blocks with the tab's corner, or rounded capsules. |
+| `appearance.gooeyTabs` | string | `"off"` | `off`, `subtle`, `full` | Gooey Tabs. Lets the selected tab flow into the content like a liquid, with springy motion when tabs are selected, opened, closed or dragged. Subtle keeps it gentle; Full stretches and wobbles more. |
 | `ui.paneAnimations` | boolean | `true` |  | Animate Panes. Splits, closes, moves, zooms and column scrolls slide into place. |
 | `ui.animations.newTab` | boolean | `true` |  | Animate New Tabs. A new tab grows into its place in the tab bar. Off shows it there at once. |
 | `ui.animations.newWorkspace` | boolean | `true` |  | Animate New Workspaces. A new workspace row opens in the sidebar. Off shows it there at once. |
@@ -303,6 +305,18 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.accentGlow.dark` | string |  |  | Accent Glow (Dark). A soft glow in this color around the focused pane in the dark appearance. Unset, no glow. |
+| `appearance.accentGlow.light` | string |  |  | Accent Glow (Light). The glow's color in the light appearance. Unset, the dark color. |
+| `appearance.accentGlow.radius` | real |  | 0 to 200 | Accent Glow Radius. How far the accent glow spreads from the focused pane. |
+| `appearance.accentGlow.opacity` | real |  | 0 to 1 | Accent Glow Opacity. How strong the accent glow is. |
+| `appearance.tabClose.from` | string |  |  | Tab Close Color. The color of a tab's close button. Unset, the text color. |
+| `appearance.tabClose.toDark` | string |  |  | Tab Close Hover Color (Dark). The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover. |
+| `appearance.tabClose.toLight` | string |  |  | Tab Close Hover Color (Light). The close button's hover color in the light appearance. Unset, the dark color. |
+| `appearance.tabClose.interpolation` | string |  | `oklab`, `srgb` | Tab Close Blend. How the close button's color blends to its hover color. |
+| `appearance.sidebarHeader.dark` | string |  |  | Sidebar Header Image (Dark). A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none. |
+| `appearance.sidebarHeader.light` | string |  |  | Sidebar Header Image (Light). The sidebar header picture in the light appearance. Unset, the dark picture. |
+| `appearance.paneArt.dark` | array | `[]` |  | Pane Art (Dark). Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above. |
+| `appearance.paneArt.light` | array | `[]` |  | Pane Art (Light). Pictures behind panes in the light appearance. Empty, the dark list. |
 | `ui.calm` | string | `"off"` | `off`, `calm`, `still` | Calm Mode. Calm stops sliding, spinning and hover highlights; Still also makes animations instant. |
 | `ui.animations.enabled` | boolean | `true` |  | Play Animations. Off turns every animation off. On, the switches below pick by area. |
 | `ui.animations.sidebar` | boolean | `true` |  | Animate the Sidebar. Rows, groups and the sidebar itself slide as they change. |
@@ -382,6 +396,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.vscodeMinimap` | boolean | `false` |  | VS Code Minimap. A small picture of the whole chat at its right edge. Click or drag it to scroll. |
 | `agentPane.display.headerBreadcrumb` | boolean | `false` |  | Header Path. Show the chat's repository and branch before its title in the header, as a path. |
 | `agentPane.display.chatListStatusPills` | boolean | `false` |  | Status Pills in All Chats. Shows Running, Needs you, Done or Failed as a small pill on each live chat in All Chats. |
+| `agentPane.display.subagentOf` | boolean | `false` |  | Subagent Of in Header. In a subagent's own pane, show which chat it belongs to beside its name in the header. |
 | `agentPane.display.pinnedPlan` | boolean | `false` |  | Pin Task List in Chat. Keeps the agent's task list under the latest message, not over the composer. |
 | `agentPane.display.environmentCard` | boolean | `false` |  | Environment Card. A card at the chat's top right with its changes, branch, commit and pull request. |
 | `agentPane.display.changesPill` | boolean | `false` |  | Changes Pill. A pill over the composer with how many files the chat changed. |
@@ -430,6 +445,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.layout.header` | string | `"full"` | `full`, `quiet` | Chat Header. Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `terminal.cursorStyle` | string |  | `block`, `bar`, `underline`, `block_hollow` | Cursor Style. The terminal cursor's shape. Unset, the Ghostty config's cursor-style. |
+| `terminal.cursorBlink` | string |  | `on`, `off` | Cursor Blink. Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink. |
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where terminal programs open URLs: cmux, system, chrome, safari, app:<name> or command:<cmd>. |
 | `terminal.linkOpener.rules` | array | `[]` |  | Program Link Rules. <match> -> <target>, first match wins. Example: caller:gh github.com -> safari |
 | `terminal.term` | string | `"xterm-256color"` | `xterm-256color`, `xterm-ghostty` | Terminal Type (TERM). xterm-ghostty needs Ghostty's terminfo on every host you ssh to. |
@@ -513,6 +530,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.detailedStatusIcons` | boolean | `false` |  | Detailed Status Icons. Icons for working, waiting, error and done. Off: a spinner and a dot. |
 | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Rows show when they last changed, such as 3d. |
 | `sidebar.settleFinished` | boolean | `false` |  | Settle Finished Chats. A chat whose answer you have read folds into Settled at the end of its list until its next turn. |
+| `sidebar.showAgentSessions` | boolean | `false` |  | Show Sessions Started by Agents. Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows. |
 | `sidebar.showAutomaticSessions` | boolean | `false` |  | Show Automatic Sessions. Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list. |
 | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors |
 | `workspaceColors.indicatorStyle` | string | `"leftRail"` | `dot`, `leftRail`, `fill` | Workspace Color Style. How a workspace's color shows in the sidebar. |
@@ -813,8 +831,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.toastsV2` | boolean | `false` |  | Toasts v2. Spinner toasts that turn into their result in place, and an Undo after closing a tab or workspace or archiving a chat. |
 | `experiments.themedPrompts` | boolean | `false` |  | Themed Floating Prompts. Prompts over other apps, such as a teammate asking to control this Mac, use your theme's glass and colors. |
 | `experiments.toastGlass` | boolean | `false` |  | Toast Glass. Toasts in chats sit on the same glass as the app's own toasts. |
-| `experiments.terminalHistoryFind` | boolean | `false` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
+| `experiments.terminalHistoryFind` | boolean | `true` |  | Terminal History Find. Cmd-F in a terminal searches its whole history, with case, whole-word and regex options. |
 | `experiments.chatWidgets` | boolean | `false` |  | Extension Chat Widgets. Installed extensions can show a card under a finished tool call in agent chat. |
+| `experiments.introWalk` | boolean | `false` |  | Intro Walk. Make cmux Yours becomes four short screens: a whole look, how you work, trust and notifications, then density and background. |
 | `experiments.threadMinimapRestReveal` | boolean | `false` |  | Prompt Rail Waits for a Resting Pointer. In narrow chats the prompt rail opens only when the pointer rests on the edge, never while you select text. |
 | `experiments.terminalHistory` | boolean | `false` |  | Terminal Agent History. Claude Code and Codex terminals get a button that opens their earlier history as a read-only chat. |
 | `experiments.attachmentTypeIcons` | boolean | `false` |  | Attachment Type Icons. While an attachment loads, its chip shows a file or image icon instead of the loading mark. |

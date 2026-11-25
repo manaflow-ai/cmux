@@ -543,6 +543,10 @@ impl<'a> Reader<'a> {
             Validation::Domain(DomainKind::BackdropSelection | DomainKind::BackdropPicture)
         ) {
             self.picture(written)
+        } else if let (Validation::Domain(DomainKind::BackdropPictures), Value::Array(items)) =
+            (&row.validation, written)
+        {
+            Value::Array(items.iter().map(|item| self.picture(item)).collect())
         } else if row.key == crate::font_faces::SETTING_KEY {
             // A font pack's face files resolve as pictures do: `file:../fonts/x.woff2`.
             match written {
