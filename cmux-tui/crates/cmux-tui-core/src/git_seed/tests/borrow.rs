@@ -187,3 +187,58 @@ fn the_configured_mirror_folder_is_laid_out_as_wt_keeps_it() {
     assert_eq!(super::super::run::borrow::mirror_under(root, "https://github.com/o/m.git"), None);
     assert_eq!(super::super::run::borrow::mirror_under("relative", URL), None);
 }
+
+/// A Cloud chat opened with a folder (clone only): the folder borrows a mirror baked before the
+/// newest commit and fetches only that commit from `origin`, then checks out the default branch
+/// or a tag as a clone would.
+#[test]
+fn a_clone_only_seed_borrows_a_stale_mirror_and_fetches_the_rest() {
+    let world = World::new("borrow-clone");
+    git(&world.mac, &["tag", "v1"]);
+    git(&world.mac, &["push", "-q", "origin", "v1"]);
+    let mirror = mirror(&world, "mirror.git", URL);
+    write(&world.mac.join("a"), "a\nafter the mirror\n");
+    git(&world.mac, &["commit", "-q", "-a", "-m", "after"]);
+    git(&world.mac, &["push", "-q", "origin", "HEAD:main"]);
+    let tip = git(&world.mac, &["rev-parse", "HEAD"]);
+    let folder = world.home.join("default");
+    let mut params = clone_params(&folder, None);
+    params["mirror"] = json!(mirror);
+    let status = seed(&world, &params);
+    assert_eq!(status["state"], "done", "{status}");
+    assert!(notes(&status).contains(&"borrowed".to_owned()), "{status}");
+    assert_eq!(status["head"], tip.as_str());
+    assert_eq!(status["head_ref"], "refs/heads/main");
+    assert_eq!(std::fs::read_to_string(folder.join("a")).unwrap(), "a\nafter the mirror\n");
+    assert_eq!(git(&folder, &["status", "--porcelain"]), "");
+    assert_eq!(git(&folder, &["rev-parse", "--abbrev-ref", "main@{upstream}"]), "origin/main");
+    let alternates = std::fs::read_to_string(folder.join(".git/objects/info/alternates")).unwrap();
+    assert_eq!(alternates.trim(), mirror.join("objects").canonicalize().unwrap().to_str().unwrap());
+    assert_eq!(config(&folder, "remote.origin.promisor"), "true");
+    git(&folder, &["fsck", "--connectivity-only", "--no-dangling"]);
+    let tagged = world.home.join("tagged");
+    let mut params = clone_params(&tagged, Some("v1"));
+    params["mirror"] = json!(mirror);
+    let status = seed(&world, &params);
+    assert_eq!(status["state"], "done", "{status}");
+    assert!(notes(&status).contains(&"borrowed".to_owned()), "{status}");
+    assert_eq!(status["head"], world.base.as_str());
+    assert_eq!(status["head_ref"], Value::Null, "a tag is detached");
+}
+
+/// A clone-only seed whose mirror is another repository's, or absent, clones as before.
+#[test]
+fn a_clone_only_seed_without_a_usable_mirror_clones() {
+    let world = World::new("borrow-clone-other");
+    let other = mirror(&world, "other.git", "https://github.com/o/other.git");
+    for (name, mirror) in [("other", other), ("absent", world.home.join("absent.git"))] {
+        let folder = world.home.join(name);
+        let mut params = clone_params(&folder, None);
+        params["mirror"] = json!(mirror);
+        let status = seed(&world, &params);
+        assert_eq!(status["state"], "done", "{name} {status}");
+        assert!(notes(&status).contains(&"borrow_failed".to_owned()), "{name} {status}");
+        assert_eq!(status["head"], world.base.as_str(), "{name}");
+        assert!(!folder.join(".git/objects/info/alternates").exists(), "{name}");
+    }
+}

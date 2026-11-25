@@ -157,12 +157,14 @@ import {
   hostPlannedRestart,
 } from "../hostRetry";
 import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
 import type { HandoffReviewInput } from "../handoff/review";
 import { CmuxCommandRefused } from "../cmuxCommands";
 import { handoffStore, receiveHandedCloudStart } from "../commandPlace";
+import { holdCloudAgentPick } from "../cloudAgentPick";
 import { askPermissionFocus } from "../permissions/focusRequest";
 import type { PermissionDecision } from "../permissions/protocol";
 import { planBuildTarget } from "../permissions/planBuild";
@@ -1004,11 +1006,21 @@ export function paneSnapshotEffect({
       const received = receiveHandedCloudStart(answered, reconnect, handoffStore(), Date.now());
       const host = received.host;
       if (received.folder) setHandedFolder(received.folder);
+      // A started Cloud chat's pick of another agent: this new Cloud chat's Cloud send starts on it
+      // (cloudAgentPick.ts), and this Mac's own remembered pick stays as it was (cmux#51731).
+      if (received.agent) holdCloudAgentPick(received.agent);
       // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
       if (typeof host.tab === "string" && host.tab) {
         setSessionInfoTab(host.tab);
         setStashTab(host.tab);
       }
+      // A pane opened on a subagent is the subagent's before anything draws: its header and composer
+      // are the subagent's from the first frame, not the chat's until the client connects (the 41 px
+      // composer drop and 40 to 28 px header of a subagent opening into a split, Leo 2026-11-22:
+      // "they need to be able to load faster and without layout shifts"). The reveal after connect
+      // runs again and changes nothing.
+      if (typeof host.revealTurn === "string" && revealedSubagent(host.revealTurn) !== undefined)
+        revealRef.current(host.revealTurn);
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
       if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
@@ -2513,7 +2525,7 @@ export function paneSnapshotEffect({
         // An inbox notice's thread the person opened: its messages, read without marking them
         // read (conversation/InboxNoticeCard.tsx).
         "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
-        // The held surge's threads (SurgeHoldRow.tsx): the chat's inbox listing, read as its panel opens.
+        // The held surge's threads (session-info/agentSide.ts): the chat's inbox listing, on request.
         "chat.inbox.threads": () => client.inboxThreads(),
         // An agent link or `HOST/NAME` in a reply (conversation/sessionRefs.ts): the session it names.
         "chat.session.resolve": ({ query }) => client.resolveSession(String(query ?? "")),
