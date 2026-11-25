@@ -195,6 +195,7 @@ public struct AgentChatDestinationView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text("Loading chat…"))
             .accessibilityIdentifier("agentChat.destination.loading")
+            .placeholderBound("chat.destination.loading", .milliseconds(2000))
             .onAppear { loadingWords.update(down: true) }
             .onDisappear { loadingWords.update(down: false) }
         } else {
