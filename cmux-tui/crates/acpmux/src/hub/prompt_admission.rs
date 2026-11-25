@@ -40,6 +40,7 @@ pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
 /// How long a prompt someone waits on waits in `queue_slot` for a turn lock held with no turn
 /// shown (or a restore) before it joins the queue, which answers it (#55502's bound).
 pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
+const DEFERRED_INBOX: &str = "_acpmuxDeferredInbox";
 
 /// One prompt's admission: the lock while it holds it, the step it is in, and whether it reached
 /// a step it must finish (then it is never deferred).
@@ -216,6 +217,17 @@ impl Unanswered {
             .then_some(crate::prompt_class::PromptClass::Fyi);
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         let class = crate::prompt_class::of_message(opts.class.or(notice), agent.is_some());
+        let mut provenance = opts.provenance.clone();
+        if opts.inbox {
+            let marker = json!({
+                "thread": opts.thread,
+                "wakeOrFail": opts.wake_or_fail,
+            });
+            provenance
+                .get_or_insert_with(|| json!({}))
+                .as_object_mut()
+                .map(|object| object.insert(DEFERRED_INBOX.to_owned(), marker));
+        }
         Some(Self::Defer(Deferral {
             blocks: blocks.to_vec(),
             client: client.to_owned(),
@@ -224,7 +236,7 @@ impl Unanswered {
             cloud_mobile: opts.cloud_mobile,
             trust_gate: opts.trust_gate,
             display_parts: opts.display_parts.clone(),
-            provenance: opts.provenance.clone(),
+            provenance,
             agent,
             class,
             supersede: opts.supersede.clone(),
@@ -233,6 +245,21 @@ impl Unanswered {
             on_accepted,
         }))
     }
+}
+
+/// Restores the inbox-only routing flags carried by a prompt that had to be deferred before its
+/// inbox acceptance. The marker is removed before the prompt's provenance reaches the agent or
+/// journal again.
+pub(super) fn take_deferred_inbox(provenance: &mut Option<Value>) -> (bool, Option<String>, bool) {
+    let Some(object) = provenance.as_mut().and_then(Value::as_object_mut) else {
+        return (false, None, false);
+    };
+    let Some(marker) = object.remove(DEFERRED_INBOX) else {
+        return (false, None, false);
+    };
+    let thread = marker.get("thread").and_then(Value::as_str).map(str::to_owned);
+    let wake_or_fail = marker.get("wakeOrFail").and_then(Value::as_bool).unwrap_or(false);
+    (true, thread, wake_or_fail)
 }
 
 pub(super) fn restore_deadline() -> RpcError {
@@ -313,6 +340,10 @@ impl Hub {
         // The queue's own from now on, as `restore_queues` makes a prompt it read back: the
         // queue runs it, and a resend of its id waits on its ledger entry.
         let outcome = {
+            // Keep the critical-section order queue -> ledger -> restored, matching restore and
+            // withdrawal. Holding them in the reverse order here can deadlock a restore against a
+            // deferred delivery.
+            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
             let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             let outcome = match ledger.iter().find(|(id, _)| *id == d.prompt_id) {
                 Some((_, outcome)) => outcome.clone(),
@@ -324,8 +355,6 @@ impl Hub {
             };
             let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
             restored.push((d.prompt_id.clone(), turn_id.clone()));
-            drop(restored);
-            let mut queue = session.queue.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(q) = queue.iter_mut().find(|q| q.turn_id == turn_id) {
                 q.restored = true;
                 q.resume = true;
