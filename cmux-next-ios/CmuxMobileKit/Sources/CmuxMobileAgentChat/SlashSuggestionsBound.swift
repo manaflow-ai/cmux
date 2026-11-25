@@ -15,8 +15,20 @@ struct SlashSuggestionsBound: Equatable {
 
     /// Window y the list may not rise above; nil when the host does not say.
     var ceiling: CGFloat?
-    /// Window y of the list's bottom edge; nil before it is laid out.
+    /// Window y of the list's bottom edge; nil before the composer card is laid out.
     var bottom: CGFloat?
+
+    init(ceiling: CGFloat?, bottom: CGFloat?) {
+        self.ceiling = ceiling
+        self.bottom = bottom
+    }
+
+    /// From the composer card's top, which is laid out before the list appears: the list's
+    /// bottom is the card's top less the stack's spacing, so the bound is known on the
+    /// list's first frame and the list opens at its one final height (no second resize).
+    init(ceiling: CGFloat?, cardTop: CGFloat?, gap: CGFloat) {
+        self.init(ceiling: ceiling, bottom: cardTop.map { $0 - gap })
+    }
 
     /// Never less than one row, so the list still shows a command (and scrolls) when the
     /// room above the keyboard is smaller than that.

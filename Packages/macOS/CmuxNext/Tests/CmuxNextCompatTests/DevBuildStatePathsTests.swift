@@ -50,8 +50,9 @@ import Testing
         #expect(Set(forms.map(\.settingsFile)).count == forms.count, "two DEV builds share a settings file")
     }
 
-    /// NIGHTLY, cmux NEXT, RC, release, untagged staging and a process outside any bundle keep the shared paths,
-    /// byte for byte, and set nothing in their children's environment.
+    /// NIGHTLY, cmux NEXT, RC, release, untagged staging and a process outside any bundle share NEXT's own roots
+    /// (never classic cmux's `~/.config/cmux`, Application Support or Caches `cmux`), byte for byte, and set
+    /// nothing in their children's environment (Rust's defaults name the same paths).
     @Test func sharedBuildsKeepTheirPaths() {
         for build in [Self.nightly, Self.paths("com.cmuxterm.app.nightly.cmux-next"), Self.paths("com.cmuxterm.app.rc"),
                       Self.paths("com.cmuxterm.app"), Self.paths("com.cmuxterm.app.staging"), Self.paths(nil)] {
@@ -62,22 +63,28 @@ import Testing
             #expect(build.cloudSecretsService == "cmux-cloud-secret")
             let paths = Dictionary(uniqueKeysWithValues: build.all.map { ($0.name, $0.url.path) })
             #expect(paths == [
-                "configDirectory": "/Users/me/.config/cmux",
-                "settingsFile": "/Users/me/.config/cmux/cmux-next.json",
-                "cloudSecretsIndex": "/Users/me/.config/cmux/cloud-secrets.json",
-                "hostBudgetFile": "/Users/me/.config/cmux/host-budget.json",
-                "keysAuditFile": "/Users/me/.config/cmux/keys.json",
-                "automationsDirectory": "/Users/me/.config/cmux/automations",
-                "customizeDirectory": "/Users/me/.config/cmux/customize",
-                "agentSkillsDirectory": "/Users/me/.config/cmux/skills",
-                "githubWorktrees": "/Users/me/.config/cmux/github-worktrees",
+                "configDirectory": "/Users/me/.config/cmux-next",
+                "settingsFile": "/Users/me/.config/cmux-next/cmux-next.json",
+                "cloudSecretsIndex": "/Users/me/.config/cmux-next/cloud-secrets.json",
+                "hostBudgetFile": "/Users/me/.config/cmux-next/host-budget.json",
+                "keysAuditFile": "/Users/me/.config/cmux-next/keys.json",
+                "automationsDirectory": "/Users/me/.config/cmux-next/automations",
+                "customizeDirectory": "/Users/me/.config/cmux-next/customize",
+                "agentSkillsDirectory": "/Users/me/.config/cmux-next/skills",
+                "agentCommandsDirectory": "/Users/me/.config/cmux-next/commands",
+                "githubWorktrees": "/Users/me/.config/cmux-next/github-worktrees",
                 "recoveryDrafts": "/Users/me/Library/Application Support/cmux-next/recovery",
-                "agentHome": "/Users/me/Library/Application Support/cmux/agent-home",
-                "chatUploads": "/Users/me/Library/Application Support/cmux/Chat Uploads",
-                "projectAvatarsCache": "/Users/me/Library/Caches/cmux/project-avatars",
+                "agentHome": "/Users/me/Library/Application Support/cmux-next/agent-home",
+                "chatUploads": "/Users/me/Library/Application Support/cmux-next/Chat Uploads",
+                "projectAvatarsCache": "/Users/me/Library/Caches/cmux-next/project-avatars",
                 "shellCompletionCache": "/Users/me/Library/Caches/cmux-next",
                 "homeCachesRoot": "/Users/me/Library/Caches",
             ], "\(build.build.key)")
+            for (name, url) in build.all {
+                for classic in ["/Users/me/.config/cmux/", "/Users/me/Library/Application Support/cmux/", "/Users/me/Library/Caches/cmux/"] {
+                    #expect(!(url.path + "/").hasPrefix(classic), "\(name) is under classic's \(classic)")
+                }
+            }
         }
     }
 
@@ -93,6 +100,7 @@ import Testing
         #expect(environment["CMUX_AUTOMATIONS_DIR"] == Self.dev.automationsDirectory.path)
         #expect(environment["CMUX_CUSTOMIZE_DIR"] == Self.dev.customizeDirectory.path)
         #expect(environment["CMUX_AGENT_SKILLS_DIR"] == Self.dev.agentSkillsDirectory.path)
+        #expect(environment["CMUX_COMMANDS_DIR"] == Self.dev.agentCommandsDirectory.path)
         #expect(environment["CMUX_NEXT_CLOUD_SECRETS_SERVICE"] == "cmux-cloud-secret.com.cmuxterm.app.debug.my-tag")
         #expect(Self.otherTag.cloudSecretsService != Self.dev.cloudSecretsService)
         #expect(environment.values.allSatisfy { !$0.contains("/.config/cmux") })

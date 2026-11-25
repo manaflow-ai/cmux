@@ -285,6 +285,9 @@ struct CmxIrohRegistryContextProviderStalenessTests {
         _ = try await provider.context(for: fixture.request(hints: []))
         #expect(await waitForDiscoveryCount(broker, atLeast: 1))
         #expect(await broker.pairGrantRequestCount() == 1)
+        // Each cached-grant dial reads the broker in the background; let those reads settle so
+        // the hub read below cannot join one that started before the refusal.
+        await waitForDiscoveryCountToSettle(broker)
 
         await provider.noteDialFailure(
             for: try fixture.request(hints: []),
@@ -581,6 +584,22 @@ struct CmxIrohRegistryContextProviderStalenessTests {
             try? await Task.sleep(for: .milliseconds(5))
         }
         return await broker.discoveryRequestCount() >= count
+    }
+
+    private func waitForDiscoveryCountToSettle(_ broker: ConfigurableRegistryBroker) async {
+        let deadline = ContinuousClock.now + .seconds(5)
+        var last = await broker.discoveryRequestCount()
+        var stableSince = ContinuousClock.now
+        while ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(5))
+            let current = await broker.discoveryRequestCount()
+            if current != last {
+                last = current
+                stableSince = ContinuousClock.now
+            } else if ContinuousClock.now - stableSince >= .milliseconds(100) {
+                return
+            }
+        }
     }
 
     private func waitForHeldDiscoverCalls(

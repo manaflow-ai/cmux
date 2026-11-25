@@ -47,7 +47,7 @@ const OVER_PICTURE = { dark: "busy", light: "light" } as const;
 const scrolled =
   (scrolledUp: number): Play =>
   async (ctx) => {
-    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pending-ask__head"));
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pending-ask .acpmux-next-step__bar"));
     const scroller = ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
     if (scroller && scrolledUp > 0)
       await ctx.scroll(
@@ -55,6 +55,14 @@ const scrolled =
         Math.max(0, scroller.scrollHeight - scroller.clientHeight - scrolledUp),
       );
   };
+
+/// The same pane after a click on Dismiss: the line and its card go, and the turns that were under
+/// them stay in sight, none blanked where the line sat.
+const dismissed: Play = async (ctx) => {
+  await scrolled(120)(ctx);
+  await ctx.click({ selector: ".acpmux-pending-ask .acpmux-next-step__bar .ui-dismiss" });
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-pending-ask .acpmux-next-step__bar"));
+};
 
 export default agentPaneEntry({
   id: "agent-pane.pending-ask-wallpaper",
@@ -75,6 +83,12 @@ export default agentPaneEntry({
       snapshot,
       background: OVER_PICTURE,
       play: scrolled(120),
+    },
+    dismissed: {
+      note: "After Dismiss: the line and its card are gone, and the turns behind where they sat stay in sight.",
+      snapshot,
+      background: OVER_PICTURE,
+      play: dismissed,
     },
   },
 });
