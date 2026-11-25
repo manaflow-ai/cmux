@@ -1,8 +1,5 @@
-#if canImport(Darwin)
+#if canImport(Darwin) // URLProtocol redirect probing needs Darwin's URL loading
 import Foundation
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 /// End-to-end URL loading probe for mutating redirect behavior.
 final class PushRedirectURLProtocol: URLProtocol, @unchecked Sendable {
@@ -42,8 +39,7 @@ final class PushRedirectURLProtocol: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        Task {
             guard let url = request.url else {
                 client?.urlProtocolDidFinishLoading(self)
                 return

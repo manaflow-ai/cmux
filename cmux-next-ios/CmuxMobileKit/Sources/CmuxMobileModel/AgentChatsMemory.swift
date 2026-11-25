@@ -99,8 +99,6 @@ private struct StoredPage: Codable {
         var updatedAt: Double?
         var archived: Bool
         var lastPrompt: String?
-        var summary: String?
-        var nextAction: String?
     }
 
     var chats: [Chat]
