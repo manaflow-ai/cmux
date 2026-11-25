@@ -175,8 +175,12 @@ unsafe fn entry(dict: CFDictionaryRef) -> SystemEntry {
         // SAFETY: the caller's dictionary.
         if let Some(user) = unsafe { string_at(dict, user_key) }.filter(|user| !user.is_empty()) {
             // SAFETY: the caller's dictionary.
-            let password = unsafe { string_at(dict, password_key) }.unwrap_or_default();
-            server = server.with_credentials(&user, &password);
+            // A user name without its password (kept in the Keychain, out of
+            // reach here) is no sign-in: sending an empty password would read
+            // as "refused the user name and password" to the person.
+            if let Some(password) = unsafe { string_at(dict, password_key) }.filter(|p| !p.is_empty()) {
+                server = server.with_credentials(&user, &password);
+            }
         }
         Some(server)
     };
