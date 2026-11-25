@@ -2600,11 +2600,11 @@ impl Hub {
         granted: bool,
     ) -> Result<Value, RpcError> {
         // The mode the chat already records (a start's, a wake's or a policy's set of the same
-        // mode), read before the harness's answer writes it: the harness is still told, but the log gets no `mode` record (idle-gpu-disk).
-        // Only a declared mode: a harness's undeclared one is kept in memory alone, its record
-        // the one trace of it. The save stays: it journals nothing when the image is unchanged
-        // (`store/journal_store/meta.rs`), and it keeps a harness's move that lands between this
-        // read and the writes below.
+        // mode), read before the harness's answer writes it: the harness is still told, but the
+        // log gets no `mode` record (idle-gpu-disk). Only a declared mode: a harness's undeclared
+        // one is kept in memory alone, its record the one trace of it. The save stays: it
+        // journals nothing when the image is unchanged (`store/journal_store/meta.rs`), and it
+        // keeps a harness's move that lands between this read and the writes below.
         let unchanged = session.read_meta(|m| {
             m.modes.as_ref().and_then(|modes| modes.get("currentModeId")).and_then(Value::as_str)
                 == Some(mode_id)
