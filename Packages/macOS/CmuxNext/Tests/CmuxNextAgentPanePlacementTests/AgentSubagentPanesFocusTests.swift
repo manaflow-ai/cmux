@@ -1,5 +1,5 @@
 import Testing
-@testable import CmuxNextAgentPane
+@testable import CmuxNextAgentPanePlacement
 
 /// A click on a subagent whose pane is still opening without focus (each new subagent opens a pane
 /// on its own, `useOpenNewSubagents`) used to do nothing: ``AgentSubagentPanes/begin(_:focus:chat:)``

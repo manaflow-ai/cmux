@@ -61,19 +61,19 @@ public struct AppChannelSwitcher: Sendable {
     private let architecture: UpdateHostArchitecture
     private let temporaryDirectory: URL
 
-    /// Creates a switcher. The defaults are the live macOS services.
-    public init(
-        locator: any InstalledAppLocating = WorkspaceInstalledAppLocator(),
-        downloader: any AppChannelDownloading = URLSessionAppChannelDownloader(),
-        mounter: any DiskImageMounting = HdiutilDiskImageMounter(),
-        zipOpener: any DiskImageMounting = DittoZipArchiveOpener(),
-        inspector: any AppSignatureInspecting = SecurityAppSignatureInspector(),
-        launcher: any AppLaunching = WorkspaceAppLauncher(),
-        fileSystem: any AppInstallFileSystem = FileManagerAppInstallFileSystem(),
-        locations: AppChannelInstallLocations = AppChannelInstallLocations(),
-        verifier: AppSignatureVerifier = AppSignatureVerifier(),
-        architecture: UpdateHostArchitecture = .current,
-        temporaryDirectory: URL = FileManager.default.temporaryDirectory
+    /// Creates a switcher with explicit services for each install step.
+    package init(
+        installedAppLocator locator: any InstalledAppLocating,
+        downloader: any AppChannelDownloading,
+        mounter: any DiskImageMounting,
+        zipOpener: any DiskImageMounting,
+        inspector: any AppSignatureInspecting,
+        launcher: any AppLaunching,
+        fileSystem: any AppInstallFileSystem,
+        locations: AppChannelInstallLocations,
+        verifier: AppSignatureVerifier,
+        architecture: UpdateHostArchitecture,
+        temporaryDirectory: URL
     ) {
         self.locator = locator
         self.downloader = downloader

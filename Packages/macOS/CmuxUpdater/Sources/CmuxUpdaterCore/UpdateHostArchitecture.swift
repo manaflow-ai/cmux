@@ -1,5 +1,6 @@
+#if canImport(Darwin)
 import Darwin
-import Foundation
+#endif
 
 /// The CPU architecture an update should target on this Mac.
 ///
@@ -15,11 +16,14 @@ public enum UpdateHostArchitecture: String, Sendable, CaseIterable {
     public static var current: UpdateHostArchitecture {
         #if arch(arm64)
         return .arm64
-        #else
+        #elseif canImport(Darwin)
         return isRosettaTranslated() ? .arm64 : .x86_64
+        #else
+        return .x86_64
         #endif
     }
 
+    #if canImport(Darwin)
     /// Whether the current process is an x86_64 binary being translated by Rosetta.
     static func isRosettaTranslated() -> Bool {
         var translated: Int32 = 0
@@ -27,4 +31,5 @@ public enum UpdateHostArchitecture: String, Sendable, CaseIterable {
         let status = sysctlbyname("sysctl.proc_translated", &translated, &size, nil, 0)
         return status == 0 && translated == 1
     }
+    #endif
 }

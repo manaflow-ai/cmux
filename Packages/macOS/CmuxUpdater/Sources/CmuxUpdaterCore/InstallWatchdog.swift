@@ -1,9 +1,9 @@
-import Foundation
+package import Foundation
 
 /// Guards against the update flow silently stalling after the user asks to install.
 ///
 /// When the user clicks Install, ``UpdateController`` arms this watchdog with a bounded,
-/// cancellable deadline (``installWatchdogTimeout``). If the flow reaches a state
+/// cancellable deadline (``defaultTimeout``). If the flow reaches a state
 /// that either progresses the install or communicates a clear outcome, the controller disarms it.
 /// If the deadline elapses before Sparkle reports download progress or another visible terminal,
 /// the controller surfaces a visible "Update Didn't Start" error rather than leaving the user
@@ -15,15 +15,18 @@ import Foundation
 /// a small, single-purpose collaborator kept out of the controller so its policy is testable in
 /// isolation and the controller file stays focused.
 @MainActor
-final class InstallWatchdog {
+package final class InstallWatchdog {
+    /// Deadline for an accepted install to begin making progress.
+    package static let defaultTimeout: TimeInterval = 25
+
     private let clock: any UpdateClock
     private let timeout: TimeInterval
     private var task: Task<Void, Never>?
 
     /// The configured deadline, exposed for diagnostics/logging.
-    var timeoutSeconds: TimeInterval { timeout }
+    package var timeoutSeconds: TimeInterval { timeout }
 
-    init(clock: any UpdateClock, timeout: TimeInterval) {
+    package init(clock: any UpdateClock, timeout: TimeInterval = InstallWatchdog.defaultTimeout) {
         self.clock = clock
         self.timeout = timeout
     }
@@ -33,12 +36,12 @@ final class InstallWatchdog {
     }
 
     /// Whether a deadline is currently pending.
-    var isArmed: Bool { task != nil }
+    package var isArmed: Bool { task != nil }
 
     /// (Re)arms the deadline. Cancels any prior timer so repeated Install clicks reset the
     /// countdown rather than stacking. `onTimeout` runs on the main actor if the deadline elapses
     /// before ``disarm()`` is called.
-    func arm(onTimeout: @escaping @MainActor () -> Void) {
+    package func arm(onTimeout: @escaping @MainActor () -> Void) {
         task?.cancel()
         let timeout = self.timeout
         task = Task { @MainActor [weak self] in
@@ -50,7 +53,7 @@ final class InstallWatchdog {
     }
 
     /// Cancels any pending deadline.
-    func disarm() {
+    package func disarm() {
         task?.cancel()
         task = nil
     }
@@ -63,7 +66,7 @@ final class InstallWatchdog {
     /// deadline firing at idle is an unattributed accepted-install failure.
     /// `.permissionRequest` stays not-stalled (a state cmux never surfaces; erroring over it
     /// would be wrong if Sparkle ever did).
-    func installAttemptStalled(_ state: UpdateState) -> Bool {
+    package func installAttemptStalled(_ state: UpdateLifecyclePhase) -> Bool {
         switch state {
         case .preparingCheck, .checking, .updateAvailable, .startingDownload, .idle:
             return true
@@ -74,7 +77,7 @@ final class InstallWatchdog {
 
     /// Whether `state` resolves the attempt — either it is actively progressing the install or it
     /// is a clearly-communicated terminal outcome — so the watchdog can be disarmed.
-    func installAttemptResolved(_ state: UpdateState) -> Bool {
+    package func installAttemptResolved(_ state: UpdateLifecyclePhase) -> Bool {
         switch state {
         case .downloading, .extracting, .installing, .notFound, .error:
             return true
@@ -89,8 +92,10 @@ final class InstallWatchdog {
     /// the controller disarms on this — a deadline that outlives its attempt would otherwise fire
     /// a spurious "Update Didn't Start" over a later, unrelated check that happens to be sitting
     /// in `.checking`/`.updateAvailable`.
-    func attemptEndedWithoutInstall(action: AttemptUpdateCoordinator.Action,
-                                    isCoordinatorMonitoring: Bool) -> Bool {
+    package func attemptEndedWithoutInstall(
+        action: AttemptUpdateCoordinator.Action,
+        isCoordinatorMonitoring: Bool
+    ) -> Bool {
         !isCoordinatorMonitoring && action != .confirmInstall
     }
 }

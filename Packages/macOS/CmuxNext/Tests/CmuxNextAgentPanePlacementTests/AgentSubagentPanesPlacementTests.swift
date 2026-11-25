@@ -1,6 +1,10 @@
+#if canImport(CoreGraphics)
 import CoreGraphics
+#else
+import Foundation
+#endif
 import Testing
-@testable import CmuxNextAgentPane
+@testable import CmuxNextAgentPanePlacement
 
 /// Every subagent opened from the transcript stacked one more split below the last
 /// (`AgentSubagentPanes`), with no cap and no width floor. Subagents now open where
@@ -26,7 +30,8 @@ struct AgentSubagentPanesPlacementTests {
                 return true
             },
             column: { _ in window.measured },
-            again: { _ in }
+            again: { _ in },
+            watchUser: { _ in {} }
         )
     }
 
