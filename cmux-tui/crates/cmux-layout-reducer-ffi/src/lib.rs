@@ -499,7 +499,11 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 }
                 use cmux_cloud_start_core::spare_shapes;
                 let request: Request = serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "clamped to >= 0; an f64 past u64::MAX saturates, which is fine for a clock in ms"
+                )]
                 let now_ms = request.now_ms.map(|ms| ms.max(0.0) as u64).unwrap_or_else(|| {
                     std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
