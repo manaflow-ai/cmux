@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentIntegrations
 import CmuxNextAgentLanes
 import CmuxNextAgentPane
 import CmuxNextBrowser
@@ -306,6 +307,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ownLinks.openOwnURL = { [weak self] in self?.routeOpenedURL($0) }
         ownLinks.isOwnHandoff = { auth.isAppHandoff($0) }
         ownLinks.closesHandoffTab = SignInPage.startedFlow
+        ownLinks.isFlowReturn = { SettingsConnections.isReturn($0) }  // Connections' return, from the tab its Connect opened
+        auth.openSignInInApp = { [weak services] url in  // a flow page (cmux sign-in, Connections) in a front-window tab its return closes
+            guard let services, let window = services.windows.active else { return false }
+            ownLinks.noteFlowPage(url); guard services.linkOpener.openWeb(url, from: window.focusedPane, background: false) else { return false }
+            services.windows.bringToFront(window); return true }
         services.windows.onContentDidAppear = { [weak services] in services?.externalOpen.flush(); services?.pageHostPool.windowDidAppear($0.window) }
         // A launch whose first window never draws (no window, a daemon that never answers) still
         // starts the work waiting for that frame.
