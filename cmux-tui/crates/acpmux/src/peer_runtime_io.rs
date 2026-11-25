@@ -31,43 +31,6 @@ impl Peer {
             Duration::ZERO
         });
         let deadline = started + budget;
-        // A normal request may arrive while its peer is between links. Keep the request's
-        // deadline running while it waits for the next settled link, so reconnect admission
-        // cannot add an unbounded delay or a second request budget.
-        let epoch = match epoch {
-            Some(epoch) => Some(epoch),
-            None => {
-                if !self.ready() {
-                    let mut stopped = self.stopped();
-                    let mut settled = self.settled();
-                    self.want();
-                    loop {
-                        if self.ready() {
-                            break;
-                        }
-                        if *stopped.borrow() || tokio::time::Instant::now() >= deadline {
-                            return Err(self.unreachable_error());
-                        }
-                        tokio::select! {
-                            changed = settled.changed() => {
-                                if changed.is_err() {
-                                    return Err(self.unreachable_error());
-                                }
-                            }
-                            changed = stopped.changed() => {
-                                if changed.is_err() || *stopped.borrow() {
-                                    return Err(self.unreachable_error());
-                                }
-                            }
-                            _ = tokio::time::sleep_until(deadline) => {
-                                return Err(self.unreachable_error());
-                            }
-                        }
-                    }
-                }
-                Some(self.link_epoch())
-            }
-        };
         // The `initialize` that left with the upgrade request (`early_initialize`) is already on
         // the wire and registered: this takes its answer, and sends nothing.
         let early =

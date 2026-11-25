@@ -575,7 +575,7 @@ mod tests {
             l.ready(now - 20_000);
         });
         outage.link_ending(false);
-        let until = *outage.wanted.until.lock().unwrap();
+        let until = outage.wanted.until.lock().unwrap().unwrap();
         assert!(
             until > Instant::now() + WANTED_FOR,
             "a stable outage keeps fast reconnects longer than one ask"
