@@ -606,6 +606,15 @@ relay was retired: [docs/cmux-next/phone-link-https-relay.md](../docs/cmux-next/
   the hub one grant at a time (at most 256 frames wait for it); a refusal
   holds for the hub's retry-after, and a hub that fails grants nothing for
   1 s (fail closed), so frames past the budget cost no hub call each.
+- **Tail replay** (RFD 0142 R3, opt-in): a join may add `&replay=1`. The
+  relay then keeps the frames it sends (or would send) to that device for
+  1 s, at most 128 KiB per device and 256 KiB per session, in memory only (a
+  wake forgets them), including frames that arrive while the device has no
+  socket. When that device's next join also asks (a roam: the new socket
+  replaces the old), the kept frames follow `joined` on the new socket,
+  charged to the budget like any relayed frame (all or none). A join without
+  `replay=1` forgets the device's tail, and an older relay ignores the
+  parameter. WireGuard's replay window drops the copies that did arrive.
 - **Closes:** the service closes a relay socket with 4000 `replaced` (the
   same device joined again), 4001 `ended` (the session's `bye`, also when the
   peer's signaling socket is closed, or the session passed its 24 h), 4002

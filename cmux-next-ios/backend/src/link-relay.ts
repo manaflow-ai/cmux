@@ -51,6 +51,64 @@ const HUB_ERROR_HOLD_MS = 1000
 /** A notice (`peer` offline, `error`) goes to one socket at most this often per kind. */
 export const RELAY_NOTICE_INTERVAL_MS = 5000
 
+/**
+ * RFD 0142 R3, tail replay: the header the Worker sets when a join asked for it (`?replay=1`). A device whose
+ * latest join asked has the frames sent to it kept for [`REPLAY_AGE_MS`], and its next join (a roam: the new socket
+ * replaces the old) gets them again right after `joined`. That covers what went into the old socket after the
+ * device's network died (the relay cannot tell a dead TCP connection from a quiet one) and what arrived while it had
+ * no socket at all. WireGuard drops the copies that did arrive (its replay window), so a duplicate costs bytes only.
+ */
+export const RELAY_REPLAY_HEADER = "x-cmux-relay-replay"
+/** A kept frame older than this is not sent again (inner TCP's minimum retransmission timeout is 1 s). */
+export const REPLAY_AGE_MS = 1000
+/** Bytes kept per device, and per session (both devices); the oldest go first. Memory only: a wake forgets. */
+export const REPLAY_DEVICE_BYTES = 128 * 1024
+export const REPLAY_SESSION_BYTES = 256 * 1024
+
+/** The frames lately sent (or meant) for one device, oldest first, as they were forwarded (peer id stamped). */
+export class ReplayTail {
+  private frames: { at: number; bytes: Uint8Array }[] = []
+  size = 0
+
+  push(bytes: Uint8Array, now = Date.now()) {
+    if (bytes.length > REPLAY_DEVICE_BYTES) return
+    this.frames.push({ at: now, bytes })
+    this.size += bytes.length
+    this.trim(now, REPLAY_DEVICE_BYTES)
+  }
+
+  /** Drop frames past [`REPLAY_AGE_MS`] and, oldest first, until at most `max` bytes are kept. */
+  trim(now: number, max: number) {
+    let drop = 0
+    while (drop < this.frames.length) {
+      const f = this.frames[drop]!
+      if (now - f.at <= REPLAY_AGE_MS && this.size <= max) break
+      this.size -= f.bytes.length
+      drop += 1
+    }
+    if (drop) this.frames.splice(0, drop)
+  }
+
+  /** The oldest kept frame's time, or `Infinity` when empty. */
+  oldest(): number {
+    return this.frames[0]?.at ?? Number.POSITIVE_INFINITY
+  }
+
+  dropOldest() {
+    const f = this.frames.shift()
+    if (f) this.size -= f.bytes.length
+  }
+
+  /** Every frame still young enough, oldest first, and empty the tail. */
+  take(now = Date.now()): Uint8Array[] {
+    this.trim(now, REPLAY_DEVICE_BYTES)
+    const out = this.frames.map((f) => f.bytes)
+    this.frames = []
+    this.size = 0
+    return out
+  }
+}
+
 /** The tag of a netcheck socket (never a device id: those are UUIDs). */
 const NETCHECK_TAG = "netcheck"
 
@@ -60,6 +118,8 @@ interface RelayAttachment {
   /** Whose budget this socket spends: the owner key and build space of the user's hub. */
   readonly owner: string
   readonly space: string
+  /** This join asked for tail replay (RFD 0142 R3); absent on sockets joined before it. */
+  readonly replay?: boolean
 }
 
 type Bucket = { t: number; at: number }
@@ -79,6 +139,8 @@ export class LinkRelay extends DurableObject<Env> {
   private deniedUntil = 0
   private asking: Promise<void> | undefined
   private waiting = 0
+  /** Tail replay (RFD 0142 R3): per device whose latest join asked, the frames lately sent to it. */
+  private readonly tails = new Map<string, ReplayTail>()
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -102,19 +164,65 @@ export class LinkRelay extends DurableObject<Env> {
       } catch {}
     }
     this.ctx.acceptWebSocket(server, [device])
-    const att: RelayAttachment = { device, peer, owner, space }
+    const replay = req.headers.get(RELAY_REPLAY_HEADER) === "1"
+    const att: RelayAttachment = replay ? { device, peer, owner, space, replay } : { device, peer, owner, space }
     server.serializeAttachment(att)
     this.attachments.set(server, att)
+    // What was sent to this device lately goes again (when it asked), else its tail is forgotten.
+    const tail = this.tails.get(device)
+    const again = replay && tail ? tail.take() : []
+    if (replay) this.tails.set(device, new ReplayTail())
+    else this.tails.delete(device)
     const other = this.socketOf(peer)
     server.send(JSON.stringify({ type: "joined", peer: other !== undefined }))
+    // Not awaited: a grant from the hub (a fresh wake has no credit) never holds the join's answer.
+    if (again.length) void this.replay(server, att, again)
     if (other) other.send(JSON.stringify({ type: "peer", online: true }))
     const headers = new Headers()
     if (req.headers.get("x-cmux-relay-subprotocol")) headers.set("sec-websocket-protocol", RELAY_SUBPROTOCOL)
     return new Response(null, { status: 101, webSocket: client, headers })
   }
 
+  /**
+   * Send `frames` (a device's tail) on its new socket, charged to the owner's budget like any relayed frame: all of
+   * them or, when the budget refuses, none.
+   */
+  private async replay(ws: WebSocket, att: RelayAttachment, frames: Uint8Array[]) {
+    const bytes = frames.reduce((n, f) => n + f.length, 0)
+    if (!(await this.spend(att, bytes))) return
+    try {
+      for (const f of frames) ws.send(f)
+    } catch {}
+  }
+
+  /** The tail of `device` if its latest join asked for replay (a wake forgot the tail, never the ask). */
+  private tailOf(device: string, socket: WebSocket | undefined): ReplayTail | undefined {
+    const hit = this.tails.get(device)
+    if (hit || !socket || !this.attachment(socket)?.replay) return hit
+    const tail = new ReplayTail()
+    this.tails.set(device, tail)
+    return tail
+  }
+
+  /** Keep `bytes`, just sent (or meant) for `device`, within the device's and the session's bounds. */
+  private record(tail: ReplayTail, bytes: Uint8Array) {
+    const now = Date.now()
+    tail.push(bytes, now)
+    let total = 0
+    for (const t of this.tails.values()) total += t.size
+    while (total > REPLAY_SESSION_BYTES) {
+      let oldest: ReplayTail | undefined
+      for (const t of this.tails.values()) if (t.size && (!oldest || t.oldest() < oldest.oldest())) oldest = t
+      if (!oldest) break
+      const before = oldest.size
+      oldest.dropOldest()
+      total -= before - oldest.size
+    }
+  }
+
   /** Close every socket of this session with `code` (the hub's call when the session or a device ends). */
   async closeAll(code: number, reason: string): Promise<void> {
+    this.tails.clear()
     for (const ws of this.ctx.getWebSockets()) {
       try {
         ws.close(code, reason)
@@ -156,10 +264,18 @@ export class LinkRelay extends DurableObject<Env> {
     const att = this.attachment(ws)
     if (!att) return
     const target = this.socketOf(att.peer)
-    if (!target) return this.notice(ws, "peer", { type: "peer", online: false })
+    const tail = this.tailOf(att.peer, target)
+    if (!target) {
+      // The peer's socket is gone (a roam in progress): kept for its next join when it asked, never spent until then.
+      if (tail) this.record(tail, withPeer(bytes, uuidToBytes(att.device)))
+      return this.notice(ws, "peer", { type: "peer", online: false })
+    }
     if (!(await this.spend(att, bytes.length))) return this.notice(ws, "rate_limited", { type: "error", code: "rate_limited" })
     try {
-      target.send(withPeer(bytes, uuidToBytes(att.device)))
+      const out = withPeer(bytes, uuidToBytes(att.device))
+      // Kept before the send: a send that throws, or that went into a socket whose network died, goes again.
+      if (tail) this.record(tail, out)
+      target.send(out)
     } catch {
       this.notice(ws, "peer", { type: "peer", online: false })
     }

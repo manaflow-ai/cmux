@@ -70,6 +70,12 @@ pub struct RelayEndpoint {
     /// This side's device id: the relay admits the two devices of the
     /// session.
     pub device_id: String,
+    /// Ask the relay for tail replay (RFD 0142 R3, `&replay=1`): a join that
+    /// replaces this device's older socket (a roam) gets the frames sent to
+    /// it in the last second again, so what went into the dead socket is not
+    /// left to the tunnel's retransmission timers. An older relay ignores
+    /// the ask; WireGuard drops the copies that did arrive.
+    pub replay: bool,
     token: Arc<dyn Fn() -> TokenFuture + Send + Sync>,
 }
 
@@ -78,6 +84,7 @@ impl std::fmt::Debug for RelayEndpoint {
         f.debug_struct("RelayEndpoint")
             .field("base_url", &self.base_url)
             .field("device_id", &self.device_id)
+            .field("replay", &self.replay)
             .finish_non_exhaustive()
     }
 }
@@ -90,7 +97,13 @@ impl RelayEndpoint {
         device_id: impl Into<String>,
         token: impl Fn() -> TokenFuture + Send + Sync + 'static,
     ) -> Self {
-        Self { base_url: base_url.into(), build_space, device_id: device_id.into(), token: Arc::new(token) }
+        Self {
+            base_url: base_url.into(),
+            build_space,
+            device_id: device_id.into(),
+            replay: false,
+            token: Arc::new(token),
+        }
     }
 
     /// An endpoint with one fixed token (the phone's dial carries a fresh one).
@@ -226,8 +239,11 @@ impl RelayCarrier {
         ticket: Option<&str>,
     ) -> Result<Self, RelayFailure> {
         crate::install_crypto_provider();
-        let url = relay_url(&endpoint.base_url, session_id, &endpoint.device_id)
+        let mut url = relay_url(&endpoint.base_url, session_id, &endpoint.device_id)
             .ok_or_else(|| RelayFailure::Unreachable { detail: "not a relay URL".into() })?;
+        if endpoint.replay {
+            url.push_str("&replay=1");
+        }
         let token = (endpoint.token)().await.ok_or(RelayFailure::NoToken)?;
         let mut request = url
             .into_client_request()

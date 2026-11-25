@@ -55,6 +55,9 @@ pub struct FakeOptions {
     /// A relay join's upgrade is answered this much later (a slow network or
     /// a far Worker), so a join can race a path that starts working.
     pub relay_join_delay: std::time::Duration,
+    /// An older relay without tail replay (RFD 0142 R3): it ignores a join's
+    /// `replay=1`.
+    pub relay_no_replay: bool,
 }
 
 /// How often the backend answers an older peer's relay frames for one
@@ -86,6 +89,34 @@ struct State {
     /// Each device's relay joins, in order: device → when.
     relay_joined: Vec<(String, std::time::Instant)>,
     relay_frames: u64,
+    /// Tail replay (link-relay.ts `ReplayTail`): per (sessionId, device)
+    /// whose latest join asked, the frames lately sent (or meant) for it.
+    tails: HashMap<(String, String), std::collections::VecDeque<(std::time::Instant, bytes::Bytes)>>,
+    /// Frames sent again on a replacing join.
+    relay_replayed: u64,
+    /// Devices whose relay socket's network died ([`FakeSignaling::blackhole_relay`]).
+    relay_blackholed: std::collections::HashSet<String>,
+}
+
+/// link-relay.ts `REPLAY_AGE_MS` and `REPLAY_DEVICE_BYTES`.
+const REPLAY_AGE: std::time::Duration = std::time::Duration::from_secs(1);
+const REPLAY_DEVICE_BYTES: usize = 128 * 1024;
+
+/// Keep `frame` in `tail`, trimmed to [`REPLAY_AGE`] and [`REPLAY_DEVICE_BYTES`].
+fn record_tail(
+    tail: &mut std::collections::VecDeque<(std::time::Instant, bytes::Bytes)>,
+    frame: bytes::Bytes,
+) {
+    let now = std::time::Instant::now();
+    tail.push_back((now, frame));
+    let mut size: usize = tail.iter().map(|(_, f)| f.len()).sum();
+    while let Some((at, front)) = tail.front() {
+        if now.duration_since(*at) <= REPLAY_AGE && size <= REPLAY_DEVICE_BYTES {
+            break;
+        }
+        size -= front.len();
+        tail.pop_front();
+    }
 }
 
 pub struct FakeSignaling {
@@ -148,6 +179,18 @@ impl FakeSignaling {
     /// Relay frames forwarded so far.
     pub fn relay_frames(&self) -> u64 {
         self.state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames
+    }
+
+    /// Frames the relay sent again on a replacing join (tail replay).
+    pub fn relay_replayed(&self) -> u64 {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).relay_replayed
+    }
+
+    /// `device`'s relay socket's network dies without a word: what the relay
+    /// sends it is lost and what it sends never arrives, until its next join
+    /// (the relay cannot tell a dead TCP connection from a quiet one).
+    pub fn blackhole_relay(&self, device: &str) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).relay_blackholed.insert(device.to_owned());
     }
 
     /// Close every relay socket of `device` (a proxy that resets it).
@@ -399,6 +442,7 @@ async fn serve_relay(
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
     let session = path.trim_start_matches("/v1/relay/").to_owned();
     let device = query.split('&').find_map(|kv| kv.strip_prefix("deviceId=")).unwrap_or_default().to_owned();
+    let replay = !options.relay_no_replay && query.split('&').any(|kv| kv == "replay=1");
     let user = head.lines().find_map(|line| {
         let lower = line.to_ascii_lowercase();
         lower
@@ -461,8 +505,26 @@ async fn serve_relay(
     let Some(peer) = peer else { return };
     let Ok(device_bytes) = uuid::Uuid::parse_str(&device).map(|id| *id.as_bytes()) else { return };
     let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Message>();
-    let peer_out = {
+    let (peer_out, again) = {
         let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.relay_blackholed.remove(&device);
+        // What was sent to this device lately goes again when it asked; a join
+        // that did not ask forgets its tail.
+        let key = (session.clone(), device.clone());
+        let again: Vec<bytes::Bytes> = match state.tails.remove(&key) {
+            Some(tail) if replay => {
+                let now = std::time::Instant::now();
+                tail.into_iter()
+                    .filter(|(at, _)| now.duration_since(*at) <= REPLAY_AGE)
+                    .map(|(_, f)| f)
+                    .collect()
+            }
+            _ => Vec::new(),
+        };
+        if replay {
+            state.tails.insert(key, Default::default());
+        }
+        state.relay_replayed += again.len() as u64;
         state.relay_joins += 1;
         state.relay_joined.push((device.clone(), std::time::Instant::now()));
         let sockets = state.relays.entry(session.clone()).or_default();
@@ -472,10 +534,16 @@ async fn serve_relay(
                 reason: "replaced".into(),
             })));
         }
-        sockets.get(&peer).cloned()
+        (sockets.get(&peer).cloned(), again)
     };
     let _ =
         out_tx.send(Message::Text(json!({"type":"joined","peer": peer_out.is_some()}).to_string().into()));
+    if !again.is_empty() {
+        tracing::debug!(%session, to = %device, frames = again.len(), "fake relay replays the tail");
+    }
+    for frame in again {
+        let _ = out_tx.send(Message::Binary(frame));
+    }
     if let Some(peer_out) = &peer_out {
         let _ = peer_out.send(Message::Text(json!({"type":"peer","online": true}).to_string().into()));
     }
@@ -489,9 +557,21 @@ async fn serve_relay(
         }
         let _ = sink.close().await;
     });
-    let peer_socket = |state: &Arc<Mutex<State>>| {
-        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned())
+    // The peer's socket (none while its network is dead, or it has none),
+    // after keeping `frame` in the peer's tail when its latest join asked.
+    let peer_socket = |state: &Arc<Mutex<State>>, frame: &bytes::Bytes| {
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.relay_blackholed.contains(&device) {
+            return Err(());
+        }
+        if let Some(tail) = state.tails.get_mut(&(session.clone(), peer.clone())) {
+            record_tail(tail, frame.clone());
+        }
+        let target = state.relays.get(&session).and_then(|sockets| sockets.get(&peer).cloned());
+        if state.relay_blackholed.contains(&peer) {
+            return Err(());
+        }
+        Ok(target)
     };
     while let Some(Ok(message)) = source.next().await {
         match message {
@@ -503,13 +583,15 @@ async fn serve_relay(
                 }
                 frame.peer = PeerId(device_bytes);
                 let Ok(encoded) = frame.encode() else { continue };
-                match peer_socket(&state) {
-                    Some(target) => {
+                let encoded = bytes::Bytes::from(encoded);
+                match peer_socket(&state, &encoded) {
+                    Err(()) => {}
+                    Ok(Some(target)) => {
                         tracing::trace!(%session, from = %device, to = %peer, "fake relay forwards a frame");
                         state.lock().unwrap_or_else(PoisonError::into_inner).relay_frames += 1;
-                        let _ = target.send(Message::Binary(encoded.into()));
+                        let _ = target.send(Message::Binary(encoded));
                     }
-                    None => {
+                    Ok(None) => {
                         tracing::debug!(%session, from = %device, to = %peer, "fake relay: the peer has not joined");
                         let _ = out_tx
                             .send(Message::Text(json!({"type":"peer","online": false}).to_string().into()));

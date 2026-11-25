@@ -25,7 +25,7 @@ const tickets = new Map<string, string>()
 const TICKET = "x-cmux-relay-ticket"
 
 /** A join as `deviceId`, with that device's own ticket unless `extra` names another (or `null`: none). */
-const join = (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}) => {
+const join = (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}, query = "") => {
   const headers: Record<string, string> = { Upgrade: "websocket", authorization: `Bearer ${tok}` }
   const own = tickets.get(`${sessionId}|${deviceId}`)
   if (own) headers[TICKET] = own
@@ -33,7 +33,7 @@ const join = (tok: string, sessionId: string, deviceId: string, extra: Record<st
     if (v === null) delete headers[k]
     else headers[k] = v
   }
-  return worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${deviceId}`, { headers })
+  return worker.fetch(`https://api.test/v1/relay/${sessionId}?deviceId=${deviceId}${query}`, { headers })
 }
 
 /** The ticket stamped on the last signal of `sessionId` that `sock` (device `deviceId`) received, recorded. */
@@ -52,8 +52,8 @@ const exchange = async (p: Sock, phone: string, m: Sock, mac: string, sessionId:
   return { macTicket, phoneTicket: recordTicket(p, sessionId, phone) }
 }
 
-const joined = async (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}): Promise<Sock> => {
-  const res = await join(tok, sessionId, deviceId, extra)
+const joined = async (tok: string, sessionId: string, deviceId: string, extra: Record<string, string | null> = {}, query = ""): Promise<Sock> => {
+  const res = await join(tok, sessionId, deviceId, extra, query)
   expect(res.status, await (res.status === 101 ? Promise.resolve("") : res.text())).toBe(101)
   const s = sockOf(res.webSocket!)
   await s.until((x) => x.frames.some((f) => f.type === "joined"))
@@ -270,6 +270,97 @@ describe("link relay: what it carries", () => {
     a.ws.send("ping")
     expect(await pong).toBe("pong")
     a.ws.close()
+  })
+})
+
+describe("link relay: tail replay on a replacing join (RFD 0142 R3)", () => {
+  const ASK = "&replay=1"
+  const dg = (n: number, size = 5) => new Uint8Array([4, 0, 0, 0, ...new Array(size - 4).fill(n)])
+  /** The datagram byte that names which `dg(n)` a forwarded frame carried. */
+  const which = (f: Uint8Array) => f[18 + 2 + 4]
+  const settle = () => new Promise((r) => setTimeout(r, 150))
+
+  it("a join that asked gets what was sent to its older socket, and what arrived while it had none, after joined", async () => {
+    const { tok, phone, mac, sessionId } = await session("rita", "personal-rita")
+    const m = await joined(tok, sessionId, mac)
+    const first = await joined(tok, sessionId, phone, {}, ASK)
+    m.ws.send(frame([dg(1)]))
+    m.ws.send(frame([dg(2)]))
+    await first.until((x) => x.binary.length === 2)
+    // A roam: the new socket replaces the old, and the two frames go again, stamped with the Mac's id.
+    const second = await joined(tok, sessionId, phone, {}, ASK)
+    await second.until((x) => x.binary.length === 2)
+    expect(second.binary.map(which)).toEqual([1, 2])
+    expect(toHex(second.binary[0]!.subarray(2, 18))).toBe(toHex(uuidToBytes(mac)))
+    // Ordered after joined (its text frame came first).
+    expect(second.frames[0]?.type).toBe("joined")
+    // The roam window: the phone's socket is gone, the Mac's frame is kept, and the next join gets it (once).
+    second.ws.close(1000, "roam")
+    await m.until((x) => x.frames.some((f) => f.type === "peer" && f.online === false))
+    m.ws.send(frame([dg(3)]))
+    await m.until((x) => x.frames.filter((f) => f.type === "peer" && f.online === false).length >= 1)
+    await settle()
+    const third = await joined(tok, sessionId, phone, {}, ASK)
+    await third.until((x) => x.binary.length >= 1)
+    await settle()
+    expect(third.binary.map(which)).toEqual([3])
+    for (const sock of [m, third]) sock.ws.close()
+  })
+
+  it("replays nothing to a join that did not ask, nor what was sent before the device asked", async () => {
+    const { tok, phone, mac, sessionId } = await session("sam", "personal-sam")
+    const m = await joined(tok, sessionId, mac)
+    const plain = await joined(tok, sessionId, phone)
+    m.ws.send(frame([dg(1)]))
+    await plain.until((x) => x.binary.length === 1)
+    // An older client's join (no ask) replacing a plain one: nothing again. Nor does the first join that asks
+    // get what was sent before it asked.
+    const asks = await joined(tok, sessionId, phone, {}, ASK)
+    await settle()
+    expect(asks.binary.length).toBe(0)
+    m.ws.send(frame([dg(2)]))
+    await asks.until((x) => x.binary.length === 1)
+    // A join without the ask forgets the tail: the frame sent to the asking socket does not come again.
+    const old = await joined(tok, sessionId, phone)
+    await settle()
+    expect(old.binary.length).toBe(0)
+    const again = await joined(tok, sessionId, phone, {}, ASK)
+    await settle()
+    expect(again.binary.length).toBe(0)
+    for (const sock of [m, again]) sock.ws.close()
+  })
+
+  it("keeps at most 128 KiB per device, the newest", async () => {
+    const { tok, phone, mac, sessionId } = await session("tess", "personal-tess")
+    const m = await joined(tok, sessionId, mac)
+    const first = await joined(tok, sessionId, phone, {}, ASK)
+    // 12 frames of 16 KiB: 192 KiB sent, at most 128 KiB kept.
+    for (let i = 1; i <= 12; i++) m.ws.send(frame([dg(i, 16_380)]))
+    await first.until((x) => x.binary.length === 12)
+    const second = await joined(tok, sessionId, phone, {}, ASK)
+    await second.until((x) => x.binary.length >= 1)
+    await settle()
+    const bytes = second.binary.reduce((n, f) => n + f.length, 0)
+    expect(bytes).toBeLessThanOrEqual(128 * 1024)
+    expect(second.binary.length).toBe(7)
+    expect(second.binary.map(which)).toEqual([6, 7, 8, 9, 10, 11, 12])
+    for (const sock of [m, second]) sock.ws.close()
+  })
+
+  it("does not send again what is older than a second", async () => {
+    const { tok, phone, mac, sessionId } = await session("uma", "personal-uma")
+    const m = await joined(tok, sessionId, mac)
+    const first = await joined(tok, sessionId, phone, {}, ASK)
+    m.ws.send(frame([dg(1)]))
+    await first.until((x) => x.binary.length === 1)
+    await new Promise((r) => setTimeout(r, 1100))
+    m.ws.send(frame([dg(2)]))
+    await first.until((x) => x.binary.length === 2)
+    const second = await joined(tok, sessionId, phone, {}, ASK)
+    await second.until((x) => x.binary.length >= 1)
+    await settle()
+    expect(second.binary.map(which)).toEqual([2])
+    for (const sock of [m, second]) sock.ws.close()
   })
 })
 

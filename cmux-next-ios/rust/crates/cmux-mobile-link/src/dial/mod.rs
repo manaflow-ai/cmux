@@ -146,6 +146,9 @@ pub struct DialOptions {
     /// TURN allocation, and joins the relay at once, so the link rides it
     /// (path `https-relay`); without [`Self::relay`] the dial fails at once.
     pub force_relay: bool,
+    /// Ask cmux's relay for tail replay on each join (RFD 0142 R3,
+    /// [`relay::RelayEndpoint::replay`]). Off by default.
+    pub relay_replay: bool,
     /// Where a WireGuard dial records each path's failure, for the error it
     /// returns when none works ([`DialError::Blocked`]). Shared by clones.
     pub diagnosis: diagnosis::Diagnosis,
@@ -310,6 +313,7 @@ impl Default for DialOptions {
             ice_servers: Vec::new(),
             relay: None,
             force_relay: false,
+            relay_replay: false,
             diagnosis: diagnosis::Diagnosis::default(),
             relay_leave_after: None,
             include_loopback: false,

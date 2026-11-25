@@ -494,7 +494,8 @@ fn relay_plan(
     peer: Option<&str>,
     ticket: Option<String>,
 ) -> Option<roam::RelayPlan> {
-    let endpoint = options.relay.clone()?;
+    let mut endpoint = options.relay.clone()?;
+    endpoint.replay |= options.relay_replay;
     let Some(peer) = peer else {
         options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
         return None;

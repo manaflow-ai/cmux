@@ -24,7 +24,7 @@ import {
 import { hasIcon, mergePrefs, openStore, PUSH_KINDS, type Device, type Prefs, type PushKind, type Store } from "./store.ts"
 import { StoreSchemaError } from "./store-mysql.ts"
 import { userHubName, type Attachment, type HubOwner, type Ingress } from "./team-hub.ts"
-import { RELAY_SUBPROTOCOL, relayRoomName, RELAY_TICKET_HEADER } from "./link-relay.ts";
+import { RELAY_REPLAY_HEADER, RELAY_SUBPROTOCOL, relayRoomName, RELAY_TICKET_HEADER } from "./link-relay.ts";
 import { HUB_SUBPROTOCOL, hubRoomName } from "./hub-relay.ts"
 import { isRegion, netcheckRoomName, parseNetcheck, relayPlacement } from "./placement.ts"
 import { Timing, timingFor } from "./timing.ts"
@@ -451,6 +451,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const headers = new Headers({ upgrade: "websocket", "x-cmux-relay-device": deviceId, "x-cmux-relay-peer": peer, "x-cmux-relay-owner": me, "x-cmux-relay-space": space })
     // Echo only cmux-relay.v1; the bearer subprotocol is never selected (it would echo the token back).
     if ((req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === RELAY_SUBPROTOCOL)) headers.set("x-cmux-relay-subprotocol", "1")
+    // RFD 0142 R3: a client that asks (`?replay=1`) gets the last second of frames sent to its device again when this
+    // join replaces its older socket (a roam). An older client never asks; an older relay ignores the header.
+    if (url.searchParams.get("replay") === "1") headers.set(RELAY_REPLAY_HEADER, "1")
     return t.span("relay", room.fetch("https://link-relay/join", { headers }))
   }
 
