@@ -14,6 +14,9 @@
   --cv-card-fill: color-mix(in srgb, var(--agent-text) 4%, transparent);
   --cv-card-ring: color-mix(in srgb, var(--agent-text) 9%, transparent);
   --cv-text-muted: color-mix(in srgb, var(--agent-text) 72%, transparent);
+  /* Tool rows and "Worked for" draw --cv-activity-text (the stock 58% of the text): this look's muted
+     ink instead, so they hold 4.5:1 on its paper (golden-look-contrast-N.test.ts). */
+  --cv-activity-text: var(--cv-text-muted);
   --cv-text-dim: color-mix(in srgb, var(--agent-text) 68%, transparent);
   --cv-link: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));
   --agent-link: color-mix(in srgb, var(--agent-accent) 72%, var(--agent-text));

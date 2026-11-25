@@ -423,7 +423,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// theme's quiet ink, no fill, no rim and no dot (its members draw no line, `GroupLineView`). Hover and a drop take
     /// the row's own fill, as a workspace row's do; the open editor lights its more button only.
     ///
-    /// `folder` (the default since David Beyer 2026-11-20, "groups as plain folders"): the same plain row, its name in
+    /// `folder` (David Beyer 2026-11-20, "groups as plain folders"): the same plain row, its name in
     /// the theme's primary ink as a workspace title's, and its folder glyph in the quiet ink, or in the group's color
     /// where it has one, held readable on the sidebar: the color stays the group's mark with no band to carry it.
     private func paintSection(_ tokens: ThemeTokens, folder: Bool = false,
@@ -617,6 +617,7 @@ final class GroupHeaderRowView: SidebarRowView {
         trailing = layoutMachineTrailing(trailing, height: b.height, showsActions: showsActions)
         if badge.state.isUnread {
             badge.isHidden = false
+            badge.alphaValue = 1 // `clearMarksMeetingIcons` below clears it again while it meets a control
             // A dot is round, the status dot's diameter; a count is the badge's height.
             let w = badge.preferredWidth, h = badge.state == .dot ? SidebarStyle.statusDotSize : SidebarStyle.badgeHeight
             badge.frame = columns.trailingFrame(before: trailing, centerY: b.midY, size: CGSize(width: w, height: h))
@@ -702,6 +703,9 @@ final class GroupHeaderRowView: SidebarRowView {
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: max(0, railReach - SidebarStyle.groupRailReach), y: (b.height - dotSide) / 2, width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
+        // No two icons share a box (Leo 2026-11-22: "fucking overlapping icons"): the unread count clears while it
+        // meets the chevron or a hover control, at any width.
+        clearMarksMeetingIcons(keep: [chevron, moreButton, addButton, pinButton], marks: [badge], fades: false)
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true

@@ -85,6 +85,7 @@ impl Hub {
                     ),
                     recap: current_option(draft, crate::claude_stdio::RECAP_OPTION),
                     claude_session_id: Some(fresh_id),
+                    stop_condition: false,
                     resumes_cut_turn: false,
                 }),
             )
@@ -254,6 +255,7 @@ impl Hub {
                                 None,
                                 &child,
                                 &spec.answer,
+                                &init,
                             ),
                         )
                         .await?,

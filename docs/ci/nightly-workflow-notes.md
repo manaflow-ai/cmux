@@ -1,4 +1,4 @@
-# nightly.yml notes
+# nightly.yml notes (frozen: a new note is its own file in [`docs/ci/nightly-workflow-notes/`](nightly-workflow-notes/README.md))
 
 Long comments moved out of `.github/workflows/nightly.yml` to keep it under GitHub's workflow file size limit
 (tests/test_ci_workflow_file_size.py). Each note's line in the workflow reads `# Why: docs/ci/nightly-workflow-notes.md#note-N`.
@@ -454,3 +454,19 @@ build_sha equals the red sha; the Mac's own check stays the publish guard's inpu
 skips a webview red (early on the built commit, or the Mac's `webview_red`), which is deterministic, and
 waits for a new commit instead. Route: check-nightly-webviews' owned nightly-only pool, not Linux, since
 test_nightly_owned_minis_only allows a JIT Linux label only for Leo's listed tail and loop jobs.
+
+## note-52
+
+Above `check-nightly-app-store-shelf:` in `.github/workflows/nightly.yml`.
+
+No nightly whose App Store shelf is broken (Leo, 2026-11-16: "if i click install it means it works"). The
+App Store shelf workflow (`app-store-shelf.yml`) ran only on pull requests and pushes that touch the shelf's
+paths, and nothing read it before a publish: a tree whose shelf was red could still reach the feed
+(feat-cmux-next's shelf runs failed 2026-11-23 19:39-20:02Z). This job runs the same
+`scripts/ci/app-store-shelf-check.sh` on the exact build commit, beside the build in both modes: about
+14-26 min on Linux against a build, sign and notarize of tens of minutes, so it adds no time to a green run.
+The final publication gate (`nightly_publish_guard.py shelf-verdict`) refuses a build without it green:
+publish-nightly reads the job through its needs; nightly-next-one, which does not wait on it, reads the job
+in this run (`SHELF_SOURCE=run`), waiting up to 30 min for it to finish; a recovered build needs it green
+in the run that built it. Route: resolve-nightly-cmux-tui-client's `cmux-linux`, since it has no secret
+and the cargo build would otherwise take a nightly Mac.

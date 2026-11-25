@@ -36,6 +36,8 @@ mod artifacts_fs;
 pub mod artifacts_sync;
 pub mod attach;
 pub mod author;
+/// Auto mode: a chat keeps running in the Cloud when the laptop goes away (`auto_session/`).
+pub mod auto_session;
 pub mod beads;
 pub mod bg_hook;
 pub mod bg_run;
@@ -47,6 +49,7 @@ pub mod caller_stats;
 pub mod capabilities;
 pub mod catalog;
 pub mod chat_fork;
+pub mod chat_place;
 pub mod chat_size_fixture;
 pub mod chatgpt;
 pub mod chats;
@@ -60,6 +63,7 @@ pub mod cli_caller;
 pub mod client;
 pub mod clock;
 pub(crate) mod clock_text;
+pub mod close_why;
 pub mod cloud_host;
 pub mod cloud_model_plane;
 pub mod cloud_repo_mcp;
@@ -83,6 +87,7 @@ pub mod config;
 pub mod conn_origin;
 pub mod context_inventory;
 pub mod cpu_class;
+pub mod customize_run;
 pub mod cwd_pin;
 pub mod daemon;
 pub(crate) mod daemon_parts;
@@ -96,7 +101,10 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
+pub mod disk_usage;
+pub(crate) mod disk_writer;
 pub mod folder_instructions;
+pub mod fork_place;
 #[cfg(all(test, unix))]
 mod fork_tests;
 pub mod forum;
@@ -110,9 +118,15 @@ pub mod git_state;
 pub mod github_app_token;
 pub mod github_broker;
 #[cfg(unix)]
+pub mod github_lane_mint;
+#[cfg(unix)]
 pub mod github_mcp;
+pub mod github_rest_op;
+#[cfg(unix)]
+pub mod github_session_env;
 pub mod god_fixture;
 pub mod install_share;
+pub mod memory_follow;
 /// GitHub's MCP server needs the Cloud agent's unix socket (`github_mcp.rs`): elsewhere it is
 /// never offered, and the command says so.
 #[cfg(not(unix))]
@@ -125,6 +139,13 @@ pub mod github_mcp {
 
     pub async fn run() -> anyhow::Result<()> {
         anyhow::bail!("acpmux github-mcp runs only on a cmux Cloud machine")
+    }
+}
+/// Machines a Mac lends GitHub are unix machines (`github_session_env.rs`).
+#[cfg(not(unix))]
+pub mod github_session_env {
+    pub fn lent() -> bool {
+        false
     }
 }
 pub mod github_status;
@@ -146,6 +167,8 @@ pub(crate) mod home_fs;
 mod home_writers_by_path_tests;
 pub(crate) mod host_fingerprint;
 pub mod host_load;
+pub mod host_load_watch;
+pub mod host_overload;
 pub mod host_pressure;
 pub mod hosted_mcp;
 pub mod hub;
@@ -157,9 +180,14 @@ pub mod idempotency;
 #[cfg(windows)]
 mod job;
 mod joined_model_plane;
+pub mod terminal_autocompact;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
+pub mod chat_secrets;
+/// Hot paths for the instruction-count bench (`benches/icount.rs`); not an API.
+#[doc(hidden)]
+pub mod icount;
 pub mod launch_credential;
 pub mod launch_policy;
 pub mod left_on_mac;
@@ -176,6 +204,7 @@ pub mod login_env;
 pub mod lossy_lines;
 #[cfg(test)]
 mod lost_home_race_tests;
+pub mod mac_lock;
 /// Calls this machine runs for the person's other machines, over the hub carrier
 /// (`machine_call_service.rs`).
 #[cfg(feature = "hub-carrier")]
@@ -197,6 +226,9 @@ pub mod mcp_args;
 /// Each chat's `cmux` MCP server over loopback HTTP, started on use and stopped when idle.
 pub mod mcp_gateway;
 pub mod mcp_hint;
+#[cfg(unix)]
+pub mod mcp_pool;
+pub mod memory_mount;
 pub mod mesh;
 pub mod mesh_control;
 pub mod mesh_gate;
@@ -227,6 +259,7 @@ pub mod peer;
 pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
+pub mod perf_trace;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;
@@ -234,10 +267,16 @@ pub(crate) mod peer_notice_outbox;
 pub mod peer_mirror;
 pub mod peer_path_stats;
 pub mod peer_paths;
+pub(crate) mod peer_row_patch;
 pub mod peer_states;
 pub mod person_proof;
 pub mod person_tokens;
+// A new chat's place mode (Auto, Cloud, one machine) and where it starts with it.
+pub mod fleet_elastic;
+pub mod place_mode;
 pub mod placement;
+// `acpmux machine cells`: lane hosts against their caps and the registry (RFD 0181 B2).
+pub mod cell_report;
 pub mod plan_build_records;
 #[cfg(not(unix))]
 mod platform;
@@ -263,6 +302,8 @@ pub(crate) mod questions;
 #[cfg(target_os = "linux")]
 mod quiet_dirs;
 pub mod race_records;
+pub mod range_fetch;
+pub(crate) mod rebalance;
 pub mod recovery;
 pub mod registry;
 pub(crate) mod remote_chain_profile;
@@ -278,7 +319,10 @@ mod router_socket;
 pub mod routes;
 pub mod rows;
 pub mod rpc;
+// `acpmux run-ask`: run an accepted forum `run` ask here or through the scheduler.
+pub mod run_ask;
 pub mod run_elsewhere;
+pub mod sccache_env;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
@@ -290,6 +334,8 @@ pub mod sender_program;
 pub mod sender_token;
 pub mod sent_by;
 pub mod server;
+mod session_budget;
+mod session_disk;
 pub mod session_env;
 mod session_handle;
 pub mod session_icon;
@@ -303,6 +349,7 @@ pub mod session_search;
 #[cfg(feature = "hub-carrier")]
 pub mod session_service;
 pub mod session_status;
+mod session_store;
 pub mod sha256;
 /// The approval behind Share This Mac confirmed on the owner's other device (`share_approval.rs`).
 pub mod share_approval;
@@ -312,6 +359,7 @@ pub(crate) mod single_flight;
 /// A hub move's pages over the hub carrier (`transfer_service.rs`, `hub/transfer_pull.rs`).
 #[cfg(feature = "hub-carrier")]
 pub mod transfer_service;
+pub mod usage_limit;
 pub(crate) mod worker_lock;
 // The shadow admission verdict beside each placement and create (cmuxterm-hq#7342).
 pub mod memory_inbox;
@@ -325,6 +373,7 @@ pub mod sim_agent;
 pub(crate) mod slow_notice;
 // The scanner is `test_support`'s, a unix module; the scan reads the same sources anywhere.
 pub mod perf_watch;
+pub mod scorecard;
 #[cfg(all(test, unix))]
 mod single_shot_list_tests;
 #[cfg(test)]
@@ -352,6 +401,7 @@ pub mod suggestion_gate;
 pub(crate) mod supervise;
 pub mod surge_triage;
 pub mod tailnet;
+pub mod tailnet_carrier;
 pub mod task_list;
 #[cfg(unix)]
 #[path = "daemon/term_sender.rs"]
@@ -373,10 +423,8 @@ pub mod touched_files;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;
-/// The ratatui terminal UI (feature `tui`, off by default: acpmux is headless; the `cmux` multicall
-/// binary turns it on). Its entry for the CLI is `tui_entry`.
-#[cfg(feature = "tui")]
-pub mod tui;
+/// Where the CLI opens a session in a terminal UI: one the process installed (acpmux-tui, in the
+/// `cmux` binary), else a handoff to `cmux` (acpmux itself is headless).
 pub mod tui_entry;
 pub mod turn_attestation;
 pub(crate) mod turn_errors;

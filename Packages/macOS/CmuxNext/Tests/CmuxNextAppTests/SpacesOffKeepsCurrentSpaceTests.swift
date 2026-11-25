@@ -24,6 +24,8 @@ struct SpacesOffKeepsCurrentSpaceTests {
         windows.select("k3", in: fixture.state)
         #expect(fixture.state.profileID == Fixture.work)
         #expect(fixture.shown == ["k2", "k3"])
+        #expect(fixture.services.windowHomeMembers(fixture.state.id) == ["k2", "k3"],
+                "Home lookup received workspaces hidden by the current space")
 
         // cmux.json loses the key (an upgrade to the default-off build): Spaces turns off.
         try await fixture.write("{}")
