@@ -58,8 +58,12 @@ interaction is its launch marks `terminal_input_accepted` (accepted_ms) and `ter
 process start to the typed key taken. With no key window at that frame (a background runner's launch is never brought to the front) the
 probe takes the front itself, as a Dock launch does, and the round's `probe_focus` says so (`app_inactive`,
 `window_not_key`; `key` when a window was key). `terminal.probe_no_key_window` (no window could take keys) fails the
-round. The chat composer posts no input mark in any build yet (`no_mark`), so on either path a chat round measures
-nothing and the row is the terminal's.
+round. The app types that one key wherever its key window takes it, before a chat page is up, so on the in_app path a
+chat round ends when the chat drew and fails nothing; the posted path's keys time the chat.
+
+Every measured launch runs without CMUX_NEXT_NO_ACTIVATE (fresh_home_launch_smoke.fresh_env sets it for its own
+launch): under it the app refuses every activation and no window ever takes key (WindowActivation orders them in
+behind, NoActivateKeyboardGuard gives the front back), so no key, posted or the app's own, could reach a window.
 """
 from __future__ import annotations
 
@@ -107,7 +111,10 @@ KEPT_MARKS = ("main_start", "first_window_frame_committed", "reveal.pane", "reve
 # cef.step.* split), the page host (chromium_page.*), the page's own navigation and paint (first_page.*), the chat's
 # handshake and paint (agent_pane.*) and Home (home.*). Without them a round says only that webview_ready or
 # first_chat_paint was late, never which step (a warm-vs-update gap on 2026-11-23 could not be split from the logs).
-KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.")
+# `terminal.first_key.<reading>`: what the app's terminal key hold read of the process's first key-down (hq#22681):
+# `terminal_awaited` held it for the restored terminal; any other names why it did not.
+FIRST_KEY_PREFIX = "terminal.first_key."
+KEPT_MARK_PREFIXES = ("cef.", "chromium_page.", "first_page.", "agent_pane.", "home.", "reveal.", FIRST_KEY_PREFIX)
 KEPT_MARKS_MAX = 120  # a round's line stays small; the stage marks and KEPT_MARKS always fit first
 
 
@@ -176,6 +183,15 @@ class Keys:
             if event:
                 self.cg.CGEventPostToPid(pid, event)
                 self.cg.CFRelease(event)
+
+
+NO_ACTIVATE_VARIABLE = "CMUX_NEXT_NO_ACTIVATE"
+
+
+def interactive_env(env: dict) -> dict:
+    """The run's environment without CMUX_NEXT_NO_ACTIVATE, for every launch it times: a person's launch activates
+    the app and its window takes key; under the variable none ever does, so a key could reach no window."""
+    return {k: v for k, v in env.items() if k != NO_ACTIVATE_VARIABLE}
 
 
 def activate(pid: int) -> None:
@@ -274,15 +290,17 @@ def probe_focus(marks: dict) -> str | None:
 
 def round_failures(which: str, path: str, row: dict, marks: dict, settle: float) -> list[str]:
     """What a round that ran its launch failed on, from its reading (pure). The posted path without the grant has no
-    way to type; the in_app path with no key window at the first frame typed nowhere."""
+    way to type; the in_app path with no window key at its first frame typed nowhere. The in_app path's one key is typed
+    before a chat page is up, so its chat round measures nothing and fails nothing."""
     out = []
     if path == "posted" and not row.get("post_access", True):
         out.append("this process may not post keys (CGPreflightPostEventAccess false)")
-    if row.get("input_ms") is None and not row.get("no_mark"):
+    if row.get("input_ms") is None and not row.get("no_mark") and not (path == "in_app" and which == "chat"):
         if path == "in_app" and which == "terminal" and PROBE_NO_KEY_WINDOW in marks:
             out.append("the app typed no key: no window could take keys at its first frame (terminal.probe_no_key_window)")
         else:
-            out.append(f"the {which} took no key within {settle:.0f} s ({path})")
+            first = next((k.removeprefix(FIRST_KEY_PREFIX) for k in marks if k.startswith(FIRST_KEY_PREFIX)), None)
+            out.append(f"the {which} took no key within {settle:.0f} s ({path})" + (f"; its key hold read {first}" if first else ""))
     return out
 
 
@@ -531,7 +549,7 @@ def round_once(n: int, kind: str, which: str, process, inst: rr.Instance, app: P
             break
         # A build whose pages never post the composer's input mark (bundle_has_input_mark, decided once per run): the
         # round ends when the chat drew and types nothing into its draft; it reads `no_mark`, not a failure of the app.
-        if which == "chat" and not args.has_input_mark and "agent_pane.painted" in marks:
+        if which == "chat" and (not args.has_input_mark or path == "in_app") and "agent_pane.painted" in marks:
             break
         if which == "terminal" and path == "in_app":
             term = in_app_terminal_reading(marks)
@@ -602,6 +620,7 @@ def check(args) -> int:
         app = Path(app)
         inst = rr.Instance(str(socket_path), str(app), env["HOME"])
         work = os.path.join(env["HOME"], "l5-work")
+        env = interactive_env(env)  # every launch from here takes the front, as a person's does
         started = time.monotonic()
         try:
             made = rr.seed(inst, args.fake_agent, work, front_terminal=False)

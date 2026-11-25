@@ -1,3 +1,4 @@
+import CmuxEgress
 public import CmuxNextWakeups
 public import Foundation
 import os
@@ -27,7 +28,7 @@ public struct URLSessionDeviceHubConnector: DeviceHubSocketConnector {
 
     public func connect() async throws -> any DeviceHubSocketConnection {
         let handshake = try await client.userSocketHandshake()
-        let task = session.webSocketTask(with: handshake.request)
+        let task = CmuxEgress.websocket(session, with: handshake.request, site: "CmuxNextDevices.DeviceHubSocket")
         task.maximumMessageSize = 1 << 20
         task.resume()
         // Connected means upgraded: the first pong comes only once the hub accepted the socket. A
@@ -131,7 +132,7 @@ public final class DeviceHubSocket: Sendable {
     let clock: any Clock<Duration>
     let connectTimeout: Duration
 
-    public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = .seconds(30),
+    public init(connector: any DeviceHubSocketConnector, pingInterval: Duration = .seconds(60),
                 backoff: Backoff = Backoff(initial: .seconds(1), maximum: .seconds(60)),
                 connectTimeout: Duration = DeviceHubSocket.connectTimeout,
                 clock: any Clock<Duration> = ContinuousClock()) {
