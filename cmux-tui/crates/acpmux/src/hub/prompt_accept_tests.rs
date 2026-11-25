@@ -465,3 +465,68 @@ async fn a_prompt_held_past_its_lease_does_not_hold_up_the_next() {
         .collect();
     assert_eq!(ran, [json!("next"), json!("held")]);
 }
+
+/// The turn lock side: a prompt that reached the queue while another holds the turn lock (a turn
+/// that never showed, a call that never came back) is answered queued by its due time, not when
+/// the lock is let go, and runs once it is (`queue.rs`, `answer_due`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_prompt_waiting_on_a_held_turn_lock_is_answered_queued_by_its_due_time() {
+    let (hub, s) = chat().await;
+    let held = s.turn_lock.lock().await;
+    let (tx, accepted) = tokio::sync::oneshot::channel();
+    let run = prompt(&hub, &s, "behind-lock", "waits on the turn lock", tx);
+    let bound = super::prompt_admission::ANSWER_BOUND + Duration::from_secs(4);
+    let notice = tokio::time::timeout(bound, accepted)
+        .await
+        .expect("answered while the turn lock is held")
+        .unwrap();
+    assert_eq!((&notice["queued"], &notice["state"]), (&json!(true), &json!("queued")), "{notice}");
+    assert!(
+        hub.events(&s.id, 0, 10_000)
+            .unwrap()
+            .iter()
+            .any(|r| r.kind == "queued" && r.msg["promptId"] == "behind-lock"),
+        "queued durably when answered"
+    );
+    drop(held);
+    let answer = tokio::time::timeout(WAIT * 3, run).await.unwrap().unwrap().unwrap();
+    assert!(answer.get("stopReason").is_some(), "{answer}");
+    assert_eq!(s.queue().len(), 0, "the queue drained");
+}
+
+/// An owner still importing its journal has reserved the next sequence numbers. If its
+/// next page is late, the same delivery can be retried without losing those numbers.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admission_deadline_during_journal_restore_allows_same_id_after_restore() {
+    let (hub, s) = chat().await;
+    s.restoring.store(true, Ordering::SeqCst);
+    hub.park_writes(&s, 17);
+    let (tx, accepted) = tokio::sync::oneshot::channel();
+    let run = prompt(&hub, &s, "recover", "after the restore", tx);
+    let bound = super::prompt_admission::ANSWER_BOUND + Duration::from_secs(2);
+    let refusal =
+        tokio::time::timeout(bound, run).await.expect("bounded restore wait").unwrap().unwrap_err();
+    let data = refusal.data.unwrap();
+    assert_eq!(data["wait"], "prompt waiting for journal restore");
+    assert_eq!(data["retryable"], true);
+    assert!(accepted.await.is_err(), "nothing accepted or queued during the restore");
+    assert!(s.queue().is_empty());
+    s.restoring.store(false, Ordering::SeqCst);
+    hub.unpark_writes(&s);
+    s.restore_done.notify_waiters();
+
+    let (tx, accepted) = tokio::sync::oneshot::channel();
+    let retry = prompt(&hub, &s, "recover", "after the restore", tx);
+    let ack = tokio::time::timeout(WAIT, accepted).await.unwrap().unwrap();
+    assert_eq!(ack["promptId"], "recover");
+    assert_ne!(ack["duplicate"], true);
+    tokio::time::timeout(WAIT, retry).await.unwrap().unwrap().unwrap();
+    let events = hub.events(&s.id, 0, 10000).unwrap();
+    assert_eq!(
+        events
+            .iter()
+            .filter(|e| e.kind == "user_message" && e.msg["promptId"] == "recover")
+            .count(),
+        1
+    );
+}

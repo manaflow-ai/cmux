@@ -37,6 +37,8 @@ use crate::rpc::RpcError;
 pub(crate) const ADMISSION_BOUND: Duration = Duration::from_secs(3);
 /// How long after it came a prompt someone waits on goes without an answer before it is queued.
 pub(crate) const ANSWER_BOUND: Duration = Duration::from_secs(5);
+/// How long a waiting prompt gives a turn lock held with no visible turn before it queues.
+pub(crate) const TURN_LOCK_WAIT: Duration = Duration::from_secs(2);
 
 /// One prompt's admission: the lock while it holds it, the step it is in, and whether it reached
 /// a step it must finish (then it is never deferred).
@@ -46,6 +48,8 @@ pub struct Admission {
     committed: AtomicBool,
     acquired: AtomicBool,
     came: Instant,
+    /// Someone waits on its acceptance or refusal.
+    listened: AtomicBool,
     session: String,
 }
 
@@ -64,6 +68,7 @@ impl Admission {
             committed: AtomicBool::new(false),
             acquired: AtomicBool::new(false),
             came: Instant::now(),
+            listened: AtomicBool::new(false),
             session: session.id.clone(),
         })
     }
@@ -128,6 +133,16 @@ impl Admission {
     /// When an unanswered prompt is queued instead.
     pub(super) fn answer_due(&self) -> Instant {
         self.came + ANSWER_BOUND
+    }
+
+    /// Someone waits on its acceptance or refusal.
+    pub(super) fn listen(&self) {
+        self.listened.store(true, Ordering::SeqCst);
+    }
+
+    /// The due time `queue_slot` keeps to for the turn lock: None when no one waits on it.
+    pub(super) fn queue_due(&self) -> Option<Instant> {
+        self.listened.load(Ordering::SeqCst).then(|| self.answer_due())
     }
 }
 
