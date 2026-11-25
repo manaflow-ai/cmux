@@ -171,7 +171,8 @@ async fn there_and_back(tag: &str, mode: &[&str]) {
         };
         let (had, has) = (steps(&left), steps(&arrived));
         assert_eq!(has[..had.len()], had[..], "hop {hop}: the steps the source held");
-        let closed = here.call("_acpmux/info", json!({"sessionId": id})).await;
+        let kept = here.call("_acpmux/info", json!({"sessionIds": [id], "row": true})).await;
+        let closed = &kept["rows"][0];
         assert_eq!(closed["status"], "closed", "hop {hop}: one home at a time: {closed}");
         assert_eq!(closed["movedTo"]["host"], "target", "hop {hop}: {closed}");
         let kept = there.call("_acpmux/draft_get", json!({"sessionId": id})).await;

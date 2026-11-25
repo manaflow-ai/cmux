@@ -84,6 +84,8 @@ public final class SidebarModel {
     @ObservationIgnored public var holdsLaunchOrder = false {
         didSet { if oldValue != holdsLaunchOrder { holdsLaunchOrder ? startLaunchOrderHold() : endLaunchOrderHold() } }
     }
+    /// The structural set that ended the launch order hold, once it moved a row: it shows without motion.
+    @ObservationIgnored public internal(set) var releasedLaunchOrderRevision: UInt64?
     /// What the hold keeps (`SidebarModel+LaunchOrder`).
     @ObservationIgnored var launchOrder = LaunchOrderLists()
     /// Where each group sits in `sections` (section, node); prepared with the sections, before a header click.
@@ -258,6 +260,9 @@ public final class SidebarModel {
     public var rowBadgeStyle: SidebarRowBadgeStyle?
     /// The workspace list is hidden (`sidebar.showProjects` off).
     public var hidesWorkspaces = false
+    /// Draws archived rows dimmed in their place instead of leaving them out (cmux#51635: the sidebar lists none, and
+    /// Settings > Sidebar > Archived Workspaces lists them). Only the states playground sets it, to show the look.
+    public var listsArchived = false
     /// `sidebar.style`: the standard sidebar or the thin rail (plans/cmux-next/minimal-sidebar.md).
     public var style: SidebarLayoutStyle = .standard
     /// The rail's full sidebar is open over the content (`SidebarRailPeek`); window view state.
@@ -828,6 +833,7 @@ public final class SidebarModel {
         }
         o.now = Calendar.current.startOfDay(for: Date())
         o.hidesWorkspaces = hidesWorkspaces
+        if listsArchived { (o.archiveSection, o.foldsArchived) = (false, false) }
         return o
     }
 

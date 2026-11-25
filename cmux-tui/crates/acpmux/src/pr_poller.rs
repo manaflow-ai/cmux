@@ -497,6 +497,9 @@ impl<F: Fetch> Poller<F> {
                         "name": r.get("name").cloned().unwrap_or(Value::Null),
                         "status": up("status"),
                         "conclusion": up("conclusion"),
+                        // What `pr_state` orders runs of one name by (`newest_runs`).
+                        "databaseId": r.get("id").cloned().unwrap_or(Value::Null),
+                        "startedAt": r.get("started_at").cloned().unwrap_or(Value::Null),
                     }));
                 }
                 if page >= last.unwrap_or(1).min(CHECK_PAGES) {
