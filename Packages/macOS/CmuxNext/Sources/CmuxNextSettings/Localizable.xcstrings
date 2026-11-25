@@ -1,6 +1,138 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.category.automations": {
+      "comment": "Settings sidebar: the category for Cloud automations (when cmux Cloud starts an agent on its own: a GitHub event, a webhook or a schedule).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automations"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأتمتة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatizacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatiseringer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automationen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatizaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatisations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automazioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "オートメーション"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វ័យប្រវត្តិកម្ម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "자동화"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatiseringer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automatyzacje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Automações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматизации"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ระบบอัตโนมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otomasyonlar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Автоматизації"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tự động hóa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自动化"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "自動化"
+          }
+        }
+      }
+    },
     "settings.agentPane.followUpMode": {
       "comment": "Settings > Agent Chat: title of the row that picks what Return does with a message sent while the agent is working (steer it into the running turn or queue it for after)",
       "extractionState": "manual",
@@ -245963,6 +246095,60 @@
         "zh-Hant": {"stringUnit": {"state": "translated", "value": "帶載入指示的提示條會在原處變成結果；關閉分頁或工作區、封存聊天後會出現「還原」。"}}
       }
     },
+    "settings.experiments.terminalHistory": {
+      "comment": "Settings > Experimental row title: a button on Claude Code and Codex terminal panes that opens the agent's earlier history as a read-only chat.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "سجل الوكيل في الطرفية"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Historija agenta u terminalu"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Agenthistorik i terminal"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Agentenverlauf im Terminal"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Terminal Agent History"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Historial del agente en la terminal"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Historique de l’agent du terminal"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Cronologia dell’agente nel terminale"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "ターミナルのエージェント履歴"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ប្រវត្តិភ្នាក់ងារក្នុងទែមីណាល់"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "터미널 에이전트 기록"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Agentlogg i terminal"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Historia agenta w terminalu"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Histórico do agente no terminal"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "История агента в терминале"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ประวัติเอเจนต์ในเทอร์มินัล"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Terminal Ajan Geçmişi"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Історія агента в терміналі"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lịch sử tác tử trong terminal"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "终端代理历史记录"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "終端機代理歷史記錄"}}
+      }
+    },
+    "settings.experiments.terminalHistory.help": {
+      "comment": "Settings > Experimental > Terminal Agent History help: what the switch adds to a terminal pane.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "translated", "value": "تحصل طرفيات Claude Code وCodex على زر يفتح سجلها السابق كمحادثة للقراءة فقط."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Terminali Claude Code i Codex dobijaju dugme koje otvara njihovu raniju historiju kao chat samo za čitanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Claude Code- og Codex-terminaler får en knap, der åbner deres tidligere historik som en skrivebeskyttet chat."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Claude Code- und Codex-Terminals erhalten eine Taste, die ihren früheren Verlauf als schreibgeschützten Chat öffnet."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Claude Code and Codex terminals get a button that opens their earlier history as a read-only chat."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Las terminales de Claude Code y Codex tienen un botón que abre su historial anterior como un chat de solo lectura."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Les terminaux Claude Code et Codex ont un bouton qui ouvre leur historique antérieur comme une discussion en lecture seule."}},
+        "it": {"stringUnit": {"state": "translated", "value": "I terminali Claude Code e Codex hanno un pulsante che apre la loro cronologia precedente come chat di sola lettura."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Claude Code と Codex のターミナルに、以前の履歴を読み取り専用のチャットとして開くボタンが表示されます。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ទែមីណាល់ Claude Code និង Codex មានប៊ូតុងដែលបើកប្រវត្តិមុនៗរបស់វាជាការជជែកសម្រាប់តែអាន។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "Claude Code 및 Codex 터미널에 이전 기록을 읽기 전용 채팅으로 여는 버튼이 생깁니다."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Claude Code- og Codex-terminaler får en knapp som åpner den tidligere loggen som en skrivebeskyttet chat."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Terminale Claude Code i Codex dostają przycisk, który otwiera ich wcześniejszą historię jako czat tylko do odczytu."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Os terminais do Claude Code e do Codex ganham um botão que abre o histórico anterior como um chat somente leitura."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "В терминалах Claude Code и Codex появляется кнопка, открывающая их прежнюю историю как чат только для чтения."}},
+        "th": {"stringUnit": {"state": "translated", "value": "เทอร์มินัล Claude Code และ Codex จะมีปุ่มที่เปิดประวัติก่อนหน้าเป็นแชทแบบอ่านอย่างเดียว"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Claude Code ve Codex terminallerinde önceki geçmişi salt okunur bir sohbet olarak açan bir düğme bulunur."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Термінали Claude Code і Codex отримують кнопку, що відкриває їхню попередню історію як чат лише для читання."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Terminal Claude Code và Codex có một nút mở lịch sử trước đó dưới dạng cuộc trò chuyện chỉ đọc."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "Claude Code 和 Codex 终端会多出一个按钮，可将其早前的历史记录作为只读聊天打开。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "Claude Code 與 Codex 終端機會多一個按鈕，可將先前的歷史記錄以唯讀聊天開啟。"}}
+      }
+    },
     "settings.experiments.terminalHistoryFind": {
       "comment": "Settings > Experimental row title: Cmd-F in a terminal searches its whole history, not only the screen.",
       "extractionState": "manual",
@@ -254212,6 +254398,110 @@
         "tr": {"stringUnit": {"state": "translated", "value": "Yalnızca paket adları ve sayılar."}},
         "uk": {"stringUnit": {"state": "translated", "value": "Лише назви пакетів і лічильники."}},
         "vi": {"stringUnit": {"state": "translated", "value": "Chỉ tên gói và số lần."}}
+      }
+    },
+    "settings.group.anonymousTelemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Crash Reports and Analytics"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "تقارير الأعطال والتحليلات"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Absturzberichte und Analysen"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Informes de errores y analíticas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Rapports de plantage et statistiques"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラッシュレポートと分析"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "충돌 보고서 및 분석"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "崩溃报告和分析"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "當機報告與分析"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Izvještaji o padovima i analitika"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Nedbrudsrapporter og analyser"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Report sugli arresti anomali e analisi"}},
+        "km": {"stringUnit": {"state": "translated", "value": "របាយការណ៍គាំង និងការវិភាគ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Krasjrapporter og analyse"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Raporty o awariach i analityka"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Relatórios de falhas e análises"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Отчёты о сбоях и аналитика"}},
+        "th": {"stringUnit": {"state": "translated", "value": "รายงานข้อขัดข้องและการวิเคราะห์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Çökme raporları ve analiz"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Звіти про збої та аналітика"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Báo cáo sự cố và phân tích"}}
+      }
+    },
+    "settings.app.sendAnonymousTelemetry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Send Crash Reports and Analytics"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "إرسال تقارير الأعطال والتحليلات"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Absturzberichte und Analysen senden"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Enviar informes de errores y analíticas"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Envoyer les rapports de plantage et les statistiques"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "クラッシュレポートと分析を送信"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "충돌 보고서 및 분석 보내기"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "发送崩溃报告和分析"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "傳送當機報告與分析"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Šalji izvještaje o padovima i analitiku"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Send nedbrudsrapporter og analyser"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Invia report sugli arresti anomali e analisi"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ផ្ញើរបាយការណ៍គាំង និងការវិភាគ"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Send krasjrapporter og analyse"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wysyłaj raporty o awariach i analitykę"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Enviar relatórios de falhas e análises"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Отправлять отчёты о сбоях и аналитику"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ส่งรายงานข้อขัดข้องและการวิเคราะห์"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Çökme raporlarını ve analizi gönder"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Надсилати звіти про збої та аналітику"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Gửi báo cáo sự cố và phân tích"}}
+      }
+    },
+    "settings.app.sendAnonymousTelemetry.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Off until you turn it on. No prompts, files or paths."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "متوقف حتى تشغّله. لا مطالبات ولا ملفات ولا مسارات."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Aus, bis du es einschaltest. Keine Prompts, Dateien oder Pfade."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Desactivado hasta que lo actives. Sin prompts, archivos ni rutas."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Désactivé jusqu'à ce que vous l'activiez. Aucun prompt, fichier ni chemin."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "オンにするまでオフ。プロンプト、ファイル、パスは送信しません。"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "켜기 전까지 꺼져 있습니다. 프롬프트, 파일, 경로는 보내지 않습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "在你打开前保持关闭。不含提示词、文件或路径。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "在你開啟前保持關閉。不含提示詞、檔案或路徑。"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Isključeno dok ga ne uključiš. Bez promptova, datoteka ili putanja."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Slået fra, indtil du slår det til. Ingen prompts, filer eller stier."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Disattivato finché non lo attivi. Nessun prompt, file o percorso."}},
+        "km": {"stringUnit": {"state": "translated", "value": "បិទរហូតដល់អ្នកបើក។ គ្មានប្រអប់បញ្ចូល ឯកសារ ឬផ្លូវទេ។"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Av til du slår det på. Ingen ledetekster, filer eller stier."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wyłączone, dopóki go nie włączysz. Bez promptów, plików i ścieżek."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Desativado até você ativar. Sem prompts, arquivos ou caminhos."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Выключено, пока вы не включите. Без промптов, файлов и путей."}},
+        "th": {"stringUnit": {"state": "translated", "value": "ปิดอยู่จนกว่าคุณจะเปิด ไม่มีพรอมต์ ไฟล์ หรือพาธ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Sen açana kadar kapalı. İstem, dosya veya yol yok."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вимкнено, доки ви не ввімкнете. Без промптів, файлів і шляхів."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tắt cho đến khi bạn bật. Không có prompt, tệp hay đường dẫn."}}
+      }
+    },
+    "settings.app.sendAnonymousTelemetry.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Sends cmux crash reports and anonymous usage events, so we can fix crashes and see which features are used. Stacks, app and macOS versions and event names only, never your prompts, files, paths, branches or text. Crash reports start at the next launch."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يرسل إلى cmux تقارير الأعطال وأحداث استخدام مجهولة الهوية، لنصلح الأعطال ونعرف الميزات المستخدمة. مكدسات الاستدعاء وإصدارات التطبيق وmacOS وأسماء الأحداث فقط، ولا يرسل أبدًا مطالباتك أو ملفاتك أو مساراتك أو فروعك أو نصوصك. تبدأ تقارير الأعطال عند التشغيل التالي."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Sendet cmux Absturzberichte und anonyme Nutzungsereignisse, damit wir Abstürze beheben und sehen, welche Funktionen genutzt werden. Nur Stacks, App- und macOS-Versionen und Ereignisnamen, nie deine Prompts, Dateien, Pfade, Branches oder Texte. Absturzberichte beginnen beim nächsten Start."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Envía a cmux informes de errores y eventos de uso anónimos, para corregir fallos y ver qué funciones se usan. Solo pilas, versiones de la app y de macOS y nombres de eventos, nunca tus prompts, archivos, rutas, ramas ni texto. Los informes de errores empiezan en el siguiente inicio."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Envoie à cmux des rapports de plantage et des événements d'utilisation anonymes, pour corriger les plantages et voir quelles fonctions servent. Uniquement des piles, les versions de l'app et de macOS et des noms d'événements, jamais vos prompts, fichiers, chemins, branches ou textes. Les rapports de plantage commencent au prochain lancement."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "クラッシュレポートと匿名の利用イベントを cmux に送信し、クラッシュの修正と使われている機能の把握に役立てます。送るのはスタック、アプリと macOS のバージョン、イベント名だけで、プロンプト、ファイル、パス、ブランチ、テキストは送りません。クラッシュレポートは次回の起動から始まります。"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "충돌 보고서와 익명 사용 이벤트를 cmux에 보내 충돌을 고치고 어떤 기능이 쓰이는지 파악합니다. 스택, 앱 및 macOS 버전, 이벤트 이름만 보내며 프롬프트, 파일, 경로, 브랜치, 텍스트는 절대 보내지 않습니다. 충돌 보고서는 다음 실행부터 시작됩니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "向 cmux 发送崩溃报告和匿名使用事件，帮助我们修复崩溃并了解哪些功能被使用。只发送调用栈、应用和 macOS 版本以及事件名称，绝不发送你的提示词、文件、路径、分支或文本。崩溃报告从下次启动开始。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "向 cmux 傳送當機報告和匿名使用事件，幫助我們修正當機並了解哪些功能被使用。只傳送呼叫堆疊、App 和 macOS 版本以及事件名稱，絕不傳送你的提示詞、檔案、路徑、分支或文字。當機報告從下次啟動開始。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Šalje cmuxu izvještaje o padovima i anonimne događaje korištenja, da popravimo padove i vidimo koje se funkcije koriste. Samo stekovi, verzije aplikacije i macOS-a i nazivi događaja, nikad tvoji promptovi, datoteke, putanje, grane ili tekst. Izvještaji o padovima počinju pri sljedećem pokretanju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sender cmux nedbrudsrapporter og anonyme brugshændelser, så vi kan rette nedbrud og se, hvilke funktioner der bruges. Kun stakke, app- og macOS-versioner og hændelsesnavne, aldrig dine prompts, filer, stier, branches eller tekst. Nedbrudsrapporter starter ved næste opstart."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Invia a cmux report sugli arresti anomali ed eventi d'uso anonimi, per correggere gli arresti e capire quali funzioni si usano. Solo stack, versioni dell'app e di macOS e nomi degli eventi, mai i tuoi prompt, file, percorsi, branch o testi. I report sugli arresti iniziano al prossimo avvio."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ផ្ញើរបាយការណ៍គាំង និងព្រឹត្តិការណ៍ប្រើប្រាស់អនាមិកទៅ cmux ដើម្បីជួសជុលការគាំង និងដឹងថាមុខងារណាត្រូវបានប្រើ។ មានតែ stack កំណែកម្មវិធី និង macOS និងឈ្មោះព្រឹត្តិការណ៍ប៉ុណ្ណោះ មិនដែលផ្ញើប្រអប់បញ្ចូល ឯកសារ ផ្លូវ branch ឬអត្ថបទរបស់អ្នកទេ។ របាយការណ៍គាំងចាប់ផ្តើមនៅពេលបើកលើកក្រោយ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sender cmux krasjrapporter og anonyme brukshendelser, så vi kan rette krasj og se hvilke funksjoner som brukes. Bare stakker, app- og macOS-versjoner og hendelsesnavn, aldri ledetekstene, filene, stiene, grenene eller teksten din. Krasjrapporter starter ved neste oppstart."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Wysyła do cmux raporty o awariach i anonimowe zdarzenia użycia, abyśmy mogli naprawiać awarie i widzieć, których funkcji się używa. Tylko stosy wywołań, wersje aplikacji i macOS oraz nazwy zdarzeń, nigdy Twoje prompty, pliki, ścieżki, gałęzie ani tekst. Raporty o awariach zaczynają się przy następnym uruchomieniu."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Envia ao cmux relatórios de falhas e eventos de uso anônimos, para corrigirmos falhas e vermos quais recursos são usados. Somente pilhas, versões do app e do macOS e nomes de eventos, nunca seus prompts, arquivos, caminhos, branches ou textos. Os relatórios de falhas começam na próxima abertura."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Отправляет в cmux отчёты о сбоях и анонимные события использования, чтобы мы исправляли сбои и видели, какие функции используются. Только стеки, версии приложения и macOS и названия событий, никогда ваши промпты, файлы, пути, ветки или текст. Отчёты о сбоях начнутся при следующем запуске."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ส่งรายงานข้อขัดข้องและเหตุการณ์การใช้งานแบบไม่ระบุตัวตนให้ cmux เพื่อให้เราแก้ข้อขัดข้องและรู้ว่าฟีเจอร์ใดถูกใช้ ส่งเฉพาะสแต็ก เวอร์ชันแอปและ macOS และชื่อเหตุการณ์ ไม่ส่งพรอมต์ ไฟล์ พาธ บรานช์ หรือข้อความของคุณ รายงานข้อขัดข้องเริ่มในการเปิดครั้งถัดไป"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Çökmeleri düzeltebilmemiz ve hangi özelliklerin kullanıldığını görebilmemiz için cmux'a çökme raporları ve anonim kullanım olayları gönderir. Yalnızca yığınlar, uygulama ve macOS sürümleri ve olay adları; istemlerin, dosyaların, yolların, dalların veya metnin asla gönderilmez. Çökme raporları bir sonraki açılışta başlar."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Надсилає cmux звіти про збої та анонімні події використання, щоб ми виправляли збої й бачили, якими функціями користуються. Лише стеки, версії застосунку та macOS і назви подій, ніколи ваші промпти, файли, шляхи, гілки чи текст. Звіти про збої почнуться з наступного запуску."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Gửi cho cmux báo cáo sự cố và sự kiện sử dụng ẩn danh, để chúng tôi sửa sự cố và biết tính năng nào được dùng. Chỉ stack, phiên bản ứng dụng và macOS và tên sự kiện, không bao giờ gửi prompt, tệp, đường dẫn, nhánh hay văn bản của bạn. Báo cáo sự cố bắt đầu từ lần mở tiếp theo."}}
       }
     },
     "settings.tabs.newTabClock.show": {
