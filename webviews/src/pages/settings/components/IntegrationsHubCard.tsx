@@ -4,11 +4,15 @@
 // Stripe (a pasted restricted key, sent once to the host and cleared here) and Link GitHub, the
 // approvals waiting for the person with Allow, Deny and Don't ask again, the rules with Add and
 // Remove, the pause switch and recent audit rows. Nothing changes without a click; an approval is
-// answered only here, never by the CLI.
+// answered only here, never by the CLI. Four tabs under the header: Connections (the hosted MCP
+// catalog grid, ConnectionsPanel, above the linked accounts), Approvals, Rules and Audit; it opens
+// on Approvals while a call waits, else on Connections.
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 import { Button } from "../../../ui/Button";
 import { Input } from "../../../ui/Input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../ui/Tabs";
 import { useStore } from "../context";
+import { ConnectionsPanel } from "./ConnectionsPanel";
 import { Switch } from "../editors/ToggleEditor";
 import type { HubCall, HubConnection, HubRule, HubRuleFields, HubRun, HubState } from "../ops";
 import { t } from "../strings";
@@ -25,6 +29,8 @@ const RULE_ACTIONS = [
 ] as const;
 
 /** An audit row's tone as the status dot Settings > Devices draws. */
+type HubTab = "connections" | "approvals" | "rules" | "audit";
+
 const AUDIT_TONE = { good: "success", warn: "attention", plain: "neutral" } as const;
 
 type Run = (run: Exclude<HubRun, { action: "refresh" }>) => Promise<void>;
@@ -32,6 +38,7 @@ type Run = (run: Exclude<HubRun, { action: "refresh" }>) => Promise<void>;
 function ConnectionRow({ row, busy, onRun }: { row: HubConnection; busy: boolean; onRun: Run }) {
   const titleId = useId();
   const [confirming, setConfirming] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
   const confirmTitle = t("settingsWindow.hub.removeTitle", row.title);
   const details = [row.modeLabel, row.sharingLabel].filter((part): part is string => !!part);
   return (
@@ -52,6 +59,26 @@ function ConnectionRow({ row, busy, onRun }: { row: HubConnection; busy: boolean
             <span className="accounts-dot" aria-hidden="true" />
             {row.statusLabel}
           </span>
+          {row.reconnect && !confirming && !reconnecting && (
+            <Button
+              variant="solid"
+              className="button"
+              data-hub-action="reconnect"
+              aria-describedby={titleId}
+              disabled={busy}
+              onClick={() =>
+                row.reconnect === "key"
+                  ? setReconnecting(true)
+                  : void onRun({
+                      action: "link",
+                      provider: "github",
+                      sharing: row.sharing === "team" ? "team" : "private",
+                    })
+              }
+            >
+              {t("settingsWindow.hub.reconnect")}
+            </Button>
+          )}
           {row.canRemove && !confirming && (
             <Button
               danger
@@ -67,6 +94,14 @@ function ConnectionRow({ row, busy, onRun }: { row: HubConnection; busy: boolean
           )}
         </span>
       </div>
+      {reconnecting && (
+        <LinkStripe
+          busy={busy}
+          onRun={onRun}
+          initialSharing={row.sharing === "team" ? "team" : "private"}
+          onDone={() => setReconnecting(false)}
+        />
+      )}
       {confirming && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="accounts-form" data-hub-confirm="" role="group" aria-label={confirmTitle}>
@@ -96,15 +131,27 @@ function ConnectionRow({ row, busy, onRun }: { row: HubConnection; busy: boolean
   );
 }
 
-function LinkStripe({ busy, onRun }: { busy: boolean; onRun: Run }) {
+function LinkStripe({
+  busy,
+  onRun,
+  initialSharing = "private",
+  onDone,
+}: {
+  busy: boolean;
+  onRun: Run;
+  initialSharing?: "private" | "team";
+  /** Set when the form reconnects a linked account in its row; called once the key is sent. */
+  onDone?: () => void;
+}) {
   const [key, setKey] = useState("");
-  const [sharing, setSharing] = useState<"private" | "team">("private");
+  const [sharing, setSharing] = useState<"private" | "team">(initialSharing);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const pasted = key.trim();
     // The key goes to the host once and leaves the page's state at once.
     setKey("");
     if (pasted) void onRun({ action: "link", provider: "stripe", key: pasted, sharing });
+    if (pasted) onDone?.();
   };
   return (
     <form className="row accounts-row hub-wide" data-hub-link="stripe" onSubmit={submit}>
@@ -323,6 +370,8 @@ export function IntegrationsHubCard() {
   const [state, setState] = useState<HubState | null>(null);
   const [busy, setBusy] = useState(false);
   const [addingRule, setAddingRule] = useState(false);
+  const [picked, setPicked] = useState<HubTab | null>(null);
+  const [connectionsSignal, setConnectionsSignal] = useState(0);
   const refresh = useCallback(async () => {
     setState(await store.runHub({ action: "refresh" }));
   }, [store]);
@@ -342,6 +391,12 @@ export function IntegrationsHubCard() {
   );
   const overview = state?.overview ?? null;
   const ready = overview?.ok === true && overview.available ? overview : null;
+  const tab: HubTab =
+    picked && (ready || picked === "connections")
+      ? picked
+      : ready && ready.approvals.length > 0
+        ? "approvals"
+        : "connections";
   return (
     // One card made of sections, as Settings > Devices: each heading starts its own group, so it
     // keeps the group's spacing from the card above it.
@@ -355,7 +410,10 @@ export function IntegrationsHubCard() {
             className="button"
             data-hub-action="refresh"
             disabled={state?.loading ?? false}
-            onClick={() => void refresh()}
+            onClick={() => {
+              setConnectionsSignal((n) => n + 1);
+              void refresh();
+            }}
           >
             {t("settingsWindow.hub.refresh")}
           </Button>
@@ -420,121 +478,149 @@ export function IntegrationsHubCard() {
         )}
       </section>
 
-      {ready && (
-        <>
-          <section className="group" data-hub-group="approvals">
-            <div className="group-title" data-hub-heading="approvals">
-              {t("settingsWindow.hub.approvals")}
-            </div>
-            {ready.approvals.length === 0 ? (
-              <div className="row-help" data-hub-empty="approvals">
-                {t("settingsWindow.hub.noApprovals")}
+      <Tabs variant="segmented" className="hub-tabs" value={tab} onValueChange={(value) => setPicked(value as HubTab)}>
+        <TabsList className="hub-tab-list" aria-label={t("settingsWindow.hub.title")}>
+          <TabsTrigger value="connections" data-hub-tab="connections">
+            {t("settingsWindow.connections.title")}
+          </TabsTrigger>
+          {ready && (
+            <>
+              <TabsTrigger value="approvals" data-hub-tab="approvals">
+                {t("settingsWindow.hub.approvals")}
+              </TabsTrigger>
+              <TabsTrigger value="rules" data-hub-tab="rules">
+                {t("settingsWindow.hub.rules")}
+              </TabsTrigger>
+              <TabsTrigger value="audit" data-hub-tab="audit">
+                {t("settingsWindow.hub.audit")}
+              </TabsTrigger>
+            </>
+          )}
+        </TabsList>
+        <TabsContent value="connections" data-hub-panel="connections">
+          <ConnectionsPanel refreshSignal={connectionsSignal} />
+          {ready && (
+            <section className="group" data-hub-group="accounts">
+              <div className="group-title" data-hub-heading="accounts">
+                {t("settingsWindow.hub.accounts")}
               </div>
-            ) : (
-              <div className="rows">
-                {ready.approvals.map((call) => (
-                  <ApprovalRow key={call.id} call={call} busy={busy} onRun={run} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="group" data-hub-group="accounts">
-            <div className="group-title" data-hub-heading="accounts">
-              {t("settingsWindow.hub.accounts")}
-            </div>
-            {ready.connections.length === 0 && (
-              <div className="row-help hub-lead" data-hub-empty="accounts">
-                {t("settingsWindow.hub.noAccounts")}
-              </div>
-            )}
-            {(ready.connections.length > 0 || !ready.hasStripe || !ready.hasGithub) && (
-              <div className="rows">
-                {ready.connections.map((row) => (
-                  <ConnectionRow key={row.id} row={row} busy={busy} onRun={run} />
-                ))}
-                {!ready.hasStripe && <LinkStripe busy={busy} onRun={run} />}
-                {!ready.hasGithub && (
-                  <div className="row accounts-row" data-hub-link="github">
-                    <div className="row-main">
-                      <div className="row-label">
-                        <div className="row-title">{t("settingsWindow.hub.linkGithub")}</div>
-                        <div className="row-help">{t("settingsWindow.hub.githubHelp")}</div>
+              {ready.connections.length === 0 && (
+                <div className="row-help hub-lead" data-hub-empty="accounts">
+                  {t("settingsWindow.hub.noAccounts")}
+                </div>
+              )}
+              {(ready.connections.length > 0 || !ready.hasStripe || !ready.hasGithub) && (
+                <div className="rows">
+                  {ready.connections.map((row) => (
+                    <ConnectionRow key={row.id} row={row} busy={busy} onRun={run} />
+                  ))}
+                  {!ready.hasStripe && <LinkStripe busy={busy} onRun={run} />}
+                  {!ready.hasGithub && (
+                    <div className="row accounts-row" data-hub-link="github">
+                      <div className="row-main">
+                        <div className="row-label">
+                          <div className="row-title">{t("settingsWindow.hub.linkGithub")}</div>
+                          <div className="row-help">{t("settingsWindow.hub.githubHelp")}</div>
+                        </div>
+                        <span className="row-control">
+                          <Button
+                            className="button"
+                            data-hub-action="linkGithub"
+                            disabled={busy}
+                            onClick={() => void run({ action: "link", provider: "github" })}
+                          >
+                            {t("settingsWindow.hub.link")}
+                          </Button>
+                        </span>
                       </div>
-                      <span className="row-control">
-                        <Button
-                          className="button"
-                          data-hub-action="linkGithub"
-                          disabled={busy}
-                          onClick={() => void run({ action: "link", provider: "github" })}
-                        >
-                          {t("settingsWindow.hub.link")}
-                        </Button>
-                      </span>
                     </div>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
+        </TabsContent>
+        {ready && (
+          <>
+            <TabsContent value="approvals" data-hub-panel="approvals">
+              <section className="group" data-hub-group="approvals">
+                <div className="group-title" data-hub-heading="approvals">
+                  {t("settingsWindow.hub.approvals")}
+                </div>
+                {ready.approvals.length === 0 ? (
+                  <div className="row-help" data-hub-empty="approvals">
+                    {t("settingsWindow.hub.noApprovals")}
+                  </div>
+                ) : (
+                  <div className="rows">
+                    {ready.approvals.map((call) => (
+                      <ApprovalRow key={call.id} call={call} busy={busy} onRun={run} />
+                    ))}
                   </div>
                 )}
-              </div>
-            )}
-          </section>
-
-          <section className="group" data-hub-group="rules">
-            <div className="group-title" data-hub-heading="rules">
-              {t("settingsWindow.hub.rules")}
-            </div>
-            {ready.rules.length === 0 && (
-              <div className="row-help hub-lead" data-hub-empty="rules">
-                {t("settingsWindow.hub.noRules")}
-              </div>
-            )}
-            {(ready.rules.length > 0 || addingRule) && (
-              <div className="rows">
-                {ready.rules.map((rule) => (
-                  <RuleRow key={rule.id} rule={rule} busy={busy} onRun={run} />
-                ))}
-                {addingRule && <AddRule busy={busy} onRun={run} onDone={() => setAddingRule(false)} />}
-              </div>
-            )}
-            {!addingRule && (
-              <div className="accounts-header hub-below">
-                <Button className="button" data-hub-action="addRule" onClick={() => setAddingRule(true)}>
-                  {t("settingsWindow.hub.addRule")}
-                </Button>
-              </div>
-            )}
-          </section>
-
-          <section className="group" data-hub-group="audit">
-            <div className="group-title" data-hub-heading="audit">
-              {t("settingsWindow.hub.audit")}
-            </div>
-            {ready.audit.length === 0 ? (
-              <div className="row-help" data-hub-empty="audit">
-                {t("settingsWindow.hub.noAudit")}
-              </div>
-            ) : (
-              <div className="rows">
-                {ready.audit.map((row) => (
-                  <div className="row accounts-row" key={row.seq} data-hub-audit={row.seq} data-tone={row.tone}>
-                    <div className="row-main">
-                      <div className="row-label">
-                        <div className="row-title selectable">{row.line}</div>
-                        <div className="row-help">{row.whenText}</div>
-                      </div>
-                      <span className="row-control">
-                        <span className="accounts-status devices-status" data-tone={AUDIT_TONE[row.tone]}>
-                          <span className="accounts-dot" aria-hidden="true" />
-                          {row.eventLabel}
-                        </span>
-                      </span>
-                    </div>
+              </section>
+            </TabsContent>
+            <TabsContent value="rules" data-hub-panel="rules">
+              <section className="group" data-hub-group="rules">
+                <div className="group-title" data-hub-heading="rules">
+                  {t("settingsWindow.hub.rules")}
+                </div>
+                {ready.rules.length === 0 && (
+                  <div className="row-help hub-lead" data-hub-empty="rules">
+                    {t("settingsWindow.hub.noRules")}
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
-        </>
-      )}
+                )}
+                {(ready.rules.length > 0 || addingRule) && (
+                  <div className="rows">
+                    {ready.rules.map((rule) => (
+                      <RuleRow key={rule.id} rule={rule} busy={busy} onRun={run} />
+                    ))}
+                    {addingRule && <AddRule busy={busy} onRun={run} onDone={() => setAddingRule(false)} />}
+                  </div>
+                )}
+                {!addingRule && (
+                  <div className="accounts-header hub-below">
+                    <Button className="button" data-hub-action="addRule" onClick={() => setAddingRule(true)}>
+                      {t("settingsWindow.hub.addRule")}
+                    </Button>
+                  </div>
+                )}
+              </section>
+            </TabsContent>
+            <TabsContent value="audit" data-hub-panel="audit">
+              <section className="group" data-hub-group="audit">
+                <div className="group-title" data-hub-heading="audit">
+                  {t("settingsWindow.hub.audit")}
+                </div>
+                {ready.audit.length === 0 ? (
+                  <div className="row-help" data-hub-empty="audit">
+                    {t("settingsWindow.hub.noAudit")}
+                  </div>
+                ) : (
+                  <div className="rows">
+                    {ready.audit.map((row) => (
+                      <div className="row accounts-row" key={row.seq} data-hub-audit={row.seq} data-tone={row.tone}>
+                        <div className="row-main">
+                          <div className="row-label">
+                            <div className="row-title selectable">{row.line}</div>
+                            <div className="row-help">{row.whenText}</div>
+                          </div>
+                          <span className="row-control">
+                            <span className="accounts-status devices-status" data-tone={AUDIT_TONE[row.tone]}>
+                              <span className="accounts-dot" aria-hidden="true" />
+                              {row.eventLabel}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </TabsContent>
+          </>
+        )}
+      </Tabs>
     </div>
   );
 }

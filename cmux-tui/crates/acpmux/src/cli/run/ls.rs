@@ -69,6 +69,10 @@ pub struct LsArgs {
     /// Only live sessions: any status but closed.
     #[arg(long)]
     live: bool,
+    /// Only closed sessions (`--status closed`); `--json` rows carry `close`: who closed each,
+    /// why, and its outcome (`done`, `dropped`, `unfinished`).
+    #[arg(long, conflicts_with_all = ["live", "status"])]
+    closed: bool,
     /// Only sessions on this machine: its name, or this machine's (`local` too). `--host` still
     /// works. Without it `ls` lists every machine's sessions, and says so on stderr: a script
     /// after its own sessions passes `--machine local`.
@@ -110,6 +114,11 @@ const CURSOR_PAGE: &str = method::MUX_SESSIONS;
 /// optional relay/SSH recovery reads together.
 const LS_STEP_DEADLINE: Duration = Duration::from_secs(4);
 pub(crate) const LS_TOTAL_DEADLINE: Duration = Duration::from_secs(15);
+// RFD 0050 rule 5: the relay listing inside `ls` ends before `ls` does.
+const _: () = assert!(
+    crate::cli::send_relay::LS_DEADLINE.as_millis() < LS_TOTAL_DEADLINE.as_millis(),
+    "the relay listing's bound must nest inside the ls budget"
+);
 
 const LOCAL_ROUTE: &str = "local daemon";
 
@@ -303,8 +312,11 @@ async fn scoped_output_with_budget(
         wide,
         leads,
         archived,
+        closed,
         refresh_relay_cache: _,
     } = args;
+    // `--closed` is `--status closed` (clap refuses the two together).
+    let status = if closed { Some("closed".to_owned()) } else { status };
     // The leaders need every live row: the sessions that report are read with them.
     let live = live || leads;
     patterns.extend(name_patterns);
