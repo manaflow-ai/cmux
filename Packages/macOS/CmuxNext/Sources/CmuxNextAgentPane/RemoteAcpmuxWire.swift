@@ -680,9 +680,15 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private func noteChat(_ summary: [String: Any]) {
         guard let host, let chatNoted, JSONSerialization.isValidJSONObject(summary),
               let data = try? JSONSerialization.data(withJSONObject: summary) else { return }
+        // A tab whose record holds another name of the chat (its session name) reads it under that name too.
+        let alias = state.withLock { $0.session }.flatMap { $0 != summary["sessionId"] as? String ? $0 : nil }
         MainDelivery().run {
-            guard let summary = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+            guard var summary = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
             chatNoted(summary, host)
+            if let alias {
+                summary["sessionId"] = alias
+                chatNoted(summary, host)
+            }
         }
     }
 

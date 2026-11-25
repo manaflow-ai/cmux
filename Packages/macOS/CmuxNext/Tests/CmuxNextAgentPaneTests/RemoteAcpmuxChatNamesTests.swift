@@ -46,7 +46,7 @@ import Testing
         let wire = RemoteAcpmuxWire(client: client, session: "sub", host: "install:vm", chatNoted: noted.chatNoted)
         try await wire.open(onFrame: { frames.append($0) }, onClose: { _, _ in })
         wire.send(#"{"jsonrpc":"2.0","id":1,"method":"_acpmux/attach","params":{"sessionId":"sub"}}"#) { _ in }
-        try await Self.waitUntil { noted.all == ["install:vm acp_1 Fix the flaky test"] }
+        try await Self.waitUntil { noted.all == ["install:vm acp_1 Fix the flaky test", "install:vm sub Fix the flaky test"] }
 
         // The chat's own change is noted; a child's (another session the chat started there) is not.
         let push = { (id: String, title: String) in
@@ -56,8 +56,10 @@ import Testing
         }
         try push("acp_child", "A child")
         try push("acp_1", "Fix the flaky login test")
-        try await Self.waitUntil { noted.all.count == 2 }
-        #expect(noted.all == ["install:vm acp_1 Fix the flaky test", "install:vm acp_1 Fix the flaky login test"])
+        try await Self.waitUntil { noted.all.count == 4 }
+        // The tab records the chat as "sub": it is noted under acpmux's id and under the tab's name.
+        #expect(noted.all == ["install:vm acp_1 Fix the flaky test", "install:vm sub Fix the flaky test",
+                              "install:vm acp_1 Fix the flaky login test", "install:vm sub Fix the flaky login test"])
     }
 
     @Test func aHostlessWireNotesNothing() async throws {
