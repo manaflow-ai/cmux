@@ -3,7 +3,7 @@
 // background end with acpmux's `background_task_update`. The call's own "Ran" row says how its
 // shell stands (running in the background, then stopped or finished), in whichever turn it ended;
 // a shell whose call is not in the transcript is noted where it ended, in a few words
-// ("Background command completed pytest -x"). Session Info's Background tasks (Debug Settings
+// ("Running tests · Finished"). Session Info's Background tasks (Debug Settings
 // `agent.sessionInfo`; with it off, the header's summary) lists the chat's background tasks with how
 // each stands, the ones only the transcript knows included (this daemon keeps no process registry).
 // A click on a task's row in Session Info opens the chat's Background tasks panel on that task's
@@ -233,7 +233,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     // No second row for a shell whose call is in the transcript.
     expect(await page.getByText(/Background (task|command) .*npm run dev/).count()).toBe(0);
     // The one whose call is not loaded is noted in the turn it ended, before its reply.
-    const note = page.locator(".cv-bgtask .cv-tool__text", { hasText: "Background command completed pytest -x" });
+    const note = page.locator(".cv-bgtask .cv-tool__text", { hasText: "Running tests · Finished" });
     expect(await note.isVisible()).toBe(true);
     const top = (text: string) => page.getByText(text).evaluate((node) => node.getBoundingClientRect().top);
     const at = await note.evaluate((node) => node.getBoundingClientRect().top);
@@ -389,7 +389,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   test("clicking a background task's end opens it in place; only Open in terminal opens its terminal", async () => {
     const page = await recordingPage();
-    const note = page.getByRole("button", { name: /Background command completed pytest -x/ });
+    const note = page.getByRole("button", { name: /Running tests · Finished/ });
     // A background command that finished is the turn's work: it folds under the turn's Worked for
     // (Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing works for?").
     expect(await note.count()).toBe(0);
@@ -496,7 +496,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     );
     expect(await running.getAttribute("data-open")).toBe("true");
     expect(await opened(page)).toEqual([]);
-    // Open in terminal stays, inside the card.
+    // At this width Session Info overlays the card. Dismiss the inspector to use the card.
+    await page.locator(SESSION_INFO_TOGGLE).click();
+    await section.waitFor({ state: "hidden" });
     await running.getByRole("button", { name: "Open in terminal" }).click();
     await page.waitForFunction(() =>
       ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),
