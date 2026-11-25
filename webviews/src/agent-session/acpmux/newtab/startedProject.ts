@@ -122,13 +122,18 @@ let appCloudPickAsked = false;
 
 /// A chat page has no New Tab context, and its storage is not a New Tab page's: it asks the app for Cloud's last pick
 /// once (`newTab.cloudPick`), so its composer's Cloud starts there too. A pick this page made or was given wins.
-export function askAppCloudPick(post: (method: string, params: Record<string, unknown>) => Promise<unknown>): void {
+export function askAppCloudPick(
+  post: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  answered?: () => void,
+): void {
   if (appCloudPickAsked) return;
   appCloudPickAsked = true;
   void post("newTab.cloudPick", {})
     .then((reply) => {
       const picked = (reply as { cloudStarted?: unknown } | undefined)?.cloudStarted;
-      if (typeof picked === "string" && appCloudPick === undefined) cloudPickChoices(picked);
+      if (typeof picked !== "string" || appCloudPick !== undefined || !isCloudPick(picked)) return;
+      cloudPickChoices(picked);
+      answered?.();
     })
     .catch(() => undefined);
 }

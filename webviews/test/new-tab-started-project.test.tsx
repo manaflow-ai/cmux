@@ -684,6 +684,11 @@ test("Cloud and back: This Mac's chip comes back to This Mac's own last folder, 
   await where("This Mac");
   expect(chip()).toContain("atlas");
   expect(chip()).not.toContain("acme/api");
+  // Twice over, the same.
+  await where("Cloud");
+  expect(chip()).toContain("acme/api");
+  await where("This Mac");
+  expect(chip()).toContain("atlas");
 });
 
 test("after a relaunch, a remembered Cloud folder of this Mac is the default and is granted again (cmux#53226)", async () => {
@@ -732,10 +737,13 @@ test("a chat page with no New Tab context asks the app for Cloud's last pick, an
   const asked: string[] = [];
   const app = async (method: string) => (asked.push(method), { cloudStarted: "github:acme/api" });
   expect(cloudPickChoices()).toEqual([]);
-  askAppCloudPick(app);
-  askAppCloudPick(app);
+  let answers = 0;
+  askAppCloudPick(app, () => answers++);
+  askAppCloudPick(app, () => answers++);
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(asked).toEqual(["newTab.cloudPick"]);
+  // The page hears the answer, so a chat already on Cloud takes it.
+  expect(answers).toBe(1);
   expect(cloudPickChoices()).toEqual(["github:acme/api"]);
   // A pick this page made before the answer stays.
   forgetAppCloudPickForTests();

@@ -93,4 +93,9 @@ struct NewTabStartedProjectTests {
         let remote = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.cloudPick"]))
         #expect((remote["value"] as? [String: Any])?["cloudStarted"] == nil, "\(remote)")
     }
+
+    /// A chat page on the page host (Chromium) reaches the request only through the page's op list.
+    @Test func aChatPageCanAskForCloudsLastPick() {
+        #expect(AgentPageOps.methods["newTab.cloudPick"] == "newTab.cloudPick")
+    }
 }

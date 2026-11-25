@@ -935,6 +935,9 @@ export function NewTabScreen(props: Props) {
     placePicked.current = true;
     const carried = cloudCarried.current;
     cloudCarried.current = undefined;
+    // This Mac's folder choice from before Cloud: read once, gone on any pick but Cloud.
+    const before = localBeforeCloud.current;
+    if (mode !== "cloud") localBeforeCloud.current = undefined;
     if (mode !== props.runMode?.mode) {
       projectChoice.current += 1;
       setCloudFolderWaiting(false);
@@ -966,9 +969,8 @@ export function NewTabScreen(props: Props) {
     }
     // Back on This Mac with Cloud's folder as Cloud left it: This Mac's own folder from before, never Cloud's last
     // pick carried over nor No folder (cmux#53226). A folder picked while on Cloud stays as above.
-    const before = localBeforeCloud.current;
-    if (mode !== "cloud") localBeforeCloud.current = undefined;
-    if (mode === "persistent" && cloudMode && before && project === before.cloud) {
+    // A GitHub repository picked on Cloud has no folder here either: This Mac's comes back too.
+    if (mode === "persistent" && cloudMode && before && (project === before.cloud || githubFolderRepo(project))) {
       saved.pick(undefined);
       setMachine(undefined);
       setPicked(before.picked);
