@@ -14,6 +14,7 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
+import type { CutoverLook } from "./cutover.experiment";
 import { RAIL_ACCESSIBILITY_ID, railEdge, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
@@ -39,6 +40,7 @@ import {
   marksIn,
   scrollTopAt,
   type MapMark,
+  mapY,
 } from "./mapGeometry";
 
 /// A pointer that moves this far after pressing scrubs instead of clicking.
@@ -58,6 +60,8 @@ const within = (element: Element | null, to: EventTarget | null) =>
 export function ScrollMap({
   rows,
   turns,
+  cutoverRow,
+  cutoverLook,
   layout,
   scroller,
   viewportHeight,
@@ -68,6 +72,8 @@ export function ScrollMap({
 }: {
   rows: readonly AcpmuxRow[];
   turns: readonly MinimapTurn[];
+  cutoverRow?: number;
+  cutoverLook: CutoverLook;
   layout: TranscriptLayout;
   scroller: React.RefObject<HTMLElement | null>;
   viewportHeight: number;
@@ -162,6 +168,7 @@ export function ScrollMap({
   }));
 
   if (!shown) return null;
+  const geometry = layoutGeometry(layout);
 
   const railY = (clientY: number) => clientY - (rail.current?.getBoundingClientRect().top ?? 0);
   /// Scrolls to `key`'s message: a prompt as the compact rail's click, a reply to its top.
@@ -327,6 +334,14 @@ export function ScrollMap({
           }}
         >
           <div ref={thumb} className="acpmux-scrollmap__view" aria-hidden />
+          {cutoverRow !== undefined && cutoverRow < geometry.count && (
+            <span
+              aria-hidden="true"
+              className="acpmux-minimap__cutover"
+              data-look={cutoverLook}
+              style={{ top: mapY(geometry.topAt(cutoverRow), layout.totalHeight, height) }}
+            />
+          )}
           {marks.map((mark, index) => {
             const turn = mark.kind === "user" ? turns[mark.turn] : undefined;
             const key = keyOf(mark)!;

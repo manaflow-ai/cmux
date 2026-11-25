@@ -729,6 +729,11 @@ export class FolderRecency {
     return this.order;
   }
 
+  /// When a chat here last worked in `folder` (of the list last read), if any did.
+  usedAt(folder: string): number | undefined {
+    return this.newest.get(folder);
+  }
+
   private build(sessions: readonly AcpmuxSessionEntry[]) {
     this.order = recentFolders(sessions, this.folderOf);
     this.newest = new Map();
