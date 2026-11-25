@@ -247,7 +247,10 @@ fn rm_says_yes_with_yes() {
 fn ls_prints_a_table() {
     let listed = json!({"machines": [
         {"machine_id": "vm_a1", "title": "dev", "status": "running",
-         "created_at": "2026-11-05T06:20:17Z"},
+         "created_at": "2026-11-05T06:20:17Z",
+         "disk": {"label": "13.2 / 20 GB", "segments": [
+             {"kind": "system", "gb": 5.3}, {"kind": "project", "gb": 6.2},
+             {"kind": "caches", "gb": 1.7}, {"kind": "free", "gb": 6.8}]}},
         {"machine_id": "vm_b2", "title": "", "status": "paused", "created_at": "2026-11-09T01:02:03Z"},
         {"machine_id": "vm_c3", "title": "evil\u{1b}]52;c;aGk=\u{7}", "status": "running",
          "created_at": "2026-11-09T01:02:03Z"},
@@ -256,18 +259,36 @@ fn ls_prints_a_table() {
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(
         lines[0].split_whitespace().collect::<Vec<_>>(),
-        ["NAME", "ID", "STATUS", "CREATED"]
+        ["NAME", "ID", "STATUS", "CREATED", "DISK"]
     );
     assert_eq!(
         lines[1].split_whitespace().collect::<Vec<_>>(),
-        ["dev", "vm:vm_a1", "running", "2026-11-05"]
+        [
+            "dev",
+            "vm:vm_a1",
+            "running",
+            "2026-11-05",
+            "13.2",
+            "/",
+            "20",
+            "GB",
+            "system",
+            "5.3",
+            "project",
+            "6.2",
+            "caches",
+            "1.7"
+        ]
     );
     assert_eq!(
         lines[2].split_whitespace().collect::<Vec<_>>(),
-        ["-", "vm:vm_b2", "paused", "2026-11-09"]
+        ["-", "vm:vm_b2", "paused", "2026-11-09", "-"]
     );
     assert!(!lines[3].contains('\u{1b}') && !lines[3].contains('\u{7}'), "{:?}", lines[3]);
-    assert_eq!(lines[4].split_whitespace().collect::<Vec<_>>(), ["new-one", "-", "creating", "-"]);
+    assert_eq!(
+        lines[4].split_whitespace().collect::<Vec<_>>(),
+        ["new-one", "-", "creating", "-", "-"]
+    );
     assert!(table(&json!({"machines": []})).contains("cmux vm new"));
     // Still loading is not "no VMs".
     let loading = table(&json!({"loaded": false, "machines": []}));

@@ -61,6 +61,8 @@
     "_acpmux/peers": {"params": []},
     "_acpmux/perf": {"params": ["op", "after", "limit", "waitMs", "page", "windowMs", "spans", "renders", "frames", "layoutShifts", "bytes", "bucketMs", "gaps"]},
     "_acpmux/host_overload": {"params": []},
+    "_acpmux/trace/spans": {"params": ["process", "pid", "spans"]},
+    "_acpmux/trace/status": {"params": []},
     "_acpmux/move_targets": {"params": ["source", "sourceKind"]},
     "_acpmux/draft_get": {"params": ["sessionId"]},
     "_acpmux/draft_set": {"params": ["sessionId", "text"]},
