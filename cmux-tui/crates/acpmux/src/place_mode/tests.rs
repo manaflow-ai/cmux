@@ -19,6 +19,7 @@ fn local(busy: bool) -> Local {
         busy: busy.then(|| "no room: RAM is the limit".into()),
         room: Some(if busy { 0.0 } else { 4.0 }),
         ram_free: Some(12e9),
+        caps: vec![],
     }
 }
 
