@@ -198,10 +198,8 @@ impl Keeper {
         })
     }
 
-    /// The overlay a resumed link rides: this tunnel's, as the first link's
-    /// (`wireguard.rs` builds it from the same session and peer address), so
-    /// its datagram ports (viewport sync) work after a resume too. `None` when
-    /// the session's netstack is gone.
+    /// The tunnel's overlay, as the first link on it had: a resumed link
+    /// syncs its viewport over the same tunnel (`None` once it stopped).
     fn overlay(&self) -> Option<super::super::Overlay> {
         let net = self.session.net().ok()?;
         Some(super::super::Overlay { net, peer_ip: IpAddr::V4(self.peer_ip) })
