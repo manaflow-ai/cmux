@@ -108,10 +108,10 @@ extension SidebarListViewComponents {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
         o.pullRequests = SidebarSessionTree.shared.pullRequests
-        if let tree = SidebarSessionTree.shared.drawn {
+        if let tree = SidebarSessionTree.shared.drawn(keeping: model.selection) {
             o.sessionTree = tree
             o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
-            // Lineage nesting alone (`SidebarTunables.lineageNesting`) nests rows; the keycaps and the chat history
+            // Lineage alone (an agent started a session) nests or hides rows; the keycaps and the chat history
             // stay `sidebar.sessionTree`'s.
             if DesignSettings.shared.sidebarSections.sessionTree {
                 o.keycaps = model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation)
@@ -567,7 +567,9 @@ extension SidebarListViewComponents {
             view.configure(section, row: row)
         case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
-        case let (.status, view as StatusHeaderRowView): view.configure(row)
+        case let (.status, view as StatusHeaderRowView):
+            view.isKeyboardFocused = showsFocusRing && focusedFold == row.key
+            view.configure(row)
         case let (.listHeader(header), view as ListHeaderRowView):
             view.configure(header, count: row.childCount, sharesLocalScreen: model.sections.contains { $0.machine?.kind == .local },
                            sharing: model.sections.contains { $0.machine?.screenShared == true })
