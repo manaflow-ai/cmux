@@ -2,7 +2,11 @@
    (.acpmux-context-card, contextCard.css), on the same text inset, so the two read as one family:
    the title in detail type and the muted color, names in body type, numbers on tabular figures, and
    bars as the context card's (the accent over a faint text-color track), a little thicker so a
-   window's share reads at a glance, as Claude desktop's. */
+   window's share reads at a glance, as Claude desktop's.
+   A theme file's popover look (appearance.popover.*, sent by the App's WebTheme on :root) sets
+   --popover-padding, --popover-header-color, --popover-header-size, --popover-header-weight,
+   --popover-progress-height and --popover-progress-fill; each falls back to today's value, so with
+   none set the card draws as it did. */
 .acpmux-plan-pop.ui-card {
   /* Its frame follows Text Size as its type does (--ui-px, ui/popupSurface.css). */
   width: calc(300 * var(--ui-px, 1px));
@@ -11,7 +15,7 @@
 }
 
 .acpmux-plan-usage {
-  padding: var(--ds-space-2);
+  padding: var(--popover-padding, var(--ds-space-2));
 }
 
 .acpmux-plan-usage-head {
@@ -23,8 +27,10 @@
 .acpmux-plan-usage-title {
   flex: 1;
   min-width: 0;
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
+  color: var(--popover-header-color, var(--agent-muted));
+  font-size: var(--popover-header-size, var(--text-detail));
+  /* Unset, the weight inherits (an unset custom property computes to unset). */
+  font-weight: var(--popover-header-weight);
   line-height: var(--text-detail--line-height);
   letter-spacing: var(--text-detail--letter-spacing);
 }
@@ -103,7 +109,7 @@
   appearance: none;
   display: block;
   width: 100%;
-  height: var(--ds-space-1);
+  height: var(--popover-progress-height, var(--ds-space-1));
   margin-top: var(--ds-space-1);
   border: 0;
   border-radius: 999px;
@@ -115,11 +121,11 @@
 }
 .acpmux-plan-usage-bar::-webkit-progress-value {
   border-radius: inherit;
-  background: var(--agent-accent);
+  background: var(--popover-progress-fill, var(--agent-accent));
 }
 .acpmux-plan-usage-bar::-moz-progress-bar {
   border-radius: inherit;
-  background: var(--agent-accent);
+  background: var(--popover-progress-fill, var(--agent-accent));
 }
 
 /* Codex's layout: rows with the share left, a hairline over Manage usage, no bars. */

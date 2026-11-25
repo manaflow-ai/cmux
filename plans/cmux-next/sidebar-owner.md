@@ -1,5 +1,7 @@
 # cmux-next sidebar: owner note
 
+- 2026-11-17 (wallpaper-lighting): Sidebar-Look: Leo, 2026-11-17: "what if you almost treat the background wallpaper like a light source? lighting inside cmux!?". Under `appearance.wallpaperLighting` (off by default) the sidebar's edge line catches the wallpaper's key light: a `WallpaperRimLayer` along the line, brightest where it faces the light, hidden while the setting is off. Nothing else in the sidebar moves or changes color. Regression: `WallpaperLightTests`.
+
 - 2026-11-24 (lucas/now-playing-controls): Sidebar-Look: Lucas, 2026-11-24: "lets center the icons here on the music player and also investigate why the icon shows play even after you press it and play it for a while". The Now Playing card's Previous, Play or Pause and Next are centered on the card, no longer from the leading edge, so Play keeps its place for every source; the divider and Picture in Picture follow Next, and the level bars stay at the trailing end and still drop when they do not fit. The Play or Pause disc draws its new glyph the moment the state changes (`SidebarNowPlayingPlayButton.renderGlyph`): it waited for a layout pass that never came, because its frame does not change, so it kept drawing Play while the track played. Regression: `NowPlayingLevelsTests.playOrPauseIsTheFilledControl` (centered), `NowPlayingLevelsTests.playOrPauseDrawsTheNewGlyphAtOnce`.
 - 2026-11-24 (lane/no-shift-native-audit): Sidebar-Look: Leo, 2026-11-24: "we need to have more things decoupled from posisble shifts. this is a pattern we need to take care of." An expanded row's title stacks over one detail line's room even while the row has no detail line (`WorkspaceRowView.stackedDetailLines`): the row is always two lines tall, and the title (with the icon and trailing marks that center on its line) used to sit half a line lower until a summary, preview or notification arrived, then jumped up. Now it does not move when the detail arrives or leaves; a third (meta) line grows the row and leaves the title in place. Compact and Comfortable are unchanged. Regression: `SidebarRowLineSpacingTests.anExpandedRowsTitleDoesNotMoveWhenDetailLinesArrive`.
 
@@ -2415,6 +2417,7 @@ An empty group now keeps only its header at rest. The header's existing + appear
 
 ## Each space owns its pins and groups (2026-10-29)
 
+- A Pinned group lists its links, tabs and apps in each member’s stored Space. An unstamped member still follows its visible group. On a daemon without profiles, it lists every member. Pinning a top-level link, tab or app stores the acting Space in the same edit.
 - Leo 2026-10-29: "could u guys also now work on the per space pins and groups? rn anything u make in teh default space goes across to new ones". No visual change: rows, headers, insets and the Pinned block look the same. What changes is which space draws a group or a Pinned link, tab or app: a new group stores the acting window's space as its `profile`, a Pinned item stores it as `extra.room`, and a window on space S draws only the ones that belong to S (anything made before reads as the default space's). Commits 68c7d49b5bc and 9fcf4ab6c1c carry no trailer; reviewed and logged here as no visual change. A link, tab or app moved into Pinned from another band (the band's Move, a document drag) stores the acting window's space too, in the same change (`item.update {room}`): 4e44c4baef8 and af2b1a3f8eb, no trailer, logged here as no visual change. A machine section's group lists with its parent in every space (`SidebarDocSections.sections`). Test: `SidebarSpaceOwnsPinsAndGroupsTests`. Pending `item.update` fields and a pending New Group's space (28d1f36386e, no trailer) are logged here as no visual change. An item or group naming a space that is gone (deleted, not mirrored back yet) reads as the default space's (`SidebarDocItem.owningRoom`), so none is left in no window; Delete Space with `moveTo` and Move Group to Space move the stored space with it.
 
 ## A Cloud or remote workspace is named once, in the hover card's header (2026-11-02)
@@ -2573,8 +2576,16 @@ An empty group now keeps only its header at rest. The header's existing + appear
   target stays. A click on a ringed space opens a menu at once with Go to Window and Move Here (`space.bringHere`);
   Option-click goes straight to that window; Move Here is left out when either window is incognito. While the menu is
   open the dot stays lit and the hover chrome stays revealed. A space no other window shows still switches in place.
+  Settings > Sidebar > Space Button Spacing (`appearance.metrics.spaceButtonSpacing`) sets the distance
+  between button centers in points, at either edge of the sidebar. An explicit spacing is kept on a
+  scrolling row. If the footer has less room than an active button and the +, those targets share
+  the available width. Unset, the density and available width choose the spacing.
   Debug tunable `tunable.sidebar.spaceSwitcher` (ring, the default; glyph; menu; plain). Rules:
   `SpaceSwitcherLogic`; tests: `SpaceSwitcherWindowMarksTests`, gallery `SpaceSwitcherGalleryTests`.
+- A press that loses its original Space before the drag threshold cancels the click and drag.
+- A scrolled row only accepts clicks and draws shortcut hints on whole visible dots. The drag creates layers for
+  those dots and clips them between the leading inset and the +. Ctrl-9 hints the last Space. A keyboard switch
+  that scrolls a hovered dot out of view also clears its highlight.
 - A dot drag keeps the marks: each moving dot's snapshot draws its ring or glyph too (`ProfileBarDotDragWindowMarkTests`).
 - Commits (carried from #30817): 991f4dae1cd, a90551963f2, 6a4ba590061, d052543bd1d, d9cef9ff37d, aa68b42fc71,
   9ba13003412.
