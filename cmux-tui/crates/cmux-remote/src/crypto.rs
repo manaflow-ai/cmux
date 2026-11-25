@@ -7,7 +7,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
-use cmux_braid_session::{Capabilities, LinkFacts, NOISE_XX, Pattern};
+use cmux_braid_session::{Capabilities, EARLY_DATA_MAX_BYTES, LinkFacts, NOISE_XX, Pattern};
 use cmux_link::carrier_grant::CarrierGrant;
 use cmux_remote_protocol::{Lane, REMOTE_PROTOCOL_VERSION, Service, SessionId};
 use serde::{Deserialize, Serialize};
@@ -123,6 +123,12 @@ pub struct ClientHandshake {
     /// set and no bearer secret in the hello, the link runs IK and its welcome is back one round
     /// trip sooner (`cmux_braid_session::choose`).
     pub daemon_takes_ik: bool,
+    /// Early data: encoded reliable Control frames (the reconnect's replay) for the hello, filled
+    /// only when the daemon's welcome offered `early_data`. They ride only an IK link of
+    /// generation 1 or later with no bearer secret (`cmux_braid_session::may_send_early`), at most
+    /// `EARLY_DATA_MAX_BYTES`; on any other link they are left out, and the session's replay after
+    /// the link commits sends them either way.
+    pub early: Vec<Bytes>,
     /// Bounds the prelude and Noise exchange of one link, the phase a live
     /// daemon answers immediately with no human involved. An endpoint that
     /// accepts the transport and then never speaks (a preview-gateway edge
@@ -320,6 +326,9 @@ pub struct AcceptedSecureLink {
     pub link: SecureLink,
     pub grant: AuthGrant,
     pub resume: BTreeMap<Lane, u64>,
+    /// Early data from an IK resume's first message (`ClientHandshake::early`), checked against
+    /// the session when the link registers.
+    pub early: Vec<Bytes>,
     pub session: SessionId,
     pub lane: Lane,
     pub lanes: Vec<Lane>,
@@ -332,6 +341,7 @@ pub(crate) struct VerifiedSecureLink {
     request: AuthRequest,
     connection_attempt: ConnectionAttemptId,
     resume: BTreeMap<Lane, u64>,
+    early: Vec<Bytes>,
 }
 
 impl VerifiedSecureLink {
@@ -396,6 +406,10 @@ struct ClientHello {
     /// to the daemon's static key, never in the plaintext prelude.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     grant: Option<String>,
+    /// Early data (`ClientHandshake::early`), each frame base64. Absent from an older client; an
+    /// older daemon ignores it, and the frames reach it in the replay after the commit.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    early: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -432,6 +446,8 @@ pub struct SecureLink {
     pattern: Pattern,
     /// The daemon's welcome said it takes IK (set once the welcome is read).
     peer_takes_ik: std::sync::atomic::AtomicBool,
+    /// The daemon's welcome said it takes early data (set once the welcome is read).
+    peer_takes_early_data: std::sync::atomic::AtomicBool,
 }
 
 /// `receive_nonce` once the link has failed; no record can carry it.
@@ -464,11 +480,17 @@ impl SecureLink {
         self.peer_takes_ik.load(Ordering::Acquire)
     }
 
+    /// Whether the daemon's welcome said it takes early data in an IK link's first message.
+    pub fn peer_takes_early_data(&self) -> bool {
+        self.peer_takes_early_data.load(Ordering::Acquire)
+    }
+
     /// Fails the link on the first bad record: no later record is accepted and the inner link
     /// is closed.
     fn note_welcome(&self, welcome: &ServerWelcome) {
-        let ik = welcome.capabilities.is_some_and(|capabilities| capabilities.ik);
-        self.peer_takes_ik.store(ik, Ordering::Release);
+        let capabilities = welcome.capabilities.unwrap_or_default();
+        self.peer_takes_ik.store(capabilities.ik, Ordering::Release);
+        self.peer_takes_early_data.store(capabilities.early_data, Ordering::Release);
     }
 
     async fn fail_receive(&self, reason: String) -> LinkError {
@@ -634,12 +656,29 @@ async fn complete_handshake(
         }
         _ => None,
     };
-    let pattern = cmux_braid_session::choose(LinkFacts {
+    let facts = LinkFacts {
         invitation: psk.is_some(),
         pinned_peer: config.expected_daemon.is_some(),
         peer_takes_ik: config.daemon_takes_ik,
         carries_bearer_secret: grant.is_some(),
-    });
+    };
+    let pattern = cmux_braid_session::choose(facts);
+    // The caller fills `early` only for a daemon that offered it; the pattern, the generation and
+    // the bearer secret are checked here, where the hello is built.
+    let early = if cmux_braid_session::may_send_early(facts, config.generation, true) {
+        let mut total = 0_usize;
+        config
+            .early
+            .iter()
+            .take_while(|frame| {
+                total = total.saturating_add(frame.len());
+                total <= EARLY_DATA_MAX_BYTES
+            })
+            .map(|frame| base64::engine::general_purpose::STANDARD.encode(frame))
+            .collect()
+    } else {
+        Vec::new()
+    };
     let prelude = ClientPrelude {
         name: HANDSHAKE_NAME.into(),
         protocol: REMOTE_PROTOCOL_VERSION,
@@ -677,6 +716,7 @@ async fn complete_handshake(
             device_name: config.device_name,
             resume: config.resume,
             grant,
+            early,
         })
         .map_err(CryptoError::Json)?;
         // IK is chosen only with a pinned key.
@@ -804,6 +844,7 @@ pub(crate) async fn verify_secure_link(
         // IK's first message is not forward secret; a grant never rides it.
         return Err(CryptoError::BadPrelude("a carrier grant needs an XX link".into()));
     }
+    let early = hello_early(&hello, pattern, prelude.auth, prelude.generation)?;
     let transport = handshake.into_stateless_transport_mode().map_err(CryptoError::Noise)?;
     let secure = secure_link(link, transport, remote_static, pattern)?;
 
@@ -825,6 +866,7 @@ pub(crate) async fn verify_secure_link(
         },
         connection_attempt: prelude.connection_attempt,
         resume: hello.resume,
+        early,
     })
 }
 
@@ -843,7 +885,11 @@ pub(crate) async fn authorize_secure_link(
                     daemon_name: Some(grant.daemon_name.clone()),
                     device_id: Some(grant.device_id.clone()),
                     revocation_generation: Some(grant.revocation_generation),
-                    capabilities: Some(Capabilities { ik: true, ..Capabilities::default() }),
+                    capabilities: Some(Capabilities {
+                        ik: true,
+                        early_data: true,
+                        ..Capabilities::default()
+                    }),
                 },
             )
             .await?;
@@ -870,12 +916,51 @@ pub(crate) async fn authorize_secure_link(
         link: verified.link,
         grant,
         resume: verified.resume,
+        early: verified.early,
         session: verified.request.session,
         lane: verified.request.lane,
         lanes: verified.request.lanes,
         generation: verified.request.generation,
         connection_attempt: verified.connection_attempt,
     })
+}
+
+/// A hello's early data, decoded: only on an IK link of a reconnect with no bearer secret
+/// (`cmux_braid_session::may_send_early`), at most `EARLY_DATA_MAX_BYTES`. Anything else is
+/// refused rather than dropped: a client that sends it is not one this build wrote.
+fn hello_early(
+    hello: &ClientHello,
+    pattern: Pattern,
+    auth: AuthKind,
+    generation: u64,
+) -> Result<Vec<Bytes>, CryptoError> {
+    if hello.early.is_empty() {
+        return Ok(Vec::new());
+    }
+    let facts = LinkFacts {
+        invitation: auth == AuthKind::Invitation,
+        pinned_peer: pattern == Pattern::Ik,
+        peer_takes_ik: pattern == Pattern::Ik,
+        carries_bearer_secret: hello.grant.is_some(),
+    };
+    if !cmux_braid_session::may_send_early(facts, generation, true) {
+        return Err(CryptoError::BadPrelude(
+            "early data rides only an IK resume with no grant or invitation".into(),
+        ));
+    }
+    let mut total = 0_usize;
+    let mut early = Vec::with_capacity(hello.early.len());
+    for frame in &hello.early {
+        let frame = base64::engine::general_purpose::STANDARD
+            .decode(frame)
+            .map_err(|_| CryptoError::BadPrelude("early data is not base64".into()))?;
+        total = total.saturating_add(frame.len());
+        if total > EARLY_DATA_MAX_BYTES {
+            return Err(CryptoError::BadPrelude("early data is over its cap".into()));
+        }
+        early.push(Bytes::from(frame));
+    }
+    Ok(early)
 }
 
 fn validate_lanes(primary: Lane, lanes: &[Lane]) -> Result<(), CryptoError> {
@@ -915,6 +1000,7 @@ fn secure_link(
         welcome_pending: std::sync::atomic::AtomicBool::new(false),
         pattern,
         peer_takes_ik: std::sync::atomic::AtomicBool::new(false),
+        peer_takes_early_data: std::sync::atomic::AtomicBool::new(false),
     })
 }
 
@@ -1179,5 +1265,84 @@ mod lockstep_tests {
         let new: ServerWelcome = serde_json::from_slice(&old).unwrap();
         assert!(new.accepted);
         assert_eq!(new.capabilities, None);
+    }
+    /// `ClientHello` as it was before early data.
+    #[derive(Serialize, Deserialize)]
+    struct OldHello {
+        device_name: String,
+        resume: BTreeMap<Lane, u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        grant: Option<String>,
+    }
+
+    fn hello(early: Vec<String>, grant: Option<String>) -> ClientHello {
+        ClientHello { device_name: "c".into(), resume: BTreeMap::new(), grant, early }
+    }
+
+    fn b64(bytes: &[u8]) -> String {
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    #[test]
+    fn hellos_read_across_early_data_in_both_directions() {
+        // A new client with nothing to send early writes the old hello byte for byte.
+        let new = serde_json::to_vec(&hello(Vec::new(), None)).unwrap();
+        let old = serde_json::to_vec(&OldHello {
+            device_name: "c".into(),
+            resume: BTreeMap::new(),
+            grant: None,
+        })
+        .unwrap();
+        assert_eq!(new, old);
+        // An old client's hello, read by a new daemon: no early data.
+        let read: ClientHello = serde_json::from_slice(&old).unwrap();
+        assert!(read.early.is_empty());
+        // A new client's early data, read by an old daemon: an unknown field it ignores (the
+        // frames reach it in the replay after the commit).
+        let new = serde_json::to_vec(&hello(vec![b64(b"frame")], None)).unwrap();
+        let read: OldHello = serde_json::from_slice(&new).unwrap();
+        assert_eq!(read.device_name, "c");
+    }
+
+    #[test]
+    fn a_daemon_reads_early_data_only_on_an_ik_resume_with_no_bearer_secret() {
+        let early = vec![b64(b"one"), b64(b"two")];
+        let read = hello_early(&hello(early.clone(), None), Pattern::Ik, AuthKind::Carrier, 1)
+            .expect("an IK resume's early data");
+        assert_eq!(read, vec![Bytes::from_static(b"one"), Bytes::from_static(b"two")]);
+        // Nothing early is nothing to refuse, on any link.
+        assert!(
+            hello_early(&hello(Vec::new(), None), Pattern::Xx, AuthKind::Carrier, 0)
+                .unwrap()
+                .is_empty()
+        );
+        for (what, hello, pattern, auth, generation) in [
+            (
+                "alongside a grant",
+                hello(early.clone(), Some("g".into())),
+                Pattern::Ik,
+                AuthKind::Grant,
+                1,
+            ),
+            ("at generation 0", hello(early.clone(), None), Pattern::Ik, AuthKind::Carrier, 0),
+            ("on XX", hello(early.clone(), None), Pattern::Xx, AuthKind::Carrier, 1),
+            ("with an invitation", hello(early, None), Pattern::Ik, AuthKind::Invitation, 1),
+            ("not base64", hello(vec!["%%".into()], None), Pattern::Ik, AuthKind::Carrier, 1),
+            (
+                "over the cap",
+                hello(vec![b64(&vec![0; EARLY_DATA_MAX_BYTES + 1])], None),
+                Pattern::Ik,
+                AuthKind::Carrier,
+                1,
+            ),
+        ] {
+            assert!(
+                matches!(
+                    hello_early(&hello, pattern, auth, generation),
+                    Err(CryptoError::BadPrelude(_))
+                ),
+                "early data {what} must be refused"
+            );
+        }
     }
 }
