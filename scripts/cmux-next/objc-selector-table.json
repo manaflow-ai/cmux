@@ -701,6 +701,9 @@
    "26.5.1": true,
    "26.6": true
   },
+  "NSPanel call:setFrame/2:display": {
+   "26.6": true
+  },
   "NSPopUpButton call:viewDidChangeEffectiveAppearance/0": {
    "26.5.2": true,
    "26.7": true,
@@ -866,6 +869,9 @@
    "27.0": true,
    "26.6": true
   },
+  "NSSplitView call:resizeSubviews/1": {
+   "27.0.1": true
+  },
   "NSSplitView call:updateTrackingAreas/0": {
    "27.0.1": true,
    "26.5.2": true,
@@ -889,6 +895,12 @@
    "26.7": true,
    "26.5.1": true,
    "26.6": true
+  },
+  "NSSplitView call:viewWillMove/1": {
+   "27.0.1": true
+  },
+  "NSStackView call:layout/0": {
+   "27.0.1": true
   },
   "NSStackView call:viewDidChangeEffectiveAppearance/0": {
    "26.5.2": true,
