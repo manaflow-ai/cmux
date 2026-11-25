@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextMobileHost
+import CmuxNextWakeups
 import os
 package import UserNotifications
 
@@ -239,24 +240,25 @@ package final class DesktopNotifier: NSObject {
     /// A later call replaces a waiting one.
     package func whenFound<T>(limit: Duration, find: @escaping @MainActor @Sendable () -> T?,
                               missed: @escaping @MainActor @Sendable () -> Void, found: @escaping @MainActor @Sendable (T) -> Void) {
-        pendingFind?.cancel(); pendingFind = nil
+        pendingFind?.cancel(); pendingFind = nil; findDeadline.cancel()
         if let target = find() { return found(target) }
         let wait = Task { [weak self] in
             for await present in ObservationStream({ find() != nil }) where present {
                 guard !Task.isCancelled, let target = find() else { continue }
                 self?.pendingFind = nil
+                self?.findDeadline.cancel()
                 return found(target)
             }
         }
         pendingFind = wait
-        Task { [weak self] in
-            try? await Task.sleep(for: limit)
+        findDeadline.schedule(after: limit) { @MainActor [weak self] in
             guard let self, self.pendingFind == wait else { return }
             wait.cancel(); self.pendingFind = nil
             missed()
         }
     }
     private var pendingFind: Task<Void, Never>?
+    private let findDeadline = DemandTimer(owner: "notifications.open-when-found")
 
     /// A banner `id` in Notification Center that this launch did not post (it survived a relaunch):
     /// whether it is there and its tab's surface (`userInfo["surface"]`). Nil center: not found.
