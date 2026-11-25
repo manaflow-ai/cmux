@@ -15,6 +15,7 @@ description = "acpmux's ratatui terminal UI, outside the headless acpmux crate; 
 [dependencies]
 acpmux = { path = "../acpmux", default-features = false }
 anyhow = "1"
+chrono.workspace = true
 base64 = "0.22"
 # Bounded waits (`reconnect_wait.rs`): every waiting state declares its bound and recovery.
 cmux-bounded = { workspace = true, features = ["tokio"] }

@@ -657,11 +657,17 @@ pub(super) fn transcript_rows_range(
                         let inner = cw.saturating_sub(6);
                         let mut body: Vec<Row> = Vec::new();
                         let calm = held == Some(i);
+                        // A usage limit that names its reset leads with when (cmux#52296).
+                        let reset = if calm { None } else { crate::usage_reset::note(text) };
                         let mut first = 1;
                         if calm {
                             let note =
                                 format!("Waiting for capacity · {}", crate::capacity_wait::GOES_ON);
                             wrap(&note, inner, Style::default().fg(c.status_fg), "", i, &mut body);
+                            first = body.len();
+                            wrap(text, inner, c.dim(), "", i, &mut body);
+                        } else if let Some(note) = reset.as_deref() {
+                            wrap(note, inner, Style::default().fg(c.status_fg), "", i, &mut body);
                             first = body.len();
                             wrap(text, inner, c.dim(), "", i, &mut body);
                         } else {
@@ -684,7 +690,7 @@ pub(super) fn transcript_rows_range(
                                 _ => "  ",
                             };
                             let icon_fg = if calm { c.attention_fg } else { c.error_fg };
-                            let text_style = if n >= first && calm {
+                            let text_style = if n >= first && (calm || reset.is_some()) {
                                 c.dim()
                             } else {
                                 Style::default().fg(c.status_fg)
