@@ -453,3 +453,30 @@ fn the_route_that_finished_the_handshake_carries_the_session_at_once() {
     pair.run(&world, 3_000);
     assert_eq!(pair.viewer_path(), Some(PathKind::DirectWan));
 }
+
+/// The handshake's route becomes current before any probe measured it, so its
+/// first answered probe reports the RTT on the same path: callers that size by
+/// path RTT (cmux-rd-host's frames in flight, the iPhone's Mac screen) learn it
+/// without waiting for a path switch that never comes.
+#[test]
+fn the_handshake_route_reports_its_first_measured_rtt() {
+    let mut pair = Pair::new();
+    let world = World { lan_works: false, wan_works: true, relay_works: false };
+    while !(pair.viewer.link().is_established() && pair.host.link().is_established()) {
+        assert!(pair.now < 2_000_000, "the link never came up");
+        pair.run(&world, 10);
+    }
+    pair.run(&world, 1_000);
+    let last_rtt = |events: &[EndpointEvent]| {
+        events.iter().rev().find_map(|e| match e {
+            EndpointEvent::PathChanged { route: Some(_), rtt_us, .. } => Some(*rtt_us),
+            _ => None,
+        })
+    };
+    assert!(
+        matches!(last_rtt(&pair.viewer_events), Some(Some(_))),
+        "viewer: {:?}",
+        pair.viewer_events
+    );
+    assert!(matches!(last_rtt(&pair.host_events), Some(Some(_))), "host: {:?}", pair.host_events);
+}
