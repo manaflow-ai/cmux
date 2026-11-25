@@ -70,9 +70,8 @@ pub fn from_json(value: &Value) -> Result<TokenAsk, String> {
 }
 
 impl TokenAsk {
-    pub fn api_body(&self, team: &str) -> Value {
+    pub fn api_body(&self) -> Value {
         let mut body = Map::new();
-        body.insert("team".to_owned(), json!(team));
         body.insert("scopes".to_owned(), json!(self.scopes));
         if let Some(label) = &self.label {
             body.insert("label".to_owned(), json!(label));

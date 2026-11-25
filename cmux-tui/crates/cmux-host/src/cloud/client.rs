@@ -835,11 +835,7 @@ impl<H: Http> CloudClient<H> {
         ask: &super::integration::TokenAsk,
         now_wall_ms: u64,
     ) -> Answer {
-        self.post_as_install(
-            &super::integration::path(&ask.provider),
-            &ask.api_body(&self.bound.team),
-            now_wall_ms,
-        )
+        self.post_as_install(&super::integration::path(&ask.provider), &ask.api_body(), now_wall_ms)
     }
 
     /// A hand-off report for one of this machine's sessions (`POST

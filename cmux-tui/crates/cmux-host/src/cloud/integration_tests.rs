@@ -9,10 +9,7 @@ fn validates_provider_scopes_and_label() {
     )
     .unwrap();
     assert_eq!(ask.provider, "slack");
-    assert_eq!(
-        ask.api_body("team_1"),
-        json!({"team":"team_1","scopes":["chat:write","channels:read"],"label":"agent"})
-    );
+    assert_eq!(ask.api_body(), json!({"scopes":["chat:write","channels:read"],"label":"agent"}));
     for value in [
         json!({"provider":"","scopes":["read"]}),
         json!({"provider":"linear/token","scopes":["read"]}),
