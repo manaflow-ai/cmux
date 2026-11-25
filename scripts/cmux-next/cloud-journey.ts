@@ -5499,7 +5499,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           log: (line) => console.log(scrub(line, J.secrets)),
         });
         await reservedChat.openTab(agent);
-        const reply = await reservedChat.start(agent);
+        // Attached before the send, as the app is: a bare start leaves the tab unattached and the send is refused.
+        const reply = await reservedChat.startAttached(agent);
         const outcome = appStartDetail(reply);
         if (!outcome.ok) throw new Error(outcome.detail);
         session = String(reply?.data?.session ?? "");
