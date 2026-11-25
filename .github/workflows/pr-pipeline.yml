@@ -42,6 +42,8 @@ jobs:
     timeout-minutes: 290
     permissions:
       contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
     outputs:
       # A step that needs a Mac after all (the Swift canary with no build fleet pass) names itself here.
       mac_fallback: ${{ steps.run.outputs.mac_fallback }}
@@ -92,6 +94,8 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
     steps:
       - name: Checkout the merge commit and the base tip
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -240,6 +244,8 @@ jobs:
     timeout-minutes: 125
     permissions:
       contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
     env:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.ios-runner.outputs.label, 'glaeda-') && github.event.pull_request.head.repo.full_name == github.repository && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
@@ -286,6 +292,8 @@ jobs:
     timeout-minutes: 165
     permissions:
       contents: read
+      # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
+      id-token: write
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
@@ -403,6 +411,11 @@ jobs:
           CMUX_FAST_CACHE_MATCHED_KEY: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
           # `0` runs every fast tier suite on the pull request again, not only the ones the change reaches.
           CI_FAST_TIER_PR_SCOPE: ${{ vars.CI_FAST_TIER_PR_SCOPE || '1' }}
+          # `1` takes the fast tier's Swift test bundles from the fleet job that built them for this commit
+          # (scripts/ci/fleet-test-products.py); with none this Mac builds them. Off unless set.
+          CMUX_SWIFT_TEST_PRODUCTS: ${{ vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && 'fleet' || 'build' }}
+          CMUX_FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          CMUX_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: ci/run run --job mac ${PATHS_FILE:+--paths-file "$PATHS_FILE"}
       - name: Stop this job's acpmux daemons and remove its home
         if: ${{ always() && steps.tiers.outputs.fast_tier == 'true' }}

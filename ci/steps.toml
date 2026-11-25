@@ -1766,7 +1766,7 @@ inputs = [
   "cmux-tui/spec/**", "Native/OptChat/optchat-chief/inspector/**", "tests/fixtures/classic-to-next/**",
   ".xcode-version", "scripts/select-ci-xcode.sh", "scripts/ci/xcode-pins.txt", ".github/actions/cache-restore/**",
   ".github/workflows/cmux-next.yml", "scripts/cmux-next/lib/**", "scripts/cmux-next/fast-tier*",
-  "scripts/cmux-next/quarantine.json", "scripts/cmux-next/bundle-ghostty-resources.sh",
+  "scripts/ci/fleet-test-products.py", "scripts/cmux-next/quarantine.json", "scripts/cmux-next/bundle-ghostty-resources.sh",
   "scripts/cmux-next/cef-manifest.json", "scripts/cmux-next/check-release-compile.sh",
   "scripts/cmux-next/ci-target-graph.py", "scripts/cmux-next/clear-stale-scheme-build-state.sh",
   "scripts/cmux-next/compile-string-catalogs.sh", "scripts/cmux-next/main-thread-heavy-suites.py",
