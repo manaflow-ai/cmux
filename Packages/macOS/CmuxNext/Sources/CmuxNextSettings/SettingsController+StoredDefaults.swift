@@ -135,9 +135,11 @@ extension SettingsController {
         var report = StoredDefaultsReport()
         for descriptor in SettingsSchema.all {
             guard let stored = root.value(at: descriptor.path) else { continue }
+            // Older files stored Automatic as an explicit, non-default group choice.
+            let pinnedGroup = descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath && stored == .string("auto")
             let copiesDefault = isUnsetValue(stored, of: descriptor)
                 || (formerDefaults[descriptor.id]?.contains(stored) == true && !layerBelowFileSets(descriptor.id))
-            if copiesDefault, managedKeys[descriptor.id] == nil, !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
+            if copiesDefault, !pinnedGroup, managedKeys[descriptor.id] == nil, !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
                 report.dropped[descriptor.id] = stored
             } else {
                 report.kept[descriptor.id] = stored
