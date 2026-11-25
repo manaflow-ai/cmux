@@ -66,7 +66,7 @@ nonisolated extension AcpmuxPaneMethods {
         // schemas/agent-pane/attach-params.json lists every key the page sends here.
         "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible", "attending", "waitLogs", "settled", "hold", "afterSeq"], []),
         "_acpmux/detach": (["sessionId"], []),
-        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq"], []),
+        "_acpmux/view": (["sessionId", "visible", "attending", "seenSeq", "cutoverSeq"], []),
         "_acpmux/seen": (["sessionId", "seq"], []),
         // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
         "_acpmux/typing": (["sessionId", "on"], []),
@@ -122,6 +122,7 @@ nonisolated extension AcpmuxPaneMethods {
         // Only the live-tree read: `waitLogs: false` answers from the session list at once.
         "_acpmux/info": (["sessionId", "waitLogs", "includeLiveTree"], []),
         "_acpmux/status": ([], []),
+        "_acpmux/host_overload": ([], []),
         "_acpmux/peers": ([], []),
         // Which of the page's requests the daemon still runs (AcpmuxRequestIds.requestStateMethod).
         "_acpmux/request_state": ([], []),
