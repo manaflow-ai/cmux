@@ -157,6 +157,9 @@ pub(crate) fn check(inputs: &Inputs<'_>) -> Verdict {
     else {
         return uncapped(format!("no lanes entry with max_lanes for {machine}"));
     };
+    // One lane per machine (`lane_place.one_lane_per_host`): a second lane here is over.
+    let max =
+        if super::admission_scale_up::one_per_host(Some(registry)) { max.min(1) } else { max };
     let over = (inputs.live as u64 >= max).then(|| OverCap {
         live: inputs.live,
         max,
@@ -591,7 +594,8 @@ impl Hub {
             .filter(|p| crate::placement::peer_down(p).is_none())
             .filter_map(|p| Candidate::peer(&p))
             .collect();
-        let verdict = crate::placement::place(&peers, registry, Work::Agent);
+        let mut verdict = crate::placement::place(&peers, registry, Work::Agent);
+        super::admission_scale_up::solo_pick(&mut verdict, registry);
         crate::shadow_admission::with_shadow("over-cap", verdict, &peers)
     }
 
@@ -972,6 +976,25 @@ mod tests {
         let web = cap.warning(false, false, None, false);
         assert!(!web.contains("/r/"), "a Web client learns no path: {web}");
         assert!(!web.contains("cmux16"), "nor the machine: {web}");
+    }
+
+    #[test]
+    fn one_lane_per_host_caps_at_one() {
+        let mut r = registry();
+        r["lane_place"] = json!({"one_lane_per_host": true});
+        let source = Path::new("/r/fleet-registry.json");
+        let at = |live| {
+            check(&Inputs {
+                flag: None,
+                registry: Some(&r),
+                unreadable: false,
+                source,
+                machine: Some("huge-blue"),
+                live,
+            })
+        };
+        assert_eq!(at(0).over, None, "the first lane fits");
+        assert_eq!(at(1).over.map(|o| o.max), Some(1), "a second lane is over");
     }
 
     #[test]
