@@ -71,7 +71,7 @@ impl Hub {
         // Held while the peer starts, so none of its notices finds it unleased
         // and saves its sessions (`save_peer_cache`).
         let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
-        let (generation, settled) = self.spawn_peer(name, &pc, false);
+        let (generation, settled) = self.spawn_peer(name, &pc, false, true);
         leases.insert(name.to_owned(), generation);
         drop(leases);
         tracing::info!(peer = %name, "peer leased");
@@ -109,7 +109,7 @@ impl Hub {
 
     /// Whether `name` is a leased peer now.
     pub fn is_leased(&self, name: &str) -> bool {
-        self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(name)
+        self.peer(name).is_some_and(|peer| peer.leased)
     }
 }
 

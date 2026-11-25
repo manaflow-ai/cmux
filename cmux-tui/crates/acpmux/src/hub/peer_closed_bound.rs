@@ -245,7 +245,11 @@ mod tests {
 
     #[test]
     fn wedge_peer_listing_does_not_wait_for_a_lease_waiting_on_the_registry_writer() {
-        let (hub, peer) = hub_with_peer("vm");
+        let (hub, _) = hub_with_peer("vm");
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer =
+            crate::peer::Peer::new_with_lease("vm", "ws://127.0.0.1:9", None, None, tx, true);
+        hub.peers.lock().unwrap().insert("vm".into(), peer.clone());
         hub.peer_leases.lock().unwrap().insert("vm".into(), peer.generation);
         let writer = hub.peers.lock().unwrap();
         let (held_tx, held_rx) = std::sync::mpsc::channel();

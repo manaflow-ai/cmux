@@ -310,6 +310,8 @@ pub struct Peer {
     /// Unique per `Peer` instance; a replacement under the same name gets a
     /// new one.
     pub generation: u64,
+    /// Fixed before registry publication; leased instances must never persist session rows.
+    pub(crate) leased: bool,
     pub url: String,
     token: Option<String>,
     /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.

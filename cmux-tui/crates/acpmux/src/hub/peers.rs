@@ -213,7 +213,7 @@ impl Hub {
             }
             return tokio::sync::watch::channel(1).1;
         }
-        self.spawn_peer(name, pc, true).1
+        self.spawn_peer(name, pc, true, false).1
     }
 
     /// Run a peer under `name`, replacing any peer of that name; with
@@ -224,13 +224,15 @@ impl Hub {
         name: &str,
         pc: &crate::config::PeerConfig,
         cached: bool,
+        leased: bool,
     ) -> (u64, tokio::sync::watch::Receiver<u64>) {
-        let peer = crate::peer::Peer::new(
+        let peer = crate::peer::Peer::new_with_lease(
             name,
             &pc.url,
             pc.token.clone(),
             pc.peer_token.clone(),
             self.peer_notices.clone(),
+            leased,
         );
         if let Some(transport) = &self.wireguard
             && let Some(configured) = &pc.wireguard
@@ -630,14 +632,20 @@ impl Hub {
     }
 
     pub fn peers(&self) -> Vec<Value> {
-        // A lease writer can wait on the registry and rows fences. Listing uses its last
-        // published state; cache persistence and mutations still take the lease fence.
-        let leased = self.peer_leases.load();
         // Released before the rows are counted, so this read takes `peers` and
         // `remote_sessions` separately and never in the reverse nested order.
         let (listed, brokers): (Vec<(String, Value)>, std::collections::HashSet<String>) = {
             let peers = self.peers.load();
-            let listed = peers.values().map(|p| (p.name.clone(), p.summary())).collect();
+            let listed = peers
+                .values()
+                .map(|p| {
+                    let mut summary = p.summary();
+                    if p.leased {
+                        summary.set("leased", Value::Bool(true));
+                    }
+                    (p.name.clone(), summary)
+                })
+                .collect();
             (listed, peers.values().filter(|p| p.github_broker()).map(|p| p.name.clone()).collect())
         };
         let counts = self.remote_sessions.read().peer_counts();
@@ -645,9 +653,6 @@ impl Hub {
             .into_iter()
             .map(|(name, mut s)| {
                 s.set("sessions", json!(counts.get(&name).copied().unwrap_or(0)));
-                if leased.contains_key(&name) {
-                    s.set("leased", Value::Bool(true));
-                }
                 if brokers.contains(&name) {
                     s.set("githubBroker", Value::Bool(true));
                 }
