@@ -631,9 +631,11 @@ class WriterInventoryTests(unittest.TestCase):
                     ".github/workflows/pr-media-prune.yml"}
     # Name the branch or pr-media.py's file names for links; write nothing.
     # Name pr-media URLs and push words but write nothing there (release-notes.py reads clip URLs).
+    # media_polish.py loads pr-media.py's gif encoder and size ladder; it writes local files only.
     NOT_WRITERS = {"scripts/gallery-matrix/report.ts", "scripts/gallery-matrix/compare.test.ts",
                    "scripts/cmux-next/hot-verify-ci.py",
-                   "scripts/cmux-next/release-notes.py"}
+                   "scripts/cmux-next/release-notes.py",
+                   "scripts/media/media_polish.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
     @classmethod
