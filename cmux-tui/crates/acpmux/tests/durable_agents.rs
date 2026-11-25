@@ -4,6 +4,8 @@
 //! restart is still answerable after the new daemon adopts the host.
 #![cfg(unix)]
 
+#[path = "durable_agents/adopted_overload.rs"]
+mod adopted_overload;
 #[path = "durable_agents/adoption_unlogged_tail.rs"]
 mod adoption_unlogged_tail;
 #[path = "durable_agents/ancestor_answer.rs"]
