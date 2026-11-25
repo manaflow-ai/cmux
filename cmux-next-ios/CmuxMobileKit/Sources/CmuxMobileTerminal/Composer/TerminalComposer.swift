@@ -207,12 +207,16 @@ struct TerminalComposer: View {
                 onReturn: { send() },
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil,
-                autocorrect: autocorrect
+                autocorrect: autocorrect,
+                reservedTop: model.attachments.isEmpty ? 0 : ComposerCardMetrics.attachmentStripHeight
             )
         } trailing: {
             primaryButton
         }
         .foregroundStyle(look.ink)
+        // The card's own id (ComposerCard is one container element, #55113), so a test
+        // can find the card: ComposerGlassColorUITests samples its glass as the draft grows.
+        .accessibilityIdentifier("terminal.composer.card")
     }
 
     /// The pane's colors: the Mac's terminal theme, else the app default.

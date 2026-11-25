@@ -1343,6 +1343,46 @@
   border-radius: var(--card-radius);
 }
 
+/* The title with Standup at its end; the Standup panel's lines read out loud, one per entry. */
+.checklist-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-2);
+}
+
+.checklist-standup {
+  margin: 0 0 var(--ds-space-3);
+}
+
+.checklist-standup .checklist-head {
+  align-items: center;
+}
+
+.checklist-standup .checklist-count {
+  margin-inline-start: auto;
+}
+
+.checklist-standup-lines {
+  margin: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+.checklist-standup-lines li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--ds-space-1);
+  padding: var(--ds-space-1) 0;
+}
+
+.checklist-standup-lines .checklist-mark-icon {
+  flex: none;
+  width: 14px;
+}
+
 .checklist-row {
   display: flex;
   align-items: center;
