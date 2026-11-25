@@ -101,3 +101,10 @@ struct AboutLicenseContent {
         return normalized.isEmpty ? nil : normalized
     }
 }
+
+// Canary for classic-nightly-pr-build: a3b465f1367's error class (a covariant
+// `Self` in a default argument of a non-final class). Never merged.
+class ClassicNightlyCanary {
+    static let defaultLimit = 1
+    init(limit: Int = Self.defaultLimit) { _ = limit }
+}
