@@ -16,11 +16,12 @@ type Props = ComposerStatusDotProps & { before?: boolean };
 const NOW = Date.UTC(2026, 10, 22, 22, 40);
 const MACHINE = "walk-remote";
 
-const reconnecting: StatusItem = {
-  kind: "machineLink",
+// A link coming back says nothing (Leo, 2026-11-24: "let's just keep optimistically connecting"), so
+// the info sample is a send the composer holds until acpmux answers.
+const sendsHeld: StatusItem = {
+  kind: "sendsHeld",
   level: "info",
-  words: "status.machineLink.reconnecting",
-  subject: MACHINE,
+  words: "status.sendsHeld.held",
   since: NOW - 40_000,
 };
 const rateLimited: StatusItem = {
@@ -126,8 +127,8 @@ const variants: Record<string, { note: string; props: Props }> = {
     props: { items: [], connectedTo: MACHINE },
   },
   info: {
-    note: "Picked: an info item (the link coming back) tints the dot muted; no spinner, no words.",
-    props: { items: [reconnecting] },
+    note: "Picked: an info item (a send held until acpmux answers) tints the dot muted; no spinner, no words. A link coming back is no item at all.",
+    props: { items: [sendsHeld] },
   },
   attention: {
     note: "Picked: an attention item (a rate limit) tints the dot amber.",
