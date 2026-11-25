@@ -419,7 +419,7 @@ async fn an_approval_keeps_the_approvers_rules_across_a_restart() {
 /// each start restored them again and the queue never drained. One taken without its turn now
 /// leaves the queue, logged, and a restart finds it gone; a refusal still says why.
 #[tokio::test]
-async fn a_restored_prompt_taken_without_its_turn_leaves_the_queue_for_good() {
+async fn wedge_a_restored_prompt_taken_without_its_turn_leaves_the_queue_for_good() {
     let dir = std::env::temp_dir().join(format!("acpmux-restore-taken-{}", uuid::Uuid::now_v7()));
     let durable = || {
         let mut cfg: Config = serde_json::from_value(json!({
@@ -451,8 +451,12 @@ async fn a_restored_prompt_taken_without_its_turn_leaves_the_queue_for_good() {
     assert_eq!(queued.len(), 2);
     let receipt = json!({"stopReason": "end_turn", "_meta": {"acpmux": {"inbox": true,
                          "surgeHeld": true, "queued": false}}});
-    hub.settle_restored(&session, &queued[0], Ok(receipt));
-    hub.settle_restored(&session, &queued[1], Err(RpcError::invalid_params("its harness is gone")));
+    hub.settle_restored_run(&session, &queued[0], Ok(receipt));
+    hub.settle_restored_run(
+        &session,
+        &queued[1],
+        Err(RpcError::invalid_params("its harness is gone")),
+    );
     assert!(session.queue().is_empty(), "a restored prompt the inbox took stayed queued");
     let logged = hub.events(&id, 0, 10_000).unwrap();
     assert!(logged.iter().any(|e| e.kind == "prompt_refused" && e.msg["promptId"] == "bg-done-2"));

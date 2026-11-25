@@ -1671,7 +1671,7 @@ impl Hub {
                     }
                     prompt_ledger::prune(&mut ledger);
                     drop(ledger);
-                    hub.settle_restored(&session, &q, result);
+                    hub.settle_restored_run(&session, &q, result);
                 });
             }
         }
@@ -1690,7 +1690,7 @@ impl Hub {
     /// never drained (2026-11-25). Only this copy: a turn that ran it took it out already, and
     /// one that ran it and failed may have put it back under a new turn id (`digest.rs`
     /// `requeue_unread`), which waits on.
-    pub(super) fn settle_restored(
+    pub(super) fn settle_restored_run(
         &self,
         session: &Arc<Session>,
         q: &QueuedPrompt,
