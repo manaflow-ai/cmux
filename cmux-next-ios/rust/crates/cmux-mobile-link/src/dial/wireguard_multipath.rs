@@ -578,6 +578,7 @@ mod tests {
                 path: watch::channel(LinkPath::NoPath).0,
                 route_to: Arc::new(watch::channel(None).0),
                 control,
+                relay_shared: Default::default(),
             },
             &DialOptions::default(),
         )
