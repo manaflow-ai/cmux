@@ -59,7 +59,7 @@ impl crate::mux::Mux {
             Err(LinkError::Closed) => {
                 Err(ChatMarkError::Unavailable("acpmux closed the link".into()))
             }
-            Err(LinkError::Timeout | LinkError::Busy) => {
+            Err(LinkError::Timeout) => {
                 Err(ChatMarkError::Unavailable("acpmux did not answer in time".into()))
             }
         }
