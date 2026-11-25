@@ -538,10 +538,6 @@ fn cmux_next_launch_snapshot_writes_at_once_when_the_app_connection_closes() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
-/// The app draws the Pinned band from the snapshot before it connects
-/// (Lawrence 2026-10-29: pins came back minutes after an update), so the
-/// snapshot holds the sidebar document as `sidebar.get` returns it, and a
-/// pin rewrites it.
 fn run_command(mux: &Arc<Mux>, request: Value) -> Value {
     run_command_as(mux, 0, request)
 }
