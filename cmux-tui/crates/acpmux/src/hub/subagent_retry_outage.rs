@@ -5,7 +5,7 @@
 /// ends by itself, so its subagent waits it out as a cut turn does
 /// (`auto_resume::waits_it_out`): one attempt every `auto_resume::capacity_wait` (backing off to
 /// 5 min, jittered per chat and attempt), so it never hammers the upstream. Past this it is given
-/// up (`exhausted`); a person's retry still works. On cosmic-gray, 2026-11-24, the four
+/// up (`exhausted`); a person's retry still works. On one machine, 2026-11-24, the four
 /// configured attempts (about 26 min) ran out inside 60-99 minute outages, and 47 helpers sat
 /// failed for 61-133 minutes until their coordinator sent "continue" by hand.
 pub(in crate::hub) const OUTAGE_HORIZON_MS: u64 = 6 * 60 * 60 * 1000;
