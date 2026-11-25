@@ -185,7 +185,7 @@ public final class SettingsStore {
     public var terminalZoomFullScreenApps: Bool {
         didSet { save(terminalZoomFullScreenApps, "terminalZoomFullScreenApps") }
     }
-    /// Settings → Terminal → Find in Whole History (off by default). Read by the terminal
+    /// Settings → Terminal → Find in Whole History (on by default). Read by the terminal
     /// (`CmuxMobilePreferences.terminalHistoryFind`) at each search.
     public var terminalHistoryFind: Bool { didSet { save(terminalHistoryFind, "terminalHistoryFind") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
@@ -217,6 +217,10 @@ public final class SettingsStore {
     /// Settings → Transport → Agent CLI Screen Changes (off by default): agent CLI terminals
     /// come as cell deltas (`agent-cli-hybrid-v1`). Read at each terminal attach.
     public var agentCLIHybrid: Bool { didSet { save(agentCLIHybrid, "agentCLIHybrid") } }
+    /// Settings → Transport → Mac Screen over Link (off by default): Screen Sharing views a Mac
+    /// that streams its display on the link (`mac-display-v1`) over that link, view only. Read by
+    /// Screen Sharing (`CmuxMobilePreferences.Key.macScreenOverLink`) through the same key.
+    public var macScreenOverLink: Bool { didSet { save(macScreenOverLink, "macScreenOverLink") } }
     public var notifyLevel: NotificationLevel { didSet { save(notifyLevel.rawValue, "notifyLevel") } }
     /// Macs whose notifications are off (their device ids).
     public private(set) var notifyMutedMacs: [String] { didSet { save(notifyMutedMacs, "notifyMutedMacs") } }
@@ -270,7 +274,7 @@ public final class SettingsStore {
         terminalPlainScroll = defaults.object(forKey: "cmuxMobile.settings.terminalPlainScroll") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalPlainScroll")
         terminalZoomFullScreenApps = bool("terminalZoomFullScreenApps", false)
-        terminalHistoryFind = bool("terminalHistoryFind", false)
+        terminalHistoryFind = bool("terminalHistoryFind", true)
         predictiveEcho = bool("predictiveEcho", true)
         predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")
@@ -286,6 +290,7 @@ public final class SettingsStore {
         lanDirect = bool("lanDirect", true)
         quietCloudConnect = bool("quietCloudConnect", false)
         agentCLIHybrid = bool("agentCLIHybrid", false)
+        macScreenOverLink = bool("macScreenOverLink", false)
         // The earlier three switches: Finished off reads as "Only when I'm needed".
         let level = string("notifyLevel").flatMap(NotificationLevel.init(rawValue:))
             ?? (bool("notifyFinished", true) ? .neededAndFinished : .needed)
