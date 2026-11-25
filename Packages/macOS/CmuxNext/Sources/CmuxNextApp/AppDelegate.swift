@@ -191,7 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")
-        startSettingsAndControl(services: services, launch: settingsRead, bare: launch.kind == .bare)
+        startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         if services.crashRecovery.recovery.startsUpdaterBeforeWindows { services.updater.start() } // a restart loop: before the daemon and windows, so a build that ends before its first frame can still fetch its fix
