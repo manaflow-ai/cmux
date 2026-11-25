@@ -271,25 +271,40 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   async githubStatus(entity: string, principal: Principal) {
     if (principal.team !== entity) return { configured: false, app_slug: null, connection: null }
-    return this.githubStatusOf(this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
+    return this.githubStatusOf(() => (this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial()), principal)
   }
 
   /** GET /status from the person's own connections here (one of their teams), under the asking team's `policy` (cmux#55104). */
   async githubStatusOwn(entity: string, principal: Principal, policy: ReturnType<typeof policyOf>) {
     if (!principal.user || principal.team === entity || !(await this.memberHere(entity, principal.user))) return { configured: false, app_slug: null, connection: null }
-    const state = this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial()
-    return this.githubStatusOf(ghTokens.ownConnectionsUnder(state, principal.user, policy), principal)
+    const user = principal.user
+    return this.githubStatusOf(() => ghTokens.ownConnectionsUnder(this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), user, policy), principal)
   }
 
-  private async githubStatusOf(state: ConnectionsState, principal: Principal) {
-    const c = ghTokens.githubStatusConnection(state, principal)
+  /**
+   * GET /status's answer. The configure page is cached per installation (one GitHub read an hour at most for an
+   * active connection), so the picker's status read stays cheap; a connection that is not active is asked fresh,
+   * since that is when the app opens the page to relink. A gone installation names no page, so Connect opens the
+   * install page (cmux#55104), and GitHub's 404 on that read reconciles a row no webhook told us about.
+   */
+  private async githubStatusOf(stateOf: () => ConnectionsState, principal: Principal) {
+    const c = ghTokens.githubStatusConnection(stateOf(), principal)
     const installation = c ? githubInstallationOf(c) : undefined
-    // Cached per installation (one GitHub read a day at most), so the picker's status read stays cheap.
-    // A gone installation's settings page is GitHub's 404: name none, so Connect opens the install page (cmux#55104).
     const configureUrl = c?.account && installation !== undefined && github.configured(this.env) && !ghTokens.githubInstallationGone(c)
-      ? await installationConfigureUrl(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
+      ? await installationConfigureUrl(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now(), {
+          fresh: c.status !== "active",
+          onGone: () => this.markInstallationGone(stateOf(), installation)
+        })
       : null
-    return ghTokens.githubStatus(this.env, state, principal, configureUrl)
+    // Read again: a gone installation was just marked, and its connection answers needs_reauth now.
+    return ghTokens.githubStatus(this.env, stateOf(), principal, configureUrl)
+  }
+
+  /** Every live connection of `installation` here needs a relink: GitHub answered 404 for it (cmux#55104). */
+  private markInstallationGone(state: ConnectionsState, installation: number) {
+    for (const c of Object.values(state.connections))
+      if (c.provider === "github" && githubInstallationOf(c) === installation && (c.status === "active" || (c.status === "needs_reauth" && !ghTokens.githubInstallationGone(c))))
+        this.markNeedsReauth(c, ghTokens.GITHUB_GONE_DETAIL)
   }
 
   /** integration.connect with a repo: which GitHub page to open (github-connect.ts), asked with this object's injectable HTTP. */

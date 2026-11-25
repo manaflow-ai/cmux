@@ -646,6 +646,7 @@ export const githubStatus = (env: Env, state: ConnectionsState, p: Principal, co
     app_slug: env.GITHUB_APP_SLUG ?? null,
     // The token route's own policy check: a connection the team policy disallows mints nothing.
     allowed: providerAllowed(policyOf(state), "github"),
-    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true, configure_url: configureUrl } : null
+    // `status_detail` says why a relink is needed; the app shows it and opens no settings page for an uninstalled App (cmux#55104).
+    connection: c ? { id: c.id, account: c.account?.name ?? null, status: c.status, ...(c.status === "needs_reauth" && c.status_detail ? { status_detail: c.status_detail } : {}), repos: c.resources?.repos ?? null, allow_workflows: policyOf(state).github.allow_workflows === true, configure_url: configureUrl } : null
   }
 }

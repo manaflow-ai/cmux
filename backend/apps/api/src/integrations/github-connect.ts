@@ -96,21 +96,40 @@ export const configureAfterLink = (repos: ReadonlyArray<string> | null | undefin
  * which picks the page's path, so the first ask reads GET /app/installations/:id with the App's own key, within
  * CONFIGURE_LOOKUP_TIMEOUT_MS. A failed or refused ask is remembered for CONFIGURE_MISS_TTL_MS and answers null.
  * A row is used only for the same account login, so a relink to a renamed account asks again.
+ *
+ * The ask is also how a read notices an installation that is gone without a webhook (cmux#55104: a deleted
+ * installation's page is GitHub's 404, and Connect opened it). A page is trusted for CONFIGURE_PAGE_TTL_MS, and
+ * `fresh` (a connection that is not active, the case where the app opens the page to relink) skips the cache.
+ * GitHub's JSON 404 for the installation calls `onGone`, drops the row and answers null.
  */
 export const CONFIGURE_LOOKUP_TIMEOUT_MS = 2_000
-export const CONFIGURE_PAGE_TTL_MS = 24 * 3600_000
+export const CONFIGURE_PAGE_TTL_MS = 3600_000
 export const CONFIGURE_MISS_TTL_MS = 10 * 60_000
 
 export const createConfigurePageTable = (sql: SqlStorage) =>
   sql.exec(`CREATE TABLE IF NOT EXISTS github_configure_pages (installation INTEGER PRIMARY KEY, login TEXT NOT NULL, url TEXT NOT NULL, checked_at INTEGER NOT NULL)`)
 
-export const installationConfigureUrl = async (sql: SqlStorage, env: Env, http: Http, installation: number, login: string, now: number): Promise<string | null> => {
+export const installationConfigureUrl = async (
+  sql: SqlStorage,
+  env: Env,
+  http: Http,
+  installation: number,
+  login: string,
+  now: number,
+  opts: { readonly fresh?: boolean; readonly onGone?: () => void } = {}
+): Promise<string | null> => {
   const row = sql.exec<{ login: string; url: string; checked_at: number }>(`SELECT login, url, checked_at FROM github_configure_pages WHERE installation = ?`, installation).toArray()[0]
-  if (row && row.login === login.toLowerCase() && now - Number(row.checked_at) < (row.url ? CONFIGURE_PAGE_TTL_MS : CONFIGURE_MISS_TTL_MS))
+  if (!opts.fresh && row && row.login === login.toLowerCase() && now - Number(row.checked_at) < (row.url ? CONFIGURE_PAGE_TTL_MS : CONFIGURE_MISS_TTL_MS))
     return row.url && GITHUB_CONFIGURE_URL.test(row.url) ? row.url : null
   let url: string | undefined
   try {
     const res = await http(new Request(`${GH_API}/app/installations/${installation}`, { headers: ghHeaders(await appJwt(env)), signal: AbortSignal.timeout(CONFIGURE_LOOKUP_TIMEOUT_MS) }))
+    // GitHub's own JSON 404 for the App's installation: it is gone. Any other answer (a proxy's page, a timeout) is a miss.
+    if (res.status === 404 && ((await res.clone().json().catch(() => ({}))) as { message?: unknown }).message === "Not Found") {
+      sql.exec(`DELETE FROM github_configure_pages WHERE installation = ?`, installation)
+      opts.onGone?.()
+      return null
+    }
     url = res.ok ? configurePage(installation, (await res.json()) as Installation, login) : undefined
   } catch {
     url = undefined
