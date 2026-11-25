@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "picker.forkNext" : {
+      "comment" : "Agent pane: tooltip and accessible name of the fork mark on the composer's model button, after a started chat picked another agent's model; sending the next message forks the chat there ({harness} is the agent's name, e.g. Codex)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your next message forks this chat to {harness}"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deine nächste Nachricht zweigt diesen Chat zu {harness} ab"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Votre prochain message dérive cette discussion vers {harness}"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "رسالتك التالية ستفرّع هذه الدردشة إلى {harness}"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tu próximo mensaje bifurca este chat a {harness}"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的下一則訊息會將此對話分支到 {harness}"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "你的下一条消息会将此对话分支到 {harness}"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다음 메시지를 보내면 이 채팅이 {harness}(으)로 분기됩니다"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次のメッセージでこのチャットを {harness} に分岐します"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vaša sljedeća poruka račva ovaj chat u {harness}"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Din næste besked forgrener denne chat til {harness}"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il tuo prossimo messaggio dirama questa chat verso {harness}"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "សាររបស់អ្នកបន្ទាប់នឹងបំបែកការជជែកនេះទៅ {harness}"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Den neste meldingen din forgrener denne chatten til {harness}"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Twoja następna wiadomość rozgałęzi ten czat do {harness}"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sua próxima mensagem ramifica este chat para {harness}"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Следующее сообщение ответвит этот чат в {harness}"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ข้อความถัดไปของคุณจะแยกแชทนี้ไปยัง {harness}"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sonraki mesajınız bu sohbeti {harness} için dallandırır"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ваше наступне повідомлення відгалузить цей чат у {harness}"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tin nhắn tiếp theo của bạn sẽ rẽ nhánh cuộc trò chuyện này sang {harness}"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
