@@ -7,9 +7,9 @@
 // It costs nothing at rest: a DOM change, a resize, a scroll or a browser layout-shift entry arms a burst that
 // samples the tracked boxes every frame until they hold still for `QUIET_FRAMES` (or `CAP_MS` pass), then
 // judges the burst (motionJudge.ts) and disarms. A person's own acts declare their moves as they happen: a
-// wheel or a scroll key is a user scroll, a window resize a resize, a press or a key opens what it targets
-// (and a menu, and the composer's growth). Everything else must be declared by the code that moves it
-// (`declareMove`).
+// wheel or a scroll key is a user scroll, a window resize a resize, a press, a key, a drop or a paste opens
+// what it targets (and a menu, and the composer's growth). Everything else must be declared by the code that
+// moves it (`declareMove`).
 import { MEDIA_SELECTOR, sampleBoxes } from "./boxSample";
 import { declareMove, openDeclarations, type MotionEvent } from "./motionContract";
 import { judgeMotion, type JudgeFrame, type UndeclaredMove } from "./motionJudge";
@@ -138,6 +138,9 @@ export function startMotionAudit(win: Window, record: (move: UndeclaredMove) => 
   win.addEventListener("scroll", onScroll, { capture: true, passive: true });
   win.addEventListener("pointerdown", onPress, { capture: true, passive: true });
   win.addEventListener("keydown", onPress, { capture: true, passive: true });
+  // A drop or a paste is the person's act too: what it adds (an attachment's chip) grows the composer.
+  win.addEventListener("drop", onPress, { capture: true, passive: true });
+  win.addEventListener("paste", onPress, { capture: true, passive: true });
   doc.addEventListener("visibilitychange", onVisible);
   let shifts: PerformanceObserver | undefined;
   try {
@@ -170,6 +173,8 @@ export function startMotionAudit(win: Window, record: (move: UndeclaredMove) => 
       win.removeEventListener("scroll", onScroll, { capture: true });
       win.removeEventListener("pointerdown", onPress, { capture: true });
       win.removeEventListener("keydown", onPress, { capture: true });
+      win.removeEventListener("drop", onPress, { capture: true });
+      win.removeEventListener("paste", onPress, { capture: true });
       doc.removeEventListener("visibilitychange", onVisible);
     },
     report: () => [...kept],
