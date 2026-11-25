@@ -42,7 +42,8 @@
 //! args) whose own child runs that agent by absolute path with those args unchanged among its own
 //! relays the same way (`wrapper`, `relays_for`). The
 //! configs, and `ps` with the argv reads, each get [`CENSUS_BUDGET`]; past it the harness stays
-//! up, so the leases the pass holds are never held longer.
+//! up, so the leases the pass holds are never held longer than those budgets together (a pause
+//! that retries a start's missed read, `LaunchServers::retry`, holds them through one more).
 
 #![cfg_attr(not(unix), allow(dead_code))]
 
@@ -129,6 +130,18 @@ pub(crate) struct LaunchRead {
     launch: crate::agent::Launch,
     family: String,
     kind: crate::config::HarnessKind,
+    /// True while a read of these inputs still runs: a timeout does not end its blocking task,
+    /// so a read held by a hung mount is never started a second time (`retry`).
+    running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+/// Clears `LaunchRead::running` when the blocking read ends, however it ends.
+struct ReadRunning(std::sync::Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for ReadRunning {
+    fn drop(&mut self) {
+        self.0.store(false, std::sync::atomic::Ordering::Release);
+    }
 }
 
 impl LaunchServers {
@@ -158,11 +171,24 @@ impl LaunchServers {
         family: String,
         kind: crate::config::HarnessKind,
     ) -> Self {
-        let retry = LaunchRead { launch: launch.clone(), family: family.clone(), kind };
+        Self::read_marked(launch, family, kind, Default::default()).await
+    }
+
+    /// `read`, with `running` set until its blocking task ends.
+    async fn read_marked(
+        launch: &crate::agent::Launch,
+        family: String,
+        kind: crate::config::HarnessKind,
+        running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        running.store(true, std::sync::atomic::Ordering::Release);
+        let marker = ReadRunning(running.clone());
+        let retry = LaunchRead { launch: launch.clone(), family: family.clone(), kind, running };
         let family = config_family(family, kind);
         let path = launch.env.get("PATH").cloned().unwrap_or_default();
         let (at, cwd, launch) = (path.clone(), launch.cwd.clone(), launch.clone());
         let read = tokio::task::spawn_blocking(move || {
+            let _marker = marker;
             resolved(from_launch(&family, &launch), &at, &launch.cwd)
         });
         match tokio::time::timeout(CENSUS_BUDGET, read).await {
@@ -174,11 +200,19 @@ impl LaunchServers {
     /// For servers its start could not read in time (`Unknown`): the same read again, with the
     /// configs as they are now, as `read_live` judges an adopted harness. A server since removed
     /// from them keeps the harness up as unknown work does; one since added counts only when a
-    /// child of the harness runs exactly its argv. None when they are known already or the read
-    /// misses its budget again (the next idle pass tries again).
+    /// child of the harness runs exactly its argv. Unlike `read_live`, the configs are read at
+    /// idle time, so a server the harness's own agent added (a project `.mcp.json`,
+    /// `claude mcp add`) counts too, still only for a child running exactly its argv and program.
+    /// None when they are known already, an earlier read of them still runs (a hung mount: no
+    /// second blocking read piles up behind it), or the read misses its budget again (the next
+    /// idle pass tries again).
     pub(crate) async fn retry(&self) -> Option<Self> {
         let Self::Unknown(read) = self else { return None };
-        match Self::read(&read.launch, read.family.clone(), read.kind).await {
+        if read.running.load(std::sync::atomic::Ordering::Acquire) {
+            return None;
+        }
+        let running = read.running.clone();
+        match Self::read_marked(&read.launch, read.family.clone(), read.kind, running).await {
             known @ Self::Known { .. } => Some(known),
             Self::Unknown(_) => None,
         }

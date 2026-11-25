@@ -72,8 +72,14 @@ impl Hub {
             let known = unknown.retry().await?;
             tracing::info!(session = %session.id, "idle census: the MCP configs its start could not read in time are read now");
             child.record_launch(known.clone());
-            self.note_launch(session, child);
-            self.save_meta(session);
+            // Only the session's current harness writes the meta: an old one whose retry ended
+            // after a new start must not replace what that start kept for an adopting daemon.
+            let current =
+                session.child.lock().await.as_ref().is_some_and(|c| std::ptr::eq(&**c, child));
+            if current {
+                self.note_launch(session, child);
+                self.save_meta(session);
+            }
             state = Some(known);
         }
         let (mut servers, path, cwd) = match state {

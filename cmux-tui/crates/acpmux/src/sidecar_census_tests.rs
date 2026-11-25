@@ -811,12 +811,22 @@ async fn a_launch_read_that_missed_its_budget_is_read_again() {
         cwd: cwd.clone(),
     };
     // What `read` keeps when its budget passes.
-    let missed = LaunchServers::Unknown(Box::new(LaunchRead {
-        launch,
+    let read = |running: bool| LaunchRead {
+        launch: launch.clone(),
         family: "claude-sr2".into(),
         kind: crate::config::HarnessKind::ClaudeStdio,
-    }));
-    assert!(missed.orphan_exit(None).is_none());
+        running: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(running)),
+    };
+    // While the start's read still runs (a hung mount), no second read starts.
+    assert!(LaunchServers::Unknown(Box::new(read(true))).retry().await.is_none());
+    let missed = LaunchServers::Unknown(Box::new(read(false)));
+    let exit = crate::agent_host::OrphanExit {
+        idle_ms: 1,
+        servers: Vec::new(),
+        path: String::new(),
+        cwd: std::path::PathBuf::new(),
+    };
+    assert!(missed.orphan_exit(Some(exit)).is_none(), "unknown servers give no orphan exit");
     let Some(LaunchServers::Known { servers, cwd: read_cwd, .. }) = missed.retry().await else {
         panic!("the retry did not read the configs")
     };
@@ -828,6 +838,9 @@ async fn a_launch_read_that_missed_its_budget_is_read_again() {
     // Servers already known are not read again.
     let known = LaunchServers::Known { servers, path: String::new(), cwd };
     assert!(known.retry().await.is_none());
+    // The retry's own read marked itself running, and cleared it when it ended.
+    let LaunchServers::Unknown(kept) = &missed else { unreachable!() };
+    assert!(!kept.running.load(std::sync::atomic::Ordering::Acquire));
     let _ = std::fs::remove_dir_all(root);
 }
 
