@@ -76,6 +76,7 @@ import Testing
                                    focusedPane: "browser", browserEngine: "ready", browserFailures: 0,
                                    footprintMegabytes: MemoryPressureReporter.defaultHighFootprintMegabytes, actions: [])
         #expect(run.wasLikelyOOM)
+        #expect(LaunchRecovery.decide(previous: run).previous != nil)
         run.quitting = true
         #expect(!run.wasLikelyOOM)
     }
