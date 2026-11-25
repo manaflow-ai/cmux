@@ -54,6 +54,7 @@ on:
       - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
+      - skills/cmux-ui-preview/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
@@ -446,6 +447,7 @@ on:
       - skills/cmux-computer-use/**
       - skills/cmux-customization/**
       - skills/cmux-live/**
+      - skills/cmux-ui-preview/**
       - .xcode-version
       - schemas/**
       - plans/cmux-next/**
