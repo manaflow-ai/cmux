@@ -462,3 +462,63 @@ test("a resend acpmux refuses for good says Not sent with acpmux's own words, no
     lost.next.client.close?.();
   }
 });
+
+// The breaker: many rounds of a send lost to an acpmux restart, then a random run of "not now",
+// silences past the window, and sometimes a second restart mid-resend, all on a loaded machine
+// when CI runs it that way. Every message ends delivered, once, on one row, and nothing is kept.
+test("breaker: a send lost to restarts and long not-nows is never lost, never doubled, never stuck", async () => {
+  const rounds = Number(process.env.SEND_BREAKER_ROUNDS ?? 12);
+  let seed = 0x5eed;
+  const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+  for (let round = 0; round < rounds; round += 1) {
+    const host = hostStore();
+    const text = `breaker ${round}`;
+    let lost = await lostThenReconnected(host, text);
+    try {
+      await withResendShowMs(30, async () => {
+        lost.notice("sent");
+        const steps = 2 + Math.floor(random() * 6);
+        for (let step = 0; step < steps; step += 1) {
+          await wait(5 + Math.floor(random() * 25));
+          lost.notice("retrying", { attempt: step, retryInMs: 10, code: "native.timed_out", reason: "timed_out" });
+          expect(lost.mine()).toHaveLength(1);
+          expect(lost.mine()[0]!.failed).not.toBe(true);
+        }
+        if (random() < 0.4) {
+          // acpmux restarts again mid-resend: this connection goes, the next pane draws it again.
+          lost.next.drop();
+          lost.next.client.close?.();
+          const sentAfter: string[] = [];
+          const third = await pane(host.store, () => undefined, sentAfter);
+          const mine = () => third.rows().filter((row) => row.kind === "user" && row.text === text);
+          await until(() => mine().length === 1 && mine()[0]!.failed !== true);
+          const notice = (state: string, extra: Record<string, unknown> = {}) =>
+            third.deliver({
+              jsonrpc: "2.0",
+              method: "_cmux/prompt_resend",
+              params: {
+                sessionId: third.client.selectedSession!,
+                promptId: lost.promptId,
+                state,
+                attempt: 0,
+                ...extra,
+              },
+            });
+          lost = { ...lost, next: third, mine, notice, sentAfter };
+          lost.notice("sent");
+        }
+        await wait(Math.floor(random() * 60));
+        expect(lost.mine()[0]!.delivery?.state).toBe("sending");
+        lost.notice("accepted");
+        await until(() => lost.mine()[0]!.delivery?.state === "delivered");
+      });
+      expect(lost.mine()).toHaveLength(1);
+      expect(lost.mine()[0]!.failed).not.toBe(true);
+      expect(lost.sentAfter).toEqual([]);
+      await settle();
+      expect(host.all().filter((record) => record.promptId === lost.promptId)).toHaveLength(0);
+    } finally {
+      lost.next.client.close?.();
+    }
+  }
+}, 300_000);

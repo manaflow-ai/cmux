@@ -15016,6 +15016,8 @@ export class AcpmuxDirectClient {
       // acpmux took it (`_acpmux/prompt_accepted`) before its echo: the row says so now.
       const accept = () => {
         if (this.setDelivery(promptId, { state: "delivered", acceptedAt: Date.now() })) this.emit();
+        // acpmux has it: off disk now, not at its echo, so a relaunch in between draws no second copy.
+        this.unsentTaken(promptId);
         done(true);
       };
       const heard = (notice: PromptResendNotice) => {
