@@ -1,4 +1,7 @@
+import Foundation
+#if canImport(AppKit)
 public import AppKit
+#endif
 
 /// What else a chord may mean where an action's shortcut runs, supplied by
 /// the App: the user's Ghostty keybinds and the browser chords that have a
