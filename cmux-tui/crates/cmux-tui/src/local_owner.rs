@@ -1027,10 +1027,11 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     #[cfg(windows)]
     install_key::keep_std_handles_from_children();
+    let spawn = |command: &mut Command| command.spawn();
     #[cfg(unix)]
-    let child = command.spawn()?;
+    let child = spawn(&mut command)?;
     #[cfg(windows)]
-    let mut child = job_breakaway::spawn_owner_out_of_callers_job(&mut command, spec)?;
+    let mut child = job_breakaway::spawn_owner_out_of_callers_job(&mut command, spec, spawn)?;
     // Only the owner holds the write end now, so end of file means it exited.
     #[cfg(unix)]
     drop(ready_writer);

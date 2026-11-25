@@ -3,9 +3,9 @@
 
 use std::io;
 use std::os::windows::process::CommandExt;
-use std::process::{Child, Command};
+use std::process::Child;
 
-use super::{OwnerSpec, set_owner_stdio};
+use super::{Command, OwnerSpec, set_owner_stdio};
 
 /// Starts the owner with no console and as the root of its own process
 /// group, outside the Job Object of whoever runs `server ensure`
@@ -22,6 +22,7 @@ use super::{OwnerSpec, set_owner_stdio};
 pub(super) fn spawn_owner_out_of_callers_job(
     command: &mut Command,
     spec: &OwnerSpec,
+    spawn: impl Fn(&mut Command) -> io::Result<Child>,
 ) -> io::Result<Child> {
     const ERROR_ACCESS_DENIED: i32 = 5;
     const DETACHED_PROCESS: u32 = 0x0000_0008;
@@ -29,10 +30,10 @@ pub(super) fn spawn_owner_out_of_callers_job(
     const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
     let flags = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
     set_owner_stdio(command, spec);
-    match command.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB).spawn() {
+    match spawn(command.creation_flags(flags | CREATE_BREAKAWAY_FROM_JOB)) {
         Err(error) if error.raw_os_error() == Some(ERROR_ACCESS_DENIED) => {
             set_owner_stdio(command, spec);
-            command.creation_flags(flags).spawn()
+            spawn(command.creation_flags(flags))
         }
         spawned => spawned,
     }

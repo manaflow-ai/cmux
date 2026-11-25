@@ -697,14 +697,14 @@ mod windows_tests {
         let mut reader = spawned.master.try_clone_reader()?;
         let mut writer = spawned.master.take_writer()?;
         let (sender, chunks) = mpsc::channel();
-        std::thread::spawn(move || {
+        std::thread::Builder::new().name("ctrl-c-reader".into()).spawn(move || {
             let mut buffer = [0u8; 4096];
             while let Ok(count) = reader.read(&mut buffer) {
                 if count == 0 || sender.send(buffer[..count].to_vec()).is_err() {
                     break;
                 }
             }
-        });
+        })?;
         let deadline = Instant::now() + Duration::from_secs(30);
         let mut output = Vec::new();
         let (mut answered, mut interrupted) = (false, false);
