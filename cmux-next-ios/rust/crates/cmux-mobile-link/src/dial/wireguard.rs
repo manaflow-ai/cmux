@@ -37,7 +37,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::relay::{RELAY_PEER, RelayCarrier};
+use super::relay::{RELAY_PEER, RelayCarrier, RelayEndpoint};
 use super::turn::{Allocated, TurnCarrier, TurnTransport};
 use super::{
     DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
@@ -596,14 +596,30 @@ fn relay_plan(
     own_now: bool,
     peer: Option<&str>,
     ticket: Option<String>,
+    early: Option<roam::EarlyJoin>,
 ) -> Option<roam::RelayPlan> {
-    let mut endpoint = options.relay.clone()?;
-    endpoint.egress = options.egress.clone();
+    let endpoint = relay_endpoint(options)?;
     let Some(peer) = peer else {
         options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
+        abort_early(early.as_ref());
         return None;
     };
-    Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW, ticket })
+    Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW, ticket, early })
+}
+
+/// This side's relay endpoint, leaving through this dial's egress (the
+/// system proxy, "proxy only"): the one every join uses, early or not.
+fn relay_endpoint(options: &DialOptions) -> Option<RelayEndpoint> {
+    let mut endpoint = options.relay.clone()?;
+    endpoint.egress = options.egress.clone();
+    Some(endpoint)
+}
+
+/// Stops a join started on an early ticket that no plan will take.
+fn abort_early(early: Option<&roam::EarlyJoin>) {
+    if let Some(handle) = early.and_then(|slot| slot.lock().unwrap_or_else(PoisonError::into_inner).take()) {
+        handle.abort();
+    }
 }
 
 /// Whether a side with this gather has no way to the peer but the relay:
@@ -2865,10 +2881,9 @@ pub(super) fn dial_wireguard<'a>(
         if !trickle {
             diagnose_gather(options, udp_blocked, turn.as_ref(), true);
         }
-        let relay_offer = options.relay.as_ref().map(|_| {
-            (if only_the_relay(options, udp_blocked, turn.as_ref()) { RELAY_NOW } else { RELAY_READY })
-                .to_owned()
-        });
+        let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
+        let relay_offer =
+            options.relay.as_ref().map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
         let Gathered { mut endpoints, mut stun, .. } = gathered;
         let (relayed, relayed_tls) = relayed_of(turn.as_ref());
         endpoints.extend(relayed.iter().cloned());
@@ -2908,6 +2923,9 @@ pub(super) fn dial_wireguard<'a>(
                     relayed_tls,
                     version: WG_VERSION,
                     relay: relay_offer,
+                    // A side with no path but the relay asks for its ticket now,
+                    // so its join runs while the Mac gathers and answers.
+                    ticket_early: own_relay_now,
                 },
             )
             .map_err(|e| DialError::Signaling(e.to_string()))?;
@@ -2917,6 +2935,8 @@ pub(super) fn dial_wireguard<'a>(
         // are known, so its spray can open this side's NAT before the
         // handshake. The socket moves into the tunnel once both are in.
         let mut announced = 0u64;
+        let mut early_ticket: Option<String> = None;
+        let mut early_join: Option<roam::EarlyJoin> = None;
         let (answer, found) = {
             let answer = async {
                 loop {
@@ -2945,15 +2965,37 @@ pub(super) fn dial_wireguard<'a>(
                                     envelope.relay_ticket,
                                 ));
                             }
-                            SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
+                            SignalPayload::Bye { reason } => {
+                                abort_early(early_join.as_ref());
+                                return Err(DialError::Bye(reason));
+                            }
                             // A Mac that roamed before this side saw its answer:
                             // the tunnel learns its endpoints from inside.
                             SignalPayload::WgEndpoints { .. } => {}
                             // The Mac already joined the relay; so will this side.
                             SignalPayload::WgRelay {} => {}
-                            other => return Err(DialError::Unexpected(format!("{other:?}"))),
+                            // The service's answer to `ticketEarly`: this side's ticket,
+                            // before the Mac's. The join starts now, off the wait.
+                            SignalPayload::WgTicket {} => {
+                                if let (true, None, Some(endpoint), Some(ticket)) =
+                                    (own_relay_now, &early_join, relay_endpoint(options), envelope.relay_ticket)
+                                {
+                                    options.timeline.mark("relay_early_join");
+                                    let (session, peer, used) =
+                                        (session_id.to_owned(), mac.to_owned(), ticket.clone());
+                                    early_ticket = Some(ticket);
+                                    early_join = Some(Arc::new(Mutex::new(Some(tokio::spawn(async move {
+                                        RelayCarrier::join(&endpoint, &session, &peer, Some(&used)).await
+                                    })))));
+                                }
+                            }
+                            other => {
+                                abort_early(early_join.as_ref());
+                                return Err(DialError::Unexpected(format!("{other:?}")));
+                            }
                         },
                         SessionEvent::Disconnected => {
+                            abort_early(early_join.as_ref());
                             return Err(DialError::Signaling("disconnected".into()));
                         }
                     }
@@ -3022,6 +3064,7 @@ pub(super) fn dial_wireguard<'a>(
         let webrtc_media_agreed = video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
         let (peer_key, peer_ip) = (parse_key(&answer_key)?, ip);
         if peer_ip == DIALER_OVERLAY {
+            abort_early(early_join.as_ref());
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
         // An allocation that is in already rides in the tunnel from its
@@ -3052,7 +3095,13 @@ pub(super) fn dial_wireguard<'a>(
             diagnose_gather(options, udp_blocked, turn.as_ref(), late_turn.is_none());
         }
         let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref()) && late_turn.is_none();
-        let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+        let relay = relay_plan(
+            options,
+            own_relay_now,
+            peer_relay.as_deref(),
+            relay_ticket.or(early_ticket),
+            early_join,
+        );
         if relay.is_none() && no_plain_udp(options) && turn.is_none() && late_turn.is_none() {
             // The relay was this side's only way, and the Mac has none.
             return Err(options.diagnosis.blocked());
@@ -3231,6 +3280,7 @@ impl Dialer for WireGuardDialer {
                 relayed_tls: peer_relayed_tls,
                 version: peer_version,
                 relay: peer_relay,
+                ticket_early: _,
             } = first.payload
             else {
                 return Err(DialError::Unexpected("expected wg-init".into()));
@@ -3271,7 +3321,7 @@ impl Dialer for WireGuardDialer {
                 .relay
                 .as_ref()
                 .map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
-            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket, None);
             let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
