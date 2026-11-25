@@ -33,7 +33,7 @@ import {
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
-import { ToolLabel } from "./ToolVerb";
+import { Tick } from "../subagents/trayMotion";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
@@ -472,8 +472,10 @@ export function ToolGroupRow({
               {/* The group's line reads as words, "Ran 2 commands", its count never pushed out to the
                   verb column its calls' rows share (Leo, 2026-10-29: "Why is there space between ran
                   and two?"). */}
-              <ToolLabel
-                whole
+              {/* A count that grows rolls on its own and new words roll in, on the one text roll
+                  every live label shares (ui/motion/TextRoll.tsx). */}
+              <Tick
+                steadyCounts
                 text={toolGroupLabel(
                   t,
                   kind,

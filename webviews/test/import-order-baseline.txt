@@ -655,7 +655,6 @@ src/ui/findPaint.test.ts
 src/ui/lasting.test.tsx
 src/ui/mediaPreviewPolicy.test.ts
 src/ui/motion/motion.test.tsx
-src/ui/motion/useTextSwap.test.tsx
 src/ui/nativePopup.lifecycle.test.tsx
 src/ui/openOverlay.test.ts
 src/ui/popoverTrigger.test.tsx

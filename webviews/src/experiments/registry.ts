@@ -70,6 +70,7 @@ import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTur
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
 import { hoverLook } from "../ui/hoverLook.experiment";
+import { textRollLook } from "../ui/motion/textRoll.experiment";
 import { questionPreviewLayout } from "../agent-session/acpmux/question/previewLayout.experiment";
 import { trayPanelLook, trayRowLook, trayStopLook } from "../agent-session/acpmux/subagents/trayPanel.experiment";
 import { trayMotionLook } from "../agent-session/acpmux/subagents/trayMotion.experiment";
@@ -220,6 +221,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   trayMotionLook,
   composerHatLook,
   hatCountMotion,
+  textRollLook,
   hatQuestionsLook,
   hatOpenLook,
   subagentForkChipsLook,
