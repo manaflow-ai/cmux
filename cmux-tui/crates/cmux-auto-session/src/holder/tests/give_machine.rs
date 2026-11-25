@@ -18,7 +18,7 @@ fn give_failed(why: GiveFailure) -> Event {
 }
 
 /// The store's "holder" at epoch 2 to the renewal among `effects`, with the person's wish.
-fn held(effects: &[Effect], wish: Option<MoveTo>) -> Event {
+pub(super) fn held(effects: &[Effect], wish: Option<MoveTo>) -> Event {
     let answer = answer(Verdict::Holder, 2, 4).wishing(wish);
     Event::Answered { request: request(effects), answer }
 }
@@ -29,7 +29,7 @@ fn lost(effects: &[Effect]) -> Event {
 }
 
 /// The chat's next tick: (the chat, its effects, when).
-fn tick(chat: Chat) -> (Chat, Vec<Effect>, u64) {
+pub(super) fn tick(chat: Chat) -> (Chat, Vec<Effect>, u64) {
     let now = chat.wake_at().expect("a next tick");
     let (chat, effects) = step(chat, Event::Tick, now);
     (chat, effects, now)
@@ -37,7 +37,7 @@ fn tick(chat: Chat) -> (Chat, Vec<Effect>, u64) {
 
 /// A machine that serves the chat at epoch 2 and whose renewal was answered with the wish to
 /// move it to a laptop: its give as far as `until`. Answers the chat and the time.
-fn give_until(until: GiveStep) -> (Chat, u64) {
+pub(super) fn give_until(until: GiveStep) -> (Chat, u64) {
     let (chat, effects, now) = tick(serving(0));
     let (chat, effects) = step(chat, held(&effects, Some(LOCAL)), now);
     assert_eq!(effects, [Effect::StopTurn]);
@@ -88,7 +88,7 @@ fn a_wish_comes_before_the_inbox() {
 
 #[test]
 fn the_daemons_own_move_starts_the_give_without_waiting_for_a_renewal() {
-    let (chat, effects) = step(serving(0), Event::Wished { to: LOCAL }, 100);
+    let (chat, effects) = step(serving(0), Event::Wished { to: LOCAL, at: None }, 100);
     assert_eq!(effects, [Effect::StopTurn]);
     assert_eq!(chat.state, returning(GiveStep::Stopping));
 }
