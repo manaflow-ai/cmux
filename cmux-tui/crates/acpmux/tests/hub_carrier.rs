@@ -90,6 +90,27 @@ impl C {
 }
 
 impl C {
+    /// [`C::call`] for a request that may be refused: its result, or its error.
+    async fn try_call(&mut self, m: &str, p: Value) -> Result<Value, Value> {
+        self.next += 1;
+        let id = self.next;
+        self.tx.send(Message::request(id, m, p).to_line()).await.unwrap();
+        loop {
+            let line = tokio::time::timeout(Duration::from_secs(20), self.rx.recv())
+                .await
+                .expect("timeout")
+                .expect("closed");
+            if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+                && rid == id
+            {
+                return match error {
+                    Some(e) => Err(serde_json::to_value(e).unwrap()),
+                    None => Ok(result.unwrap_or(Value::Null)),
+                };
+            }
+        }
+    }
+
     /// A request whose answer nobody waits for (a turn that runs until it is stopped).
     async fn send(&mut self, m: &str, p: Value) {
         self.next += 1;
@@ -359,7 +380,12 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
         .await
         .unwrap();
     until_state(&a, true, Duration::from_secs(30)).await;
-    assert!(carrier_a.stats().dials.load(Ordering::Relaxed) >= 1, "A dialed over the carrier");
+    // A peer link rides the pair's kept circuit as a stream (#52580), else a plain circuit.
+    let carried = |carrier: &HubCarrier| {
+        carrier.stats().dials.load(Ordering::Relaxed)
+            + carrier.stats().kept_opens.load(Ordering::Relaxed)
+    };
+    assert!(carried(&carrier_a) >= 1, "A dialed over the carrier");
     assert!(carrier_b.stats().accepted.load(Ordering::Relaxed) >= 1, "B took the circuit");
     let connected_bytes = proxy.bytes.load(Ordering::Relaxed);
 
@@ -413,7 +439,7 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
     .await
     .expect("B's turn never ended");
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let dials_before = carrier_a.stats().dials.load(Ordering::Relaxed);
+    let dials_before = carried(&carrier_a);
     proxy.resume();
 
     // A reconnects over the carrier and replays what it missed, once, with the prompt's answer.
@@ -426,10 +452,7 @@ async fn hub_carrier_a_turn_streams_over_the_relay_and_survives_a_relay_reconnec
     .await
     .expect("the missed events never arrived after the relay came back");
     assert_eq!(answer.as_ref().unwrap()["stopReason"], "end_turn");
-    assert!(
-        carrier_a.stats().dials.load(Ordering::Relaxed) > dials_before,
-        "redialed over the carrier"
-    );
+    assert!(carried(&carrier_a) > dials_before, "redialed over the carrier");
     until_state(&a, true, Duration::from_secs(5)).await;
     // Nothing more arrives late: each event came exactly once.
     let _ = tokio::time::timeout(Duration::from_millis(500), async {
@@ -948,6 +971,9 @@ async fn hub_carrier_a_replayed_or_reordered_record_closes_the_stream() {
         key_a,
         fast,
     );
+    // A plain circuit, one Noise record per line: on a kept circuit (where acpmux dials go since
+    // #52580) the next record A sends may be a PING or WINDOW record, not the request.
+    carrier_a.acpmux_streams(false);
 
     for (tamper, sent) in [(Tamper::Duplicate, 1), (Tamper::Reorder, 2)] {
         ran.lock().unwrap().clear();
@@ -2107,6 +2133,8 @@ async fn hub_carrier_pipe_bulk_layers() {
 /// reading never applies its acknowledgements, so each full delivery window ends in a liveness
 /// reconnect; the frame a send held across one went missing and the next took its sequence
 /// (frame 7 of 32 arrived as 8 before the fix), here over plain TCP and through the pipe alike.
+/// The transfer is 16 MiB: past two of the 7 MiB windows a lane has had since #49037 (1 MiB
+/// fit in one and never reconnected).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
     let _ = HERMETIC;
@@ -2116,7 +2144,7 @@ async fn hub_carrier_no_bulk_frame_is_lost_across_a_reconnect() {
     let tcp = Arc::new(cmux_remote::provider::OsTcpDialer);
     let client = connect_over(&fixture, &identity, true, tcp).await;
     let daemon_client = within("the connect", fixture.accepted.recv()).await.unwrap();
-    bulk_down(&client, &daemon_client, 1 << 20, false).await.unwrap();
+    bulk_down(&client, &daemon_client, 16 << 20, false).await.unwrap();
     assert!(client.snapshot().await.generation > 1, "the transfer never crossed a reconnect");
 }
 
@@ -2522,7 +2550,6 @@ async fn move_over_relay(precopy: bool) -> MoveRun {
             max_policy: None,
             same_user: true,
             ops: vec!["move".into()],
-            max_policy: None,
         }],
         Some(ledger.path().join("mesh-controls.json")),
     )
@@ -3094,20 +3121,25 @@ async fn hub_carrier_later_dials_to_a_machine_ride_its_kept_circuit_as_streams()
     assert_eq!(fixture.kept_opens() - opens, 4);
 }
 
-/// One circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials) ride
-/// the kept circuit as streams beside the cmux-tui ones, and no plain circuit opens.
+/// One cheap circuit per host pair: the acpmux peer link and its hub probe (two acpmux dials)
+/// ride the cheap kept circuit as streams, cmux-tui rides the bulk one, and no plain circuit
+/// opens.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn hub_carrier_acpmux_links_ride_the_kept_circuit_as_streams() {
     let _ = HERMETIC;
+    // The fixture's own cmux-tui dials (until B served) opened the bulk circuit.
     let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let bulk = fixture.kept_circuits();
     let mut link = within("the peer link", fixture.a.dial(&fixture.b_key)).await.unwrap();
     let mut probe = within("the hub probe", fixture.a.dial(&fixture.b_key)).await.unwrap();
     echo(&mut link, b"link\n").await;
     echo(&mut probe, b"probe\n").await;
+    assert_eq!(fixture.kept_circuits(), bulk + 1, "the links rode the one cheap circuit");
+    assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(2));
     let _tui = fixture.dial_to_banner().await;
-    assert_eq!(fixture.kept_circuits(), 1, "the links rode the one cheap circuit");
-    assert_eq!(fixture.plain_dials(), 0, "no plain circuit beside it");
-    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 1);
+    assert_eq!(fixture.kept_circuits(), bulk + 1, "cmux-tui rode the bulk circuit");
+    assert_eq!(fixture.plain_dials(), 0, "no plain circuit beside them");
+    assert_eq!(fixture.a.kept_circuits(&fixture.b_key), 2);
     assert_eq!(fixture.a.kept_streams(&fixture.b_key), Some(3));
 }
 
@@ -3308,8 +3340,276 @@ async fn hub_carrier_kept_circuit_numbers() {
     );
 }
 
+// ---- The session-move matrix over the hub relay (RFD 0138). ----
+
+#[path = "hub_carrier/move_matrix_relay.rs"]
+mod move_matrix_relay;
+
+/// The lane-gh broker as a carrier service (RFD 0127 cut 2): B's gate names its broker socket
+/// for A's proven key only, so a broker stream from A reaches that socket on B's kept circuit.
+/// B with no gate (no `laneGhBroker`) refuses `service.off`, and a stranger's key is refused.
+struct TestBrokerGate {
+    admits: String,
+    socket: std::path::PathBuf,
+}
+
+#[async_trait::async_trait]
+impl acpmux::hub_carrier::broker::LaneGhBrokerGate for TestBrokerGate {
+    async fn admit(
+        &self,
+        from: &str,
+    ) -> Result<std::path::PathBuf, acpmux::hub_carrier::ServiceRefusal> {
+        if from != self.admits {
+            return Err(acpmux::hub_carrier::ServiceRefusal::new(
+                "service.unknown_machine",
+                "not this test's machine",
+            ));
+        }
+        Ok(self.socket.clone())
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_lane_gh_broker_stream_reaches_the_owners_broker_socket() {
+    let _ = HERMETIC;
+    let fixture = kept_fixture(Duration::ZERO, true, true).await;
+    let broker = CircuitService::LaneGhBroker;
+    assert_eq!(CircuitLane::of(broker), CircuitLane::Cheap);
+    let refused = within("an ungated dial", fixture.a.dial_service(&fixture.b_key, broker))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("service.off"), "{refused}");
+
+    // B's broker: a line in, `broker:` and the line back, as a stand-in for lane-gh-broker.
+    let dir = tempfile::tempdir().unwrap();
+    let socket = dir.path().join("client-a.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    tokio::spawn(async move {
+        while let Ok((conn, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let (read, mut write) = conn.into_split();
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if write.write_all(format!("broker:{line}\n").as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: fixture.a.public_key(),
+        socket: socket.clone(),
+    }));
+    let mut stream =
+        within("a broker dial", fixture.a.dial_service(&fixture.b_key, broker)).await.unwrap();
+    stream.write_all(b"{\"tool\":\"get\"}\n").await.unwrap();
+    let mut back = vec![0u8; "broker:{\"tool\":\"get\"}\n".len()];
+    within("the broker's answer", stream.read_exact(&mut back)).await.unwrap();
+    assert_eq!(back, b"broker:{\"tool\":\"get\"}\n");
+    assert_eq!(fixture.plain_dials(), 0, "the broker stream rode the kept circuit");
+
+    // A gate that admits another key refuses A.
+    fixture.b.set_lane_gh_broker_gate(Arc::new(TestBrokerGate {
+        admits: "someone else".to_owned(),
+        socket,
+    }));
+    let refused = within("a stranger's dial", fixture.a.dial_service(&fixture.b_key, broker))
+        .await
+        .unwrap_err();
+    assert!(refused.contains("service.unknown_machine"), "{refused}");
+}
+
 #[path = "hub_carrier_cases/held_ssh.rs"]
 mod held_ssh;
 
 #[path = "hub_carrier/move_out.rs"]
 mod move_out;
+
+/// Right after a hub move lands (`hub/transfer_pull.rs`), the target machine's own prompts to the
+/// chat are taken and run, never refused: the ring run of 2026-11-24 saw `acpmux send --no-wait`
+/// on the target refused "this harness has no reviewed asking mode for a remote WebSocket
+/// connection" for about a second after the move reported the chat landed, each refusal a lost
+/// message: the hub move landed the chat as a remote one. A hub move is between two daemons of
+/// the same person (op `move` only comes from a `sameUser` daemon), so it lands as the owner's
+/// own chat and the asking-mode rule for remote chats does not apply. `asking`: whether the
+/// target names a reviewed asking mode for the chat's harness (a bench harness names none); the
+/// move lands and runs either way. With none, a guarded receive that really lands remote is
+/// still refused before a page is sent, and the chat stays on the source. Each send goes
+/// the CLI's way (`_acpmux/send_queue` on the local socket) as soon as the target answered the
+/// move, before and after the source commits it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn hub_carrier_a_prompt_sent_on_the_target_as_a_move_lands_is_taken_and_runs() {
+    for asking in [true, false] {
+        send_as_a_move_lands(asking).await;
+    }
+}
+
+async fn send_as_a_move_lands(asking: bool) {
+    use acpmux::mesh::InMessage;
+    use acpmux::mesh_http::MeshControlFrom;
+    use acpmux::server::mesh_relay::{ControlHook as _, MeshControlHook};
+    use acpmux::transfer_service::{CarrierDial, ConfiguredTransferGate};
+
+    let _ = HERMETIC;
+    let relay_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay_address = relay_listener.local_addr().unwrap();
+    let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
+        allow_open: true,
+        ..cmux_relay::RelayConfig::default()
+    })
+    .unwrap();
+    let (relay_listener, router) = relay.server_parts(relay_listener);
+    tokio::spawn(async move {
+        let _ = axum::serve(relay_listener, router).await;
+    });
+    let proxy = Proxy::start(relay_address).await;
+    let route = format!("relay+ws://127.0.0.1:{}", proxy.port);
+    let (key_a, key_b) = (random_key(), random_key());
+    let (a_key, b_key) = (public(&key_a), public(&key_b));
+    let fast = Timings {
+        control: Duration::from_secs(5),
+        handshake: Duration::from_secs(5),
+        ..Timings::default()
+    };
+    let carrier = |key: [u8; 32], peers: Vec<String>| {
+        HubCarrier::new(
+            Arc::new(FixedTickets { relay: route.clone(), peers, asked: AtomicU64::new(0) }),
+            key,
+            fast,
+        )
+    };
+    let plain_ids = || {
+        let mut cfg = config();
+        for profile in cfg.harnesses.values_mut() {
+            profile.env.insert("FAKE_SESSION_PREFIX".into(), "fake-session-".into());
+        }
+        let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        Hub::new(cfg, store)
+    };
+    let a = plain_ids();
+    let carrier_a = carrier(key_a, vec![b_key.clone()]);
+    carrier_a.set_transfer_gate(Arc::new(ConfiguredTransferGate::new(&a)));
+    a.set_mesh_book_machines(BTreeMap::from([(b_key.clone(), "machine-b".to_owned())]));
+    let nothing = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let _serving = carrier_a.serve(nothing);
+    let b = plain_ids();
+    let home = dirs::home_dir().expect("a home directory");
+    let root = home.join(format!("acpmux-hub-move-send-{}", uuid::Uuid::now_v7()));
+    std::fs::create_dir_all(&root).unwrap();
+    let root = std::fs::canonicalize(&root).unwrap();
+    let root_text = root.to_string_lossy().into_owned();
+    {
+        let mut cfg = b.config.write().await;
+        cfg.web_roots = vec![root_text.clone()];
+        if asking {
+            cfg.web_asking_modes.insert("fake".into(), vec!["normal".into()]);
+        }
+    }
+    b.hub_carrier.set(carrier(key_b, vec![a_key.clone()]));
+    b.set_transfer_dial(Arc::new(CarrierDial::new(&b)));
+    let ledger = tempfile::tempdir().unwrap();
+    let hook = MeshControlHook::new(
+        vec![MeshControlFrom {
+            daemon_id: String::new(),
+            max_policy: None,
+            same_user: true,
+            ops: vec!["move".into()],
+        }],
+        Some(ledger.path().join("mesh-controls.json")),
+    )
+    .with_own_user(Arc::new(|| Some("user-1".to_owned())));
+
+    let mut ca = client(a.clone()).await;
+    let s =
+        ca.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []})).await;
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    ca.call(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "before the move"}]}),
+    )
+    .await;
+    if !asking {
+        // A move that really lands remote (another person's daemon, Move to Cloud: a guarded
+        // receive no same-person pull made) still needs the asking mode, and with none it is
+        // refused before a page is sent; the chat stays on the source.
+        let mut cb = client(b.clone()).await;
+        let begin = ca.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
+        let guard = json!({"control": "peer", "roots": [root_text]});
+        let refused = cb
+            .try_call("_acpmux/transfer_receive", json!({"manifest": begin, "guard": guard}))
+            .await;
+        let refused = refused.expect_err("a remote landing with no asking mode is refused");
+        assert!(refused.to_string().contains("cannot start here for a moved chat"), "{refused}");
+        assert!(refused.to_string().contains("webAskingModes"), "{refused}");
+        ca.call(
+            "_acpmux/transfer_abort",
+            json!({"sessionId": id, "transferId": begin["transferId"], "epoch": begin["epoch"]}),
+        )
+        .await;
+    }
+    let begin = ca
+        .call(
+            "_acpmux/transfer_begin",
+            json!({"sessionId": id, "gatesQueueApproval": true,
+                   "to": {"hub": b_key, "host": "machine-b"}}),
+        )
+        .await;
+    let body = json!({"version": 1, "transferId": begin["transferId"], "sessionId": id,
+                      "manifest": begin, "folder": {"cwd": root_text}});
+    let message: InMessage = serde_json::from_value(json!({
+        "messageId": "m-move-send", "kind": "control", "op": "move", "mode": "now",
+        "to": {"daemonId": b_key},
+        "from": {"daemonId": a_key, "user": "user-1", "host": "machine-b-source"},
+        "body": body.to_string(),
+    }))
+    .unwrap();
+    let ack = within("B's pull over the relay", hook.control(&b, &message)).await;
+    let ack = serde_json::to_value(ack.expect("an answer within the hook's wait")).unwrap();
+    assert_eq!(ack["state"], "delivered", "{ack}");
+    // A move between the same person's daemons lands the chat as the owner's own, not remote.
+    let landed = b.resolve(&id).expect("the chat is on B");
+    assert!(!landed.meta().remote_origin, "asking {asking}: landed as a remote chat");
+
+    // The move answered: the chat is on B. B's own sends, at once, then after the commit.
+    let mut cb = client(b.clone()).await;
+    let send = |text: &str| json!({"request": {"sessionId": id, "prompt": [{"type": "text", "text": text}]}});
+    let landed = cb.call(method::MUX_SEND_QUEUE, send("sent as it landed")).await;
+    let to = json!({"host": "machine-b", "via": "hub", "sessionId": id, "cwd": root_text});
+    let committed = ca
+        .call(
+            "_acpmux/transfer_commit",
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": to, "epoch": begin["epoch"]}),
+        )
+        .await;
+    assert_eq!(committed["committed"], true, "{committed}");
+    let after = cb.call(method::MUX_SEND_QUEUE, send("sent after the commit")).await;
+    for queued in [&landed, &after] {
+        let delivery = queued["deliveryId"].as_str().expect("a delivery id").to_owned();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let status = cb
+                .call(method::MUX_SEND_STATUS, json!({"deliveryId": delivery, "waitMs": 2000}))
+                .await;
+            assert_ne!(status["status"], "failed", "asking {asking}: refused: {status}");
+            if status["status"] == "delivered" {
+                break;
+            }
+            assert!(tokio::time::Instant::now() < deadline, "asking {asking}: {status}");
+        }
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let users = user_texts(&all_events(&mut cb, &id).await);
+        if users.iter().any(|t| t == "sent after the c")
+            && users.iter().any(|t| t == "sent as it lande")
+        {
+            assert_eq!(users.iter().filter(|t| *t == "sent as it lande").count(), 1, "{users:?}");
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "asking {asking}: never ran: {users:?}");
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}

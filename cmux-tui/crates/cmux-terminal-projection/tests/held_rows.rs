@@ -459,3 +459,26 @@ fn a_mouse_mode_app_with_nothing_held_gets_every_wheel_event() {
     }
     assert_eq!(p.alt_rows_back(), 0);
 }
+
+/// Leo, 2026-11-24: "we can just treat the scroll like any pedestrian
+/// scroll". The held rows and the app's screen are one document the phone
+/// scrolls as a plain scroll view: every held row in order, then the live
+/// screen as its last rows.
+#[test]
+fn the_held_rows_and_the_screen_paint_as_one_document_for_a_plain_scroll() {
+    let mut p = alt_app();
+    assert!(p.alt_document().is_none(), "nothing held: no document");
+    lines(&mut p, 0, 60);
+    let (held, _) = p.held();
+    let (bytes, rows, screen_top) = p.alt_document().expect("rows held");
+    assert_eq!((rows, screen_top), (held + ROWS, held));
+    let doc = visible(&bytes);
+    let first = doc.find("line 0\n").expect("the oldest held row");
+    let last = doc.find("line 59").expect("the newest row, on the screen");
+    assert!(first < last, "{doc}");
+    // A pan back leaves the document as it is (the reader is the phone's).
+    let _ = p.alt_pan(3.0);
+    assert_eq!(p.alt_document().map(|d| (d.1, d.2)), Some((rows, screen_top)));
+    let _ = p.feed(b"\x1b[?1049l", true);
+    assert!(p.alt_document().is_none(), "the primary screen has no document");
+}
