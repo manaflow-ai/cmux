@@ -121,7 +121,7 @@ struct Entry {
 }
 
 /// Which end of a kept circuit this is.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Role {
     Dialer,
     Server,
@@ -271,7 +271,7 @@ impl Mux {
                     break;
                 }
                 Err(e) => {
-                    tracing::debug!("hub carrier: a kept circuit ended: {e}");
+                    tracing::info!(role = ?self.role, "hub carrier: a kept circuit ended: {e}");
                     self.end_before_hello(&e.to_string());
                     break;
                 }
@@ -649,11 +649,24 @@ impl Mux {
             }
             let quiet = self.streams() == 0
                 && self.quiet_since.lock().unwrap_or_else(|e| e.into_inner()).elapsed() >= idle;
-            if owner.upgrade().is_none() || quiet || self.heard().elapsed() >= every * 2 {
+            // Every close says why at info: a kept circuit that ends early costs the next dial a
+            // whole new handshake (0.6 s against 0.07 s), and the reason was debug-only.
+            let why = if owner.upgrade().is_none() {
+                Some("its carrier is gone".to_owned())
+            } else if quiet {
+                Some(format!("no stream for {} s", idle.as_secs()))
+            } else if self.heard().elapsed() >= every * 2 {
+                Some(format!("nothing heard for {} s", self.heard().elapsed().as_secs()))
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                tracing::info!("hub carrier: closing a kept circuit: {why}");
                 self.close().await;
                 return;
             }
-            if self.send(PING, 0, &[]).await.is_err() {
+            if let Err(e) = self.send(PING, 0, &[]).await {
+                tracing::info!("hub carrier: closing a kept circuit: its keepalive failed: {e}");
                 self.close().await;
                 return;
             }
