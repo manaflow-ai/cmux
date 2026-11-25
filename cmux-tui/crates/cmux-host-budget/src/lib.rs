@@ -385,9 +385,10 @@ pub use meter::{Meter, SAMPLE_WAIT};
 // The real host's readings, and the parsers of Linux's `/proc` files.
 mod probe;
 pub use probe::{
-    HostProbe, cpu_busy, parse_loadavg, parse_meminfo_available, parse_meminfo_swap_used,
+    HostProbe, Reclaim, cpu_busy, parse_loadavg, parse_meminfo_available, parse_meminfo_swap_used,
     parse_proc_stat_cpu, parse_psi_avg60, parse_psi_some_avg10, parse_thermal_millic_max,
-    parse_vmstat_oom_kill, parse_vmstat_pswpout, performance_cores, thermal_pressure_word,
+    parse_vmstat_oom_kill, parse_vmstat_pswpout, parse_vmstat_reclaim, performance_cores,
+    thermal_pressure_word,
 };
 
 // Timer lateness, the interactive-speed signal (RFD 0072): a thread, and the pure window.
