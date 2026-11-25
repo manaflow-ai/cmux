@@ -1,0 +1,106 @@
+import CmuxNextBridge
+import CmuxNextDaemon
+import CmuxNextWorkspaceNaming
+import Foundation
+import Observation
+import Testing
+
+/// cmux#55668 (Austin, NIGHTLY): a Cloud chat's workspace stayed "workspace-284" and its tab read the same, while a
+/// local chat's took the chat's title. The turn store answered names only for this Mac's acpmux, which never lists a
+/// Cloud machine's chats, and the namer read the Mac tab that shows a Cloud chat in place as that tab, not the chat.
+/// The chat's page now notes its summary (``AgentTurnStateStore/noteRemote(_:host:)``), and the reader names a
+/// workspace after the chat its Mac tab shows: one path for local and Cloud chats.
+@MainActor
+struct CloudChatNamesTests {
+    private static let localHost = "install:this-mac"
+    private static let cloudHost = "install:cloud-vm"
+
+    /// Workspace `name` whose one tab is an agent chat of `host` on session `session`.
+    private static func workspace(_ store: DaemonStore, name: String, host: String, session: String?,
+                                  surface: UInt64 = 1) throws -> (WorkspaceModel, TabModel) {
+        var tab = TabSnapshot(surface: SurfaceID(rawValue: surface), kind: .conversation, title: "about:blank", url: "about:blank")
+        tab.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: host, session: session, harness: "claude"))
+        let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [tab])])
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 284, key: nil, name: name, screens: [screen])]))
+        let workspace = try #require(store.workspaces.first)
+        return (workspace, try #require(workspace.screens.first?.panes.first?.tabs.first))
+    }
+
+    private static func reader(_ turns: AgentTurnStateStore, fronted: @escaping @MainActor (TabModel) -> TabModel? = { _ in nil })
+        -> WorkspaceAutoNameReader {
+        WorkspaceAutoNameReader(enabled: { true }, isNewTabPage: { _ in false }, livePage: { _ in nil }, incognitoTitle: { _ in nil },
+                                terminal: { _ in .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
+                                turns: turns, hold: WorkspaceAutoNameHold(), shown: fronted)
+    }
+
+    private static func turns() -> AgentTurnStateStore {
+        let turns = AgentTurnStateStore()
+        turns.localHost = localHost
+        return turns
+    }
+
+    private static let summary: [String: Any] = ["sessionId": "acp_cloud", "title": "Fix the flaky login test", "titleSource": "generated"]
+
+    @Test func aCloudChatReadsItsTitleOnceItsPageNotedIt() throws {
+        let turns = Self.turns()
+        let ref = AgentSessionRef(host: Self.cloudHost, session: "acp_cloud")
+        #expect(turns.title(for: ref) == nil, "fixture: nothing of the Cloud chat is known before its page reads it")
+
+        turns.noteRemote(Self.summary, host: Self.cloudHost)
+        #expect(turns.title(for: ref) == "Fix the flaky login test")
+        #expect(turns.generatedTitle(for: ref) == "Fix the flaky login test")
+        // Session ids are each daemon's own: the same id on this Mac or another machine is another chat.
+        #expect(turns.title(for: AgentSessionRef(host: "install:other-vm", session: "acp_cloud")) == nil)
+        #expect(turns.title(for: AgentSessionRef(host: Self.localHost, session: "acp_cloud")) == nil)
+        // A rename there follows.
+        turns.noteRemote(["sessionId": "acp_cloud", "title": "Login test fix", "titleSource": "generated"], host: Self.cloudHost)
+        #expect(turns.title(for: ref) == "Login test fix")
+        // Names only: the Cloud chat's turn state is its machine's.
+        turns.noteRemote(["sessionId": "acp_cloud", "title": "Login test fix", "indicator": "working"], host: Self.cloudHost)
+        #expect(turns.state(for: ref) == nil)
+    }
+
+    @Test func thisMacsOwnChatsAreNeverNotedFromAPage() {
+        let turns = Self.turns()
+        turns.noteRemote(Self.summary, host: Self.localHost)
+        #expect(turns.remoteRecordCount == 0)
+        #expect(turns.title(for: AgentSessionRef(host: Self.localHost, session: "acp_cloud")) == nil)
+    }
+
+    @Test func aReaderOfTheUnknownChatReadsAgainOnceItIsNoted() {
+        let turns = Self.turns()
+        let ref = AgentSessionRef(host: Self.cloudHost, session: "acp_cloud")
+        let changed = Changed()
+        withObservationTracking { _ = turns.title(for: ref) } onChange: { changed.fired = true }
+        turns.noteRemote(Self.summary, host: Self.cloudHost)
+        #expect(changed.fired, "the tab and row that read the chat before its page noted it redraw")
+    }
+
+    /// A Cloud chat in a Cloud machine's workspace (its tab's chat runs there): the row reads the chat's title, as a
+    /// local chat's does.
+    @Test func aCloudChatsWorkspaceTakesTheChatsTitle() throws {
+        let turns = Self.turns()
+        let (workspace, chat) = try Self.workspace(DaemonStore(), name: "workspace-284", host: Self.cloudHost, session: "acp_cloud")
+        let reader = Self.reader(turns)
+        #expect(reader.label(workspace, front: chat, work: nil) == nil, "fixture: the row reads workspace-284")
+        turns.noteRemote(Self.summary, host: Self.cloudHost)
+        #expect(reader.label(workspace, front: chat, work: nil) == "Fix the flaky login test")
+        #expect(reader.front(chat) == .chat(userName: nil, title: "Fix the flaky login test", generatedTitle: "Fix the flaky login test"))
+    }
+
+    /// The screenshot's case: this Mac's tab shows a Cloud chat in place (`CloudFrontedChats`). Its workspace on this
+    /// Mac is named after that chat, as the tab strip already reads it, never after the Mac tab's own empty chat.
+    @Test func aMacTabShowingACloudChatInPlaceNamesItsWorkspaceAfterThatChat() throws {
+        let turns = Self.turns()
+        let (workspace, macTab) = try Self.workspace(DaemonStore(), name: "workspace-284", host: Self.localHost, session: nil)
+        let (_, cloudChat) = try Self.workspace(DaemonStore(), name: "workspace-9", host: Self.cloudHost, session: "acp_cloud", surface: 20)
+        turns.noteRemote(Self.summary, host: Self.cloudHost)
+
+        #expect(Self.reader(turns).label(workspace, front: macTab, work: nil) == nil, "without the front, the row read workspace-284")
+        let reader = Self.reader(turns) { $0 === macTab ? cloudChat : nil }
+        #expect(reader.label(workspace, front: macTab, work: nil) == "Fix the flaky login test")
+        #expect(reader.front(macTab) == .chat(userName: nil, title: "Fix the flaky login test", generatedTitle: "Fix the flaky login test"))
+    }
+
+    private final class Changed: @unchecked Sendable { var fired = false }
+}
