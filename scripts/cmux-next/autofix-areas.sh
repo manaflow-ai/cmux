@@ -15,7 +15,9 @@ changed=""
 
 bot='scripts/cmux-next/(base-autofix|autofix-areas|autofix-clippy|pr-autofix)|\.github/workflows/cmux-next-(base|pr)-autofix\.yml'
 area() { # key, path regex
-  local on=false gate="AUTOFIX_GATE_${1^^}"
+  # tr, not ${1^^}: macOS runners resolve `env bash` to bash 3.2, which has no case expansion ("bad substitution").
+  local on=false gate
+  gate="AUTOFIX_GATE_$(tr '[:lower:]' '[:upper:]' <<<"$1")"
   # A caller's AUTOFIX_GATE_<KEY>=false turns the repair off whatever changed: the pull request job sets
   # AUTOFIX_GATE_CLIPPY to the clippy check's own skip clause (affected-jobs.json pull_request_skip.follows).
   if [[ "${!gate:-}" == false ]]; then echo "$1=false"; return; fi
@@ -57,4 +59,7 @@ area locks '(.*/)?Cargo\.(toml|lock)$'
 # cargo clippy --fix: the cmux-tui Rust a pull request changes, and on the base what changed since the
 # last successful run (base-autofix-repair.sh, with the crates it can affect: cargo_affected.py).
 area clippy 'cmux-tui/.*\.rs$'
+# The iPhone app's uniffi Swift bindings (scripts/ios-ffi-bindings.sh): the FFI crate, the crates it
+# builds on, their workspace, and the committed copy itself (a merge that kept one side).
+area iosffi 'cmux-next-ios/rust/(Cargo\.(toml|lock)|rust-toolchain\.toml|crates/)|cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/|scripts/ios-ffi-bindings\.sh'
 area jobinputs '\.github/workflows/|scripts/ci/(fast-check-inputs|affected-jobs|job-inputs-always|pr_router)\.json$|scripts/ci/job_inputs\.py$'

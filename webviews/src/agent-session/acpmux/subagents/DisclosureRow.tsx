@@ -21,6 +21,7 @@ import { useTranscriptDisclosure } from "../conversation/transcriptDisclosureMod
 import { useT } from "../i18n";
 import { useAnchoredCollapse } from "../conversation/useAnchoredCollapse";
 import { AgentTag } from "../conversation/AgentTag";
+import "../conversation/cardFit.css";
 import "./DisclosureRow.css";
 import { openSessionAttributes } from "../conversation/menuParts";
 
@@ -108,7 +109,12 @@ export function DisclosureRow({
   );
   // Search opens directly: anchoring here would fight Find's scroll to the selected match.
   useFindReveal(findItems, () => setOpen(true));
-  const collapse = useAnchoredCollapse({ open: held ? open : stored, onOpenChange: setOpen, animates, fadeIn });
+  const collapse = useAnchoredCollapse({
+    open: held ? open : stored,
+    onOpenChange: setOpen,
+    animates,
+    fadeIn,
+  });
   const bodyId = useId();
   const t = useT();
   const content = (
@@ -134,16 +140,19 @@ export function DisclosureRow({
       {status && (chevron || !onOpen) && <span className="cv-disclosure__status">{status}</span>}
     </>
   );
+  // A row with actions measures its own width (conversation/cardFit.css): they wrap under the line
+  // when it is narrow and shrink to icons when it is narrower, never over the label.
+  const fit = actions !== undefined && actions !== null && actions !== false;
   const arrow = chevron && <ChevronRight size={14} className={`cv-rotor${collapse.open ? " is-open" : ""}`} />;
   return (
     <div
-      className={className ? `cv-disclosure ${className}` : "cv-disclosure"}
+      className={`cv-disclosure${fit ? " cv-fit" : ""}${className ? ` ${className}` : ""}`}
       data-open={collapse.open || undefined}
       {...attributes}
     >
       {/* The line summarizes indexed content in the panel; it adds no Find occurrences. */}
       <TranscriptActivityRowShell
-        className={`cv-disclosure__line${lineClassName ? ` ${lineClassName}` : ""}`}
+        className={`cv-disclosure__line${fit ? " cv-fit-row" : ""}${lineClassName ? ` ${lineClassName}` : ""}`}
         attributes={{ "data-find-skip": "", [HEADER_TOGGLE_ATTRIBUTE]: "" }}
         headerRef={onOpen ? collapse.headerRef : undefined}
         onClick={headerToggleClick(collapse.toggle)}
@@ -178,7 +187,7 @@ export function DisclosureRow({
             {arrow}
           </button>
         )}
-        {actions}
+        {fit && <span className="cv-disclosure__actions cv-fit-actions">{actions}</span>}
       </TranscriptActivityRowShell>
       {below !== undefined && below !== null && below !== "" && (
         // The toggle's label reads these words for a screen reader; this is the pointer's target.

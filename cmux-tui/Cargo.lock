@@ -24,6 +24,7 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
  "cmux-chat-index",
@@ -35,6 +36,7 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-command-class",
+ "cmux-composer-send",
  "cmux-computer-use",
  "cmux-config",
  "cmux-deadline",
@@ -74,6 +76,7 @@ dependencies = [
  "cmux-source-scan",
  "cmux-stack-auth",
  "cmux-supervise-core",
+ "cmux-sync",
  "cmux-tag-cache",
  "cmux-tailnet",
  "cmux-tailnet-front",
@@ -1422,6 +1425,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-auto-session"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "cmux-autocloud"
 version = "0.1.0"
 dependencies = [
@@ -1607,6 +1620,7 @@ version = "1.0.0"
 dependencies = [
  "base64",
  "bytes",
+ "cmux-auto-session",
  "cmux-build-space",
  "cmux-cloud-client",
  "cmux-cloud-machine",
@@ -1667,6 +1681,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-cloud-disk"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-cloud-environment"
 version = "0.1.0"
 dependencies = [
@@ -1684,6 +1706,7 @@ dependencies = [
 name = "cmux-cloud-handlers"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-disk",
  "cmux-cloud-start-core",
  "serde",
  "serde_json",
@@ -1693,6 +1716,7 @@ dependencies = [
 name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-disk",
  "cmux-lifeline",
  "serde",
  "serde_json",
@@ -1771,6 +1795,7 @@ version = "0.1.0"
 name = "cmux-composer-send"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "serde_json",
 ]
 
@@ -1821,6 +1846,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-app-host",
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
@@ -2247,6 +2273,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-keymap"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-kitty-media"
 version = "0.1.0"
 dependencies = [
@@ -2335,6 +2369,7 @@ name = "cmux-migrate"
 version = "0.1.0"
 dependencies = [
  "cmux-git",
+ "rusqlite",
  "serde",
  "serde_json",
  "tempfile",
@@ -2548,6 +2583,7 @@ dependencies = [
  "md-5",
  "sha1",
  "snow",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2661,6 +2697,16 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-repro"
+version = "0.1.0"
+dependencies = [
+ "cmux-process",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -2843,6 +2889,16 @@ dependencies = [
  "libc",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-sync"
+version = "0.1.0"
+dependencies = [
+ "diffy",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -3054,6 +3110,7 @@ dependencies = [
  "cmux-app-host",
  "cmux-app-manifest",
  "cmux-apps",
+ "cmux-autocloud",
  "cmux-automations",
  "cmux-browser-host",
  "cmux-build-identity",
@@ -3062,6 +3119,7 @@ dependencies = [
  "cmux-cloud-api",
  "cmux-cloud-client",
  "cmux-cloud-config",
+ "cmux-cloud-disk",
  "cmux-cloud-environment",
  "cmux-cloud-handlers",
  "cmux-cloud-machine",
@@ -3099,6 +3157,7 @@ dependencies = [
  "cmux-relay",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-repro",
  "cmux-scope",
  "cmux-sdk",
  "cmux-server",

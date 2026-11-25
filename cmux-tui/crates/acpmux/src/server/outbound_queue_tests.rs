@@ -495,3 +495,4 @@ async fn rows_past_their_bound_end_the_connection_once() {
 }
 
 mod flood_bulk;
+mod flood_interactive;

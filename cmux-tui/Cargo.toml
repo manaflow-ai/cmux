@@ -42,6 +42,7 @@ members = [
     "crates/cmux-autocloud",
     "crates/cmux-cloud-environment",
     "crates/cmux-conversation",
+    "crates/cmux-sync",
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
     "crates/cmux-chief",
@@ -79,6 +80,7 @@ members = [
     "crates/cmux-tab-discard",
     "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
+    "crates/cmux-auto-session",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-vm-pool",
@@ -179,8 +181,10 @@ members = [
     "crates/cmux-mobile-core",
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
+    "crates/cmux-cloud-disk",
     "crates/cmux-tab-snapshots",
     "crates/cmux-palette-ranker",
+    "crates/cmux-keymap",
     "crates/cmux-terminal-find",
     "crates/cmux-palette-eval",
     "crates/cmux-backdrop-gen",
@@ -200,6 +204,7 @@ members = [
     "crates/cmux-embed",
     "crates/cmux-embed-macros",
     "crates/cmux-redact",
+    "crates/cmux-repro",
 ]
 default-members = [
     "crates/acpmux",
@@ -215,6 +220,7 @@ default-members = [
     "crates/cmux-cloud-cli",
     "crates/cmux-autocloud",
     "crates/cmux-conversation",
+    "crates/cmux-sync",
     "crates/cmux-message-preview",
     "crates/cmux-share-approval",
     "bindings/rust",
@@ -247,6 +253,7 @@ default-members = [
     "crates/cmux-tab-discard",
     "crates/cmux-lifeline",
     "crates/cmux-cloud-machine",
+    "crates/cmux-auto-session",
     "crates/cmux-cloud-tasks",
     "crates/cmux-cloud-config",
     "crates/cmux-vm-pool",
@@ -335,7 +342,9 @@ default-members = [
     "crates/cmux-mobile-core",
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
+    "crates/cmux-cloud-disk",
     "crates/cmux-palette-ranker",
+    "crates/cmux-keymap",
     "crates/cmux-terminal-find",
     "crates/cmux-palette-eval",
     "crates/cmux-action-catalog",
@@ -425,6 +434,7 @@ cmux-bookmarks-ops = { path = "crates/cmux-bookmarks-ops" }
 cmux-cloud-start-core = { path = "crates/cmux-cloud-start-core" }
 cmux-lifeline = { path = "crates/cmux-lifeline" }
 cmux-cloud-machine = { path = "crates/cmux-cloud-machine" }
+cmux-auto-session = { path = "crates/cmux-auto-session" }
 cmux-cloud-tasks = { path = "crates/cmux-cloud-tasks" }
 cmux-cloud-config = { path = "crates/cmux-cloud-config" }
 cmux-vm-pool = { path = "crates/cmux-vm-pool" }
@@ -443,6 +453,7 @@ cmux-daemon-conn-core = { path = "crates/cmux-daemon-conn-core" }
 acpmux-hot = { path = "crates/acpmux-hot" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-palette-ranker = { path = "crates/cmux-palette-ranker" }
+cmux-keymap = { path = "crates/cmux-keymap" }
 cmux-terminal-find = { path = "crates/cmux-terminal-find" }
 cmux-theme-tokens = { path = "crates/cmux-theme-tokens" }
 cmux-theme-pack = { path = "crates/cmux-theme-pack" }
@@ -467,6 +478,7 @@ cmux-felt = { path = "crates/cmux-felt" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-braid-session = { path = "crates/cmux-braid-session" }
 cmux-conversation = { path = "crates/cmux-conversation" }
+cmux-sync = { path = "crates/cmux-sync" }
 cmux-message-preview = { path = "crates/cmux-message-preview" }
 cmux-share-approval = { path = "crates/cmux-share-approval" }
 cmux-history = { path = "crates/cmux-history" }
@@ -515,6 +527,7 @@ cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
+cmux-cloud-disk = { path = "crates/cmux-cloud-disk" }
 cmux-vnc = { path = "crates/cmux-vnc" }
 cmux-computer-use = { path = "crates/cmux-computer-use", default-features = false }
 anyhow = "1"
