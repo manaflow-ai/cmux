@@ -103,7 +103,9 @@ class Recorder:
         if self.proc.poll() is not None:
             raise RuntimeError(f"xctrace record exited {self.proc.returncode}: {self.log()[-600:]}")
         # "Starting recording" is printed as the instruments start: give the sampler a moment before the launch.
-        time.sleep(1.0)  # measurement harness: a fixed lead before the spawn, not a wait on the app
+        # sleep-ok: a fixed 1 s of recording before the spawn (xctrace prints nothing later than "Starting recording"
+        # to wait on); the profile is read from the spawn mark on, so the lead only has to cover the sampler's start.
+        time.sleep(1.0)
 
     def log(self):
         try:

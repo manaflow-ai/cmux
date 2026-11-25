@@ -67,6 +67,7 @@ const words = (line: AcpmuxRow, now = START + 140_000) =>
   )
     .replace(/<[^>]*aria-hidden="true"[^>]*><\/span>/g, "")
     .replace(/<[^>]+>/g, " ")
+    .replace(/&#x27;/g, "'")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -88,7 +89,7 @@ test("a command that finished at once: the line reads Thinking, with no frozen s
   expect(text).not.toContain("pytest");
   // Two minutes later with nothing heard, it is no longer seen thinking (Leo, 2026-11-12: "the
   // whatever ms gets stuck and becomes false really quickly"); the turn's clock goes on.
-  expect(words(line)).toBe("Waiting 2m 10s · turn 2m 20s");
+  expect(words(line)).toBe("Waiting on the model's next step 2m 10s · turn 2m 20s");
 });
 
 test("a command whose output came after its last tick: completed is completed, the line reads Thinking", () => {

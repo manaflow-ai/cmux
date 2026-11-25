@@ -22,7 +22,8 @@ import CmuxNextDesignTokens
             #expect(mode.effective(reduceTransparency: true, lowPowerMode: false) == .plain)
             #expect(mode.effective(reduceTransparency: false, lowPowerMode: true) == .plain)
         }
-        #expect(GlassLensMode.lens.refracts && GlassLensMode.spectrum.refracts && !GlassLensMode.plain.refracts)
+        #expect(GlassLensMode.lens.refracts && GlassLensMode.spectrum.refracts && GlassLensMode.engine.refracts && !GlassLensMode.plain.refracts)
+        #expect(GlassLensMode.engine.lensToggled == .plain)
     }
 
     @Test func theCurrentModeReadsTheDebugChoiceAndBothSystemSwitches() {
@@ -54,6 +55,11 @@ import CmuxNextDesignTokens
     }
 
     @Test func thePayloadCarriesTheGlassMode() throws {
+        // The glass mode reaches pages only while Liquid Glass is on (off by default).
+        let design = DesignSettings.shared
+        let before = design.liquidGlass
+        defer { design.liquidGlass = before }
+        design.liquidGlass = true
         for mode in GlassLensMode.allCases {
             let json = WebTheme(.unresolved, glass: mode).payloadJSON
             let payload = try #require(JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any])
@@ -64,7 +70,8 @@ import CmuxNextDesignTokens
 
     @Test func theBootstrapSetsDataGlassAndDefinesTheBackdropPush() {
         let script = WebTheme.bootstrapScript
-        #expect(script.contains("root.setAttribute('data-glass', payload.glass)"))
+        #expect(script.contains("root.setAttribute('data-glass', payload.glass === 'engine' ? 'lens' : payload.glass)"))
+        #expect(script.contains("root.setAttribute('data-glass-engine', '')"))
         #expect(script.contains("backdrop: function (partial)"))
         #expect(script.contains("window.cmuxBackdropState = next"))
         #expect(script.contains("Object.assign({}, window.cmuxBackdropState || {})"))

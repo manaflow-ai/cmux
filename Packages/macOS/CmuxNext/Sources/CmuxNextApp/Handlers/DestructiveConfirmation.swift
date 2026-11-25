@@ -66,6 +66,7 @@ enum DestructiveConfirmation {
             return Prompt(title: CloudStrings.deleteSnapshotTitle, body: CloudStrings.deleteSnapshotBody, button: CloudStrings.deleteSnapshot)
         case "cloudFileRemove":
             return Prompt(title: CloudStrings.removeFileTitle, body: CloudStrings.removeFileBody, button: CloudStrings.removeFile)
+        case "cloud.secret.remove": return PaletteVerbActions.secretRemovePrompt(invocation).map { Prompt(title: $0.title, body: $0.body, button: $0.button, returnConfirms: false) }
         case "cloudFirewallDelete":
             return Prompt(title: CloudStrings.deleteFirewallRuleTitle, body: CloudStrings.deleteFirewallRuleBody,
                           button: CloudStrings.deleteFirewallRule)
@@ -157,10 +158,13 @@ enum DestructiveConfirmation {
     /// A cmux dialog on `window` (Return confirms, Escape cancels). With no
     /// window there is nobody to ask, so the action does not run.
     /// A confirmed answer with "Don't ask again" checked turns the prompt's toggle off.
-    static func present(_ prompt: Prompt, in window: NSWindow?, settings: SettingsController? = nil,
-                        done: @escaping (Bool) -> Void) {
-        guard let window else { return done(false) }
-        CmuxDialogCenter.shared.present(spec(prompt), in: .window(window)) { answer in
+    /// Returns the dialog's id (`CmuxDialogCenter.dismiss`), nil when nothing was shown. `scope`
+    /// replaces the window's own (the quit question when the window already shows one).
+    @discardableResult
+    static func present(_ prompt: Prompt, in window: NSWindow?, settings: SettingsController? = nil, scope: CmuxDialogScope? = nil,
+                        done: @escaping (Bool) -> Void) -> Int? {
+        guard let window else { done(false); return nil }
+        return CmuxDialogCenter.shared.present(spec(prompt), in: scope ?? .window(window)) { answer in
             let confirmed = answer.button == confirmID
             if confirmed, answer.values[suppressID]?.bool == true, let path = prompt.suppresses { turnOff(path, settings) }
             done(confirmed)

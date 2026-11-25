@@ -37,6 +37,11 @@ public struct ConversationPresentationOptions {
 public final class ConversationViewController: UIViewController {
     public let store: ConversationStore
     public var onBack: (() -> Void)?
+    /// Asked before anything the person made is sent: typed text from the Send button,
+    /// the keyboard's Return key or the effect picker, a voice message, a poll, a
+    /// scheduled message sent now. False holds the send; `retry` sends it after all.
+    /// Chief asks for AI sharing consent here (App Review 5.1.2(i), ChiefAIConsent).
+    public var sendGate: ((_ retry: @escaping () -> Void) -> Bool)?
     /// Room a host keeps under the header for its own pinned row (Chief's
     /// question bar, upstream request U8), as Messages pins a business
     /// chat's request under its navigation bar: the transcript starts this
@@ -77,6 +82,9 @@ public final class ConversationViewController: UIViewController {
     /// A tapped link in a message: return true when the host handled it (a
     /// file preview); false, or unset, opens it with the system.
     public var onOpenLink: ((URL) -> Bool)?
+    /// Read after each send: true closes the keyboard once the message is sent (the host's
+    /// "Dismiss keyboard after sending" setting). Unset, the keyboard stays, as Messages does.
+    public var dismissesKeyboardAfterSend: (@MainActor () -> Bool)?
     /// Reply with Selection. When set, the edit menu of a bubble's selected
     /// text offers "Reply with Selection", which ends the selection and hands
     /// the host the message and the selected words; the host usually answers
@@ -383,7 +391,7 @@ public final class ConversationViewController: UIViewController {
             // is active), so the system pocket under the header takes over;
             // the header is its container (see +Background).
             collectionView.topEdgeEffect.isHidden = true
-            collectionView.topEdgeEffect.style = .soft
+            collectionView.topEdgeEffect.style = options.header.scrollEdge == .system && options.header.hardTopEdge ? .hard : .soft
             let top = UIScrollEdgeElementContainerInteraction()
             top.scrollView = collectionView
             top.edge = .top
@@ -827,7 +835,11 @@ public final class ConversationViewController: UIViewController {
         // Reduce Motion keeps this: it only ever rides the system keyboard's
         // own animation (remaining > 0), which Reduce Motion doesn't remove;
         // landing early would part the composer from the keyboard.
-        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
+        // Interruptible: without `.allowUserInteraction` UIKit drops every
+        // touch on the views this pass moves until the keyboard settles, so a
+        // tap on the field or the transcript inside the keyboard's animation
+        // did nothing (`MobileKeyboardDock.follow`, the terminal's dock).
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.view.layoutIfNeeded()
         }
     }
@@ -2069,6 +2081,10 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             cell.statusGrowsOnLanding = false
             cell.setFlightHidden(false)
         }
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? MessageCell)?.activeTextSelection?.end()
     }
 
     func transcriptItemCount() -> Int { rows.count }

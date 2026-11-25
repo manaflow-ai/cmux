@@ -24,6 +24,6 @@ struct PhoneStrings {
     }
 
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, bundle: .module)
+        String(localized: key, defaultValue: english, bundle: .localizedModule)
     }
 }

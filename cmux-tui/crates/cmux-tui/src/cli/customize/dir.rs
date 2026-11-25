@@ -66,24 +66,55 @@ fn git(dir: &Path, args: &[&str]) -> Option<String> {
 }
 
 /// Runs `program` in `dir`; on a failure, its last lines.
+/// Runs `program` with its stdout and stderr in one log, in the order it wrote
+/// them. Read as two pipes joined end to end, stderr's warnings came last and
+/// filled the tail: the Nightly walk of 2026-11-24 (hq run 45341531578) saw
+/// only esbuild's `No matching export` warning, never the error that stopped
+/// the build.
 fn run(dir: &Path, program: &str, args: &[&str]) -> Result<(), Failure> {
-    let output = cmux_process::Command::new(dir.join(program))
+    let log =
+        tempfile::NamedTempFile::new().map_err(|error| failure(format!("{program}: {error}")))?;
+    let file = log.reopen().map_err(|error| failure(format!("{program}: {error}")))?;
+    let copy = file.try_clone().map_err(|error| failure(format!("{program}: {error}")))?;
+    let status = cmux_process::Command::new(dir.join(program))
         .args(args)
         .current_dir(dir)
         .stdin(cmux_process::Stdio::null())
-        .output()
+        .stdout(file)
+        .stderr(copy)
+        .status()
         .map_err(|error| failure(format!("{program}: {error}")))?;
-    if output.status.success() {
+    if status.success() {
         return Ok(());
     }
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    let text = std::fs::read_to_string(log.path()).unwrap_or_default();
+    Err(failure(why_failed(program, &text)))
+}
+
+/// How many of a failed build's last lines the message keeps.
+const TAIL_LINES: usize = 25;
+
+/// A failed build's message: the lines that name an error, when the tail
+/// lacks them, then the tail. A warning (`▲ [WARNING]`, `warning:`) names no
+/// error, however it is worded.
+pub(super) fn why_failed(program: &str, text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
-    let tail = lines.iter().skip(lines.len().saturating_sub(25)).copied().collect::<Vec<_>>();
-    Err(failure(format!("{program} failed:\n{}", tail.join("\n"))))
+    let start = lines.len().saturating_sub(TAIL_LINES);
+    let (head, tail) = lines.split_at_checked(start).unwrap_or((&[], lines.as_slice()));
+    let names_error = |line: &str| {
+        let lower = line.to_ascii_lowercase();
+        !lower.contains("warning")
+            && (lower.contains("error") || line.contains('✘') || lower.contains("failed"))
+    };
+    let causes: Vec<&str> = if tail.iter().any(|line| names_error(line)) {
+        Vec::new()
+    } else {
+        head.iter().copied().filter(|line| names_error(line)).take(5).collect()
+    };
+    if causes.is_empty() {
+        return format!("{program} failed:\n{}", tail.join("\n"));
+    }
+    format!("{program} failed: {}\n…\n{}", causes.join("\n"), tail.join("\n"))
 }
 
 /// A scratch build folder next to the layers.
@@ -138,10 +169,7 @@ fn build_surfaces(dir: &Path, out: &Path) -> Result<(), Failure> {
                 return Ok(());
             }
             let text = std::fs::read_to_string(&log).unwrap_or_default();
-            let lines: Vec<&str> = text.lines().collect();
-            let tail =
-                lines.iter().skip(lines.len().saturating_sub(25)).copied().collect::<Vec<_>>();
-            Err(failure(format!("{builder} failed:\n{}", tail.join("\n"))))
+            Err(failure(why_failed(builder, &text)))
         });
         let _ = std::fs::remove_file(&log);
         if first.is_ok() {
@@ -434,14 +462,19 @@ fn watch_folder(
                 .map_err(|error| failure(format!("could not watch {}: {error}", path.display())))?;
         }
     }
+    // Saves seen while a build ran: the next round builds them.
+    let mut pending: Vec<PathBuf> = Vec::new();
     loop {
-        let Ok(first) = receive.recv() else {
-            return Err(failure("the folder watch stopped".into()));
-        };
-        let mut paths: Vec<PathBuf> = first.map(|event| event.paths).unwrap_or_default();
+        let mut paths = std::mem::take(&mut pending);
+        if paths.is_empty() {
+            let Ok(first) = receive.recv() else {
+                return Err(failure("the folder watch stopped".into()));
+            };
+            paths = saved_paths(first);
+        }
         // A save is often several events: take what comes in the next moment too.
         while let Ok(more) = receive.recv_timeout(Duration::from_millis(300)) {
-            paths.extend(more.map(|event| event.paths).unwrap_or_default());
+            paths.extend(saved_paths(more));
         }
         paths.sort();
         paths.dedup();
@@ -457,11 +490,10 @@ fn watch_folder(
             }
         );
         match build_layer(customize, dir, app, false) {
+            Ok((next, seconds)) if next.web == layer.web => {
+                println!("  built in {seconds:.0} s: the same bundles, nothing to apply");
+            }
             Ok((next, seconds)) => {
-                if next.web == layer.web {
-                    println!("  built in {seconds:.0} s: the same bundles, nothing to apply");
-                    continue;
-                }
                 let old = std::mem::replace(&mut layer, next.clone());
                 let applied = customize.library_update_code(next.clone(), origin, now_ms());
                 // The replaced layer goes before the line that says so: a watch
@@ -485,9 +517,36 @@ fn watch_folder(
                 println!("  the build failed; the last layer stays on:\n{}", error.message);
             }
         }
-        // What the build itself changed (generated files git does not ignore,
-        // if any) is not a save.
-        while receive.try_recv().is_ok() {}
+        // A save made while the build ran is built next. The build's own
+        // reads are no save (`saved_paths`), and what it writes under the
+        // folder is git-ignored (`worth_a_build`).
+        while let Ok(event) = receive.try_recv() {
+            pending.extend(saved_paths(event));
+        }
+        if !pending.is_empty() {
+            pending = worth_a_build(dir, pending);
+        }
+    }
+}
+
+/// The paths an event changed. Linux reports a file opened or read too
+/// (`Access`): every build reads the whole folder, so counting those made a
+/// watch build again forever with nothing saved.
+fn saved_paths(event: notify::Result<notify::Event>) -> Vec<PathBuf> {
+    match event {
+        Ok(event) if saves(&event.kind) => event.paths,
+        _ => Vec::new(),
+    }
+}
+
+fn saves(kind: &notify::EventKind) -> bool {
+    use notify::EventKind;
+    use notify::event::{AccessKind, AccessMode, MetadataKind, ModifyKind};
+    match kind {
+        EventKind::Access(AccessKind::Close(AccessMode::Write)) => true,
+        EventKind::Access(_) | EventKind::Other => false,
+        EventKind::Modify(ModifyKind::Metadata(MetadataKind::AccessTime)) => false,
+        _ => true,
     }
 }
 
@@ -523,167 +582,5 @@ pub(super) fn refresh_entry(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Fake builders at the real paths: each writes one file into its `--out`
-    /// (or fails when asked), so the side-by-side build runs without bun.
-    fn fake_builders(dir: &Path, fail: Option<&str>) {
-        for (builder, _) in BUILDERS {
-            let path = dir.join(builder);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            let body = if fail.is_some_and(|name| builder.contains(name)) {
-                "#!/bin/sh\necho building >&2\necho broke here >&2\nexit 3\n".to_owned()
-            } else {
-                "#!/bin/sh\nwhile [ \"$1\" != --out ]; do shift; done\nmkdir -p \"$2\" && echo built > \"$2/index.js\"\n".to_owned()
-            };
-            std::fs::write(&path, body).unwrap();
-            let mut permissions = std::fs::metadata(&path).unwrap().permissions();
-            std::os::unix::fs::PermissionsExt::set_mode(&mut permissions, 0o755);
-            std::fs::set_permissions(&path, permissions).unwrap();
-        }
-    }
-
-    #[test]
-    fn the_three_builders_fill_every_nested_surface_and_leave_no_log() {
-        let tmp = tempfile::tempdir().unwrap();
-        fake_builders(tmp.path(), None);
-        let out = tmp.path().join("out");
-        build_surfaces(tmp.path(), &out).unwrap();
-        for (prefix, _) in SURFACES {
-            assert!(out.join(prefix).join("index.js").is_file(), "{prefix}");
-        }
-        let found = files(&out).unwrap();
-        assert_eq!(found.len(), 3, "{found:?}");
-        let logs: Vec<_> = std::fs::read_dir(&out)
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".log"))
-            .collect();
-        assert!(logs.is_empty(), "{logs:?}");
-    }
-
-    #[test]
-    fn a_dead_clis_scratch_build_is_cleared_and_a_live_ones_kept() {
-        let home = tempfile::tempdir().unwrap();
-        let customize = Customize::open(cmux_customize::Roots::under(home.path()));
-        let layers = customize.layer_dir("build").parent().unwrap().to_path_buf();
-        let mine = layers.join(format!(".build-{}-1", std::process::id()));
-        let dead = layers.join(".build-999999999-1");
-        let layer = layers.join("a".repeat(64));
-        for dir in [&mine, &dead, &layer] {
-            std::fs::create_dir_all(dir).unwrap();
-        }
-        clear_stale_builds(&customize);
-        assert!(mine.is_dir() && layer.is_dir());
-        assert!(!dead.exists());
-    }
-
-    #[test]
-    fn a_failing_builder_names_itself_and_its_last_lines() {
-        let tmp = tempfile::tempdir().unwrap();
-        fake_builders(tmp.path(), Some("pages"));
-        let error = build_surfaces(tmp.path(), &tmp.path().join("out")).unwrap_err();
-        assert!(error.message.contains("build-pages-web.sh failed"), "{}", error.message);
-        assert!(error.message.contains("broke here"), "{}", error.message);
-    }
-
-    fn tree(root: &Path, files: &[(&str, &str)]) {
-        for (path, body) in files {
-            let path = root.join(path);
-            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-            std::fs::write(path, body).unwrap();
-        }
-    }
-
-    #[test]
-    fn the_same_build_is_the_same_layer_and_a_change_is_another() {
-        let tmp = tempfile::tempdir().unwrap();
-        let out = tmp.path().join("out");
-        tree(
-            &out,
-            &[
-                (
-                    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/app.js",
-                    "a",
-                ),
-                ("Resources/markdown-viewer/webviews-app/index.html", "b"),
-                (
-                    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/x",
-                    "c",
-                ),
-            ],
-        );
-        let found = files(&out).unwrap();
-        // Agent Activity is no overlay surface.
-        assert_eq!(found.len(), 2);
-        let one = digest(&out, &found).unwrap();
-        assert_eq!(one, digest(&out, &files(&out).unwrap()).unwrap());
-        tree(&out, &[("Resources/markdown-viewer/webviews-app/index.html", "c")]);
-        assert_ne!(one, digest(&out, &files(&out).unwrap()).unwrap());
-    }
-
-    #[test]
-    fn place_maps_the_surfaces_and_writes_the_manifest() {
-        let tmp = tempfile::tempdir().unwrap();
-        let out = tmp.path().join("out");
-        tree(
-            &out,
-            &[
-                (
-                    "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/settings/app.js",
-                    "a",
-                ),
-                (
-                    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/index.html",
-                    "p",
-                ),
-            ],
-        );
-        let found = files(&out).unwrap();
-        let key = digest(&out, &found).unwrap();
-        let layer = layer_for(tmp.path(), &App::default(), key.clone());
-        let dir = tmp.path().join("layers").join(&key);
-        place(&out, &found, &dir, &layer).unwrap();
-        assert_eq!(std::fs::read_to_string(dir.join("pages/settings/app.js")).unwrap(), "a");
-        assert!(dir.join("agent-pane/index.html").is_file());
-        let manifest: Value =
-            serde_json::from_slice(&std::fs::read(dir.join("manifest.json")).unwrap()).unwrap();
-        assert_eq!(manifest["kind"], "dir");
-    }
-
-    #[test]
-    fn a_folder_with_another_web_abi_stays_out() {
-        let tmp = tempfile::tempdir().unwrap();
-        tree(tmp.path(), &[(ABI_SOURCE, r#"{"abi": 8}"#)]);
-        let app = App { path: None, commit: None, abi: Some(7) };
-        let layer = layer_for(tmp.path(), &app, "e".repeat(64));
-        assert!(!layer.has_web());
-        assert!(layer.needs_build[0].contains("web ABI 8; this app has 7"));
-        let same = App { abi: Some(8), ..app };
-        assert!(layer_for(tmp.path(), &same, "e".repeat(64)).has_web());
-    }
-
-    #[test]
-    fn a_folder_is_named_by_its_last_part() {
-        let tmp = tempfile::tempdir().unwrap();
-        let path = tmp.path().join("My Cmux");
-        std::fs::create_dir_all(&path).unwrap();
-        let layer = layer_for(&path, &App::default(), "e".repeat(64));
-        assert_eq!(layer.name(), "dir-my-cmux");
-        assert_eq!(layer.kind, CodeKind::Dir);
-    }
-
-    #[test]
-    fn output_and_installs_are_not_saves() {
-        let tmp = tempfile::tempdir().unwrap();
-        let kept = worth_a_build(
-            tmp.path(),
-            vec![
-                tmp.path().join("webviews/node_modules/x/index.js"),
-                tmp.path().join("webviews/dist/a.js"),
-            ],
-        );
-        assert!(kept.is_empty());
-    }
-}
+#[path = "dir_tests.rs"]
+mod tests;

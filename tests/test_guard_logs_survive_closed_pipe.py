@@ -16,7 +16,7 @@ Two detectors:
 - A scan of every shell script under scripts/ for a message followed within a few lines by a kill (or a lease
   release) that is not in the safe form. Fix the hit, or list it in SCAN_NOT_IN_CLASS with the reason.
 
-Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23): run
+Not in CI (tests/test-execution.d/other.toml: manual; no new CI tests, Lawrence 2026-10-23, lifted 2026-11-18): run
 `python3 -I tests/test_guard_logs_survive_closed_pipe.py` after adding or changing a shell guard that logs before
 it kills (about 30 s; needs bash, curl, xargs, pgrep and ps).
 """
@@ -202,10 +202,28 @@ class GuardFixture(unittest.TestCase):
         proc = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL, start_new_session=True)
         self.addCleanup(self._stop, proc)
-        time.sleep(0.3)  # let bash install its traps and exec
+        # Until bash has installed its TERM trap and exec'd, as ps reads it (10 s at most).
+        deadline = time.monotonic() + 10
+        while not self._settled(proc.pid, script):
+            self.assertLess(time.monotonic(), deadline, f"pid {proc.pid} never installed its traps and exec'd")
+            time.sleep(0.02)
         # The probe's self-check: a process this test just started must read as alive, or assert_gone proves nothing.
         self.assertTrue(alive(proc.pid), f"the probe cannot see live pid {proc.pid}; assert_gone would pass on any target")
         return proc.pid
+
+    @staticmethod
+    def _settled(pid: int, script: str) -> bool:
+        """SCRIPT's TERM trap is in place (caught or ignored) if it sets one, and its exec is done if it execs.
+        A process that already exited reads as settled: the alive check after names it."""
+        out = subprocess.run(["ps", "-o", "sigignore=,sigcatch=,command=", "-p", str(pid)],
+                             capture_output=True, text=True).stdout.split(None, 2)
+        if len(out) < 3:
+            return True
+        ignored, caught, command = out
+        term = 1 << (signal.SIGTERM - 1)
+        if "trap" in script and not (int(ignored, 16) | int(caught, 16)) & term:
+            return False
+        return not ("exec" in script and command.startswith("bash "))
 
     @staticmethod
     def _stop(proc: subprocess.Popen) -> None:

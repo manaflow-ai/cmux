@@ -107,6 +107,41 @@ export function compareToBaseline(found, baseline, exists) {
   return { grew, shrank };
 }
 
+/** @param {string} name */
+function isSource(name) {
+  return (
+    /\.[jt]sx?$/.test(name) && !name.endsWith(".d.ts") && !/[._](?:test|spec|gallery|fixture)\.[jt]sx?$/.test(name)
+  );
+}
+
+/** The files (relative to webviews/) every file's count depends on: a change to one checks every file. */
+const GLOBAL_INPUTS = [
+  "scripts/check-compiler-bails.mjs",
+  "scripts/compiler-bails-baseline.tsv",
+  "reactCompiler.mjs",
+  "package.json",
+  "bun.lock",
+];
+
+/**
+ * The scope's files (relative to webviews/) a change touches, read from LIST (one repo-relative path per line,
+ * written by scripts/web_lint_prepush.py --new-only for the fast gates), or null to check every file. Each file's
+ * count depends only on its own source, this script, reactCompiler.mjs, the compiler's version and its baseline row,
+ * so a change to one of GLOBAL_INPUTS checks every file; a test, a gallery or any other file changes no count. The
+ * other files' counts are the base's; the full run on every feat-cmux-next push holds them. (A first cut checked
+ * every file for any change outside src/, and most web pull requests touch test/: still 62-66 s, job 136976630509.)
+ * @param {string | undefined} list
+ * @returns {string[] | null}
+ */
+export function changedSources(list) {
+  if (!list || !existsSync(list)) return null;
+  const changed = readFileSync(list, "utf8").split("\n").filter(Boolean);
+  const inside = changed.filter((file) => file.startsWith("webviews/")).map((file) => file.slice("webviews/".length));
+  if (inside.some((file) => GLOBAL_INPUTS.includes(file))) return null;
+  const prefix = `${path.relative(root, scope)}/`;
+  return inside.filter((file) => file.startsWith(prefix));
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   /** @type {Map<string, string[]>} */
   const found = new Map();
@@ -115,20 +150,27 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = path.join(directory, entry.name);
       if (entry.isDirectory()) scan(file);
-      else if (
-        /\.[jt]sx?$/.test(entry.name) &&
-        !entry.name.endsWith(".d.ts") &&
-        !/[._](?:test|spec|gallery|fixture)\.[jt]sx?$/.test(entry.name)
-      ) {
+      else if (isSource(entry.name)) {
         const bails = findBails(file, readFileSync(file, "utf8"));
         if (bails.length) found.set(path.relative(root, file), bails);
       }
     }
   }
-  scan(scope);
+  const updating = process.argv.includes("--update-baseline");
+  const only = updating ? null : changedSources(process.env.CMUX_WEB_LINT_CHANGED_FILES);
+  if (only) {
+    for (const file of only) {
+      if (existsSync(path.join(root, file)) && isSource(path.basename(file))) {
+        const bails = findBails(path.join(root, file), readFileSync(path.join(root, file), "utf8"));
+        if (bails.length) found.set(file, bails);
+      }
+    }
+  } else scan(scope);
   const counts = new Map([...found].map(([file, bails]) => [file, bails.length]));
-  const { grew, shrank } = compareToBaseline(found, readBaseline(), (file) => existsSync(path.join(root, file)));
-  if (process.argv.includes("--update-baseline")) {
+  const baseline = only ? new Map([...readBaseline()].filter(([file]) => only.includes(file))) : readBaseline();
+  const { grew, shrank } = compareToBaseline(found, baseline, (file) => existsSync(path.join(root, file)));
+  if (only) console.log(`check-compiler-bails: ${only.length} changed file(s) checked (the change's own)`);
+  if (updating) {
     if (grew.length && existsSync(baselinePath)) {
       console.error("check-compiler-bails: refusing to raise the baseline; make the function compile instead:");
       console.error(grew.join("\n"));

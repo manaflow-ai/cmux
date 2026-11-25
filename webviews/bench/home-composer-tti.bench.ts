@@ -146,7 +146,7 @@ try {
     }
   }
 } finally {
-  for (const arm of servers) arm.server.stop(true);
+  await Promise.all(servers.map((arm) => arm.server.stop(true)));
 }
 
 const keys = ["ready_ms", "key_ms", "fcp_ms", "script_ms", "js_bytes", "js_files"];

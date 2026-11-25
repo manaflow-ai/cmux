@@ -1,0 +1,50 @@
+{
+  "family": "tab_group",
+  "ops": {
+    "tab_group.add_tabs": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "8bd438d9873152b6"
+    },
+    "tab_group.close": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "611e9ec5631db513"
+    },
+    "tab_group.create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "e557c68ae4dae5f7"
+    },
+    "tab_group.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "9ade31b0dfca239c"
+    },
+    "tab_group.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "9e91cfe62a04e760"
+    },
+    "tab_group.move": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2a26784e6026c54b"
+    },
+    "tab_group.remove_tabs": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "c81339b5cd852564"
+    },
+    "tab_group.ungroup": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "1228c6538f9822fb"
+    },
+    "tab_group.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "2909592dafa83a74"
+    }
+  }
+}

@@ -966,3 +966,94 @@ fn a_ready_event_clears_the_no_spare_replay_but_not_an_errors() {
     assert_eq!((replay["ok"].clone(), replay["throttled"].clone()), (json!(false), json!(true)));
     assert_eq!(calls.get(), 1);
 }
+
+/// The platform names [`MACHINE`] once, then [`OTHER`] (the next spare).
+fn spare_then_other(
+    calls: &Cell<usize>,
+) -> impl Fn(&Request, &str, &str) -> Result<Value, PlatformCallError> + '_ {
+    move |_: &Request, _: &str, _: &str| {
+        let machine = if calls.get() == 0 { MACHINE } else { OTHER };
+        calls.set(calls.get().saturating_add(1));
+        Ok(json!({"machine": machine, "warm_until": 9_000_000, "vm_kind": "owner"}))
+    }
+}
+
+/// Production probe, 2026-11-19: 5 of 13 claimed starts paid `approvals.key` (about 4.5 s) because
+/// a warm within the gap replayed the machine the previous chat had just claimed. No caller sends
+/// `claimed: M` any more; the start's own pin in the start-chat ledger is the claim.
+#[test]
+fn a_warm_in_the_gap_never_replays_the_machine_a_start_pinned() {
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let transport = spare_then_other(&calls);
+    let warm = |now| {
+        let input = stdin(Some(TEAM));
+        run(&flags(r#"{"account":"user_a"}"#), dir.path(), now, &mut input.as_bytes(), &transport)
+            .unwrap()
+    };
+    assert_eq!(warm(1_000_000)["machine"], json!(MACHINE));
+    // Unclaimed, the record answers within the gap with no platform call.
+    assert_eq!((warm(1_010_000)["machine"].clone(), calls.get()), (json!(MACHINE), 1));
+    // The chat's start takes M: the App's create, pinned to the send (`start-chat pin`).
+    let ledger = dir.path().join(ledger::FILE);
+    let key = "0000000a-0000-4000-8000-000000000001";
+    assert_eq!(super::super::pin(&ledger, key, "user_a/", MACHINE, None)["ok"], json!(true));
+    // A warm 60 s later, within the gap: M is taken, so the platform is asked and names the next spare.
+    let next = warm(1_060_000);
+    assert_eq!((next["machine"].clone(), next["fresh"].clone()), (json!(OTHER), json!(true)));
+    assert_eq!(next["copy"]["machine"], json!(OTHER));
+    assert_eq!(calls.get(), 2);
+    // That next spare is replayed as before.
+    assert_eq!((warm(1_070_000)["machine"].clone(), calls.get()), (json!(OTHER), 2));
+}
+
+#[test]
+fn a_warm_in_the_gap_never_replays_the_machine_a_reservation_bound() {
+    use super::super::reservations::Call;
+    let dir = tempfile::tempdir().unwrap();
+    let calls = Cell::new(0_usize);
+    let transport = spare_then_other(&calls);
+    let warm = |now| {
+        let input = stdin(Some(TEAM));
+        run(&flags(r#"{"account":"user_a"}"#), dir.path(), now, &mut input.as_bytes(), &transport)
+            .unwrap()
+    };
+    assert_eq!(warm(1_000_000)["machine"], json!(MACHINE));
+    // The send binds its compose reservation, which the platform answers with the warmed spare.
+    let request = json!({"key": "0000000a-0000-4000-8000-000000000002", "account": "user_a/",
+        "loaded": false, "reservation_key": "0000000a-0000-4000-8000-000000000003",
+        "credential_on_stdin": true})
+    .to_string();
+    let bind = |_: &Call, _: &str| Ok(json!({"leaseId": "lease-1", "machine": MACHINE}));
+    let never_ensure = |_: &super::super::Ensure, _: &str| panic!("no project");
+    let plan = super::super::plan_with_calls(
+        &dir.path().join(ledger::FILE),
+        &request,
+        &mut format!("tok\n{}\n", install(Some(TEAM))).as_bytes(),
+        &never_ensure,
+        &bind,
+    );
+    assert_eq!(plan["machine"], json!(MACHINE), "{plan}");
+    let next = warm(1_090_000);
+    assert_eq!((next["machine"].clone(), next["fresh"].clone()), (json!(OTHER), json!(true)));
+    assert_eq!(calls.get(), 2);
+}
+
+#[test]
+fn an_unreadable_start_ledger_takes_nothing_and_the_warm_still_replays() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join(ledger::FILE), b"{not a ledger").unwrap();
+    let warm = |now| {
+        let input = stdin(Some(TEAM));
+        run(&flags(r#"{"account":"user_a"}"#), dir.path(), now, &mut input.as_bytes(), &owner)
+            .unwrap()
+    };
+    assert_eq!(warm(1_000_000)["fresh"], json!(true));
+    let replay = warm(1_010_000);
+    assert_eq!(
+        (replay["fresh"].clone(), replay["machine"].clone()),
+        (json!(false), json!(MACHINE))
+    );
+    // Nothing was moved aside: the start's own locked read still finds the file as it is.
+    assert!(dir.path().join(ledger::FILE).exists());
+}

@@ -68,6 +68,11 @@ impl Brain {
         if self.landed_refused {
             return Ok(());
         }
+        // The loop guard refuses every send now: telling is impossible until
+        // the person writes, and that turn carries it (budget_hold.rs).
+        if self.budget_held() {
+            return Ok(());
+        }
         let untold: Vec<String> = self
             .turn_landed
             .iter()

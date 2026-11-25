@@ -5,7 +5,7 @@
 //! character session id copied from the start's answer: the thing you just made is the default.
 //!
 //! The record is a small file in the state folder (`$XDG_STATE_HOME/cmux/last-chat.json`, else
-//! `~/.local/state/cmux/`), one entry per cmux terminal (`CMUX_TUI_TERMINAL_ID`,
+//! `~/.local/state/cmux/`; `cmux-next` instead of `cmux` on macOS), one entry per cmux terminal (`CMUX_TUI_TERMINAL_ID`,
 //! `CMUX_SURFACE_ID`) and the newest overall: this terminal's, else the newest. A chat on a Cloud
 //! VM keeps its VM, so its follow-up goes there without the app's lookup. Writing it never fails
 //! a command: a folder that cannot be written means only that the next command needs the id.
@@ -41,7 +41,9 @@ fn path() -> Option<PathBuf> {
                 .filter(|home| !home.is_empty())
                 .map(|home| PathBuf::from(home).join(".local/state"))
         })?;
-    Some(state.join("cmux/last-chat.json"))
+    // An old install's file moves to NEXT's folder first (macOS).
+    cmux_config::location::migrate_legacy_state_once();
+    Some(state.join(cmux_config::NEXT_DIR).join("last-chat.json"))
 }
 
 /// This terminal's key: its cmux terminal id, else `-` (any shell outside cmux).
@@ -142,42 +144,5 @@ pub(super) fn none_yet() -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use serde_json::{Map, Value, json};
-
-    use super::{Last, pick, pruned, records};
-
-    fn book(entries: &[(&str, &str, Option<&str>, u64)]) -> Map<String, Value> {
-        entries
-            .iter()
-            .map(|(terminal, session, vm, at)| {
-                ((*terminal).to_owned(), json!({"session": session, "vm": vm, "at": at}))
-            })
-            .collect()
-    }
-
-    #[test]
-    fn the_daemons_own_children_record_no_chat() {
-        assert!(records(None));
-        assert!(records(Some(std::ffi::OsStr::new(""))));
-        assert!(!records(Some(std::ffi::OsStr::new("1"))));
-    }
-
-    #[test]
-    fn this_terminals_chat_else_the_newest() {
-        let book = book(&[("term_1", "s-1", None, 10), ("term_2", "s-2", Some("vm_a"), 20)]);
-        assert_eq!(pick(&book, "term_1"), Some(Last { session: "s-1".into(), vm: None }));
-        assert_eq!(
-            pick(&book, "term_9"),
-            Some(Last { session: "s-2".into(), vm: Some("vm_a".into()) })
-        );
-        assert_eq!(pick(&Map::new(), "term_1"), None);
-    }
-
-    #[test]
-    fn only_the_newest_entries_stay() {
-        let book = book(&[("a", "1", None, 1), ("b", "2", None, 3), ("c", "3", None, 2)]);
-        let kept = pruned(book, 2);
-        assert_eq!(kept.keys().cloned().collect::<Vec<_>>(), ["b", "c"]);
-    }
-}
+#[path = "last_chat_tests.rs"]
+mod tests;

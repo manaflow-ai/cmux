@@ -94,6 +94,7 @@ fn launch_record_c_layout_and_exports_match_rust() {
     for name in [
         "_cmux_launch_record_front_window",
         "_cmux_launch_record_write",
+        "_cmux_launch_record_write_registry",
         "_cmux_launch_record_windows",
     ] {
         assert!(exports.lines().any(|line| line == name), "missing packaged symbol {name}");

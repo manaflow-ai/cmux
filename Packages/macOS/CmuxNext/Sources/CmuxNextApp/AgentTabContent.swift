@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudUI
 import CmuxNextPages
+import CmuxNextTabs
 import CmuxNextWakeups
 import Foundation
 
@@ -23,42 +24,43 @@ struct AgentTabContent {
     func content(_ key: String) -> TabContent? {
         let services = pane.services
         let focused = pane.workspace?.focus.state.pane
-        let deferred = services.agentTabs.deferAtLaunch(
-            key, machine: pane.daemon.machineID, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
+        // A Mac tab that shows a Cloud chat in place (CloudFrontedChats) draws that chat's page, and its files and machine are the chat's.
+        let front = services.agentTabs.frontedChats.front(of: AgentTabKey(machine: pane.daemon.machineID, key: key)), chat = front?.key ?? key, machine = front?.machine ?? pane.daemon.machineID
+        let deferred = (services.agentTabs.existingView(chat, machine: machine) == nil && pane.defersPageUntilFrame(key)) || services.agentTabs.deferAtLaunch( // no page before the first frame: its last frame until then
+            chat, machine: machine, reveal: services.launchReveal, focusedPane: focused, pane: pane.paneKey,
             focusedDraws: focused.flatMap { key in pane.workspace?.panes.values.first { $0.paneKey == key } }?.showsLiveTerminal ?? false
-        ) { [weak pane] in
-            if let pane, pane.currentTabKey == key { pane.showSelected() }
-        }
+        ) { [weak pane] in if let pane, pane.currentTabKey == key { pane.showSelected() } }
         if deferred {
             drawLastPage(key, until: nil)
             return nil
         }
-        guard let view = services.agentTabs.view(for: key, machine: pane.daemon.machineID) else {
-            return services.agentTabs.notice(for: key, machine: pane.daemon.machineID).map { TabContent.notice($0) }
+        guard let view = services.agentTabs.view(for: chat, machine: machine, leaving: pane.stripModel.selectedID?.rawValue == key ? pane : nil) else { // the pane leaves the tab that it shows only for its selected tab (a hover load leaves nothing); for a Cloud chat in place `leaving` has no effect: only a New Tab tab of this Mac takes an idle page
+            if let notice = services.agentTabs.notice(for: chat, machine: machine) { return .notice(notice) }; drawLastPage(key, until: nil); return nil // no view yet (the first frame, before the daemon's tree): its last page, which the view that comes keeps
         }
         // Set on each show, so a tab moved to another pane opens files there.
         // A file or preview the person clicks in the chat opens beside it (LinkOpener,
         // `layout.linkPlacement`), never over the chat; the external editor keeps its own path.
-        view.model.onOpenFile = { [weak pane] url, target in
+        view.model.onOpenFile = { [weak pane] url, target, line in
             guard let pane else { return false }
             // A quote from the file's viewer comes back to this chat (viewer-comments-DESIGN.md).
-            pane.services.chatQuoteOpeners.noteOpened(url, byAgentTab: key)
+            pane.services.chatQuoteOpeners.noteOpened(url, byAgentTab: chat)
             if target == .tab { return pane.services.linkOpener.openFile(url, from: pane) }
-            return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: pane.daemon.machineID)
+            return pane.services.registry.openAgentFile(path: url.path, target: target, pane: pane.paneKey, machineID: machine, line: line)
         }
-        view.model.onOpenMachineFile = { [weak pane] path in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: key, machine: pane.daemon.machineID) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(key, machine: pane.daemon.machineID))), !daemon.isLocal, case let link = pane.services.agentGit.link(for: daemon), await !link.reachesThroughLink(path) else { return false }
-            if (try? await link.stat(path))?.isFolder == true { pane.services.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: path, isDirectory: true), chat: key, target: nil, link: link, machine: daemon); return true }
+        view.model.onEditorsList = { [weak pane] in pane?.services.editorCatalog.pageList() ?? ["default": NSNull(), "others": [Any]()] }
+        view.model.onOpenMachineFile = { [weak pane] path in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: chat, machine: machine) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(chat, machine: machine))), !daemon.isLocal, case let link = pane.services.agentGit.link(for: daemon), await !link.reachesThroughLink(path) else { return false }
+            if (try? await link.stat(path))?.isFolder == true { pane.services.viewers.fileTrees.openBeside(folder: URL(fileURLWithPath: path, isDirectory: true), chat: chat, target: nil, link: link, machine: daemon); return true }
             return pane.services.linkOpener.openFile(URL(fileURLWithPath: path, isDirectory: false), on: daemon, from: pane, noFollow: true) }
-        view.model.shell.machine = { [weak pane] in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: key, machine: pane.daemon.machineID) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(key, machine: pane.daemon.machineID))), !daemon.isLocal else { return nil }; return pane.services.agentGit.link(for: daemon) } // a Cloud or SSH chat's `!` commands run on its machine
+        view.model.shell.machine = { [weak pane] in guard let pane, case let tabs = pane.services.agentTabs, tabs.remoteMachineID(of: chat, machine: machine) != nil, let daemon = tabs.daemon(for: tabs.resolvedKey(tabs.tabKey(chat, machine: machine))), !daemon.isLocal else { return nil }; return pane.services.agentGit.link(for: daemon) } // a Cloud or SSH chat's `!` commands run on its machine
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
             // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
             if let opened = WebPageTab.openGitHub(url, from: pane, services: pane.services) { return opened }
             if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false, reusesTab: true) }
-            return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: pane.daemon.machineID)
-        }; view.model.onOpenCloudPreview = { [weak pane, weak view] port in guard let pane, let view, let machine = pane.services.agentTabs.remoteMachineID(of: key), let session = pane.services.machines.session(machine) else { return false }; let inventory = try await CloudHandlers.refreshPreviews(session, CloudPortNames(session, port: port), AppActionContext(services: pane.services)); guard let preview = inventory.previews.first(where: { $0.port == port }), pane.services.agentTabs.remoteMachineID(of: key) == machine else { return false }; return view.model.onOpenPreview?(try preview.browserURL(path: "/")) ?? false }
+            return pane.services.registry.openAgentPreview(url, pane: pane.paneKey, machineID: machine)
+        }; view.model.onOpenCloudPreview = { [weak pane, weak view] port in guard let pane, let view, let remote = pane.services.agentTabs.remoteMachineID(of: chat, machine: machine), let session = pane.services.machines.session(remote) else { return false }; let inventory = try await CloudHandlers.refreshPreviews(session, CloudPortNames(session, port: port), AppActionContext(services: pane.services)); guard let preview = inventory.previews.first(where: { $0.port == port }), pane.services.agentTabs.remoteMachineID(of: chat, machine: machine) == remote else { return false }; return view.model.onOpenPreview?(try preview.browserURL(path: "/")) ?? false }
         // A Cloud chat's Claude sign-in page, in a tab whose localhost is the chat's machine.
-        view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: key, from: $0) } }
+        view.model.onOpenSignInOnMachine = { [weak pane] url in pane.flatMap { ChatMachineSignInTab.opener(for: url, agentTab: chat, from: $0) } }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
         // A hold that gives up on the page before it paints (a workspace switch's two frames) asks for its picture again.
         view.drawsLastPage = { [weak pane, weak view] in guard let pane, let view, pane.currentTabKey == key else { return false }; if pane.view.launchImageView == nil { AgentTabContent(pane: pane).drawLastPage(key, until: view) }; return pane.view.launchImageView != nil }

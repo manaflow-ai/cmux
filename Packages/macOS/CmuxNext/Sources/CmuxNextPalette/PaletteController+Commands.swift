@@ -22,17 +22,17 @@ extension PaletteController {
 
     /// Runs the Commands palette row for `id` as if it were picked there.
     ///
-    /// A row that just runs (most actions) runs without showing the palette. A row that needs
-    /// more (an action's arguments, a nested list, a name to type) opens the palette on that
-    /// step, so the person finishes it there, as they would after picking it in the palette.
+    /// A row that just runs (most actions) runs without showing the palette; one that needs more (arguments, a nested
+    /// list, a name) opens the palette on that step. A row whose title is not `title` any more does not run.
     /// - Parameters:
     ///   - id: The action to run; it must be one of ``commandEntries()``.
+    ///   - title: The title the caller's row showed, from a list read earlier (a title's state can change since); nil compares nothing.
     ///   - window: The window the palette opens over when the row needs it.
-    /// - Returns: false when the palette does not list `id` or lists it as unavailable.
+    /// - Returns: false when the palette does not list `id`, lists it as unavailable, or lists it under another title.
     @discardableResult
-    public func runCommand(_ id: ActionID, relativeTo window: NSWindow? = nil) -> Bool {
+    public func runCommand(_ id: ActionID, shown title: String? = nil, relativeTo window: NSWindow? = nil) -> Bool {
         captureContext()
-        guard let item = makeRegistryProvider().makeItems().first(where: { $0.actionID == id }), item.isEnabled else { return false }
+        guard let item = makeRegistryProvider().makeItems().first(where: { $0.actionID == id }), item.isEnabled, title ?? item.title == item.title else { return false }
         // Decided once: an argument page is built here, not again by the palette.
         let effect = item.primary.effect.resolved()
         switch effect {
@@ -62,6 +62,8 @@ extension PaletteController {
 public final class PaletteCommandListing {
     private let pass: RegistryPaletteProvider.ItemsPass
     private var allRead = false
+    /// Catalog actions whose state this listing read so far: what the listing costs, as a count.
+    public var actionsRead: Int { pass.readCount }
 
     init(_ pass: RegistryPaletteProvider.ItemsPass) {
         self.pass = pass

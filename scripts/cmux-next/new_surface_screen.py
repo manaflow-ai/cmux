@@ -11,6 +11,16 @@ made). A frame's number is a row's time over the display's frame time. With no a
 median step of the recording's rows, and the recorder gives its rows at its own pace in the still part of a
 recording: a frame with no row directly before the page is then not seen. So each row of a run with no asked rate
 is INVALID (`display`; new_surface_frames.py `NO_RATE`), and its line says `not known` for the frames with no row.
+Only a finite number above 0 is an asked rate (`asked_rate`): a given `--display-hz` that is none (0, a number below
+0, `inf`, `nan`) stops the run at its arguments (`given_rate`). An asked rate that is lower than the display's has
+the same fault, and the rows can prove it when the rate is more than about 15 % too low and enough rows come one
+after the other at the display's own rate: a row whose rows do not agree
+with the asked rate, or do not judge it, is INVALID (`display` too; `rate_fault`), and the line of a row has the
+judged number (`rate_share`) when its recording has 9 rows or more and a frame after the key. With an asked rate
+the head says the limit of this check in one
+sentence (`rate_limit_sentence`), and, when a valid row's number is near the limit, that too
+(`rate_margin_sentence`). The rows cannot prove that the asked rate is right: the true rate is the display's own,
+which the entry makes.
 
 The session: `--workspaces N` makes the session that many workspaces with the repository's one session maker
 (scripts/perf-bench/session_real.py make, as scripts/measure/pane-motion-films.py does): each added workspace
@@ -35,18 +45,43 @@ recording can make more than 60 (`openings`: 2 for each New Tab or New Workspace
 recordings in a run has no limit. The key goes to the app's key path through `debug.key`'s sender, not
 through the keyboard's driver: the path from the keyboard to the app is not in a number.
 
-The active app. A person who presses a key has an active app with a key window, and the mode's launch does not make
-the app active. So each run asks ONE time, after the session is made and before its first tab and its first case:
-`debug.window.focus {window, activate: true}` for the first window that the app lists. Then it reads the app's own
-answer (`debug.focus`: `app_active`, and the window's `is_key`), up to `ACTIVE_READS` times 0.2 s apart, because
-an activation is a request. An app that is then not active, a window that is then not the key window, and an app
-that lists no window end the run at once (`stopped`, the exit code `STOPPED_EXIT`): no tab is made and no case is
-recorded. Each row says both facts from one read directly before its recording (`app_active`,
-`shell_window_is_key`), and the tool does not ask a second time: in a `hold` row a fact that is not true is an
-INVALID reason (a hold's keys go to the key window of an active app), in each other row it is the fact only. The
-report's `head` says `the app was active: yes` only when each row says so, the workspace of the keys, and the
-reads and the seconds from the ask to the app's answer. Rows of a run in an active app and rows of a run in an
-app that was not active are 2 states: no table has both.
+The window on the screen, and no keyboard. The driver's launch for this mode has `CMUX_NEXT_NO_ACTIVATE=1`, as each
+launch of the driver (cmd-n-paint-e2e.py `launch`): the app then takes no keyboard of a person at the Mac, and only
+then it reads the 2 variables that place its window (TestWindowPlacement.swift), so the window has the launch's
+size on the launch's screen. A key of a recording needs no active app: it goes through `debug.key`'s sender, which
+names its window to the app's key path (DebugKey.swift `send`). So `app_active` is a fact of the report and no
+condition of a take. What a take needs is the window on the screen. Each run asks ONE time, after the session is
+made and before its first tab and its first case: `debug.window.focus {window}` for the first window that the app
+lists, with no `activate` (DebugKey.swift `focusWindow`: the app orders that window in front and makes it the key
+window of its own windows; the call asks for no activation). Then it reads the app's own answer (`debug.focus`)
+and the app's list of windows (`debug.window_list`), up to `ACTIVE_READS` times 0.2 s apart. The list must have ONE
+window of the kind `main` (the measured window) that is `visible`, not `miniaturized` and not `occluded`, and with
+a launch that placed the window its frame must have the asked width and height (`window_fault`; the tool has no
+read of the screen's own frame, so it checks the size and the report keeps x and y). Each other state and an app
+that lists no window end the run (`stopped`, the exit code `STOPPED_EXIT`): no tab is made and no case is
+recorded. The SAME read comes again after the last case: a window that is then not shown, or whose count, frame or
+3 words are not the first read's, makes each row of the take INVALID (`window`), and each case's numbers are made
+again. The report's `window` keeps both reads (the frame and the 3 words) and the asked size; it keeps no title
+and no word of another app. Limits: the app's `occluded` is AppKit's word for a window of which no part is
+visible, so a window that another app covers in part reads as shown (the recorder takes the display with this
+app's windows only, WindowFrame+ScreenCaptureKit.swift, so the other app is in no frame); and the 2 reads say
+nothing of the time between them.
+
+Each read with a shown window has one of 3 forms (`key_form`). `shell`: the app is active and the measured window
+is the key window. `page child`: the app is active, the window names a page as the holder of the keys
+(`appkit.child_window_page`), and the list of windows has the key window: a plain child window of the measured
+window, of the class that `debug.focus` names as the app's key window. `window shown`: each other state, also an
+app that is not active (each launch of the driver). The report's `activation` says the form of the read before
+the first case (`form`), the app's answer before the ask (`before`) and the facts of the last read (`at_the_end`:
+the form, the shown tab's kind, the page that the window names, the first responder, the count of the app's
+windows, the class of the app's key window, what the app's no-activate mode gave back); a stop's text says them
+too. Each row says `app_active`, `shell_window_is_key` and `key_window_form` from one read directly before its
+recording, and the tool does not ask a second time. A row with no form (the app listed no window) is INVALID
+(`form`). Runs with 2 forms are 2 states: no pair has both, and the report's `head` says the run's form and how
+many rows have another one. A hold's keys go to the shell window as the key window of an active app, so a run
+whose form is not `shell` does not run the hold's rows: each is in the report as INVALID (`hold`, `not_run`) with no
+call to the app, and `close.hold.not_run` says why. In a run of the form `shell`, a hold's row whose own read says
+an app that is not active or a shell window that is not the key window is INVALID (`active`).
 
 `--key-tabs 6,84`: the count of tabs in the key's workspace before a case, as counts that rise, in one launch.
 First the tool shows the first workspace that the session's maker made (`action.run goToWorkspace`, then
@@ -81,11 +116,12 @@ call (the recorder sends its key 120 ms after its start, so the tool starts the 
 Close Tab key's time): the app gives such a key to its window directly, with no repeat flag, so the key router's
 path for a repeated key is not in these rows. In `hold` the keys are ONE key sequence of `debug.key`
 (`{"sequence", "key_window": "shell"}`): the app makes the shell window its key window (it does not activate the
-app: the run's one ask before its first case did), builds each step as an event with its planned time and posts
-it to its own event queue (Command down, T down, each repeat of T with the repeat flag, T up and Command up before
-the Close Tab key's time), and plays the steps by its own clock from the call. Limits of `hold`: the Close Tab
-key itself is the recorder's and not a key of the queue; and the Command key is up again before it. A sequence
-that the app refused (the window did not become key) is an INVALID row with no recording.
+app, and no call of the tool does: a hold's rows run only in a run of the form `shell`), builds each step as an
+event with its planned time and posts it to its own event queue (Command down, T down, each repeat of T with the
+repeat flag, T up and Command up before the Close Tab key's time), and plays the steps by its own clock from the
+call. Limits of `hold`: the Close Tab key itself is the recorder's and not a key of the queue; and the Command
+key is up again before it. A sequence that the app refused (the window did not become key) is an INVALID row with
+no recording.
 
 The true time between the last New Tab key and the Close Tab key is the app's (`last_new_tab_key_before_ms`, from
 the `newTab.open` mark), and the asked time is only the tool's plan (`new_tab_keys_sent_ms`: each key-down's time
@@ -160,7 +196,11 @@ NEW_TAB_KEY = {"key": "t", "modifiers": ["command"]}  # one key-down by `debug.k
 LAST_FILE = "strip.png"  # the last file that frame_strip writes into its folder (WindowFrame.writeAll), before its reply
 CALL_END_PAUSES = 240  # of 0.5 s: how long the tool waits for a frame_strip call that went on after its `timeout` reply
 STOPPED_EXIT = 3  # the driver's exit code for a run that stopped before its last case
-ACTIVE_READS = 50  # of the app's answer, 0.2 s apart, after the one ask for the active app (an activation is a request)
+ACTIVE_READS = 50  # of the app's answer, 0.2 s apart, after the one ask for the window in front (the app's answer can come later)
+# The 3 words of the measured window in the app's list of windows (`debug.window_list`), each as a take needs it.
+WINDOW_WORDS = (("visible", True), ("miniaturized", False), ("occluded", False))
+WINDOW_NOT_SHOWN = "the app's window is not shown as a take needs it (debug.window_list): "
+HOLD_NOT_RUN = "hold: a hold needs the key window, this launch gives none"  # a hold's row in a run whose form is not `shell`
 PROVISIONAL = "pending_tab_"  # the id of a new tab before the app's daemon named it: no action can name such a tab
 MADE_TAB_S = 30.0  # how long the tool waits for a made tab in the app's list
 SHOWN_S = 30.0  # how long the tool waits until the app shows the made workspace
@@ -180,6 +220,79 @@ def key_tabs(text):
     if not counts or counts[0] < 1 or any(later <= earlier for earlier, later in zip(counts, counts[1:])):
         raise argparse.ArgumentTypeError(f"{text}: --key-tabs takes counts of tabs that rise, from 1 (6,84)")
     return counts
+
+
+def window_fact(reply):
+    """One read of the app's windows (`debug.window_list`'s answer) as the report keeps it: the count of its windows
+    of the kind `main`, and only for an app with ONE such window (the measured window) its `frame` (x, y, width,
+    height in screen points) and the 3 words `visible`, `miniaturized` and `occluded`. `key_child`: the class of the
+    app's key window when the list says that it is a plain child window of the measured window (its kind is its class:
+    no sheet, no popover, no panel), else None. No title and no other field of the answer is kept."""
+    entries = [entry for entry in reply.get("windows") or [] if isinstance(entry, dict)] if isinstance(reply, dict) else []
+    mains = [entry for entry in entries if entry.get("kind") == "main"]
+    fact = {"main_windows": len(mains), "frame": None, "visible": None, "miniaturized": None, "occluded": None, "key_child": None}
+    if len(mains) == 1:
+        main = mains[0]
+        frame = main.get("frame") if isinstance(main.get("frame"), dict) else {}
+        fact.update({name: main.get(name) for name, _ in WINDOW_WORDS})
+        fact["frame"] = {name: frame.get(name) for name in ("x", "y", "width", "height")}
+        fact["key_child"] = next((entry["class"] for entry in entries if entry.get("key") is True and entry.get("class")
+                                  and entry.get("kind") == entry.get("class") and main.get("id") is not None
+                                  and entry.get("parent") == main.get("id")), None)
+    return fact
+
+
+def window_fault(fact, size=None):
+    """(C) the check: why no take runs in the window of one read (`window_fact`), or None: the app has one window of
+    the kind `main`, each of the 3 words is as `WINDOW_WORDS` says, and with `size` (`asked_size`) its frame has
+    that width and height."""
+    if fact["main_windows"] != 1:
+        return (f"the app lists {fact['main_windows']} windows of the kind `main` (debug.window_list): the tool names the measured "
+                "window only in an app with one")
+    wrong = [f"`{name}` is {json.dumps(fact[name], default=str)}" for name, wanted in WINDOW_WORDS if fact[name] is not wanted]
+    had = [fact["frame"]["width"], fact["frame"]["height"]]
+    if size and had != size:
+        width, height = (f"{part:g}" if isinstance(part, (int, float)) else json.dumps(part, default=str) for part in had)
+        wrong.append(f"its frame is {width} x {height} points, the launch asked for {size[0]:g} x {size[1]:g}")
+    return WINDOW_NOT_SHOWN + ", ".join(wrong) if wrong else None
+
+
+def asked_size(launched):
+    """The width and the height that the driver's launch asked for the app's window (`launched`: its word about its
+    launch, None with no launch): the last 2 numbers of `CMUX_NEXT_TEST_WINDOW_FRAME`, which the app reads only with
+    `CMUX_NEXT_NO_ACTIVATE=1` (TestWindowPlacement.swift). None for each other launch: the tool then checks no size."""
+    env = (launched or {}).get("env") or {}
+    if env.get("CMUX_NEXT_NO_ACTIVATE") != "1":
+        return None
+    try:
+        parts = [float(part) for part in str(env.get("CMUX_NEXT_TEST_WINDOW_FRAME") or "").split(",")]
+    except ValueError:
+        return None
+    return parts[2:] if len(parts) == 4 and parts[2] > 0 and parts[3] > 0 else None
+
+
+def page_named(fact):
+    """One read of the app's focus model (`Screen.listing`): the app is active, no cmux window is the key window, and
+    the first window names a page as the holder of the keys in a child window (`appkit.child_window_page`). That
+    name is the window's record of its focus: it is no proof of the app's key window (`key_form`)."""
+    return fact["app_active"] is True and fact["is_key"] is not True and not fact["any_key"] and bool(fact["appkit"].get("child_window_page"))
+
+
+def key_form(fact, shown):
+    """The key window's form of one read of the app's focus model (`fact`: `Screen.listing`) with one read of its
+    windows (`shown`: `Screen.window_read`), or None: no such read, a window that is not shown (`window_fault`), or
+    an app that lists no window. `shell`: the app is active and its first window is the key window. `page child`:
+    the app is active, the first window names a page as the holder of the keys (`page_named`), and the app's list of
+    windows has the key window: a plain child window of the measured window, of the class that the focus model names
+    as the app's key window. `window shown`: each other state, also an app that is not active: a take needs the
+    window on the screen, not the keyboard."""
+    if not shown or shown["fault"] or not fact["window"]:
+        return None
+    if fact["app_active"] is True and fact["is_key"] is True:
+        return "shell"
+    if page_named(fact) and shown["key_child"] and shown["key_child"] == fact["key_window"]:
+        return "page child"
+    return "window shown"
 
 
 def shells(workspace):
@@ -208,6 +321,18 @@ def close_cases(text):
     if unknown or not kinds:
         raise argparse.ArgumentTypeError(f"{', '.join(unknown) or 'no case'}: the Close Tab key's cases are {', '.join(CLOSE_CASES)}")
     return ",".join(kinds)
+
+
+def given_rate(text):
+    """`--display-hz`: a finite number above 0 (argparse's type). A given value that is none stops the run at its
+    arguments, before a launch and before a case; only a run with no `--display-hz` goes on with no asked rate."""
+    try:
+        rate = frames_of.asked_rate(float(text))
+    except ValueError:
+        rate = None
+    if rate is None:
+        raise argparse.ArgumentTypeError(f"{text}: --display-hz takes a finite number above 0 (with no --display-hz the run goes on and each row is INVALID)")
+    return rate
 
 
 def close_plan(kind, opts):
@@ -276,8 +401,9 @@ def add_arguments(parser):
     parser.add_argument("--keep-keys", type=int, default=2, help="--screen: recordings of each case whose pictures are kept in any case")
     parser.add_argument("--screen-tgz", help="--screen: write the report and the kept pictures here")
     parser.add_argument("--display", default="", help="--screen: the display's own line, for the report (the entry's virtual display)")
-    parser.add_argument("--display-hz", type=float, default=0,
-                        help="--screen: the display's refresh rate (the entry gives it for the display that it made); with none each row is INVALID")
+    parser.add_argument("--display-hz", type=given_rate, default=None,
+                        help="--screen: the display's refresh rate, a finite number above 0 (the entry gives it for the display that it made); "
+                             "with none each row is INVALID")
     parser.add_argument("--build", help="--screen: the build's form (scripts/measure/build-flags.py's file), for the report")
     parser.add_argument("--page-engine", default="cef", choices=bench_page_engine.WANTED,
                         help="--screen: the engine that the new page must run in for a row to be a number (any: each row only says it)")
@@ -336,11 +462,12 @@ def fresh_session(tag, app=None):
 def holes(row):
     """The end of a row's printed line: the frames with no row from the key to its first frame, how early that
     frame can be, the second key's own first frame of a recording of two keys, and the app's opening records.
-    An INVALID row's line so still says how wrong its first frame can be. A row of a run with no asked display rate
-    says `not known` for each of these counts: its frame time is the rows' own step, which does not see such a frame."""
+    An INVALID row's line so still says how wrong its first frame can be. A row with a `display` reason (no asked
+    display rate, or an asked rate that the rows do not prove) says `not known` for each of these counts, and why:
+    its frame time does not see such a frame."""
     span, second, records = row.get("first_frame_span"), row.get("second_first"), row.get("opening_records")
-    blind = frames_of.NO_RATE in (row.get("invalid") or [])
-    said = "" if not span else " no_row_to_content_first=not known early_ms_at_most=not known (no asked display rate)" if blind else (
+    blind = frames_of.rate_not_known(row.get("invalid"))
+    said = "" if not span else f" no_row_to_content_first=not known early_ms_at_most=not known ({blind})" if blind else (
         f" no_row_to_content_first={span['no_row']}/{span['frames']} longest_gap_ms={span['longest_gap_ms']:g} "
         f"early_ms_at_most={span['early_ms_at_most']:g}"
         + (f" partial state: not seen in {span['no_row']} frames" if span["no_row"] else ""))
@@ -356,18 +483,26 @@ def holes(row):
 
 
 def close_said(row):
-    """The end of a Close Tab row's printed line: which tab closed, which tab shows, and the close's frames."""
+    """The end of a Close Tab row's printed line: which tab closed, which tab shows, and the close's frames. A row
+    with a `display` reason says `not known` for the order, and why: the order is a count of frames, and the row's
+    frame time does not see a frame with no row (the row's `close_tab.order` in the JSON stays as the reader made it)."""
     fact = row.get("close_tab")
     if not fact:
         return ""
+    blind = frames_of.rate_not_known(row.get("invalid"))
+    order = f"not known ({blind})" if blind else fact["order"]
 
     def at(name):
         return json.dumps(fact.get(name) and [fact[name]["frame"], fact[name]["ms"]])
     keys = "" if not fact["new_tab_keys"] else (f" new_tab_marks_before_ms={json.dumps(fact['new_tab_marks_before_ms'])} "
                                                 f"new_tab_keys_sent_ms={json.dumps(fact.get('new_tab_keys_sent_ms'))}")
+    # Frames with no row directly before the strip's first change: `strip_first` is then the latest frame of it.
+    earlier = fact.get("strip_first_can_be_frames_earlier")
     return (f" closed={fact.get('closed_is')!r} shows={(fact.get('shown_after') or {}).get('is')!r} content_gone={at('content_gone')} "
-            f"shown={at('content_shown')} strip_first={at('strip_first')} between={fact.get('content_between_frames')} "
-            f"blank={fact.get('blank_frames')}{keys} order={fact['order']!r}")
+            f"shown={at('content_shown')} strip_first={at('strip_first')}"
+            + (f" strip_first_can_be_frames_earlier={earlier}" if earlier else "")
+            + f" between={fact.get('content_between_frames')} "
+            f"blank={fact.get('blank_frames')}{keys} order={order!r}")
 
 
 def beside(work):
@@ -392,10 +527,13 @@ class Screen:
         # `launched`: the launch's environment and the bundle's CLI (new_surface_look.py `cli_try`), None with no launch.
         self.launch_fault, self.launch, self.launched = None, None, None
         # A run with no asked display rate: this reason is in each row that has a recording (the module doc).
-        self.display_fault = None if opts.display_hz and opts.display_hz > 0 else frames_of.NO_RATE
+        self.rate = frames_of.asked_rate(opts.display_hz)
+        self.display_fault = None if self.rate else frames_of.NO_RATE
         # `made`: the workspaces that the session's maker made. `size`, `tag`: with `--key-tabs`, the count in work
         # (asked and had) and its part of a row's label. `activation`, `key_workspace`: the report's facts of both.
         self.made, self.size, self.tag, self.activation, self.key_workspace = [], None, "", None, None
+        # `window_facts`: the report's `window` (the read of the app's windows before the first case and after the last one).
+        self.window_facts = None
 
     def topology(self):
         snap = self.rpc("snapshot.get", None, 180) or {}
@@ -491,7 +629,7 @@ class Screen:
             self.close(min(keys_sent, max(0, self.count(key) - before_count)), own_tabs)
             return row
         records = self.opened()
-        row.update(frames_of.one_key(reply, key, gap, opts.tolerance, opts.display_hz or None))
+        row.update(frames_of.one_key(reply, key, gap, opts.tolerance, self.rate))
         row["label"] = label
         opened = frames_of.opened_since(before_opened, records)
         faults, starts = frames_of.input_proof(key, keys_sent, opened, self.count(key) - before_count, reply.get("spans"))
@@ -525,19 +663,26 @@ class Screen:
         """One read of the app's focus model (`debug.focus`), for its first window: `window` (its id) and `is_key`,
         `app_active`, the shown workspace's `panes`, `tabs` and `kinds` (counts over each pane; None when the app
         lists no pane), and `pane`: the tabs in order (`{id, kind}`) and the shown tab of the pane that the model
-        names, or of the only pane (None when the app lists none)."""
+        names, or of the only pane (None when the app lists none). For the key window's form (`key_form`) and the
+        report: `windows` (the count of the app's windows in the answer), `any_key` (one of them is the key window),
+        the first window's `appkit` part, the class of the app's key window (`key_window`) and what the app says of
+        the keyboard that its no-activate mode gave back (`given_back`)."""
         reply = self.rpc("debug.focus", None, 30)
         reply = reply if isinstance(reply, dict) else {}
+        windows = [window for window in reply.get("windows") or [] if isinstance(window, dict)]
         fact = {"window": None, "is_key": None, "app_active": reply.get("app_active"), "panes": None, "tabs": None, "kinds": None,
-                "pane": None, "error": reply.get("error")}
+                "pane": None, "error": reply.get("error"), "windows": len(windows),
+                "any_key": any(window.get("is_key") is True for window in windows), "appkit": {},
+                "key_window": reply.get("key_window"), "given_back": reply.get("keyboard_given_back")}
 
         def tabs_of(pane):
             return [dict(zip(("id", "kind"), str(tab).rsplit(":", 1) + [None])) for tab in pane.get("tabs") or []]
-        for window in [window for window in reply.get("windows") or [] if isinstance(window, dict)][:1]:
+        for window in windows[:1]:
             panes = [pane for pane in window.get("topology") or [] if isinstance(pane, dict)]
             named = (window.get("model") or {}).get("pane")
             found = next((pane for pane in panes if pane.get("pane") == named), panes[0] if len(panes) == 1 else None)
-            fact.update({"window": window.get("id"), "is_key": window.get("is_key")})
+            fact.update({"window": window.get("id"), "is_key": window.get("is_key"),
+                         "appkit": window.get("appkit") if isinstance(window.get("appkit"), dict) else {}})
             if panes:
                 kinds = {}
                 for tab in [tab for pane in panes for tab in tabs_of(pane)]:
@@ -551,12 +696,27 @@ class Screen:
         """The focused pane's tabs in order and its shown tab (`listing`); None when the app lists none."""
         return self.listing()["pane"]
 
+    def window_read(self):
+        """One read of the app's windows (`debug.window_list`): `window_fact`'s facts, and `fault`: why no take runs
+        in that window (`window_fault`, with the size that the launch asked), or None."""
+        fact = window_fact(self.rpc("debug.window_list", None, 30))
+        fact["fault"] = window_fault(fact, asked_size(self.launched))
+        return fact
+
     def before(self, row, hold=None):
         """The app's own answer directly before a recording, from one read, into `row`: whether the app is active and
         its window the key window, and with `--key-tabs` the shown workspace's tabs. `hold`: a hold's list of INVALID
         reasons, which gets one when a fact is not true. Returns the focused pane (`pane`)."""
         fact = self.listing()
-        row.update({"app_active": fact["app_active"], "shell_window_is_key": fact["is_key"]})
+        # `key_window_form`: the form of the key window in this read (`key_form`); rows of 2 forms are 2 states. The
+        # windows are those of the read before the first case; a row whose window names a page reads them again,
+        # because that form needs the key window of this read.
+        shown = self.window_read() if page_named(fact) else (self.window_facts or {}).get("before_the_first_case")
+        row.update({"app_active": fact["app_active"], "shell_window_is_key": fact["is_key"], "key_window_form": key_form(fact, shown)})
+        if row["key_window_form"] is None:
+            # A row with no form is INVALID (`run` adds the reason: a recording's own facts replace a row's reasons).
+            row["no_form"] = ("the app listed no window (debug.focus)" if not fact["window"] else
+                              (shown or {}).get("fault") or "the tool had no read of the app's windows")
         if self.size is not None:
             row.update({"workspace_tabs_before": fact["tabs"], "workspace_kinds_before": fact["kinds"]})
         if hold is not None and not (fact["app_active"] is True and fact["is_key"] is True):
@@ -590,30 +750,101 @@ class Screen:
         self.sleep(2.0)  # tool pacing: the shown workspace's tabs mount before the ask and the first made tab
         return None
 
-    def activate(self):
-        """The run's one ask for the active app (the module doc). Returns the reason that ends the run (no window,
-        an app that is not active, a window that is not the key window), or None."""
+    def key_facts(self, fact, shown):
+        """(R) the report: what one read of the app says of the keys: the key window's form (`key_form`), the kind of
+        the shown tab of the key's pane, the page that the window names as the holder of the keys, the window's
+        first responder, the count of the app's windows, the class of the app's key window, and what the app's
+        no-activate mode gave back. Each is the app's own word of itself: no word of another app is read."""
+        pane = fact["pane"] or {}
+        return {"key_window_form": key_form(fact, shown),
+                "shown_tab_kind": next((tab["kind"] for tab in pane.get("tabs") or [] if tab["id"] == pane.get("selected")), None),
+                "child_window_page": fact["appkit"].get("child_window_page"), "first_responder": fact["appkit"].get("first_responder"),
+                "app_windows": fact["windows"], "app_key_window": fact["key_window"], "keyboard_given_back": fact["given_back"]}
+
+    def ask(self):
+        """The run's one ask for the window in front, with no activation, and the read of the app's windows before
+        the first case (the module doc). Returns the reason that ends the run (no window, a window that the app does
+        not show as a take needs it: `window_fault`), or None."""
         fact = self.listing()
+        # `before`: the app's answer before the ask (an app that the system made active itself says so here).
         self.activation = {"by": "debug.window.focus", "asked": None, "reply": None, "app_active": fact["app_active"],
-                           "shell_window_is_key": fact["is_key"], "reads": 0}
+                           "shell_window_is_key": fact["is_key"], "reads": 0, "form": None,
+                           "before": {"app_active": fact["app_active"], "shell_window_is_key": fact["is_key"]}}
         if not fact["window"]:
             said = f"the app's debug.focus said {json.dumps(fact['error'], default=str)[:200]}" if fact["error"] else "the app lists no window (debug.focus)"
             return f"active: {said}: no tab made, no case recorded"
-        asked = {"window": fact["window"], "activate": True}
+        # No `activate`: the app orders the window in front and takes no keyboard for it (DebugKey.swift `focusWindow`).
+        asked = {"window": fact["window"]}
         reply, began = self.rpc("debug.window.focus", asked, 30), self.clock()
         for reads in range(1, ACTIVE_READS + 1):
-            fact = self.listing()
-            if (fact["app_active"] is True and fact["is_key"] is True) or reads == ACTIVE_READS:
+            # `at`: the clock at the app's answer, before the read of its windows (`seconds` has no time of that read).
+            fact, at = self.listing(), self.clock()
+            shown = self.window_read()
+            if key_form(fact, shown) or reads == ACTIVE_READS:  # (C) the check
                 break
-            self.sleep(0.2)  # tool pacing: an activation is a request, the app's answer can come later
-        # `seconds`: from the ask's reply to the last read (the answer that both are true, or the last one that they are not).
+            self.sleep(0.2)  # tool pacing: the app's answer can come later than the call's reply
+        # `seconds`: from the ask's reply to the last read of the app's answer (the one with a form, or the last one).
+        # (R) `form`: the form of that read (None at a stop); `at_the_end`: its facts.
+        end = self.key_facts(fact, shown)
         self.activation.update({"asked": asked, "reply": reply, "app_active": fact["app_active"], "shell_window_is_key": fact["is_key"],
-                                "reads": reads, "seconds": round(self.clock() - began, 1)})
-        if fact["app_active"] is True and fact["is_key"] is True:
+                                "reads": reads, "seconds": round(at - began, 1), "form": end["key_window_form"], "at_the_end": end})
+        self.window_facts = {"asked_size": asked_size(self.launched), "before_the_first_case": shown, "after_the_last_case": None, "same": None}
+        if end["key_window_form"]:
             return None
-        return (f"active: after debug.window.focus {json.dumps(asked)} the app says app_active={json.dumps(fact['app_active'])} and its "
-                f"window says is_key={json.dumps(fact['is_key'])} (the call's reply: {json.dumps(reply, default=str)[:300]}): no tab made, "
-                "no case recorded")
+
+        def word(name):
+            return json.dumps(end[name], default=str)[:120]
+        return (f"window: after debug.window.focus {json.dumps(asked)} {shown['fault'] or 'the app lists no window (debug.focus)'} "
+                f"({reads} reads of the app's answer, 0.2 s apart; the call's reply: {json.dumps(reply, default=str)[:300]}; at the stop: "
+                f"app_active={json.dumps(fact['app_active'])}, is_key={json.dumps(fact['is_key'])}, shown tab {end['shown_tab_kind']}, "
+                f"child_window_page {word('child_window_page')}, first responder {word('first_responder')}, {end['app_windows']} of the "
+                f"app's windows listed, the app's key window {word('app_key_window')}, keyboard given back {word('keyboard_given_back')}): "
+                "no tab made, no case recorded")
+
+    def hold_off(self):
+        """Why the run does not run a hold's rows, or None: a hold's key sequence goes to the shell window as the key
+        window of an active app (the form `shell` of the read before the first case)."""
+        form = (self.activation or {}).get("form")
+        return None if form == "shell" else f"{HOLD_NOT_RUN} (the run's key window form: {form}): not run, no recording"
+
+    def after(self, report, taken):
+        """The read of the app's windows after the last case (`taken`: each case's name, rows and size). A window
+        that is not shown, or that is not the one of the read before the first case (the count, the frame, the 3
+        words), makes each row of the take INVALID, and each case's numbers are made and printed again."""
+        first, last = self.window_facts["before_the_first_case"], self.window_read()
+        same = not last["fault"] and all(last[name] == first[name] for name in ("main_windows", "frame", "visible", "miniaturized", "occluded"))
+        self.window_facts.update({"after_the_last_case": last, "same": same})
+        if same:
+            return
+        why = last["fault"] or "its frame or one of its 3 words is not the one of the read before the first case"
+        reason = f"window: the read after the last case: {why}: no row of the take says what the screen showed"
+        print(f"{MARK} WINDOW NOT THE SAME {reason}", flush=True)
+        for row in self.rows:
+            row["invalid"].append(reason)
+        for case, rows, size in taken:
+            early = report["cases"][case].get("ended_early")
+            report["cases"][case] = fact = self.case_fact(rows, size)
+            if early:
+                fact["ended_early"] = early
+            close = frames_of.close_cell(fact["close"]) if "close" in fact else ""
+            print(f"{MARK} {case}: {frames_of.cell(fact)}{close}{' (THE CASE ENDED EARLY ' + early + ')' if early else ''} "
+                  "(AGAIN, after the read of the window after the last case)", flush=True)
+
+    def case_fact(self, rows, size):
+        """One case's part of the report, from its rows (`size`: the `--key-tabs` count in work at the case, or None)."""
+        fact = frames_of.summarize(rows)
+        fact["active"] = {name: {"yes": sum(1 for row in rows if row.get(name) is True), "of": len(rows)}
+                          for name in ("app_active", "shell_window_is_key")}
+        forms = [str(row.get("key_window_form")) for row in rows if "key_window_form" in row]
+        fact["key_window_forms"] = {form: forms.count(form) for form in sorted(set(forms))}
+        fact["recorder_lost"] = frames_of.recorder_lost(rows)
+        if size:
+            counts = [row["workspace_tabs_before"] for row in rows if isinstance(row.get("workspace_tabs_before"), int)]
+            fact["key_tabs"] = {"asked": size["asked"], "had": size["had"],
+                                "workspace_tabs_before": {"min": min(counts), "max": max(counts)} if counts else None}
+        if rows and rows[0].get("key") == "w":
+            fact["close"] = frames_of.close_summary(rows)
+        return fact
 
     def fill(self, asked):
         """`--key-tabs`: makes tabs beside the shown tab of the key's pane until the app lists `asked` tabs in the
@@ -663,6 +894,11 @@ class Screen:
         opts, plan = self.opts, close_plan(kind, self.opts)
         label = f"cmd-w-{'idle' if kind == 'idle' else f'{kind}{opts.close_gap_ms:g}'}{self.tag}-{run}"
         row = {"label": label, "key": "w", "gap_ms": 0, "case": kind, "run": run, "invalid": []}
+        off = self.hold_off() if kind == "hold" else None
+        if off:
+            # Not run: no call to the app, no tab, no recording. The row is in the report with its reason.
+            row.update({"invalid": [off], "not_run": True})
+            return row
         own_tabs, early = self.count("t"), []
         self.tools["terminal_tab"]()
         deadline = self.clock() + 30
@@ -732,7 +968,7 @@ class Screen:
             self.close_own(own_tabs, mine)
             return row
         after, records = self.pane(), self.opened()
-        row.update(frames_of.one_key(reply, "w", 0, opts.tolerance, opts.display_hz or None))
+        row.update(frames_of.one_key(reply, "w", 0, opts.tolerance, self.rate))
         row.update({"label": label, "case": kind})
         fact, faults = frames_of.close_of(row, reply.get("spans"), before, after, len(plan))
         fact.update({"case": kind, "new_tab_keys_plan_ms": [-offset for offset in plan], "new_tab_keys_sent_ms": sent})
@@ -832,23 +1068,28 @@ class Screen:
 
     def head(self):
         """The report's first sentences: whether the app was active (by each row's own read; with no row, by the
-        answer after the run's ask), the workspace of the keys, how many reads and seconds the app took to say that
-        it is active, and for a made workspace what the app's list said of its terminals before the app showed it."""
+        answer after the run's ask: a fact, no condition of a take), the workspace of the keys, the run's ask (its
+        reads, its seconds, the key window form of its last read, and how many rows have another form), and for a
+        made workspace what the app's list said of its terminals before the app showed it."""
         read, place = [row for row in self.rows if "app_active" in row], self.key_workspace or {}
         yes = sum(1 for row in read if row["app_active"] is True)
         if not read:
             active = {True: "yes", False: "no"}.get((self.activation or {}).get("app_active"), "not known")
         else:
-            active = "yes" if yes == len(read) else f"NOT IN EACH ROW ({yes} of {len(read)} rows, by the app's answer before each recording)"
+            by = f"({yes} of {len(read)} rows, by the app's answer before each recording)"
+            active = "yes" if yes == len(read) else f"no {by}" if not yes else f"NOT IN EACH ROW {by}"
         where = place.get("is", "not known")
         if place.get("shown_by_the_app") is False:
             where = f"NOT the made workspace `{place['name']}` (the app does not show it)"
         elif place.get("name"):
             where += f" ({place['name']})"
         ask = self.activation or {}
-        said = [f"the app was active: {active}", f"the key's workspace: {where}",
-                "the ask for the active app: " + ("not made" if not ask.get("asked") else
-                                                  f"{ask['reads']} reads of the app's answer, {ask['seconds']:g} s from the ask to the answer")]
+        # The form of the read before the first case, and loudly the rows of another form: 2 forms are 2 states.
+        others = sum(1 for row in read if row.get("key_window_form") != ask.get("form"))
+        form = f", the key window form: {ask.get('form') or 'none'}" + (
+            f" (NOT IN EACH ROW: {others} of {len(read)} rows have another form or none; rows of 2 forms are 2 states, no pair)" if others else "")
+        asked = "not made" if not ask.get("asked") else f"{ask['reads']} reads of the app's answer, {ask['seconds']:g} s from the ask to the answer{form}"
+        said = [f"the app was active: {active}", f"the key's workspace: {where}", f"the ask for the window in front (no activation): {asked}"]
         if "terminals_before_shown" in place:
             had = place["terminals_before_shown"]
             said.append("the key's workspace's terminals before the app showed it: " + (
@@ -861,7 +1102,7 @@ class Screen:
         opts = self.opts
         report = {"head": [], "mode": "screen", "keys": opts.keys.split(","), "gaps_ms": [float(g) for g in opts.gaps.split(",") if g],
                   "runs": opts.runs, "duration_ms": opts.duration_ms, "scale": opts.scale, "tolerance": opts.tolerance,
-                  "display": opts.display or "as the host has it", "display_hz_asked": opts.display_hz or None, "build": None,
+                  "display": opts.display or "as the host has it", "display_hz_asked": self.rate, "build": None,
                   "key_path": "debug.key's sender: the app's own key path, not the keyboard's driver",
                   "numbers": "new_surface_frames.py", "rows": self.rows, "cases": {}}
         # The run's first lines: what the app itself says of its settings and its window (new_surface_look.py).
@@ -881,9 +1122,12 @@ class Screen:
             f"session: {opts.workspaces} workspaces asked, the app lists {report['session']['listed_by_the_app']}")
         if opts.key_tabs:
             report["key_tabs"] = {"mix": KEY_TABS_MIX, "limit": KEY_TABS_LIMIT, "sizes": []}
-        # The keys' workspace, then the one ask for the active app: a reason of either ends the run before a tab or a case.
-        ended = ended or self.place() or self.activate()
+        # The keys' workspace, then the one ask for the window in front and the read of the app's windows: a reason of
+        # either ends the run before a tab or a case.
+        ended = ended or self.place() or self.ask()
         report["key_workspace"], report["activation"] = self.key_workspace, self.activation
+        # The form of the read before the first case (`key_form`; None: no ask, or a stop). 2 runs with 2 forms are no pair.
+        report["key_window_form"] = (self.activation or {}).get("form")
         if ended:
             report["stopped"] = ended
             print(f"{MARK} STOPPED {ended}", flush=True)
@@ -897,9 +1141,12 @@ class Screen:
                     "cases": [kind for kind in opts.close_cases.split(",") if kind], "gap_ms": opts.close_gap_ms,
                     "hold": {"key_downs": opts.hold_keys, "first_repeat_after_ms": opts.hold_delay_ms, "repeat_each_ms": opts.hold_repeat_ms},
                     "new_tab_keys_by": {"key": KEYS_BY["calls"], "downs": KEYS_BY["calls"], "hold": KEYS_BY["sequence"]}}
+                if "hold" in report["close"]["cases"] and not ended and self.hold_off():
+                    report["close"]["hold"]["not_run"] = self.hold_off()  # each row of the hold's case says it too
             else:
                 cases += [(f"cmd-{key}/{'idle' if not gap else f'{gap:g} ms after a key'}",
                            lambda run, key=key, gap=gap: self.one(key, gap, run, session_fault)) for gap in report["gaps_ms"]]
+        taken = []  # each case that ran: its name, its rows and the `--key-tabs` count in work
         for case, take in [] if ended else self.sized(cases, report):
             rows, self.kept_in_case = [], 0
             for run in range(opts.runs):
@@ -908,6 +1155,8 @@ class Screen:
                     row["key_tabs"] = {"asked": self.size["asked"], "had": self.size["had"]}
                     if self.size["fault"]:
                         row["invalid"].append(self.size["fault"])
+                if row.get("no_form"):
+                    row["invalid"].append(f"form: directly before the recording {row['no_form']}: the row has no key window form")
                 rows.append(row)
                 self.rows.append(row)
                 said = {name: row.get(name) and [row[name]["frame"], row[name]["ms"]] for name in ("tab", "content_first", "content_final", "final")}
@@ -915,22 +1164,14 @@ class Screen:
                 print(f"{MARK}-ROW {row['label']}: {'INVALID ' + '; '.join(row['invalid']) if row['invalid'] else 'valid'} "
                       f"{json.dumps(said)} first_is_final={row.get('first_is_final')} whole_window={row.get('whole_window')} "
                       f"changes_after_content={row.get('changes_after_content')} "
-                      f"refresh_ms={row.get('refresh_ms')} capture={row.get('capture')}{holes(row)}{tabs} "
-                      f"app_active={row.get('app_active')} shell_window_is_key={row.get('shell_window_is_key')}", flush=True)
+                      f"refresh_ms={row.get('refresh_ms')} rate_share={row.get('rate_share')} capture={row.get('capture')}{holes(row)}{tabs} "
+                      f"app_active={row.get('app_active')} shell_window_is_key={row.get('shell_window_is_key')} "
+                      f"key_window_form={row.get('key_window_form')}", flush=True)
                 if row.get("call_went_on"):
                     break
-            report["cases"][case] = frames_of.summarize(rows)
-            report["cases"][case]["active"] = {name: {"yes": sum(1 for row in rows if row.get(name) is True), "of": len(rows)}
-                                               for name in ("app_active", "shell_window_is_key")}
-            report["cases"][case]["recorder_lost"] = frames_of.recorder_lost(rows)
-            if self.size:
-                counts = [row["workspace_tabs_before"] for row in rows if isinstance(row.get("workspace_tabs_before"), int)]
-                report["cases"][case]["key_tabs"] = {"asked": self.size["asked"], "had": self.size["had"],
-                                                     "workspace_tabs_before": {"min": min(counts), "max": max(counts)} if counts else None}
-            close = ""
-            if rows and rows[0].get("key") == "w":
-                report["cases"][case]["close"] = frames_of.close_summary(rows)
-                close = frames_of.close_cell(report["cases"][case]["close"])
+            report["cases"][case] = self.case_fact(rows, self.size)
+            taken.append((case, rows, self.size))
+            close = frames_of.close_cell(report["cases"][case]["close"]) if "close" in report["cases"][case] else ""
             went_on = rows[-1].get("call_went_on") if rows else None
             if went_on:
                 report["cases"][case]["ended_early"] = f"after {len(rows)} of {opts.runs} rows: frame_strip answered `timeout` and the app's call went on"
@@ -942,8 +1183,17 @@ class Screen:
             if report.get("stopped"):
                 print(f"{MARK} STOPPED {report['stopped']}", flush=True)
                 break
-        # The head's first sentences keep their places; then the recorder's lost rows, then the app's settings lines.
-        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + settings["lines"]
+        # The read of the app's windows after the last case: a window that is not the same makes each row INVALID.
+        if taken:
+            self.after(report, taken)
+        # (R) the report: the frame and the 3 words of both reads (no title, no word of another app).
+        report["window"] = self.window_facts
+        if self.window_facts:
+            print(f"{MARK}-WINDOW {json.dumps(self.window_facts)}", flush=True)
+        # The head's first sentences keep their places; then the recorder's lost rows, with an asked rate the limit of
+        # its check (and the asked rate's margin when a valid row's is small), then the app's settings lines.
+        rate = [said for said in (frames_of.rate_limit_sentence(self.rate), frames_of.rate_margin_sentence(self.rows)) if said]
+        report["head"] = self.head() + [frames_of.recorder_sentence(report["cases"])] + rate + settings["lines"]
         print(f"{MARK}-HEAD {'; '.join(report['head'])}", flush=True)
         # A stopped run is not a whole run: the driver ends with this code (0: each case ran).
         report["exit_code"] = STOPPED_EXIT if report.get("stopped") else 0

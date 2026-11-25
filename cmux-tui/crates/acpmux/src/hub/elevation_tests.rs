@@ -16,7 +16,6 @@ fn ask(argv: &[&str], timeout: u64) -> Ask {
 /// `NOPASSWD` rule does, and the command gets stdin as is.
 #[cfg(unix)]
 fn fake_sudo(dir: &Path) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let path = dir.join("sudo");
     let script = format!(
         r#"#!/bin/sh
@@ -42,13 +41,14 @@ exec "$@"
         nopasswd = dir.join("nopasswd").display(),
         listing = dir.join("listing").display(),
     );
-    std::fs::write(&path, script).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Written by a short-lived `sh`, never by this process: any test of the binary that forks
+    // while this process holds the script's write descriptor hands it to that child until it
+    // execs, and running the script in that window fails with ETXTBSY ("Text file busy").
+    crate::test_exec::write_executable(&path, script);
     path
 }
 
-/// One test at a time writes and runs a stand-in sudo: a test that forks while another still
-/// holds its new script open for writing makes that script's exec fail with ETXTBSY.
+/// One test at a time writes and runs a stand-in sudo.
 static FAKES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn temp(tag: &str) -> PathBuf {

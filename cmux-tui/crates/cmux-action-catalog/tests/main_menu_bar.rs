@@ -97,10 +97,16 @@ const PALETTE_ONLY: &[(&str, &str, &[&str])] = &[
             "agent.jumpToNextNeedingInput", "jumpToUnread", "attention.goTo", "jumpToLastPrompt",
             "toggleUnread", "markAllNotificationsRead", "clearAllNotifications", "agentActivity.open",
             "palette.mobileConnect", "focusHistoryBack", "focusHistoryForward", "focusHistoryLast",
-            "recentlyFocused", "recentlyClosed", "history.commands", "history.show",
+            "focusHistoryBackSession", "recentlyFocused", "recentlyClosed", "history.commands", "history.show",
             "agentHistory.show", "history.search", "history.resumeAgentSession", "history.clear",
             "stash.show",
         ],
+    ),
+    (
+        "file",
+        "Step A of an app FFI change (docs/ci/app-ffi-release.md): the pinned FFI has no File placement \
+         yet; step B, after the re-pin, puts it under New Agent Chat in MainMenu.compactActionIDs",
+        &["palette.newCloudChat"],
     ),
     (
         "help",
@@ -113,6 +119,7 @@ const PALETTE_ONLY: &[(&str, &str, &[&str])] = &[
 ];
 
 fn main_menu_swift() -> String {
+    // affected-reads: Packages/macOS/CmuxNext/Sources/CmuxNextApp/MainMenu.swift
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..").join(MAIN_MENU_SWIFT);
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }

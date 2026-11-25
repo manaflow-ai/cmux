@@ -43,11 +43,13 @@ def run(version: str, fake: str | None = None) -> subprocess.CompletedProcess[st
     with tempfile.TemporaryDirectory() as raw:
         tmp = Path(raw)
         fake_zig(tmp / "fake", fake or version)
+        # Only the fixture's Zig is a reuse candidate: a persistent runner keeps a patched Zig in /usr/local/bin
+        # (guards run 44762407859, tooling-tests: 0.17.0 was reused and the run exited 0).
         # Every download source is unreachable: a run that tries to download fails fast.
         env = {**os.environ, "ZIG_REQUIRED": version, "PATH": f"{tmp / 'fake'}:{os.environ['PATH']}",
                "ZIG_INDEX_URL": UNREACHABLE, "ZIG_MIRROR_URL": UNREACHABLE, "ZIG_SECONDARY_MIRROR_URL": UNREACHABLE,
                "ZIG_TERTIARY_MIRROR_URL": UNREACHABLE, "ZIG_OFFICIAL_URL": UNREACHABLE,
-               "ZIG_DOWNLOAD_ATTEMPTS": "1", "ZIG_DOWNLOAD_RETRY_DELAY": "0", "ZIG_FORCE_LOCAL_INSTALL": "0",
+               "ZIG_REUSE_CANDIDATES": "", "ZIG_DOWNLOAD_ATTEMPTS": "1", "ZIG_DOWNLOAD_RETRY_DELAY": "0", "ZIG_FORCE_LOCAL_INSTALL": "0",
                "RUNNER_TEMP": str(tmp / "runner"), "GITHUB_PATH": "", "GITHUB_ENV": ""}
         return subprocess.run(["bash", str(SCRIPT)], cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
 

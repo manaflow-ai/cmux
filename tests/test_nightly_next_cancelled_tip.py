@@ -64,6 +64,12 @@ class CancelledTip(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         self.assertIn("is building", result.stdout)
 
+    def test_an_older_build_does_not_hide_a_newest_cancelled_tip(self):
+        result, calls = self.run_script("40340830337 completed cancelled 1\n41 in_progress - 2\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[1], "run rerun 40340830337 --failed -R o/r")
+        self.assertIn("re-ran its failed and cancelled jobs", result.stdout)
+
     def test_a_finished_tip_is_left_alone(self):
         for conclusion in ("success", "failure"):
             result, calls = self.run_script(f"40340830337 completed {conclusion} 1\n")

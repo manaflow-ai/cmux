@@ -701,3 +701,56 @@ fn a_checkpoint_keeps_no_last_reply_of_an_agent() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// cmux#49392: a terminal whose only tab is not its runtime's own placement (its first tab
+/// closed after a reopen or projection gave it another; a restore does the same) still shows its
+/// agent there. A report through the runtime's surface, as the hook path makes, names the
+/// tab's surface and the terminal in `agent-changed`, as `list-agents` does, so the app finds
+/// the tab and draws the agent's mark instead of a bare terminal.
+#[test]
+fn agent_events_name_the_tab_a_reopened_terminal_shows_in() {
+    let mux = test_mux();
+    let first = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(first)).unwrap();
+    let terminal_id = mux.surface(first).unwrap().terminal_public_id().unwrap().clone();
+    mux.resource_project_terminal_selected(
+        crate::ResourceSelectors {
+            terminal: Some(terminal_id.to_string()),
+            ..Mux::ordinary_resource_selectors()
+        },
+        mux.resource_selectors_for_pane(Some(pane)).unwrap(),
+        1,
+        None,
+        None,
+        &WorkspaceMutation::daemon_local("agent-view-surface-test"),
+    )
+    .unwrap();
+    let view = mux.with_state(|state| state.panes[&pane].tabs[1]);
+    assert_ne!(view, first);
+    assert!(mux.close_surface(first).unwrap());
+    let content = ContentPublicId::Terminal(terminal_id.clone());
+    assert_eq!(mux.with_state(|state| state.placements_of_content(&content).to_vec()), [view]);
+    // The precondition of the bug: the runtime's surface is not the tab's.
+    let runtime = mux.resource_surface_for_terminal(&terminal_id).unwrap();
+    assert_ne!(runtime, view, "the terminal's runtime keeps its first surface id");
+
+    let events = mux.subscribe();
+    let record = mux
+        .report_agent(runtime, AgentState::Working, AgentSource::Socket, Some("s".into()))
+        .unwrap();
+    assert_eq!(record.surface, view);
+    let changed = events
+        .try_iter()
+        .find_map(|event| match event {
+            MuxEvent::AgentChanged { surface, terminal_id, .. } => Some((surface, terminal_id)),
+            _ => None,
+        })
+        .expect("the report announces the agent");
+    assert_eq!(changed.0, view, "agent-changed names the tab's surface");
+    assert_eq!(changed.1.as_deref(), Some(terminal_id.as_str()));
+    // The roster's owner folds the report's echo after the report answered.
+    assert!(mux.settle_agent_roster_for_test(), "the agent roster's owner settles");
+    let listed = mux.list_agents(None, None);
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].surface, view, "list-agents and agent-changed name one surface");
+}

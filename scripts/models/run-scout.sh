@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The cmux automation `models-scout` runs this every 6 h. On a team Cloud machine (no Mac needs to be awake):
 #   cmux automation create models-scout --command 'bash scripts/models/run-scout.sh' \
-#     --repo manaflow-ai/cmux --ref feat-cmux-next --every 6h --timeout 20m --catch-up latest --target cloud
+#     --repo manaflow-ai/cmux --ref feat-cmux-next --every 6h --timeout 20m --catch-up latest --target cloud \
+#     --machine 'Cloud Machine 2'
 #   cmux automation secret set models-scout NAME --target cloud   # each name scout.ts lists
 # The Cloud runner fetches the newest feat-cmux-next into its own checkout before each run. On a Mac's
 # runner (--command 'bash ~/cmux-worktrees/models-scout/scripts/models/run-scout.sh'), this script moves

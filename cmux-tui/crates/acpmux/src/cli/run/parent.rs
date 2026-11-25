@@ -14,7 +14,11 @@ use std::sync::Arc;
 /// Flags a sub-session start takes no part of, and why.
 fn refused_flags(args: &NewArgs) -> Option<String> {
     let flags = [
-        (args.host.is_some(), "--machine", "a family lives on one daemon"),
+        (
+            args.host.as_deref().is_some_and(|host| host != "local"),
+            "--machine",
+            "a family lives on one daemon",
+        ),
         (args.preset.is_some(), "--preset", "the child takes -m and -e"),
         (args.harness_from.is_some(), "--harness-from", "the child takes -m and -e"),
         (args.policy.is_some(), "--policy", "the child runs its parent's policy"),
@@ -184,6 +188,18 @@ mod tests {
             json!({"parent": "lead", "prompt": "fix it", "harness": "codex", "model": "gpt-5.5",
                    "effort": "high", "name": "t"})
         );
+    }
+
+    #[test]
+    fn parent_launches_apply_new_compatibility_spellings_before_validation() {
+        let mut args = new_args(&["--parent", "lead", "--stay", "--wait", "do the work"]);
+        let notices = args.apply_compat();
+        assert_eq!(args.host.as_deref(), Some("local"));
+        assert_eq!(args.prompt, ["do the work"]);
+        assert!(args.quiet);
+        assert!(!args.detach);
+        assert_eq!(notices.len(), 2);
+        assert_eq!(refused_flags(&args), None);
     }
 
     #[test]

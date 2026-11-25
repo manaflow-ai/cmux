@@ -1,14 +1,26 @@
 use std::collections::HashMap;
 use std::fmt;
-use std::io;
+use std::io::{self, Read, Write};
 
 use bytes::{BufMut, Bytes, BytesMut};
 use cmux_remote_protocol::{
-    Lane, MAX_FRAME_PAYLOAD, REMOTE_CLIENT_MESSAGE_MAX_BYTES, REMOTE_SESSION_MESSAGE_MAX_BYTES,
+    Lane, MAX_FRAME_PAYLOAD, MUX_LINE_ZLIB_MIN_BYTES, REMOTE_CLIENT_MESSAGE_MAX_BYTES,
+    REMOTE_SESSION_MESSAGE_MAX_BYTES,
 };
+use flate2::Compression;
+use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt};
 
 const MAGIC: [u8; 4] = *b"CMXL";
+// A line whose joined parts are one zlib stream of the JSONL bytes (trailing
+// LF included). Sent only daemon-to-client, and only on a stream whose client
+// asked for it and whose daemon confirmed it (`MUX_LINE_ZLIB_V1_FEATURE`): a
+// chat's attach reply on a slow machine link is ~75 KB of JSON that crossed
+// the link whole.
+const ZLIB_MAGIC: [u8; 4] = *b"CMXZ";
+/// Past this, the daemon compresses a line on a blocking thread.
+pub(crate) const ZLIB_BLOCKING_LINE_BYTES: usize = 1 << 20;
 const HEADER_BYTES: usize = 4 + 8 + 4 + 4;
 const CHUNK_BYTES: usize = MAX_FRAME_PAYLOAD - HEADER_BYTES;
 // The local mux transport appends a newline after each serialized message.
@@ -65,22 +77,72 @@ pub(crate) fn encode_line_with_limit(
     if mux_line_payload_len(line) > maximum.saturating_sub(1) {
         return Err(MuxCodecError::LineTooLarge(line.len()));
     }
-    let parts = line.len().max(1).div_ceil(CHUNK_BYTES);
-    let parts = u32::try_from(parts).map_err(|_| MuxCodecError::LineTooLarge(line.len()))?;
-    let mut encoded = Vec::with_capacity(parts as usize);
-    if line.is_empty() {
-        encoded.push(encode_part(message, 0, 1, &[]));
-    } else {
-        for (part, chunk) in line.chunks(CHUNK_BYTES).enumerate() {
-            encoded.push(encode_part(message, part as u32, parts, chunk));
-        }
-    }
-    Ok(encoded)
+    encode_parts(MAGIC, message, line)
 }
 
-fn encode_part(message: u64, part: u32, parts: u32, payload: &[u8]) -> Bytes {
+/// The packets of one daemon-to-client line: one zlib stream tagged `CMXZ`
+/// when `zlib` (the stream negotiated it), the line is
+/// [`MUX_LINE_ZLIB_MIN_BYTES`] or more and compressing shrinks it; otherwise
+/// the plain `CMXL` packets of [`encode_line_with_limit`]. `maximum` bounds the
+/// plain line either way, so a reader inflates to no more than before.
+pub(crate) fn encode_line_for_client(
+    message: u64,
+    line: &[u8],
+    maximum: usize,
+    zlib: bool,
+) -> Result<Vec<Bytes>, MuxCodecError> {
+    if !zlib || line.len() < MUX_LINE_ZLIB_MIN_BYTES {
+        return encode_line_with_limit(message, line, maximum);
+    }
+    if mux_line_payload_len(line) > maximum.saturating_sub(1) {
+        return Err(MuxCodecError::LineTooLarge(line.len()));
+    }
+    let compressed = deflate(line);
+    if compressed.len() >= line.len() {
+        return encode_line_with_limit(message, line, maximum);
+    }
+    encode_parts(ZLIB_MAGIC, message, &compressed)
+}
+
+/// `line` as one zlib stream at the fastest level (acpmux's peer links use the
+/// same, `acpmux/src/frame_compress.rs`).
+fn deflate(line: &[u8]) -> Vec<u8> {
+    let mut encoder = ZlibEncoder::new(Vec::with_capacity(line.len() / 4), Compression::new(1));
+    // Writing to a Vec cannot fail.
+    let _ = encoder.write_all(line);
+    encoder.finish().unwrap_or_default()
+}
+
+/// The line held by a `CMXZ` stream, refused past `limit` bytes inflated (a
+/// few KB must not inflate to gigabytes) or when it is not zlib.
+fn inflate(compressed: &[u8], limit: usize) -> Result<Vec<u8>, MuxCodecError> {
+    let mut line = Vec::new();
+    ZlibDecoder::new(compressed)
+        .take(u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1))
+        .read_to_end(&mut line)
+        .map_err(|_| MuxCodecError::InvalidCompressedLine)?;
+    if line.len() > limit {
+        return Err(MuxCodecError::LineTooLarge(line.len()));
+    }
+    Ok(line)
+}
+
+fn encode_parts(magic: [u8; 4], message: u64, payload: &[u8]) -> Result<Vec<Bytes>, MuxCodecError> {
+    let parts = payload.len().max(1).div_ceil(CHUNK_BYTES);
+    let parts = u32::try_from(parts).map_err(|_| MuxCodecError::LineTooLarge(payload.len()))?;
+    if payload.is_empty() {
+        return Ok(vec![encode_part(magic, message, 0, 1, &[])]);
+    }
+    Ok(payload
+        .chunks(CHUNK_BYTES)
+        .enumerate()
+        .map(|(part, chunk)| encode_part(magic, message, part as u32, parts, chunk))
+        .collect())
+}
+
+fn encode_part(magic: [u8; 4], message: u64, part: u32, parts: u32, payload: &[u8]) -> Bytes {
     let mut encoded = BytesMut::with_capacity(HEADER_BYTES + payload.len());
-    encoded.extend_from_slice(&MAGIC);
+    encoded.extend_from_slice(&magic);
     encoded.put_u64(message);
     encoded.put_u32(part);
     encoded.put_u32(parts);
@@ -92,6 +154,7 @@ pub(crate) struct MuxLineAssembler<R = ()> {
     lines: HashMap<u64, PartialLine<R>>,
     bytes: usize,
     maximum: usize,
+    zlib: bool,
 }
 
 impl<R> Default for MuxLineAssembler<R> {
@@ -102,12 +165,20 @@ impl<R> Default for MuxLineAssembler<R> {
 
 impl<R> MuxLineAssembler<R> {
     pub(crate) fn with_maximum(maximum: usize) -> Self {
-        Self { lines: HashMap::new(), bytes: 0, maximum }
+        Self { lines: HashMap::new(), bytes: 0, maximum, zlib: false }
+    }
+
+    /// Read `CMXZ` lines too: only on a stream whose daemon confirmed
+    /// `MUX_LINE_ZLIB_V1_FEATURE`. Without it a `CMXZ` packet is refused.
+    pub(crate) fn accepting_zlib(mut self, zlib: bool) -> Self {
+        self.zlib = zlib;
+        self
     }
 }
 
 struct PartialLine<R> {
     lane: Lane,
+    compressed: bool,
     parts: Vec<Option<Bytes>>,
     retained: Vec<R>,
     received: usize,
@@ -155,9 +226,11 @@ impl<R> MuxLineAssembler<R> {
         let Some((magic, message, part, parts)) = parse_header(&packet) else {
             return Err(MuxCodecError::InvalidPacket);
         };
-        if magic != MAGIC {
-            return Err(MuxCodecError::InvalidPacket);
-        }
+        let compressed = match magic {
+            MAGIC => false,
+            ZLIB_MAGIC if self.zlib => true,
+            _ => return Err(MuxCodecError::InvalidPacket),
+        };
         if parts == 0
             || part >= parts
             || parts as usize > self.maximum.div_ceil(CHUNK_BYTES)
@@ -170,12 +243,14 @@ impl<R> MuxLineAssembler<R> {
         }
         let line = self.lines.entry(message).or_insert_with(|| PartialLine {
             lane,
+            compressed,
             parts: vec![None; parts as usize],
             retained: Vec::with_capacity(parts as usize),
             received: 0,
             bytes: 0,
         });
-        if line.lane != lane || line.parts.len() != parts as usize {
+        if line.lane != lane || line.compressed != compressed || line.parts.len() != parts as usize
+        {
             return Err(MuxCodecError::InvalidPacket);
         }
         let Some(slot) = line.parts.get_mut(part as usize).filter(|slot| slot.is_none()) else {
@@ -206,7 +281,11 @@ impl<R> MuxLineAssembler<R> {
         for part in line.parts.into_iter().flatten() {
             joined.extend_from_slice(&part);
         }
-        let payload = joined.freeze();
+        let payload = if line.compressed {
+            Bytes::from(inflate(&joined, self.maximum)?)
+        } else {
+            joined.freeze()
+        };
         if mux_line_payload_len(&payload) > self.maximum.saturating_sub(1) {
             return Err(MuxCodecError::LineTooLarge(payload.len()));
         }
@@ -219,6 +298,7 @@ pub enum MuxCodecError {
     InvalidPacket,
     LineTooLarge(usize),
     TooManyLines,
+    InvalidCompressedLine,
 }
 
 impl fmt::Display for MuxCodecError {
@@ -227,8 +307,15 @@ impl fmt::Display for MuxCodecError {
             Self::InvalidPacket => formatter.write_str("invalid mux line packet"),
             Self::LineTooLarge(size) => write!(formatter, "mux line is too large: {size}"),
             Self::TooManyLines => formatter.write_str("too many incomplete mux lines"),
+            Self::InvalidCompressedLine => {
+                formatter.write_str("a compressed mux line did not inflate")
+            }
         }
     }
 }
 
 impl std::error::Error for MuxCodecError {}
+
+#[cfg(test)]
+#[path = "mux_codec_tests.rs"]
+pub(crate) mod tests;

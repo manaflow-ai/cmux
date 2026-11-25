@@ -127,3 +127,71 @@ Tool output updates carry the accumulated output at each reply tick, matching th
 tool-update format. This deliberately stresses growing frontend payloads; it does not
 model native provider transport. Cross-document epoch receipts require wall-clock
 agreement within 2 ms or invalidate the run.
+
+## Native typing under load
+
+`typing-native` (`benches/typing_native.py`) is the native Mac counterpart: it runs
+`scripts/cmux-next/typing-frame-bench.py` in the real app through `scripts/measure/split-spring.sh
+--suite=typing-frame` on a fleet Mac and ingests `artifacts/split-spring/report.json`. It covers the
+shared L0-L5 load modes (`webviews/bench/load-modes.json`, L4 = every core saturated) and records
+key-to-frame and dispatch-to-after-frame p50/p95/p99/max only for runs the harness proved complete:
+
+```sh
+scripts/bench/cmux-bench typing-native --build SHA [--arg modes=L0,L4] [--arg surfaces=agentpane] [--arg samples=200]
+scripts/bench/cmux-bench typing-native --import report.json   # a saved typing-frame report
+```
+
+## The app under extreme stress
+
+`stress` (`benches/stress.py`) runs the app under extreme stress from several angles. Leo, 2026-11-21: "i think
+being able to test our app under extreme stress from various angles would be a good bench to be able to run
+through". The harness is `scripts/cmux-next/stress-bench.py`, run by `scripts/measure/split-spring.sh --suite=stress`
+(the allowlisted fleet entry: it builds the app at `--build SHA` and runs the suite on a 120 Hz virtual display).
+Each angle is one fresh app launch: a baseline window on the quiet app, then the stressor, then the same window
+again. Pick angles with `--arg angles=...`:
+
+| angle | stressor |
+|---|---|
+| `cpu` | `stress_load.py cpu`: processes x threads hashing beside the app (default cores x 8 runnable threads) |
+| `chats` | 12 mock agent chats (no model calls), 2 seeded with 100k-row transcripts and 10 with 20k, all streaming |
+| `scale` | 40 workspaces of 4 terminals each, 16 of them printing as fast as the terminal takes it |
+| `cli` | `scripts/stress-cli-socket-api.py` against the app's own CLI and socket, plus 16 socket client threads |
+| `memory` | `stress_load.py memory`: 1.1 x RAM of incompressible dirty pages, until the machine swaps |
+
+Every window gives rows labelled `{angle, arm}` (`arm` = `baseline` or `stress`): `frame_p50`, `frame_p95` (ms,
+`debug.frames`), `dropped_frames` (%), `input_latency_p50`/`_p95` (ms, `debug.key` round trips into a focused
+terminal), `daemon_rtt_p50`/`_p95` (ms, the window's share of `debug.daemon_requests`), `app_cpu` (%),
+`footprint` (MB), `hangs` (main-thread stalls over `--arg hang_ms`, default 100), and the conditions
+`load_avg_1m` and `swap_used` (`better: none`), so a compare shows the stress was really applied.
+
+```sh
+scripts/bench/cmux-bench stress --host fleet --build SHA [--arg angles=cpu,chats] [--arg window=20]
+scripts/bench/cmux-bench compare stress@sha:BASE stress@sha:HEAD      # before/after a change
+scripts/bench/cmux-bench stress --import report.json                  # a saved artifacts/split-spring/report.json
+```
+
+Knobs (`--arg`): `window`, `key_interval`, `hang_ms`, `cpu_procs`, `cpu_threads`, `chats`, `transcript_rows`,
+`long_chats`, `long_rows`, `workspaces`, `panes`, `flood_terminals`, `cli_clients`, `cli_burst_workers`,
+`memory_fraction`, `memory_cap_mb`, `vdisplay` (default 120; 0 for the real display), `labels`, `timeout`.
+
+### Scheduling a bench onto the bench worker
+
+Leo, 2026-11-21: "maybe een like... labels/scheduling and selecting for jobs which are specifying that they are
+trying to bench stuff and thereby having specific speed related jobs pick them to see the before/after". The
+existing fleet routing already does this; `stress` uses it, and any bench can:
+
+- `--label bench` (`fleet_step`'s default `labels`): only workers advertising `bench` take the step. Today that is
+  the dedicated bench Mac (cmux20-bench: 12 cores, 16 GB). It advertises `bench`, `measure` and `gui-session-v1`
+  but no `ci-steps` and no builder label, so it takes no CI step and no app build of another job: a bench there
+  runs on a quiet machine.
+- `--class exclusive`: the step runs alone on an idle worker; nothing else is scheduled beside it.
+- `--measurement`: marks the step a measurement; the controller queues measurements by priority, then age, apart
+  from CI work.
+- `--display` (`display=True`): the step needs the worker's console GUI session; the controller adds the
+  `measure` and `gui-session-v1` labels, so the step asks for `[bench gui-session-v1 measure]`.
+
+`.github/workflows/cmux-next-stress-bench.yml` (workflow_dispatch: `base`, `head`, `angles`) runs `stress` at both
+shas this way and posts the before/after table to the run summary. The head side runs `--target-worker W
+--pin-strict` on the worker W the base side ran on, so the two numbers always come from one machine, even once a
+second Mac advertises `bench`; the run's artifact lists both workers in `workers.txt`.
+
