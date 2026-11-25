@@ -67,7 +67,11 @@ const NOT_CARRIED: &[&str] = &[method::MUX_ATTACHMENT, method::MUX_QUEUE_TEXT, m
 /// (`retry.nothing_failed`), so it sends nothing twice. 2026-11-24: `acpmux retry HOST/NAME` of
 /// a lane only the hub reaches, cut by the SR2 pool's 503, answered "the mesh hub does not carry
 /// _acpmux/retry", so nothing could resume it from here.
-const WRITE_METHODS: &[&str] = &[method::MUX_RENAME, method::MUX_RETRY];
+/// A cancel of the running turn (`session/cancel`) too: cancelling twice leaves the session as
+/// once, and a lane hung in a tool call for hours could not be stopped from another host (2026-11-25:
+/// `acpmux cancel gcp-agent-lane-10/NAME` answered "the mesh hub does not carry session/cancel").
+/// The sender needs the same lifecycle trust as a rename or retry.
+const WRITE_METHODS: &[&str] = &[method::MUX_RENAME, method::MUX_RETRY, method::SESSION_CANCEL];
 
 /// Whether `m` reads a page of events, so its params cross and its budget halves.
 fn pages(m: &str) -> bool {
