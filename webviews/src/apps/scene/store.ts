@@ -5,6 +5,12 @@ export type SceneNode = Readonly<{
   props: SceneProps;
   children: readonly string[];
 }>;
+/** A `transition` prop: a bare kind or `{kind, motion}` (cmux.motion/1). */
+function hasTransition(value: unknown): boolean {
+  if (typeof value === "string") return true;
+  return typeof value === "object" && value !== null && typeof (value as { kind?: unknown }).kind === "string";
+}
+
 export type SceneOp =
   | { op: "create"; id: string; type: string; props?: SceneProps | null }
   | { op: "update"; id: string; props?: SceneProps | null }
@@ -248,7 +254,7 @@ export class SceneStore {
       case "remove": {
         const previous = this.parents.get(op.id);
         if (previous) this.detach(op.id, previous, changed);
-        const leaves = typeof this.nodes.get(op.id)?.props.transition === "string";
+        const leaves = hasTransition(this.nodes.get(op.id)?.props.transition);
         const stack = [op.id];
         while (stack.length) {
           const id = stack.pop()!;

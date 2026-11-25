@@ -15,7 +15,7 @@ scripts/ios-live/ios-live lease release
 
 Run it from your cmux checkout. "Your change" is that checkout against its merge base with
 `origin/feat-cmux-next`: commits, staged, unstaged and untracked files under `cmux-next-ios/` and
-`scripts/`. Nothing is pushed. Hosts are reached with `reach`; `ios-live help` lists every command.
+`scripts/`. Nothing is pushed. Hosts are reached with `reach` (from a lane VM through the lane-gh broker, which relays the slot commands on an `ios` pool host with no whole-host fleet lease: the slot lease is the admission, so a CI step or another lane on the host does not block you; `ios-live` sets `REACH_AUTO_LEASE=0` so reach never takes the host); `ios-live help` lists every command.
 
 ## Slots
 
@@ -75,7 +75,10 @@ refuses a change it can't apply, names the functions involved, and leaves the ap
 
 - **One driver per device** (a slot, or air-blue's iPhone). Anything that changes or touches the app (`swift`, `swap`, `up`, `relaunch`,
   `tap`, `type`, `undo`) needs the lease. Looking at it (`status`, `shot`, `tree`, `log`) does not.
-  The lease names you (`IOS_LIVE_OWNER`, default `HOST/session`) and lapses on its own.
+  The lease names you and lapses on its own. The name is `IOS_LIVE_OWNER` when set, else
+  `HOST/SESSION/CHECKOUT` (the Claude Code or Codex session id), else `HOST/CHECKOUT-TOKEN` with the
+  token kept in the checkout's git dir (`ios-live-owner`): the same on every call, so a lease taken in
+  one shell holds in the next. `ios-live whoami` prints it.
 - **Read-mostly.** The live app is signed in to the person's own account and paired with their Macs:
   it is their sessions you see. Never send a message, answer a prompt or approve anything in a
   session it shows. A test that needs to send makes its own scratch session and sends only there.
