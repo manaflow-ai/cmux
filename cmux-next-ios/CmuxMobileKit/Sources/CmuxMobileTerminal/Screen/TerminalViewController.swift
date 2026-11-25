@@ -3100,6 +3100,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         #endif
         if model.connectionState.isAttached { LaunchMarks.shared.mark("terminal_ready") }
+        if model.connectionState.isAttached,
+           !LaunchMarks.shared.has("terminal_first_row_frame"),
+           let text = surface.activeAreaText(),
+           TerminalHeldFrame.nonBlankRows(in: text, limit: max(1, surface.grid.rows)) > 0 {
+            LaunchMarks.shared.markNextFrame("terminal_first_row_frame")
+        }
         #if DEBUG
         ResumeMarks.shared?.note(model.connectionState.isAttached ? "terminal_frame" : "terminal_detached")
         #endif
