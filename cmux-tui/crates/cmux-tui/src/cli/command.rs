@@ -31,6 +31,7 @@ mod machine;
 mod name_flags;
 mod notification;
 mod pane_move;
+mod project;
 pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 pub(super) mod plan;
 mod screen;
@@ -214,6 +215,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "space" => parse_space(&strs(words), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
+        "project" => project::parse_project(&strs(words), &mut tokens.flags)?,
         "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
         "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
         "notify" => parse_notify(words, &mut tokens.flags)?,

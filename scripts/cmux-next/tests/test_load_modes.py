@@ -13,7 +13,7 @@ load_modes = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(load_modes)
 
 WEB_KNOBS = {"rows", "focusedStream", "otherChats", "otherChatChunksPerSecond", "cpuSaturation"}
-NATIVE_KNOBS = {"chats", "busyTerminals", "cpuSaturation", "session"}
+NATIVE_KNOBS = {"rows", "chats", "busyTerminals", "cpuSaturation", "session"}
 
 
 class LoadModeRegistryTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class LoadModeRegistryTests(unittest.TestCase):
     def test_the_modes_rise_from_idle_to_everything_at_once(self):
         modes = {mode["id"]: mode for mode in load_modes.load("all")}
         self.assertIsNone(modes["L0"]["web"]["focusedStream"])
-        self.assertEqual(modes["L0"]["native"], {"chats": 0, "busyTerminals": 0, "cpuSaturation": False,
+        self.assertEqual(modes["L0"]["native"], {"rows": 0, "chats": 0, "busyTerminals": 0, "cpuSaturation": False,
                                                  "session": "light"})
         self.assertEqual(modes["L1"]["web"]["focusedStream"], {"chunksPerSecond": 60, "toolLinesPerSecond": 2000})
         self.assertEqual(modes["L2"]["web"]["otherChats"], 10)
@@ -51,10 +51,11 @@ class LoadModeRegistryTests(unittest.TestCase):
 
     def test_a_knob_a_harness_cannot_express_is_named_not_quietly_dropped(self):
         modes = {mode["id"]: mode for mode in load_modes.load("all")}
-        # No page harness has terminals or workspaces; no native typing surface here types into a chat.
+        # No page harness has terminals or workspaces. The native harness seeds the 100k-row chat into the agent
+        # pane it types in (native.rows), so it misses nothing of L3 or L5.
         self.assertTrue(modes["L5"]["webMissing"])
-        self.assertTrue(modes["L3"]["nativeMissing"])
-        self.assertTrue(modes["L5"]["nativeMissing"])
+        self.assertEqual((modes["L3"]["native"]["rows"], modes["L5"]["native"]["rows"]), (100_000, 100_000))
+        self.assertEqual([m["id"] for m in modes.values() if m.get("nativeMissing")], [])
         for mode in modes.values():
             for key in ("webMissing", "nativeMissing"):
                 self.assertTrue(all(isinstance(line, str) and line for line in mode.get(key) or []), mode["id"])

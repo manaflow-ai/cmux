@@ -22,7 +22,7 @@ pub(crate) fn targets(
     let mut seen = HashSet::new();
     let mut peers: Vec<&Value> = rows
         .iter()
-        .filter(|row| super::peer_down(row).is_none())
+        .filter(|row| super::link_down(row).is_none())
         .filter(|row| {
             let Some(name) = row.get("name").and_then(Value::as_str).filter(|n| !n.is_empty())
             else {
@@ -66,6 +66,9 @@ pub(crate) fn targets(
     let (order, _) = ranked(&hosts, &HashMap::new(), |name| {
         if super::interactive(registry, name) {
             return Some("Auto leaves machines in use by a person out".to_owned());
+        }
+        if let Some(why) = super::auto_move_refusal(registry, name) {
+            return Some(format!("Auto leaves it out: {why}"));
         }
         let entry = by_name.get(name)?;
         entry.get("reason").and_then(Value::as_str).map(str::to_owned)

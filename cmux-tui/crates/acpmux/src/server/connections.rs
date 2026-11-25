@@ -24,11 +24,13 @@ use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{Value, json};
+use zeroize::Zeroizing;
 
 use super::Origin;
 use super::accounts::{self, CLAUDE_LOGIN_ID};
 use crate::chatgpt;
 use crate::hub::Hub;
+use crate::key_check;
 use crate::routes::{self, Auth, Bindings, Route, RouteFile, RouteKind};
 use crate::rpc::{RpcError, method};
 
@@ -38,6 +40,7 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_SPREAD_SET,
     method::MUX_CONNECTIONS_REMOVE,
     method::MUX_CONNECTIONS_KEY_ADD,
+    method::MUX_CONNECTIONS_KEY_CHECK,
     method::MUX_CONNECTIONS_CHATGPT_BEGIN,
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
@@ -526,6 +529,18 @@ fn unreachable_kind(id: &str) -> Result<&'static str, RpcError> {
         .with_data(json!({"reason": "connections.not_cloud", "id": id})))
 }
 
+/// The value a connection of KIND sends: a Claude setup token with every whitespace character
+/// taken out, inner ones too (a terminal wraps `claude setup-token`'s long line and pads it, and a
+/// copy kept before the app stripped pastes still has it; a token has no whitespace of its own),
+/// so the launch's token check (`agent_credentials::token_shaped`) takes it. Others as stored.
+fn delivered(kind: &str, value: String) -> String {
+    if kind == "claude-token" && value.chars().any(char::is_whitespace) {
+        value.chars().filter(|c| !c.is_whitespace()).collect()
+    } else {
+        value
+    }
+}
+
 /// The secret a reference names; the error says why it did not resolve, never a value.
 fn resolve(id: &str, reference: &str) -> Result<String, RpcError> {
     routes::resolve_reference(reference).map_err(|why| {
@@ -667,6 +682,26 @@ pub(super) async fn handle(
             announce_later(hub);
             Ok(state)
         }
+        method::MUX_CONNECTIONS_KEY_CHECK => {
+            let provider = need("provider")?;
+            let secret = need("secret")?;
+            // The keychain may ask: off the runtime's threads. The key stays in this arm.
+            let key = Zeroizing::new(blocking(move || resolve("the key", &secret)).await??);
+            let verdict = key_check::check(&provider, &key, None, key_check::CHECK_TIMEOUT).await;
+            let (status, detail) = match &verdict {
+                key_check::Verdict::BadKey(code) => (Some(*code), None),
+                key_check::Verdict::Unreachable(why) => (None, Some(why.clone())),
+                _ => (None, None),
+            };
+            Ok(json!({
+                "provider": provider,
+                "result": verdict.as_str(),
+                "save": !verdict.rejects(),
+                "http_status": status,
+                "detail": detail,
+                "message": verdict.sentence(&provider),
+            }))
+        }
         method::MUX_CONNECTIONS_REMOVE => {
             let id = need("id")?;
             let (d, h, i) = (dir.clone(), home.clone(), id.clone());
@@ -765,7 +800,9 @@ pub(super) async fn handle(
                     (token, Some(expires_at))
                 }
                 // The keychain may ask: off the runtime's threads.
-                Some(reference) => (blocking(move || resolve(&id, &reference)).await??, None),
+                Some(reference) => {
+                    (delivered(kind, blocking(move || resolve(&id, &reference)).await??), None)
+                }
             };
             Ok(
                 json!({"family": family, "kind": kind, "env": {var: value}, "expires_at": expires_at}),
@@ -1027,6 +1064,20 @@ mod tests {
             ("claude", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN")
         );
         assert_eq!(resolve("claude-token", &secret.unwrap()).unwrap(), "sk-ant-oat01-secret");
+    }
+
+    #[test]
+    fn a_claude_token_with_whitespace_inside_is_delivered_without_it() {
+        let d = dirs();
+        let reference = secret_file(&d, "claude-token", " sk-ant-oat01-ab\n  cd\t\u{a0}ef \r");
+        add_claude_token(Some(&d.routes), &d.home, &reference, None).unwrap();
+        let (_, kind, _, secret) =
+            credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
+        let value = delivered(kind, resolve("claude-token", &secret.unwrap()).unwrap());
+        assert_eq!(value, "sk-ant-oat01-abcdef");
+        let env = json!({"env": {"CLAUDE_CODE_OAUTH_TOKEN": value}});
+        assert!(crate::agent_credentials::AgentCredential::parse(&env).is_ok());
+        assert_eq!(delivered("api-key", "a b".into()), "a b", "only a Claude token is reshaped");
     }
 
     #[test]

@@ -380,6 +380,40 @@ import Testing
         #expect(first.container.commitWaitTicks == nil, "a shrinking page asks its commit to wait for it")
     }
 
+    /// A swap of the halves of an odd width (683 and 684 points) makes one page one point wider. Its old picture covers
+    /// all but that point, so it draws nothing ahead and its commit waits for nothing: the swap shows in the frame of
+    /// its change. Drawn ahead, the page showed its wider layout cut to its old pane for two to three frames before the
+    /// swap, and the swap came those frames late (cmuxterm-hq#19032 cause 2, half-browser swap, fleet job 9c35cd0a).
+    @Test func aOnePointGrowingCommitDrawsNothingAhead() throws {
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, window, answers, _) = try Self.zoomablePage(runtime)
+        defer { window.closeAfterTest() }
+
+        for change in [CGSize(width: 1, height: 0), CGSize(width: 0, height: 1), CGSize(width: 1, height: 1)] {
+            var ready = 0
+            first.container.commitWillResize(by: change) { ready += 1 }
+            #expect(ready == 1, "a page one point short of its pane is not ready at once (\(change))")
+            #expect(host.hostView.frame.size == CGSize(width: 400, height: 300), "a one-point grow drew the page ahead (\(change))")
+            #expect(first.container.heldPageSize == nil, "a one-point grow holds the page at a size (\(change))")
+            #expect(first.container.commitWaitTicks == nil, "a one-point grow asks its commit to wait (\(change))")
+        }
+        #expect(answers.asked.isEmpty, "a one-point grow asked the page for its layout")
+    }
+
+    /// Which changes draw a page ahead: a grow of more than a point on a side, with no side smaller.
+    @Test func onlyAGrowOfMoreThanAPointDrawsAhead() {
+        #expect(CEFTabContentView.drawsAhead(for: CGSize(width: 480, height: 0)))
+        #expect(CEFTabContentView.drawsAhead(for: CGSize(width: 1, height: 120)))
+        #expect(CEFTabContentView.drawsAhead(for: CGSize(width: 2, height: 0)))
+        #expect(!CEFTabContentView.drawsAhead(for: .zero))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: 1, height: 0)))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: 1, height: 1)))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: 0.5, height: 0)))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: -200, height: 0)))
+        #expect(!CEFTabContentView.drawsAhead(for: CGSize(width: 480, height: -1)))
+    }
+
     /// Review 1 of cmux#26037: a container that leaves its window mid-drag (its tab closed or moved) may never hear
     /// the drag's end, which the listener holds weakly; it hands its share back as it leaves.
     @Test func aContainerLeavingItsWindowMidDragEndsItsWait() throws {

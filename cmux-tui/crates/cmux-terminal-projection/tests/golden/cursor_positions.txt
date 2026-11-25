@@ -1,0 +1,52 @@
+# cursor_positions: the cursor mid-line in a wrapped command, at a row's last cell, and placed by CUP
+# Mac pane 120x24, phone 54x38
+
+## cursor 30 cells back in a wrapped command
+### Mac
+grid 120x24
+s   0|$ git commit -m 'a long message that wraps on the phone and keeps the cursor where the shell put it'|
+  (23 blank rows)
+cursor col 70 row 0
+### phone
+grid 54x38
+s   0|$ git commit -m 'a long message that wraps on the phon|↩
+s   1|e and keeps the cursor where the shell put it'|
+  (36 blank rows)
+cursor col 16 row 1
+
+## cursor after a full Mac row (pending wrap)
+### Mac
+grid 120x24
+s   0|$ git commit -m 'a long message that wraps on the phone and keeps the cursor where the shell put it'|
+s   1|QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ|
+  (22 blank rows)
+cursor col 119 row 1
+### phone
+grid 54x38
+s   0|$ git commit -m 'a long message that wraps on the phon|↩
+s   1|e and keeps the cursor where the shell put it'|
+s   2|QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ|↩
+s   3|QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ|↩
+s   4|QQQQQQQQQQQQ|
+  (33 blank rows)
+cursor col 11 row 4
+
+## cursor placed by CUP after a clear
+### Mac
+grid 120x24
+s   0||
+s   1||
+s   2||
+s   3||
+s   4|         placed|
+  (19 blank rows)
+cursor col 15 row 4
+### phone
+grid 54x38
+s   0||
+s   1||
+s   2||
+s   3||
+s   4|         placed|
+  (33 blank rows)
+cursor col 15 row 4
