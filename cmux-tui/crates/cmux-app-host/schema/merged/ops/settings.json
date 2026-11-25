@@ -11,6 +11,11 @@
       "class": "read",
       "digest": "1b78c919c9f3fe17"
     },
+    "settings.history": {
+      "source": "local",
+      "class": "read",
+      "digest": "860c5edc95b29119"
+    },
     "settings.list": {
       "source": "local",
       "class": "read",
@@ -26,6 +31,16 @@
       "class": "mutation",
       "digest": "caba58196b72989c"
     },
+    "settings.reset_group": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "022b9386043a2bd1"
+    },
+    "settings.restore": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "9fb79f52253fd38c"
+    },
     "settings.schema": {
       "source": "local",
       "class": "read",
@@ -40,6 +55,11 @@
       "source": "local",
       "class": "read",
       "digest": "cb9a73d053ff0a41"
+    },
+    "settings.undo": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "a2d231acbcf47733"
     }
   }
 }

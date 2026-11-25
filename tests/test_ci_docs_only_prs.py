@@ -53,16 +53,17 @@ ALLOWED: dict[str, str] = {
     **REQUIRED,
     "cmux-next-fast-gates.yml": "next-autoland lands a head only on its cmux-next/fast-gates status (and dispatches "
                                 "the workflow when the status is missing), about two minutes on Linux",
-    "risk-tier.yml": "next-autoland's MUST_PASS `risk evidence`; one job",
     "merge-freeze.yml": "a merge freeze holds every pull request, prose included; one job",
-    "pr-body-checks.yml": "lints the description, which a docs pull request has too; one job",
     "pr-router.yml": "the router: it reads the changed paths and starts only the workflows they reach (scripts/ci/pr_router.json); one small job",
     "language-boundaries.yml": "policy over every changed path; one job",
-    "thunderdome-label.yml": "labels by title; one job that skips unless the title asks",
     "cmux-next-batch.yml": "batches every open pull request; one job, off unless CMUX_NEXT_BATCH_ENABLED",
     "docs-only-fallback.yml": "covers what the docs-only block can get wrong (GitHub reads only the first 300 changed "
                               "files; label events are filtered too); its gate skips with no runner for a pull request "
                               "of 300 files or fewer and no full-ci/dev-build label",
+    "cloud-resume-matrix.yml": "runs only on a pull request whose body or label carries its marker; otherwise its "
+                               "plan job's `if:` skips with no runner",
+    "cloud-wake-echo.yml": "runs only on a pull request whose body carries `wake-echo: run`; otherwise its one job's "
+                           "`if:` skips with no runner",
     "ios-e2e.yml": "already routes a prose-only diff past its Mac job (route + status only), and its status is on "
                    "the way to being required (docs/ci/ios-e2e.md): a filter would then block docs pull requests",
 }
@@ -73,9 +74,12 @@ ALLOWED: dict[str, str] = {
 # per workflow: each list's push copy must stay in step (tests/test_ci_workflow_path_filter_parity.py), and several
 # put Markdown back on purpose (ios-review-gate.yml's AppStoreReview/**).
 SCOPED: dict[str, str] = {
+    "app-store-shelf.yml": "cmux-tui/crates/cmux-app-host/** (its generated REFERENCE.md is put back in the block)",
     "auth-refresh-tests.yml": "the auth runtime package and the vendored Stack Auth SDK",
     "backend.yml": "backend/** and libs/**",
-    "chief-evals.yml": "Native/OptChat/optchat-chief/evals/person.md, the eval cases' default profile (#47445)",
+    "chat-open-perf-report.yml": "webviews/src/agent-session/**",
+    "cloud-chief-machine.yml": "Native/OptChat/optchat-chief/**",
+    "cloud-journey-pr.yml": "cmux-tui/crates/cmux-cloud-client/**",
     "classic-frozen-guard.yml": ".github/classic-frozen.txt's globs, Markdown in frozen classic paths included "
                                 "(scripts/ci/pr_trigger_paths.py classic_frozen)",
     "billing.yml": "docs/billing/** by name, the billing spec beside its package",
@@ -90,17 +94,16 @@ SCOPED: dict[str, str] = {
                            "follow",
     "cmux-tui-windows-check.yml": "cmux-tui/**",
     "cmux-vm.yml": "workers/cmux-vm/**",
+    "cmux-vm-clients.yml": "workers/cmux-vm/cli/**",
     "coderouter-ci.yml": "coderouter/**",
     "device-hub.yml": "workers/device-hub/**",
     "fleet-artifact-cdn.yml": "workers/fleet-artifacts/**",
-    "ios-reliability-matrix.yml": "cmux-next-ios/rust/** and the vendored smoltcp",
     "ios-review-gate.yml": "cmux-next-ios/AppStoreReview/**, whose Markdown the gate reads",
     "iroh-v2.yml": "workers/iroh-v2/**",
     "relay-tls.yml": "Packages/Shared/CmuxIrohTransport/**",
     "terminal-hang-diagnostics.yml": "Packages/Shared/CMUXMobileCore/**",
     "test-ios.yml": "Packages/Shared/**",
     "web-complexity.yml": "web/**",
-    "web-complexity-trusted.yml": "web/**",
 }
 
 # Docs-only pull requests: the two of Leo's 2026-11-19 complaint that are prose (#45476 changed CLAUDE.md, which
@@ -476,7 +479,7 @@ class Fallback(unittest.TestCase):
 
     def test_the_labels_are_ci_yml_s(self):
         ci = (WORKFLOWS / "ci.yml").read_text()
-        self.assertIn(docs.label_guard(), ci, "ci.yml's label guard and the fallback's name the same labels")
+        self.assertIn(docs.label_guard(docs.CI_LABELS), ci, "ci.yml's label guard and the fallback's name the same labels")
 
 
 class Units(unittest.TestCase):

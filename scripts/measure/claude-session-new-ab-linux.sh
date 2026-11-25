@@ -28,7 +28,7 @@ full_tree "$root"
 out="$(mktemp -d /tmp/csn.XXXXXX)"
 pids=()
 cleanup() {
-  for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done
+  for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done
   git -C "$root" worktree remove --force "$out/base-src" >/dev/null 2>&1 || true
   rm -rf "$out"
 }
@@ -38,7 +38,9 @@ if ! command -v claude >/dev/null; then
   export PATH="$out/npm/bin:$PATH"
 fi
 echo "claude-session-new-ab: $(claude --version)"
-git fetch -q --depth=50 origin "${base#origin/}" 2>/dev/null || true
+depth=()
+[[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=50)
+git fetch -q ${depth[@]+"${depth[@]}"} origin "${base#origin/}" 2>/dev/null || true
 base_sha="$(git rev-parse "$base")"
 echo "claude-session-new-ab: A=$base ($base_sha) B=HEAD ($(git rev-parse HEAD))"
 cd "$root/cmux-tui"
@@ -54,9 +56,11 @@ client="$root/scripts/measure/claude-session-new-client.py"
 for arm in A B; do
   # 0700 whatever the umask: the daemon refuses a group-writable ancestor of its home.
   mkdir -p -m 700 "$out/$arm" "$out/$arm/home" "$out/$arm/work"
-  (unset $(env | grep -o -E '^(ACPMUX|CMUX)[A-Z_]*' | tr '\n' ' ') 2>/dev/null || true
-   ACPMUX_HOME="$out/$arm/home" ACPMUX_SOCKET="$out/$arm/s.sock" exec "$out/acpmux-$arm" daemon run \
-     >"$out/$arm/daemon.log" 2>&1) &
+  # env -u drops this shell's ACPMUX_*/CMUX_* for the daemon and execs it, so $! is the daemon itself.
+  scrub=()
+  while read -r name; do scrub+=(-u "$name"); done < <(env | grep -o -E '^(ACPMUX|CMUX)[A-Z_]*' || true)
+  env ${scrub[@]+"${scrub[@]}"} ACPMUX_HOME="$out/$arm/home" ACPMUX_SOCKET="$out/$arm/s.sock" \
+    "$out/acpmux-$arm" daemon run >"$out/$arm/daemon.log" 2>&1 &
   pids+=($!)
 done
 for arm in A B; do

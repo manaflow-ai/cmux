@@ -74,8 +74,11 @@ def main() -> int:
     # The bind is checked against hostd's cached tree: without this capability the daemon lists
     # agent tabs as browser tabs and every bind is refused.
     cache = (POLICY.parent / "workspace_cache.rs").read_text(encoding="utf-8")
-    hello = next((line for line in cache.splitlines() if "cache-hello" in line), "")
-    if "agent-session-tabs-v1" not in hello:
+    # The hello names its capabilities from cmux_mobile_link::names (AGENT_SESSION_TABS is
+    # "agent-session-tabs-v1").
+    start = cache.find("fn cache_hello()")
+    hello = cache[start:cache.find("\n}\n", start)] if start >= 0 else ""
+    if "AGENT_SESSION_TABS" not in hello and "agent-session-tabs-v1" not in hello:
         failures.append("cmux-mobile-host's cache connection no longer declares agent-session-tabs-v1")
 
     for failure in failures:

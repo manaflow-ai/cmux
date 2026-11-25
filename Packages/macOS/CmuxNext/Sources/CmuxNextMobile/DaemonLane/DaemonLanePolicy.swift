@@ -54,7 +54,7 @@ public struct DaemonLanePolicy: Sendable {
         "list-personal", "list-agents", "list-terminals", "resolve-terminal", "process-info", "machine-usage",
         "machine-listening-tcp", "ids", "export-layout", "subscribe", "terminal-events", "wait-for",
         // Terminal streams and input.
-        "attach-surface", "vt-state", "read-screen", "read-scrollback", "scroll-surface", "send", "send-key",
+        "attach-surface", "vt-state", "read-screen", "read-scrollback", "terminal-find", "scroll-surface", "send", "send-key",
         "copy", "clear-history", "set-terminal-idle-policy", "get-cell-pixels", "set-cell-pixels",
         // Geometry: per-client leases, released when the phone goes away.
         "set-client-sizing", "resize-surface", "release-surface-size", "resize-attached-view",

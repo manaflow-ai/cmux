@@ -68,7 +68,43 @@ export type InboxThread = {
   /// Where each message says it came from, by its prompt id (`sender_claim`, sentFromHarness.ts):
   /// a sender chip under it.
   sentFrom?: Record<string, SentFrom>;
+  /// The tool's notice its newest message is, as acpmux read it (hub/inbox.rs `notice`,
+  /// notice_read.rs): the line names its detector, not the relay host, draws its severity and
+  /// title, and counts the repeats of its condition (Leo, 2026-11-25: "how can we improve this?").
+  notice?: ThreadNotice;
 };
+
+/// A thread's newest notice: its detector, severity and title, its host, and how many of the
+/// thread's messages report the same condition and the newest one's time.
+export type ThreadNotice = {
+  sender: string;
+  severity: "fire" | "warn" | "info";
+  title: string;
+  host?: string;
+  repeats: number;
+  lastAt?: number;
+};
+
+const SEVERITIES = new Set(["fire", "warn", "info"]);
+
+/// acpmux's `notice` part, or undefined when it names no sender and title.
+export function threadNotice(value: unknown): ThreadNotice | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const n = value as Record<string, unknown>;
+  const sender = text(n.sender).trim();
+  const title = text(n.title).trim();
+  if (!sender || !title) return undefined;
+  const severity = SEVERITIES.has(text(n.severity)) ? (text(n.severity) as ThreadNotice["severity"]) : "info";
+  const repeats = typeof n.repeats === "number" && n.repeats > 1 ? Math.floor(n.repeats) : 1;
+  return {
+    sender,
+    severity,
+    title,
+    ...(text(n.host) && { host: text(n.host) }),
+    repeats,
+    ...(typeof n.lastAt === "number" && { lastAt: n.lastAt }),
+  };
+}
 
 export type InboxNotice = { threads: InboxThread[] };
 
@@ -146,6 +182,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
     // The thread's flag is its newest sender's (its record, or an older acpmux's suffix on its
     // `from`), which acpmux may say only on the thread: that message is marked too, so its row and
     // the group's hover show it (laneNoticeBatches.ts, MessageGroupHover.tsx).
+    const toolNotice = threadNotice(p.notice);
     const messages =
       unverified && held?.length && !held.at(-1)!.unverified
         ? [...held.slice(0, -1), { ...held.at(-1)!, unverified: true as const }]
@@ -167,6 +204,7 @@ export function inboxNotice(notice: string, provenance: Record<string, unknown>)
       promptIds,
       ...(messages?.length && { messages }),
       ...(!messages?.length && typeof p.newest === "string" && { newest: withoutRelayEnvelope(p.newest) }),
+      ...(toolNotice && { notice: toolNotice }),
     });
   }
   return threads.length ? { threads } : undefined;

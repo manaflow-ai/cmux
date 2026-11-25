@@ -1196,7 +1196,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     /// whose first send has not happened), sent from the phone, starts the chat as the Mac's
     /// own first send does: acpmux `session/new` in the tab's folder (else its workspace's), for
     /// the agent the tab names (else the Mac's default), then `bind-conversation-tab-session
-    /// {expected_session: null}`. The bind is a compare-and-swap: a chat the Mac started
+    /// {expected_session: null}` (Leo, 2026-11-18: "you should be able to just start the chat right
+    /// there"). The bind is a compare-and-swap: a chat the Mac started
     /// meanwhile wins, and its session is returned so the message goes there. `willBind` runs
     /// with the new session before the bind is sent, so the tree that lists it rebuilds nothing.
     func startTabChat(tabID: String, willBind: (String) -> Void) async throws -> String {
@@ -1205,6 +1206,10 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard let client = sync.daemon, let tree = sync.tree else { throw WorkspaceCreationError("Not connected") }
         if let bound = tree.agentTabs[tabID]?.session { return bound }
         guard let surface = tree.surfaces[tabID] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
+        // Only a chat of this Mac: a tab whose chat another machine starts (`registry:`, `machine:`) starts there.
+        guard Self.startsHere(host: tree.agentTabs[tabID]?.host) else {
+            throw WorkspaceCreationError("This chat runs on another machine. Start it from cmux on that machine.", isForPerson: true)
+        }
         let workspace = (tree.workspaces + tree.homeWorkspaces).first { $0.tabs.contains { $0.id == tabID } }
         // The first project folder of the tab, its workspace's tabs, then the workspace: acpmux
         // refuses a phone's chat in the home folder or above, so those are passed over.
@@ -1212,11 +1217,13 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         guard let cwd = candidates.lazy.compactMap({ $0 }).first(where: { $0.hasPrefix("/") && !Self.isHomeOrAbove($0) }) else {
             throw WorkspaceCreationError(String(localized: "Open this workspace in a project folder on the Mac, then send again."), isForPerson: true)
         }
-        let (harness, session) = try await startAgentSession(AgentChatStart(harness: tree.agentTabs[tabID]?.harness), cwd: cwd, macID: sync.macID)
+        let (_, session) = try await startAgentSession(AgentChatStart(harness: tree.agentTabs[tabID]?.harness), cwd: cwd, macID: sync.macID)
         willBind(session)
         do {
+            // No harness: the tab keeps the agent the Mac recorded (the phone's lane refuses one;
+            // the daemon would relabel a bound tab's agent).
             try WorkspaceSync.check(await client.request("bind-conversation-tab-session", params: [
-                "surface": surface, "session": session, "expected_session": NSNull(), "harness": harness,
+                "surface": surface, "session": session, "expected_session": NSNull(),
             ]))
             return session
         } catch let error as DaemonReplyError {
