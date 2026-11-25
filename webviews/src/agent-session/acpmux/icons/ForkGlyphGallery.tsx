@@ -5,12 +5,22 @@ import { Icon } from "./Icon";
 
 /**
  * The fork glyph candidates in the message action row, between the neighbours it sits with (Copy,
- * Pin, Read aloud, More), light and dark, at the row's size, at 12 and at 20 (Leo 2026-11-09: "and this
- * fork symbol is so bad"; 2026-11-07: "our generated github icon... man figure somethgn out"). The
- * chosen drawing is the pack's `agent.fork`; the others are frozen here as paths on the pack's 24 grid
- * at its 1.5 stroke.
+ * Pin, Read aloud, More), light and dark, at the row's size, at 12 and at 20 (Leo 2026-11-22: "dont get
+ * cute about it; let's just do claude and codex's symbol for branching/forking chats ... we can hill climb
+ * this"; 2026-11-09: "and this fork symbol is so bad"; 2026-11-07: "our generated github icon... man figure
+ * somethgn out"). The chosen drawing is the pack's `agent.fork`; the others are frozen here as paths on the
+ * pack's 24 grid at its 1.5 stroke.
  */
-export type ForkGlyphCandidate = "branch-mark" | "fork-mark" | "soft-fork" | "turned-y" | "sideways" | "before";
+export type ForkGlyphCandidate =
+  | "split-arrow"
+  | "soft-knee"
+  | "joined-split"
+  | "branch-mark"
+  | "fork-mark"
+  | "soft-fork"
+  | "turned-y"
+  | "sideways"
+  | "before";
 
 export interface ForkGlyphGalleryProps {
   fork: ForkGlyphCandidate;
@@ -18,7 +28,10 @@ export interface ForkGlyphGalleryProps {
 
 const NODE = (cx: number, cy: number) => `M${cx - 2.25} ${cy}a2.25 2.25 0 1 0 4.5 0a2.25 2.25 0 1 0 -4.5 0`;
 
-const PATHS: Record<Exclude<ForkGlyphCandidate, "branch-mark">, string[]> = {
+const PATHS: Record<Exclude<ForkGlyphCandidate, "split-arrow">, string[]> = {
+  "soft-knee": ["M3.5 12h6.5c1 0 1.5-.5 2.2-1.2L20.5 3M15.5 3h5v5", "M14.5 15l6 6M20.5 16v5h-5"],
+  "joined-split": ["M3.5 12h8l9-9M15.5 3h5v5", "M11.5 12l9 9M20.5 16v5h-5"],
+  "branch-mark": [NODE(7, 6), NODE(7, 18), NODE(17, 6), "M7 8.25v7.5M17 8.25c0 4.75-10 3.25-10 7.5"],
   "fork-mark": [
     NODE(7, 6),
     NODE(17, 6),
@@ -37,7 +50,7 @@ const PATHS: Record<Exclude<ForkGlyphCandidate, "branch-mark">, string[]> = {
 };
 
 function Fork({ fork, size }: { fork: ForkGlyphCandidate; size: number }) {
-  if (fork === "branch-mark") return <Icon name={FORK_ICON} size={size} />;
+  if (fork === "split-arrow") return <Icon name={FORK_ICON} size={size} />;
   return (
     <svg
       width={size}

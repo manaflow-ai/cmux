@@ -62,6 +62,14 @@ pub const ACTIVITY_TURNS_CAPABILITY: &str = "activity-turns";
 /// work; acpmux `daemon/cloud_activity.rs` names the phases). The Cloud sleeps a machine inside
 /// its turns only from a report that advertises this (cmux#34298).
 pub const ACTIVITY_PHASES_CAPABILITY: &str = "activity-phases";
+/// Advertised with `activity-turns` while every acpmux daemon whose count holds promises, with
+/// `"turn_end": 1` on its `acp_activity` line, that a count of 0 means nothing pending: no turn
+/// running or queued, no permission or question waiting, no continuation, no background task,
+/// process, subagent or sub-session at work (acpmux `daemon/cloud_activity.rs`). The Cloud
+/// pauses a machine whose pause policy asks for it (cmux-platform `turn_end`) right at turn end
+/// only from a report that advertises this; an older acpmux sends no `turn_end`, so its machine
+/// keeps the usual window.
+pub const ACTIVITY_TURN_END_CAPABILITY: &str = "activity-turn-end";
 /// Advertised with `activity` while the agent's workload probe reads (`workload.rs`): the
 /// report's `activity.workload` counts the processes using CPU, the listening sockets and the
 /// timers that are not the system's. The Cloud reads a machine as idle only from a report that
@@ -158,6 +166,20 @@ pub struct BindFile {
     pub env: Env,
     /// The relay carrier route (`carrier_entry.rs`), when the platform sent one.
     pub carrier: Option<crate::carrier_entry::CarrierRoute>,
+    /// The compiler cache's settings (`sccache_env.rs`). Never fails the bind: a refused section
+    /// only leaves the cache off.
+    pub sccache: SccacheSection,
+}
+
+/// `bind.json`'s `sccache` section (`sccache_env.rs`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SccacheSection {
+    /// No section: the cache is off.
+    Absent,
+    /// The variables, in name order.
+    Env(Vec<(String, String)>),
+    /// Refused, and why (names only, never a value): the cache is off.
+    Refused(String),
 }
 
 fn prefixed_id(raw: &str, prefix: &str) -> bool {
@@ -204,7 +226,14 @@ pub fn parse_bind_file(text: &str) -> Result<BindFile, String> {
             Some(route)
         }
     };
-    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier })
+    let sccache = match raw.get("sccache") {
+        None => SccacheSection::Absent,
+        Some(section) => match crate::sccache_env::parse_section(section) {
+            Ok(vars) => SccacheSection::Env(vars),
+            Err(why) => SccacheSection::Refused(why),
+        },
+    };
+    Ok(BindFile { team, machine, bind_token, api_origin, env, carrier, sccache })
 }
 
 /// `bound.json`: what the machine needs to report after a restart.
@@ -249,6 +278,21 @@ impl DaemonInfo {
         DaemonInfo { version: self.version.clone(), capabilities }
     }
 
+    /// The same block with `activity-turn-end` on (every acpmux daemon promised it and
+    /// `activity-turns` is on) or off. [`Self::with_activity`] drops it: apply this after.
+    pub fn with_turn_end(&self, on: bool) -> DaemonInfo {
+        let mut capabilities: Vec<String> = self
+            .capabilities
+            .iter()
+            .filter(|c| *c != ACTIVITY_TURN_END_CAPABILITY)
+            .cloned()
+            .collect();
+        if on && capabilities.iter().any(|c| c == ACTIVITY_TURNS_CAPABILITY) {
+            capabilities.push(ACTIVITY_TURN_END_CAPABILITY.to_owned());
+        }
+        DaemonInfo { version: self.version.clone(), capabilities }
+    }
+
     /// The same block with `activity-workload` on (the workload is known and `activity` is on)
     /// or off. [`Self::with_activity`] drops it: apply this after.
     pub fn with_workload(&self, on: bool) -> DaemonInfo {
@@ -273,6 +317,7 @@ fn is_activity_capability(c: &str) -> bool {
     c == ACTIVITY_CAPABILITY
         || c == ACTIVITY_TURNS_CAPABILITY
         || c == ACTIVITY_PHASES_CAPABILITY
+        || c == ACTIVITY_TURN_END_CAPABILITY
         || c == ACTIVITY_WORKLOAD_CAPABILITY
 }
 
