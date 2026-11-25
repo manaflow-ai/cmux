@@ -64,6 +64,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// The theme file's slot variants (``DesignSettings/themeSlots``, resolved by the daemon): the
+    /// page's `window.cmuxTheme.current.slots` (webviews/src/slots/registry.ts). Empty sends no `slots` key.
+    public let slots: [String: String]
     /// Wallpaper lighting is on and has a light (``WallpaperLight``): `data-wallpaper-light` on `<html>`, under which
     /// the glass reads the `--wl-*` variables this theme carries.
     public let wallpaperLight: Bool
@@ -249,6 +252,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         self.glass = DesignSettings.shared.liquidGlass ? (glass ?? .current).rawValue : Self.glassOff
         glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
+        slots = DesignSettings.shared.themeSlots
         fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
         wallpaperLight = BackdropImageStore.shared.light.pageStyle != nil
         experiments = DesignSettings.shared.experiments
@@ -285,7 +289,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     }
 
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass, fontSmoothing}`,
-    /// and `decorations` while a personality slot is filled
+    /// `decorations` while a personality slot is filled, and `slots` while the theme file picks slot variants
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -297,6 +301,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing,
                                      "appFont": appFont]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if !slots.isEmpty { object["slots"] = slots }
         if wallpaperLight { object["wallpaperLight"] = true }
         if !experiments.isEmpty { object["experiments"] = experiments }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
