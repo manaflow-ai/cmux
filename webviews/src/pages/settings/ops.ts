@@ -1185,11 +1185,17 @@ export type LibraryEntry = {
   code?: LibraryCode;
 };
 
-/** A pull request's code as a library entry: its web part is served on this app while it is on and
- * the highest such entry; what it cannot carry needs a build. */
+/** Code not in this build as a library entry (cmux-customize `CodeLayer`): a pull request, a branch, a
+ * commit, a local folder or a fork. Its web part is served on this app while it is on and the highest
+ * such entry; what it cannot carry needs a build. */
 export type LibraryCode = {
+  /** Where the code comes from; absent for a PR (older entries, and the wire skips `pr`). */
+  kind?: "pr" | "branch" | "sha" | "dir" | "fork";
+  /** The branch, the full commit, the folder's path or `OWNER/REPO@REF`; absent for a PR. */
+  source?: string;
   /** `owner/name`. */
   repo: string;
+  /** The pull request; 0 for every other kind. */
   pr: number;
   title: string;
   /** The PR head the layer was built from. */
