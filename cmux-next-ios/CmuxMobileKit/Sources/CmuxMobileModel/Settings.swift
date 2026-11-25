@@ -177,6 +177,11 @@ public final class SettingsStore {
     /// Settings → Terminal → Terminal and Chat Toggle (off by default). Read by the workspace tabs
     /// (`CmuxMobilePreferences.terminalChatToggle`) through the same key.
     public var terminalChatToggle: Bool { didSet { save(terminalChatToggle, "terminalChatToggle") } }
+    /// Settings → Terminal → Zoom Full-Screen Apps (off by default). Read by the terminal
+    /// (`CmuxMobilePreferences.terminalZoomFullScreenApps`) when a page opens.
+    public var terminalZoomFullScreenApps: Bool {
+        didSet { save(terminalZoomFullScreenApps, "terminalZoomFullScreenApps") }
+    }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Settings → Terminal → Predictive Echo in Full-Screen Apps (off by default). Read by the
@@ -245,6 +250,7 @@ public final class SettingsStore {
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalComposerAutocorrect")
         terminalChatToggle = defaults.object(forKey: "cmuxMobile.settings.terminalChatToggle") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalChatToggle")
+        terminalZoomFullScreenApps = bool("terminalZoomFullScreenApps", false)
         predictiveEcho = bool("predictiveEcho", true)
         predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")

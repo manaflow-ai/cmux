@@ -25,6 +25,7 @@ mod pair_requests;
 mod share_approval;
 mod tabs;
 mod terminal_chat;
+mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
 mod window_layout;
@@ -41,6 +42,9 @@ pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, sha
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
+};
+pub use terminal_fit::{
+    TerminalFitDecision, TerminalFitPolicy, TerminalFitReason, TerminalZoomGeometry, TerminalZoomState,
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};

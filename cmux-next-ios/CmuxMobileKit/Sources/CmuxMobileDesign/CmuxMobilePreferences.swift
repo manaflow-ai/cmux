@@ -26,6 +26,11 @@ public enum CmuxMobilePreferences {
         /// toggle js just so a** rn it needs more baking tiem"): on, a Claude Code or Codex tab's
         /// page menu offers Show Chat / Show Terminal where both faces work.
         public static let terminalChatToggle = "cmuxMobile.settings.terminalChatToggle"
+        /// Settings → Terminal → Zoom Full-Screen Apps (off by default; Leo, 2026-11-17: "Surely we
+        /// can just calculate a f***ing terminal and resize whatever needs exceptions when it comes /
+        /// Fall back if need be"): on, a full-screen app shows at the Mac's grid, zoomed, and only
+        /// typing into it resizes the Mac (`TerminalProjectingSession`, Rust `fit_policy`).
+        public static let terminalZoomFullScreenApps = "cmuxMobile.settings.terminalZoomFullScreenApps"
         /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
         public static let ultra = "cmuxMobile.settings.ultra"
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
@@ -62,6 +67,7 @@ public enum CmuxMobilePreferences {
     /// prose (Leo, 2026-11-24: "an autocorect toggle in the terminal composer").
     public static let defaultTerminalComposerAutocorrect = false
     public static let defaultTerminalChatToggle = false
+    public static let defaultTerminalZoomFullScreenApps = false
     public static let defaultDismissKeyboardAfterSend = true
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
@@ -100,6 +106,15 @@ public enum CmuxMobilePreferences {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalChatToggle) == nil
             ? defaultTerminalChatToggle : defaults.bool(forKey: Key.terminalChatToggle)
+    }
+
+    /// Whether a full-screen app shows at the Mac's grid, zoomed, and fits the phone only once
+    /// typed into (on), or claims the phone's grid as soon as it shows (off, the default).
+    /// Read when a terminal page opens.
+    public static func terminalZoomFullScreenApps(_ defaults: UserDefaults = .standard) -> Bool {
+        // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
+        defaults.object(forKey: Key.terminalZoomFullScreenApps) == nil
+            ? defaultTerminalZoomFullScreenApps : defaults.bool(forKey: Key.terminalZoomFullScreenApps)
     }
 
     /// Typed characters show at once over a slow link, underlined until the

@@ -372,6 +372,14 @@ struct TerminalPage: View {
                 Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
             }
             Section {
+                Toggle(isOn: $settings.terminalZoomFullScreenApps) {
+                    SettingsLabel("Zoom Full-Screen Apps", symbol: "plus.magnifyingglass")
+                }
+                .accessibilityIdentifier("settings.terminalZoomFullScreenApps")
+            } footer: {
+                Text("Shows vim, htop or Codex at the Mac's size: pinch to zoom, drag to pan, and the Mac pane keeps its size. Typing into one fits it to the phone, which remembers that program. Applies to terminals opened next.")
+            }
+            Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {
