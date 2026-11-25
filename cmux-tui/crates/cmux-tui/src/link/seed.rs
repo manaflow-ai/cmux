@@ -12,6 +12,7 @@
 pub(crate) mod carry;
 mod git;
 mod github;
+pub(crate) mod lfs;
 pub(crate) mod plan;
 #[allow(dead_code)]
 mod resumable_upload;

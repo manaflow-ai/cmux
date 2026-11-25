@@ -1,6 +1,13 @@
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+@preconcurrency import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
+#endif
 @testable import CmuxDeviceHub
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Software keys: tests only. The app's keys are always in the Secure Enclave.
 struct SoftwareDeviceKeys: DeviceKeyMaterial {

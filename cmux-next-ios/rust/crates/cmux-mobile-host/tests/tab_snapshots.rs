@@ -401,6 +401,7 @@ fn config(dir: &Path) -> Arc<ServiceConfig> {
         chief_socket: None,
         browser: cmux_mobile_host::browser::BrowserConfig::new(None, 1),
         surface: cmux_mobile_host::surface::SurfaceConfig::new(None, 1),
+        viewport_sync: None,
     })
 }
 
@@ -423,6 +424,7 @@ async fn the_feeder_runs_while_a_phone_has_tabs_open_and_stops_when_the_last_lea
                 video: None,
                 session_exposure: None,
                 path: None,
+                viewport: None,
                 route: None,
             };
             tokio::spawn(serve(Arc::clone(&config), peer, Arc::new(LinkAuth::default()), incoming));
