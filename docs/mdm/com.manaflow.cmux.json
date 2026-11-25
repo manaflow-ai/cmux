@@ -3602,6 +3602,12 @@
       "title" : "Auto Places Chats in Cloud",
       "type" : "boolean"
     },
+    "cloud.defaultImage" : {
+      "default" : "auto",
+      "description" : "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine.",
+      "title" : "Default Image",
+      "type" : "string"
+    },
     "cloud.newWorkspaceFolder" : {
       "default" : "inherit",
       "description" : "Current Folder copies your git working copy to the new machine.",

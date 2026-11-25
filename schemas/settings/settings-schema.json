@@ -2279,6 +2279,7 @@
             "rows" : [
               "cloud.newWorkspacesInCloud",
               "cloud.newWorkspaceFolder",
+              "cloud.defaultImage",
               "cloud.agentsStartWithoutAsking",
               "cloud.turnCheckpoints",
               "cloud.autoCloud",
@@ -17698,6 +17699,141 @@
       "title" : {
         "key" : "settings.cloud.newWorkspaceFolder",
         "text" : "New Cloud Workspaces Start In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "auto",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.defaultImage.help",
+        "text" : "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.defaultImage",
+      "keywords" : [
+        "cloud",
+        "image",
+        "environment",
+        "default",
+        "auto",
+        "snapshot",
+        "vm",
+        "machine",
+        "new chat"
+      ],
+      "kind" : "text",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "defaultImage"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        1,
+        true,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.defaultImage"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.defaultImage",
+        "text" : "Default Image"
       },
       "validation" : "portable"
     },
