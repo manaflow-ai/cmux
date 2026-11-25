@@ -31,6 +31,14 @@ pub struct ProjectionStats {
     pub resets: u64,
 }
 
+/// A `terminal-find` cell on the phone's re-wrapped rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct ProjectionLocation {
+    /// Rows from the bottom of the re-wrapped content (1: its last row).
+    pub from_bottom: u64,
+    pub column: u32,
+}
+
 /// A full-screen app's transcript as one document for a fresh surface of
 /// the Mac's grid (`ESC c` first): its scrollback is the rows the app
 /// scrolled away, its screen the app's screen.
@@ -177,6 +185,19 @@ impl TerminalProjection {
 
     pub fn is_alternate(&self) -> bool {
         self.inner().is_alternate()
+    }
+
+    /// Where a daemon `terminal-find` cell (`host_from_bottom`: 1 is the
+    /// Mac's last row; its column in Mac cells) lands on the phone's rows.
+    /// None: the projection does not hold that row (older than the replay).
+    pub fn locate(&self, host_from_bottom: u64, host_column: u32) -> Option<ProjectionLocation> {
+        let at = self
+            .inner()
+            .locate(usize::try_from(host_from_bottom).ok()?, usize::try_from(host_column).ok()?)?;
+        Some(ProjectionLocation {
+            from_bottom: u64::try_from(at.from_bottom).ok()?,
+            column: u32::try_from(at.column).ok()?,
+        })
     }
 
     /// Rows of the full-screen app's transcript above its screen: what the
