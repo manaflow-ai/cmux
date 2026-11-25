@@ -27,7 +27,7 @@ from datetime import datetime
 REPO = "manaflow-ai/cmux"
 BRANCH = "feat-cmux-next"
 WORKFLOWS = ("cmux-machine-channel.yml", "cmux-tui-artifacts.yml")
-POINT_MARKS = ("point the Cloud machine channel", "point-x86_64", "point-linux", "point-machine-channel")
+POINT = "point the Cloud machine channel"
 
 
 def api(path: str) -> object:
@@ -57,32 +57,48 @@ def ts(s: str) -> datetime:
 
 
 def is_point(name: str) -> bool:
-    return any(m in name for m in POINT_MARKS) and "build" not in name.split("/")[-1]
+    return name.split(" / ")[-1].startswith(POINT)  # "... at this commit's x86_64 Linux build" is a point job
+
+
+def is_build(name: str) -> bool:
+    return name.split(" / ")[-1].startswith("build x86_64-unknown-linux-musl")
+
+
+def workflow_ids() -> dict[int, str]:
+    """Numeric ids of WORKFLOWS (by file name a workflow absent from main 404s; by id it lists)."""
+    ids: dict[int, str] = {}
+    for page in range(1, 11):
+        wfs = api(f"actions/workflows?per_page=100&page={page}").get("workflows", [])
+        ids.update({w["id"]: w["path"].rsplit("/", 1)[-1] for w in wfs if w["path"].rsplit("/", 1)[-1] in WORKFLOWS})
+        if len(wfs) < 100:
+            return ids
+    return ids
 
 
 def pointed_runs(since: datetime) -> dict[str, tuple]:
     """head sha -> (point job completed, workflow, run id, built here) for feat-cmux-next pushes since `since`."""
     out: dict[str, tuple] = {}
-    for page in range(1, 11):
-        runs = api(f"actions/runs?branch={BRANCH}&event=push&per_page=100&page={page}").get("workflow_runs", [])
-        for run in runs:
-            wf = run.get("path", "").rsplit("/", 1)[-1]
-            if wf not in WORKFLOWS or ts(run["created_at"]) < since:
-                continue
-            # A coalesced run skips build and point and ends within minutes: read jobs only of runs that worked.
-            if (ts(run["updated_at"]) - ts(run.get("run_started_at") or run["created_at"])).total_seconds() < 360:
-                continue
-            jobs = api(f"actions/runs/{run['id']}/jobs?per_page=100").get("jobs", [])
-            ok = [j for j in jobs if j.get("conclusion") == "success"]
-            built = any("build-machine-channel" in j["name"] for j in ok)
-            for j in ok:
-                if is_point(j["name"]) and j.get("completed_at"):
-                    done = ts(j["completed_at"])
-                    have = out.get(run["head_sha"])
-                    if have is None or done < have[0]:
-                        out[run["head_sha"]] = (done, wf, run["id"], built)
-        if not runs or ts(runs[-1]["created_at"]) < since:
-            break
+    for wf_id, wf in workflow_ids().items():
+        for page in range(1, 11):
+            runs = api(f"actions/workflows/{wf_id}/runs?branch={BRANCH}&event=push&per_page=100&page={page}").get(
+                "workflow_runs", [])
+            for run in runs:
+                if ts(run["created_at"]) < since:
+                    continue
+                # A coalesced run skips build and point and ends within minutes: read jobs only of runs that worked.
+                if (ts(run["updated_at"]) - ts(run.get("run_started_at") or run["created_at"])).total_seconds() < 360:
+                    continue
+                jobs = api(f"actions/runs/{run['id']}/jobs?per_page=100").get("jobs", [])
+                ok = [j for j in jobs if j.get("conclusion") == "success"]
+                built = any(is_build(j["name"]) for j in ok)
+                for j in ok:
+                    if is_point(j["name"]) and j.get("completed_at"):
+                        done = ts(j["completed_at"])
+                        have = out.get(run["head_sha"])
+                        if have is None or done < have[0]:
+                            out[run["head_sha"]] = (done, wf, run["id"], built)
+            if not runs or ts(runs[-1]["created_at"]) < since:
+                break
     return out
 
 
