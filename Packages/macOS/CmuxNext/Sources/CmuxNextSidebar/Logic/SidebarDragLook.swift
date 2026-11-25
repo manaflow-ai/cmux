@@ -29,8 +29,8 @@ nonisolated struct SidebarDragLook {
     /// row's index there is not its node's. With the Archive section drawn, also a section the archive split takes
     /// top-level nodes out of (`splittingArchive`): the base counts only the nodes left, the move counts every node.
     private let hidingSections: Set<SectionID>
-    /// With the Archive section drawn: groups that are archived, hold an archived workspace, or sit in such a group.
-    /// A move in or out of one may move it to the Archive or keep it there (`splittingArchive`).
+    /// With archived rows left out: groups that are archived, hold an archived workspace, or sit in such a group.
+    /// A move in or out of one may take it out of the sidebar or keep it there (`withoutArchived`).
     private let archiveBound: Set<GroupID>
     /// The loose dragged rows each section loses.
     private let looseLeaving: [Int: Int]
@@ -50,7 +50,7 @@ nonisolated struct SidebarDragLook {
     /// One pass over the sections and the base's rows, once per drag base.
     init(base: SidebarLayout, sections: [SidebarSection], options: SidebarLayoutOptions, moving dragged: [WorkspaceID]) {
         let wanted = Set(dragged)
-        let archive = SidebarLayout.drawsArchiveSection(options)
+        let archive = SidebarLayout.hidesArchived(options)
         var seen = Set<WorkspaceID>(), repeats = false
         var moving: [(ws: SidebarWorkspace, section: Int, group: GroupID?)] = []
         var groups: [GroupID: (section: Int, node: Int)] = [:]
@@ -79,7 +79,8 @@ nonisolated struct SidebarDragLook {
                         }
                     }
                     if group.isCollapsed { hidden.insert(group.id) }
-                    if archive, group.isArchived || group.workspaces.contains(where: \.isArchived) || group.parent.map(bound.contains) == true {
+                    if archive, group.isArchived || group.workspaces.contains(where: \.isArchived)
+                        || group.items.contains(where: \.item.isArchived) || group.parent.map(bound.contains) == true {
                         bound.insert(group.id)
                     }
                     // A group the archive split takes out of its list whole (`splittingArchive`).

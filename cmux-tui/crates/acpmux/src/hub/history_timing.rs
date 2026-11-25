@@ -11,6 +11,17 @@
 //! when the agent was ready, and each request acpmux sent it before that with its answer's time
 //! (`initialize`, the start model, effort and mode). Every time is read from records the log
 //! already holds, a few per turn.
+//!
+//! `firstModelMs` mixes Claude Code's boot, its wait for every `--mcp-config` server, and the API
+//! request (cmuxterm-hq `docs/findings/2026-11-24-first-model.md`). So a turn whose prompt met a
+//! Claude Code that had just started also gets `claudeBootMs` (`initialize` sent to Claude Code's
+//! own answer to it), `systemInitMs` (`initialize` sent to its `system/init`, which comes only once
+//! every MCP server connected) and `mcpServers` (each server's status as that `system/init`
+//! names it). On a spare that booted before the chat, `systemInitMs` also holds its idle wait.
+//! Every Claude turn gets `promptToInitMs` (the prompt written to its `system/init`: the rest of a
+//! cold boot and the MCP connects) and `initToModelMs` (that `system/init` to the model's first
+//! output), which add up to `firstModelMs`, and `firstCallUsage` (the input, cache read and cache write tokens of its first
+//! request's `message_start`).
 
 use super::*;
 use cmux_json::JsonSet as _;
@@ -28,6 +39,8 @@ pub(super) const KINDS: &[&str] = &[
     method::SESSION_PROMPT,
     "response",
     "claude.stream_event",
+    "claude.control_response",
+    "claude.system.init",
 ];
 
 /// The requests a chat's start sends before its first prompt.
@@ -51,6 +64,13 @@ pub(super) struct Timing {
     /// When the current turn's prompt was written to the agent.
     written_at: Option<u64>,
     model_seen: bool,
+    /// When `initialize` was last sent: Claude Code started then; cleared by its `system/init`.
+    spawned_at: Option<u64>,
+    /// Claude Code's own answer to that `initialize`, in ms after it was sent.
+    boot_ms: Option<u64>,
+    /// When the current turn's `system/init` came.
+    init_at: Option<u64>,
+    usage_seen: bool,
 }
 
 impl Timing {
@@ -62,6 +82,25 @@ impl Timing {
         turn: Option<&mut serde_json::Map<String, Value>>,
         opened: bool,
     ) {
+        let mut turn = turn;
+        match (e.dir.as_str(), e.kind.as_str()) {
+            ("out", method::INITIALIZE) => {
+                self.spawned_at = Some(e.at);
+                self.boot_ms = None;
+            }
+            ("in", "claude.control_response") => {
+                let id = e.msg.pointer("/response/request_id").and_then(Value::as_str);
+                if let Some(spawned) = self.spawned_at
+                    && self.boot_ms.is_none()
+                    && id.is_some_and(|id| id.starts_with("init-"))
+                {
+                    self.boot_ms = Some(e.at.saturating_sub(spawned));
+                }
+            }
+            ("in", "claude.system.init") => self.note_init(e, turn.as_deref_mut()),
+            ("in", "claude.stream_event") => self.note_usage(e, turn.as_deref_mut()),
+            _ => {}
+        }
         match (e.dir.as_str(), e.kind.as_str()) {
             ("mux", "created") => self.created_at = Some(e.at),
             ("out", m) if !self.prompted && START_REQUESTS.contains(&m) => {
@@ -80,6 +119,8 @@ impl Timing {
             ("mux", "user_message") if opened => {
                 self.written_at = None;
                 self.model_seen = false;
+                self.init_at = None;
+                self.usage_seen = false;
                 if std::mem::replace(&mut self.prompted, true) {
                     return;
                 }
@@ -106,9 +147,63 @@ impl Timing {
             ("in", "claude.stream_event" | "tool_call") if !self.model_seen => {
                 let (Some(written), Some(t)) = (self.written_at, turn) else { return };
                 t.insert("firstModelMs".into(), json!(e.at.saturating_sub(written)));
+                if let Some(init) = self.init_at {
+                    t.insert("initToModelMs".into(), json!(e.at.saturating_sub(init)));
+                }
                 self.model_seen = true;
             }
             _ => {}
+        }
+    }
+
+    /// The turn's `system/init`; the first one after an `initialize` also ends Claude Code's start.
+    fn note_init(&mut self, e: &EventRecord, turn: Option<&mut serde_json::Map<String, Value>>) {
+        let Some(t) = turn else { return };
+        if self.written_at.is_none() || self.init_at.is_some() {
+            return;
+        }
+        self.init_at = Some(e.at);
+        if let Some(written) = self.written_at {
+            t.insert("promptToInitMs".into(), json!(e.at.saturating_sub(written)));
+        }
+        let Some(spawned) = self.spawned_at.take() else { return };
+        t.insert("systemInitMs".into(), json!(e.at.saturating_sub(spawned)));
+        if let Some(boot) = self.boot_ms.take() {
+            t.insert("claudeBootMs".into(), json!(boot));
+        }
+        // Left out when the session's last logged init had the same list (`logged_init.rs`).
+        if let Some(servers) = e.msg.get("mcp_servers").and_then(Value::as_array) {
+            let servers: Vec<Value> = servers
+                .iter()
+                .map(|s| json!({"name": s.get("name"), "status": s.get("status")}))
+                .collect();
+            t.insert("mcpServers".into(), Value::Array(servers));
+        }
+    }
+
+    /// The token counts of the turn's first request, from its `message_start`.
+    fn note_usage(&mut self, e: &EventRecord, turn: Option<&mut serde_json::Map<String, Value>>) {
+        let Some(t) = turn else { return };
+        if self.written_at.is_none() || self.usage_seen {
+            return;
+        }
+        if e.msg.pointer("/event/type").and_then(Value::as_str) != Some("message_start") {
+            return;
+        }
+        self.usage_seen = true;
+        let Some(usage) = e.msg.pointer("/event/message/usage") else { return };
+        let mut counts = serde_json::Map::new();
+        for (from, to) in [
+            ("input_tokens", "inputTokens"),
+            ("cache_read_input_tokens", "cacheReadInputTokens"),
+            ("cache_creation_input_tokens", "cacheCreationInputTokens"),
+        ] {
+            if let Some(n) = usage.get(from).and_then(Value::as_u64) {
+                counts.insert(to.into(), json!(n));
+            }
+        }
+        if !counts.is_empty() {
+            t.insert("firstCallUsage".into(), Value::Object(counts));
         }
     }
 }

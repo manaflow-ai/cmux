@@ -37,7 +37,16 @@ impl Surface {
                 );
             }
         }
-        if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
+        // A holder terminal's reader runs its reaper's work as its tail, so
+        // this can run on the reader thread itself: never join it there.
+        let reader = pty.reader_thread.lock().unwrap().take().filter(|reader| {
+            let own = reader.thread().id() == std::thread::current().id();
+            if own {
+                eprintln!("cmux-tui: terminal reader skipped self-join during shutdown");
+            }
+            !own
+        });
+        if let Some(reader) = reader {
             if pty.reader_completion.wait_until(deadline) {
                 if reader.join().is_err() {
                     eprintln!("cmux-tui: terminal reader thread panicked during shutdown");

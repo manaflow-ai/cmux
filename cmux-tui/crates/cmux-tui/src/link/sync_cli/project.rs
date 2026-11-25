@@ -28,6 +28,8 @@
 //!     cmux link project serve --socket S --at REMOTE [--name N] FOLDER
 //!     cmux link project back --socket S --at REMOTE FOLDER
 //!     cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
+//!     cmux link project pin | unpin --socket S --at REMOTE FOLDER PATH   (available offline)
+//!     cmux link project pins --socket S --at REMOTE FOLDER
 //!     cmux link project enable | disable | status
 
 use std::collections::BTreeMap;
@@ -35,11 +37,12 @@ use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::fs::{FileExt as _, FileTypeExt as _, MetadataExt as _};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, bail};
-use cmux_projection::link::{Source, answer_asks};
+use cmux_projection::link::{Source, answer_asks, answer_asks_packed};
 use cmux_projection::manifest::{Item, Kind, Manifest};
 use cmux_projection::wire::{self, Part};
 use serde_json::{Value, json};
@@ -55,6 +58,8 @@ const STOP_WAIT: Duration = Duration::from_secs(5);
 const GIVE_UP_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 /// How often the server redials over a quiet socket: a refused quiet dial costs no platform call.
 const QUIET_RETRY: Duration = Duration::from_millis(500);
+/// The folder this process serves (`serve`), named on each of its dials as `from`.
+static SERVED_FOLDER: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// The env switch that overrides the setting (`1`/`true` on, `0`/`false` off).
 const ENV: &str = "CMUX_PROJECTED_FOLDERS";
 
@@ -81,6 +86,15 @@ fn ok(answer: &Value) -> bool {
     answer.get("ok").and_then(Value::as_bool) == Some(true)
 }
 
+/// Whether the machine's answer says it reads binary lines and packed answers (`"wire": 2`,
+/// `cmux_tui_core::projection`'s module docs): this Mac then writes both on the dial.
+fn packs(answer: &Value) -> bool {
+    answer
+        .pointer("/data/wire")
+        .and_then(Value::as_u64)
+        .is_some_and(|wire| wire >= u64::from(cmux_tui_core::projection::WIRE))
+}
+
 fn code(answer: &Value) -> Option<&str> {
     answer.get("error_code").and_then(Value::as_str)
 }
@@ -94,7 +108,9 @@ struct Served {
 
 const USAGE: &str = "usage: cmux link project serve --socket S --at REMOTE [--name N] FOLDER | stop --at \
                      REMOTE | back --socket S --at REMOTE FOLDER | release --socket S --at REMOTE FOLDER [--why \
-                     archived|deleted] | enable | disable | status | moves on|off";
+                     archived|deleted] | pin --socket S --at REMOTE FOLDER PATH | unpin --socket S --at \
+                     REMOTE FOLDER PATH | pins --socket S --at REMOTE FOLDER | enable | disable | status | \
+                     moves on|off";
 
 /// `cmux link project ...`: one JSON line on stdout, exit 0 on success.
 pub(crate) fn run(args: &[String]) -> i32 {
@@ -116,6 +132,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Some("stop") => stop(args.get(1..).unwrap_or_default()),
         Some("back") => super::project_back::back_command(args.get(1..).unwrap_or_default()),
         Some("release") => super::project_back::release_command(args.get(1..).unwrap_or_default()),
+        Some(cmd @ ("pin" | "unpin" | "pins")) => {
+            super::project_pin::command(cmd, args.get(1..).unwrap_or_default())
+        }
         _ => Err(anyhow::anyhow!(USAGE)),
     };
     match outcome {
@@ -527,6 +546,8 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let name = name.unwrap_or_else(|| name_of(&at));
     let folder = std::fs::canonicalize(&folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
+    // Every dial of this server names the folder, so the machine's mount says which it mirrors.
+    let _ = SERVED_FOLDER.set(folder.to_string_lossy().into_owned());
     let started = Instant::now();
     let listed = list(&folder)?;
     let listed_ms = elapsed_ms(started);
@@ -544,6 +565,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     if !ok(&answer) {
         return Ok(answer);
     }
+    let packed = packs(&answer);
     // The folder is mounted and the chat can start; without a base, Bring Back says so
     // (`sync_no_base`) rather than guess.
     let kept = match made {
@@ -603,7 +625,17 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
                 }
             });
         }
-        serve_until_gone(&socket, &name, &at, &encoded, &listed, stream, &mut revisions);
+        // The files the agent reads first (project_hot.rs), warmed beside the serving loop that
+        // answers their fetches: after the chat's start, never in front of it (git's dirty set
+        // takes a second or more on a big checkout).
+        if super::project_hot::enabled() {
+            scope.spawn(|| {
+                let dirty = super::project_hot::dirty(&folder);
+                let hot = super::project_hot::pick(&listed.manifest, &dirty);
+                super::project_hot::warm(&socket, &name, &hot);
+            });
+        }
+        serve_until_gone(&socket, &name, &at, &encoded, &listed, (stream, packed), &mut revisions);
     });
     Ok(Value::Null)
 }
@@ -677,10 +709,14 @@ fn serve_until_gone(
     at: &str,
     encoded: &[u8],
     listed: &Listed,
-    first: BufReader<UnixStream>,
+    first: (BufReader<UnixStream>, bool),
     revisions: &mut Revisions,
 ) {
     let mut stream = Some(first);
+    // What this server sent, for its log: a start's bytes moved, read back by
+    // scripts/cmux-next/cloud-chat-matrix.py (every folder kind on prod, RFD 0007).
+    let sent = Sent::default();
+    let counted = Counted { source: listed, sent: &sent };
     let mut unreachable_since: Option<Instant> = None;
     let mut backoff = Duration::from_millis(200);
     let mut via_quiet = quiet_socket(socket).is_some();
@@ -688,18 +724,26 @@ fn serve_until_gone(
     // each refusal is the same line.
     let mut last_error: Option<String> = None;
     loop {
-        if let Some(reader) = stream.take() {
+        if let Some((reader, packed)) = stream.take() {
             unreachable_since = None;
             backoff = Duration::from_millis(200);
             last_error = None;
             if let Ok(writer) = reader.get_ref().try_clone() {
-                // Lines both ways: the Cloud carrier moves whole lines only (`dial`).
-                let _ = answer_asks(
-                    cmux_tui_core::projection::LineReader::new(reader),
-                    cmux_tui_core::projection::LineWriter::new(writer),
-                    listed,
-                );
+                // Lines both ways: the Cloud carrier moves whole lines only (`dial`). A machine
+                // that said `"wire": 2` gets binary lines and packed answers.
+                let reader = cmux_tui_core::projection::LineReader::new(reader);
+                let _ = if packed {
+                    let writer = cmux_tui_core::projection::LineWriter::binary(writer);
+                    answer_asks_packed(reader, writer, &counted)
+                } else {
+                    answer_asks(
+                        reader,
+                        cmux_tui_core::projection::LineWriter::new(writer),
+                        &counted,
+                    )
+                };
             }
+            eprintln!("cmux link project: sent {}", sent.line());
         }
         let since = *unreachable_since.get_or_insert_with(Instant::now);
         if since.elapsed() > GIVE_UP_AFTER {
@@ -713,7 +757,7 @@ fn serve_until_gone(
         let (dialed, quiet) = redial(socket, name, at, &[], None);
         via_quiet = quiet;
         match dialed {
-            Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
+            Ok((reader, answer)) if ok(&answer) => stream = Some((reader, packs(&answer))),
             Ok((_, answer)) if code(&answer) == Some("projection.unknown") => {
                 // The machine forgot the folder: it fetches the listing from the store when it
                 // can, and only then is the whole manifest sent over this Mac's uplink.
@@ -743,7 +787,7 @@ fn serve_until_gone(
                     }
                 };
                 match again {
-                    Ok((reader, answer)) if ok(&answer) => stream = Some(reader),
+                    Ok((reader, answer)) if ok(&answer) => stream = Some((reader, packs(&answer))),
                     Ok((_, answer)) => {
                         eprintln!(
                             "cmux link project: the machine refused the folder again: {answer}"
@@ -857,7 +901,14 @@ fn ask(
         // Every byte after this line goes as text lines, both ways: the Cloud carrier carries
         // the dial as a `mux-control` stream, which moves whole lines only.
         "lines": true,
+        // This Mac reads binary lines and packed answers; it writes them once the answer says
+        // the machine does too (an older machine ignores this and keeps base64 lines).
+        "wire": cmux_tui_core::projection::WIRE,
     });
+    if let (Some(from), Some(object)) = (SERVED_FOLDER.get(), line.as_object_mut()) {
+        // The folder on this Mac: the machine names it in its mount table, for the agent.
+        object.insert("from".into(), json!(from));
+    }
     if let (Some(revision), Some(object)) = (revision, line.as_object_mut()) {
         // The listing is in the store: the machine fetches it from there by this reference.
         object.insert("revision".into(), revision.clone());
@@ -1112,6 +1163,66 @@ impl Source for Listed {
             Ok(len) if len <= wire::MAX_READ => self.read(entry, 0, len),
             _ => Part::status(wire::FAILED),
         }
+    }
+}
+
+/// File bytes this server answered the machine with, over every connection of one projection.
+/// The log gets a `sent` line at most once a second while reads come, and after each connection.
+#[derive(Default)]
+struct Sent {
+    reads: AtomicU64,
+    bytes: AtomicU64,
+    logged: Mutex<Option<Instant>>,
+}
+
+impl Sent {
+    /// The log's `sent` line: reads answered and their file bytes (the wire's framing not counted).
+    fn line(&self) -> Value {
+        json!({
+            "reads": self.reads.load(Ordering::Relaxed),
+            "bytes": self.bytes.load(Ordering::Relaxed),
+        })
+    }
+
+    /// Writes the `sent` line when the last was a second ago or more.
+    fn log_now_and_then(&self) {
+        let Ok(mut logged) = self.logged.lock() else { return };
+        if logged.is_some_and(|at| at.elapsed() < Duration::from_secs(1)) {
+            return;
+        }
+        *logged = Some(Instant::now());
+        eprintln!("cmux link project: sent {}", self.line());
+    }
+}
+
+/// A [`Source`] that counts what it answers in [`Sent`].
+struct Counted<'a> {
+    source: &'a (dyn Source + Sync),
+    sent: &'a Sent,
+}
+
+impl Counted<'_> {
+    fn note(&self, part: Part) -> Part {
+        if part.status == wire::OK || part.status == wire::OK_ZSTD {
+            self.sent.reads.fetch_add(1, Ordering::Relaxed);
+            self.sent.bytes.fetch_add(part.bytes.len() as u64, Ordering::Relaxed);
+            self.sent.log_now_and_then();
+        }
+        part
+    }
+}
+
+impl Source for Counted<'_> {
+    fn read(&self, entry: u32, offset: u64, len: u32) -> Part {
+        self.note(self.source.read(entry, offset, len))
+    }
+
+    fn whole(&self, entry: u32) -> Part {
+        self.note(self.source.whole(entry))
+    }
+
+    fn stored(&self, since: u32) -> Vec<Part> {
+        self.source.stored(since)
     }
 }
 
