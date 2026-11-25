@@ -37,11 +37,11 @@ final class SwipeBackWholePageUITests: XCTestCase {
 
     static let terminal = Page(name: "terminal", demo: "ws-terminal-idle", field: "terminal.composer.field",
                                shown: "workspace.ws-cmux", back: "Back", reopen: "workspace.row.ws-cmux")
-    static let workspaceChat = Page(name: "workspace-chat", demo: "ws-chat-idle", field: "chat.composer.field",
+    static let workspaceChat = Page(name: "workspace-chat", demo: "ws-chat-idle", field: "chat.composer.card",
                                     shown: "workspace.ws-cmux", back: "Back", reopen: "workspace.row.ws-cmux")
     /// The agent chat pushed from Home (the system bar on both pages).
-    static let homeChat = Page(name: "home-chat", demo: "disclosure-chat", field: "chat.composer.field",
-                               shown: "chat.composer.field", back: nil, reopen: nil)
+    static let homeChat = Page(name: "home-chat", demo: "disclosure-chat", field: "chat.composer.card",
+                               shown: "chat.composer.card", back: nil, reopen: nil)
 
     @MainActor
     func testTerminalPageMovesAsOne() {
@@ -93,15 +93,18 @@ final class SwipeBackWholePageUITests: XCTestCase {
         defer { app.terminate() }
         let shown = app.descendants(matching: .any)[page.shown]
         let row = page.reopen.map { app.buttons[$0] }
+        /// The probe's readings, one per launch.
+        var readings: [String] = []
+        func reading() -> String {
+            let probe = app.staticTexts["debug.whole-page"]
+            guard probe.waitForExistence(timeout: 5) else { return "samples=0 (no probe)" }
+            return probe.value as? String ?? ""
+        }
 
-        func openPage(_ step: String) -> Bool {
-            if !shown.waitForExistence(timeout: 30) {
-                XCTFail("\(label) \(step): the page did not open\n\(app.debugDescription)")
-                return false
-            }
-            let field = app.textViews[page.field]
-            if !field.waitForExistence(timeout: 20) {
-                XCTFail("\(label) \(step): no composer \(page.field)")
+        func openPage(_ step: String, quiet: Bool = false) -> Bool {
+            let field = app.descendants(matching: .any)[page.field]
+            if !shown.waitForExistence(timeout: 30) || !field.waitForExistence(timeout: 20) {
+                if !quiet { XCTFail("\(label) \(step): the page or its composer \(page.field) did not show") }
                 return false
             }
             RunLoop.current.run(until: Date().addingTimeInterval(1.0))
@@ -114,6 +117,19 @@ final class SwipeBackWholePageUITests: XCTestCase {
             return true
         }
 
+        /// The page again: from its row, else a fresh launch (the probe keeps counting per launch,
+        /// so the earlier launch's reading is taken first).
+        func reopen(_ step: String) -> Bool {
+            if let row, row.waitForExistence(timeout: 5) {
+                row.tap()
+                if openPage(step, quiet: true) { return true }
+            }
+            readings.append(reading())
+            app.terminate()
+            app.launch()
+            return openPage(step)
+        }
+
         func back(to step: String) {
             if let row {
                 XCTAssertTrue(row.waitForExistence(timeout: 10), "\(label) \(step): back on Workspaces")
@@ -123,40 +139,38 @@ final class SwipeBackWholePageUITests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.8))
         }
 
-        // 1. A swipe from the edge to mid screen, held, then let go: the pop finishes.
-        guard openPage("held") else { return }
         let edge = app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.45))
-        edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.45)),
-                   withVelocity: 250, thenHoldForDuration: 1.2)
-        if shown.exists, shown.isHittable {
-            // Let go short of the middle: finish it with a full swipe.
-            edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.45)),
-                       withVelocity: .fast, thenHoldForDuration: 0)
-        }
-        back(to: "held")
-        attach(app, "\(label)-held-after")
+        steps: do {
+            // 1. A swipe from the edge to mid screen, held, then let go: the pop finishes.
+            guard openPage("held") else { break steps }
+            edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.45)),
+                       withVelocity: 250, thenHoldForDuration: 1.2)
+            if shown.exists, shown.isHittable {
+                // Let go short of the middle: finish it with a full swipe.
+                edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.45)),
+                           withVelocity: .fast, thenHoldForDuration: 0)
+            }
+            back(to: "held")
+            attach(app, "\(label)-held-after")
+            guard let row else { break steps }
 
-        // 2. A short swipe let go slowly: cancelled, the page stays.
-        if let row {
-            row.tap()
-            guard openPage("cancel") else { return }
+            // 2. A short swipe let go slowly: cancelled, the page stays.
+            guard reopen("cancel") else { break steps }
             edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)),
                        withVelocity: 120, thenHoldForDuration: 0.8)
             RunLoop.current.run(until: Date().addingTimeInterval(1.0))
             XCTAssertTrue(shown.exists && !row.isHittable, "\(label): a short swipe let go slowly is cancelled")
             attach(app, "\(label)-cancel-after")
             if keyboard {
-                // The keyboard and the dock as they were before the swipe.
-                XCTAssertTrue(app.textViews[page.field].isHittable, "\(label): the composer is usable after a cancelled swipe")
+                // The dock as it was before the swipe, the composer usable.
+                XCTAssertTrue(app.descendants(matching: .any)[page.field].isHittable, "\(label): the composer is usable after a cancelled swipe")
             }
-        }
 
-        // 3. The back button.
-        if row != nil, let backLabel = page.back {
-            let button = app.buttons.matching(identifier: backLabel).firstMatch
-            let found = button.waitForExistence(timeout: 5) ? button : app.buttons[backLabel]
-            if found.exists, found.isHittable {
-                found.tap()
+            // 3. The back button.
+            guard let backLabel = page.back else { break steps }
+            let button = app.buttons[backLabel].firstMatch
+            if button.waitForExistence(timeout: 5), button.isHittable {
+                button.tap()
             } else {
                 XCTFail("\(label): no back button \(backLabel)")
                 edge.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.45)),
@@ -164,28 +178,29 @@ final class SwipeBackWholePageUITests: XCTestCase {
             }
             back(to: "button")
         }
+        readings.append(reading())
 
-        let probe = app.staticTexts["debug.whole-page"]
-        guard probe.waitForExistence(timeout: 5) else {
-            XCTFail("\(label): no whole-page probe")
-            return
-        }
-        let line = probe.value as? String ?? ""
-        print("CMUX_WHOLE_PAGE \(label): \(line)")
-        XCTContext.runActivity(named: "\(label): \(line)") { _ in }
-        let values = Dictionary(line.split(separator: " ").compactMap { pair -> (String, String)? in
-            let kv = pair.split(separator: "=", maxSplits: 1)
-            return kv.count == 2 ? (String(kv[0]), String(kv[1])) : nil
-        }, uniquingKeysWith: { _, last in last })
+        let text = readings.joined(separator: "\n")
+        let note = XCTAttachment(string: text)
+        note.name = "\(label)-probe"
+        note.lifetime = .keepAlways
+        add(note)
+        print("CMUX_WHOLE_PAGE \(label): \(text)")
         guard !legacy else { return }
-        let samples = Int(values["samples"] ?? "") ?? 0
-        XCTAssertGreaterThan(samples, 3, "\(label): the probe saw no transition frames (\(line))")
-        XCTAssertLessThanOrEqual(Int(values["drift"] ?? "") ?? .max, 2,
-                                 "\(label): a piece of the page was left behind as it slid (\(line))")
-        XCTAssertLessThanOrEqual(Int(values["stray"] ?? "") ?? .max, 2,
-                                 "\(label): a layer outside the page drew over it as it slid (\(line))")
-        XCTAssertLessThanOrEqual(Int(values["bar"] ?? "") ?? .max, 1,
-                                 "\(label): the Workspaces bar drew over the page (doubled bars) (\(line))")
+        for line in readings {
+            let values = Dictionary(line.split(separator: " ").compactMap { pair -> (String, String)? in
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                return kv.count == 2 ? (String(kv[0]), String(kv[1])) : nil
+            }, uniquingKeysWith: { _, last in last })
+            let samples = Int(values["samples"] ?? "") ?? 0
+            XCTAssertGreaterThan(samples, 3, "\(label): the probe saw no transition frames (\(line))")
+            XCTAssertLessThanOrEqual(Int(values["drift"] ?? "") ?? .max, 2,
+                                     "\(label): a piece of the page was left behind as it slid (\(line))")
+            XCTAssertLessThanOrEqual(Int(values["stray"] ?? "") ?? .max, 2,
+                                     "\(label): a layer outside the page drew over it as it slid (\(line))")
+            XCTAssertLessThanOrEqual(Int(values["bar"] ?? "") ?? .max, 1,
+                                     "\(label): the Workspaces bar drew over the page (doubled bars) (\(line))")
+        }
     }
 
     @MainActor

@@ -36,6 +36,10 @@ public final class WholePageProbe {
     private var driftName = "-"
     private var strayName = "-"
     private var barName = "-"
+    /// Every layer drawn over the top page from outside it, by name: the most it covered and
+    /// where (the test attaches them, to name what did not move).
+    private var strays: [String: (over: CGFloat, frame: CGRect, path: String)] = [:]
+    private var lastGeometry = "-"
     /// The top page's pieces' offsets from its edge at the transition's first sample.
     private var rest: [ObjectIdentifier: CGFloat] = [:]
     private weak var transitionTop: UIViewController?
@@ -55,8 +59,23 @@ public final class WholePageProbe {
     }
 
     private func publish() {
+        let top = strays.sorted { $0.value.over > $1.value.over }.prefix(8).map { name, value in
+            "\(name)@\(Int(value.frame.minX)),\(Int(value.frame.minY)),\(Int(value.frame.width))x\(Int(value.frame.height))/\(Int(value.over))[\(value.path)]"
+        }.joined(separator: ";")
         label.accessibilityValue = "samples=\(samples) drift=\(Int(drift.rounded(.up))) stray=\(Int(stray.rounded(.up))) "
-            + "bar=\(Int(bar.rounded(.up))) driftLayer=\(driftName) strayLayer=\(strayName) barLayer=\(barName)"
+            + "bar=\(Int(bar.rounded(.up))) driftLayer=\(driftName) strayLayer=\(strayName) barLayer=\(barName) "
+            + "geometry=\(lastGeometry) strays=\(top.isEmpty ? "-" : top)"
+    }
+
+    /// The names of `layer`'s ancestors' delegates up to the window, outermost last (a short path).
+    private static func path(_ layer: CALayer, in space: CALayer) -> String {
+        var names: [String] = []
+        var current = layer.superlayer
+        while let layer = current, layer !== space, names.count < 6 {
+            if let delegate = layer.delegate { names.append(String(describing: type(of: delegate))) }
+            current = layer.superlayer
+        }
+        return names.joined(separator: "<")
     }
 
     fileprivate func tick() {
@@ -89,6 +108,11 @@ public final class WholePageProbe {
               topX > width * 0.15, topX < width * 0.85 else { return }
         samples += 1
         let page = topX...width
+        let underX = Self.presentedMinX(of: under.view.layer, in: window.layer) ?? .nan
+        let barX = Self.presentedMinX(of: navigation.navigationBar.layer, in: window.layer) ?? .nan
+        func n(_ value: CGFloat) -> String { value.isFinite ? String(Int(value)) : "-" }
+        lastGeometry = "top\(n(topX)),under\(n(underX)),bar\(n(barX)),barTx\(n(navigation.navigationBar.transform.tx)),"
+            + "mask\(navigation.navigationBar.layer.mask.map { "\(Int($0.frame.minX))+\(Int($0.frame.width))" } ?? "none")"
 
         // Pieces of the top page that moved against its edge.
         Self.walk(top.view.layer, in: window.layer) { layer, frame in
@@ -116,9 +140,12 @@ public final class WholePageProbe {
             guard passedTop, frame.width >= 8, frame.height >= 8, frame.maxY > 0, frame.minY < window.bounds.height else { return }
             let over = min(frame.maxX, page.upperBound) - max(frame.minX, page.lowerBound)
             // The page's own shadow, a sliver at its edge, is UIKit's.
-            if over > 12, over > stray {
+            guard over > 12 else { return }
+            let name = Self.name(layer)
+            if over > (strays[name]?.over ?? 0) { strays[name] = (over, frame, Self.path(layer, in: window.layer)) }
+            if over > stray {
                 stray = over
-                strayName = Self.name(layer)
+                strayName = name
             }
         }
 
