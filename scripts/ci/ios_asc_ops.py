@@ -12,6 +12,10 @@ Operations (reads first; every write prints the object it wrote, read back after
   app-info            the app, its appInfos (state, age rating) and its App Store versions
   versions            the app's App Store versions (id, versionString, appStoreState, platform)
   age-rating          every appInfo's ageRatingDeclaration attributes
+  declarations-check  diff ios/AppStoreReview/store-declarations.json against ASC: the editable appInfo's age rating
+                      (else every appInfo's) must equal the declared attributes, with no ASC field undeclared; fails
+                      on any difference and returns agePatch, the --attributes that fix it. App Privacy has no ASC
+                      API: the result and step summary carry its declared answers as the block to enter by hand
   review-detail       the App Store review detail of a version (--version, else the editable one)
   submissions         the app's review submissions and their states
   get                 a read of one App Store Connect path (--path /v1/..., GET only)
@@ -63,7 +67,9 @@ REVIEW_DETAIL_KEYS = ("contactFirstName", "contactLastName", "contactPhone", "co
                       "demoAccountPassword", "demoAccountRequired", "notes")
 REDACT = ("demoAccountPassword",)
 PATH_RE = re.compile(r"/v[12]/[A-Za-z0-9_/.\-]+(\?[A-Za-z0-9_=&%\[\],.\-]*)?")
-READS = ("app-info", "versions", "age-rating", "review-detail", "submissions", "get", "subscriptions")
+READS = ("app-info", "versions", "age-rating", "declarations-check", "review-detail", "submissions", "get",
+         "subscriptions")
+DECLARATIONS = Path(__file__).resolve().parents[2] / "ios/AppStoreReview/store-declarations.json"
 VERSION_LOCALIZATION_KEYS = ("whatsNew", "promotionalText")
 VERSION_LOCALIZATION_FIELDS = "locale,whatsNew,promotionalText,description,keywords"
 LOCALE_RE = re.compile(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,4})?")
@@ -194,6 +200,48 @@ def age_ratings(client: Client, app: str) -> list[dict]:
         out.append({"appInfo": info["id"], "appInfoState": info.get("appStoreState") or info.get("state"),
                     "declaration": decl.get("id"), "attributes": decl.get("attributes", {})})
     return out
+
+
+def load_declarations(path: Path = DECLARATIONS) -> dict:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as err:
+        raise SystemExit(f"cannot read the store declarations {path}: {err}") from None
+
+
+def app_privacy_block(privacy: dict) -> str:
+    """The App Privacy answers as the exact lines to enter in ASC (App Privacy > Data Types), which has no API."""
+    yes = lambda v: "Yes" if v else "No"
+    lines = [f"Do you or your third-party partners collect data from this app? {yes(privacy['collectsData'])}"]
+    for item in privacy["collected"]:
+        lines.append(f"- {item['type']}: collected Yes; linked to the user's identity {yes(item['linked'])}; "
+                     f"used for tracking {yes(item['tracking'])}; purposes: {', '.join(item['purposes'])}")
+    lines.append(f"Not collected: {', '.join(privacy['notCollected'])}")
+    lines.append("Recipients (for the privacy policy and review notes): "
+                 + "; ".join(f"{r['name']}: {r['gets']}" for r in privacy["recipients"]))
+    return "\n".join(lines)
+
+
+def declarations_check(client: Client, app: str, declared: dict) -> dict:
+    if app not in declared.get("apps", []):
+        raise SystemExit(f"app {app} is not in the store declarations' apps {declared.get('apps')}")
+    want = declared["ageRating"]["attributes"]
+    ratings = age_ratings(client, app)
+    checked = [r for r in ratings if r["appInfoState"] in EDITABLE_INFO_STATES] or ratings
+    errors, patch = [], {}
+    for rating in checked:
+        have = rating["attributes"]
+        for key in sorted(set(want) | set(have)):
+            if key not in want:
+                errors.append(f"appInfo {rating['appInfo']}: ASC field {key}={have[key]!r} is not declared")
+            elif have.get(key) != want[key]:
+                errors.append(f"appInfo {rating['appInfo']}: {key} is {have.get(key)!r} in ASC, "
+                              f"declared {want[key]!r}")
+                patch[key] = want[key]
+    return {"ageRating": {"checked": [r["appInfo"] for r in checked], "matches": not errors},
+            "agePatch": patch, "errors": errors,
+            "appPrivacy": {"readBack": "none: App Store Connect has no App Privacy API; enter this block by hand",
+                           "block": app_privacy_block(declared["appPrivacy"])}}
 
 
 def review_detail(client: Client, version_id: str) -> dict | None:
@@ -580,6 +628,8 @@ def run(op: str, args, client: Client) -> dict:
         return {"versions": versions(client, app)}
     if op == "age-rating":
         return {"ageRating": age_ratings(client, app)}
+    if op == "declarations-check":
+        return declarations_check(client, app, load_declarations())
     if op == "review-detail":
         version = editable_version(client, app, args.version)
         return {"version": version, "reviewDetail": review_detail(client, version["id"])}
@@ -686,7 +736,13 @@ def main(argv: list[str] | None = None, client: Client | None = None) -> int:
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as fh:
-            fh.write(f"### ios-asc-ops `{args.op}` on {APPS[args.app]}\n\n```json\n{text[:60000]}\n```\n")
+            fh.write(f"### ios-asc-ops `{args.op}` on {APPS[args.app]}\n\n")
+            if args.op == "declarations-check":
+                verdict = "matches" if not result["errors"] else "differs:\n" + "\n".join(
+                    f"- {e}" for e in result["errors"])
+                fh.write(f"Age rating {verdict}\n\nApp Privacy, to paste (no ASC API, so not read back):\n\n"
+                         f"```text\n{result['appPrivacy']['block']}\n```\n\n")
+            fh.write(f"```json\n{text[:60000]}\n```\n")
     return 1 if failed else 0
 
 
