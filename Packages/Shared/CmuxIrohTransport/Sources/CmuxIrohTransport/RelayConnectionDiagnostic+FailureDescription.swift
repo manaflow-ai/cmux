@@ -1,3 +1,4 @@
+#if canImport(IrohLib)
 import Foundation
 public import IrohLib
 
@@ -18,3 +19,4 @@ extension RelayConnectionDiagnostic {
         )
     }
 }
+#endif

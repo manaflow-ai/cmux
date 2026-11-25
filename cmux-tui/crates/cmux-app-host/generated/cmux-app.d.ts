@@ -102,6 +102,7 @@ declare namespace Cmux {
   type CloudSurgePreview = { count: number; ttl_seconds: number; provider: string | null; available: boolean; reason: string; estimated_cost_usd: unknown | null }
   type CloudSurgeReceipt = { count: number; ttl_seconds: number; slots: Array<Cmux.CloudSurgeSlot> }
   type CloudSurgeSlot = { index: number; status: "created" | "queued" | "refused"; machine_id: Cmux.MachineId | null; provider: string | null; reason: string; retryable: boolean }
+  type CloudUsageCurrent = { period: string; as_of: number; metered_since: number | null; vcpu_seconds: unknown; memory_gib_seconds: unknown; stored_gib_seconds: unknown; usd: { vcpu: unknown; memory: unknown; stored: unknown; total: unknown }; gaps: Array<string>; payment_method: { attached: boolean; brand?: string | null; last4?: string | null }; stripe_mode: "test" | "live" }
   type CloudVmNetwork = { tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; ipv4_cidr: string; ipv4: string | null }
   type CloudVmNetworkPolicyView = { schema_version: 2; machine: Cmux.MachineId; host: Cmux.HostId; epoch: number; receiver_generation: string | null; user: Cmux.UserId; install: Cmux.InstallId; team: Cmux.TeamId; origin: string; tenant: Cmux.NativeTenantId; mesh: Cmux.NativeMeshId; vm: string; ipv4: string | null; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; checked_at: number; expires_at: number; admit_until?: number; acl_version: number; policy_digest: string; peers: Array<Cmux.CloudVmReceiverPeer> }
   type CloudVmReceiverPeer = { host: Cmux.HostId; user: Cmux.UserId; install: Cmux.InstallId; device: Cmux.NativeDeviceId; wg_public_key: Cmux.WgPublicKey; install_public_key: string; authority_version: string; services: Array<"daemon" | "ssh" | "desktop"> }
@@ -436,6 +437,8 @@ declare namespace Cmux {
   type SettingsChange = { keys: Array<string> }
   type SettingsEdit = { op: "set" | "set_exact" | "set_unset" | "reset" | "reset_unchanged"; key?: string; path?: Array<string>; value?: Cmux.JsonValue }
   type SettingsEditChange = { keys: Array<string>; applied: Array<number> }
+  type SettingsHistory = { entries: Array<Cmux.SettingsHistoryEntry> }
+  type SettingsHistoryEntry = { at: string; keys: Array<string>; origin: "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file"; revision: string; undoes?: string }
   type Sharing = "team" | "private"
   type ShutdownResult = { accepted: boolean }
   type SidebarAttachItem = unknown
@@ -540,6 +543,8 @@ declare namespace Cmux {
   type ThemeSchemeFromImageResult = { appearance: "dark" | "light"; accent: string; glassTint: string; swatches: Array<Cmux.ThemeSchemeSwatch>; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
   type ThemeSchemeSwatch = { color: string; share: number }
   type ThemeSchemeText = { from?: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode" | null; name?: string | null; format: "ghostty" | "base16" | "iterm2" | "windows-terminal" | "vscode"; text: string; scheme: Cmux.ThemeScheme }
+  type ThemeSlotsDiagnostic = { kind: "unreadable_file" | "invalid_value" | "corrected_value"; path: string; message: string; line: number | null }
+  type ThemeSlotsResolveResult = { slots: Record<string, string>; diagnostics: Array<Cmux.ThemeSlotsDiagnostic> }
   type Timestamp = string
   type Trigger = { id: Cmux.TriggerId; status: "active" | "not_yet_supported"; spec: Cmux.TriggerInput; next_at: number | null }
   type TriggerId = string
@@ -925,6 +930,10 @@ interface CmuxGlobal {
     surge: {
       /** `cloud.surge.preview` (read, scope `cloud:read`): Estimate a bounded Cloud capacity burst at the current running list rate and report whether the team can request it. */
       preview: CmuxOp<{ count: number; ttl_seconds: number }, Cmux.CloudSurgePreview>
+    }
+    usage: {
+      /** `cloud.usage.current` (read, scope `cloud:read`): The team's Cloud usage so far this month (awake vCPU and memory, disk held while paused), its price from the billing owner, and whether a payment method is on file. */
+      current: CmuxOp<Record<string, never>, Cmux.CloudUsageCurrent>
     }
     vm: {
       attention: {
@@ -1607,6 +1616,8 @@ interface CmuxGlobal {
   settings: {
     /** `settings.get` (read, scope `settings:read`) */
     get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
+    /** `settings.history` (read, scope `settings:read`) */
+    history: CmuxOp<{ machine?: string; session?: string }, Cmux.SettingsHistory>
     /** `settings.list` (read, scope `settings:read`) */
     list: CmuxOp<{ machine?: string; session?: string; section?: string }, Array<Cmux.JsonValue>>
     /** `settings.schema` (read, scope `settings:read`) */
@@ -2129,7 +2140,7 @@ interface CmuxView {
   fontDesign(v: Bindable<"default" | "rounded" | "serif" | "monospaced">): this
   color(v: Bindable<string | null>): this; secondary(): this; lineLimit(v: Bindable<number>): this; truncation(v: Bindable<"head" | "middle" | "tail">): this
   strikethrough(v?: Bindable<boolean>): this; marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
-  transition(v: "opacity" | "slide" | "scale" | "move"): this; contentTransition(v: "numericText" | "opacity"): this; animation(v?: "smooth" | "snappy" | "none"): this
+  contentTransition(v: "numericText" | "opacity"): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
   background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; glass(level?: Bindable<"chrome" | "popover" | "menu" | "chip" | null>): this; cornerRadius(v: Bindable<number>): this
@@ -2144,9 +2155,73 @@ interface CmuxView {
   position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>): this
   cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
+  /** Animate this node's own prop changes from the value on screen: `smooth` (the default), `snappy` and `none` (the motion scale's steps) its opacity, colors, rotation and strikethrough; a motion token, spring or timed curve every animatable prop (opacity, rotation, scale, offset, blur, trim, frame size, colors, glow, ProgressView value). */
+  animation(v?: Bindable<CmuxMotion | null>): this
+  /** Scale about the node's center (1 = identity). */
+  scale(v: Bindable<number>): this
+  /** Move the drawing by points without changing layout. */
+  offset(v: Bindable<CmuxOffset>): this
+  /** Gaussian blur radius in points. */
+  blur(v: Bindable<number>): this
+  /** A colored, zero-offset shadow around the node's shape; `null` removes it. */
+  glow(v: Bindable<CmuxGlow | null>): this
+  /** A linear gradient fill (shapes) or background (stacks, panels): angle 0 = left to right, 90 (default) = top to bottom. */
+  gradient(v: Bindable<CmuxLinearGradient | null>): this
+  /** Draw only this fraction of a stroked Circle, Capsule, Rectangle or RoundedRectangle outline (a circle starts at 12 o'clock, clockwise). */
+  trim(v: Bindable<CmuxTrim | null>): this
+  /** A host-run effect that repeats forever with no JS; `null` stops it. Stops under Reduce Motion. */
+  loop(v: Bindable<CmuxLoop | null>): this
+  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size). */
+  transition(v: Bindable<CmuxTransition | null>): this
+  /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
+  clipped(v?: Bindable<boolean>): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
   symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
 }
+/** `smooth`, `snappy`, `none`: the motion scale's standard and micro steps, or none; `move`, `appear`, `disappear`, `fade`: the design-token springs and fade; `bouncy` = spring 0.45 s / 0.6. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
+type CmuxMotion =
+  | "smooth" | "snappy" | "none"
+  | "move" | "appear" | "disappear" | "fade" | "bouncy"
+  | { spring: { response: number; dampingFraction: number } }
+  | { duration: number; curve?: "easeOut" | "easeInOut" | "linear" }
+type CmuxOffset = { x?: number; y?: number }
+type CmuxGlow = { color: string; radius: number; opacity?: number }
+/** The `gradient` modifier: angle 0 = left to right, 90 (default) = top to bottom. */
+type CmuxLinearGradient = { colors: string[]; angle?: number }
+type CmuxTrim = { from?: number; to: number }
+type CmuxLoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounce" | "shimmer"
+/** `period` in seconds; `amount` scales the effect's default amplitude. */
+type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
+type CmuxTransition = "opacity" | "slide" | "scale" | "move" | "pop"
+type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. */
+/** A choreography curve: the Motion curves, a spring, or a cubic Bezier. A frame's `ease` shapes the segment that ends at it. */
+type CmuxChoreographyEase = "linear" | "easeIn" | "easeOut" | "easeInOut" | "smooth" | "snappy" | { spring: { response: number; dampingFraction?: number } } | { bezier: [number, number, number, number] }
+/** `[x, y, scale]`: points from the glyph's centre (+y down), scale 0 to 4 over `particle.size`. */
+type CmuxChoreographyDot = [number, number, number]
+type CmuxChoreographyFrame = { at: number; dots?: CmuxChoreographyDot[]; formation?: string; ease?: CmuxChoreographyEase }
+type CmuxChoreographyPhase = {
+  duration: number
+  ease?: CmuxChoreographyEase
+  frames?: CmuxChoreographyFrame[]
+  sites?: [number, number][]
+  spawn?: { every: number; order: number[]; life: number }
+  lifeFrames?: { at: number; pos: "centre" | "site" | "between"; offset?: [number, number]; s: number; ease?: CmuxChoreographyEase }[]
+}
+/** The acpmux tool kinds and session states a choreography's `triggers` may name (`cycle` plays for any other kind). */
+type CmuxChoreographyTrigger = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "other" | "sendMessage" | "turnStart" | "thinking" | "idle" | "cursor" | "cycle"
+/** A `cmux.particles/1` document (ABI.md "Particles choreography"). The host refuses unknown keys and anything past a limit (16 dots, 32 phases, 64 frames, 50 ms to 30 s, scale 0 to 4, 32 KiB). */
+type CmuxParticleChoreography = {
+  $schema: "cmux.particles/1"
+  particle: { shape?: "circle" | "square"; size: number; color?: string; max?: number }
+  phases: Record<string, CmuxChoreographyPhase>
+  formations?: Record<string, CmuxChoreographyDot[]>
+  triggers?: Partial<Record<CmuxChoreographyTrigger, string[] | { intro?: string[]; loop: string[] }>>
+}
+/** `rate` multiplies a continuous preset's emission (default 1); each increase of `burst` fires one burst. With `choreography` the node plays that glyph instead: `trigger` picks the phases by acpmux kind (read when a phase ends), `phase` loops one phase, `size` (points) and `colors[0]` override the document's particle. */
+type CmuxParticlesProps = { preset?: Bindable<CmuxParticlePreset>; colors?: Bindable<string[] | null>; rate?: Bindable<number>; burst?: Bindable<number>; choreography?: Bindable<CmuxParticleChoreography | null>; trigger?: Bindable<CmuxChoreographyTrigger | string | null>; phase?: Bindable<string | null>; size?: Bindable<number> }
+/** A particle field (confetti, sparkles, rain, snow, embers, stars) that fills its frame and takes no input, or a choreographed glyph of dots (`choreography`) centred in it; first in a ZStack, it draws behind its siblings. Host-run; stops off screen and under Reduce Motion. */
+declare function Particles(props: CmuxParticlesProps): CmuxView
 type CmuxChildren = Array<CmuxView | (() => unknown) | null | undefined | false>
 interface CmuxListSpec<T> { items: () => readonly T[] | null | undefined; key: (item: T, index: number) => string | number; onMove?: (id: string, index: number, extra: { side?: string; block?: boolean }) => unknown; onDragChange?: (state: unknown) => unknown; spacing?: number }
 declare function VStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView
