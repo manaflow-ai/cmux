@@ -39,6 +39,13 @@ public final class SettingsModels {
     private(set) var read = false
     private(set) var chatgptAttempt: String?
     private(set) var chatgptError: String?
+    /// The one-click Claude connection (`claude_token.begin`): its attempt, phase (`starting`,
+    /// `signing_in`, `saving`), the last attempt's error, and whether the last attempt saved a token
+    /// (a Cancel, or a run the daemon cancelled, ends with neither an error nor `saved`).
+    private(set) var claudeTokenAttempt: String?
+    private(set) var claudeTokenPhase: String?
+    private(set) var claudeTokenError: String?
+    private(set) var claudeTokenSaved = false
 
     @ObservationIgnored let environment: @MainActor () -> AcpmuxEnvironment?
     @ObservationIgnored private let call: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)?
@@ -55,6 +62,7 @@ public final class SettingsModels {
     /// Cloud chat waiting on Set up Cloud checks again (``CloudSetup/connectionsChanged()``, set by the app).
     @ObservationIgnored public var onConnections: (@MainActor () -> Void)?
     @ObservationIgnored private(set) var chatgptTask: Task<Void, Never>?
+    @ObservationIgnored private(set) var claudeTokenTask: Task<Void, Never>?
     @ObservationIgnored private var watch: Task<Void, Never>?
     @ObservationIgnored private var watchers = 0
 
@@ -107,6 +115,10 @@ public final class SettingsModels {
             ],
             "members": members,
             "chatgpt": ["attempt": chatgptAttempt.map(JSONValue.string) ?? .null, "error": chatgptError.map(JSONValue.string) ?? .null],
+            "claudeToken": ["attempt": claudeTokenAttempt.map(JSONValue.string) ?? .null,
+                            "phase": claudeTokenPhase.map(JSONValue.string) ?? .null,
+                            "error": claudeTokenError.map(JSONValue.string) ?? .null,
+                            "saved": .bool(claudeTokenSaved)],
         ]
     }
 
@@ -260,10 +272,19 @@ public final class SettingsModels {
         case "connectClaude":
             guard let harnesses else { throw PageError.unavailable("Claude sign-in is not available here") }
             try await harnesses.connectClaude(context: context)
+        case "connectClaudeToken":
+            return try await connectClaudeToken(label: params["label"]?.stringValue)
+        case "claudeTokenCode":
+            try await claudeTokenCode(params["code"]?.stringValue ?? "")
+        case "cancelClaudeToken":
+            await cancelClaudeToken()
         case "claudeSetupToken":
-            // The person's own gesture: a new terminal tab in their window runs Claude Code's `claude setup-token`.
-            guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
-            try await harnesses.typeLine("claude setup-token")
+            // A daemon with the one-click run (`claude_token.begin`) needs no terminal: the app runs
+            // `claude setup-token` itself and the token is never shown. An older one: the terminal tab.
+            do { return try await connectClaudeToken(label: params["label"]?.stringValue) } catch let error as PageError where error.code == "cmux.models.unsupported" {
+                guard let harnesses else { throw PageError.unavailable("no terminal tab could be opened on this Mac") }
+                try await harnesses.typeLine("claude setup-token")
+            }
         case "addClaudeToken":
             try await addClaudeToken(params["token"]?.stringValue ?? "", label: params["label"]?.stringValue)
         case "addKey":
@@ -298,7 +319,24 @@ public final class SettingsModels {
         chatgptError = error
     }
 
-    func openSignIn(_ url: URL) { openURL(url) }
+    /// A sign-in page in the app's own browser (``SettingsHarnesses/openSignInPage``), so the person
+    /// never leaves cmux; the person's browser when there is none.
+    func openInAppSignIn(_ url: URL) async {
+        if let open = harnesses?.openSignInPage, await open(url) != nil { return }
+        openURL(url)
+    }
+
+    func setClaudeToken(attempt: String?, phase: String?, error: String?, saved: Bool = false) {
+        claudeTokenAttempt = attempt
+        claudeTokenPhase = phase
+        claudeTokenError = error
+        claudeTokenSaved = saved
+    }
+
+    func replaceClaudeTokenTask(_ task: Task<Void, Never>?) {
+        claudeTokenTask?.cancel()
+        claudeTokenTask = task
+    }
 
     func replaceChatGPTTask(_ task: Task<Void, Never>?) {
         chatgptTask?.cancel()

@@ -24,6 +24,7 @@ dependencies = [
  "clap",
  "cmux-agent-customize",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-auto-session",
  "cmux-bounded",
  "cmux-build-space",
@@ -1398,6 +1399,8 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "cmux-action-catalog",
+ "cmux-config",
  "cmux-embed",
  "cmux-wallpaper",
  "hex",
@@ -1626,6 +1629,7 @@ dependencies = [
 name = "cmux-classic-import"
 version = "0.1.0"
 dependencies = [
+ "cmux-config",
  "cmux-file-lock",
  "libc",
  "serde",
@@ -2167,6 +2171,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "hex",
+ "libc",
  "reqwest",
  "rustls",
  "serde_json",
@@ -2532,6 +2537,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-pool-pod"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "cmux-process",
+ "cmux-tui-machine-protocol",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-process"
 version = "0.1.0"
 dependencies = [
@@ -2571,6 +2588,7 @@ name = "cmux-pty"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
@@ -3170,6 +3188,7 @@ dependencies = [
  "cmux-apps",
  "cmux-autocloud",
  "cmux-automations",
+ "cmux-braid-path",
  "cmux-browser-host",
  "cmux-build-identity",
  "cmux-build-space",
