@@ -1040,8 +1040,9 @@ class BenchApp:
         if self.screen is not None:
             env["CMUX_NEXT_TEST_WINDOW_SCREEN"] = str(self.screen)
         # In-tree pages (in_tree_mode.py): the caller's switch reaches the app unless this launch sets its own.
-        if os.environ.get("CMUX_IN_TREE_PAGES") is not None:
-            env["CMUX_IN_TREE_PAGES"] = os.environ["CMUX_IN_TREE_PAGES"]
+        for key in ("CMUX_IN_TREE_PAGES", "CMUX_PAGE_PRESENTATION"):
+            if os.environ.get(key) is not None:
+                env[key] = os.environ[key]
         env.update(self.extra_env)
         for key in DROPPED_ENV + tuple(k for k, v in self.extra_env.items() if v is None):
             env.pop(key, None)  # None in `env` removes a BASE_ENV variable (for example NO_ACTIVATE)
@@ -1142,6 +1143,19 @@ class BenchApp:
         refuses a launch in the other mode, so an OFF-versus-IN comparison can never measure one mode twice (step
         9ca86307: the divider bench's IN launches reported in_tree off)."""
         asked = env.get("CMUX_IN_TREE_PAGES")
+        if env.get("CMUX_PAGE_PRESENTATION") == "presented":
+            # Presented pages (CMUX_PAGE_PRESENTATION): debug.cef page_presentation names the mode ("presented" or
+            # "pending: presented", then its source); in_tree reads off.
+            reply = self.rpc("debug.cef", timeout=20)
+            shown = str(reply.get("page_presentation") or "") if isinstance(reply, dict) else ""
+            self.in_tree = reply.get("in_tree") if isinstance(reply, dict) else None
+            note("BENCH-LAUNCH-PRESENTATION " + json.dumps({"tag": self.tag, "asked": "presented", "shown": shown}))
+            if not (shown.startswith("presented") or shown.startswith("pending: presented")):
+                self.stop()
+                self._fail("presentation-mismatch", {"tag": self.tag, **host_facts(), "asked": "presented", "shown": shown,
+                                                     "detail": f"launched with CMUX_PAGE_PRESENTATION=presented, the app "
+                                                               f"reports page_presentation={shown!r}", "log_tail": ""})
+            return
         if asked is None:
             return  # the launch keeps the build's own mode: nothing to hold it to
         reply = self.rpc("debug.cef", timeout=20)

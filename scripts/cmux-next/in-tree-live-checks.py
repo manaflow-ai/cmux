@@ -81,6 +81,9 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--out", default=tempfile.mkdtemp(prefix="in-tree-live-"))
 parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
+parser.add_argument("--presentation", choices=["presented", "inTree", "childWindow"],
+                    help="the page presentation mode (CMUX_PAGE_PRESENTATION); default from --in-tree (on: inTree, off: "
+                         "childWindow). presented: cmux's page view hosts the page's headless window and forwards input")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
                     "window_resize,fullscreen,resize_hitch,chaos_resize,live_resize,divider_load,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
@@ -94,6 +97,11 @@ parser.add_argument("--app-env", dest="app_env", action="append", default=[],
                     help="KEY=VALUE for the launched app's environment (repeatable), e.g. CMUX_CEF_RESIZE_FENCE_MS=500")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
+# The mode: in tree and presented both keep every page in the window's views (page_views, no page windows, the cmux
+# window keeps the keys); only in tree puts Chromium's own view (RenderWidgetHostViewCocoa) there.
+MODE = opts.presentation or ("inTree" if opts.in_tree == "on" else "childWindow")
+VIEWS = MODE != "childWindow"
+opts.in_tree = "on" if MODE == "inTree" else "off"
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
@@ -1684,7 +1692,7 @@ def build_user_grid(page_tab):
     opened = sum(1 for k in ("heavy", "probe2", "probe3") if isinstance(made.get(k), dict) and made[k].get("tab")) + 1
     made["pages_opened"] = opened
     RAW["user_grid"] = made
-    built = len(views) >= 4 if opts.in_tree == "on" else opened >= 4
+    built = len(views) >= 4 if VIEWS else opened >= 4
     row("PASS" if built else "FAIL", "user_grid",
         {"page_views_shown": len(views), "pages_opened": opened, "made": made,
          "pass_if": "the user's grid: 4 pages + a terminal (in-tree ON: 4 page views shown; OFF: 4 pages opened)"})
@@ -2123,12 +2131,14 @@ def check_key_route(tab, pane):
     time.sleep(0.6)  # test harness: focus lands
     facts = focus_facts()
     RAW["key_route_focus"] = facts
-    on = opts.in_tree == "on"
-    # The keys stay with the cmux window (in tree) or its page's child window (off): never a window no cmux window
-    # owns, such as an in-tree page's headless Chromium window.
+    on = VIEWS
+    # The keys stay with the cmux window (in tree, presented) or its page's child window (off): never a window no cmux
+    # window owns, such as a page's headless Chromium window. In tree the first responder is Chromium's page view;
+    # presented it is cmux's own page view (CEFHostedPageView).
     keys_home = facts["key_window"] in (("ShellWindow",) if on else ("ShellWindow", "CefNSWindow"))
+    page_view_class = "CEFHostedPageView" if MODE == "presented" else "RenderWidgetHostView"
     page_responder = keys_home and facts["resolved"] == "browserPage" \
-        and (not on or ("RenderWidgetHostView" in str(facts["first_responder"]) and facts["is_key"]))
+        and (not on or (page_view_class in str(facts["first_responder"]) and facts["is_key"]))
     row(page_responder, "key_route.responder",
         {"bug": 23, "facts": facts, "before": RAW["key_route_focus_terminal"], "window_focus": RAW["key_route_window_focus"],
          "pass_if": "after tab.focus with no click the cmux window keeps the keys and the page's view is its first responder"})
@@ -2178,7 +2188,7 @@ def make_key():
     """The cmux window (in tree) or the page's window (off) becomes the app's key window without activating the app,
     as a person's click into the page makes it: a Shift tap through the app's event queue with debug.key `key_window`."""
     steps = [{"key_code": KEY_CODES["shift"], "down": True, "after_ms": 0}, {"key_code": KEY_CODES["shift"], "down": False, "after_ms": 20}]
-    reply = rpc("debug.key", {"sequence": steps, "key_window": "shell" if opts.in_tree == "on" else "page"})
+    reply = rpc("debug.key", {"sequence": steps, "key_window": "shell" if VIEWS else "page"})
     time.sleep(0.3)  # test harness: the tap plays and the key status reaches the page's view
     return reply
 
@@ -2258,7 +2268,7 @@ def check_element_fullscreen(tab, pane):
             # A real Escape through the app's event queue to the key window that holds the page.
             how = rpc("debug.key", {"sequence": [{"key_code": KEY_CODES["escape"], "down": True, "after_ms": 0},
                                                  {"key_code": KEY_CODES["escape"], "down": False, "after_ms": 40}],
-                                    "key_window": "shell" if opts.in_tree == "on" else "page"})
+                                    "key_window": "shell" if VIEWS else "page"})
         else:
             how = page_eval("document.exitFullscreen().then(() => true, e => String(e))", tab)
         left = settle(lambda: not state().get("el") and is_full_screen() == start["full_screen"])
@@ -2292,7 +2302,7 @@ with open(config, "w") as f:
 env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
        "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
        "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config, "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1300,860",
-       "CMUX_IN_TREE_PAGES": "1" if opts.in_tree == "on" else "0"}
+       "CMUX_IN_TREE_PAGES": "1" if opts.in_tree == "on" else "0", "CMUX_PAGE_PRESENTATION": MODE}
 for pair in opts.app_env:
     key, _, val = pair.partition("=")
     if key:
@@ -2362,9 +2372,16 @@ try:
     focus_after_split = rpc("debug.focus")
     RAW["focus_after_split"] = focus_after_split
 
-    status = (rpc("debug.cef") or {}).get("in_tree")
+    cef_mode = rpc("debug.cef") or {}
+    status, presentation = cef_mode.get("in_tree"), str(cef_mode.get("page_presentation") or "")
+    RAW["page_presentation"] = presentation
     if "mode" in CHECKS:
-        row(status == "on" if opts.in_tree == "on" else status in ("off", None), "mode", {"asked": opts.in_tree, "in_tree": status})
+        if MODE == "presented":
+            row(presentation.startswith("presented") and status in ("off", None), "mode",
+                {"asked": MODE, "in_tree": status, "page_presentation": presentation})
+        else:
+            row(status == "on" if opts.in_tree == "on" else status in ("off", None), "mode",
+                {"asked": MODE, "in_tree": status, "page_presentation": presentation})
 
     if "census" in CHECKS:
         first = census("loaded")
@@ -2375,9 +2392,12 @@ try:
         no_violations = all(not w["violations"] for w in pw2)
         flat = [(a["reorders"], b["reorders"], a["divider_catcher_updates"], b["divider_catcher_updates"]) for a, b in zip(pw1, pw2)]
         flat_ok = all(r1 == r2 and d1 == d2 for r1, r2, d1, d2 in flat)
-        if opts.in_tree == "on":
+        if VIEWS:
             browsers = [b for w in pw2 for b in w["browsers"] if b.get("engine") is not None]
-            in_tree_pages = bool(browsers) and all(b.get("presentation") == "in_tree" and b.get("widget_drawing") == 0 for b in browsers)
+            if MODE == "presented":
+                in_tree_pages = bool(browsers) and all(b.get("presentation") == "presented" for b in browsers)
+            else:
+                in_tree_pages = bool(browsers) and all(b.get("presentation") == "in_tree" and b.get("widget_drawing") == 0 for b in browsers)
             listed = sum(w["page_views"] for w in pw2) >= len(browsers) > 0
             no_panel = all(w["overlay_panel"] is None for w in pw2)
             row(no_page_windows and no_violations and in_tree_pages and listed and no_panel and flat_ok, "census",
@@ -2555,7 +2575,10 @@ try:
             both = census("two_pages")
             browsers = [b for w in both["per_window"] for b in w["browsers"] if b.get("engine") is not None]
             panes = {b.get("pane") for b in browsers}
-            if opts.in_tree == "on":
+            if MODE == "presented":
+                views = [v for v in main_layers().get("page_views") or [] if v.get("presented") and not v.get("parked")]
+                ok = len(panes) >= 2 and all(b.get("presentation") == "presented" for b in browsers) and len(views) >= 2
+            elif opts.in_tree == "on":
                 ok = len(panes) >= 2 and all(b.get("presentation") == "in_tree" and b.get("rwhv_in_window") for b in browsers)
             else:
                 ok = len(panes) >= 2
@@ -2601,8 +2624,8 @@ finally:
     server.shutdown()
 failed = [r for r in ROWS if r["verdict"] == "FAIL"]
 RAW["page_eval_failures"] = PAGE_EVAL_FAILURES
-report = {"in_tree_requested": opts.in_tree, "rows": ROWS, "failed": len(failed), "raw": RAW}
+report = {"in_tree_requested": opts.in_tree, "presentation": MODE, "rows": ROWS, "failed": len(failed), "raw": RAW}
 with open(opts.json or os.path.join(opts.out, "in-tree-live.json"), "w") as f:
     json.dump(report, f, indent=1, default=str)
-print(f"in-tree-live-checks: {len(ROWS) - len(failed)} of {len(ROWS)} rows pass (in-tree {opts.in_tree})", flush=True)
+print(f"in-tree-live-checks: {len(ROWS) - len(failed)} of {len(ROWS)} rows pass ({MODE})", flush=True)
 sys.exit(1 if failed else 0)
