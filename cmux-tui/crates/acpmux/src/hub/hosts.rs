@@ -712,6 +712,27 @@ impl Hub {
         hold: &mut Option<super::full_access_bound::FamilyHold>,
     ) -> anyhow::Result<()> {
         let incarnation = record.incarnation.clone();
+        // A host whose agent was still starting when the last daemon stopped: the chat never
+        // learned its conversation (no agent session id), so every prompt to it would answer
+        // "no agent session". It ends, and the chat's next prompt starts its agent as the cut
+        // start would have (a fork from its chat's conversation: `fork_start.rs`; cmux#50096).
+        if session.meta().agent_session_id.is_none() {
+            let dir = agent_host::hosts_dir();
+            let ended = end_host_blocking(
+                dir.clone(),
+                record.session_id.clone(),
+                Some(record.start_nonce.clone()),
+                Some(record.host_pid),
+            )
+            .await;
+            if ended {
+                agent_host::remove_artifacts(&dir, &record);
+                hold.take();
+            }
+            tracing::warn!(session = %session.id, ended, "agent host ended at adoption: its start was cut by the restart, so the chat has no agent session; the next prompt starts it again");
+            self.append(session, "mux", "host_ended", json!({"reason": "start_cut_by_restart"}));
+            return Ok(());
+        }
         let of = incarnation.clone();
         if session.meta().remote_origin
             && !self

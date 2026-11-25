@@ -324,6 +324,49 @@ final class TerminalProjectionUITests: XCTestCase {
     }
 
     @MainActor
+    func testClaudeCodeHeaderStaysVisibleAtHostGridScrollBottom() throws {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-CmuxMobileTerminalDemo",
+                                "-CmuxMobileHostGridDemo", "50x40,tui,header"]
+        app.launch()
+        defer { app.terminate() }
+
+        let probe = app.staticTexts["debug.terminal-demo"]
+        XCTAssertTrue(probe.waitForExistence(timeout: 30), "the host-grid demo did not open\n\(app.debugDescription)")
+        let header = app.descendants(matching: .any)["terminal.tui.header"]
+        let field = app.textViews["terminal.composer.field"]
+
+        func assertHeader(_ state: String) {
+            XCTAssertTrue(header.waitForExistence(timeout: 5), "Claude Code row 0 is not visible at \(state)\n\(probe.label)")
+            XCTAssertTrue(header.isHittable, "Claude Code row 0 is clipped at \(state)\n\(probe.label)")
+            XCTAssertGreaterThan(header.frame.height, 0, "Claude Code header has no height at \(state)")
+        }
+
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
+        assertHeader("keyboard down, one-line composer")
+
+        let keyboardKey = app.buttons["terminal.key.keyboard"]
+        XCTAssertTrue(keyboardKey.waitForExistence(timeout: 5), "keyboard key\n\(app.debugDescription)")
+        keyboardKey.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "keyboard up")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        assertHeader("keyboard up, one-line composer")
+
+        XCTAssertTrue(field.waitForExistence(timeout: 5), "composer field\n\(app.debugDescription)")
+        field.tap()
+        field.typeText("one\ntwo\nthree\nfour\nfive")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        assertHeader("keyboard up, five-line composer")
+
+        keyboardKey.tap()
+        XCTAssertFalse(app.keyboards.firstMatch.waitForExistence(timeout: 5), "keyboard down")
+        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
+        assertHeader("keyboard down, five-line composer")
+    }
+
+    @MainActor
     private func run(macGrid: String?, name pane: String) {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()

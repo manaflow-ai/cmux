@@ -26,7 +26,7 @@
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -182,7 +182,7 @@ impl HostMapper {
             return None;
         }
         tracing::info!(local_port, external = %mapped.external, protocol = mapped.spec.protocol(), lifetime = mapped.lifetime, "port mapped");
-        Some(hold(router, local_port, mapped))
+        hold(router, local_port, mapped)
     }
 }
 
@@ -248,16 +248,41 @@ struct Mapped {
     spec: Spec,
 }
 
+/// One live mapping: where it is, how to delete it, and its renew task.
+struct Held {
+    router: Router,
+    spec: Spec,
+    renew: tokio::task::AbortHandle,
+}
+
 /// Every live mapping, to delete at exit.
-fn live() -> &'static Mutex<HashMap<u64, (Router, Spec)>> {
-    static LIVE: OnceLock<Mutex<HashMap<u64, (Router, Spec)>>> = OnceLock::new();
+fn live() -> &'static Mutex<HashMap<u64, Held>> {
+    static LIVE: OnceLock<Mutex<HashMap<u64, Held>>> = OnceLock::new();
     LIVE.get_or_init(Mutex::default)
 }
 
+/// Set once [`release_all`] starts: a mapping granted after it is given back
+/// at once, not held.
+static RELEASING: AtomicBool = AtomicBool::new(false);
+
+/// Tests: the host runs on after a `release_all`.
+#[cfg(test)]
+fn stop_releasing() {
+    RELEASING.store(false, Ordering::SeqCst);
+}
+
 /// Delete every live mapping at the router, waiting at most `limit` (the
-/// host's exit).
+/// host's exit). Each renew task is stopped first, so a renewal in flight
+/// cannot put a mapping back after its delete.
 pub async fn release_all(limit: Duration) {
-    let all: Vec<(Router, Spec)> = lock(live()).drain().map(|(_, held)| held).collect();
+    RELEASING.store(true, Ordering::SeqCst);
+    let all: Vec<(Router, Spec)> = lock(live())
+        .drain()
+        .map(|(_, held)| {
+            held.renew.abort();
+            (held.router, held.spec)
+        })
+        .collect();
     if all.is_empty() {
         return;
     }
@@ -268,7 +293,7 @@ pub async fn release_all(limit: Duration) {
 
 /// The live mappings' protocols and external addresses (tests, debug).
 pub fn live_mappings() -> Vec<(&'static str, Router)> {
-    lock(live()).values().map(|(router, spec)| (spec.protocol(), *router)).collect()
+    lock(live()).values().map(|held| (held.spec.protocol(), held.router)).collect()
 }
 
 /// Holds one mapping: renews it, and deletes it when dropped.
@@ -280,22 +305,33 @@ struct Lease {
 impl Drop for Lease {
     fn drop(&mut self) {
         self.task.abort();
-        if let Some((router, spec)) = lock(live()).remove(&self.id)
+        if let Some(held) = lock(live()).remove(&self.id)
             && let Ok(runtime) = tokio::runtime::Handle::try_current()
         {
-            runtime.spawn(delete(router, spec));
+            runtime.spawn(delete(held.router, held.spec));
         }
     }
 }
 
 /// Keep `mapped` alive: renew it at half its lifetime and send the external
 /// address (`None` once it lapsed) to the session.
-fn hold(router: Router, local_port: u16, mapped: Mapped) -> PortMapping {
+/// `None` once the host is stopping ([`release_all`] started): the mapping is
+/// given back at once.
+fn hold(router: Router, local_port: u16, mapped: Mapped) -> Option<PortMapping> {
     static IDS: AtomicU64 = AtomicU64::new(1);
+    // Under the lock until it is in `live`: `release_all` sets RELEASING and
+    // then drains, so a mapping is either drained or given back here.
+    let mut all = lock(live());
+    if RELEASING.load(Ordering::SeqCst) {
+        drop(all);
+        tracing::debug!(protocol = mapped.spec.protocol(), "port mapped while the host stops; deleting it");
+        tokio::spawn(delete(router, mapped.spec));
+        return None;
+    }
     let id = IDS.fetch_add(1, Ordering::Relaxed);
     let protocol = mapped.spec.protocol();
     let (tx, rx) = watch::channel(Some(mapped.external));
-    lock(live()).insert(id, (router, mapped.spec.clone()));
+    let spec = mapped.spec.clone();
     let task = tokio::spawn(async move {
         let mut mapped = mapped;
         loop {
@@ -325,12 +361,14 @@ fn hold(router: Router, local_port: u16, mapped: Mapped) -> PortMapping {
                 tx.send_if_modified(|now| now.replace(renewed.external) != Some(renewed.external));
             }
             if let Some(held) = lock(live()).get_mut(&id) {
-                held.1 = renewed.spec.clone();
+                held.spec = renewed.spec.clone();
             }
             mapped = renewed;
         }
     });
-    PortMapping { protocol, external: rx, lease: Box::new(Lease { id, task }) }
+    all.insert(id, Held { router, spec, renew: task.abort_handle() });
+    drop(all);
+    Some(PortMapping { protocol, external: rx, lease: Box::new(Lease { id, task }) })
 }
 
 async fn renew(router: &Router, local_port: u16, spec: &Spec) -> Option<Mapped> {
@@ -370,7 +408,9 @@ async fn exchange<T>(router: &Router, request: &[u8], accept: impl Fn(&[u8]) -> 
         loop {
             let received = tokio::time::timeout_at(deadline, socket.recv_from(&mut buffer)).await;
             let Ok(Ok((len, from))) = received else { break };
-            if from.ip() != to.ip() {
+            // Only the gateway's PCP/NAT-PMP port answers (RFC 6887 §8.3,
+            // RFC 6886 §3.1): another port on it, or a LAN peer, is ignored.
+            if from != to {
                 continue;
             }
             if let Some(answer) = accept(&buffer[..len]) {
