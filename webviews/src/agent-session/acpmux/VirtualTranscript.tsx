@@ -2270,19 +2270,15 @@ function TranscriptView({
       // A fling's row (`flingMount`) is read by its observer too: a row just mounted reports its first
       // size there, one kept at the height placed reports when that changed. Read here only when the
       // placed entry is for another width or footer, which the observer's size alone does not change.
-      // A row drawn again at the very version, width, footer and open state its kept height was read
-      // at (a chat switched back to, a workspace shown again: every row mounts anew) is read by its
-      // observer too. Its first observation lands in the browser's own layout pass, before the frame
-      // paints, and places it again only if the size moved. Read in the commit, every mounted row's
-      // getBoundingClientRect forced a layout after React's writes: 10-20 ms of a chat switch
-      // (bench/settled-page.bench.ts PROFILE=1, chat_switch).
       const fling = flingMount.current;
-      if (typeof ResizeObserver !== "undefined") {
+      if (
+        (fling || (versionOnly && tokenRows.get(rowsRef.current) === true)) &&
+        typeof ResizeObserver !== "undefined"
+      ) {
         const known = drawnRef.current.get(id);
         if (fling && !known) return noQueue;
         if (
           known &&
-          (fling || known.version === version || (versionOnly && tokenRows.get(rowsRef.current) === true)) &&
           known.sessionId === sessionId &&
           known.width === rowWidthRef.current &&
           Boolean(known.actions) === Boolean(actions) &&
