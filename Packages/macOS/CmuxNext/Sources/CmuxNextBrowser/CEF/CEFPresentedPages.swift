@@ -179,6 +179,18 @@ public struct PresentedPageCensus: Sendable, Equatable {
 }
 
 extension CEFTab {
+    /// `debug.layers` `page_views` entry of this tab's presented page view in `pane` (Foundation values, the in-tree
+    /// entries' keys plus the presented page's own); nil while it is not presented, has no page view or is hidden.
+    public func presentedPageViewFields(pane: String) -> [String: Any]? {
+        guard let census = presentedPageCensus, !contentView.isHiddenOrHasHiddenAncestor else { return nil }
+        let frame = census.frameInWindow
+        return ["pane": pane, "parked": false, "parking": NSNull(), "presented": true, "rwhv_in_window": false,
+                "frame_in_window": [frame.minX, frame.minY, frame.width, frame.height].map(Double.init),
+                "widget_drawing": -1, "geometry": "presented", "context_id": Double(census.contextID),
+                "detached": census.detached, "takes_input": census.takesInput, "first_responder": census.isFirstResponder,
+                "page_focused": census.pageFocused, "cursor": census.cursor ?? NSNull()]
+    }
+
     /// The presented page's state (`debug.layers`); nil while it is not presented or has no page view.
     public var presentedPageCensus: PresentedPageCensus? {
         let hosting = host.hostView.layerHosting

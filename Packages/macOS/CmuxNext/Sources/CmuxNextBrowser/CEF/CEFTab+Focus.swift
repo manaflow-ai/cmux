@@ -130,7 +130,7 @@ extension CEFTab {
         }
         if window.firstResponder === page {
             // Already its window's first responder: Chromium may have lost the page's focus meanwhile (a hide).
-            page.input?.focusChanged(true)
+            page.reassertPageFocus()
             return
         }
         if !FocusRoute(.person, "cmux grants a presented page the keyboard").moveKeyboard(in: window, to: page) {
@@ -141,9 +141,6 @@ extension CEFTab {
     /// cmux takes the keyboard from a presented page: its key state goes off. The page view's own resignation does the
     /// same when the focus model moves the window's first responder.
     func blurPresentedPage() {
-        guard let page = host.hostView.layerHosting.page, page.input != nil else { return }
-        if page.window?.firstResponder === page {
-            page.input?.focusChanged(false)
-        }
+        host.hostView.layerHosting.page?.dropPageFocus()
     }
 }

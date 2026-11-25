@@ -74,6 +74,8 @@ import Testing
         hosting.pageWindowCreated(browser: 4, fork: fork.fork, presented: presented ? shim.calls : nil)
         for block in turn { block() }
         let page = try #require(hosting.page, "SETUP: the page is not hosted")
+        // A test window is never key: the page view reads its window as key, as the app's shown window is.
+        page.windowIsKey = { _ in true }
         return (hosting, page)
     }
 
@@ -257,6 +259,18 @@ import Testing
         #expect(NSApp.keyWindow === keyBefore, "a presented page's focus changed the key window")
         // No Chromium page window was ever ordered in or made a child of the cmux window.
         #expect(window.childWindows?.isEmpty ?? true)
+    }
+
+    /// The page's focus is the embedder's key state: its window resigning key blurs the page, becoming key focuses it
+    /// again, as a Chrome page in a window that loses and regains key.
+    @Test func theWindowsKeyStateIsThePagesFocus() throws {
+        let (_, page) = try presentedPage()
+        #expect(window.makeFirstResponder(page))
+        page.windowIsKey = { _ in false }
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        page.windowIsKey = { _ in true }
+        NotificationCenter.default.post(name: NSWindow.didBecomeKeyNotification, object: window)
+        #expect(shim.focus.map(\.focused) == [true, false, true])
     }
 
     // MARK: Cursor, forwarded keys

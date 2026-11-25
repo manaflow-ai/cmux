@@ -23,4 +23,14 @@ public nonisolated enum BrowserPresentation: Hashable, Sendable {
     /// page's headless window), which takes the page's input and forwards it (presented pages, fork API 26 and 30). No
     /// Chromium view or window is in the cmux window; overlays are plain views above it; the window stays key.
     case presented
+
+    /// `debug.layers` name (`browsers[].presentation`).
+    public var debugName: String {
+        switch self {
+        case .inView: "in_view"
+        case .childWindow: "child_window"
+        case .inTree: "in_tree"
+        case .presented: "presented"
+        }
+    }
 }

@@ -39,10 +39,18 @@ final class CEFHostedPageView: NSView {
     weak var input: (any ChromiumPageInputSink)? {
         didSet {
             guard (input == nil) != (oldValue == nil) else { return }
+            givesPageFocus = false
             updateTrackingAreas()
             window?.invalidateCursorRects(for: self)
+            observeWindowKey()
         }
     }
+    /// Whether a window is key (AppKit's answer; tests pass their own).
+    var windowIsKey: (NSWindow) -> Bool = { $0.isKeyWindow }
+    /// The page focus last given (``syncPageFocus(firstResponder:)``): this view is its key window's first responder.
+    var givesPageFocus = false
+    /// The window whose key changes this view follows, while it presents a page.
+    weak var observedWindow: NSWindow?
     /// Chromium's cursor over a presented page (`CefDisplayHandler::OnCursorChange`), shown while the pointer is over
     /// this view; nil: the arrow.
     var pageCursor: NSCursor? {
@@ -155,6 +163,11 @@ final class CEFHostedPageView: NSView {
     }
 
     override func isAccessibilityElement() -> Bool { false }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        observeWindowKey()
+    }
 
     /// `debug.cef` `tracker.hosted_pages` counts the hosted views in a
     /// window, so a view released with its host (DevTools closed, a pane

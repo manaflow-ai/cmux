@@ -13,8 +13,10 @@ extension CEFTab {
         if let host = devToolsController.views?.host, host.presentsPage, let tools = host.layerHosting.page, tools.input != nil {
             if focused, tools.window?.firstResponder !== tools {
                 FocusRoute(.person, "cmux gives docked DevTools the keyboard").moveKeyboard(in: tools.window, to: tools)
+            } else if focused {
+                tools.reassertPageFocus()
             } else {
-                tools.input?.focusChanged(focused)
+                tools.dropPageFocus()
             }
             return
         }

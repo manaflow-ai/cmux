@@ -55,8 +55,7 @@ enum DebugCEF {
         object["in_tree"] = .string(InTreePages.shared.status)
         // How pages show: "child_window", "in_tree", "presented", "pending: <mode>" or "unsupported_fork: <why>", and
         // where the mode came from (environment, file, tag, default).
-        object["page_presentation"] = .string(InTreePages.shared.presentationStatus)
-        object["page_presentation_source"] = .string(InTreePages.shared.source)
+        object["page_presentation"] = .string(InTreePages.shared.presentationStatus + " (\(InTreePages.shared.source))")
         object["file_dialogs"] = .object(services.cache.cef.fileDialogReport.mapValues { .string($0) })
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }

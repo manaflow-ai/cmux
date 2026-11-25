@@ -101,7 +101,7 @@ enum DebugLayers {
             var fields: [String: JSONValue] = [
                 "pane": .string(pane.paneKey),
                 "engine": .string(String(describing: entry.tab.engineKind)),
-                "presentation": .string(Self.presentationName(entry.tab.presentation)),
+                "presentation": .string(entry.tab.presentation.debugName),
                 "content_in_window": .bool(content.window === window),
             ]
             if entry.tab.presentation == .inTree {
@@ -120,17 +120,6 @@ enum DebugLayers {
                     fields["headless_in_sync"] = headless.map { .bool(distance($0.frame, host) <= 1) } ?? .null
                 }
             }
-            if entry.tab.presentation == .presented, let census = (entry.tab as? CEFTab)?.presentedPageCensus {
-                // Presented: cmux's page view hosts the page's context and takes its input; the page window is headless.
-                fields["presented_view_frame_in_window"] = rect(census.frameInWindow)
-                fields["presented_context_id"] = .number(Double(census.contextID))
-                fields["presented_input"] = .bool(census.takesInput)
-                fields["presented_detached"] = .bool(census.detached)
-                fields["presented_first_responder"] = .bool(census.isFirstResponder)
-                fields["presented_page_focused"] = .bool(census.pageFocused)
-                fields["presented_cursor"] = census.cursor.map(JSONValue.string) ?? .null
-                fields["hosted_layer_hosts"] = .number(Double(layerHostCount(content.layer)))
-            }
             if entry.tab.presentation == .childWindow, content.window === window, !content.isHiddenOrHasHiddenAncestor {
                 // The page window must cover the host view exactly, in
                 // screen coordinates, whatever moved the window.
@@ -146,6 +135,12 @@ enum DebugLayers {
                 fields["page_window_layer_hosts"] = page.map { .number(Double(layerHostCount($0.contentView?.layer))) } ?? .null
             }
             return .object(fields)
+        }
+        // Presented pages: each shown page's view (cmux's, hosting the page's headless window), listed with the in-tree
+        // page views so a check reads one list of page views in the window whatever the mode.
+        let presentedViews: [JSONValue] = (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+            guard case .browser(let entry)? = pane.currentContent, entry.tab.contentView.window === window else { return nil }
+            return (entry.tab as? CEFTab)?.presentedPageViewFields(pane: pane.paneKey).flatMap(JSONValue.init(foundation:))
         }
         let above = layer.isOverlayAboveContent
         let inSync = layer.adoptedPlanes.allSatisfy(\.isInSync)
@@ -173,10 +168,9 @@ enum DebugLayers {
             // In-tree pages (InTreePages): the mode ("off", "pending", "on", "unsupported_fork: why"), the page views in
             // this window's tree, and how many of them still have a drawing headless widget (must be 0).
             "in_tree": .string(InTreePages.shared.status),
-            "page_presentation": .string(InTreePages.shared.presentationStatus),
             // A view with no pane is parked, never shown: `parking` says where (`pageParking`); "unplaced" is a page view
             // nothing accounts for, which a check fails on.
-            "page_views": .array(pageViews.map { view in
+            "page_views": .array(pageViews.map { view -> JSONValue in
                 let census = view.inTreeCensus
                 let pane = controller.inTreePagePane(of: view)
                 let parking = pane == nil ? pageParking(of: view, controller: controller) : nil
@@ -188,7 +182,7 @@ enum DebugLayers {
                     "rwhv_in_window": .bool(census.contentInWindow),
                     "widget_drawing": .number(Double(census.widgetDrawing)), "geometry": .string(view.inTreeGeometry),
                 ])
-            }),
+            } + presentedViews),
             // In-tree pages: page child windows that showed over this window (`WindowOverlayLayer`); must stay empty.
             "retired_page_windows": .array(layer.retiredPageWindowSightings.map(JSONValue.string)),
             "widget_drawing": .number(Double(pageViews.filter { $0.inTreeCensus.widgetDrawing == 1 }.count)),
@@ -343,15 +337,6 @@ enum DebugLayers {
         if child === layer.overlayPanel { return "overlay" }
         if WindowOverlayLayer.isContent(child) { return "content" }
         return "panel"
-    }
-
-    static func presentationName(_ presentation: BrowserPresentation) -> String {
-        switch presentation {
-        case .inView: "in_view"
-        case .childWindow: "child_window"
-        case .inTree: "in_tree"
-        case .presented: "presented"
-        }
     }
 
     private static func rect(_ rect: CGRect) -> JSONValue {

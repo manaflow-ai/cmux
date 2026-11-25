@@ -14,17 +14,68 @@ extension CEFHostedPageView {
     // MARK: Focus
 
     /// The page takes the keyboard: Chromium's page focus and active state, with no window made key
-    /// (`cmux_shim_browser_set_page_focus`).
+    /// (`cmux_shim_browser_set_page_focus`). The page has focus while this view is its key window's first responder
+    /// (`cmux_browser_set_embedder_active`'s contract), as a Chrome page has while its view is first responder of a key
+    /// window: the window resigning key blurs the page, and becoming key again focuses it.
     override func becomeFirstResponder() -> Bool {
-        guard let input else { return super.becomeFirstResponder() }
-        input.focusChanged(true)
+        guard input != nil else { return super.becomeFirstResponder() }
+        syncPageFocus(firstResponder: true)
         return true
     }
 
     override func resignFirstResponder() -> Bool {
-        guard let input else { return super.resignFirstResponder() }
-        input.focusChanged(false)
+        guard input != nil else { return super.resignFirstResponder() }
+        syncPageFocus(firstResponder: false)
         return true
+    }
+
+    /// Gives the page the focus this view's state says, when it changed (`firstResponder`: the state AppKit is moving
+    /// to, inside a responder change; nil reads the window's).
+    func syncPageFocus(firstResponder: Bool? = nil) {
+        guard let input else { return }
+        let responder = firstResponder ?? (window?.firstResponder === self)
+        let focused = responder && window.map(windowIsKey) == true
+        guard focused != givesPageFocus else { return }
+        givesPageFocus = focused
+        input.focusChanged(focused)
+    }
+
+    /// cmux grants the page the keyboard again while this view is already first responder: Chromium may have dropped
+    /// the page's focus meanwhile (a hide), so it is given again.
+    func reassertPageFocus() {
+        guard let input else { return }
+        givesPageFocus = window?.firstResponder === self && window.map(windowIsKey) == true
+        if givesPageFocus { input.focusChanged(true) }
+    }
+
+    /// cmux takes the keyboard from the page while this view stays first responder.
+    func dropPageFocus() {
+        guard let input, givesPageFocus else { return }
+        givesPageFocus = false
+        input.focusChanged(false)
+    }
+
+    /// Follows the window's key changes while this view presents a page.
+    func observeWindowKey() {
+        let center = NotificationCenter.default
+        if let observedWindow {
+            center.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: observedWindow)
+            center.removeObserver(self, name: NSWindow.didResignKeyNotification, object: observedWindow)
+        }
+        observedWindow = nil
+        guard input != nil, let window else {
+            if input != nil { syncPageFocus(firstResponder: false) }
+            return
+        }
+        observedWindow = window
+        center.addObserver(self, selector: #selector(windowKeyChanged(_:)), name: NSWindow.didBecomeKeyNotification, object: window)
+        center.addObserver(self, selector: #selector(windowKeyChanged(_:)), name: NSWindow.didResignKeyNotification, object: window)
+        syncPageFocus()
+    }
+
+    /// AppKit posts a window's key changes on the main thread.
+    @objc func windowKeyChanged(_ note: Notification) {
+        syncPageFocus()
     }
 
     // MARK: Mouse
@@ -117,7 +168,7 @@ extension CEFHostedPageView {
     /// first responder already when the window was key; an inactive window's first press comes here first).
     private func takeKeyboardOnPress() {
         guard let window, window.firstResponder !== self else { return }
-        window.makeFirstResponder(self)
+        FocusRoute(.person, "a press on a presented page").moveKeyboard(in: window, to: self)
     }
 
     private func forward(_ event: NSEvent, _ phase: ChromiumPageInput.Mouse.Phase, button: Int32) { // perf-hot: 5us cef-host-input (every mouse event)

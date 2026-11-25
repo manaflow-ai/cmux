@@ -679,6 +679,8 @@ final class CEFLayerHosting {
     /// next show, browser change and tracker read try again. Until then the page window is a transparent child window
     /// over the view that takes the mouse itself.
     private(set) var detachOwed = false
+    /// The page view became the page's input surface: a focus ask kept while it had no context is granted now.
+    var onPresented: (() -> Void)?
 
     /// Detaches the presented page's window and makes its view the input surface.
     private func present() {
@@ -689,9 +691,6 @@ final class CEFLayerHosting {
         if detachOwed { CEFHostView.trackerStats.presentedDetachRefused += 1 }
         if !wasInput { onPresented?() }
     }
-
-    /// The page view became the page's input surface: a focus ask kept while it had no context is granted now.
-    var onPresented: (() -> Void)?
 
     /// Runs `block` on the main run loop at the end of this turn, after the
     /// caller's stack (Chromium's creation stack) returned.

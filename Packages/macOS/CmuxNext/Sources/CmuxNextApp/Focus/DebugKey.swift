@@ -254,8 +254,7 @@ enum DebugKey {
     /// the cmux window, so there is no page window to click).
     static func inTreePageView(of pane: String, in controller: WindowController) -> NSView? {
         guard let window = controller.window, let paneController = controller.content?.paneController(key: pane),
-              case .browser(let entry)? = paneController.currentContent,
-              entry.tab.presentation == .inTree || entry.tab.presentation == .presented,
+              case .browser(let entry)? = paneController.currentContent, [.inTree, .presented].contains(entry.tab.presentation),
               entry.tab.contentView.window === window else { return nil }
         return entry.tab.contentView
     }
