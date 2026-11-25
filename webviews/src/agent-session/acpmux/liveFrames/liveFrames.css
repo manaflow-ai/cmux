@@ -82,7 +82,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--text-caption, 12px);
+  font-size: var(--text-caption);
   color: var(--agent-muted);
 }
 .acpmux-frames-dock__button {

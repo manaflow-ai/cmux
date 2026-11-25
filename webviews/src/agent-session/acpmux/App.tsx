@@ -3938,8 +3938,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
   }, [turnFramesCache, latestSummary, snapshot.sessionId]);
   const latestFrame = useCallback(
+    // The dock resets on its pane key (the chat), so this reader needs no identity per chat.
     (since: number) => directClient.current?.latestFrame(since) ?? Promise.resolve({ seq: since }),
-    [snapshot.sessionId],
+    [],
   );
   // A wrap-up card's Try it on, Keep and Revert run through the chat's acpmux.
   useEffect(() => {
