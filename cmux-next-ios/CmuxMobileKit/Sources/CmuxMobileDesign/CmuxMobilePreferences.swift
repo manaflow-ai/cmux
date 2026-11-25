@@ -35,6 +35,10 @@ public enum CmuxMobilePreferences {
         /// Fall back if need be"): on, a full-screen app shows at the Mac's grid, zoomed, and only
         /// typing into it resizes the Mac (`TerminalProjectingSession`, Rust `fit_policy`).
         public static let terminalZoomFullScreenApps = "cmuxMobile.settings.terminalZoomFullScreenApps"
+        /// Settings → Terminal → Find in Whole History (off by default; Leo, 2026-11-24: "don't
+        /// unilaterally MERGE ui stuff yet ... having people be able to easily toggle"): on, Find
+        /// asks the Mac's daemon (`terminal-find`) for matches in the terminal's whole history.
+        public static let terminalHistoryFind = "cmuxMobile.settings.terminalHistoryFind"
         /// Settings → Transport → Ultra mode (off, auto, always); read at each dial (`FFIMacLinkDialer`).
         public static let ultra = "cmuxMobile.settings.ultra"
         /// Settings → Transport → Align Keepalives (off by default); read at each dial and by
@@ -81,6 +85,7 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalPlainScroll = false
     public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false
+    public static let defaultTerminalHistoryFind = false
     public static let defaultDismissKeyboardAfterSend = true
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
     /// easily toggle" it).
@@ -143,6 +148,13 @@ public enum CmuxMobilePreferences {
         // `bool(forKey:)` also reads a launch argument's "NO"/"YES" string.
         defaults.object(forKey: Key.terminalZoomFullScreenApps) == nil
             ? defaultTerminalZoomFullScreenApps : defaults.bool(forKey: Key.terminalZoomFullScreenApps)
+    }
+
+    /// Whether Find searches the Mac's whole history for a terminal (on) or only the rows the
+    /// phone holds (off, the default). Read at each search.
+    public static func terminalHistoryFind(_ defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: Key.terminalHistoryFind) == nil
+            ? defaultTerminalHistoryFind : defaults.bool(forKey: Key.terminalHistoryFind)
     }
 
     /// Typed characters show at once over a slow link, underlined until the
