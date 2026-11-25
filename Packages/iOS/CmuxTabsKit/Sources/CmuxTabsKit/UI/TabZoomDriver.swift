@@ -11,7 +11,7 @@ import UIKit
 final class TabZoomDriver {
     private(set) var state = TabZoomState(motion: TabZoomDriver.variant)
     /// The transition's taste (`-tabs-transition NAME`), read once per launch.
-    nonisolated static let variant =TabTransitionVariant.fromEnvironment()
+    nonisolated static let variant = TabTransitionVariant.fromEnvironment()
     /// The cards' close buttons and titles (their own clock after 0.96).
     private(set) var chrome = CardChrome()
     @ObservationIgnored var onSettle: ((TabZoomState.Phase) -> Void)?
