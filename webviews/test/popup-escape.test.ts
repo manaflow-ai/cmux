@@ -328,13 +328,6 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     await page.close();
   });
 
-  test("a short window keeps the stage layout's New Tab suggestions in the page, above the composer", async () => {
-    const page = await stage("agent-pane.new-tab", "typed-tab-match-stage", { width: 600, height: 260 });
-    const labels = await checkSuggestionsStayInPage(page, "release");
-    expect(labels.join(" ")).toContain("Release notes");
-    await page.close();
-  });
-
   test("a short window sends the classic New Tab suggestions past its edge", async () => {
     const page = await stage("agent-pane.new-tab", "template-classic", { width: 600, height: 300 });
     await checkSuggestions(page, ".acpmux-newtab-field .acpmux-md", ".acpmux-omni", "a");

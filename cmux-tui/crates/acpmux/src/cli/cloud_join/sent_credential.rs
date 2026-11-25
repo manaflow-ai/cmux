@@ -51,6 +51,12 @@ pub(super) fn team(token: &str) -> Option<String> {
     claims(token)?.get("team")?.as_str().filter(|team| !team.is_empty()).map(str::to_owned)
 }
 
+/// The `sub` claim of `token`: the person it acts for (unverified; not a secret), or None when it
+/// is no JWT or names none.
+pub(super) fn user(token: &str) -> Option<String> {
+    claims(token)?.get("sub")?.as_str().filter(|user| !user.is_empty()).map(str::to_owned)
+}
+
 /// The unverified payload of a three-part JWT.
 fn claims(token: &str) -> Option<serde_json::Map<String, Value>> {
     let mut parts = token.trim().split('.');

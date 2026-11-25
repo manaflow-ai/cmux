@@ -10,7 +10,10 @@ pull request with stale exports that no later autofix run regenerates (seen on
 The test loads the workflow and evaluates the push job's `if:` against each
 combination of upstream results, so a regrouped or negated term fails it.
 
-The workflow runs only on pull_request, and since 1aa405bc167d the push job's
+The workflow runs only for a pull request: on pull_request, and since #47195
+as a workflow that docs-only-fallback.yml calls (workflow_call) from its own
+pull_request run, where github.event_name is still the caller's
+`pull_request`. Since 1aa405bc167d the push job's
 `if:` starts with `github.event_name != 'pull_request'`: the job waits on the
 protected cmux-pr-autofix environment, so it is switched off and the repairs
 stay in the artifact. The test asserts that it stays off for a pull request,
@@ -87,7 +90,15 @@ class PushGateTests(unittest.TestCase):
 
     def test_push_stays_off_for_the_pull_request_event(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text())
-        self.assertEqual(set(workflow[True]), {"pull_request"})  # PyYAML reads `on:` as True
+        # A called workflow has its caller's event name, and every caller runs on pull_request only.
+        self.assertEqual(set(workflow[True]), {"pull_request", "workflow_call"})  # PyYAML reads `on:` as True
+        # Each form of a call: `./.github/workflows/NAME` and `OWNER/REPO/.github/workflows/NAME@REF`, in a
+        # `.yml` or a `.yaml` file.
+        callers = [path for path in sorted(WORKFLOW.parent.glob("*.y*ml"))
+                   if re.search(rf"uses:\s*\S*\.github/workflows/{re.escape(WORKFLOW.name)}", path.read_text())]
+        self.assertEqual([path.name for path in callers], ["docs-only-fallback.yml"])
+        for caller in callers:
+            self.assertEqual(set(yaml.safe_load(caller.read_text())[True]), {"pull_request"}, caller.name)
         for areas, exports, repair in itertools.product(RESULTS, RESULTS, RESULTS):
             values = {
                 "needs.action-areas.result": areas,

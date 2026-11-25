@@ -2,6 +2,21 @@
 import { componentEntry } from "../../gallery/format";
 import type { StashGalleryProps } from "./galleryFixture";
 
+// The list is windowed: a group's header and its rows are siblings, so a play finds a group's rows by
+// their `data-stash` (the group's id), never by nesting or by `:first-of-type` / `:last-of-type`.
+const byIndex = (items: Iterable<HTMLElement>) =>
+  [...items].sort((a, b) => Number(a.dataset.index) - Number(b.dataset.index));
+const groupIds = (document: Document) =>
+  byIndex(document.querySelectorAll<HTMLElement>(".stash-group[data-stash]")).map((group) => group.dataset.stash!);
+const group = (stash: string) => `.stash-group[data-stash="${CSS.escape(stash)}"]`;
+/** The group's bottom row, by its `data-key`. */
+const lastRow = (document: Document, stash: string) => {
+  const key = byIndex(document.querySelectorAll<HTMLElement>(`.stash-row[data-stash="${CSS.escape(stash)}"]`)).at(-1)
+    ?.dataset.key;
+  if (!key) throw new Error(`group ${stash} shows no row`);
+  return `.stash-row[data-key="${CSS.escape(key)}"]`;
+};
+
 export default componentEntry<StashGalleryProps>({
   id: "pages.stash",
   title: "Stashed Tabs",
@@ -61,7 +76,7 @@ export default componentEntry<StashGalleryProps>({
         ) {
           throw new Error("a group header shows more than Restore All");
         }
-        await ctx.focus({ selector: ".stash-group:first-of-type .stash-group-restore" });
+        await ctx.focus({ selector: `${group(groupIds(ctx.document)[0]!)} .stash-group-restore` });
         await ctx.press("Shift+F10");
         await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
       },
@@ -71,7 +86,7 @@ export default componentEntry<StashGalleryProps>({
       props: {},
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".stash-group-header"));
-        await ctx.contextMenu({ selector: ".stash-group:first-of-type .stash-group-name" });
+        await ctx.contextMenu({ selector: `${group(groupIds(ctx.document)[0]!)} .stash-group-name` });
         await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
       },
     },
@@ -82,7 +97,8 @@ export default componentEntry<StashGalleryProps>({
         const rows = () => ctx.document.querySelectorAll(".stash-row").length;
         await ctx.waitFor(() => rows() === 6);
         // The bottom row, so no row moves when it hides.
-        await ctx.focus({ selector: ".stash-group:last-of-type .stash-row:last-child .stash-row-main" });
+        const bottom = groupIds(ctx.document).at(-1)!;
+        await ctx.focus({ selector: `${lastRow(ctx.document, bottom)} .stash-row-main` });
         await ctx.press("Shift+F10");
         await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
         await ctx.click({ selector: ".page-menu-item.destructive" });
@@ -98,12 +114,13 @@ export default componentEntry<StashGalleryProps>({
           [...ctx.document.querySelectorAll(".stash-row-title")].map((title) => title.textContent ?? "");
         await ctx.waitFor(() => titles().length === 6);
         // The bottom group, so nothing under it moves: its last row first, then Restore All.
-        await ctx.contextMenu({ selector: ".stash-group:last-of-type .stash-row:last-child" });
+        const bottom = groupIds(ctx.document).at(-1)!;
+        await ctx.contextMenu({ selector: lastRow(ctx.document, bottom) });
         await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
         await ctx.click({ selector: ".page-menu-item.destructive" });
         await ctx.waitFor(() => titles().length === 5);
         await ctx.waitFor(() => !ctx.document.querySelector(".page-menu"));
-        await ctx.click({ selector: ".stash-group:last-of-type .stash-group-restore" });
+        await ctx.click({ selector: `${group(bottom)} .stash-group-restore` });
         await ctx.waitFor(() => titles().length === 4);
         if (titles().includes("https://example.org/long/path")) throw new Error("Restore All reopened the hidden row");
       },

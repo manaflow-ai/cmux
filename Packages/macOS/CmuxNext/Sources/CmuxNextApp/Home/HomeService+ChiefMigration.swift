@@ -1,4 +1,5 @@
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -32,8 +33,7 @@ extension HomeService {
         let home = chief.home
         guard home.importsOldChiefs else { return }
         let create = HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let support = NextSupport.applicationSupportDirectory()
         let olds = ChiefMigration.oldChiefs(userHome: FileManager.default.homeDirectoryForCurrentUser, applicationSupport: support)
         let logger = logger
         let tool = BundledChiefMemoryTool.bundled()
@@ -76,7 +76,7 @@ extension HomeService {
         return local ?? teleportNotice(for: id) ?? migrationNotice
     }
 
-    /// Where the Chief runs, on the conversations that show its location chip (``showsTeleport(conversation:)``):
+    /// Where the Chief runs, on the conversations whose Chief card shows its Runs On row (``showsTeleport(conversation:)``):
     /// a move that runs or failed, where it went and when, a rollback, or its fork in cmux Cloud.
     func teleportNotice(for id: ConversationID) -> String? {
         showsTeleport(conversation: id.rawValue) ? services.chiefTeleport.notice() : nil

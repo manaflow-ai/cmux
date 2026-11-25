@@ -115,6 +115,11 @@ public protocol PageChromiumPage: AnyObject {
     /// - Returns: The method's JSON result.
     /// - Throws: When the page is gone or the method fails.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
+    /// Sends a DevTools protocol method now, after every call sent before it, and returns what awaits its JSON
+    /// result (throwing as ``devTools(_:params:)`` does). Calls started one after another in one turn reach the
+    /// page in that order, and their answers come in about one round trip instead of one each
+    /// (``ChromiumPageHostBridge/startSetUp(documentScripts:)``).
+    func startDevTools(_ method: String, params: [String: any Sendable]) -> @MainActor () async throws -> String
     /// Runs a bounded long-lived evaluation (a DEBUG DOM waiter) beyond the ordinary short-call deadline.
     func devTools(_ method: String, params: [String: any Sendable], timeout: Duration) async throws -> String
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -164,6 +169,11 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// The Chromium browser itself went away (not closed by the host): the page cannot come back
     /// in Chromium.
     case ended
+    /// The Chromium engine stopped for the app's quit (`CEFRuntime.shutdown` closed every browser): the page is
+    /// not reopened in WebKit, and no crash is reported. Each quit was logged as every Chromium page's crash and
+    /// started a WebKit load of each while the app quit (Leo's Mac, 2026-11-21: four quits read as four
+    /// "chromium-failed" New Tab pages).
+    case engineStopped
     /// The page asked to open `url` in a new tab or window (`window.open`, a `target=_blank` link).
     case openRequested(URL)
     /// A drag of these files from outside the app entered the page (their paths, which the page

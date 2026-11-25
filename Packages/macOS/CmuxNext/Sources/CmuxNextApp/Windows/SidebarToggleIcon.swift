@@ -81,17 +81,17 @@ nonisolated enum SidebarToggleIcon: String, Sendable, CaseIterable, TunableChoic
 
     var tunableTitle: String {
         switch self {
-        case .panel: String(localized: "sidebarToggleIcon.panel", defaultValue: "Panel with Sliding Bar", bundle: .module)
-        case .current: String(localized: "sidebarToggleIcon.current", defaultValue: "Arrow (current)", bundle: .module)
-        case .sidebarLeft: String(localized: "sidebarToggleIcon.sidebarLeft", defaultValue: "Sidebar", bundle: .module)
-        case .sidebarSquares: String(localized: "sidebarToggleIcon.sidebarSquares", defaultValue: "Sidebar with Squares", bundle: .module)
-        case .leftThird: String(localized: "sidebarToggleIcon.leftThird", defaultValue: "Left Third", bundle: .module)
-        case .railFilled: String(localized: "sidebarToggleIcon.railFilled", defaultValue: "Panel with Filled Rail", bundle: .module)
-        case .railOnly: String(localized: "sidebarToggleIcon.railOnly", defaultValue: "Rail Only", bundle: .module)
-        case .chevronPanel: String(localized: "sidebarToggleIcon.chevronPanel", defaultValue: "Panel with Chevron", bundle: .module)
-        case .twoColumn: String(localized: "sidebarToggleIcon.twoColumn", defaultValue: "Two Columns", bundle: .module)
-        case .listRail: String(localized: "sidebarToggleIcon.listRail", defaultValue: "Rail with Rows", bundle: .module)
-        case .thickEdge: String(localized: "sidebarToggleIcon.thickEdge", defaultValue: "Thick Edge", bundle: .module)
+        case .panel: String(localized: "sidebarToggleIcon.panel", defaultValue: "Panel with Sliding Bar", bundle: .module.inAppLanguage)
+        case .current: String(localized: "sidebarToggleIcon.current", defaultValue: "Arrow (current)", bundle: .module.inAppLanguage)
+        case .sidebarLeft: String(localized: "sidebarToggleIcon.sidebarLeft", defaultValue: "Sidebar", bundle: .module.inAppLanguage)
+        case .sidebarSquares: String(localized: "sidebarToggleIcon.sidebarSquares", defaultValue: "Sidebar with Squares", bundle: .module.inAppLanguage)
+        case .leftThird: String(localized: "sidebarToggleIcon.leftThird", defaultValue: "Left Third", bundle: .module.inAppLanguage)
+        case .railFilled: String(localized: "sidebarToggleIcon.railFilled", defaultValue: "Panel with Filled Rail", bundle: .module.inAppLanguage)
+        case .railOnly: String(localized: "sidebarToggleIcon.railOnly", defaultValue: "Rail Only", bundle: .module.inAppLanguage)
+        case .chevronPanel: String(localized: "sidebarToggleIcon.chevronPanel", defaultValue: "Panel with Chevron", bundle: .module.inAppLanguage)
+        case .twoColumn: String(localized: "sidebarToggleIcon.twoColumn", defaultValue: "Two Columns", bundle: .module.inAppLanguage)
+        case .listRail: String(localized: "sidebarToggleIcon.listRail", defaultValue: "Rail with Rows", bundle: .module.inAppLanguage)
+        case .thickEdge: String(localized: "sidebarToggleIcon.thickEdge", defaultValue: "Thick Edge", bundle: .module.inAppLanguage)
         }
     }
 

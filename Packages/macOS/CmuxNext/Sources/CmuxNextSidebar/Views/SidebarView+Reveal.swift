@@ -3,8 +3,8 @@ import CmuxNextDesign
 
 // The pointer over the sidebar reveals, in Minimal Mode (`sidebar.minimal`, user 2026-11-15) or with Show Sidebar
 // Controls Only on Hover (`sidebar.controlsOnHover`, Lawrence 2026-10-27), its New Workspace button, spaces strip, profile control and Search
-// button; in Hide Bands Until Hover (`sidebar.minimalMode`, R54) the chosen pinned bands; and,
-// with the thin scrollers' opt-in auto-hide, the scrollers. By default the controls always show.
+// button; and in Hide Bands Until Hover (`sidebar.minimalMode`, R54) the chosen pinned bands. It
+// never reveals a scroller: those show only while their view scrolls. By default the controls always show.
 extension SidebarViewComponents {
     /// Fades the hover chrome in or out (``SidebarChromeReveal``). Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
@@ -21,12 +21,9 @@ extension SidebarViewComponents {
         isChromeRevealed = revealed
         for region in bandRegions { region.chromeRevealed = revealed }
         if changed { onChromeRevealChange?(revealed) }
-        // With the auto-hide (the default), the pointer arriving shows the thin scrollers a moment.
-        if changed, revealed, SystemScrollers.thinScrollersAutoHide {
-            for scroll: NSScrollView in [scrollView, aboveScroll, belowScroll] {
-                (scroll.verticalScroller as? ThinScroller)?.flash()
-            }
-        }
+        // The pointer arriving shows no scroller: a sidebar knob shows only while its view scrolls
+        // (Leo, ask-969743672d: "hovering only doesnt show"), so a knob never sits under the resize
+        // band unasked.
         let target = chromeReveal(revealed: revealed)
         guard changed || target != appliedChromeReveal else { return }
         appliedChromeReveal = target
@@ -40,6 +37,7 @@ extension SidebarViewComponents {
             belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: target.bottomBand == 0)
             footerRegion.animator().alphaValue = target.footer
             searchButton.animator().alphaValue = target.footer
+            liveButton.animator().alphaValue = target.footer * (live.isLive ? 1 : 0.7)
             liveModeBadge?.animator().alphaValue = target.footer
             for view in minimalChromeViews { view.animator().alphaValue = target.rest }
         }
@@ -86,10 +84,10 @@ extension SidebarViewComponents {
     /// view, edit mode's bar) and the controls with their own piece of ``SidebarChromeReveal``.
     private var revealExemptViews: [NSView] {
         [edgeFade, aboveFade, belowFade, priorityPanelView, footer, footerRegion, profileBar,
-         newButton, newWorkspaceOptionsButton, searchButton] + [liveModeBadge, editBar].compactMap { $0 }
+         newButton, newWorkspaceOptionsButton, searchButton, liveButton] + [liveModeBadge, editBar].compactMap { $0 }
     }
 
-    /// Every other view in the sidebar: the cards, the card stack, app health's line, the Update Available button,
+    /// Every other view in the sidebar: the cards, the card stack, the Update Available button,
     /// the Priority bell, the titlebar accessory, the needs-you tray. They fade together with ``SidebarChromeReveal/rest``
     /// (Minimal Mode, the pointer away). A rule over the sidebar's subviews, not a list of cards: a view added later
     /// hides by default.
@@ -98,7 +96,7 @@ extension SidebarViewComponents {
         return subviews.filter { !exempt.contains(ObjectIdentifier($0)) }
     }
 
-    /// Gives a view that joined the sidebar since the last reveal (a card that came, app health's line) the
+    /// Gives a view that joined the sidebar since the last reveal (a card that came) the
     /// rest opacity at once, so a card that arrives with the pointer away arrives hidden: its own entrance
     /// (``SidebarCardTransition``) would otherwise draw it over the model value until it ends. Runs in `layout()`.
     func applyRestReveal() {

@@ -22,6 +22,9 @@ Rules (each finding names its rule):
   background-mode        every UIBackgroundModes value is one iOS knows (BACKGROUND_MODES).
   90474-ipad-orientation an app that runs on iPad without UIRequiresFullScreen lists all four
                          iPad orientations.
+  2.5.1-private-framework (built app only) no binary in the app names a
+                         /System/Library/PrivateFrameworks/ path (App Review 2.5.1; the 1.0.0
+                         upload's IPA check, run 44431574873, found ChatKit's).
 
 Exit 1 with one line per finding ("<file>: <rule>: <text>"), else 0. There is no escape hatch:
 Apple has none either.
@@ -273,7 +276,10 @@ def intent_texts(node: object, field: str | None = None):
             yield from intent_texts(child, field)
 
 
-def used_apis_in_binaries(app: Path) -> set[str]:
+PRIVATE_FRAMEWORKS = b"/System/Library/PrivateFrameworks/"
+
+
+def app_binaries(app: Path) -> list[Path]:
     binaries = [app / app.stem]
     info_path = app / "Info.plist"
     if info_path.is_file():
@@ -281,12 +287,17 @@ def used_apis_in_binaries(app: Path) -> set[str]:
         if executable:
             binaries = [app / executable]
     binaries += sorted(p / p.stem for p in (app / "Frameworks").glob("*.framework"))
+    return [b for b in binaries if b.is_file()]
+
+
+def used_apis_in_binaries(app: Path, findings: Findings) -> set[str]:
     used: set[str] = set()
-    for binary in binaries:
-        if not binary.is_file():
-            continue
+    for binary in app_binaries(app):
         data = binary.read_bytes()
         used |= {api for api in USAGE_APIS if f"_OBJC_CLASS_$_{api}".encode() in data}
+        if PRIVATE_FRAMEWORKS in data:
+            findings.add(binary.relative_to(app).as_posix(), "2.5.1-private-framework",
+                         f"names {PRIVATE_FRAMEWORKS.decode()}")
     return used
 
 
@@ -315,7 +326,7 @@ def check_app(app: Path, findings: Findings) -> None:
                 findings.usage(where, key, value)
     info_path = app / "Info.plist"
     if info_path.is_file():
-        findings.info("Info.plist", plistlib.loads(info_path.read_bytes()), used_apis_in_binaries(app))
+        findings.info("Info.plist", plistlib.loads(info_path.read_bytes()), used_apis_in_binaries(app, findings))
     else:
         findings.add(app.name, "info-plist", "missing Info.plist")
 

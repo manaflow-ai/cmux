@@ -4,6 +4,9 @@ public import Foundation
 /// callbacks (WKNavigationDelegate, KVO, CEF handlers) into these events.
 public nonisolated enum BrowserNavigationEvent: Hashable, Sendable {
     case started(BrowserNavigationID, url: URL?)
+    /// The address a page will load once its engine has a page for it (a Chromium tab no pane showed yet): the
+    /// address shows, and nothing loads or commits until the engine starts the load (`.started`).
+    case addressPending(URL)
     case redirected(BrowserNavigationID, url: URL?)
     case committed(BrowserNavigationID, url: URL?)
     case finished(BrowserNavigationID)
@@ -90,6 +93,11 @@ public nonisolated struct BrowserTabStateMachine: Sendable {
             state.progress = Self.initialProgress
             if let url { state.url = url }
             startedURL = state.url
+
+        case .addressPending(let url):
+            // Not a navigation: no phase, progress or committed address moves (an unloaded tab is not loading).
+            guard !state.isLoading else { return }
+            state.url = url
 
         case .redirected(let id, let url):
             guard id == state.activeNavigation, let url else { return }

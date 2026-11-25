@@ -1,5 +1,6 @@
 <!-- Before drafting or revising this description, read ../STYLE.md. Lead with the problem and the resulting behavior, keep it proportional, and delete any section or checklist line that does not apply. -->
 <!-- First pull request here? docs/start-here.md covers what reviewers look for and what CI runs for you: https://github.com/manaflow-ai/cmux/blob/main/docs/start-here.md -->
+<!-- Internal notes, measurements and ops tooling go to the maintainers' private repo, not here. -->
 
 ## Summary
 
@@ -57,6 +58,7 @@ The pr-capture-check job warns on a native UI change without the required eviden
 <!-- Required for changes under webviews/ or CmuxNext UI paths. The advisory check only warns when this section or its verdict is missing; it never blocks a PR. Run the ui-review skill and paste its verdict and ranked findings here. Remove this section when the PR does not change UI. -->
 
 Verdict: blocked | approve with changes | ship it
+Try: `scripts/cmux-next/try-pr.sh N` <!-- this PR's number: a reviewer opens it in a copy of cmux NEXT before reading the diff; or `Try: none, <why>` -->
 
 ### Findings
 

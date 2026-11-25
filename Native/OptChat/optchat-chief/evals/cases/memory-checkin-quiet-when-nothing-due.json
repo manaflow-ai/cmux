@@ -325,6 +325,10 @@
       "checks": [
         {
           "type": "silent"
+        },
+        {
+          "type": "called",
+          "cmd": "nothing"
         }
       ]
     }

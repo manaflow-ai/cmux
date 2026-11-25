@@ -32,6 +32,7 @@
 use crate::net::{Candidate, Later, Net, NetConfig, NetEvent, TurnServer};
 use crate::{EndpointEvent, Event, KeyPair, Role};
 use std::net::{SocketAddr, ToSocketAddrs};
+#[cfg(unix)]
 use std::os::fd::RawFd;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -288,6 +289,7 @@ impl DatagramLink {
     }
 
     /// Readable when [`DatagramLink::poll`] may have something; `None` once ended.
+    #[cfg(unix)]
     pub fn fd(&self) -> Option<RawFd> {
         self.net.as_ref().map(Net::event_fd)
     }
@@ -317,6 +319,14 @@ impl DatagramLink {
     pub fn send_datagram(&self, datagram: &[u8]) {
         if let Some(net) = &self.net {
             net.send_datagram(datagram.to_vec());
+        }
+    }
+
+    /// Queues one complete encoded frame, allowing the link to evict stale
+    /// frames without leaving their datagram fragments behind.
+    pub fn send_datagram_frame(&self, datagrams: Vec<Vec<u8>>, droppable: bool) {
+        if let Some(net) = &self.net {
+            net.send_datagram_frame(datagrams, droppable);
         }
     }
 

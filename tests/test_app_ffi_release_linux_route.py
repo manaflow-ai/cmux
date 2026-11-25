@@ -14,6 +14,7 @@ from pathlib import Path
 import yaml
 
 WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/app-ffi-release.yml"
+REPIN = WORKFLOW.with_name("app-ffi-repin.yml")
 LANE = "vars.CI_RELEASE_PIN_SLOT != 'off' && github.run_attempt <= 2 && 'cmux-gcp-nightly-x64'"
 CONTROL_JOBS = ("placement", "rescue", "publish", "repin")
 
@@ -27,8 +28,22 @@ class FfiReleaseLinuxRoute(unittest.TestCase):
             with self.subTest(job=name):
                 runs_on = self.jobs[name]["runs-on"]
                 self.assertIn(LANE, runs_on)
-                self.assertLess(runs_on.index(LANE), runs_on.index("vars.LINUX_RUNNER"))
+                self.assertLess(runs_on.index(LANE), runs_on.index("'cmux-linux'"))
                 self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' ||"))
+
+    def test_the_repin_workflow_takes_the_nightly_lane_first(self) -> None:
+        runs_on = yaml.safe_load(REPIN.read_text())["jobs"]["repin"]["runs-on"]
+        self.assertIn(LANE, runs_on)
+        self.assertLess(runs_on.index(LANE), runs_on.index("'cmux-linux'"))
+
+    def test_the_repin_jobs_outlast_one_healthy_repin_and_abort_a_stalled_fetch(self) -> None:
+        # One healthy re-pin took about 8 min after a 1.5 min checkout (run 44655157417); at 10 min four runs timed
+        # out and re-dispatched themselves (2026-11-20).
+        for job in (self.jobs["repin"], yaml.safe_load(REPIN.read_text())["jobs"]["repin"]):
+            self.assertGreaterEqual(int(job["timeout-minutes"]), 20)
+            [step] = [s for s in job["steps"] if "publish-app-ffi-repin.sh" in str(s.get("run", ""))]
+            self.assertEqual(step["env"]["GIT_HTTP_LOW_SPEED_LIMIT"], "1000")
+            self.assertEqual(step["env"]["GIT_HTTP_LOW_SPEED_TIME"], "60")
 
     def test_the_compare_only_shadow_stays_off_the_reserved_lane(self) -> None:
         self.assertNotIn("cmux-gcp-nightly-x64", self.jobs["macos-cross-shadow"]["runs-on"])

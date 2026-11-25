@@ -188,8 +188,29 @@ def crate_references(root: Path, crates: list[Crate]) -> dict[str, set[str]]:
                             repo_rel = PurePosixPath(os.path.relpath(target, top)).as_posix()
                             if repo_rel.startswith("..") or _under(repo_rel, crate.dir) or not os.path.exists(target):
                                 continue
-                            refs[repo_rel].add(crate.name)
+                            for ref in root_reads(top, text) if repo_rel == "." else [repo_rel]:
+                                refs[ref].add(crate.name)
     return refs
+
+
+AFFECTED_READS = re.compile(r"//\s*affected-reads:([^\n]*)")
+
+
+def root_reads(top: str, text: str) -> list[str]:
+    """What a source that names the repository root ("../../.." from its crate) reads under it: the
+    root-relative paths its `// affected-reads: PATH...` comments list (`none`: the literal is no repo
+    path, such as a temp dir's "../../.."), else "." (every path). A listed path that does not exist
+    reads as "." too, so a stale list selects more, never less. Reading every root reference as the whole
+    tree selected cmux-tui-core and its 13 dependents for 325 of 327 merged pull requests (2026-11-17),
+    docs and webviews changes included; the scan cannot tell a walk from a few named files, the source can."""
+    listed = " ".join(AFFECTED_READS.findall(text)).split()
+    if not listed:
+        return ["."]
+    if listed == ["none"]:
+        return []
+    if not all(os.path.exists(os.path.join(top, p)) for p in listed):
+        return ["."]
+    return sorted(set(listed))
 
 
 def tree_inputs(root: Path, ws: str) -> list[str]:

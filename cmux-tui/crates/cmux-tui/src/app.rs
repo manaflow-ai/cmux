@@ -28,6 +28,7 @@ mod viewport;
 
 mod daemon_reconnect;
 mod frame_geometry;
+mod host_frame_writer;
 mod machine_worker;
 mod run;
 mod status_command;

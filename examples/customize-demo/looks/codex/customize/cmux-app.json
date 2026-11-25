@@ -1,0 +1,32 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Codex",
+  "version": "1.0.0",
+  "description": "Codex's New Tab (what should we build, in the project you pick), threads by project in the sidebar, and Codex's rate limits in each chat's Session Info.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab/1": { "export": "renderHome", "title": "Codex", "symbol": "chevron.left.forwardslash.chevron.right" },
+    "cmux.section/1": {
+      "export": "renderThreads",
+      "title": "Threads",
+      "symbol": "bubble.left.and.bubble.right",
+      "options": { "defaultRegion": "top", "maxRows": 40 }
+    },
+    "cmux.session.info.section/1": {
+      "export": "renderLimits",
+      "title": "Rate limits",
+      "symbol": "gauge.with.dots.needle.50percent",
+      "options": { "maxRows": 6 }
+    }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats, to list threads by project.",
+    "usage_app:read": "Read the rate limits left on your Codex accounts from cmux's Usage app.",
+    "workspace:read": "Know which workspace is open, to mark its thread.",
+    "workspace:write": "Show a thread's workspace when you click it.",
+    "actions:run": "Start a Codex chat from the New Tab, or open a thread in a tab."
+  }
+}

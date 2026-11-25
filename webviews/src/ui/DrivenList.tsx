@@ -7,15 +7,56 @@
 // model menu's columns (QuickModelColumns.tsx: the harness rail, the models, a model's settings and
 // the account card) are built from them.
 import type { HTMLAttributes, KeyboardEvent, MouseEvent, Ref } from "react";
+import type { ListCommand } from "./keyStyle";
+import { useKeyStyleSettings, useListKeys } from "./useListKeys";
 
 type DivProps = Omit<HTMLAttributes<HTMLDivElement>, "role"> & {
   [data: `data-${string}`]: string | undefined;
   ref?: Ref<HTMLDivElement>;
 };
 
-/** A list a field outside it drives: `listbox` for picks, `tablist` for a rail of tabs. */
-export function DrivenList({ kind, label, ...rest }: DivProps & { kind: "listbox" | "tablist"; label: string }) {
-  return <div {...rest} role={kind} aria-label={label} />;
+/**
+ * A list a field outside it drives: `listbox` for picks, `tablist` for a rail of tabs.
+ *
+ * `onListCommand`: the list takes the keyboard itself under `app.keyStyle` (Vim's Esc in the field
+ * gives it the keyboard): the style's keys, from the list or a focused row, run the command
+ * (`false` when the list has none for it, so the key goes on), and Return on the list itself runs
+ * `list.open`. In Standard nothing changes: the list stays out of focus and every key passes.
+ */
+export function DrivenList({
+  kind,
+  label,
+  onListCommand,
+  ...rest
+}: DivProps & {
+  kind: "listbox" | "tablist";
+  label: string;
+  onListCommand?(command: ListCommand, event: KeyboardEvent<HTMLDivElement>): boolean | void;
+}) {
+  const takesKeys = useKeyStyleSettings().keyStyle !== "standard" && onListCommand !== undefined;
+  const listKeys = useListKeys({
+    onCommand: (command, _native, pressed) =>
+      onListCommand?.(command, pressed as KeyboardEvent<HTMLDivElement>) ?? false,
+  });
+  return (
+    // oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- `kind` is the list's role (listbox, tablist)
+    <div
+      {...rest}
+      role={kind}
+      aria-label={label}
+      tabIndex={takesKeys ? -1 : rest.tabIndex}
+      onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+        rest.onKeyDown?.(event);
+        if (!takesKeys || event.defaultPrevented) return;
+        listKeys(event);
+        if (event.defaultPrevented || event.target !== event.currentTarget || event.key !== "Enter") return;
+        if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+        if (onListCommand?.("list.open", event) === false) return;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
+    />
+  );
 }
 
 /** What a row of a driven list is. */

@@ -39,7 +39,7 @@ test("the levels are chrome, popover, menu and chip, each with its tint, blur an
 // page lays none: Glass.makeHostSurface). No surface keeps a tint of its own.
 test("every popup and hover card uses the transient material and lays no veil on the App's glass", () => {
   const glass = source("ui/glass/glass.css").replace(/\/\*[\s\S]*?\*\//g, "");
-  const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass {");
+  const at = glass.indexOf(".ui-popup.ui-glass,\n.ui-card.ui-glass,");
   expect(at).toBeGreaterThanOrEqual(0);
   const rule = glass.slice(at, glass.indexOf("}", at));
   expect(rule).toContain("var(--ds-transient-web-tint)");
@@ -200,7 +200,7 @@ test("the native check fails a glass view or tint scale outside the levels and p
 test("a level surface outside .ui-glass turns solid under Reduce Transparency: the New Tab box", () => {
   const css = source("agent-session/acpmux/styles.css");
   expect(css).toMatch(
-    /:root\[data-reduce-transparency\] \.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,
+    /:root:is\(\[data-reduce-transparency\], \[data-glass="off"\]\) \.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,
   );
   expect(css).toMatch(
     /@media \(prefers-reduced-transparency:reduce\)\{\.acpmux-newtab-box\{background:var\(--acpmux-composer-solid\b/,

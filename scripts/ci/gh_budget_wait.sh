@@ -29,6 +29,10 @@
 # safe. Standard input is replayed only when the call reads it (`--input -`,
 # `@-`, `-F -`); otherwise it is left alone for the caller. With GH_TOKEN_SPARE set (a
 # token with its own limit), the first refusal moves the call to it at once, with no wait.
+# GH_TOKEN_SPARES (whitespace-separated tokens, each another App installation's pool) are
+# the pools after it: a refused pool hands the call to the next one not yet refused, in
+# order, and only when every pool has refused does the call wait for a reset (then the
+# rotation starts over). A rate limit on one pool never fails a call while another has room.
 # A request that never reached GitHub (a TLS handshake timeout, a failed dial or DNS lookup:
 # run 44154643146's nightly-loop restart died on one) is tried again the same way, after 15,
 # 30, 60, then 120 s; a failure after the request went out (a reset, a read timeout) is not,
@@ -112,7 +116,7 @@ wait_for_budget() {
     return 1
   }
   log_wait "$why; waiting ${want}s $until (${spent}s waited in this job so far)"
-  sleep "$want"
+  sleep "$want"  # sleep-ok: waiting out the API rate-limit reset is the point
 }
 
 if [ "${1:-}" = "--install" ]; then
@@ -227,6 +231,10 @@ for arg in "$@"; do
 done
 [ -z "$stdin_file" ] || cat >"$stdin_file"
 
+# Pools this call may move to, in order, and the ones that refused it so far (space-padded).
+pools="${GH_TOKEN_SPARE:-} ${GH_TOKEN_SPARES:-}"
+refused=" "
+
 try=1
 while [ "$try" -le "$attempts" ]; do
   if [ -n "$stdin_file" ]; then
@@ -244,15 +252,27 @@ while [ "$try" -le "$attempts" ]; do
     try=$((try + 1))
     continue
   fi
-  # A spare token with its own limit (GH_TOKEN_SPARE, the cmux-bot App's) takes the next try at
-  # once, before any wait: every workflow's github.token shares one installation budget.
-  if [ -n "${GH_TOKEN_SPARE:-}" ] && [ "${GH_TOKEN:-}" != "$GH_TOKEN_SPARE" ]; then
-    log_wait "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts); the next try goes out on GH_TOKEN_SPARE now"
-    export GH_TOKEN="$GH_TOKEN_SPARE"
+  # A spare token with its own limit (GH_TOKEN_SPARE, the cmux-bot App's, then each of
+  # GH_TOKEN_SPARES) takes the next try at once, before any wait: every workflow's github.token
+  # shares one installation budget, and each App installation has its own.
+  refused="$refused${GH_TOKEN:-} "
+  next="" n=0 which=""
+  for pool in $pools; do
+    n=$((n + 1))
+    case "$refused" in *" $pool "*) continue ;; esac
+    next="$pool"
+    if [ "$pool" = "${GH_TOKEN_SPARE:-}" ]; then which=GH_TOKEN_SPARE; else which="GH_TOKEN_SPARES pool $n"; fi
+    break
+  done
+  if [ -n "$next" ]; then
+    log_wait "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts); the next try goes out on $which now"
+    export GH_TOKEN="$next"
     try=$((try + 1))
     continue
   fi
   wait_for_budget "$(seconds_to_reset "$try")" "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts)" || break
+  # A reset may have come for any pool: after a wait every pool may be tried again.
+  refused=" "
   try=$((try + 1))
 done
 cat "$work/out"

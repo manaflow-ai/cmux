@@ -40,7 +40,8 @@ const LOOP_AGE_DAYS: i64 = 7;
 /// One model answer to one prompt (the host's deny-all compactor session, or
 /// the Messages API in the eval).
 pub trait DreamModel: Send + Sync {
-    fn ask(&self, system: &str, prompt: &str) -> Result<String, String>;
+    /// The answer, and its cost in dollars when the route reports it.
+    fn ask(&self, system: &str, prompt: &str) -> Result<(String, Option<f64>), String>;
 }
 
 pub const SYSTEM: &str = r#"You are the nightly memory review of Chief, an AI assistant that works for one person. You keep Chief's memory files: small Markdown files Chief reads in every turn (their index and the standing rules) or opens on demand. Chief's chat memory is summarized and loses details; these files are where details that matter later survive.
@@ -52,7 +53,7 @@ When nothing needs a change, answer {"ops":[]}.
 Files:
 - notes/standing-rules.md: every lasting rule the PERSON gave about how Chief should work ("whenever I ...", "always", "never", "from now on", "by default", "next time", "stop doing", "u should lmk ..."), quoted in the person's own words, one bullet each, ending with (msg ID, YYYY-MM-DD). Only rules about how Chief and its agents work for the person, not product feature requests for the software they build ("the sidebar should by default show X" is a feature request, not a rule). Skip a rule the person's profile already holds. Keep every rule unless the person later revoked or replaced it; then replace it.
 - notes/<topic>.md: facts about the person and their world that cannot be looked up again and will matter later: people and who they are, machines and accounts, decisions and defaults they chose, dates and deadlines, numbers, names of things. One topic per file (people, machines, accounts, decisions, schedule, ...). Each fact is one bullet with its date and (msg ID). A later message that contradicts a fact wins: replace the fact and keep "(was: old value until YYYY-MM-DD)".
-- loops/<task>.md: one file per OPEN loop: something the person asked for, or Chief promised, that no later report or message shows as done or dropped. Body: "Asked (YYYY-MM-DD, msg ID): ...", "Done: ...", "Left: ...", "Due: ..." when there is a date, "Pointers: ..." (agent ids, PRs, links). Delete a loop whose work ended (a report says landed, done, answered) or that the person dropped. A routine status question or a task finished in the same exchange is not a loop.
+- loops/<task>.md: one file per OPEN loop: something the person asked for, or Chief promised, that no later report or message shows as done or dropped. Body: "Asked (YYYY-MM-DD, msg ID): ...", "Done: ...", "Left: ...", "Due: ..." when there is a date, "Pointers: ..." (agent ids, PRs, links), and a last line "Closes when: ..." when the end can be checked by the host: "agent aN done" (the agent doing it reports), "pr OWNER/REPO#N merged", or "follow-up sent". Delete a loop whose work ended (a report says landed, done, answered) or that the person dropped. A routine status question or a task finished in the same exchange is not a loop.
 
 Do NOT keep (they live elsewhere, and a copy goes stale):
 - the person's feature requests, bug reports, design asks and review notes for the software they build: they live in the code, PRs, issues and the agents' chats. An ask still open is at most one loop; a lasting product decision ("default project is cmux-next") is one bullet in notes/decisions.md.
@@ -458,12 +459,19 @@ pub fn cited_rules(
 }
 
 /// The review's record, as recursive's `DreamRecord` (local: no suggestions).
-pub fn record(day: &str, model: &str, up_to: u64, pieces: usize, applied: &Applied) -> String {
+pub fn record(
+    day: &str,
+    model: &str,
+    up_to: u64,
+    pieces: usize,
+    applied: &Applied,
+    cost_usd: f64,
+) -> String {
     json!({
         "day": day,
         "at": chrono::Utc::now().timestamp_millis(),
         "model": model,
-        "costUsd": 0,
+        "costUsd": cost_usd,
         "upTo": up_to,
         "pieces": pieces,
         "applied": applied.written.iter().chain(applied.deleted.iter()).collect::<Vec<_>>(),
@@ -510,6 +518,12 @@ pub fn run(
     let night = (FROM_HOUR..TO_HOUR).contains(&now.hour());
     let take = if night { parts.len() } else { DAY_PIECES };
     let mut total = Applied::default();
+    // What this day's review cost so far (a backfill spans several checks).
+    let mut cost = files
+        .dream_record(&day)?
+        .and_then(|r| serde_json::from_str::<Value>(&r).ok())
+        .and_then(|r| r["costUsd"].as_f64())
+        .unwrap_or(0.0);
     let today = now.format("%a %Y-%m-%d").to_string();
     let cutoff = now - chrono::TimeDelta::days(LOOP_AGE_DAYS);
     for part in parts.iter().take(take) {
@@ -528,7 +542,9 @@ pub fn run(
         let mut ops = None;
         let mut last_error = String::new();
         for _ in 0..2 {
-            match parse(&model.ask(SYSTEM, &text)?) {
+            let (answer, usd) = model.ask(SYSTEM, &text)?;
+            cost += usd.unwrap_or(0.0);
+            match parse(&answer) {
                 Ok(o) => {
                     ops = Some(o);
                     break;
@@ -556,7 +572,10 @@ pub fn run(
                 part.first().map_or(0, |l| l.id)
             )),
         }
-        files.put_dream(&day, &record(&day, model_name, last, parts.len(), &total))?;
+        files.put_dream(
+            &day,
+            &record(&day, model_name, last, parts.len(), &total, cost),
+        )?;
     }
     Ok(total)
 }
@@ -632,12 +651,13 @@ pub struct JudgeDream {
 }
 
 impl DreamModel for JudgeDream {
-    fn ask(&self, system: &str, prompt: &str) -> Result<String, String> {
-        self.judge.judge(&crate::brain::reaction_wake::JudgeAsk {
-            harness: None,
-            model: self.model.clone(),
-            prompt: format!("{system}\n\n{prompt}"),
-        })
+    fn ask(&self, system: &str, prompt: &str) -> Result<(String, Option<f64>), String> {
+        self.judge
+            .judge_priced(&crate::brain::reaction_wake::JudgeAsk {
+                harness: None,
+                model: self.model.clone(),
+                prompt: format!("{system}\n\n{prompt}"),
+            })
     }
 }
 

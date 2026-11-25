@@ -123,10 +123,21 @@ pub(super) fn lock_has_live_holder(path: &Path) -> bool {
 /// The live holder's pid of the lock at `path`, read from the pid it wrote there, without taking
 /// the lock or creating the file.
 #[cfg(unix)]
-pub(super) fn live_holder_pid(path: &Path) -> Option<u32> {
+pub(crate) fn live_holder_pid(path: &Path) -> Option<u32> {
     let file = std::fs::File::open(path).ok()?;
     let pid = holder_pid(&file)?;
     lock_is_held(&file).then_some(pid)
+}
+
+/// Whether two paths name the same file: equal, or equal once canonical (a missing file through
+/// its canonical folder).
+pub(super) fn same_path(left: &Path, right: &Path) -> bool {
+    fn canonical(path: &Path) -> Option<PathBuf> {
+        std::fs::canonicalize(path)
+            .ok()
+            .or_else(|| Some(std::fs::canonicalize(path.parent()?).ok()?.join(path.file_name()?)))
+    }
+    left == right || canonical(left).zip(canonical(right)).is_some_and(|(l, r)| l == r)
 }
 
 /// The pid of another process that holds a daemon lock serving `socket`: this home's lock, or the

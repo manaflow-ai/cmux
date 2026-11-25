@@ -171,17 +171,17 @@ test("a file pasted on the field draws in the field with its remove control, not
     value: { files: [file], types: ["Files"], getData: () => "" },
   });
   await act(async () => editor.dispatchEvent(paste));
-  const failed = '.nt-input .acpmux-md-inline-chip[data-state="failed"]';
+  const failed = ".nt-input .acpmux-md-inline-chip .acpmux-attachment-failed";
   await until(() => !!host.querySelector(failed));
   const chip = host.querySelector<HTMLElement>(failed);
   expect(chip).not.toBeNull();
   expect(chip!.getAttribute("title")).toContain("notes.txt");
-  // In the field, with its own ×; the strip below the field leaves a placed file out. A file the
+  // In the field, with its own ×; the strip in the box leaves a placed file out. A file the
   // page refused fails the same way again, so it shows no Retry (#37877).
-  expect(chip!.querySelector(".acpmux-md-inline-retry")).toBeNull();
-  const remove = chip!.querySelector<HTMLButtonElement>(".acpmux-md-inline-remove");
+  expect(chip!.querySelector(".acpmux-attachment-retry")).toBeNull();
+  const remove = chip!.querySelector<HTMLButtonElement>(".acpmux-attachment-remove");
   expect(remove).not.toBeNull();
-  expect(host.querySelectorAll(".nt-box .acpmux-attachment").length).toBe(0);
+  expect(host.querySelectorAll(".nt-box .acpmux-attachments .acpmux-attachment").length).toBe(0);
   await act(async () => remove!.click());
   await until(() => !host.querySelector(".nt-input .acpmux-md-inline-chip"));
   expect(host.querySelector(".nt-input .acpmux-md-inline-chip")).toBeNull();

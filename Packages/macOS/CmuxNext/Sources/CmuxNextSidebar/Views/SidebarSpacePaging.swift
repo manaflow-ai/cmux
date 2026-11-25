@@ -64,9 +64,13 @@ import QuartzCore
         }
     }
 
+    /// `sidebar.showSpaces` off (the default, https://github.com/manaflow-ai/cmux/issues/48355): no swipe or
+    /// wheel pages to another space, so the list stays on the space the window shows.
+    private var pagesSpaces: Bool { host.design.sidebarSections.showSpaces }
+
     private func start() {
         profiles = host.model.profiles.map(\.id)
-        guard profiles.count > 1, pendingTarget == nil, let active = host.model.activeProfileID,
+        guard pagesSpaces, profiles.count > 1, pendingTarget == nil, let active = host.model.activeProfileID,
               let index = profiles.firstIndex(of: active) else { return }
         pager = SpacePager(index: index, count: profiles.count)
         samples = []
@@ -90,12 +94,13 @@ import QuartzCore
         let velocity = span > 0 ? samples.dropFirst().reduce(0) { $0 + $1.dx } / span : 0
         let target = pager.target(velocity: velocity, width: width)
         self.pager = nil
-        let goes = target != pager.index
+        // A swipe that began before Spaces turned off settles back on its own page (no switch it would be refused).
+        let goes = target != pager.index && pagesSpaces
         let end: CGFloat = goes ? (target > pager.index ? 1 : -1) : 0
         if goes { pendingTarget = profiles[target] }
         place(offset: end, animated: .settle) { [weak self] in
             guard let self else { return }
-            if goes, let target = self.pendingTarget {
+            if goes, self.pagesSpaces, let target = self.pendingTarget {
                 self.host.model.send(.switchProfile(target))
             } else {
                 self.endPaging()
@@ -183,7 +188,7 @@ import QuartzCore
     /// rest, like a switch by dot. Past the first or last space nothing moves
     /// (POLISH: no bouncy transforms).
     func page(by step: Int) {
-        guard pager == nil, pendingTarget == nil, step != 0 else { return }
+        guard pagesSpaces, pager == nil, pendingTarget == nil, step != 0 else { return }
         _ = host.model.stepProfile(by: step)
     }
 
@@ -203,6 +208,7 @@ import QuartzCore
         model.expanded = host.model.expanded
         model.detailedStatus = host.model.detailedStatus
         model.showsTimestamps = host.model.showsTimestamps
+        model.settlesFinished = host.model.settlesFinished
         (model.showsColors, model.colorIndicator) = (host.model.showsColors, host.model.colorIndicator)
         model.showsLocalMachine = host.model.showsLocalMachine
         model.groupHeaderDetails = host.model.groupHeaderDetails

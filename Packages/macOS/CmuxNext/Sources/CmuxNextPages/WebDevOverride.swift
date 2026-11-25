@@ -66,6 +66,51 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
     /// Whether pages load from a server or an overlay (an empty override serves the bundle).
     public var isActive: Bool { server != nil || overlay != nil }
 
+    /// Where pages load their files from: the dev server's root and the overlay install, when it is
+    /// not refused. Only a change of this reloads pages: a new server token, the gallery, or a refused
+    /// overlay's install (a new stamp, or another refusal) leaves every page where it loads from.
+    public nonisolated struct Source: Sendable, Equatable {
+        public var server: URL?
+        public var overlay: URL?
+        public var stamp: Data?
+    }
+
+    /// What pages are served from now (``Source``).
+    public var source: Source {
+        refusal == nil ? Source(server: server?.root, overlay: overlay, stamp: stamp) : Source(server: server?.root)
+    }
+
+    /// What changed from `before` to `after`, in one line for the log: the dev server (on, off, another
+    /// one, a new token), the overlay (on, off, another install, refused or served) and the gallery.
+    /// "nothing" when they are the same.
+    public static func describeChange(from before: WebDevOverride, to after: WebDevOverride) -> String {
+        var parts: [String] = []
+        let server = { (value: WebDevOverride) in value.server?.root.absoluteString ?? "off" }
+        if before.server?.root != after.server?.root {
+            parts.append("server \(server(before)) -> \(server(after))")
+        } else if before.server != after.server {
+            parts.append("server \(server(after)) new token")
+        }
+        if overlayChanged(from: before, to: after) {
+            let overlay = { (value: WebDevOverride) -> String in
+                guard let path = value.overlay?.path else { return "off" }
+                return value.refusal.map { "\(path) (refused: \($0))" } ?? path
+            }
+            let sameFolder = before.overlay == after.overlay
+            parts.append(sameFolder && before.refusal == after.refusal
+                ? "overlay \(overlay(after)) new install" : "overlay \(overlay(before)) -> \(overlay(after))")
+        }
+        if before.gallery != after.gallery {
+            parts.append("gallery \(before.gallery?.absoluteString ?? "off") -> \(after.gallery?.absoluteString ?? "off")")
+        }
+        return parts.isEmpty ? "nothing" : parts.joined(separator: "; ")
+    }
+
+    /// Whether the overlay itself changed: its folder, its install (stamp) or its refusal.
+    public static func overlayChanged(from before: WebDevOverride, to after: WebDevOverride) -> Bool {
+        before.overlay != after.overlay || before.stamp != after.stamp || before.refusal != after.refusal
+    }
+
     /// The file's name, next to `cmux-next.json`.
     public static let fileName = "web-dev.json"
     /// The file an overlay install writes last.
@@ -126,6 +171,8 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
         }
     }
 
+    // Lock carve-out: the scheme handlers read the override synchronously off the main actor while
+    // the watcher writes it on the main actor; each access is one short copy, never a wait.
     private static let state = Mutex(Held())
 
     /// Whether cmux Live (`updates.liveWebReload`) lets `web-dev.json` apply, and this run does not
@@ -163,19 +210,20 @@ public nonisolated struct WebDevOverride: Sendable, Equatable {
         let reason = "\(page) did not start: \(why)"
         guard state.withLock({ $0.fallBack(from: install, reason: reason) }) else { return false }
         Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev").error("overlay fell back to the bundled pages: \(reason, privacy: .public)")
-        WebDevOverrideWatcher.reloadPages()
+        WebDevOverrideWatcher.reloadPages(why: "overlay fell back to the bundled pages")
         WebDevOverrideWatcher.shared.onFallBack?(reason)
         return true
     }
 
-    /// Applies `edit` and reloads every page when the override in force changed.
+    /// Applies `edit` and reloads every page when where pages load from changed (``source``).
     @MainActor private static func change(_ edit: (inout Held) -> Void) {
-        let reload = state.withLock { held in
+        let (before, after) = state.withLock { held in
             let before = held.inForce
             edit(&held)
-            return held.inForce != before
+            return (before, held.inForce)
         }
-        if reload { WebDevOverrideWatcher.reloadPages() }
+        guard before.source != after.source else { return }
+        WebDevOverrideWatcher.reloadPages(why: describeChange(from: before, to: after))
     }
 
     /// The live gallery's server for Gallery Stage: web-dev.json's `gallery`, else ``defaultGallery``.

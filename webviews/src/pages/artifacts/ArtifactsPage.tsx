@@ -12,6 +12,7 @@ import type { Strings } from "../shared/i18n";
 import { lineHunks } from "./lineDiff";
 import { textOf, type ArtifactsFailure, type ArtifactsSnapshot, type ArtifactsStore } from "./store";
 import { SIGNED_OUT, type ArtifactCommit, type ArtifactFile } from "./types";
+import { intl } from "../../ui/intl";
 
 export function ArtifactsPage({ store, strings }: { store: ArtifactsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -308,7 +309,7 @@ function trailers(commit: ArtifactCommit): string {
 }
 
 function formatTime(time: number, language: string): string {
-  return new Intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(time));
+  return intl.DateTimeFormat(language, { dateStyle: "medium", timeStyle: "short" }).format(new Date(time));
 }
 
 /** The app's own words for a failure (it words them in the person's language), else the page's. */

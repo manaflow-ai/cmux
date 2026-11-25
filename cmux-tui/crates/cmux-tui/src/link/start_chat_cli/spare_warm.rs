@@ -10,7 +10,7 @@ use std::path::Path;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
-use super::{Flags, refused, reservations, valid_account};
+use super::{Flags, ledger, refused, reservations, valid_account};
 use crate::cli::{Platform, PlatformCallError};
 
 /// A warm asked again within this long of the last one, for the same account and team, while
@@ -91,6 +91,10 @@ pub(super) struct Request {
     /// already covers it ([`ready::ready`]). No platform call.
     #[serde(default)]
     pub(super) ready: Option<String>,
+    /// The App's question instead of a warm: which teams its Cloud wire subscribes in ([`wire::wire_teams`]), the
+    /// install token on stdin. No platform call.
+    #[serde(default)]
+    pub(super) wire_teams: Option<wire::WireTeams>,
 }
 
 /// `{"waitCopy": {"machine": M, "provider": P}}`: what `wait-copy --machine M --provider P` asks.
@@ -164,8 +168,10 @@ struct Record {
     /// The copy was handed to the App and not abandoned since.
     #[serde(default)]
     copy_given: bool,
-    /// A reserve or a claim took this machine for a chat: a warm in the gap no longer answers it,
-    /// so the next compose warms the next spare (the throttle is per machine, not per team).
+    /// A reserve or a claim took this machine for a chat (a `claimed: M` request, or a start the
+    /// start-chat ledger pins to it, [`ledger::pinned_machines`]): a warm in the gap no longer
+    /// answers it, so the next compose warms the next spare (the throttle is per machine, not per
+    /// team).
     #[serde(default)]
     claimed: bool,
     /// A spare-ready event gave this machine's copy ([`ready::ready`]): it coalesces later copies onto the machine,
@@ -409,6 +415,24 @@ pub(super) fn run_reporting(
         );
         write(&path, &file);
         return Some(answer);
+    }
+    // A machine a start took is claimed, whoever's warm named it: the start-chat ledger beside this
+    // file pins every machine a start took (a reservation's bind, the platform's ensure, the App's
+    // create pinned with `pin`), so the claim is read where Rust recorded it. No caller sends
+    // `claimed: M` any more (the claim-time login copy was retired), and without this a warm
+    // within the gap replayed the machine the previous chat had just claimed: the App keyed and
+    // linked that busy machine, and the next chat's real spare was claimed with neither ahead
+    // (production probe, 2026-11-19: 5 of 13 claimed starts paid `approvals.key` of about 4.5 s).
+    let taken = ledger::pinned_machines(&state.join(ledger::FILE));
+    let mut marked = false;
+    for record in file.warms.iter_mut().filter(|record| !record.claimed) {
+        if taken.contains(&record.machine) {
+            record.claimed = true;
+            marked = true;
+        }
+    }
+    if marked {
+        write(&path, &file);
     }
     let live = file.warms.iter_mut().find(|last| {
         pair(&last.account, last.team.as_deref())
@@ -773,6 +797,12 @@ pub(super) fn cli(action: &str, flags: &Flags, ledger: &Path) -> Option<Value> {
     }
     if let Some(request) =
         flags.one("--request").and_then(|request| serde_json::from_str::<Request>(request).ok())
+        && let Some(asked) = request.wire_teams.as_ref()
+    {
+        return Some(wire::answer(asked, &mut std::io::stdin().lock()));
+    }
+    if let Some(request) =
+        flags.one("--request").and_then(|request| serde_json::from_str::<Request>(request).ok())
         && let Some(asked) = request.login_receipt
     {
         return Some(receipt_scoped(
@@ -823,3 +853,8 @@ mod tests;
 
 #[cfg(test)]
 mod ready_tests;
+
+mod wire;
+
+#[cfg(test)]
+mod wire_tests;

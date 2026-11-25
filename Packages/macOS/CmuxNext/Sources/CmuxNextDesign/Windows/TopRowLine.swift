@@ -81,6 +81,13 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
         TopRowLine(centerY: metrics.topRowPillCenter(cardTop: cardTop, rim: rim, scale: scale))
     }
 
+    /// The default (``TopRowLineLook/concentric``) line of a window whose top row's strip starts under a `rim` pt lit
+    /// rim: the pills' center with the one strip padding above them (``WindowTitlebar/topRowStripCardTop(in:)``). The
+    /// window's line is this one (``WindowTitlebar/topRowLine(in:look:)``); pure, so a test holds it at 2x on a 1x Mac.
+    public static func concentric(_ metrics: PaneChromeMetrics, rim: CGFloat, scale: CGFloat) -> TopRowLine {
+        TopRowLine(centerY: metrics.topRowPillCenter(cardTop: rim, rim: rim, scale: scale))
+    }
+
     /// A control `side` tall centered on the line, its top from the window's top, on the pixel grid.
     public func controlTop(side: CGFloat, scale: CGFloat) -> CGFloat {
         let s = max(scale, 1)
@@ -109,7 +116,7 @@ extension WindowTitlebar {
         if look == .concentric {
             // The top row's strip starts under the window's rim (``topRowStripCardTop(in:)``), so its pills keep the one
             // strip padding above them as below them and beside the first: the line is theirs.
-            return target.reached(by: row, cardTop: topRowStripCardTop(in: window), rim: topRowRim(in: window), scale: scale)
+            return TopRowLine.concentric(row, rim: topRowStripCardTop(in: window), scale: scale)
         }
         let card = topRowCardTop(centeringPillOn: target.centerY, gutter: Metrics.mainPaneGutter, in: window, look: look)
         return target.reached(by: row, cardTop: card, rim: topRowRim(in: window), scale: scale)

@@ -76,7 +76,8 @@ import Testing
             let slot = try #require(strip.result.slot(id))
             let cell = try #require(strip.cells[id])
             #expect(abs(cell.frame.minX - slot.x) <= 0.5, "pinned \(id.rawValue) is at \(cell.frame.minX), its slot at \(slot.x)")
-            #expect(cell.frame.width == strip.metrics.pinnedTabWidth)
+            // The cell's edges sit on the pixel grid, so a half-point width (Compact's 32.5) draws a pixel either way.
+            #expect(abs(cell.frame.width - strip.metrics.pinnedTabWidth) <= 0.5, "\(cell.frame.width) vs \(strip.metrics.pinnedTabWidth)")
             #expect(try harness.hit(id) == id, "a click on scrolled pinned \(id.rawValue) hit another tab")
         }
         // The unpinned tabs scrolled.

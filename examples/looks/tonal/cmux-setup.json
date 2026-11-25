@@ -1,0 +1,37 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/tonal-look",
+  "name": "Tonal",
+  "tagline": "One seed color, tonal surfaces, no glass: a calm, opaque redesign of the whole window.",
+  "description": "A whole cmux look in which every color comes from one seed through tonal palettes: the page, the chrome a few tone steps off it, selection and Send in the primary. Opaque surfaces instead of glass, tone instead of shadows and hairlines, the work in one rounded card, a filled primary Send. Three seeds ship: Tonal (sage-teal, airy, the default), Tonal Ink (indigo-violet, vivid containers) and Tonal Clay (terracotta, warm and dense), each in Light and Dark. Remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+
+  "cmuxProfile": 1,
+  "settings": {
+    // Tonal (Light) by default; the five others sit beside it in themes/.
+    "appearance.themeFile": "tonal",
+
+    // The Markdown viewer in the system face at 15 px, the chat's line height and code scale.
+    "markdown.font.preset": "system",
+    "markdown.font.size": 15,
+    "markdown.font.lineHeight": 1.55,
+    "markdown.code.scale": 0.9,
+    // Diffs in the theme's own red and green, with a bar at each changed line.
+    "diff.colors": "theme",
+    "diff.diffIndicators": "bars",
+
+    // The chat in a 760 px column, no minimap, the context ring around Send.
+    "agentPane.display.width": 760,
+    "agentPane.display.minimap": "off",
+    "agentPane.composerRing": "context",
+
+    // The sidebar: comfortable rows, no timestamps.
+    "sidebar.density": "comfortable",
+    "sidebar.showTimestamps": false,
+
+    // The command bar: a capsule field, flat (tone, not shadow).
+    "browser.omnibar.cornerRadius": "capsule",
+    "browser.omnibar.shadow": false
+  }
+}
