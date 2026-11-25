@@ -57,6 +57,8 @@ public protocol TerminalTabContent: AnyObject {
     /// (TabsKit owns the toolbar, so this is where the keyboard toggle,
     /// Files and Links, and the control keys live).
     func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction]
+    /// A direct action in the terminal title capsule; the menu remains available.
+    func titleAction(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabAction?
     /// The tab grid is about to open with `tab` active: refresh its card.
     func overviewWillAppear(active tab: WorkspaceTab)
     /// The tab grid is about to open: the other terminal cards ask the Mac
@@ -94,6 +96,7 @@ public protocol TerminalTabContent: AnyObject {
 extension TerminalTabContent {
     public func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView? { nil }
     public func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] { [] }
+    public func titleAction(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabAction? { nil }
     public func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {}
     public func overviewWillAppear(active tab: WorkspaceTab) {}
     public func overviewWillAppear(inactive tabs: [WorkspaceTab]) {}
@@ -113,14 +116,16 @@ public struct TerminalTabAction {
     public var systemImage: String
     public var isEnabled: Bool
     public var isDestructive: Bool
+    public var isSelected: Bool
     public var perform: @MainActor () -> Void
 
-    public init(title: String, systemImage: String, isEnabled: Bool = true, isDestructive: Bool = false,
+    public init(title: String, systemImage: String, isEnabled: Bool = true, isDestructive: Bool = false, isSelected: Bool = false,
                 perform: @escaping @MainActor () -> Void) {
         self.title = title
         self.systemImage = systemImage
         self.isEnabled = isEnabled
         self.isDestructive = isDestructive
+        self.isSelected = isSelected
         self.perform = perform
     }
 }

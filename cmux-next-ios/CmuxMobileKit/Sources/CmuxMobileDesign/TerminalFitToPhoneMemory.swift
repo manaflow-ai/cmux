@@ -7,6 +7,10 @@ import Foundation
 /// menu keeps its own choice. Keyed by the session's `programName` ("zsh", "claude",
 /// "terminal" for a shell titled with its folder).
 public struct TerminalFitToPhoneMemory {
+    public static var title: String {
+        String(localized: "mobile.terminal.fitToPhone", defaultValue: "Fit to Phone", bundle: .module)
+    }
+
     /// One `UserDefaults` key per program: this prefix and the program's name.
     public static let keyPrefix = "cmuxMobile.terminal.fitToPhone."
 

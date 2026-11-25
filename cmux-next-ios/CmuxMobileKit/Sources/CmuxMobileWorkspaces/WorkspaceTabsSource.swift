@@ -475,6 +475,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
         beginTab(Self.option(.agent(start)))
     }
 
+    public func titleAction(for kitTab: TabsKitTab) -> TabsKitMenuItem? {
+        guard let workspace, let tab = workspaceTab(kitTab.id), tab.kind == .terminal,
+              !showsChatFace(tab, in: workspace),
+              let action = terminal.titleAction(for: tab, in: workspace) else { return nil }
+        return TabsKitMenuItem(id: "terminal.fitToPhone", title: action.title, systemImage: action.systemImage,
+                               isEnabled: action.isEnabled, isSelected: action.isSelected, action: action.perform)
+    }
+
     func kitTab(_ tab: WorkspaceTab, in workspace: Workspace) -> TabsKitTab {
         switch tab.kind {
         case .agent:

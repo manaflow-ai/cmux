@@ -120,6 +120,7 @@ struct TabsToolbar: View {
     var onBack: () -> Void
     var onForward: () -> Void
     var onReload: () -> Void
+    var titleAction: TabsKitMenuItem? = nil
     var onMenu: () -> Void
     var onTabs: () -> Void
     var onBeginEditing: () -> Void
@@ -333,6 +334,24 @@ struct TabsToolbar: View {
 
             if let t = titleOnly {
                 titleLabel(t, r)
+                if let action = titleAction {
+                    Button(action: unlessSwiped(action.action)) {
+                        Image(systemName: action.systemImage)
+                            .font(.system(size: 17, weight: .medium))
+                            .foregroundStyle(theme.colors.label)
+                            .frame(width: 44, height: m.control)
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(GlassContentButtonStyle())
+                    .disabled(!action.isEnabled)
+                    .opacity(collapsed ? 0 : 1)
+                    .allowsHitTesting(!collapsed && !chrome.editing)
+                    .accessibilityHidden(collapsed || chrome.editing)
+                    .accessibilityLabel(action.title)
+                    .accessibilityAddTraits(action.isSelected ? .isSelected : [])
+                    .accessibilityIdentifier(action.id)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                }
             } else if !chrome.editing {
                 label(r)
             } else {

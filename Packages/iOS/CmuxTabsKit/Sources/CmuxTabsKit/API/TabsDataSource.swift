@@ -117,6 +117,8 @@ public protocol TabsDataSource: AnyObject, Observable {
     func reloadOrStop(_ id: TabsKitTab.ID)
     /// The page menu's groups (`TabsKitTabFeatures.pageMenu`).
     func pageMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]]
+    /// A direct action at the trailing end of a title capsule. Default: none.
+    func titleAction(for tab: TabsKitTab) -> TabsKitMenuItem?
     /// False while a tab's live content would show nothing yet (a terminal
     /// still attaching): the kit keeps the tab's card over it, so opening a
     /// card never flashes blank. Default true.
@@ -182,6 +184,7 @@ extension TabsDataSource {
     public func navigate(_ id: TabsKitTab.ID, to text: String) {}
     public func reloadOrStop(_ id: TabsKitTab.ID) {}
     public func pageMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }
+    public func titleAction(for tab: TabsKitTab) -> TabsKitMenuItem? { nil }
     public func isContentReady(_ id: TabsKitTab.ID) -> Bool { true }
     public func cardMenu(for tab: TabsKitTab) -> [[TabsKitMenuItem]] { [] }
     public var supportsReordering: Bool { false }

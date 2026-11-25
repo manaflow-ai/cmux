@@ -354,6 +354,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
                         onBack: { if let id = activeID { source.goBack(id) } },
                         onForward: { if let id = activeID { source.goForward(id) } },
                         onReload: { if let id = activeID { source.reloadOrStop(id) } },
+                        titleAction: activeTab.flatMap { source.titleAction(for: $0) },
                         onMenu: openMenu, onTabs: openOverview, onBeginEditing: beginEditing,
                         onEndEditing: { endEditing() }, onGo: go,
                         onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded,
