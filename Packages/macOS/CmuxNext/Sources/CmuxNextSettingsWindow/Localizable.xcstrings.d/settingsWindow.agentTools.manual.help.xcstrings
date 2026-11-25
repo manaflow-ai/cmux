@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsWindow.agentTools.manual.help" : {
+      "comment" : "Settings > Agents > Agents on This Mac: explains the manual lines (claude mcp add / codex mcp add) the person runs themselves; cmux never runs them",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "To use cmux’s tools elsewhere, run an agent’s line yourself."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لاستخدام أدوات cmux في مكان آخر، شغّل سطر الوكيل بنفسك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Za cmux alate drugdje sam pokreni red agenta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kør selv linjen for at bruge cmux’ værktøjer andetsteds."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Für cmux-Werkzeuge anderswo führe die Zeile selbst aus."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para usarlas fuera de cmux, ejecuta tú mismo su línea."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pour les outils cmux ailleurs, exécutez la ligne vous-même."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per gli strumenti di cmux altrove, esegui tu la sua riga."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux の外で使うには、その行をご自身で実行してください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ដើម្បីប្រើឧបករណ៍ cmux នៅកន្លែងផ្សេង សូមដំណើរការបន្ទាត់នោះ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다른 곳에서 cmux 도구를 쓰려면 해당 줄을 직접 실행하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kjør linjen selv for å bruke cmux-verktøyene andre steder."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aby użyć narzędzi cmux gdzie indziej, uruchom wiersz sam."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para usar as ferramentas fora do cmux, execute a linha você."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Для инструментов cmux в другом месте выполните строку сами."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "หากต้องการใช้เครื่องมือ cmux ที่อื่น ให้รันบรรทัดนั้นเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "cmux araçları için başka yerde satırı kendin çalıştır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Щоб мати інструменти cmux деінде, виконайте рядок самі."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Để dùng công cụ cmux ở nơi khác, hãy tự chạy dòng đó."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "要在别处使用 cmux 的工具，请自己运行对应的那一行。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "若要在其他地方使用 cmux 的工具，請自己執行對應的那一行。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
