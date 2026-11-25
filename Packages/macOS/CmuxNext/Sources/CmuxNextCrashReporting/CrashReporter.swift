@@ -9,7 +9,7 @@ import os
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
 ///
 /// Same options as the main app (`AppDelegate`): no default PII, no
-/// performance tracing (its root transaction cannot be scrubbed), 8 s app
+/// performance tracing (its root transaction cannot be scrubbed), 2 s app
 /// hangs, every event, breadcrumb and span through `SentryEventScrubber`.
 /// No structured logs: cmux-next has no log bridge, so it sends nothing the
 /// main app does not.
@@ -82,7 +82,7 @@ public final class CrashReporter: Sendable {
         options.debug = false
         options.sendDefaultPii = false
         options.tracesSampleRate = 0.0
-        options.appHangTimeoutInterval = 8.0
+        options.appHangTimeoutInterval = 2.0
         options.attachStacktrace = true
         options.enableCaptureFailedRequests = false
         // No request URLs in breadcrumbs or spans: a URL can hold a path, a branch or a repository name.
