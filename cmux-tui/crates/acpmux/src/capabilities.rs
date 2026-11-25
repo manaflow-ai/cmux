@@ -231,6 +231,13 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: INFO_ROWS, wire: &[method::MUX_INFO, method::MUX_STATUS] },
     // `_acpmux/markRead`: mark a chat read without showing it (cmux's `chat.mark_read`).
     Capability { id: "mark-read-v1", wire: &[method::MUX_MARK_READ] },
+    // `_acpmux/archive` and `_acpmux/rename` take an optional `opId` and run once per id
+    // (`hub/op_once.rs`): a resend after a lost reply answers the first result. An older
+    // daemon ignores `opId` and runs each resend, as before.
+    Capability {
+        id: crate::hub::op_once::CAPABILITY,
+        wire: &[method::MUX_ARCHIVE, method::MUX_RENAME],
+    },
     // The session list as a row log (`hub/row_log.rs`): `session_changed` and a watch's list
     // carry `listSeq`/`listEpoch`, and `_acpmux/watch {afterSeq, listEpoch}` answers the rows
     // changed since, not the list. Older daemons ignore `afterSeq` and send the list.
