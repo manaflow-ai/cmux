@@ -22,6 +22,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 base64 = "0.22"
+futures-util = { version = "0.3", default-features = false }
 cmux-remote-protocol = { path = "../../crates/cmux-remote-protocol" }
 hmac = "0.12"
 serde = { version = "1", features = ["derive"] }

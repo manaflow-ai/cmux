@@ -404,8 +404,11 @@ jobs:
             # circuits (CMUX_RELAY_VIEWER_CIRCUITS, RFD 0163 pick 6; wrangler.toml and production keep it off), so the
             # staging journey crosses them before any production deploy and the far-viewer measure has a relay to hit.
             # Repo variable RELAY_STAGING_VIEWER_CIRCUITS=0 turns it off on the next staging deploy, no PR needed.
+            # CMUX_RELAY_DIAG: staging answers GET /diag/v1/far-viewer (src/diag.rs), the probe an outside
+            # vantage (Globalping) measures circuit placement with; production never sets it.
             npx --no-install wrangler deploy --config wrangler.toml --name "$WORKER" \
               --var "CMUX_SOURCE_REVISION:$SHA" --var "CMUX_RELAY_VIEWER_CIRCUITS:$VIEWER_CIRCUITS" \
+              --var "CMUX_RELAY_DIAG:1" \
               --message "cmux $SHA (run $GITHUB_RUN_ID)"
           fi
       - name: Health and /version check; roll back on red

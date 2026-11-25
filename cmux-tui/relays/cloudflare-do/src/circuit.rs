@@ -579,6 +579,10 @@ impl DurableObject for RelayCircuit {
 
     async fn fetch(&self, request: Request) -> Result<Response> {
         // The slot creating this circuit near itself before either Join (`crate::placement`).
+        // The staging far-viewer probe (`crate::diag`); `None` unless it is on.
+        if let Some(response) = crate::diag::handle_internal(&request, &self.env).await? {
+            return Ok(response);
+        }
         if request.method() == Method::Post && request.path() == crate::placement::PLACE_PATH {
             return Response::empty().map(|response| response.with_status(204));
         }
