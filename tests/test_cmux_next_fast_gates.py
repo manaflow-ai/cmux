@@ -675,10 +675,19 @@ class WorkflowShape(unittest.TestCase):
         steps = gates_job["steps"]
         gates = steps.index(step_named(steps, "Fast gates on the merge"))
         total = 0
+        # Two steps on opposite conditions (the hosted checkout and the pool mirror's, #55973) never both run: the
+        # bound that counts is the larger of the pair, not their sum.
+        conditions = {str(step.get("if", "")): step for step in steps[:gates]}
         for step in steps[:gates]:
             with self.subTest(step=step["name"]):
                 self.assertIn("timeout-minutes", step)
-                total += int(step["timeout-minutes"])
+                minutes = int(step["timeout-minutes"])
+                condition = str(step.get("if", ""))
+                if condition.startswith("${{ !") and condition.endswith(" }}"):
+                    other = conditions.get("${{ " + condition[len("${{ !"):])
+                    if other is not None and "timeout-minutes" in other:
+                        minutes = max(0, minutes - int(other["timeout-minutes"]))
+                total += minutes
         self.assertLessEqual(total, 40)
         # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
         node = step_named(steps, "Setup Node")
@@ -735,6 +744,10 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
+                continue
+            # So are the Bun package cache restores (#55346 bounds them and lets a hung one fall through to a cold
+            # install): a miss or a stall is the install's download, never a verdict.
+            if str(step.get("uses", "")).startswith(("actions/cache@", "actions/cache/restore@")):
                 continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
