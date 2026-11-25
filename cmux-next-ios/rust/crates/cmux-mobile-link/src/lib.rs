@@ -16,6 +16,10 @@
 //! - [`route_literals`]: the IP literals each dialed host last resolved to (a dial needs no DNS).
 //! - [`reconnect`]: the reconnect decision as one pure step (a port of `LinkMachine.swift`).
 
+// A test function that lost its `#[test]` in a merge is dead code: fail the
+// test build on it instead of skipping the test with a warning nobody reads.
+#![cfg_attr(test, deny(dead_code))]
+
 pub mod api;
 pub mod build_space;
 pub mod class_queue;
@@ -32,10 +36,12 @@ mod liveness;
 pub mod local;
 pub mod local_dns;
 pub mod local_hub;
+pub mod mailbox_client;
 pub mod media;
 pub mod names;
 pub mod path_report;
 pub mod reconnect;
+pub mod reliable;
 pub mod route_literals;
 mod send_queue;
 pub mod signal_dial;
@@ -47,9 +53,10 @@ pub mod timing;
 pub use build_space::BuildSpace;
 pub use dial::{Connected, DialError, DialOptions, LinkPath, TransportKind, UltraSetting};
 pub use link::{
-    Channel, ChannelEvent, CloseInfo, IncomingChannel, KEEPALIVE_TIMEOUT, Lane, LaneState, Link, LinkConfig,
-    LinkError, Role,
+    Accepted, Channel, ChannelEvent, ChannelResume, CloseInfo, IncomingChannel, KEEPALIVE_TIMEOUT, Lane,
+    LaneState, Link, LinkConfig, LinkError, ResumeReport, Role,
 };
+pub use reliable::{Carrier, RELIABLE_LANE, ReliableConfig, ReliableStats, ResumeRegistry};
 pub use signaling::SignalingClient;
 pub use timing::Timeline;
 
