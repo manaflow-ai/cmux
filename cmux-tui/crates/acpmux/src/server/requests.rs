@@ -2250,7 +2250,12 @@ async fn dispatch_request_with_identity(
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                prompt_preparation(preparation_deadline, crate::prompt_uploads::owned(&s.id, &blocks)).await?
+                prompt_preparation(
+                    preparation_deadline,
+                    "prompt_uploads::owned",
+                    crate::prompt_uploads::owned(&s.id, &blocks),
+                )
+                .await?
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
@@ -2483,9 +2488,13 @@ async fn dispatch_request_with_identity(
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             let supersede_set = supersede.is_some();
-            let inbox_on = prompt_preparation(preparation_deadline, hub.config.read())
-                .await?
-                .agent_inbox();
+            let inbox_on = match prompt_preparation(preparation_deadline, "hub.config.read", hub.config.read()).await {
+                Ok(config) => config.agent_inbox(),
+                Err(error) => {
+                    preserve_owned_uploads_for_retry(&mut owned);
+                    return Err(error);
+                }
+            };
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
             // to `prompt_with`, which answers with its first run even once its uploads are gone
@@ -2503,7 +2512,7 @@ async fn dispatch_request_with_identity(
                         result => result.map(|()| blocks),
                     }
                 });
-                blocks = match prompt_preparation(preparation_deadline, resolved).await {
+                blocks = match prompt_preparation(preparation_deadline, "prompt_uploads::resolve", resolved).await {
                     Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
                     Err(error) => {
                         preserve_owned_uploads_for_retry(&mut owned);
@@ -2521,7 +2530,7 @@ async fn dispatch_request_with_identity(
                 let received = tokio::task::spawn_blocking(move || {
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
                 });
-                (blocks, saved) = match prompt_preparation(preparation_deadline, received).await {
+                (blocks, saved) = match prompt_preparation(preparation_deadline, "attach::receive", received).await {
                     Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
                     Err(error) => {
                         preserve_owned_uploads_for_retry(&mut owned);
@@ -2658,6 +2667,7 @@ async fn dispatch_request_with_identity(
                 && !person_message;
             if let Err(error) = prompt_preparation(
                 preparation_deadline,
+                "agent_messages::person_prompt",
                 super::agent_messages::person_prompt(hub, conn, &s, agent_message),
             )
             .await
@@ -4711,11 +4721,13 @@ mod shutdown_reason_tests {
 /// returns the same retryable busy error the hub uses for an unanswered prompt.
 async fn prompt_preparation<T>(
     expires: tokio::time::Instant,
+    wait: &'static str,
     preparation: impl std::future::Future<Output = T>,
 ) -> Result<T, RpcError> {
+    let timeout = expires.saturating_duration_since(tokio::time::Instant::now());
     tokio::time::timeout_at(expires, preparation)
         .await
-        .map_err(|_| crate::hub::auto_resume::retry_turn::busy())
+        .map_err(|_| RpcError::deadline_exceeded(wait, timeout))
 }
 
 /// A timed-out preparation must leave prompt-owned uploads for the caller's retry.
@@ -4765,6 +4777,7 @@ async fn bounded_preparation<T>(
 mod prompt_preparation_tests {
     use super::{preserve_owned_uploads_for_retry, prompt_preparation};
     use crate::attach::OwnedUploads;
+    use crate::config::{Config, StoreMode};
     use serde_json::Value;
     use std::path::PathBuf;
     use std::time::Duration;
@@ -4772,19 +4785,54 @@ mod prompt_preparation_tests {
     #[tokio::test(start_paused = true)]
     async fn preparation_deadline_returns_retryable_rpc_error() {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
-        let result = prompt_preparation(deadline, std::future::pending::<()>()).await;
+        let result = prompt_preparation(deadline, "test.wait", std::future::pending::<()>()).await;
         let error = result.unwrap_err();
         assert_eq!(
             error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str),
-            Some("retry.busy")
+            Some("deadline_exceeded")
         );
+        assert_eq!(error.data.as_ref().and_then(|data| data.get("wait")).and_then(Value::as_str), Some("test.wait"));
+        assert_eq!(error.data.as_ref().and_then(|data| data.get("timeoutMs")).and_then(Value::as_u64), Some(1000));
     }
 
     #[test]
     fn timed_out_preparation_releases_cleanup_guard_for_retry() {
-        let mut owned = OwnedUploads(vec![PathBuf::from("/tmp/prompt-upload")]);
+        let dir = std::env::temp_dir().join(format!("acpmux-owned-retry-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("upload");
+        std::fs::write(&path, b"prompt upload").unwrap();
+        let mut owned = OwnedUploads(vec![path.clone()]);
         preserve_owned_uploads_for_retry(&mut owned);
         assert!(owned.0.is_empty());
+        assert!(path.exists(), "a retry still needs its owned upload");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_held_config_writer_times_out_and_preserves_owned_files() {
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = crate::hub::Hub::new(config, store);
+        let writer = hub.config.write().await;
+        let dir = std::env::temp_dir().join(format!("acpmux-config-retry-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("upload");
+        std::fs::write(&path, b"prompt upload").unwrap();
+        let mut owned = OwnedUploads(vec![path.clone()]);
+        let result = prompt_preparation(
+            tokio::time::Instant::now() + Duration::from_secs(1),
+            "hub.config.read",
+            hub.config.read(),
+        )
+        .await;
+        let error = result.unwrap_err();
+        preserve_owned_uploads_for_retry(&mut owned);
+        assert_eq!(error.data.as_ref().and_then(|data| data.get("reason")).and_then(Value::as_str), Some("deadline_exceeded"));
+        assert_eq!(error.data.as_ref().and_then(|data| data.get("wait")).and_then(Value::as_str), Some("hub.config.read"));
+        assert!(path.exists(), "config timeout must keep the upload for retry");
+        drop(writer);
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
 

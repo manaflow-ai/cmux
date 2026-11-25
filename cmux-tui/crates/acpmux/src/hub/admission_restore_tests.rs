@@ -30,18 +30,9 @@ fn text(t: &str) -> Vec<Value> {
     vec![json!({"type": "text", "text": t})]
 }
 
-/// The latest state of the background helper reported by the live agent transport.
-fn background_subagent_state(hub: &Hub, s: &Session) -> Option<Value> {
-    hub.events(&s.id, 0, 10_000)
-        .ok()?
-        .into_iter()
-        .rev()
-        .find_map(|event| {
-            (event.kind == "subagent_spawned" || event.kind == "subagent_state_update")
-                .then(|| event.msg.pointer("/params/update").cloned())
-                .flatten()
-                .filter(|update| update["subagentSessionId"] == "bg-quiet")
-        })
+fn assert_background_helper(s: &Session) {
+    let subagents = s.subagents.lock().unwrap();
+    assert!(subagents.running_now(false).iter().any(|(id, _)| *id == "bg-quiet"));
 }
 
 /// The queued record of a background command's end notice, as `bg_notify.rs` sends it.
@@ -73,9 +64,7 @@ async fn a_restored_queue_of_notices_beside_background_subagents_answers_and_dra
         hub.prompt_with(&s, text("background-subagent"), "test", false, PromptOptions::default());
     tokio::time::timeout(Duration::from_secs(30), first).await.expect("first turn").unwrap();
     assert!(s.child.lock().await.is_some(), "the agent is live");
-    let helper = background_subagent_state(&hub, &s).expect("live background subagent report");
-    assert_eq!(helper["state"], "running", "the hosted child keeps its background helper live: {helper}");
-    assert_eq!(helper["background"], true, "the helper is explicitly backgrounded: {helper}");
+    assert_background_helper(&s);
 
     // The daemon restarted with many of its notices queued.
     for i in 0..RESTORED {
@@ -119,6 +108,5 @@ async fn a_restored_queue_of_notices_beside_background_subagents_answers_and_dra
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     tokio::time::timeout(DRAIN, late).await.expect("the late prompt's turn ends").unwrap().unwrap();
-    let helper = background_subagent_state(&hub, &s).expect("background helper survives restore");
-    assert_eq!(helper["state"], "running", "restore did not lose the live helper: {helper}");
+    assert_background_helper(&s);
 }
