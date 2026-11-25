@@ -7,14 +7,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -29,10 +29,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -594,6 +594,9 @@ export type ComposerRelay = {
   onUnplacedQuotes(quotes: string[]): void;
   /// The note a file brought to the relay leaves (`attachRefusal`).
   attachRefusal: string;
+  /// The relay target's own chips in the chat's chips' place: a subagent's read-only model and
+  /// mode (subagents/SubagentForkChips.tsx), never the chat's pickers. Unset, the row has none.
+  chips?: Props["chips"];
 };
 
 /// The props a relayed composer keeps (ComposerRelay); every other is the chat's and left unset.
@@ -687,7 +690,7 @@ function useRelayProps(props: Props): Props {
   return {
     ...kept,
     snapshot: shown,
-    chips: noChips,
+    chips: relay.chips ?? noChips,
     onStop: noStop,
     onSend: (text, attachments) => latest.current?.send?.(text, attachments ?? []) ?? false,
     blockSend: !relay.send,

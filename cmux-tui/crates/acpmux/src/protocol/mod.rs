@@ -11,6 +11,7 @@
 
 pub mod auth;
 pub mod events;
+pub mod here;
 pub mod inventory;
 pub mod mailbox;
 pub mod params;
@@ -232,6 +233,8 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
+        request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
+        request::<here::HereParams, here::HereResult>(method::MUX_HERE),
         request::<events::MarkUnreadParams, events::Done>(method::MUX_MARK_UNREAD),
         request::<events::SessionRef, events::Done>(method::MUX_MARK_READ),
         request::<events::SeenParams, events::SeenDone>(method::MUX_SEEN),
@@ -655,6 +658,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_UNSENT, Notification),
         untyped("_acpmux/lagged", Notification),
         untyped(method::MUX_MACHINE_JOIN_PROGRESS, Notification),
+        untyped(method::MUX_ADMISSION_WAITING, Notification),
         untyped(method::MUX_DISCONNECTED, ClientLocal),
     ]
 }
