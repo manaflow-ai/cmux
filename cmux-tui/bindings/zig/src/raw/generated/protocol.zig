@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "4168e773b62bc51d383ffcce2f4b89e4a9edfac00772e438340291dd737a3eef";
+pub const ir_sha256 = "41aa285a3cbec748c451ac5afbf5d3e5868a1dd4b42a092a61dde368d9f7c1fe";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6765,6 +6765,25 @@ pub fn floatPane(client: anytype, request: FloatPaneRequest) !wire.Decoded(Float
     );
 }
 
+pub const FlushLaunchSnapshotRequest = struct {};
+
+pub const FlushLaunchSnapshotResult = struct {
+    flushed: bool,
+};
+
+pub fn flushLaunchSnapshot(client: anytype, request: FlushLaunchSnapshotRequest) !wire.Decoded(FlushLaunchSnapshotResult) {
+    return client.callTyped(
+        FlushLaunchSnapshotResult,
+        .{
+            .name = "flush-launch-snapshot",
+            .authority = "control",
+            .since = 12,
+            .capability = "launch-snapshot-flush-v1",
+        },
+        request,
+    );
+}
+
 pub const FocusDirectionRequest = struct {
     dir: PaneDirection,
     pane: wire.Field(Id) = .absent,
@@ -13006,7 +13025,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 313;
+pub const command_count: usize = 314;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13130,6 +13149,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "feed-local-list", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "feed-local-read", .authority = "control", .since = 12, .capability = "feed-local-owner-v1", .stream = null },
     .{ .name = "float-pane", .authority = "control", .since = 12, .capability = "floating-panes-v1", .stream = null },
+    .{ .name = "flush-launch-snapshot", .authority = "control", .since = 12, .capability = "launch-snapshot-flush-v1", .stream = null },
     .{ .name = "focus-direction", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "focus-pane", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "forget-session", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },
