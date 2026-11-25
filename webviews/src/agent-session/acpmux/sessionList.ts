@@ -648,6 +648,7 @@ export const placeFields = (session: AcpmuxSessionEntry): readonly unknown[] => 
   session.hostKind,
   session.peer,
   listed(session),
+  startedByPerson(session),
 ];
 
 export const folderFields = (session: AcpmuxSessionEntry): readonly unknown[] => [
@@ -685,6 +686,18 @@ export function recentFolders(
 }
 
 /// The folder `recentLocalFolders` lists a session under, or undefined when it lists none for it.
+/// A chat the person started (not one an agent or a Chief started: `startedBy`, `spawnedBy`, `chiefChild`, a
+/// Chief's own turn): its folder is one the person picked. Agents' folders (a Chief's `session` or `tmp`) are no
+/// recent folder of the person's (cmux#53226).
+export function startedByPerson(session: AcpmuxSessionEntry): boolean {
+  return !session.startedBy && !session.spawnedBy && !session.chiefChild && !session.chiefTurn;
+}
+
+/// `localFolder` of a chat the person started, the folder menu's recent folders.
+export function pickedFolder(session: AcpmuxSessionEntry): string | undefined {
+  return startedByPerson(session) ? localFolder(session) : undefined;
+}
+
 export function localFolder(session: AcpmuxSessionEntry): string | undefined {
   const cwd = session.cwd?.replace(/\/+$/, "");
   if (!cwd || cwd === "~" || isAgentHome(cwd)) return undefined;
