@@ -495,6 +495,12 @@ pub mod method {
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
+    /// `acpmux succeed OLD...`: a session takes over sessions that died or moved; a message to
+    /// one of them reaches it (`hub/successors.rs`).
+    pub const MUX_SUCCEED: &str = "_acpmux/succeed";
+    /// `acpmux role claim|release|ls`: role addresses (`goal:SLUG`, `area:NAME`, `topic:NAME`)
+    /// a session answers to (`hub/successors.rs`).
+    pub const MUX_ROLE: &str = "_acpmux/role";
     /// `acpmux register NAME`: the session the caller's shell runs in takes a stable name
     /// (`hub/register.rs`). Local unix socket only.
     pub const MUX_REGISTER: &str = "_acpmux/register";
