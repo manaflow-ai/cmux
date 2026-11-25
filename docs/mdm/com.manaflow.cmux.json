@@ -299,12 +299,26 @@
       "title" : "Working Status Verbs",
       "type" : "string"
     },
+    "agentPane.display.thinking.glyph" : {
+      "description" : "Dots a look plays while the agent works, as a cmux.particles/1 document.",
+      "title" : "Thinking Glyph",
+      "type" : "string"
+    },
+    "agentPane.display.thinking.glyphSize" : {
+      "default" : 0,
+      "description" : "The dot size of the thinking glyph in Jump to latest. 0 uses the glyph's own size.",
+      "maximum" : 16,
+      "minimum" : 0,
+      "title" : "Jump Button Glyph Size",
+      "type" : "number"
+    },
     "agentPane.display.thinking.jumpButton" : {
       "default" : "arrow",
       "description" : "What the Jump to latest button shows while the agent works.",
       "enum" : [
         "arrow",
-        "dots"
+        "dots",
+        "glyph"
       ],
       "title" : "Jump to Latest While Working",
       "type" : "string"
@@ -842,6 +856,17 @@
       "title" : "Internal Developer Mode",
       "type" : "boolean"
     },
+    "app.keyStyle" : {
+      "default" : "standard",
+      "description" : "Vim moves through lists with j, k, gg, G and /. Emacs uses Control-N, P, F, B, A and E.",
+      "enum" : [
+        "standard",
+        "vim",
+        "emacs"
+      ],
+      "title" : "Key Style",
+      "type" : "string"
+    },
     "app.language" : {
       "default" : "system",
       "description" : "The language of cmux's menus, pages and messages.",
@@ -881,6 +906,16 @@
         "end-everything"
       ],
       "title" : "When Quitting",
+      "type" : "string"
+    },
+    "app.shortcutLayout" : {
+      "default" : "followLayout",
+      "description" : "Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ.",
+      "enum" : [
+        "followLayout",
+        "qwertyPositions"
+      ],
+      "title" : "Keyboard Layout",
       "type" : "string"
     },
     "app.showMenuBarIcon" : {
@@ -3162,6 +3197,23 @@
       "title" : "Show Customize Menu…",
       "type" : "boolean"
     },
+    "customize.checklist.done" : {
+      "default" : [
+
+      ],
+      "description" : "The checklist steps you marked done yourself.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Checked Off Customize Steps",
+      "type" : "array"
+    },
+    "customize.checklist.enabled" : {
+      "default" : true,
+      "description" : "Shows the steps for making cmux your own at the top of Settings, with how many are done.",
+      "title" : "Show the Customize cmux Checklist",
+      "type" : "boolean"
+    },
     "customize.doctorNotice" : {
       "default" : true,
       "description" : "customize.doctorNotice",
@@ -3648,6 +3700,12 @@
       "default" : false,
       "description" : "editor.trimTrailingWhitespace",
       "title" : "Remove Trailing Spaces on Save",
+      "type" : "boolean"
+    },
+    "editor.vimMode" : {
+      "default" : false,
+      "description" : "Normal, Insert and Visual modes in the code editor, with the mode shown in its status bar.",
+      "title" : "Vim Keys in the Editor",
       "type" : "boolean"
     },
     "editor.wordBasedSuggestions" : {
@@ -6703,7 +6761,7 @@
     },
     "updates.installWhenIdle" : {
       "default" : false,
-      "description" : "Installs a downloaded update after cmux has been idle for the time below, never while an agent is working or a message is unsent. Agents keep running.",
+      "description" : "Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.",
       "title" : "Update When Idle",
       "type" : "boolean"
     },
