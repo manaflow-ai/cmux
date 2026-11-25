@@ -91,11 +91,8 @@ await requireBrowserLane("tool-fold-bottom-browser.test.ts", async () => {
 
   async function open(variant: string): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
-    // Tall enough that the command's line is in sight at the very bottom, with its call open: the
-    // finished turn's edited-files card (#42247) sits between it and the composer, and the open
-    // command is its line over a 24-line output box (outputScrollBox.css), 557 px in all. At 900 px
-    // the view's very end put that line 12 px over the view's top, where no click reaches it (#41892).
-    const page = await browser!.newPage({ viewport: { width: 900, height: 1000 } });
+    // The view's height does not matter: the click scrolls its line into view first (`watchToggle`).
+    const page = await browser!.newPage({ viewport: { width: 900, height: 900 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
     if (variant !== "idle") await pinLiveTurnRuns(page);
@@ -139,6 +136,10 @@ await requireBrowserLane("tool-fold-bottom-browser.test.ts", async () => {
   const watchToggle = async (page: Page, row: string, drive?: { hook: string }, ms = 700) => {
     const point = await page.evaluate((selector) => {
       const line = document.querySelector<HTMLElement>(selector)!;
+      // The line in reach of the click, whatever the page's height: an open call is its line over a
+      // 24-line output box, which a short view puts the line's top above (#43915). Nothing moves when
+      // it is in view already.
+      line.scrollIntoView({ block: "nearest" });
       const box = line.getBoundingClientRect();
       const x = box.left + Math.min(40, box.width / 2);
       // Its upper part: the next row's box may start a few pixels over the line's foot.

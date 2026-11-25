@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "output.showEarlier" : {
+      "comment" : "Tooltip and label of the ellipsis at the top of a very long command or tool output whose start was cut; clicking it draws the whole output.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show earlier output"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

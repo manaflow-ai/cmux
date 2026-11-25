@@ -3,12 +3,12 @@
 // lines and scrolling inside a box that tall past them (outputScrollBox.css; its newest line in
 // view), and "Open in terminal", which types the command into a new terminal tab in the same folder
 // without running it.
-import { useContext, useEffect, useLayoutEffect, useRef } from "react";
+import { useContext, useRef } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { OUTPUT_SCROLL_BOX } from "../conversation/blockPartsModel";
 import { Check, Spinner } from "../conversation/icons";
-import { moreBelow, useMoreBelowOn } from "../conversation/moreBelow";
+import { useMoreBelowOn, useStickToEnd } from "../conversation/moreBelow";
 import { ShellActionsContext } from "./shellRowModel";
 import "../conversation/outputScrollBox.css";
 
@@ -21,22 +21,9 @@ export function ShellRow({ row }: { row: AcpmuxRow; expanded?: boolean; onToggle
   const box = useRef<HTMLPreElement>(null);
   useMoreBelowOn(box, output);
   // While it runs, the box keeps its newest line in view unless the reader scrolled up from the end;
-  // scrolling back to the end follows again.
-  const away = useRef(false);
-  const running = run?.status === "running";
-  useEffect(() => {
-    const node = box.current;
-    if (!node || !running) return;
-    const onScroll = () => {
-      away.current = moreBelow(node);
-    };
-    node.addEventListener("scroll", onScroll, { passive: true });
-    return () => node.removeEventListener("scroll", onScroll);
-  }, [box, running]);
-  useLayoutEffect(() => {
-    const node = box.current;
-    if (node && running && !away.current) node.scrollTop = node.scrollHeight;
-  }, [box, output, running]);
+  // scrolling back to the end follows again. The box appears with the first output, so the watch
+  // follows the output, not the run's start (a run starts with none).
+  useStickToEnd(box, output, run?.status === "running");
   if (!run) return null;
   const seconds = run.endedAt !== undefined ? (run.endedAt - run.startedAt) / 1000 : undefined;
   const time = seconds === undefined ? "" : seconds < 10 ? `${seconds.toFixed(1)}s` : `${Math.round(seconds)}s`;

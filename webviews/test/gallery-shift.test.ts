@@ -152,6 +152,14 @@ test("a browser layout shift that is the step's own expansion does not count; an
   expect(isExpansionShift([inked], toggle)).toBe(true);
   below.getBoundingClientRect = () => ({ x: 20, y: 708, width: 728, height: 32 }) as DOMRect;
   expect(isExpansionShift([inked], toggle)).toBe(false);
+  // Inside the old columns is not enough (#43915): a row that narrowed, or moved right, by more than
+  // its ink is a shift, though its border box still sits in the visual rect.
+  below.getBoundingClientRect = () => ({ x: 40, y: 708, width: 700, height: 32 }) as DOMRect;
+  expect(isExpansionShift([inked], toggle)).toBe(false);
+  below.getBoundingClientRect = () => ({ x: 12, y: 708, width: 600, height: 32 }) as DOMRect;
+  expect(isExpansionShift([inked], toggle)).toBe(false);
+  below.getBoundingClientRect = () => ({ x: 28, y: 708, width: 716, height: 32 }) as DOMRect;
+  expect(isExpansionShift([inked], toggle)).toBe(false);
   below.getBoundingClientRect = () => rect(774) as DOMRect;
   // Gone out of view any other way (up, or sideways) is still a shift, and a row before it is too.
   below.getBoundingClientRect = () => rect(-60) as DOMRect;

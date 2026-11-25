@@ -23,12 +23,15 @@ import "./outputScrollBox.css";
 function MonoOutput({
   text,
   cut,
+  onShowAll,
   lang,
   viewport,
   shaped,
 }: {
   text: string;
   cut: boolean;
+  /// Draws the whole output: the leading "…" of a cut one is the button.
+  onShowAll: () => void;
   lang: ToolResult["lang"];
   viewport: (node: HTMLElement | null) => (() => void) | undefined;
   /** Whether this output wraps until the viewer picks (blockWrap.ts `outputWraps`). */
@@ -57,9 +60,20 @@ function MonoOutput({
       {...SIDEWAYS_SCROLLER}
     >
       {cut && (
-        <span className="cv-output-cut" aria-hidden="true">
-          …{"\n"}
-        </span>
+        <>
+          <button
+            type="button"
+            className="cv-output-cut cv-output-cut--button"
+            data-find-skip=""
+            aria-label={t("output.showEarlier")}
+            // tooltip-allow: the ellipsis alone does not say what it does
+            title={t("output.showEarlier")}
+            onClick={onShowAll}
+          >
+            …
+          </button>
+          {"\n"}
+        </>
       )}
       {text && <Lines text={text} />}
     </pre>
@@ -117,7 +131,14 @@ export const ToolOutput = memo(function ToolOutput({
             )}
           </div>
         ) : (
-          <MonoOutput text={shown.shown ?? ""} cut={shown.cut} lang={result.lang} viewport={viewport} shaped={shaped} />
+          <MonoOutput
+            text={shown.shown ?? ""}
+            cut={shown.cut}
+            onShowAll={raw.showAll}
+            lang={result.lang}
+            viewport={viewport}
+            shaped={shaped}
+          />
         )}
       </div>
       {markdown && (

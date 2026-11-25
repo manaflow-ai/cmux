@@ -119,11 +119,24 @@ export function ShellBlock({
         aria-label={t("handoff.tool_output")}
         {...SIDEWAYS_SCROLLER}
       >
-        {marked && (
-          <span className="cv-output-cut" aria-hidden="true">
-            …
-          </span>
-        )}
+        {marked &&
+          (shown.cut ? (
+            <button
+              type="button"
+              className="cv-output-cut cv-output-cut--button"
+              data-find-skip=""
+              aria-label={t("output.showEarlier")}
+              // tooltip-allow: the ellipsis alone does not say what it does
+              title={t("output.showEarlier")}
+              onClick={raw.showAll}
+            >
+              …
+            </button>
+          ) : (
+            <span className="cv-output-cut" aria-hidden="true">
+              …
+            </span>
+          ))}
         {shown.shown ? (
           <span className="cv-shell__output">
             <Lines text={shown.shown} windowed={live && !shown.all} startLine={shownStartLine} />

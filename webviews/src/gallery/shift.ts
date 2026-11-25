@@ -62,6 +62,9 @@ export type BoxShift = { score: number; moves: BoxMove[]; follow?: FollowJudgeme
 export const REST_FRAMES = 2;
 /** Moves under this many CSS px are layout rounding. */
 export const MOVE_SLACK = 0.5;
+
+/** How far the browser's visual rect (a box's ink overflow) reaches past its border box, per side. */
+export const INK_SLACK = 4;
 /** Moves listed in a report; the score still counts every one. */
 const MAX_MOVES = 24;
 const area = (box: Box) => Math.max(0, box.width) * Math.max(0, box.height);
@@ -262,13 +265,17 @@ function expandedBy({ node, previousRect: was, currentRect: now }: LayoutShiftSo
   // live one its border box alone, so their left edges need not match: a finished turn's summary row
   // reads 4 px wider each side in the first (12/732 against 16/728). Straight below is the border box
   // inside the visual rect's columns. Equal left edges scored an edit opened over that row, which
-  // pushed it out of the view, as a 0.36 shift (#41892).
+  // pushed it out of the view, as a 0.36 shift (#41892). Only that ink is allowed: the border box is
+  // at most `INK_SLACK` inside the visual rect on each side, so a row that narrowed or moved right
+  // by more than the ink, though still inside its old columns, is a shift.
   if (now.width <= 0 || now.height <= 0) {
     if (!following) return false;
     const live = element.getBoundingClientRect();
     return (
       live.x >= was.x - MOVE_SLACK &&
+      live.x <= was.x + INK_SLACK + MOVE_SLACK &&
       live.x + live.width <= was.x + was.width + MOVE_SLACK &&
+      live.width >= was.width - 2 * INK_SLACK - MOVE_SLACK &&
       live.y > was.y + MOVE_SLACK
     );
   }
