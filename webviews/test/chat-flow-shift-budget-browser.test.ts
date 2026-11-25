@@ -30,72 +30,21 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import type { BoxShift } from "../src/gallery/shift";
-import { COMPOSER_EDITOR, MAIN_DOCK } from "../src/agent-session/acpmux/composerSelectors";
+import { COMPOSER_EDITOR } from "../src/agent-session/acpmux/composerSelectors";
 import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 import { installBoxTracker, installBoxTrackerOnLoad } from "./support/boxTrackerPage";
 import { papercutPane } from "./support/papercutChat";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-
-/// The composer's box, judged by where it paints.
-const COMPOSER = `${MAIN_DOCK} .acpmux-composer-box`;
-
-export type FlowName = "send" | "thinking" | "compaction" | "compaction-steer" | "background" | "reload";
-export const FLOWS: FlowName[] = ["send", "thinking", "compaction", "compaction-steer", "background", "reload"];
-/// Per flow: the worst stray move (px), the composer's move over a step (px) and Chromium's
-/// layout-shift score. A budget only comes down: a fix that lowers a flow's number lowers its row.
-export const BUDGET: Record<FlowName, { stray: number; composer: number; cls: number }> = {
-  send: { stray: 1, composer: 1, cls: 0.01 },
-  thinking: { stray: 1, composer: 1, cls: 0.01 },
-  compaction: { stray: 1, composer: 1, cls: 0.01 },
-  "compaction-steer": { stray: 1, composer: 1, cls: 0.01 },
-  background: { stray: 1, composer: 1, cls: 0.01 },
-  reload: { stray: 1, composer: 1, cls: 0.01 },
-};
-/// Where base already shifts, the measured worst stands until a fix lowers it (a ratchet, per engine).
-/// WebKit, send, reply: the live "Thinking" row strays when the first reply chunk replaces it, on some
-/// runs and not others (8.8 px once in 14 runs on base, 0 px in 10 runs of the flow alone); the open
-/// fixes for the answer shifting the thinking row lower this back to 1.
-/// Compaction-steer, the states Leo named ("a message sent/steered during compaction ... the next worked
-/// for + thinking"), measured in CI at 7c2f6e41 on 2026-11-25: WebKit's live "Thinking" row moves 34.8 px
-/// when the steer lands during the compaction, and Chromium's follow reverses 5.5 px on the next thinking.
-export const KNOWN: Partial<Record<string, Partial<(typeof BUDGET)[FlowName]>>> = {
-  "webkit send": { stray: 12 },
-  "webkit compaction-steer": { stray: 40 },
-  "chromium compaction-steer": { stray: 8 },
-};
-/// The planted jump, px.
-const SEED_PX = 24;
-
-export type StepReport = {
-  step: string;
-  /** The worst stray move in the step (px), and the first few, labelled. */
-  stray: number;
-  strays: {
-    label: string;
-    dy: number;
-    dx: number;
-    follow: number;
-    frame: number;
-  }[];
-  /** How far the composer's bottom moved from the step's start to its end (px). */
-  composer: number;
-  /** Chromium's layout-shift entries over the step (no recent input), summed; null in WebKit. */
-  cls: number | null;
-};
-
-/** Every way `report` breaks `budget`, one line each (empty: inside the budget). */
-export function overBudget(report: StepReport[], budget: (typeof BUDGET)[FlowName]): string[] {
-  const out: string[] = [];
-  for (const entry of report) {
-    if (entry.stray > budget.stray)
-      out.push(`${entry.step}: stray ${entry.stray}px > ${budget.stray}px (${entry.strays[0]?.label ?? "?"})`);
-    if (entry.composer > budget.composer)
-      out.push(`${entry.step}: composer moved ${entry.composer}px > ${budget.composer}px`);
-    if (entry.cls !== null && entry.cls > budget.cls)
-      out.push(`${entry.step}: layout-shift score ${entry.cls} > ${budget.cls}`);
-  }
-  return out;
-}
+import {
+  BUDGET,
+  COMPOSER,
+  FLOWS,
+  KNOWN,
+  SEED_PX,
+  overBudget,
+  type FlowName,
+  type StepReport,
+} from "./support/chatFlowShiftBudget";
 
 await requireBrowserLane("chat-flow-shift-budget-browser.test.ts", async () => {
   setDefaultTimeout(600_000);
