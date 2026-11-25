@@ -623,9 +623,18 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-received__preview").innerText()).toBe("Step 1 of the landing report.");
-      expect(
-        await card.locator(":scope > .cv-agentmsg__line").evaluate((el) => el.getBoundingClientRect().height),
-      ).toBe(22);
+      // One line: the message line's height, --cv-message-line (the tool rows' 22px plus --cv-row-air
+      // since #50376, Leo 2026-11-22: "our is too much of a dense eyesore right now"), read off the page.
+      const line = await card.locator(":scope > .cv-agentmsg__line").evaluate((el) => {
+        const probe = document.createElement("div");
+        probe.style.height = "var(--cv-message-line)";
+        el.parentElement!.append(probe);
+        const want = probe.getBoundingClientRect().height;
+        probe.remove();
+        return { height: el.getBoundingClientRect().height, want };
+      });
+      expect(line.want).toBeGreaterThanOrEqual(22);
+      expect(line.height).toBe(line.want);
       expect(await page.locator(".cv-received__body, .cv-received__show, [data-cut]").count()).toBe(0);
       const toggle = card.getByRole("button", { name: /Message from Grid fix/ });
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
