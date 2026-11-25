@@ -1803,7 +1803,14 @@ def offline_leg(app, exe, env, a, simctl, phone_env, phone_log, streams, status,
             if not ok1:
                 live = outside_conns()
                 log("netcut-outside", conns=live, cut_ports=sorted(cut.ports))
-                note(f"  - non-loopback connections at the cut's end, uncut ({len(live)}): {live[:12]}")
+                # pf drops silently, so a cut socket still reads ESTABLISHED: split by the cut's ports.
+                cut_set = {str(p) for p in cut.ports}
+                uncut = [c for c in live if c.split()[-1].split("->")[0] not in cut_set]
+                mac_uncut = [c for c in uncut if c.lower().startswith("cmux") and not c.lower().startswith("cmuxmobil")]
+                note(f"  - Mac (cmux) connections the cut missed ({len(mac_uncut)}): {mac_uncut[:12]}; "
+                     f"cut ports {sorted(cut.ports)[:30]}")
+                note(f"  - other uncut connections ({len(uncut) - len(mac_uncut)}): "
+                     f"{[c for c in uncut if c not in mac_uncut][:10]}")
             cut.stop()
             verdict(size_name, "1", ok1 and seen and nports > 0 and not cut_err,
                     f"{nports} sockets cut{(' (' + cut_err + ')') if cut_err else ''}; offline after {t_off:.0f} s; last-seen "
