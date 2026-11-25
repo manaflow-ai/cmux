@@ -31,17 +31,19 @@ pub const MAX_WANT: u32 = 1 << 16;
 /// MiB, so anything past this is a lie).
 pub const MAX_FILE: u32 = 256 << 20;
 
-/// Serves `store`'s chunks to every peer that connects to `listener`, one thread a connection,
-/// until the listener fails.
+/// Serves `store`'s chunks to every peer that connects to `listener`, one scoped thread a
+/// connection (each joined before this returns), until the listener fails.
 pub fn serve(store: Store, listener: TcpListener) -> Result<()> {
-    for conn in listener.incoming() {
-        let Ok(conn) = conn else { continue };
-        let store = store.clone();
-        std::thread::spawn(move || {
-            // A peer that hangs up or sends garbage only ends its own connection.
-            let _ = answer(&store, conn);
-        });
-    }
+    std::thread::scope(|s| {
+        for conn in listener.incoming() {
+            let Ok(conn) = conn else { continue };
+            let store = &store;
+            s.spawn(move || {
+                // A peer that hangs up or sends garbage only ends its own connection.
+                let _ = answer(store, conn);
+            });
+        }
+    });
     Ok(())
 }
 
