@@ -573,7 +573,8 @@
      motion"; "you're early ellipsis-ing because of a button that doesnt even always show"). The name
      is a .ui-reveal-text (ui/motion/motion.css) of a data-reveal-overlap host: it fades under the ×
      while the × shows, and fades at its end instead of an ellipsis only where it is cut. */
-  padding: 7px 8px;
+  --acpmux-document-meta-pad-block: 7px;
+  padding: var(--acpmux-document-meta-pad-block) 8px;
   color: var(--agent-text);
 }
 .acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
