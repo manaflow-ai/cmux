@@ -122,13 +122,14 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { appStartDetail } from "./cloud-chat-matrix.ts";
 import { collectGuestDiagnostics, type GuestDiagnostics } from "./cloud-journey-guest-diagnostics.ts";
 import { ChatClient, chaosProbeRow, countingTurnScript, feltTurnScript, runChaos } from "./cloud-chaos.ts";
+import { bootedImage } from "../../images/cmux-vm/auto-roll.ts";
 import { awaitPaused, runWakeEcho, setupProbe, startWithRetry, wakeEchoMarkdown, summarize as wakeEchoSummary, type WakeCycle } from "./cloud-wake-echo.ts";
 import { FAIL_STREAK, parseServerTiming, RESUME_ARMS, type ResumeArm, resumeMarkdown, resumeRouteCall, type ResumeSample, type ResumeStop, runProviderArm, runResumeMatrix, syncRunning } from "./cloud-resume-matrix.ts";
 import { clientSpans, hopDurations, mintSendTrace, modelFloor, readSendTrace, readStartTrace, sendTraceRows, sendTraceTable, slowestHop, snappyReport, snappyRun, traceMarkdown } from "./cloud-start-trace.ts";
@@ -2430,6 +2431,105 @@ export function dialPhases(log: string): string[] {
   });
 }
 
+/**
+ * --live-window: one chat kept turning while the backend changes under it (an image roll, a cmux-vm deploy). Leo,
+ * 2026-11-19: "getting the sort of connectivity, reliability, ergonomics, whatever, all that down pat as well".
+ * A turn every `everyMs` until `stop()` says the change happened and settled, or `maxMs` ran out; then one more turn
+ * (the chat still answers after the change). A failed turn is recorded and the next one still runs, so the record
+ * says whether the chat came back by itself.
+ */
+export type LiveTurn = { i: number; at_ms: number; ms: number; ok: boolean; why?: string };
+export type LiveWindow = { turns: LiveTurn[]; stopped_by: "signal" | "max"; window_ms: number; signal_at_ms: number | null };
+export async function liveWindow(o: {
+  turn: (i: number) => Promise<unknown>;
+  stop: () => Promise<boolean>;
+  everyMs: number;
+  maxMs: number;
+  onFirstTurn?: () => void;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}): Promise<LiveWindow> {
+  const now = o.now ?? Date.now;
+  const pause = o.sleep ?? sleep;
+  const t0 = now();
+  const turns: LiveTurn[] = [];
+  const one = async () => {
+    const at = now();
+    const i = turns.length + 1;
+    try {
+      await o.turn(i);
+      turns.push({ i, at_ms: at - t0, ms: now() - at, ok: true });
+    } catch (e) {
+      turns.push({ i, at_ms: at - t0, ms: now() - at, ok: false, why: String((e as Error)?.message ?? e).slice(0, 200) });
+    }
+    if (i === 1) o.onFirstTurn?.();
+    return at;
+  };
+  let stoppedBy: LiveWindow["stopped_by"] = "max";
+  let signalAt: number | null = null;
+  while (now() - t0 < o.maxMs) {
+    const at = await one();
+    if (await o.stop()) { stoppedBy = "signal"; signalAt = now() - t0; break; }
+    const wait = Math.max(0, at + o.everyMs - now());
+    if (wait > 0) await pause(Math.min(wait, Math.max(0, o.maxMs - (now() - t0))));
+  }
+  // The turn after the change (or after the window ran out): the chat still answers.
+  await one();
+  return { turns, stopped_by: stoppedBy, window_ms: now() - t0, signal_at_ms: signalAt };
+}
+
+/** Why a live window fails, or null: every turn answered, the last one (after the change) included. */
+export function liveProblem(w: LiveWindow): string | null {
+  const bad = w.turns.filter((t) => !t.ok);
+  if (!bad.length) return null;
+  const last = w.turns[w.turns.length - 1];
+  const recovered = last?.ok ? `; the chat answered again by turn ${w.turns.findLast((t) => !t.ok)!.i + 1}` : "; the turn after the window failed too";
+  return `${bad.length} of ${w.turns.length} turns failed (first: turn ${bad[0].i} at ${Math.round(bad[0].at_ms / 1000)} s: ${bad[0].why ?? "?"})${recovered}`;
+}
+
+/** The detail line of a live window: turns, the slowest, and what ended it. */
+export function liveDetail(w: LiveWindow, change: string): string {
+  const slow = w.turns.reduce((m, t) => Math.max(m, t.ms), 0);
+  const ended = w.stopped_by === "signal" ? `${change} at ${Math.round((w.signal_at_ms ?? 0) / 1000)} s` : `no ${change} within ${Math.round(w.window_ms / 1000)} s`;
+  return `${w.turns.filter((t) => t.ok).length}/${w.turns.length} turns answered over ${Math.round(w.window_ms / 1000)} s, slowest ${slow} ms; ${ended}`;
+}
+
+/**
+ * --live-until image-roll: the image new machines of `env` boot, read from feat-cmux-next's cmux-vm wrangler.jsonc (the
+ * roll commit's list; images/cmux-vm/auto-roll.ts bootedImage), then a settle time for the deploy and the platform's
+ * list read (cmux-platform ImageFollow IMAGE_LIST_TTL_MS). `stop` is true once the image differs from the first read
+ * and `settleMs` has passed since that was seen. A failed read counts as no change.
+ */
+export const BOOT_LIST_URL = "https://raw.githubusercontent.com/manaflow-ai/cmux/feat-cmux-next/workers/cmux-vm/wrangler.jsonc";
+export function imageRollWatch(o: { read: () => Promise<string | null>; settleMs: number; now?: () => number }) {
+  const now = o.now ?? Date.now;
+  const state: { from: string | null; to: string | null; seen_at: number | null } = { from: null, to: null, seen_at: null };
+  return {
+    state,
+    async stop(): Promise<boolean> {
+      const image = await o.read().catch(() => null);
+      if (image) {
+        if (state.from === null) state.from = image;
+        else if (image !== state.from && state.to === null) { state.to = image; state.seen_at = now(); }
+      }
+      return state.seen_at !== null && now() - state.seen_at >= o.settleMs;
+    },
+    /** The first read, before the window opens, so a roll during the first turn is not taken as the start. */
+    async start(): Promise<void> {
+      state.from = (await o.read().catch(() => null)) ?? null;
+    },
+  };
+}
+
+/** The image `env`'s new machines boot, from feat-cmux-next's wrangler.jsonc; null when it cannot be read. */
+export async function readBootImage(env: "staging" | "production", fetchText: (url: string) => Promise<string> = async (url) => {
+  const r = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return await r.text();
+}): Promise<string | null> {
+  return bootedImage(await fetchText(BOOT_LIST_URL), env) || null;
+}
+
 /** A carrier dial step's detail: the connect and reply times, the failed attempts, and each attempt's phases. */
 export function dialDetail(d: { connectMs: number; replyMs: number; retries: number; failed: string[]; phases: string[]; reply: string }): string {
   return `connect ${d.connectMs} ms, reply ${d.replyMs} ms, ${d.retries} retried attempts${d.failed.length ? ` (${d.failed.join(", ")})` : ""}`
@@ -4522,6 +4622,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // --chaos: after the carrier dial, the chaos leg (cloud-chaos.ts) on this machine; --chaos-probe-out FILE writes it
   // as one synthetic-probe row (--chaos-probe NAME, default cloud-carrier-chaos-<backend>).
   const chaos = argv.includes("--chaos");
+  // --live-until image-roll|time: after turn 2, the chat keeps turning (--live-every S, default 30) until the image the
+  // backend's new machines boot changes and --live-settle S (default 180) passes, or --live-max S (default 3600) runs
+  // out; `time` just keeps it turning for --live-max (a deploy or roll someone else starts). Then the pause, resume and
+  // turn after resume as always, and with image-roll a second machine whose recorded image must be the new one.
+  const liveUntil = argValue("--live-until", argv);
+  if (liveUntil && liveUntil !== "image-roll" && liveUntil !== "time") throw new Error(`--live-until ${liveUntil}: image-roll or time`);
+  const liveEveryMs = Number(argValue("--live-every", argv) ?? "30") * 1000;
+  const liveSettleMs = Number(argValue("--live-settle", argv) ?? "180") * 1000;
+  const liveMaxMs = Number(argValue("--live-max", argv) ?? "3600") * 1000;
+  if (![liveEveryMs, liveSettleMs, liveMaxMs].every((n) => Number.isFinite(n) && n >= 0) || liveMaxMs > 4 * 3600_000) throw new Error("--live-every, --live-settle and --live-max are seconds (--live-max at most 14400)");
   // --resume-matrix 5,30,300,900,3600: after the chaos leg, this machine paused and woken --resume-n times (default 20)
   // per pause length and per arm (--resume-arms, default direct,platform,send), each wake timed from its event to the
   // resume's answer, the guest running, the relay registered and the reply's first byte (cloud-resume-matrix.ts).
@@ -4619,6 +4729,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const api = new Api(backend.api, team);
   let machine: string | null = null;
   let gatewayMachine: string | null = null;
+  // --live-until image-roll: the second machine, made after the roll to read the image it boots.
+  let afterRollMachine: string | null = null;
   // The team's gateway mode before this run changed it, the API that set it, and the local gateway this run started.
   let gatewayModeBefore: string | null = null;
   let gatewayMachineBefore: string | null = null;
@@ -4737,6 +4849,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       await J.step("delete gateway machine (cleanup)", async () => {
         await api.deleteMachine(g, `${tag}-gw-delete`);
         return { value: null, detail: g };
+      }).catch(() => undefined);
+    }
+    if (afterRollMachine) {
+      const m2: string = afterRollMachine;
+      afterRollMachine = null;
+      await J.step("delete machine made after the roll (cleanup)", async () => {
+        await api.deleteMachine(m2, `${tag}-after-roll-delete`);
+        return { value: null, detail: m2 };
       }).catch(() => undefined);
     }
     if (deleted) return;
@@ -5987,6 +6107,38 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
     }
 
+    // --live-until: the chat keeps turning across a backend change (an image roll), and the machine's recorded image
+    // is read before and after, so a roll that moved a running machine (it must not) shows.
+    let liveRoll: ReturnType<typeof imageRollWatch> | null = null;
+    if (liveUntil) {
+      if (!lifecycle) J.skip("live window", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}: the live window needs later turns`);
+      else {
+        const env = backend.name === "prod" ? "production" : "staging";
+        liveRoll = liveUntil === "image-roll" ? imageRollWatch({ read: () => readBootImage(env), settleMs: liveSettleMs }) : null;
+        await liveRoll?.start();
+        const imageBefore = (await api.read("cloud.machine.get", { machine: created.id }).catch(() => null))?.image?.id ?? null;
+        const what = liveUntil === "image-roll" ? `a new ${env} boot image (from ${liveRoll!.state.from ?? "unreadable"})` : "time";
+        console.log(`live window: a turn every ${liveEveryMs / 1000} s until ${what}, at most ${liveMaxMs / 1000} s`);
+        await J.step("live window", async () => {
+          const w = await liveWindow({
+            turn: (i) => laterTurn(`Live turn ${i}: answer in one short sentence.`),
+            stop: liveRoll ? () => liveRoll!.stop() : async () => false,
+            everyMs: liveEveryMs,
+            maxMs: liveMaxMs,
+          });
+          if (outDir) writeFileSync(path.join(outDir, "live-window.json"), `${JSON.stringify({ backend: backend.name, until: liveUntil, roll: liveRoll?.state ?? null, image_before: imageBefore, ...w }, null, 2)}\n`);
+          const imageAfter = (await api.read("cloud.machine.get", { machine: created.id }).catch(() => null))?.image?.id ?? null;
+          const change = liveRoll ? `roll ${liveRoll.state.from} -> ${liveRoll.state.to}` : "change";
+          const problem = liveProblem(w);
+          const detail = `${liveDetail(w, change)}; machine image ${imageBefore ?? "?"} -> ${imageAfter ?? "?"}`;
+          if (problem) throw new Error(`${problem}; ${detail}`);
+          if (imageBefore && imageAfter && imageBefore !== imageAfter) throw new Error(`the running machine's recorded image changed under its chat: ${detail}`);
+          return { value: null, detail };
+        });
+        if (liveRoll && !liveRoll.state.to) J.skip("live window: a roll happened", `no new ${env} boot image within ${liveMaxMs / 1000} s (from ${liveRoll.state.from ?? "unreadable"})`);
+      }
+    }
+
     // After the chat, while its processes still run: where a provider key sits on the chat machine.
     if (only.has("keys")) {
       J.skip(KEY_PROBE_STEP, "--skip keys");
@@ -6279,6 +6431,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       if (lifecycle) await J.step("turn after resume", async () => laterTurn("Back after a pause: answer in one short sentence."));
       else J.skip("turn after resume", only.has("lifecycle") ? "--skip lifecycle" : `agent ${agent}`);
+    }
+    // After a roll: a new machine boots the new image (the platform follows cmux-vm's list within its TTL).
+    if (liveRoll?.state.to) {
+      const want = liveRoll.state.to;
+      await J.step("new machine boots the rolled image", async () => {
+        const v = await api.op("cloud.machine.create", { name: `cloud journey auto ${tag} after roll`, size: { cpu: 2, memory_mb: 4096, disk_mb: 16384 }, seed: "none" }, `${tag}-after-roll-create`);
+        afterRollMachine = v.machine.id as string;
+        const m = await waitMachine(api, afterRollMachine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+        const got = m.image?.id ?? null;
+        if (got !== want) throw new Error(`booted ${got ?? "no recorded image"}, not the rolled ${want}`);
+        return { value: null, detail: `${afterRollMachine} running on ${got}` };
+      });
     }
     // The start's waterfall (cmux-platform /v1/cloud/start-traces): the platform's own hops for this create, keyed by
     // its idempotency key, plus the agent's start and first token this run measured; then the last day's p50/p95.

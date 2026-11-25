@@ -239,6 +239,9 @@ jobs:
           CMUX_PATH: ${{ steps.build-cmux-tui.outputs.path }}
           JOURNEY_MODEL: stub
           TARGET: staging
+          # A pull request from a lane/cloud-live-window* branch keeps its chat turning across a staging image roll
+          # (cloud-journey.ts --live-until); every other pull request runs the journey as before.
+          JOURNEY_LIVE: ${{ startsWith(github.head_ref, 'lane/cloud-live-window') && 'image-roll 600' || '' }}
         # An empty pair (a misnamed or missing secret) is this check's red in cloud-journey-ci.sh, never a skip.
         run: bash scripts/cmux-next/cloud-journey-ci.sh
       # cmux#55501: `cmux cloud start-chat` with no app (the direct route lane VMs take), on staging.
