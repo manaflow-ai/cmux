@@ -67,7 +67,7 @@ pub mod ship;
 mod store;
 
 pub use manifest::{Manifest, Params, RangeId, SCHEMA, Segment, TURN_RULE};
-pub use pack::{PackStats, pack};
+pub use pack::{PackStats, pack, pack_after};
 pub use read::Pack;
 pub use store::{Id, MISSING, Store, hex, unhex};
 

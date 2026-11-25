@@ -1,0 +1,7 @@
+2026-11-24T15:30:01.1234567Z PUBLISHED-BENCH {"schema": "cmux.published-bench.v1", "bench": "build", "cold_s": 412.3, "warm_s": 61.0, "host": {"name": "r1", "cpus": 16}}
+2026-11-24T15:31:01.1234567Z PUBLISHED-BENCH {"schema":"cmux.published-bench.v1","bench":"resume","resume_ms":{"n":20,"p50":210.5,"p95":260.1,"p99":270.0,"max":280.0},"daemon_ready_ms":{"n":20,"p50":40.0,"p95":55.0,"p99":60.0,"max":61.0},"load_errors":0}
+2026-11-24T15:32:01.1234567Z PUBLISHED-BENCH {"schema":"cmux.published-bench.v1","bench":"fork","fork_ms":{"n":20,"p50":180.0,"p95":220.0,"p99":230.0,"max":231.0},"history_turns":20}
+test result: ok. 2 passed; 0 failed
+2026-11-24T15:40:01.1234567Z PUBLISHED-BENCH {"schema":"cmux.published-bench.v1","bench":"soak-window","elapsed_s":75,"input_ms":{"n":15,"p50":9.0,"p95":12.0}}
+2026-11-24T15:41:01.1234567Z PUBLISHED-BENCH {"schema":"cmux.published-bench.v1","bench":"soak","duration_s":600,"load_chats":8,"input_ms":{"n":120,"p50":8.5,"p95":14.2,"p99":20.0,"max":31.0},"ls_ms":{"n":120,"p50":0.4,"p95":0.9},"rss_mb":{"start":30.1,"end":42.6,"max_sampled":44.0,"hwm":45.0},"zombies_max":0,"turn_errors":0}
+2026-11-24T15:45:01.1234567Z PUBLISHED-BENCH {"schema":"cmux.published-bench.v1","bench":"move","move_ms":{"n":15,"p50":900.0,"p95":1500.0,"max":1600.0},"red":0}

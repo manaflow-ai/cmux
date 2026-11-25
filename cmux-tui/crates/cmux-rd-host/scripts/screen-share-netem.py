@@ -7,6 +7,12 @@ viewer, in two network namespaces joined by a veth whose ends carry `tc netem`.
                              [--drop-seconds S --drop-seconds S]
                              [--workload marker|motion]
                              [--out FILE.jsonl]
+  sudo screen-share-netem.py BIN --probe --out FILE.jsonl
+
+--probe is goals/screen-share-fast.md's probe (cmuxterm-hq goals/screen-share-netem.md): 50 ms RTT and 1 % loss,
+a baseline row of fresh sessions, then a drop-10s and a drop-60s row (a full drop 3 s after connect), 10 sessions
+each. Its --out file is what cmuxterm-hq screen_share_fast_receipt.py extract --format netem publishes as NOW's
+screen_share_fast.netem_unmet.
 
 It is the connectivity harness's netem leg (cmuxterm-hq docs/architecture/connectivity-harness)
 applied to Mac Screen's own session path: `serve` is the host Mac Screen runs (`CmuxNextMacScreen`),
@@ -64,7 +70,12 @@ def setup(args):
     xvfb = subprocess.Popen(["ip", "netns", "exec", HOST_NS, "Xvfb", disp, "-screen", "0",
                              "1920x1080x24", "-nolisten", "tcp"],
                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    time.sleep(1.0)
+    # The display is up when its socket is; a fixed sleep lost that race on a loaded runner
+    # (testapp: "Connection refused").
+    sock = f"/tmp/.X11-unix/X{disp.lstrip(':').split('.')[0]}"
+    deadline = time.time() + 10
+    while not os.path.exists(sock) and xvfb.poll() is None and time.time() < deadline:
+        time.sleep(0.05)
     started(xvfb, "Xvfb " + disp)
     app = subprocess.Popen(["ip", "netns", "exec", HOST_NS, args.bin, "testapp", "--display", disp,
                             "--workload", args.workload],
@@ -412,12 +423,42 @@ def attempt(args, n, drop_s=None):
     return rec
 
 
+PROBE_RTT_MS, PROBE_LOSS_PCT, PROBE_DROPS, PROBE_BLIP_AT, PROBE_ATTEMPTS = 50, 1, (10, 60), 3, 10
+DEFAULT_ATTEMPTS = 50
+
+
+def plan(args, error):
+    """The rows to run: one drop duration per row, None for a baseline row with no drop. --probe fixes the link and
+    the rows (goals/screen-share-fast.md plan step 1); it also sets the timeout to cover the longest drop."""
+    if args.probe:
+        if args.drop_seconds is not None:
+            error("--probe sets its own rows; drop --drop-seconds")
+        args.rtt, args.loss = PROBE_RTT_MS, PROBE_LOSS_PCT
+        args.blip_at = PROBE_BLIP_AT if args.blip_at is None else args.blip_at
+        if args.attempts == DEFAULT_ATTEMPTS:
+            args.attempts = PROBE_ATTEMPTS
+        drop_seconds = [None, *map(float, PROBE_DROPS)]
+    else:
+        if args.drop_seconds is not None and args.blip_at is None:
+            error("--drop-seconds requires --blip-at")
+        drop_seconds = args.drop_seconds
+        if drop_seconds is None:
+            drop_seconds = [args.blip_s] if args.blip_at is not None else [None]
+    if any(duration <= 0 for duration in drop_seconds if duration is not None):
+        error("drop durations must be positive")
+    drops = [d for d in drop_seconds if d is not None]
+    if args.blip_at is not None and drops:
+        # Leave enough wall time for the full loss interval and one recovery sample.
+        args.timeout = max(args.timeout, args.blip_at + max(drops) + 30)
+    return drop_seconds
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("bin")
     ap.add_argument("--rtt", type=float, default=50)
     ap.add_argument("--loss", type=float, default=0)
-    ap.add_argument("--attempts", type=int, default=50)
+    ap.add_argument("--attempts", type=int, default=DEFAULT_ATTEMPTS)
     ap.add_argument("--samples", type=int, default=20)
     ap.add_argument("--workload", default="marker")
     ap.add_argument("--display", default=":173")
@@ -434,6 +475,8 @@ def main():
     ap.add_argument("--gate-recovery-ms", type=float, default=None, metavar="MS",
                     help="fail the run when a drop attempt does not recover, or takes longer than MS "
                          "after the network is back")
+    ap.add_argument("--probe", action="store_true",
+                    help="the published probe: --rtt 50 --loss 1, a baseline row, then 10 s and 60 s full drops")
     ap.add_argument("--timeout", type=float, default=90)
     ap.add_argument("--serve-arg", action="append", default=[])
     ap.add_argument("--out")
@@ -444,18 +487,9 @@ def main():
                     "the bench's sample_times and the run ends with the per-stage table (one machine, "
                     "one CLOCK_MONOTONIC: the join needs no clock probe)")
     args = ap.parse_args()
-    if args.drop_seconds is not None and args.blip_at is None:
-        ap.error("--drop-seconds requires --blip-at")
+    drop_seconds = plan(args, ap.error)
     if args.gate_recovery_ms is not None and args.blip_at is None:
         ap.error("--gate-recovery-ms requires --blip-at (it gates the drop rows)")
-    drop_seconds = args.drop_seconds
-    if drop_seconds is None:
-        drop_seconds = [args.blip_s] if args.blip_at is not None else [None]
-    if any(duration <= 0 for duration in drop_seconds if duration is not None):
-        ap.error("drop durations must be positive")
-    if args.blip_at is not None and any(duration is not None for duration in drop_seconds):
-        # Leave enough wall time for the full loss interval and one recovery sample.
-        args.timeout = max(args.timeout, args.blip_at + max(drop_seconds) + 30)
     procs = setup(args)
     out = open(args.out, "a") if args.out else None
     samples = []
