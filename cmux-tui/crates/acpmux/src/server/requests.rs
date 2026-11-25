@@ -3389,6 +3389,7 @@ async fn dispatch_request_with_identity(
         // Auto mode (`auto_session/surface.rs`): the chat's own machine switches it and settles
         // its kept changes, and only for the person (`auto_gate.rs`).
         method::MUX_AUTO_SESSION_SET
+        | method::MUX_AUTO_SESSION_MOVE
         | method::MUX_CHAT_MOVE
         | method::MUX_AUTO_SESSION_LEFTOVER
         | method::MUX_AUTO_SESSION_WAKE
