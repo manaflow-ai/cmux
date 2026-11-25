@@ -460,6 +460,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
             if !heldUntilRest { trace("held while scrolling at \(Int(view.contentOffset.y))") }
             heldUntilRest = true
             countHeld(next)
+            watchForRest()
             return
         }
         // A pending question's card shows its saved draft (a relaunch keeps a partly answered question
@@ -835,6 +836,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
 
     isolated deinit {
         spareTimer?.invalidate()
+        restTimer?.invalidate()
     }
 
     private func spareTimerFired() {
@@ -1274,6 +1276,7 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        defer { releaseHeld() }
         trace("animation end at \(Int(scrollView.contentOffset.y)) jumping=\(jumpingToTop) top=\(control.atTop)")
         defer { syncAtTop() }
         guard jumpingToTop else { return }
@@ -1378,9 +1381,29 @@ final class FeedListController: NSObject, UITableViewDelegate, FeedRowCellDelega
         }
     }
 
+    /// A held apply's backstop: a tap that stops a deceleration can end it with neither
+    /// `scrollViewDidEndDecelerating` nor `didEndDragging`. Checked every 0.1 s while rows wait; it
+    /// releases only once the list is neither tracked nor decelerating (the end callbacks come first).
+    private var restTimer: Timer?
+    private func watchForRest() {
+        guard restTimer == nil else { return }
+        let timer = Timer(timeInterval: 0.1, repeats: true) { [weak self] timer in
+            MainActor.assumeIsolated {
+                guard let self, let view = self.collectionView else { timer.invalidate(); return }
+                guard !view.isTracking, !view.isDecelerating, !self.jumpingToTop else { return }
+                self.trace("released by the rest check")
+                self.releaseHeld()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        restTimer = timer
+    }
+
     /// At rest: what waited applies in one pass, with the reader's row kept in place.
     private var releasing = false
     private func releaseHeld() {
+        restTimer?.invalidate()
+        restTimer = nil
         if let partChanged = headerHeld {
             headerHeld = nil
             releasing = true
