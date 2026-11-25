@@ -31,6 +31,11 @@ env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   SOURCE_WORKFLOW_PATHS: .github/workflows/nightly.yml
+  # Nightly builds and publishes Apple silicon only (nightly.yml decide). Intel
+  # and universal ship from the stable release; their nightly feeds, the
+  # universal `cmux-nightly-macos.dmg` and the x86_64/universal aliases stay at
+  # the last build that had them. Every variant loop and job matrix below lists
+  # arm64 only.
 
 jobs:
   preflight:
@@ -165,7 +170,7 @@ jobs:
             # Publish a variant only when the latest run of its verify job passed.
             gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/jobs?filter=latest&per_page=100" \
               --jq '.jobs[] | [.name, (.conclusion // "")] | @tsv' > "$RUNNER_TEMP/source-jobs.tsv"
-            for variant in $NIGHTLY_VARIANTS; do
+            for variant in arm64; do
               if ! grep -Fxq "$(printf 'Verify signed nightly app (%s)\tsuccess' "$variant")" "$RUNNER_TEMP/source-jobs.tsv"; then
                 echo "::warning::Verify signed nightly app ($variant) did not pass in run $SOURCE_RUN_ID; nothing is continued."
                 printf 'ready=false\nreason=verify-job-did-not-pass\n' > "$RUNNER_TEMP/artifact-check"
@@ -227,7 +232,7 @@ jobs:
           mkdir -p recovery
           kind=recovery
           [ "$RECOVERY_METADATA_ONLY" != true ] || kind=metadata
-          for variant in $NIGHTLY_VARIANTS; do
+          for variant in arm64; do
             artifact="cmux-${CHANNEL}-notarization-${kind}-${variant}-${SHORT_SHA}"
             gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
               --name "$artifact" --dir "recovery/$variant"
@@ -250,7 +255,7 @@ jobs:
           if [ "$RECOVERY_METADATA_ONLY" = true ]; then
             resolve_args=(--metadata-only)
           fi
-          for variant in $NIGHTLY_VARIANTS; do
+          for variant in arm64; do
             manifest="recovery/$variant/cmux-nightly-notarization-recovery.json"
             if ! python3 scripts/ci/resolve-notarization-recovery.py \
                 "$manifest" "$SOURCE_RUN_ID" "$SOURCE_HEAD_SHA" "$CHANNEL" "$variant" \
@@ -271,7 +276,7 @@ jobs:
           while :; do
             pending=false
             terminal_failure=false
-            for variant in $NIGHTLY_VARIANTS; do
+            for variant in arm64; do
               state_file="$(cat "$RUNNER_TEMP/recovery-$variant.state-file")"
               report="poll-reports/$variant.log"
               set +e
@@ -590,7 +595,7 @@ jobs:
           set -euo pipefail
           mkdir -p outer
           variants=()
-          for variant in $NIGHTLY_VARIANTS; do
+          for variant in arm64; do
             artifact="cmux-${CHANNEL}-outer-notarization-metadata-${variant}-${SHORT_SHA}"
             if gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "outer/$variant"; then
               variants+=("$variant")
@@ -862,7 +867,7 @@ jobs:
           set -euo pipefail
           mkdir -p outer
           variants=()
-          for variant in $NIGHTLY_VARIANTS; do
+          for variant in arm64; do
             artifact="cmux-${CHANNEL}-stapled-app-notarization-metadata-${variant}-${SHORT_SHA}"
             if gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "outer/$variant"; then
               variants+=("$variant")
@@ -1135,7 +1140,7 @@ jobs:
           set -euo pipefail
           mkdir -p nightly-out
           nightly_build=""
-          for variant in $NIGHTLY_VARIANTS; do
+          for variant in arm64; do
             manifest="$(find verified -type f -name cmux-nightly-notarization-recovery.json -path "*-${variant}-${SHORT_SHA}/*" -print -quit)"
             [ -n "$manifest" ] || { echo "missing accepted $variant artifact" >&2; exit 1; }
             dir="$(dirname "$manifest")"
