@@ -567,6 +567,20 @@ const inChat = (question: AgentQuestion): AgentQuestion => ({
 });
 
 /// Whether records sorted by seq hold one numbered `seq` (a binary search).
+/// An indexed page (`mergeIndexedPage`) that leaves a hole above the held records (from `tailStart` on), without its
+/// last turn when that turn does not end in it and an ended turn after `target` starts before it: the gap fill
+/// reads that turn whole with the records between (`fillIndexedGaps`). Folded with no end, it drew as running (a
+/// typing row, its calls open) until the gap filled. The page as read when it reaches the held records, or no turn
+/// after the target's ends in it.
+function wholeTurnsAboveHole(page: readonly EventRecord[], target: number, tailStart: number): EventRecord[] {
+  const sorted = [...page].sort((a, b) => a.seq - b.seq);
+  if (!Number.isFinite(tailStart) || sorted.at(-1)!.seq + 1 >= tailStart) return sorted;
+  if (sorted.at(-1)!.dir === "mux" && sorted.at(-1)!.kind === "turn_result") return sorted;
+  for (let at = sorted.length - 1; at > 0 && sorted[at]!.seq > target; at -= 1)
+    if (startsTurn(sorted[at]!) && endsTurnBefore(sorted, at)) return sorted.slice(0, at);
+  return sorted;
+}
+
 const holdsSeq = (events: readonly EventRecord[], seq: number) => {
   let low = 0;
   let high = events.length;
@@ -16612,16 +16626,23 @@ export class AcpmuxDirectClient {
     return read;
   }
 
-  private mergeIndexedPage(page: EventRecord[]): boolean {
-    if (!page.length) return false;
+  private mergeIndexedPage(read: EventRecord[], target = -Infinity): boolean {
+    if (!read.length) return false;
     const before = this.events.length ? this.events[0]!.seq : Number.POSITIVE_INFINITY;
-    const pageStart = Math.min(...page.map((event) => event.seq));
+    const pageStart = Math.min(...read.map((event) => event.seq));
     const tailStart = this.firstSeq ?? Number.POSITIVE_INFINITY;
+    const page = wholeTurnsAboveHole(read, target, tailStart);
+    // A page wholly above the held records, which start a turn, folds above their rows as an older page does
+    // (`foldOlder`): a rail click near the held records folded only its page, not every record held again.
+    // Base: each click refolded the page and the whole held window (up to HELD_RECORDS), 130 ms of
+    // `reduceEvent` at n=500 (bench/chat-fast-scroll.bench.ts), and more under a throttled CPU.
+    const older = this.olderIndexedRecords(page, tailStart);
     this.events = mergeEventRecords(this.events, page);
     this.sawPrompts(page);
+    if (older) this.foldOlder(older);
     // Preserve the live queue/permissions and the reconnect reader anchor while replaying the
     // newly held records, as `checkFinishedTurn` does for a narrow repair read.
-    this.rebuildKeepingLiveState(Math.min(before, ...page.map((event) => event.seq)) - 1);
+    else this.rebuildKeepingLiveState(Math.min(before, ...page.map((event) => event.seq)) - 1);
     const held = new Set(this.events.map((event) => event.seq));
     for (const row of indexedPromptPlaceholders(
       this.promptIndex?.heads ?? PromptHeads.EMPTY,
@@ -16639,6 +16660,39 @@ export class AcpmuxDirectClient {
       this.startIndexedGapFill();
     }
     return true;
+  }
+
+  /// The records of indexed `page` that fold above the held ones (`foldOlder`), oldest first, when it is safe to
+  /// fold them alone; undefined when the held window must be refolded whole (`mergeIndexedPage`). Safe as
+  /// `fetchOlder`'s older pages are: every record the page brings is older than the held ones, and those start
+  /// a turn the page's records ended before (or a hole lies between them), so no row is drawn from records on
+  /// both sides; no forced Stop's result or compaction fence moves a held prompt; no turn opener or shed split
+  /// stands in for the records the page brings.
+  private olderIndexedRecords(page: readonly EventRecord[], tailStart: number): EventRecord[] | undefined {
+    if (!Number.isFinite(tailStart) || this.events.length === 0 || !startsTurn(this.events[0]!)) return undefined;
+    if (this.turnOpener || this.splits.size > 0) return undefined;
+    if (this.compactionFenceSeq !== undefined || this.retiredCompactionTurnId !== undefined) return undefined;
+    const older: EventRecord[] = [];
+    for (const event of page) {
+      if (event.seq < tailStart) older.push(event);
+      // A page record among the held ones that they do not hold changes their rows: refold them.
+      else if (!holdsSeq(this.events, event.seq)) return undefined;
+    }
+    if (older.length === 0) return undefined;
+    older.sort((a, b) => a.seq - b.seq);
+    const crossesStop = older.some(
+      (event) =>
+        event.dir === "mux" &&
+        event.kind === "turn_result" &&
+        event.msg?.cancelForced === true &&
+        typeof event.msg?.turnId === "string",
+    );
+    if (crossesStop) return undefined;
+    // The page's last turn ended (`endsTurnBefore`): next to the held records, a prompt into a running turn goes on
+    // drawing its reply, and above a hole, a turn left open draws as running (its typing row) until the gap fills.
+    // Only a whole refold draws those. A page above a hole ends at a turn's end (`wholeTurnsAboveHole`).
+    if (!endsTurnBefore([...older, this.events[0]!], older.length)) return undefined;
+    return older;
   }
 
   private clearIndexedHistory(): void {
@@ -16777,7 +16831,7 @@ export class AcpmuxDirectClient {
         // the held ones stay unread (room under the rows, ticks on the rail) until the reader scrolls to them.
         // Base: the gap fill read every page between, and the chat held all of them.
         if (this.jumpWindow(page, seq)) return held();
-        this.mergeIndexedPage(page);
+        this.mergeIndexedPage(page, seq);
         void this.indexedPage(Math.max(1, seq - INDEXED_PAGE_RADIUS));
         void this.indexedPage(seq + INDEXED_PAGE_RADIUS);
         if (held()) return true;
