@@ -1,6 +1,7 @@
 //! Desktop Duplication. The acquired texture is the complete current desktop;
 //! dirty and move-destination rectangles limit GPU readback and CPU copies.
 use super::*;
+use cmux_rd_core::flow::Rect;
 use windows::core::Interface;
 use windows::Win32::Foundation::{HMODULE, RECT};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_UNKNOWN;
