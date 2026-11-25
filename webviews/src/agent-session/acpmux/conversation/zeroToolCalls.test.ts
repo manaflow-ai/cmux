@@ -94,7 +94,11 @@ const spawnCall = (status: string) =>
       title: "Agent",
       kind: "think",
       status,
-      inputSummary: JSON.stringify({ description: "N3 daemon wiring move", prompt: "move it", subagent_type: "general-purpose" }),
+      inputSummary: JSON.stringify({
+        description: "N3 daemon wiring move",
+        prompt: "move it",
+        subagent_type: "general-purpose",
+      }),
     },
   }) as never;
 
@@ -128,10 +132,17 @@ test("the same subagent turn that took 6s keeps its Worked for", () => {
     row("prompt", 1, "user", { text: "Move the daemon wiring" }),
     row("act", 2_000, "activity", { items: [spawnCall("completed")] }),
     row("group", 2_000, "subagents", { subagents: [agentNamed("completed")] }),
-    row("summary", 7_000, "turnSummary", { status: "completed", toolCount: 1, durationMs: 6_000, turnStartedAtMs: 1_000 }),
+    row("summary", 7_000, "turnSummary", {
+      status: "completed",
+      toolCount: 1,
+      durationMs: 6_000,
+      turnStartedAtMs: 1_000,
+    }),
   ];
   const view = turnView([...withSubagentLines(rows)], new Set(), { agentFamily: "claude" });
-  expect(view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry))).toEqual(["Worked for 6s"]);
+  expect(view.filter((entry) => entry.kind === WORKED).map((entry) => workedLabel(t, entry))).toEqual([
+    "Worked for 6s",
+  ]);
 });
 
 // Review on #54927: an Agent call no subagent row answers (it failed before acpmux named one) is the
