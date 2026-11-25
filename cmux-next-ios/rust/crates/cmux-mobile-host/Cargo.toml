@@ -20,6 +20,8 @@ cmux-deadline.workspace = true
 # The Chief's push body as words, not Markdown (src/notify.rs).
 cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true
+# The relay publisher (src/relay_publish.rs): seals the newest snapshot and each delta per phone.
+cmux-relay-snapshot.workspace = true
 # Mac output to phone paint (src/output_paint.rs): its ring and window math.
 cmux-output-paint.workspace = true
 cmux-rd-core.workspace = true
@@ -50,7 +52,7 @@ ring = "0.17"
 # Sealed pushes and mailbox replies (src/seal.rs): P-256 ECDH, HKDF-SHA256 and
 # AES-256-GCM, as CryptoKit does them on the phone; already in the graph through
 # webrtc (dtls).
-p256 = { version = "0.13", features = ["ecdh"] }
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
 hkdf = "0.12"
 aes-gcm = "0.10"
 sha2 = "0.10"

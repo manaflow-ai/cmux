@@ -680,6 +680,7 @@ dependencies = [
  "cmux-mobile-link",
  "cmux-rd-core",
  "cmux-rd-proto",
+ "cmux-relay-snapshot",
  "cmux-remote-protocol",
  "cmux-terminal-projection",
  "cmux-transport",
