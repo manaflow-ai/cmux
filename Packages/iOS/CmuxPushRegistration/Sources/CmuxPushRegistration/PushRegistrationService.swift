@@ -1,7 +1,12 @@
 public import CmuxAuthRuntime
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 public import CmuxEgress
+#if canImport(OSLog)
 import OSLog
+#endif
 
 private let pushLog = Logger(subsystem: "ai.manaflow.cmux", category: "push")
 

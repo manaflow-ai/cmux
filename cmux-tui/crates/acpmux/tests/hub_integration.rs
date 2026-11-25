@@ -53,6 +53,8 @@ mod drafts;
 mod full_access_guards;
 #[path = "hub_integration/held_queue.rs"]
 mod held_queue;
+#[path = "hub_integration/held_rows.rs"]
+mod held_rows;
 #[path = "hub_integration/inbox_digest.rs"]
 mod inbox_digest;
 #[path = "hub_integration/lanes.rs"]
