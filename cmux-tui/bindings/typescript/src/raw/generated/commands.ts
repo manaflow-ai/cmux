@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6e26fb283fad093fa33c3795e921eda3a68e15031299b7bdb0d5534a995b2a53. */
+/* cmux-tui mux protocol 12, IR 5161bf1c7fc874844d16f2c7c8cfca7f78ac9b593d375046db2fb06645051f89. */
 
 
 import type * as T from "./types.js";
@@ -1524,6 +1524,8 @@ export type ListClientsResult = Array<T.ClientInfo>;
 export interface ListNotificationsRequest extends CmuxRequestBase {
   cmd: "list-notifications";
   "limit"?: (bigint) | null;
+  /** true: the reply also carries agent_notice_stats. */
+  "stats"?: boolean;
 }
 export type ListNotificationsResult = T.JsonValue;
 
@@ -2197,6 +2199,11 @@ export interface ReleaseSurfaceSizeRequest extends CmuxRequestBase {
   "surface": T.Id;
 }
 export type ReleaseSurfaceSizeResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface ReleaseWorkspaceNamesRequest extends CmuxRequestBase {
+  cmd: "release-workspace-names";
+}
 
 /** Protocol v6; authority: control. */
 export interface ReloadConfigRequest extends CmuxRequestBase {
@@ -3391,6 +3398,7 @@ export type CmuxRequest =
   | RegisterBrowserProviderRequest
   | ReleaseAttachedViewSizeRequest
   | ReleaseSurfaceSizeRequest
+  | ReleaseWorkspaceNamesRequest
   | ReloadConfigRequest
   | RemoteHostAppRequest
   | RemoteHostCallRequest
@@ -5152,6 +5160,14 @@ export interface CmuxCommandDefinitionMap {
     result: ReleaseSurfaceSizeResult;
     authority: "control";
     since: 7;
+    capability: null;
+    stream: null;
+  };
+  "release-workspace-names": {
+    request: ReleaseWorkspaceNamesRequest;
+    result: T.ReleaseWorkspaceNamesResult;
+    authority: "control";
+    since: 12;
     capability: null;
     stream: null;
   };

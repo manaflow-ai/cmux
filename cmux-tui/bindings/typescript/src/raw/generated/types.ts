@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6e26fb283fad093fa33c3795e921eda3a68e15031299b7bdb0d5534a995b2a53. */
+/* cmux-tui mux protocol 12, IR 5161bf1c7fc874844d16f2c7c8cfca7f78ac9b593d375046db2fb06645051f89. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -893,6 +893,13 @@ export type ReadScrollbackResult = {
 export type ReattachViewResult = {
   "participant": string;
   "state": SizeState;
+};
+
+export type ReleaseWorkspaceNamesResult = {
+  /** Workspace names this call handed back to the automatic namer. */
+  "released": bigint;
+  /** User-owned names left pinned: a row renamed between the read and its release. */
+  "still_pinned": bigint;
 };
 
 export type RemoteHostAppPermissions = {

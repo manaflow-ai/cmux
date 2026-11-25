@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6e26fb283fad093fa33c3795e921eda3a68e15031299b7bdb0d5534a995b2a53. */
+/* cmux-tui mux protocol 12, IR 5161bf1c7fc874844d16f2c7c8cfca7f78ac9b593d375046db2fb06645051f89. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6e26fb283fad093fa33c3795e921eda3a68e15031299b7bdb0d5534a995b2a53" as const;
+export const SDK_IR_SHA256 = "5161bf1c7fc874844d16f2c7c8cfca7f78ac9b593d375046db2fb06645051f89" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1089,7 +1089,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps at most 2000 steps (run_full). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
+      "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps every step (no count cap). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
     ]
   },
   "conversation-runs": {
@@ -2623,6 +2623,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "An absent lease is a successful no-op."
+    ]
+  },
+  "release-workspace-names": {
+    "authority": "control",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Idempotent: a second call releases nothing."
     ]
   },
   "reload-config": {
@@ -9959,6 +9969,30 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "SizeState"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ReleaseWorkspaceNamesResult": {
+    "additional_properties": false,
+    "fields": {
+      "released": {
+        "description": "Workspace names this call handed back to the automatic namer.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "still_pinned": {
+        "description": "User-owned names left pinned: a row renamed between the read and its release.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -23778,6 +23812,16 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "kind": "scalar",
             "name": "uint64"
           }
+        },
+        "stats": {
+          "default": false,
+          "description": "true: the reply also carries agent_notice_stats.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
         }
       },
       "kind": "object"
@@ -27346,6 +27390,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "release-workspace-names": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ReleaseWorkspaceNamesResult"
     }
   },
   "reload-config": {

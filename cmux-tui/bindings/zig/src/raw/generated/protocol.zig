@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6e26fb283fad093fa33c3795e921eda3a68e15031299b7bdb0d5534a995b2a53";
+pub const ir_sha256 = "5161bf1c7fc874844d16f2c7c8cfca7f78ac9b593d375046db2fb06645051f89";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1760,6 +1760,13 @@ pub const ReadScrollbackResult = struct {
 pub const ReattachViewResult = struct {
     participant: []const u8,
     state: SizeState,
+};
+
+pub const ReleaseWorkspaceNamesResult = struct {
+    /// Workspace names this call handed back to the automatic namer.
+    released: u64,
+    /// User-owned names left pinned: a row renamed between the read and its release.
+    still_pinned: u64,
 };
 
 pub const RemoteHostAppPermissions = struct {
@@ -7224,6 +7231,12 @@ pub fn listClients(client: anytype, request: ListClientsRequest) !wire.Decoded(L
 
 pub const ListNotificationsRequest = struct {
     limit: wire.Field(u64) = .absent,
+    /// true: the reply also carries agent_notice_stats.
+    stats: ?bool = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "stats",
+    };
 };
 
 pub const ListNotificationsResult = JsonValue;
@@ -8792,6 +8805,21 @@ pub fn releaseSurfaceSize(client: anytype, request: ReleaseSurfaceSizeRequest) !
             .name = "release-surface-size",
             .authority = "control",
             .since = 7,
+            .capability = null,
+        },
+        request,
+    );
+}
+
+pub const ReleaseWorkspaceNamesRequest = struct {};
+
+pub fn releaseWorkspaceNames(client: anytype, request: ReleaseWorkspaceNamesRequest) !wire.Decoded(ReleaseWorkspaceNamesResult) {
+    return client.callTyped(
+        ReleaseWorkspaceNamesResult,
+        .{
+            .name = "release-workspace-names",
+            .authority = "control",
+            .since = 12,
             .capability = null,
         },
         request,
@@ -12974,7 +13002,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 312;
+pub const command_count: usize = 313;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13183,6 +13211,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "register-browser-provider", .authority = "local-admin", .since = 10, .capability = "browser-provider-v1", .stream = null },
     .{ .name = "release-attached-view-size", .authority = "frontend", .since = 10, .capability = "view-attachment-lease-v1", .stream = null },
     .{ .name = "release-surface-size", .authority = "control", .since = 7, .capability = null, .stream = null },
+    .{ .name = "release-workspace-names", .authority = "control", .since = 12, .capability = null, .stream = null },
     .{ .name = "reload-config", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "remote-host-app", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
     .{ .name = "remote-host-call", .authority = "local-admin", .since = 12, .capability = "remote-host-v1", .stream = null },
