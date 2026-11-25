@@ -128,6 +128,8 @@ mod carried_launch;
 pub(crate) use carried_launch::CarriedLaunch;
 mod exit_with;
 mod install_key;
+#[cfg(windows)]
+mod job_breakaway;
 mod owner_launcher;
 mod replace;
 pub(crate) use exit_with::{
@@ -1006,14 +1008,14 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     // terminal teardown must never reach it, so it gets no stdio and (on
     // Unix) its own session, free of the controlling terminal. On Windows
     // its stdin is the install key pipe when there is a key.
-    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     if spec.install_key.is_some() {
-        command.arg(install_key::OWNER_INSTALL_KEY_STDIN_ARG).stdin(Stdio::piped());
+        command.arg(install_key::OWNER_INSTALL_KEY_STDIN_ARG);
     }
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
+        set_owner_stdio(&mut command, spec);
         // SAFETY: setsid(2) is async-signal-safe and touches no Rust state
         // in the post-fork child. A freshly forked child is not a
         // process-group leader, so failure is a real launch error.
@@ -1024,16 +1026,12 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         }
     }
     #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const DETACHED_PROCESS: u32 = 0x0000_0008;
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-    }
-    #[cfg(windows)]
     install_key::keep_std_handles_from_children();
-    #[cfg_attr(not(windows), allow(unused_mut))]
-    let mut child = command.spawn()?;
+    let spawn = |command: &mut Command| command.spawn();
+    #[cfg(unix)]
+    let child = spawn(&mut command)?;
+    #[cfg(windows)]
+    let mut child = job_breakaway::spawn_owner_out_of_callers_job(&mut command, spec, spawn)?;
     // Only the owner holds the write end now, so end of file means it exited.
     #[cfg(unix)]
     drop(ready_writer);
@@ -1068,6 +1066,19 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     #[cfg(unix)]
     let ready = Some(ready);
     Ok(SpawnedOwner { state, pid, direct, ready })
+}
+
+/// The owner's stdio: none, except on Windows the install key pipe as stdin
+/// when there is a key. A spawn uses the streams up, so a second spawn of
+/// the same command sets them again.
+fn set_owner_stdio(command: &mut Command, spec: &OwnerSpec) {
+    command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    if spec.install_key.is_some() {
+        command.stdin(Stdio::piped());
+    }
+    #[cfg(not(windows))]
+    let _ = spec;
 }
 
 /// Blocks until the owner exits, without reaping it (`WNOWAIT`), so a
