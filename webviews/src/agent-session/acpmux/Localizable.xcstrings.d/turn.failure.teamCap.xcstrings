@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.teamCap" : {
+      "comment" : "Agent pane: a failed turn's note when the cmux model router refused it because the team reached its spending cap; {harness} is the agent's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "رُفض {harness}: بلغ فريقك حدّ الإنفاق. اطلب من مسؤول رفعه، أو استخدم نموذجك الخاص."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} je odbijen: vaš tim je dostigao ograničenje potrošnje. Zamolite administratora da ga podigne ili koristite svoj model."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} blev afvist: dit team har nået sit forbrugsloft. Bed en administrator om at hæve det, eller brug din egen model."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} wurde abgelehnt: Dein Team hat sein Ausgabenlimit erreicht. Bitte einen Admin, es zu erhöhen, oder nutze dein eigenes Modell."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} was refused: your team hit its spending cap. Ask an admin to raise it, or use your own model."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} fue rechazado: tu equipo alcanzó su límite de gasto. Pide a un administrador que lo suba o usa tu propio modelo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} a été refusé : votre équipe a atteint son plafond de dépenses. Demandez à un administrateur de le relever, ou utilisez votre propre modèle."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} è stato rifiutato: il tuo team ha raggiunto il tetto di spesa. Chiedi a un amministratore di alzarlo o usa il tuo modello."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} は拒否されました: チームが支出上限に達しました。管理者に上限を上げてもらうか、自分のモデルを使ってください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} ត្រូវបានបដិសេធ៖ ក្រុមរបស់អ្នកដល់កម្រិតចំណាយហើយ។ សុំអ្នកគ្រប់គ្រងឱ្យបង្កើន ឬប្រើម៉ូដែលផ្ទាល់ខ្លួន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness}이(가) 거부되었습니다: 팀이 지출 한도에 도달했습니다. 관리자에게 한도 상향을 요청하거나 직접 모델을 사용하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} ble avvist: teamet ditt har nådd utgiftsgrensen. Be en administrator øke den, eller bruk din egen modell."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} odrzucono: Twój zespół osiągnął limit wydatków. Poproś administratora o podniesienie go albo użyj własnego modelu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} foi recusado: sua equipe atingiu o limite de gastos. Peça a um admin para aumentá-lo ou use seu próprio modelo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} отказано: ваша команда достигла лимита расходов. Попросите администратора повысить его или используйте свою модель."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} ถูกปฏิเสธ: ทีมของคุณถึงขีดจำกัดการใช้จ่ายแล้ว ขอให้ผู้ดูแลเพิ่ม หรือใช้โมเดลของคุณเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} reddedildi: ekibiniz harcama sınırına ulaştı. Bir yöneticiden yükseltmesini isteyin ya da kendi modelinizi kullanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} відмовлено: ваша команда досягла ліміту витрат. Попросіть адміністратора підвищити його або використайте свою модель."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} bị từ chối: nhóm của bạn đã chạm hạn mức chi tiêu. Nhờ quản trị viên nâng hạn mức, hoặc dùng mô hình của riêng bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} 被拒绝：你的团队已达到支出上限。请管理员提高上限，或使用你自己的模型。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} 遭拒：你的團隊已達支出上限。請管理員提高上限，或使用你自己的模型。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
