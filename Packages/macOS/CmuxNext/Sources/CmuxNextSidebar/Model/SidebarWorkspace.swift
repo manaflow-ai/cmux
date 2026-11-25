@@ -201,7 +201,7 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// whole and an expanded row its first line (a compact row has no second line of its own). Nil while unset.
     public var workspaceDescription: String?
     /// The task lane the person pinned (Mark as Done, Set Workspace Status): the hover card names
-    /// it and done-fold logic can use it. Nil while automatic.
+    /// it and done-fold logic can use it. Nil while unset.
     public var taskStatus: SidebarTaskStatus?
     /// The title's weight from the user's row decoration (`SidebarRowDecoration`); nil is the
     /// default (regular).
