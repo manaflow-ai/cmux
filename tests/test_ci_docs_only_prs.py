@@ -473,6 +473,37 @@ class Fallback(unittest.TestCase):
         ci = (WORKFLOWS / "ci.yml").read_text()
         self.assertIn(docs.label_guard(docs.CI_LABELS), ci, "ci.yml's label guard and the fallback's name the same labels")
 
+    def test_merge_files_lists_the_head_side_of_the_merge_commit(self):
+        """The gate reads the merge commit's change from git (no REST budget); a stale merge ref reads as unknown."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+
+            def git(*args):
+                return subprocess.run(["git", "-C", tmp, "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                                      check=True, capture_output=True, text=True).stdout.strip()
+
+            git("init", "-q", "-b", "base")
+            (root / "README.md").write_text("a\n")
+            git("add", "."); git("commit", "-qm", "base")
+            git("checkout", "-qb", "head")
+            (root / "app.py").write_text("x\n")
+            git("add", "."); git("commit", "-qm", "head")
+            head = git("rev-parse", "HEAD")
+            git("checkout", "-q", "base")
+            (root / "docs.md").write_text("only the base changed this\n")
+            git("add", "."); git("commit", "-qm", "base moved")
+            git("merge", "-q", "--no-ff", "--no-edit", "head")
+            self.assertEqual(docs.merge_files(head, root), ["app.py"])
+            self.assertFalse(docs.docs_only(docs.merge_files(head, root)))
+            self.assertIsNone(docs.merge_files("0" * 40, root), "a merge of another head proves nothing")
+            git("checkout", "-q", head)
+            self.assertIsNone(docs.merge_files(head, root), "no merge commit checked out: unknown")
+            # A code file in the list means GitHub saw code, so the plan is the one the API's list would give.
+            event = {"action": "labeled", "label": {"name": "full-ci"},
+                     "pull_request": {"base": {"ref": "feat-cmux-next"}}}
+            self.assertEqual(self.plan(event, ["app.py"], runs=None), [])
+
 
 class Units(unittest.TestCase):
     def test_starts_reads_branches_types_and_paths(self):
