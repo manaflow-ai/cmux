@@ -635,6 +635,55 @@
             "edited",
             "files"
           ]
+        },
+        {
+          "key": "experiments.cloudDiskBar",
+          "note": "Taste prototype (RFD 0068 disk bar): the Cloud page's machine card and detail draw the disk as a bar, used over allocated, split into system, project and caches from the guest's sample (webviews useExperimentSwitch(\"cloudDiskBar\"), pages/cloud/DiskHealth.tsx). Off by default; off keeps today's free and used line. `cmux cloud ls` prints the same numbers either way.",
+          "title": {
+            "key": "settings.experiments.cloudDiskBar",
+            "text": "Cloud Disk Bar"
+          },
+          "help": {
+            "key": "settings.experiments.cloudDiskBar.help",
+            "text": "Cloud machine cards show disk use as a bar split into system, project and caches."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiments",
+            "experimental",
+            "prototype",
+            "cloud",
+            "disk",
+            "storage",
+            "bar",
+            "caches"
+          ]
+        },
+        {
+          "key": "experiments.browserProfileCard",
+          "note": "Browser Profile Card: the browser toolbar's profile menu opens as Helium's, a card with the profile's large avatar first, a Signed in as row (Accounts), avatars on the other profiles, and the profile's own rows in Customize Profile (BrowserProfileMenuStyle.card, BrowserToolbarHandlers.profileMenu). Off by default: today's menu (Leo's UI hold, 2026-11-25).",
+          "title": {
+            "key": "settings.experiments.browserProfileCard",
+            "text": "Browser Profile Card"
+          },
+          "help": {
+            "key": "settings.experiments.browserProfileCard.help",
+            "text": "The browser's profile menu opens with a profile card."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "experiment",
+            "experimental",
+            "browser",
+            "profile",
+            "menu",
+            "card",
+            "account",
+            "helium",
+            "labs"
+          ]
         }
       ]
     }
