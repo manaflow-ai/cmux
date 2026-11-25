@@ -111,6 +111,18 @@ def context_of(job_id: str, job: dict, path: Path, workflow: dict) -> str:
                 raise ValueError("CLA metadata route violates its condition/name contract") from error
         else:
             return CLA_REQUIRED_CHECK
+    if isinstance(name, str) and "${{" in name:
+        # A name that differs only on an ignored edit or label (backend-migrations' gate) is the check's
+        # name on a push, as on feat-cmux-next. Unknown expressions stay unmatched rather than silently
+        # drop coverage.
+        from test_ci_pr_runs_cancel_superseded import ExpressionError, pr_context, resolve
+
+        try:
+            for event in ("pull_request_target", "pull_request"):
+                if event in (workflow.get("on", workflow.get(True)) or {}):
+                    return str(resolve(name, pr_context(workflow, event, 101, 1)))
+        except (ExpressionError, KeyError, IndexError, TypeError, ValueError):
+            return name
     return name
 
 

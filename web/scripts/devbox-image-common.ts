@@ -292,6 +292,67 @@ export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): str
   return sha;
 }
 
+/** Muse needs a newer bubblewrap than Ubuntu 24.04's 0.9.0. */
+export function devboxBubblewrapUrl(dockerfile = readDevboxDockerfile()): string {
+  const url = /^ARG CMUX_IMAGE_BUBBLEWRAP_URL=(\S+)$/m.exec(dockerfile)?.[1];
+  if (!url) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_BUBBLEWRAP_URL");
+  return url;
+}
+
+/** Verify the upstream archive before extracting or compiling its contents. */
+export function devboxBubblewrapSha256(dockerfile = readDevboxDockerfile()): string {
+  const sha = /^ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
+  if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_BUBBLEWRAP_SHA256");
+  return sha;
+}
+
+/** The pinned release, from the tarball name: what `bwrap --version` must print. */
+export function devboxBubblewrapVersion(dockerfile = readDevboxDockerfile()): string {
+  const version = /\/bubblewrap-(\d+\.\d+\.\d+)\.tar\.xz$/.exec(devboxBubblewrapUrl(dockerfile))?.[1];
+  if (!version) throw new Error("devbox Dockerfile's CMUX_IMAGE_BUBBLEWRAP_URL carries no bubblewrap-<x.y.z>.tar.xz");
+  return version;
+}
+
+/**
+ * The one bubblewrap install both recipes run: the Dockerfile's RUN is this
+ * with the ARG references, the Freestyle bake this with the pinned values
+ * (a test keeps them identical). The tarball is verified before anything is
+ * built from it; the build tools are removed again. `/usr/bin/bwrap` is
+ * diverted first, so the distro package (already on a base, or pulled in
+ * later by apt) installs as `/usr/bin/bwrap.distrib` and never replaces the
+ * pinned binary. `/usr/bin` keeps Ubuntu's AppArmor `bwrap` userns profile,
+ * which is attached by that path, applying to it.
+ */
+export function devboxBubblewrapInstallCommand(url: string, sha256: string, version: string): string {
+  return [
+    "apt-get update",
+    "apt-get install -y --no-install-recommends meson ninja-build libcap-dev",
+    `curl -fsSL -o /tmp/bubblewrap.tar.xz ${url}`,
+    `echo "${sha256}  /tmp/bubblewrap.tar.xz" | sha256sum -c -`,
+    "rm -rf /tmp/bubblewrap",
+    "mkdir /tmp/bubblewrap",
+    "tar -xJf /tmp/bubblewrap.tar.xz -C /tmp/bubblewrap --strip-components=1",
+    "meson setup /tmp/bubblewrap/build /tmp/bubblewrap --prefix=/usr --buildtype=release -Dtests=false -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled",
+    "meson compile -C /tmp/bubblewrap/build",
+    "dpkg-divert --local --rename --divert /usr/bin/bwrap.distrib --add /usr/bin/bwrap",
+    "meson install -C /tmp/bubblewrap/build --no-rebuild",
+    "apt-get purge -y meson ninja-build libcap-dev",
+    "rm -rf /var/lib/apt/lists/* /tmp/bubblewrap /tmp/bubblewrap.tar.xz",
+    `test "$(/usr/bin/bwrap --version)" = "bubblewrap ${version}"`,
+    `test "$(command -v bwrap)" = /usr/bin/bwrap`,
+  ].join(" && ");
+}
+
+/** Reject an old or shadowed binary and exercise the work user's sandbox. */
+export function devboxBubblewrapCheckCommand(dockerfile = readDevboxDockerfile()): string {
+  return [
+    'test "$(command -v bwrap)" = /usr/bin/bwrap',
+    `test "$(bwrap --version)" = "bubblewrap ${devboxBubblewrapVersion(dockerfile)}"`,
+    `sudo -n -u ${DEVBOX_WORK_USER} bwrap --ro-bind / / --unshare-user --unshare-pid --proc /proc --dev /dev -- /bin/true`,
+    "echo bubblewrap-ok",
+  ].join(" && ");
+}
+
 export const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
   { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },
   { arg: "CMUX_IMAGE_CODEX_VERSION", pkg: "@openai/codex", binary: "codex" },

@@ -79,14 +79,38 @@ def in_session(prefix, command):
     return run(prefix + command)
 
 
+# `lsappinfo info -only bundleid ASN` prints `"CFBundleIdentifier"="com.apple.finder"`
+# before macOS 27 and `bundleID="com.apple.finder"` on macOS 27 (the fleet minis
+# since 2026-10-09). Reading neither as the raw text made every probe miss
+# Finder and fail the job on a runner where Finder was in front.
+BUNDLE_ID_LINE = re.compile(r'(?:"CFBundleIdentifier"|\bbundleID)\s*=\s*"([^"]*)"')
+
+
+def bundle_id(info):
+    """The bundle ID in `lsappinfo info -only bundleid` output, or None."""
+    match = BUNDLE_ID_LINE.search(info or '')
+    if not match:
+        return None
+    return match.group(1) or None
+
+
 def front_bundle(prefix):
     status, asn, _ = in_session(prefix, ['lsappinfo', 'front'])
     asn = asn.strip()
-    if status or not asn:
+    if status or not asn or asn.startswith('[ NULL ]'):
         return None
     _, info, _ = in_session(prefix, ['lsappinfo', 'info', '-only', 'bundleid', asn])
-    match = re.search(r'"CFBundleIdentifier"\s*=\s*"([^"]*)"', info)
-    return match.group(1) if match else (info.strip() or None)
+    return bundle_id(info)
+
+
+def console_finder_hidden(prefix, user):
+    """True when the console user's Finder runs but LaunchServices, asked from
+    here, does not list it: this session cannot see the console's apps."""
+    status, pids, _ = run(['pgrep', '-x', '-u', user, 'Finder'])
+    if status or not pids.strip():
+        return False
+    status, found, _ = in_session(prefix, ['lsappinfo', 'find', f'bundleid={FINDER}'])
+    return status == 0 and not found.strip()
 
 
 def session_state():
@@ -197,6 +221,19 @@ def main():
                  f'State: {describe(user, prefix)}.')
         return 1
     if front_bundle(prefix) is None:
+        if console_finder_hidden(prefix, user):
+            # Finder runs in the console session, yet LaunchServices does not
+            # list it from here: this runner's security session (a runner
+            # LaunchAgent with SessionCreate) is cut off from the console's
+            # LaunchServices session. xcodebuild then cannot launch the test
+            # runner app and dies with "IDELaunchServicesLauncher ...
+            # Assertion failed: childPID > 0" (two fleet minis on macOS 27,
+            # 2026-10-28 to 10-30: every run that reached this branch).
+            annotate('error', 'This runner cannot see the console session\'s apps (LaunchServices lists no '
+                     'Finder from here), so xcodebuild cannot launch the UI test runner ("Assertion failed: '
+                     'childPID > 0"); no UI tests ran. Re-run to take another runner. '
+                     f'State: {describe(user, prefix)}.')
+            return 1
         # lsappinfo cannot read this session from here, so the probe
         # cannot tell a stuck session from its own lack of access. Leave
         # the verdict to the tests.

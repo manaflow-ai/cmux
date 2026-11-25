@@ -1,5 +1,6 @@
 import { parseCreateNetworkPolicy } from "../../../services/vms/networkPolicyRoute";
 import { parseCreateAgentUpdates } from "../../../services/vms/agentUpdatesRoute";
+import { parseCreateIdlePause } from "../../../services/vms/idlePauseRoute";
 import {
   creatorFor,
   creatorUserIds,
@@ -43,6 +44,7 @@ import {
   maxDiskMbForPlan,
   maxVcpusForPlan,
   upgradePlanForMemory,
+  type TeamEntitlementOverride,
   resolveVmEntitlements,
   type VmEntitlements,
   vmFreeAccessWindowDays,
@@ -86,13 +88,13 @@ import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import {
   createVm,
   listUserVms,
+  countSavedUserVms,
 } from "../../../services/vms/workflows";
 import { recordSpanError, setSpanAttributes } from "../../../services/telemetry";
 import {
   measureVmAsync,
   VmTimingRecorder,
 } from "../../../services/vms/timings";
-import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
 
@@ -123,6 +125,11 @@ function createResourceFields(resourceReservation: { readonly vcpus: number; rea
     resources: resourceReservation,
     resourceReservation,
   };
+}
+
+/** The quota uses account scope for Plus and the shared billing scope for other plans. */
+function savedMachineListCount(userId: string, billingTeamId: string | null, entitlements: VmEntitlements | null) {
+  return countSavedUserVms(userId, entitlements?.planId === "go" ? undefined : billingTeamId || userId);
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -236,6 +243,11 @@ export async function GET(request: Request): Promise<Response> {
         freeAccessExpiresAt: freeAccessExpiresAtMs(entry.createdAt, freeAccessWindowDays),
         // "image" keeps the baked coding-agent pins; "latest" updates them on attach.
         agentUpdates: entry.agentUpdates,
+        // Minutes idle before the machine pauses by itself; 0 is Off.
+        idlePauseMinutes: entry.idlePauseMinutes,
+        idlePause: entry.idlePause,
+        // "idle" or "user" on a machine the control plane paused, else null.
+        pauseReason: entry.pauseReason,
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: entry.cmuxTuiContract,
@@ -247,10 +259,18 @@ export async function GET(request: Request): Promise<Response> {
         ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
+      // Count allocations before a provider ID exists as well as visible machines.
+      // Plus is account-wide; other plans share the create admission billing scope.
+      const counted = await runVmRoute(savedMachineListCount(user.id, billingTeamId, listEntitlements), { request });
+      if (!counted.ok) return counted.response;
+      const savedVmCount = counted.value;
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
-          activeVmCount: activeEntries.length,
+          // Legacy wire key: the quota counts saved machines, including paused ones.
+          activeVmCount: savedVmCount,
+          savedVmCount,
+          savedVmLimit: listEntitlements.maxActiveVms,
           // The plan's shared pool (null when the plan has none) and what the
           // active machines draw from it. Paused machines do not count.
           poolVcpus: listEntitlements.resourcePool?.vcpus ?? null,
@@ -259,13 +279,6 @@ export async function GET(request: Request): Promise<Response> {
           usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
           planId: listEntitlements.planId,
           freeAccessWindowDays,
-          ...(listEntitlements.planId === "go" ? {
-            vmHoursIncluded: 40,
-            vmHoursUsed: await getGoVmUsage(user.id)
-              .then((usage) => usage ? Math.round(usage.usedSeconds / 360) / 10 : null)
-              .catch(() => null),
-            savedVmLimit: GO_SAVED_VM_LIMIT,
-          } : {}),
           // Pro and Max monthly allowance; absent when none applies.
           ...(isBudgetPlanId(listEntitlements.planId)
             ? await getPlanBudgetUsage(user.id).then(planBudgetLimits).catch(() => ({}))
@@ -278,32 +291,32 @@ export async function GET(request: Request): Promise<Response> {
               : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
             null,
           ),
-          memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+          memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
           // Resize ceilings are part of the same plan contract as the create
           // ladder. Native clients use these values to avoid offering a
           // provider-valid size that the caller's plan cannot use.
           maxDiskMb: maxDiskMbForPlan(listEntitlements.planId, process.env),
-          maxMemoryMb: maxMemoryMbForPlan(listEntitlements.planId, process.env),
-          maxVcpus: maxVcpusForPlan(listEntitlements.planId, process.env),
+          maxMemoryMb: maxMemoryMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
+          maxVcpus: maxVcpusForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
           // Ladder sizes the plan does not include, and the plan that sells
           // them, so a "new machine" dialog shows them locked with an upgrade
           // instead of hiding that larger machines exist.
-          lockedMemoryOptionsMb: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
-          memoryUpgradePlanId: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).upgradePlanId,
-          memoryUpgradePlansByMb: Object.fromEntries(lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb
+          lockedMemoryOptionsMb: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride).memoryOptionsMb,
+          memoryUpgradePlanId: lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride).upgradePlanId,
+          memoryUpgradePlansByMb: Object.fromEntries(lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride).memoryOptionsMb
             .flatMap((mb) => {
-              const plan = upgradePlanForMemory(mb, listEntitlements.planId);
+              const plan = upgradePlanForMemory(mb, listEntitlements.planId, process.env, listEntitlements.entitlementOverride);
               return plan ? [[String(mb), plan]] : [];
             })),
           // vCPUs for every size above, so a client labels a size without its own table.
           vcpusByMemoryMb: vcpusByMemoryMb([
-            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env),
-            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env).memoryOptionsMb,
+            ...memoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
+            ...lockedMemoryOptionsMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride).memoryOptionsMb,
           ]),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
-            memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env),
+            memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env, listEntitlements.entitlementOverride),
           }),
         }
         : undefined;
@@ -368,7 +381,7 @@ export async function POST(request: Request): Promise<Response> {
       // Let the workflow inspect an idempotent existing row before rejecting
       // an old, now-over-limit shape. New allocations still receive the same
       // typed plan error from createVm.
-      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey);
+      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey, entitlements.entitlementOverride);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
       const machineOptions = parseCreateMachineOptions(candidate);
@@ -420,6 +433,7 @@ export async function POST(request: Request): Promise<Response> {
         billingTeamId: entitlements.billingTeamId,
         billingPlanId: entitlements.planId,
         maxActiveVms: entitlements.maxActiveVms,
+        entitlementOverride: entitlements.entitlementOverride,
         image,
         imageVersion: imageSelection.imageVersion,
         provider,
@@ -432,6 +446,7 @@ export async function POST(request: Request): Promise<Response> {
         modelPlane,
         networkPolicy: machineOptions.networkPolicy,
         agentUpdates: machineOptions.agentUpdates,
+        idlePauseMinutes: machineOptions.idlePauseMinutes,
         teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
@@ -470,6 +485,7 @@ export async function POST(request: Request): Promise<Response> {
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
         agentUpdates: created.agentUpdates,
+        idlePauseMinutes: created.idlePauseMinutes,
         // Keep the create response self-contained for clients that append it
         // directly to their fleet model. Pool accounting and the per-machine
         // resize shape are separate contracts even when they currently match.
@@ -486,7 +502,9 @@ function parseCreateMachineOptions(candidate: Record<string, unknown>) {
   if (!networkPolicy.ok) return networkPolicy;
   const agentUpdates = parseCreateAgentUpdates(candidate.agentUpdates);
   if (!agentUpdates.ok) return agentUpdates;
-  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting };
+  const idlePause = parseCreateIdlePause(candidate);
+  if (!idlePause.ok) return idlePause;
+  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting, idlePauseMinutes: idlePause.minutes };
 }
 
 /**
@@ -818,17 +836,18 @@ async function resolveCreateMemory(
   requestedMemoryMb: number | undefined,
   request: Request,
   deferLockedPlanCheck = false,
+  override: TeamEntitlementOverride | null = null,
 ): Promise<{ readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response }> {
-  const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
-  const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
-  const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
-  const locked = lockedMemoryOptionsMbForPlan(planId, process.env);
+  const maxMemoryMb = maxMemoryMbForPlan(planId, process.env, override);
+  const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env, override);
+  const planMemoryMb = defaultMemoryMbForPlan(planId, process.env, override);
+  const locked = lockedMemoryOptionsMbForPlan(planId, process.env, override);
   const requestedLockedMemory = requestedMemoryMb !== undefined && locked.memoryOptionsMb.includes(requestedMemoryMb);
   if (
     !deferLockedPlanCheck &&
     requestedLockedMemory
   ) {
-    const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId);
+    const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId, process.env, override);
     if (!upgradePlanId) return { ok: false, response: await vmMemoryUnavailableResponse(maxMemoryMb, vmRequestLocale(request)) };
     setSpanAttributes(span, {
       "cmux.vm.memory_mb": requestedMemoryMb,
@@ -967,7 +986,7 @@ function createErrorResponders(entitlements: {
         limit: error.limit,
         activeMachines: error.activeMachines,
         planId: entitlements.planId,
-        retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
+        retryAction: "Run `cmux vm ls`, then delete a VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
       }),
     VmCreateCreditsInsufficientError: (error) => {
       const billsUser = entitlements.billingCustomerType === "user";

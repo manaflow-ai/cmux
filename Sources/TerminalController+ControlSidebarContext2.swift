@@ -471,6 +471,28 @@ extension TerminalController {
         return true
     }
 
+    func controlSidebarApplyLeftSidebarRemoteCommand(tokens: [String]) -> ControlSidebarLeftSidebarResolution {
+        let request: LeftSidebarRemoteRequest
+        switch LeftSidebarRemoteRequest.parse(tokens: tokens) {
+        case .success(let value):
+            request = value
+        case .failure(let error):
+            return .failure(message: error.message)
+        }
+
+        guard let app = AppDelegate.shared else {
+            return .failure(message: String(localized: "leftSidebar.remote.error.unavailable", defaultValue: "ERROR: Left sidebar not available"))
+        }
+        switch app.applyLeftSidebarRemoteCommand(request.command, target: request.target) {
+        case .ok:
+            return .ok
+        case .state(let visible):
+            return .state(visible: visible)
+        case .failure(let message):
+            return .failure(message: message)
+        }
+    }
+
     func controlSidebarApplyRightSidebarRemoteCommand(tokens: [String]) -> ControlSidebarRightSidebarResolution {
         let parsed = RightSidebarRemoteRequest.parse(tokens: tokens)
         let request: RightSidebarRemoteRequest

@@ -1,7 +1,7 @@
-import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 import { PlatformDownloadPage } from "../platform-download-page";
 import { isPlatformDownloadAvailable } from "@/app/lib/download";
+import { redirect } from "@/i18n/navigation";
 import { browserDownloadSeoCopy } from "@/i18n/audited-seo";
 import {
   browserOpenGraphDefaults,
@@ -15,9 +15,10 @@ export async function generateMetadata({
 }: {
   params: Promise<{ locale: string }>;
 }) {
-  if (!isPlatformDownloadAvailable("linux")) notFound();
-
   const { locale } = await params;
+  // The page redirects while Linux is waitlist-only; no metadata to build.
+  if (!isPlatformDownloadAvailable("linux")) return {};
+
   const browser = await getTranslations({
     locale,
     namespace: "browserDownloads",
@@ -47,9 +48,20 @@ export async function generateMetadata({
   };
 }
 
-/** Serves the Linux download page only after its artifacts are published. */
-export default function LinuxDownloadPage() {
-  if (!isPlatformDownloadAvailable("linux")) notFound();
+/**
+ * Serves the Linux download page while Linux downloads are published. While
+ * Linux is waitlist-only, `/linux` (linked from older posts and READMEs) sends
+ * visitors to the cmux Browser page, whose Linux card offers the waitlist.
+ */
+export default async function LinuxDownloadPage({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}) {
+  const { locale } = await params;
+  if (!isPlatformDownloadAvailable("linux")) {
+    redirect({ href: "/browser", locale });
+  }
 
   return <PlatformDownloadPage platform="linux" />;
 }

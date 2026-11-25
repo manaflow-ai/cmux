@@ -34,7 +34,9 @@ extension AppDelegate {
     /// connects when they are in). No agent process runs until the user
     /// sends a message.
     func startChiefIfEnabled() {
-        guard ChiefSettings.isEnabled else { return }
+        // The shared flags publish the value `ChiefSettings` reads, so a cached
+        // rollout value counts on this first read at launch.
+        guard CmuxFeatureFlags.shared.isChiefAvailable, ChiefSettings.isEnabled else { return }
         let service = ChiefService.shared
         service.onFirstRunAction = { [weak self] action in
             self?.performChiefFirstRunAction(action)

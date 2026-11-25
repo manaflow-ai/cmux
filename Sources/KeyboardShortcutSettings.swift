@@ -42,8 +42,29 @@ enum KeyboardShortcutSettings {
 
     static var settingsVisibleActions: [Action] {
         orderedSettingsVisibleActions(
-            from: publicShortcutActions.filter { $0 != .showHideAllWindows }
+            from: publicShortcutActions.filter { $0 != .showHideAllWindows && isOffered($0) }
         )
+    }
+
+    /// False for an action whose feature the build doesn't offer now: Open
+    /// Chief while Chief's release flag is off. Such an action is hidden from
+    /// settings and never reported as a conflict.
+    static func isOffered(_ action: Action, isChiefAvailable: Bool = ChiefSettings.isAvailable) -> Bool {
+        action != .openChief || isChiefAvailable
+    }
+
+    /// Tells the Settings package which shortcuts the build doesn't offer.
+    /// Runs before the Settings search index is built, so its text leaves
+    /// them out too.
+    static func installSettingsAvailabilityProvider() {
+        ShortcutAction.setHostUnavailableActionsProvider {
+            unavailableSettingsActions(isChiefAvailable: ChiefSettings.isAvailable)
+        }
+    }
+
+    /// The Settings package's view of ``isOffered(_:isChiefAvailable:)``.
+    static func unavailableSettingsActions(isChiefAvailable: Bool) -> Set<ShortcutAction> {
+        isChiefAvailable ? [] : [.openChief]
     }
 
     private static func orderedSettingsVisibleActions(from actions: [Action]) -> [Action] {
@@ -140,6 +161,8 @@ enum KeyboardShortcutSettings {
         case focusHistoryBack
         case focusHistoryForward
         case focusHistoryLast
+        case focusHistoryLastSurface
+        case focusHistoryLastWorkspace
         case selectWorkspaceByNumber
         case renameTab
         case renameWorkspace
@@ -307,6 +330,8 @@ enum KeyboardShortcutSettings {
             case .focusHistoryBack: return String(localized: "shortcut.focusHistoryBack.label", defaultValue: "Focus Back")
             case .focusHistoryForward: return String(localized: "shortcut.focusHistoryForward.label", defaultValue: "Focus Forward")
             case .focusHistoryLast: return String(localized: "shortcut.focusHistoryLast.label", defaultValue: "Focus Last")
+            case .focusHistoryLastSurface: return String(localized: "shortcut.focusHistoryLastSurface.label", defaultValue: "Focus Last Surface")
+            case .focusHistoryLastWorkspace: return String(localized: "shortcut.focusHistoryLastWorkspace.label", defaultValue: "Focus Last Workspace")
             case .selectWorkspaceByNumber: return String(localized: "shortcut.selectWorkspaceByNumber.label", defaultValue: "Select Workspace 1…9")
             case .renameTab: return String(localized: "shortcut.renameTab.label", defaultValue: "Rename Tab")
             case .renameWorkspace: return String(localized: "shortcut.renameWorkspace.label", defaultValue: "Rename Workspace")
@@ -537,7 +562,7 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "[", command: true, shift: false, option: false, control: false)
             case .focusHistoryForward:
                 return StoredShortcut(key: "]", command: true, shift: false, option: false, control: false)
-            case .focusHistoryLast:
+            case .focusHistoryLast, .focusHistoryLastSurface, .focusHistoryLastWorkspace:
                 return .unbound
             case .renameTab:
                 return StoredShortcut(key: "r", command: true, shift: false, option: false, control: false)
@@ -933,11 +958,13 @@ enum KeyboardShortcutSettings {
         return normalized
     }
 
-    private static func conflictingAction(
+    static func conflictingAction(
         for proposedShortcut: StoredShortcut,
-        excluding currentAction: Action
+        excluding currentAction: Action,
+        isChiefAvailable: Bool = ChiefSettings.isAvailable
     ) -> Action? {
-        for action in Action.allCases where action != currentAction {
+        for action in Action.allCases
+        where action != currentAction && isOffered(action, isChiefAvailable: isChiefAvailable) {
             let configuredShortcut = shortcut(for: action)
             if action.conflicts(
                 with: proposedShortcut,

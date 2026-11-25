@@ -58,6 +58,8 @@ export type TeamBillingSummary = {
   readonly memberLimit: number | null;
   readonly memberCount: number;
   readonly hasActiveSubscription: boolean;
+  /** The plan name of the team's enterprise deal, shown instead of the plan; null without one. */
+  readonly enterpriseLabel: string | null;
 };
 
 export type TeamDetail = {

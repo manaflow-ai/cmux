@@ -10,6 +10,7 @@ import java.util.Map;
 public final class Commands {
     private Commands() {}
 
+    public static final CommandMetadata ACK_TAB_NOTIFICATIONS = new CommandMetadata("ack-tab-notifications", Authority.CONTROL, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata APPLY_LAYOUT = new CommandMetadata("apply-layout", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("rows", "attach-initial-size")));
     public static final CommandMetadata BROWSER_ACTIVATE = new CommandMetadata("browser-activate", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -132,6 +133,7 @@ public final class Commands {
     public static final Map<String, CommandMetadata> ALL;
     static {
         LinkedHashMap<String, CommandMetadata> values = new LinkedHashMap<>();
+        values.put("ack-tab-notifications", ACK_TAB_NOTIFICATIONS);
         values.put("apply-layout", APPLY_LAYOUT);
         values.put("attach-surface", ATTACH_SURFACE);
         values.put("browser-activate", BROWSER_ACTIVATE);

@@ -11,7 +11,7 @@ import {
   syncProPlanMetadata,
 } from "../services/billing/pro";
 import { personalPlanIdForSubscription } from "../services/billing/purchase";
-import { MAX_PRICING_USD } from "../services/billing/plans";
+import { GO_PRICING_USD, MAX_PRICING_USD } from "../services/billing/plans";
 import { resolveVmEntitlements, maxMemoryMbForPlan } from "../services/vms/entitlements";
 
 const lease = { refresh: async () => undefined } as never;
@@ -23,6 +23,10 @@ describe("Max as a personal plan", () => {
     expect(highestPersonalPlanId([GO_PLAN_ID, "pro", "max"])).toBe("max");
     expect(personalPlanIdForSubscription({
       items: { data: [{ price: { lookup_key: "cmux-go-monthly-10" } }] },
+      metadata: {},
+    } as never)).toBe(GO_PLAN_ID);
+    expect(personalPlanIdForSubscription({
+      items: { data: [{ price: { lookup_key: GO_PRICING_USD.month.lookupKey } }] },
       metadata: {},
     } as never)).toBe(GO_PLAN_ID);
   });

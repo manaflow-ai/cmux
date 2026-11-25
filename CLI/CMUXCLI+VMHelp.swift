@@ -156,7 +156,7 @@ extension CMUXCLI {
         let upgrade: String
         if planID.lowercased() == "max" {
             upgrade = String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
-        } else if (planID.lowercased() == "go" || planID.lowercased() == "free") &&
+        } else if planID.lowercased() == "free" &&
                     ((resource == .memory && requested <= 16 * 1_024) ||
                      (resource == .vcpus && requested <= 8) ||
                      (resource == .disk && requested <= 128 * 1_024)) {
@@ -182,7 +182,7 @@ extension CMUXCLI {
         case "max": localizedName = String(localized: "pricing.native.plan.max", defaultValue: "Max")
         case "team": localizedName = String(localized: "pricing.native.plan.team", defaultValue: "Team")
         case "founders", "founders-edition": localizedName = String(localized: "cli.vm.resize.planName.founders", defaultValue: "Founder's Edition")
-        case "go": localizedName = String(localized: "pricing.native.plan.go", defaultValue: "Go")
+        case "go": localizedName = String(localized: "pricing.native.plan.go", defaultValue: "Plus")
         case "free": localizedName = String(localized: "pricing.native.plan.free", defaultValue: "Free")
         default: return planID
         }

@@ -51,6 +51,30 @@ impl Surface {
         }
     }
 
+    /// Publish a changed `extra.last_command` as a terminal upsert. Called
+    /// after the output reader releases the parser lock, and after each graph
+    /// change for a terminal whose command finished before it joined the graph.
+    pub(crate) fn publish_pending_last_command(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        let pending = {
+            let metadata = pty.terminal_metadata.lock().unwrap();
+            if !metadata.has_last_command_change() {
+                return;
+            }
+            metadata.last_command()
+        };
+        let Some(mux) = pty.mux.upgrade() else { return };
+        match mux.publish_terminal_last_command(self) {
+            // Mark only the record read before the commit: a newer one that
+            // raced it publishes on the next call instead of being lost.
+            Ok(true) => {
+                pty.terminal_metadata.lock().unwrap().mark_last_command_published(pending);
+            }
+            Ok(false) => {}
+            Err(error) => eprintln!("terminal last command publication failed: {error}"),
+        }
+    }
+
     pub(crate) fn publish_pending_directory(&self) {
         let Some(pty) = self.as_pty() else { return };
         if !pty.directory_pending.load(Ordering::Acquire) {

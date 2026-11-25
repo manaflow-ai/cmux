@@ -7,6 +7,10 @@
 
 mod directory;
 use directory::PublishedDirectory;
+mod pending_bells;
+use pending_bells::PendingBells;
+#[cfg(unix)]
+mod host_frames;
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -94,6 +98,20 @@ pub(crate) struct TerminalScreenSnapshot {
     pub(crate) cursor_visible: bool,
     pub(crate) revision: u64,
     pub(crate) osc_progress: String,
+}
+
+/// Which text a [`TerminalScreenSnapshot`] carries (`terminal.screen.read`
+/// fields `unwrap` and `lines`, `terminal-read-unwrap-v1`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum ScreenText {
+    /// The rendered viewport, one line per row (the default).
+    #[default]
+    Rows,
+    /// The rendered viewport with soft wraps joined into logical lines.
+    Unwrapped,
+    /// The last `count` lines of scrollback and screen together; logical
+    /// lines when `unwrap`, else rows.
+    LastLines { count: usize, unwrap: bool },
 }
 
 /// Nonblocking probe for the terminal mouse protocol and reporting mode.
@@ -1451,6 +1469,24 @@ type PtyGeometryTestHook = Arc<dyn Fn(PtyGeometryTestStep) + Send + Sync>;
 #[cfg(test)]
 type DeferredCellPixelAckTestHook = Arc<dyn Fn() + Send + Sync>;
 
+/// A step of the child-reaper join in `finish_terminal_reader` (tests).
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReaperShutdownTestStep {
+    /// The reaper thread itself runs the teardown and skips its own join.
+    SelfJoinSkipped,
+    /// Another thread is about to join the reaper.
+    JoiningReaper,
+}
+
+#[cfg(test)]
+type ReaperShutdownTestHook = Arc<dyn Fn(ReaperShutdownTestStep) + Send + Sync>;
+
+/// Test seam: runs on the hosted surface reader before it applies each Output
+/// transition, so a test can hold the reader with output still queued.
+#[cfg(test)]
+type HostedOutputTestHook = Arc<dyn Fn() + Send + Sync>;
+
 pub struct PtySurface {
     pub(crate) meta: SurfaceMeta,
     terminal: Arc<PtyTerminalRuntime>,
@@ -1571,6 +1607,10 @@ impl PtyTerminalRuntime {
         self.terminal_metadata.lock().unwrap().osc_progress().to_string()
     }
 
+    fn terminal_last_command(&self) -> Option<crate::terminal_command::LastCommand> {
+        self.terminal_metadata.lock().unwrap().last_command()
+    }
+
     fn begin_terminal_journal_update(&self) -> Option<TerminalJournalUpdateGuard<'_>> {
         let _gate = self.journal_capture_gate.lock().unwrap();
         if !self.journal_capture_open.load(Ordering::Acquire) {
@@ -1628,6 +1668,14 @@ impl PtyTerminalRuntime {
 /// This object owns the process, terminal emulator, ordered input/output, and
 /// canonical geometry. Keeping the two identities distinct makes a terminal
 /// projectable into any number of panes without cloning its PTY or VT state.
+///
+/// Lock order (outer first): `Mux::state` -> `geometry` -> `term` ->
+/// `runtime` -> leaf locks (`render`, `taps`, `title`, `mouse_encoders`, ...).
+/// Mux code holds `Mux::state` while it reads `geometry` (`Surface::size`),
+/// and a resize holds `geometry` while it takes `term`. So no path may call a
+/// mux method that takes `Mux::state` (every `emit_terminal_*`,
+/// `mark_output_dirty`) while it holds `term` or `geometry`: collect the event
+/// under the lock, release it, then emit.
 pub struct PtyTerminalRuntime {
     event_surface_id: SurfaceId,
     /// Stable public content identity. This belongs to the terminal runtime,
@@ -1643,7 +1691,6 @@ pub struct PtyTerminalRuntime {
     journal_capture_gate: Mutex<()>,
     journal_capture_idle: Condvar,
     journal_capture_open: AtomicBool,
-    journal_capture_disabled: AtomicBool,
     journal_capture_reserved: AtomicBool,
     journal_capture_active: AtomicBool,
     /// Owned reader join fence. Shutdown gives this reader a bounded drain
@@ -1656,6 +1703,9 @@ pub struct PtyTerminalRuntime {
     reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     reaper_completion: Arc<ReaderCompletion>,
     term: Mutex<Box<Terminal>>,
+    /// Bells the parser rang under `term`. `Mux::emit_terminal_bell` takes
+    /// `Mux::state`, so they are published only after `term` is released.
+    pending_bells: PendingBells,
     stream_progress: Box<TerminalStreamProgress>,
     /// Generic metadata parsed from raw PTY output. This field has no agent
     /// or roster knowledge, so userland plugins can consume it through the
@@ -1702,6 +1752,10 @@ pub struct PtyTerminalRuntime {
     geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
     deferred_cell_pixel_ack_test_hook: Mutex<Option<DeferredCellPixelAckTestHook>>,
+    #[cfg(test)]
+    reaper_shutdown_test_hook: Mutex<Option<ReaperShutdownTestHook>>,
+    #[cfg(test)]
+    hosted_output_test_hook: Mutex<Option<HostedOutputTestHook>>,
     #[cfg(test)]
     test_master_control: Option<Arc<TestMasterPtyControl>>,
     #[cfg(test)]
@@ -1796,6 +1850,15 @@ impl Drop for PtyChildStartupGuard {
 enum PtyLifetime {
     SessionOwned,
     DaemonOwned,
+}
+
+/// Who a spawned terminal is: its host id (hosted), its resource identity,
+/// and for an in-process terminal with a registry incarnation, that
+/// incarnation as its output generation (`None`: a `local-` generation).
+struct SpawnIdentity {
+    terminal_id: Option<crate::terminal_host::TerminalId>,
+    resource_identity: Option<TabResourceIdentity>,
+    in_process_generation: Option<Arc<str>>,
 }
 
 #[cfg(unix)]
@@ -2153,11 +2216,7 @@ fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result
 }
 
 #[cfg(unix)]
-fn hosted_terminal_callbacks(
-    id: SurfaceId,
-    mux: Weak<Mux>,
-    title_changed: Arc<AtomicBool>,
-) -> Callbacks {
+fn hosted_terminal_callbacks(bells: &PendingBells, title_changed: Arc<AtomicBool>) -> Callbacks {
     Callbacks {
         // The terminal-host parser is authoritative and already writes query
         // responses (DA/DSR, Kitty graphics, OSC colors, ...) to the PTY. A
@@ -2167,11 +2226,7 @@ fn hosted_terminal_callbacks(
         on_title_changed: Some(Box::new(move || {
             title_changed.store(true, Ordering::Relaxed);
         })),
-        on_bell: Some(Box::new(move || {
-            if let Some(mux) = mux.upgrade() {
-                mux.emit_terminal_bell(id);
-            }
-        })),
+        on_bell: Some(bells.callback()),
     }
 }
 
@@ -2363,6 +2418,29 @@ impl Surface {
         )
     }
 
+    /// An in-process terminal whose registry incarnation is `generation`:
+    /// its output stream and its exit snapshot share that generation.
+    pub(crate) fn spawn_in_process_at_cell_pixels(
+        id: SurfaceId,
+        opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        generation: &str,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_with_generation_at_cell_pixels(
+            id,
+            opts,
+            mux,
+            SpawnIdentity {
+                terminal_id: None,
+                resource_identity: Some(TabResourceIdentity::terminal(None)?),
+                in_process_generation: Some(Arc::from(generation)),
+            },
+            PtyLifetime::SessionOwned,
+            cell_pixels,
+        )
+    }
+
     pub(crate) fn spawn_with_terminal_id_at_cell_pixels(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -2404,13 +2482,32 @@ impl Surface {
 
     fn spawn_with_terminal_id_and_resource_identity_at_cell_pixels(
         id: SurfaceId,
-        mut opts: SurfaceOptions,
+        opts: SurfaceOptions,
         mux: Weak<Mux>,
         terminal_id: Option<crate::terminal_host::TerminalId>,
         resource_identity: Option<TabResourceIdentity>,
         lifetime: PtyLifetime,
         cell_pixels: (u16, u16),
     ) -> anyhow::Result<Arc<Surface>> {
+        Self::spawn_with_generation_at_cell_pixels(
+            id,
+            opts,
+            mux,
+            SpawnIdentity { terminal_id, resource_identity, in_process_generation: None },
+            lifetime,
+            cell_pixels,
+        )
+    }
+
+    fn spawn_with_generation_at_cell_pixels(
+        id: SurfaceId,
+        mut opts: SurfaceOptions,
+        mux: Weak<Mux>,
+        identity: SpawnIdentity,
+        lifetime: PtyLifetime,
+        cell_pixels: (u16, u16),
+    ) -> anyhow::Result<Arc<Surface>> {
+        let SpawnIdentity { terminal_id, resource_identity, in_process_generation } = identity;
         let terminal_public_id = resource_identity
             .as_ref()
             .map(|identity| {
@@ -2530,6 +2627,9 @@ impl Surface {
         // is fine, but keeping it queued makes the locking obvious).
         let pending_responses: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
         let title_changed = Arc::new(AtomicBool::new(false));
+        // `on_bell` runs under the terminal lock: it only counts, and the
+        // reader publishes after it unlocks (see `PendingBells`).
+        let pending_bells = PendingBells::default();
 
         let callbacks = Callbacks {
             on_pty_write: Some(Box::new({
@@ -2540,14 +2640,7 @@ impl Surface {
                 let flag = title_changed.clone();
                 move || flag.store(true, Ordering::Relaxed)
             })),
-            on_bell: Some(Box::new({
-                let mux = mux.clone();
-                move || {
-                    if let Some(mux) = mux.upgrade() {
-                        mux.emit_terminal_bell(id);
-                    }
-                }
-            })),
+            on_bell: Some(pending_bells.callback()),
         };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
@@ -2575,16 +2668,14 @@ impl Surface {
             terminal: Arc::new(PtyTerminalRuntime {
                 event_surface_id: id,
                 terminal_public_id: terminal_public_id.map(Arc::new),
-                journal_generation: Arc::from(format!(
-                    "local-{}",
-                    crate::workspace_registry::new_uuid_v4()
-                )),
+                journal_generation: in_process_generation.unwrap_or_else(|| {
+                    Arc::from(format!("local-{}", crate::workspace_registry::new_uuid_v4()))
+                }),
                 journal_capture_supported: true,
                 journal_capture_epoch: AtomicU64::new(0),
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -2592,6 +2683,7 @@ impl Surface {
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
+                pending_bells,
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2626,6 +2718,10 @@ impl Surface {
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                hosted_output_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
@@ -2681,7 +2777,7 @@ impl Surface {
                     );
                     loop {
                         let pty = surface.as_pty().expect("surface reader got non-pty surface");
-                        let journal_target = pty.journal_target();
+                        let journal_target = pty.output_target();
                         // Reserve the capture epoch before read(2). Shutdown
                         // can revoke a blocked reservation, but it cannot place
                         // its final barrier in the read-to-parser gap.
@@ -2707,6 +2803,7 @@ impl Surface {
                             Err(_) => break,
                         };
                         let mut scroll_changed = None;
+                        let mut title_update = None;
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             if let Some(update) = journal_update.as_mut()
@@ -2743,9 +2840,7 @@ impl Surface {
                             if title_changed.swap(false, Ordering::Relaxed) {
                                 let title = term.title().unwrap_or_default();
                                 *pty.title.lock().unwrap() = title.clone();
-                                if let Some(mux) = mux.upgrade() {
-                                    mux.emit_terminal_title(surface.id, title.into());
-                                }
+                                title_update = Some(title);
                             }
                             pty.record_directory(term.pwd());
                             if before != after {
@@ -2770,12 +2865,23 @@ impl Surface {
                         if let (Some(journal_target), Some(journal_output)) =
                             (journal_target, journal_output)
                         {
-                            pty.journal_output_if_open(journal_target, journal_output.into_owned());
+                            pty.record_output(journal_target, &journal_output);
                         }
                         drop(journal_update);
                         surface.publish_pending_directory();
+                        surface.publish_pending_last_command();
                         pty.stream_progress.notify();
                         pty.request_frame(generation);
+                        // Mux events take `Mux::state`. A resize holds the
+                        // geometry lock while it takes the terminal lock, and
+                        // a tree delta reads geometry under `Mux::state`, so
+                        // publish only after the terminal lock is released.
+                        pty.pending_bells.publish(&mux, surface.id);
+                        if let Some(title) = title_update
+                            && let Some(mux) = mux.upgrade()
+                        {
+                            mux.emit_terminal_title(surface.id, title.into());
+                        }
                         if let Some((offset, at_bottom)) = scroll_changed
                             && let Some(mux) = mux.upgrade()
                         {
@@ -2981,6 +3087,7 @@ impl Surface {
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         };
         pty.request_frame(generation);
+        pty.pending_bells.publish(mux, surface.id);
         if let Some((offset, at_bottom)) = scroll_changed
             && let Some(mux) = mux.upgrade()
         {
@@ -3032,7 +3139,8 @@ impl Surface {
         let snapshot = attachment.snapshot.clone();
         let mut applied_color_overrides = snapshot.colors.clone();
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
+        let pending_bells = PendingBells::default();
+        let callbacks = hosted_terminal_callbacks(&pending_bells, title_changed.clone());
         let mut term = Terminal::new(snapshot.cols, snapshot.rows, opts.scrollback, callbacks)?;
         let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
         anyhow::ensure!(
@@ -3105,7 +3213,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -3113,6 +3220,7 @@ impl Surface {
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
+                pending_bells,
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(terminal_metadata),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3150,6 +3258,10 @@ impl Surface {
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                hosted_output_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
@@ -3218,9 +3330,22 @@ impl Surface {
                     let mut resync_requested = false;
                     let mut journal_target = None;
                     let mut journal_update = None;
+                    // The demultiplexer owns this connection's socket until
+                    // the iteration ends, after a reconnect installed its
+                    // replacement; a reconnect reassigns `reader`.
+                    let frames = match host_frames::HostFrames::spawn(
+                        format!("surface-{id}-host-frames"),
+                        reader,
+                        control_responses.clone(),
+                        protocol_version,
+                        smart_renderer,
+                    ) {
+                        Ok(frames) => frames,
+                        Err(_) => return,
+                    };
                     'host_stream: loop {
                         if journal_update.is_none() {
-                            journal_target = pty.journal_target();
+                            journal_target = pty.output_target();
                             journal_update = journal_target
                                 .as_ref()
                                 .and_then(|_| pty.begin_terminal_journal_update());
@@ -3228,12 +3353,9 @@ impl Surface {
                                 break;
                             }
                         }
-                        let frame = match crate::terminal_host_protocol::read_frame(
-                            &mut reader,
-                            crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
-                        ) {
-                            Ok(Some(frame)) => frame,
-                            Ok(None) | Err(_) => break,
+                        let frame = match frames.recv() {
+                            host_frames::HostFrame::Frame(frame) => frame,
+                            host_frames::HostFrame::End => break,
                         };
                         // Targeted responses must be consumed before live staging:
                         // HostedFrameStager intentionally rejects every nonzero request id.
@@ -3284,6 +3406,12 @@ impl Surface {
                                     }
                                     _ => unreachable!(),
                                 };
+                                #[cfg(test)]
+                                if let Some(hook) =
+                                    pty.hosted_output_test_hook.lock().unwrap().clone()
+                                {
+                                    hook();
+                                }
                                 let mut scroll_changed = None;
                                 let mut title_update = None;
                                 let defaults = mux
@@ -3377,12 +3505,14 @@ impl Surface {
                                 if let (Some(journal_target), Some(journal_output)) =
                                     (journal_target, journal_output)
                                 {
-                                    pty.journal_output_if_open(journal_target, journal_output);
+                                    pty.record_output(journal_target, &journal_output);
                                 }
                                 drop(journal_update.take());
                                 surface.publish_pending_directory();
+                                surface.publish_pending_last_command();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
+                                pty.pending_bells.publish(&mux, surface.id);
                                 if let Some(title) = title_update
                                     && let Some(mux) = mux.upgrade()
                                 {
@@ -3447,8 +3577,7 @@ impl Surface {
                                     .map(|mux| mux.default_colors())
                                     .unwrap_or_default();
                                 let callbacks = hosted_terminal_callbacks(
-                                    id,
-                                    mux.clone(),
+                                    &pty.pending_bells,
                                     title_changed.clone(),
                                 );
                                 let Ok(mut replacement) =
@@ -3531,6 +3660,7 @@ impl Surface {
                                 surface.publish_pending_directory();
                                 pty.stream_progress.notify();
                                 pty.request_frame(generation);
+                                pty.pending_bells.publish(&mux, surface.id);
                                 if let Some(mux) = mux.upgrade() {
                                     mux.emit_terminal_title(surface.id, title.into());
                                     mux.emit_terminal_resized(surface.id, cols, rows, None);
@@ -3555,7 +3685,7 @@ impl Surface {
                         drop(journal_update.take());
                         journal_target = None;
                     }
-                    control_responses.fail_all();
+                    frames.abandon();
                     let Some(pty) = surface.as_pty() else { return };
                     if pty.owner_detaching.load(Ordering::Acquire) {
                         return;
@@ -3682,7 +3812,6 @@ impl Surface {
                         let replacement_protocol_version = replacement.protocol_version();
                         let replacement_smart_renderer = replacement.is_smart_renderer();
                         let replacement_snapshot = replacement.snapshot.clone();
-                        let replacement_sequence_boundary = replacement_snapshot.sequence_boundary;
                         let replacement_control_responses = replacement.control_responses();
                         let installed = {
                             let mut runtime = pty.runtime.lock().unwrap();
@@ -3753,7 +3882,7 @@ impl Surface {
                             cell_height: replacement_snapshot.cell_pixels.1,
                         };
                         let callbacks =
-                            hosted_terminal_callbacks(id, mux.clone(), title_changed.clone());
+                            hosted_terminal_callbacks(&pty.pending_bells, title_changed.clone());
                         let Ok(mut replacement_term) = Terminal::new(
                             replacement_snapshot.cols,
                             replacement_snapshot.rows,
@@ -3823,7 +3952,13 @@ impl Surface {
                         let generation = {
                             let mut term = pty.term.lock().unwrap();
                             **term = replacement_term;
-                            *pty.terminal_metadata.lock().unwrap() = replacement_metadata;
+                            {
+                                // A reconnect replaces the parser, not the
+                                // shell: keep its command state.
+                                let mut metadata = pty.terminal_metadata.lock().unwrap();
+                                replacement_metadata.keep_command_state_of(&metadata);
+                                *metadata = replacement_metadata;
+                            }
                             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                             *geometry = next_geometry;
                             *pty.title.lock().unwrap() = title.clone();
@@ -3874,52 +4009,21 @@ impl Surface {
                             }
                             continue;
                         }
-                        if reconnect_mux.terminal_journal_enabled()
-                            && pty.journal_capture_supported
-                        {
-                            let checkpoint_key = format!(
-                                "host-reconnect:{}:{}:{}",
-                                identity.terminal_id,
-                                identity.incarnation,
-                                replacement_sequence_boundary
-                            );
-                            // The checkpoint is a journal-replay optimization:
-                            // failing to capture one only means the next replay
-                            // starts from an older boundary. Capture races with
-                            // every other terminal's concurrent reconnect
-                            // appends, so retry it in place a few times - and
-                            // never tear down the freshly reconnected, healthy
-                            // host over it. The old path disconnected and re-ran
-                            // the full reconnect up to 16 times per terminal,
-                            // each attempt's journal writes re-poisoning the
-                            // other terminals' captures.
-                            let mut checkpoint = reconnect_mux.create_journal_checkpoint(
-                                "terminal_host_reconnect",
-                                &checkpoint_key,
-                            );
-                            for attempt in 1u32..4 {
-                                if checkpoint.is_ok() {
-                                    break;
-                                }
-                                std::thread::sleep(Duration::from_millis(25 << attempt));
-                                checkpoint = reconnect_mux.create_journal_checkpoint(
-                                    "terminal_host_reconnect",
-                                    &checkpoint_key,
-                                );
-                            }
-                            match checkpoint {
-                                Ok(_) => reconnect_mux.note_reconnect_checkpoint_captured(),
-                                Err(error) => reconnect_mux.report_skipped_reconnect_checkpoint(
-                                    &identity.terminal_id,
-                                    &error,
-                                ),
-                            }
-                        }
+                        // Bytes the host wrote while no daemon tap existed
+                        // never reached this daemon. Record that gap marker
+                        // in the terminal lane; the journal retention worker
+                        // coalesces one checkpoint for the whole wave
+                        // (mux/journal_retention.rs). Capturing a session
+                        // checkpoint here kept this reader from the new
+                        // stream: under continuous output the host dropped
+                        // each replacement tap in turn.
+                        pty.journal_gap("host_reconnect");
                         reconnect_mux.reconcile_deferred_cell_pixel_ack(
                             surface.id,
                             replacement_snapshot.cell_pixels,
                         );
                         surface.publish_pending_directory();
+                        pty.pending_bells.publish(&pty.mux, pty.event_surface_id);
                         reconnect_mux.emit_terminal_title(pty.event_surface_id, title.into());
                         reconnect_mux.emit_terminal_resized(
                             pty.event_surface_id,
@@ -4154,7 +4258,8 @@ impl Surface {
         let journal_generation = Arc::from(identity.incarnation.clone());
         let initial_kitty_limits = KittyGraphicsLimits::disabled();
         let title_changed = Arc::new(AtomicBool::new(false));
-        let callbacks = hosted_terminal_callbacks(id, mux.clone(), title_changed);
+        let pending_bells = PendingBells::default();
+        let callbacks = hosted_terminal_callbacks(&pending_bells, title_changed);
         let (cols, rows) = (opts.cols.max(1), opts.rows.max(1));
         let cell_pixels =
             mux.upgrade().map(|mux| mux.cell_pixel_creation_size()).unwrap_or((8, 16));
@@ -4194,7 +4299,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4202,6 +4306,7 @@ impl Surface {
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
+                pending_bells,
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -4237,6 +4342,10 @@ impl Surface {
                 geometry_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                hosted_output_test_hook: Mutex::new(None),
                 #[cfg(test)]
                 test_master_control: None,
                 #[cfg(test)]
@@ -4382,17 +4491,9 @@ impl Surface {
             cell_height: cell_pixels.1,
         };
         let initial_pty_size = initial_geometry.pty_size()?;
-        let callbacks = Callbacks {
-            on_bell: Some(Box::new({
-                let mux = mux.clone();
-                move || {
-                    if let Some(mux) = mux.upgrade() {
-                        mux.emit_terminal_bell(id);
-                    }
-                }
-            })),
-            ..Callbacks::default()
-        };
+        let pending_bells = PendingBells::default();
+        let callbacks =
+            Callbacks { on_bell: Some(pending_bells.callback()), ..Callbacks::default() };
 
         let mut term = Terminal::new(opts.cols, opts.rows, opts.scrollback, callbacks)?;
         term.resize(opts.cols, opts.rows, u32::from(cell_pixels.0), u32::from(cell_pixels.1))?;
@@ -4427,7 +4528,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
@@ -4435,6 +4535,7 @@ impl Surface {
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
+                pending_bells,
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 terminal_metadata: Mutex::new(Default::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -4472,6 +4573,9 @@ impl Surface {
                 kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
                 geometry_test_hook: Mutex::new(None),
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
+                #[cfg(test)]
+                reaper_shutdown_test_hook: Mutex::new(None),
+                hosted_output_test_hook: Mutex::new(None),
                 test_master_control: Some(test_master_control),
                 vt_replay_builds: AtomicUsize::new(0),
                 mux,
@@ -4512,12 +4616,28 @@ impl Surface {
 
     pub(crate) fn finish_terminal_reader(&self, deadline: Instant) -> Option<TerminalJournalGap> {
         let pty = self.as_pty()?;
-        let reaper = pty.reaper_thread.lock().unwrap().take();
-        if let Some(reaper) = reaper {
-            if reaper.thread().id() == std::thread::current().id() {
-                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+        // Decide self-join under the lock and leave the reaper's own handle
+        // in place: taking it and putting it back let a concurrent caller
+        // see an empty slot and return while the handle was restored later.
+        let reaper = {
+            let mut slot = pty.reaper_thread.lock().unwrap();
+            if slot
+                .as_ref()
+                .is_some_and(|reaper| reaper.thread().id() == std::thread::current().id())
+            {
                 eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
-            } else if pty.reaper_completion.wait_until(deadline) {
+                drop(slot);
+                #[cfg(test)]
+                pty.run_reaper_shutdown_test_hook(ReaperShutdownTestStep::SelfJoinSkipped);
+                None
+            } else {
+                slot.take()
+            }
+        };
+        if let Some(reaper) = reaper {
+            if pty.reaper_completion.wait_until(deadline) {
+                #[cfg(test)]
+                pty.run_reaper_shutdown_test_hook(ReaperShutdownTestStep::JoiningReaper);
                 if reaper.join().is_err() {
                     eprintln!("cmux-tui: child reaper thread panicked during shutdown");
                 }
@@ -4880,15 +5000,30 @@ impl Surface {
         Ok(pty.stream_progress.revision())
     }
 
-    /// Capture the viewport, generic terminal metadata, and stream revision
-    /// while the parser lock is held. This is the only screen-read path that
-    /// can safely use the revision as a scheduling watermark.
+    /// [`Self::terminal_screen_snapshot_with`] of the viewport's rows.
+    #[cfg(test)]
     pub(crate) fn terminal_screen_snapshot(&self) -> anyhow::Result<TerminalScreenSnapshot> {
+        self.terminal_screen_snapshot_with(ScreenText::Rows)
+    }
+
+    /// Capture the `text` a `terminal.screen.read` asked for (the viewport's
+    /// rows or logical lines, or the last N lines of scrollback and screen),
+    /// generic terminal metadata, and stream revision while the parser lock
+    /// is held. This is the only screen-read path that can safely use the
+    /// revision as a scheduling watermark.
+    pub(crate) fn terminal_screen_snapshot_with(
+        &self,
+        text: ScreenText,
+    ) -> anyhow::Result<TerminalScreenSnapshot> {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
         let mut term = pty.term.lock().unwrap();
-        let text = term.viewport_text()?;
+        let text = match text {
+            ScreenText::Rows => term.viewport_text()?,
+            ScreenText::Unwrapped => term.viewport_text_unwrapped()?,
+            ScreenText::LastLines { count, unwrap } => term.last_lines_text(count, unwrap)?,
+        };
         let (cursor_col, cursor_row) = term.cursor_position().unwrap_or((0, 0));
         let cursor_visible = term.mode(25, false);
         // Match the parser's lock order, term -> metadata -> stream progress.
@@ -4905,6 +5040,12 @@ impl Surface {
             revision,
             osc_progress,
         })
+    }
+
+    /// The last command the terminal's shell finished (OSC 133 `D`):
+    /// `extra.last_command` (`terminal-exit-status-v1`).
+    pub(crate) fn terminal_last_command(&self) -> Option<crate::terminal_command::LastCommand> {
+        self.as_pty()?.terminal_last_command()
     }
 
     pub(crate) fn subscribe_terminal_stream_change(
@@ -5182,8 +5323,8 @@ impl Surface {
         };
         pty.observe_terminal_output(&output);
         pty.broadcast_attach_output(&output);
-        if let Some(journal_target) = pty.journal_target() {
-            pty.journal_output_if_open(journal_target, output);
+        if let Some(journal_target) = pty.output_target() {
+            pty.record_output(journal_target, &output);
         }
         pty.stream_progress.notify();
         Ok(Some(f(&mut terminal)))
@@ -5357,6 +5498,27 @@ impl Surface {
         &self,
         fallback_key: Option<&KeyInput>,
     ) -> Result<(), ClearHistoryFailure> {
+        let cleared = self.clear_history_in_terminal(fallback_key)?;
+        // What the person cleared must not come back from the output store:
+        // it drops this terminal's stored output and rewrites its snapshot
+        // at once. A request that cleared nothing (an alternate-screen
+        // application got the fallback key, or no key exists) keeps them.
+        if cleared
+            && let Some(pty) = self.as_pty()
+            && let (Some(terminal_id), Some(mux)) =
+                (pty.terminal_public_id.as_ref(), pty.mux.upgrade())
+        {
+            mux.output_store.history_cleared(terminal_id);
+        }
+        Ok(())
+    }
+
+    /// `true` when the terminal's history was cleared; `false` when the
+    /// request only reached the application (fallback key) or did nothing.
+    fn clear_history_in_terminal(
+        &self,
+        fallback_key: Option<&KeyInput>,
+    ) -> Result<bool, ClearHistoryFailure> {
         let Some(pty) = self.as_pty() else {
             return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                 "browser surface does not have a VT terminal"
@@ -5365,11 +5527,15 @@ impl Surface {
         #[cfg(unix)]
         {
             {
+                // The host makes the same screen decision on its parser; the
+                // daemon's mirror tells which one it makes. Read before the
+                // runtime lock (terminal before runtime).
+                let primary = pty.term.lock().unwrap().active_screen() != Screen::Alternate;
                 let runtime = pty.runtime.lock().unwrap();
                 match &*runtime {
                     PtyRuntime::Hosted(host) => {
                         if host.send_clear_history(fallback_key)? {
-                            return Ok(());
+                            return Ok(primary);
                         }
                         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                             "terminal host does not support clear-history"
@@ -5425,9 +5591,10 @@ impl Surface {
                         )));
                     };
                     drop(term);
-                    return write_clear_history_fallback(master, writer.as_mut(), &encoded);
+                    return write_clear_history_fallback(master, writer.as_mut(), &encoded)
+                        .map(|()| false);
                 }
-                ClearHistoryTransition::Noop => return Ok(()),
+                ClearHistoryTransition::Noop => return Ok(false),
                 ClearHistoryTransition::Cleared(clear) => {
                     pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
                     pty.broadcast_attach_output(&clear);
@@ -5448,7 +5615,7 @@ impl Surface {
                 mux.emit_terminal_scroll(pty.event_surface_id, offset, at_bottom);
             }
             pty.mark_output_dirty();
-            return Ok(());
+            return Ok(true);
         }
     }
 
@@ -6743,99 +6910,66 @@ impl cmux_pty::Child for StartupChild {
 }
 
 impl PtySurface {
-    fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
+    /// Where the reader hands accepted output: the output store of a
+    /// terminal with a public id, also in a session without a journal (an
+    /// in-memory session keeps output in memory). The reader still takes the
+    /// capture fence for it, so shutdown can close capture between reads.
+    fn output_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
         let mux = self.mux.upgrade()?;
-        (mux.terminal_journal_enabled() && self.journal_capture_supported)
-            .then_some((mux, terminal_id))
+        self.journal_capture_supported.then_some((mux, terminal_id))
     }
 
-    fn journal_output_if_open(
-        &self,
-        (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>),
-        bytes: Vec<u8>,
-    ) {
-        let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        for chunk in bytes.chunks(crate::journal_ingress::TERMINAL_OUTPUT_INGRESS_BYTES) {
-            let mut pending = chunk.to_vec();
-            loop {
-                let retry = {
-                    let _gate = self.journal_capture_gate.lock().unwrap();
-                    if !self.journal_capture_open.load(Ordering::Acquire)
-                        || self.journal_capture_disabled.load(Ordering::Acquire)
-                    {
-                        return;
-                    }
-                    mux.try_journal_terminal_output(
-                        terminal_id.clone(),
-                        self.journal_generation.clone(),
-                        occurred_at_ms,
-                        pending,
-                    )
-                };
-                let retry = match retry {
-                    Ok(retry) => retry,
-                    Err(error) => {
-                        self.journal_capture_disabled.store(true, Ordering::Release);
-                        if mux
-                            .try_journal_terminal_output_gap(
-                                terminal_id,
-                                self.journal_generation.clone(),
-                                "journal_output_write_failed",
-                            )
-                            .is_err()
-                        {
-                            eprintln!(
-                                "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
-                            );
-                        }
-                        eprintln!(
-                            "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
-                        );
-                        return;
-                    }
-                };
-                let Some((retry, space_epoch)) = retry else { break };
-                pending = retry;
-                let deadline = mux.terminal_journal_durable_deadline();
-                if let Err(error) = mux.wait_for_terminal_journal_space_until(space_epoch, deadline)
-                {
-                    self.journal_capture_disabled.store(true, Ordering::Release);
-                    if mux
-                        .try_journal_terminal_output_gap_until(
-                            terminal_id,
-                            self.journal_generation.clone(),
-                            "journal_output_deadline_expired",
-                            deadline,
-                        )
-                        .is_err()
-                    {
-                        eprintln!(
-                            "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
-                        );
-                    }
-                    eprintln!(
-                        "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
-                    );
-                    return;
-                }
-            }
+    /// [`Self::output_target`] of a session that journals terminal events.
+    fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
+        self.output_target().filter(|(mux, _)| mux.terminal_journal_enabled())
+    }
+
+    /// Hands output the parser accepted to the output store
+    /// (output_store.rs). Output never enters the session journal, so a busy
+    /// journal writer can neither hold this reader back nor drop the output;
+    /// the store only copies the bytes into memory here.
+    fn record_output(&self, (mux, terminal_id): (Arc<Mux>, Arc<TerminalPublicId>), bytes: &[u8]) {
+        mux.output_store.append(&terminal_id, &self.journal_generation, bytes);
+    }
+
+    /// Records a `terminal.output.gap` marker (`reason`) without waiting, and
+    /// notes the terminal for the next coalesced checkpoint
+    /// (mux/journal_retention.rs). A closed capture gate (shutdown) records
+    /// nothing: the final journal barrier may already be in.
+    fn journal_gap(&self, reason: &'static str) {
+        let Some((mux, terminal_id)) = self.journal_target() else { return };
+        let _gate = self.journal_capture_gate.lock().unwrap_or_else(|error| error.into_inner());
+        if !self.journal_capture_open.load(Ordering::Acquire) {
+            return;
         }
+        mux.journal_terminal_output_gap(terminal_id, self.journal_generation.clone(), reason);
     }
 
+    /// Journals an accepted geometry change without waiting: callers hold
+    /// the parser lock, so a wait here would stall the terminal. Output no
+    /// longer fills the terminal lane, so it is full only behind a stalled
+    /// writer; then the change is not journaled and the terminal is noted
+    /// for the coalesced checkpoint, whose session snapshot has the size.
     fn journal_geometry(&self, geometry: PtyGeometry) {
         let (Some(terminal_id), Some(mux)) = (self.terminal_public_id.clone(), self.mux.upgrade())
         else {
             return;
         };
-        mux.journal_terminal_resize(
-            terminal_id,
+        if !mux.try_journal_terminal_resize(
+            terminal_id.clone(),
             self.journal_generation.clone(),
             geometry.cols,
             geometry.rows,
             geometry.cell_width,
             geometry.cell_height,
-        );
+        ) {
+            eprintln!(
+                "cmux-tui: terminal {terminal_id} resize was not journaled: the terminal journal \
+                 lane is full"
+            );
+            mux.note_journal_gap_for_retention(&terminal_id);
+        }
     }
 
     fn view_scrollbar_locked(&self, term: &mut Terminal) -> Option<Scrollbar> {
@@ -6888,6 +7022,14 @@ impl PtySurface {
             return;
         }
         *anchor = term.track_screen_point(0, target).ok();
+    }
+
+    #[cfg(test)]
+    fn run_reaper_shutdown_test_hook(&self, step: ReaperShutdownTestStep) {
+        let hook = self.reaper_shutdown_test_hook.lock().unwrap().clone();
+        if let Some(hook) = hook {
+            hook(step);
+        }
     }
 
     #[cfg(test)]
@@ -7023,9 +7165,9 @@ impl PtySurface {
     /// and the frame worker holds only a weak reference. Building here keeps
     /// the final render frame ordered after the byte taps and before detach.
     fn publish_final_frame(&self) {
-        let mut term = self.term.lock().unwrap();
+        let term = self.term.lock().unwrap();
         let generation = self.render_generation.load(Ordering::Acquire);
-        let _ = self.build_frame_locked(&mut term, generation, true);
+        let _ = self.build_producer_frame(term, generation);
     }
 
     /// Preserve the last hosted frame, then end every live attachment while
@@ -7047,6 +7189,9 @@ impl PtySurface {
         // observe a live terminal or a complete, inert final snapshot.
         self.host_connection_state
             .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
+        // `SurfaceOutput` takes `Mux::state`, which is ordered before `term`.
+        drop(term);
+        self.mark_output_dirty();
     }
 
     fn mark_output_dirty(&self) {
@@ -7057,7 +7202,25 @@ impl PtySurface {
         }
     }
 
+    /// Build a producer-driven frame, release `term`, then publish
+    /// `SurfaceOutput`. The output event takes `Mux::state`, and Mux code
+    /// holds `Mux::state` while it reads `Surface::size` (geometry), while a
+    /// resize holds geometry and then takes `term`. So the event must not be
+    /// sent while the terminal lock is held.
+    fn build_producer_frame(
+        &self,
+        mut term: std::sync::MutexGuard<'_, Box<Terminal>>,
+        generation: u64,
+    ) -> ghostty_vt::Result<bool> {
+        let built = self.build_frame_locked(&mut term, generation, true);
+        drop(term);
+        self.mark_output_dirty();
+        built
+    }
+
     /// Build and fan out one immutable frame while the caller holds `term`.
+    /// This never calls into the mux; a producer-driven caller publishes the
+    /// output event through [`Self::build_producer_frame`] after unlocking.
     fn build_frame_locked(
         &self,
         term: &mut Terminal,
@@ -7098,10 +7261,6 @@ impl PtySurface {
                 true
             }
         };
-
-        if producer_driven {
-            self.mark_output_dirty();
-        }
         Ok(built)
     }
 
@@ -7502,7 +7661,7 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
             }
             let Some(surface) = weak.upgrade() else { break };
             let Some(pty) = surface.as_pty() else { break };
-            let mut term = pty.term.lock().unwrap();
+            let term = pty.term.lock().unwrap();
             let generation = requested.max(pty.render_generation.load(Ordering::Acquire));
             let colors_pending = pty.attach_colors_pending.load(Ordering::Acquire);
             if colors_pending {
@@ -7510,9 +7669,7 @@ fn spawn_frame_producer(surface: &Arc<Surface>, requests: Receiver<u64>) -> anyh
                     pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
                 let _ = pty.flush_attach_colors_locked(&term, defaults);
             }
-            if pty.build_frame_locked(&mut term, generation, true).unwrap_or(false)
-                || colors_pending
-            {
+            if pty.build_producer_frame(term, generation).unwrap_or(false) || colors_pending {
                 last_frame = Instant::now();
             }
         }
@@ -7630,6 +7787,65 @@ mod tests {
         let pty = surface.as_pty().unwrap();
         surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
         assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_concurrent_teardown_returns_only_after_the_self_finishing_reaper_is_joined() {
+        let mux = Mux::new_for_test("reaper-self-join-race", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let pty = surface.as_pty().unwrap();
+        // The reaper's own teardown reports its self-join step and then waits
+        // there until the concurrent teardown either returned or is about to
+        // join the reaper. That holds the race window open without a sleep.
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (step_tx, step_rx) = std::sync::mpsc::channel::<&'static str>();
+        let step_rx = Mutex::new(step_rx);
+        let joining_tx = step_tx.clone();
+        *pty.reaper_shutdown_test_hook.lock().unwrap() = Some(Arc::new(move |step| match step {
+            ReaperShutdownTestStep::SelfJoinSkipped => {
+                let _ = entered_tx.try_send(());
+                step_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(30))
+                    .expect("the concurrent teardown neither returned nor joined the reaper");
+            }
+            ReaperShutdownTestStep::JoiningReaper => {
+                let _ = joining_tx.send("joining");
+            }
+        }));
+        let (started_tx, started_rx) = sync_channel(0);
+        let (proceed_tx, proceed_rx) = sync_channel(0);
+        let (finished_tx, finished_rx) = sync_channel(1);
+        pty.reaper_completion.reset();
+        let reaper_completion = pty.reaper_completion.clone();
+        let reaper_surface = surface.clone();
+        let reaper = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            proceed_rx.recv().unwrap();
+            reaper_completion.complete();
+            reaper_surface.finish_terminal_reader(Instant::now() + Duration::from_secs(30));
+            finished_tx.send(()).unwrap();
+        });
+        assert!(pty.reaper_thread.lock().unwrap().replace(reaper).is_none());
+        started_rx.recv().unwrap();
+        proceed_tx.send(()).unwrap();
+        entered_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the reaper did not reach its self-join step");
+
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(30));
+        let _ = step_tx.send("returned");
+        finished_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the reaper's own teardown did not finish");
+
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_none(),
+            "a teardown returned while the reaper put its own handle back after it"
+        );
+        *pty.reaper_shutdown_test_hook.lock().unwrap() = None;
     }
 
     #[test]
@@ -7821,66 +8037,6 @@ mod tests {
         assert_eq!(&*writer.0.lock().unwrap(), b"firstsecond");
     }
 
-    #[test]
-    fn terminal_journal_write_failure_disables_capture_without_stopping_daemon() {
-        let root = std::env::temp_dir().join(format!(
-            "cmux-terminal-journal-capture-failure-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
-        ));
-        let mux = Mux::open_persistent(
-            "terminal-journal-capture-failure",
-            SurfaceOptions::default(),
-            &root,
-        )
-        .unwrap();
-        let database_path = std::fs::read_dir(&root)
-            .unwrap()
-            .filter_map(Result::ok)
-            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
-            .find(|path| path.is_file())
-            .expect("persistent journal database");
-        let injector = rusqlite::Connection::open(database_path).unwrap();
-        injector
-            .execute_batch(
-                "CREATE TRIGGER reject_capture_failure_test_terminal_output
-                 BEFORE INSERT ON session_journal
-                 WHEN NEW.kind = 'terminal.output'
-                 BEGIN
-                   SELECT RAISE(ABORT, 'database or disk is full');
-                 END;",
-            )
-            .unwrap();
-        let surface =
-            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
-        let terminal_id = Arc::new(surface.terminal_public_id().unwrap().clone());
-        let pty = surface.as_pty().unwrap();
-
-        pty.journal_output_if_open(
-            (mux.clone(), terminal_id.clone()),
-            b"the first write enters the failing journal".to_vec(),
-        );
-        assert!(mux.flush_terminal_journal().is_err());
-        pty.journal_output_if_open(
-            (mux.clone(), terminal_id),
-            b"the next write reports the permanent failure".to_vec(),
-        );
-
-        assert!(pty.journal_capture_open.load(Ordering::Acquire));
-        assert!(pty.journal_capture_disabled.load(Ordering::Acquire));
-        let reader_gate = pty.begin_terminal_journal_update();
-        assert!(reader_gate.is_some(), "journal failure must not close the terminal reader gate");
-        drop(reader_gate);
-        assert!(
-            !mux.daemon_shutdown_requested(),
-            "journal storage failure must leave live terminal hosts available"
-        );
-        drop(surface);
-        drop(injector);
-        drop(mux);
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
     fn append_disabled_kitty_replay_state(payload: &mut Vec<u8>) {
         for _ in 0..4 {
             payload.extend_from_slice(&0u64.to_le_bytes());
@@ -8050,9 +8206,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn hosted_mirror_never_answers_terminal_queries() {
-        let mux = Mux::new_for_test("hosted-query-authority", SurfaceOptions::default());
         let callbacks =
-            hosted_terminal_callbacks(1, Arc::downgrade(&mux), Arc::new(AtomicBool::new(false)));
+            hosted_terminal_callbacks(&PendingBells::default(), Arc::new(AtomicBool::new(false)));
 
         assert!(
             callbacks.on_pty_write.is_none(),
@@ -9237,6 +9392,90 @@ mod tests {
         });
     }
 
+    /// A receipted write resolves when the host's InputAck arrives, even
+    /// when output the host sent before the ack still waits to be applied.
+    /// The hook holds the surface reader inside the first Output until the
+    /// write returned, so the ack can only reach its waiter on arrival
+    /// (issue #39510).
+    #[cfg(unix)]
+    #[test]
+    fn hosted_input_ack_is_not_delayed_behind_queued_output() {
+        let mux = Mux::new_for_test("hosted-input-ack-behind-output", SurfaceOptions::default());
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+        let terminal_id = attachment.record.terminal_id.clone();
+        attachment.record.workspace_key = workspace.key.clone();
+        mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+
+        let surface = Surface::spawn_hosted(
+            1,
+            SurfaceOptions::default(),
+            Arc::downgrade(&mux),
+            HostedSurfaceLaunch {
+                attachment,
+                kitty_reservation: None,
+                terminate_on_error: false,
+                defer_launch_activation: false,
+                lifetime: PtyLifetime::SessionOwned,
+                terminal_public_id: None,
+                resource_identity: None,
+            },
+        )
+        .unwrap();
+
+        // The first Output parks the surface reader until `release` is
+        // dropped (after the write returned), bounded at 30 s.
+        let (entered_tx, entered_rx) = sync_channel(1);
+        let (release, release_rx) = sync_channel::<()>(1);
+        let release_rx = Mutex::new(release_rx);
+        let held = AtomicBool::new(false);
+        *surface.as_pty().unwrap().hosted_output_test_hook.lock().unwrap() =
+            Some(Arc::new(move || {
+                if held.swap(true, Ordering::AcqRel) {
+                    return;
+                }
+                let _ = entered_tx.send(());
+                let _ = release_rx.lock().unwrap().recv_timeout(Duration::from_secs(30));
+            }));
+
+        host.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        host.set_write_timeout(Some(Duration::from_secs(10))).unwrap();
+        let output = |sequence: u64| {
+            let mut frame = Frame::new(MessageKind::Output, b"queued output\r\n".to_vec());
+            frame.sequence = sequence;
+            frame
+        };
+        crate::terminal_host_protocol::write_frame(&mut host, &output(1)).unwrap();
+        entered_rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the surface reader starts applying the first Output");
+
+        let result = std::thread::scope(|scope| {
+            let write = scope.spawn(|| surface.write_bytes_confirmed(b"typed"));
+            let input = crate::terminal_host_protocol::read_frame(
+                &mut host,
+                crate::terminal_host_protocol::MAX_FRAME_PAYLOAD,
+            )
+            .expect("observe the receipted input")
+            .expect("hosted connection stays open while the input waits for its ACK");
+            assert_eq!(input.kind, MessageKind::Input);
+            assert_eq!(input.payload, b"typed");
+            assert_ne!(input.request_id, 0);
+            // More output is queued ahead of the acknowledgement.
+            crate::terminal_host_protocol::write_frame(&mut host, &output(2)).unwrap();
+            let mut ack = Frame::new(MessageKind::InputAck, Vec::new());
+            ack.request_id = input.request_id;
+            crate::terminal_host_protocol::write_frame(&mut host, &ack).unwrap();
+            write.join().unwrap()
+        });
+        drop(release);
+        assert!(
+            result.is_ok(),
+            "a receipted write must resolve when its InputAck arrives, not after the \
+             output queued ahead of it: {result:?}"
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn hosted_stager_exposes_coupled_state_only_after_colors() {
@@ -9746,9 +9985,8 @@ mod tests {
             Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
         let pty = surface.as_pty().unwrap();
 
-        let mut term = pty.term.lock().unwrap();
-        assert!(!pty.build_frame_locked(&mut term, 2, true).unwrap());
-        drop(term);
+        let term = pty.term.lock().unwrap();
+        assert!(!pty.build_producer_frame(term, 2).unwrap());
 
         let render = pty.render.lock().unwrap();
         assert_eq!(render.built_generation, 0);

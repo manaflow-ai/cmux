@@ -737,7 +737,7 @@ verify_app_store_ipa_has_no_external_purchase_links() {
 usage() {
   cat <<'EOF'
 Usage:
-  ios/scripts/upload-testflight.sh [--lane beta|appstore] [--build-number <number>]
+  ios/scripts/upload-testflight.sh [--lane beta|classic|appstore] [--build-number <number>]
                                   [--signing manual|automatic] [--external]
                                   [--archive-path <path>] [--export-only]
 
@@ -748,11 +748,22 @@ TestFlight behavior:
   bundle id: dev.cmux.app.beta
   profile:   cmux Beta Distribution
 
+The classic lane ships the classic app to its internal TestFlight-only
+App Store Connect record, cmux CLASSIC:
+
+  bundle id: dev.cmux.app.classic
+  profile:   App Store distribution profile for dev.cmux.app.classic
+  display:   cmux CLASSIC
+
 The production App Store lane uses:
 
   bundle id: com.cmux.app
   profile:   cmux App Store Distribution
   display:   cmux
+
+com.cmux.app now ships cmux-next, so the appstore lane refuses to upload the
+classic app unless CMUX_IOS_ALLOW_CLASSIC_APPSTORE_UPLOAD=1 is set; it can still
+archive and export (--export-only).
 
 On the manual signing path the exported app is RE-SIGNED with the full
 entitlements before upload. The archive is built unsigned (to avoid
@@ -787,15 +798,19 @@ or:
   APPLE_APP_SPECIFIC_PASSWORD
   APPLE_PROVIDER_PUBLIC_ID
 
-With ASC API authentication, the appstore lane also requires ASC_APP_ID and the
+With ASC API authentication, the classic and appstore lanes also require ASC_APP_ID and the
 asc CLI so upload can target the numeric App Store Connect app record instead
 of relying on bundle-id lookup. Apple ID credentials keep using altool.
 
 Options:
-  --lane <beta|appstore>    Distribution lane. beta is the existing TestFlight
-                            path. appstore uploads the production bundle to its
-                            TestFlight lane and sets the changelog notes without
-                            assigning a beta group.
+  --lane <beta|classic|appstore>
+                            Distribution lane. beta is the existing TestFlight
+                            path. classic uploads dev.cmux.app.classic (cmux
+                            CLASSIC) as an internal-only TestFlight build, built
+                            like the App Store binary (no system VPN). appstore
+                            uploads the production bundle to its TestFlight lane
+                            and sets the changelog notes without assigning a beta
+                            group.
   --build-number <number>   CFBundleVersion. Defaults to UTC yyyyMMddHHmmss.
                             Self-healed up to (App Store Connect max + 1) if it
                             would not be the highest build (TestFlight only offers
@@ -1015,6 +1030,18 @@ case "$LANE" in
     PRODUCT_DISPLAY_NAME="${IOS_BETA_DISPLAY_NAME:-cmux BETA}"
     CRASH_REPORTING_ENABLED="YES"
     ;;
+  classic)
+    # cmux CLASSIC: the classic app's internal TestFlight-only record. It is
+    # signed with App Store distribution profiles, so it reads the profile
+    # names install-app-store-provisioning-profile.sh exports.
+    PRODUCT_BUNDLE_IDENTIFIER="${IOS_CLASSIC_BUNDLE_ID:-dev.cmux.app.classic}"
+    # In CI the installer exported IOS_APPSTORE_PROVISIONING_PROFILE_NAME for
+    # dev.cmux.app.classic. Locally, set IOS_CLASSIC_PROVISIONING_PROFILE_NAME
+    # rather than reuse a com.cmux.app name; export would reject the mismatch.
+    PROVISIONING_PROFILE_NAME="${IOS_CLASSIC_PROVISIONING_PROFILE_NAME:-${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux Classic Distribution}}"
+    PRODUCT_DISPLAY_NAME="${IOS_CLASSIC_DISPLAY_NAME:-cmux CLASSIC}"
+    CRASH_REPORTING_ENABLED="YES"
+    ;;
   appstore)
     PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}"
     PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux App Store Distribution}"
@@ -1028,13 +1055,28 @@ case "$LANE" in
     ;;
 esac
 
-if [[ "$LANE" == "appstore" && "$EXTERNAL_TESTING" -eq 1 ]]; then
-  echo "error: --external is TestFlight-only and cannot be used with --lane appstore" >&2
+# Lanes that upload to a numeric App Store Connect record with App Store
+# distribution profiles and the VPN-free App Store binary: the official
+# com.cmux.app record and the internal-only cmux CLASSIC record.
+APP_RECORD_LANE=0
+[[ "$LANE" == "appstore" || "$LANE" == "classic" ]] && APP_RECORD_LANE=1
+
+if [[ "$LANE" == "classic" ]]; then
+  # com.cmux.app (App Store Connect app 6783338052) ships cmux-next from
+  # feat-cmux-next. The classic app must never land on that record again.
+  if [[ "$PRODUCT_BUNDLE_IDENTIFIER" == "com.cmux.app" || "${ASC_APP_ID:-}" == "6783338052" ]]; then
+    echo "error: --lane classic must not target com.cmux.app / App Store Connect app 6783338052; that record ships cmux-next. Use the cmux CLASSIC record (dev.cmux.app.classic)." >&2
+    exit 2
+  fi
+fi
+
+if [[ "$APP_RECORD_LANE" -eq 1 && "$EXTERNAL_TESTING" -eq 1 ]]; then
+  echo "error: --external is beta-only and cannot be used with --lane $LANE" >&2
   exit 2
 fi
 
-if [[ "$LANE" == "appstore" && "$AUTO_VERSION" -eq 1 ]]; then
-  echo "error: --auto-version is beta-only. Set the configured App Store marketing version intentionally before an App Store upload." >&2
+if [[ "$APP_RECORD_LANE" -eq 1 && "$AUTO_VERSION" -eq 1 ]]; then
+  echo "error: --auto-version is beta-only. Set the configured $LANE marketing version intentionally before uploading." >&2
   exit 2
 fi
 
@@ -1058,23 +1100,27 @@ CLOUD_VPN_BUNDLE_IDENTIFIER="${PRODUCT_BUNDLE_IDENTIFIER}.CloudVPN"
 # The beta app has a provisioned packet-tunnel extension. The official App
 # Store app is permanently VPN-free: do not let a stale or manually inherited
 # IOS_APPSTORE_ENABLE_CLOUD_VPN value re-enable Apple's rejected capability.
-# Internal/demo app identities are separate Apple registrations and do not opt
-# in implicitly.
+# Internal and classic app identities are separate Apple registrations and do
+# not opt in implicitly.
 CLOUD_VPN_REQUIRED=0
 if [[ "$LANE" == "beta" && "$PRODUCT_BUNDLE_IDENTIFIER" == "dev.cmux.app.beta" ]]; then
   CLOUD_VPN_REQUIRED=1
 fi
 APPSTORE_SYSTEM_VPN_DISABLED=0
-if [[ "$LANE" == "appstore" ]]; then
+if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
   APPSTORE_SYSTEM_VPN_DISABLED=1
 fi
 SHARED_XCCONFIG="$IOS_DIR/Config/Shared.xcconfig"
 CHECKED_IN_BETA_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_BETA_MARKETING_VERSION "$SHARED_XCCONFIG")"
 CHECKED_IN_APPSTORE_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_APPSTORE_MARKETING_VERSION "$SHARED_XCCONFIG")"
+CHECKED_IN_CLASSIC_MARKETING_VERSION="$(read_xcconfig_setting CMUX_IOS_CLASSIC_MARKETING_VERSION "$SHARED_XCCONFIG")"
 
 case "$LANE" in
   beta)
     LANE_MARKETING_VERSION="${BETA_MARKETING_VERSION:-${IOS_BETA_MARKETING_VERSION:-$CHECKED_IN_BETA_MARKETING_VERSION}}"
+    ;;
+  classic)
+    LANE_MARKETING_VERSION="${IOS_CLASSIC_MARKETING_VERSION:-$CHECKED_IN_CLASSIC_MARKETING_VERSION}"
     ;;
   appstore)
     LANE_MARKETING_VERSION="${IOS_APPSTORE_MARKETING_VERSION:-$CHECKED_IN_APPSTORE_MARKETING_VERSION}"
@@ -1114,14 +1160,14 @@ fi
 NOTES_AUDIENCE="internal"
 [[ "$EXTERNAL_TESTING" == "1" ]] && NOTES_AUDIENCE="external"
 
-# Both beta and the official com.cmux.app upload are TestFlight lanes. The
-# production marketing version has its own independent sequence, so its notes
-# use the current changelog entry without requiring that entry's version to
-# equal the production version.
+# Every lane uploads to TestFlight. The classic and production marketing
+# versions have their own independent sequences, so their notes use the
+# current changelog entry without requiring that entry's version to equal the
+# lane version.
 TESTFLIGHT_NOTES_LANE=0
-[[ "$LANE" == "beta" || "$LANE" == "appstore" ]] && TESTFLIGHT_NOTES_LANE=1
+[[ "$LANE" == "beta" || "$APP_RECORD_LANE" -eq 1 ]] && TESTFLIGHT_NOTES_LANE=1
 NOTES_VERSION_GUARD=1
-[[ "$LANE" == "appstore" ]] && NOTES_VERSION_GUARD=0
+[[ "$APP_RECORD_LANE" -eq 1 ]] && NOTES_VERSION_GUARD=0
 
 # Stamp the lane's marketing version at archive time. Release.xcconfig defaults
 # to the beta value for normal TestFlight builds, but the App Store lane shares
@@ -1457,7 +1503,7 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
     echo "error: archive app CFBundleIdentifier is '$ARCHIVE_APP_BUNDLE_IDENTIFIER' but lane '$LANE' requires '$PRODUCT_BUNDLE_IDENTIFIER'. Re-archive for the selected lane." >&2
     exit 1
   fi
-  if [[ "$LANE" == "appstore" ]]; then
+  if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
     ARCHIVE_CRASH_REPORTING_ENABLED="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
     if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "$CRASH_REPORTING_ENABLED" ]]; then
       echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected '$CRASH_REPORTING_ENABLED'; refusing to export" >&2
@@ -1501,7 +1547,7 @@ fi
 
 # The archive's dSYMs are the source of both symbol paths for this build: the
 # Symbols/ files the export embeds in the IPA for App Store Connect crash
-# symbolication, and the dSYM run artifact ios-testflight.yml persists for
+# symbolication, and the dSYM run artifact the upload workflow persists for
 # local symbolication after ASC's copy is unavailable. An archive without
 # dSYMs (DEBUG_INFORMATION_FORMAT != dwarf-with-dsym, or a truncated fleet
 # download) would ship a build whose crashes can never be symbolicated by
@@ -1557,6 +1603,10 @@ if [[ "$LANE" == "beta" ]]; then
   else
     plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
   fi
+elif [[ "$LANE" == "classic" ]]; then
+  # cmux CLASSIC is an internal TestFlight home only; its builds can never be
+  # added to an external group or submitted for review.
+  plutil -insert testFlightInternalTestingOnly -bool YES "$EXPORT_OPTIONS"
 fi
 plutil -insert uploadSymbols -bool YES "$EXPORT_OPTIONS"
 if [[ "$SIGNING" == "automatic" ]]; then
@@ -1577,9 +1627,9 @@ else
   plutil -insert signingCertificate -string "${IOS_SIGNING_CERTIFICATE:-Apple Distribution}" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles dict" "$EXPORT_OPTIONS"
   "$PLISTBUDDY" -c "Add :provisioningProfiles:$PRODUCT_BUNDLE_IDENTIFIER string $PROVISIONING_PROFILE_NAME" "$EXPORT_OPTIONS"
-  if [[ "$LANE" == "appstore" || "$LANE" == "beta" ]]; then
+  if [[ "$APP_RECORD_LANE" -eq 1 || "$LANE" == "beta" ]]; then
     EXTENSION_BUNDLE_IDENTIFIER="$NOTIFICATION_SERVICE_BUNDLE_IDENTIFIER"
-    if [[ "$LANE" == "appstore" ]]; then
+    if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
       EXTENSION_PROFILE_NAME="${IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
     else
       EXTENSION_PROFILE_NAME="${IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME:-}"
@@ -1590,7 +1640,7 @@ else
     fi
     "$PLISTBUDDY" -c "Add :provisioningProfiles:$EXTENSION_BUNDLE_IDENTIFIER string $EXTENSION_PROFILE_NAME" "$EXPORT_OPTIONS"
     if [[ "$CLOUD_VPN_REQUIRED" -eq 1 ]]; then
-      if [[ "$LANE" == "appstore" ]]; then
+      if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
         CLOUD_VPN_PROFILE_NAME="${IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
       else
         CLOUD_VPN_PROFILE_NAME="${IOS_BETA_CLOUD_VPN_PROVISIONING_PROFILE_NAME:-}"
@@ -1950,12 +2000,12 @@ else
   # with no aps-environment), so an automatic export almost certainly drops it too.
   #
   # Rather than upload a known-push-broken build with only a warning (CI warnings
-  # are effectively silent, and ios-testflight.yml drives the PRIMARY beta cut with
+  # are effectively silent, and a CI lane that drove the PRIMARY beta cut used
   # --signing automatic), FAIL CLOSED: verify the exported IPA actually carries
   # aps-environment, and refuse the upload if it does not. If automatic ever does
   # preserve it, the gate passes and upload proceeds.
   #
-  # To make CI cut a push-WORKING beta, ios-testflight.yml must import the iOS
+  # To make CI cut a push-WORKING beta, the upload workflow must import the iOS
   # distribution cert and call this script with --signing manual (nightly.yml /
   # release.yml already import a signing cert on ephemeral runners, so the pattern
   # exists). That is a security-relevant workflow + secrets decision, deliberately
@@ -1982,14 +2032,14 @@ echo "signed IPA app symbols verified (Symbols/*.symbols present for ASC crash s
 echo "IPA_PATH=$IPA_PATH"
 
 EXPECTED_IPA_CRASH_REPORTING=""
-[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="$CRASH_REPORTING_ENABLED"
+[[ "$APP_RECORD_LANE" -eq 1 ]] && EXPECTED_IPA_CRASH_REPORTING="$CRASH_REPORTING_ENABLED"
 if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM" "$EXPECTED_IPA_CRASH_REPORTING"; then
   echo "error: signed IPA bundle identity does not match lane '$LANE'; refusing to upload" >&2
   exit 1
 fi
 echo "signed IPA bundle identity verified: $PRODUCT_BUNDLE_IDENTIFIER"
 
-if [[ "$LANE" == "appstore" ]]; then
+if [[ "$APP_RECORD_LANE" -eq 1 ]]; then
   if ! verify_app_store_ipa_has_no_external_purchase_links "$IPA_PATH"; then
     exit 1
   fi
@@ -2012,24 +2062,32 @@ if [[ "$EXPORT_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
+# com.cmux.app now ships cmux-next from feat-cmux-next. The classic app keeps
+# only its internal TestFlight home (--lane classic), so an appstore upload of
+# this tree needs an explicit override.
+if [[ "$LANE" == "appstore" && "${CMUX_IOS_ALLOW_CLASSIC_APPSTORE_UPLOAD:-}" != "1" ]]; then
+  echo "error: refusing to upload the classic iOS app to com.cmux.app: that App Store record now ships cmux-next from feat-cmux-next. Upload the classic app with --lane classic (cmux CLASSIC, dev.cmux.app.classic)." >&2
+  exit 2
+fi
+
 upload_app_store_with_asc() {
   if [[ -z "${ASC_APP_ID:-}" ]]; then
-    echo "error: --lane appstore requires a configured numeric app id so the upload targets the expected app record" >&2
+    echo "error: --lane $LANE requires a configured numeric app id so the upload targets the expected app record" >&2
     exit 2
   fi
   if [[ ! "$ASC_APP_ID" =~ ^[0-9]+$ ]]; then
-    echo "error: --lane appstore requires the configured app id to be numeric; do not pass a bundle id" >&2
+    echo "error: --lane $LANE requires the configured app id to be numeric; do not pass a bundle id" >&2
     exit 2
   fi
   if ! command -v asc >/dev/null 2>&1; then
-    echo "error: --lane appstore requires the release upload CLI for app-id based upload" >&2
+    echo "error: --lane $LANE requires the release upload CLI for app-id based upload" >&2
     exit 2
   fi
 
   local asc_private_key_path="${ASC_API_KEY_PATH:-}"
   local asc_private_key_b64="${ASC_API_KEY_P8_BASE64:-}"
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || ( -z "$asc_private_key_path" && -z "$asc_private_key_b64" ) ]]; then
-    echo "error: --lane appstore upload requires complete upload credentials" >&2
+    echo "error: --lane $LANE upload requires complete upload credentials" >&2
     exit 2
   fi
   if [[ -n "$asc_private_key_path" && ! -f "$asc_private_key_path" ]]; then
@@ -2130,11 +2188,11 @@ if [[ -n "${APPLE_ID:-}" || -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" || -n "${APPLE
   HAS_APPLE_ID_UPLOAD_ENV=1
 fi
 
-if [[ "$LANE" == "appstore" && "$HAS_COMPLETE_ASC_UPLOAD_ENV" -eq 1 ]]; then
+if [[ "$APP_RECORD_LANE" -eq 1 && "$HAS_COMPLETE_ASC_UPLOAD_ENV" -eq 1 ]]; then
   upload_app_store_with_asc
-elif [[ "$LANE" == "appstore" && "$HAS_ANY_ASC_UPLOAD_ENV" -eq 1 && "$HAS_APPLE_ID_UPLOAD_ENV" -ne 1 ]]; then
+elif [[ "$APP_RECORD_LANE" -eq 1 && "$HAS_ANY_ASC_UPLOAD_ENV" -eq 1 && "$HAS_APPLE_ID_UPLOAD_ENV" -ne 1 ]]; then
   upload_app_store_with_asc
-elif [[ "$LANE" != "appstore" && ( -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ) ]]; then
+elif [[ "$APP_RECORD_LANE" -ne 1 && ( -n "${ASC_API_KEY_ID:-}" || -n "${ASC_API_ISSUER_ID:-}" || -n "${ASC_API_KEY_PATH:-}" ) ]]; then
   if [[ -z "${ASC_API_KEY_ID:-}" || -z "${ASC_API_ISSUER_ID:-}" || -z "${ASC_API_KEY_PATH:-}" ]]; then
     echo "error: upload credentials must be set together" >&2
     exit 2
@@ -2220,7 +2278,7 @@ else
   # changelog-driven behavior + version-match guard.
   NOTES_SOURCE_ARGS=()
   NOTES_SOURCE_DESC="ios/CHANGELOG.md"
-  [[ "$NOTES_VERSION_GUARD" -eq 0 ]] && NOTES_SOURCE_DESC="ios/CHANGELOG.md (production version stream)"
+  [[ "$NOTES_VERSION_GUARD" -eq 0 ]] && NOTES_SOURCE_DESC="ios/CHANGELOG.md (lane version stream)"
   if [[ "$RANGE_NOTES_MODE" -eq 1 ]]; then
     # Keep generator stderr on the CI transcript (its fallback/unreachable-base
     # diagnostics are useful); only swallow a non-zero EXIT so a generator hiccup

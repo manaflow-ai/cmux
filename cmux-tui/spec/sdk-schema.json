@@ -4429,6 +4429,16 @@
      "presence": "required",
      "nullable": false
     },
+    "status": {
+     "type": {
+      "kind": "ref",
+      "name": "AgentState"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "description": "What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`."
+    },
     "source": {
      "type": {
       "kind": "ref",
@@ -11666,6 +11676,33 @@
    "stream": null,
    "constraints": [
     "Only a view detached by detach-client can be reattached."
+   ]
+  },
+  "ack-tab-notifications": {
+   "authority": "control",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
    ]
   }
  },

@@ -159,7 +159,12 @@ export async function vmStateConflictCopy(locale: Locale): Promise<VmRequiresPro
   return vmErrorsCopy("stateConflict", locale);
 }
 
-async function vmErrorsCopy(key: "providerCapacity" | "stateConflict", locale: Locale): Promise<VmRequiresProCopy> {
+/** Localized copy for a machine whose host is being recovered (routeHelpers vmHostRecoveryResponse). */
+export async function vmHostRecoveryCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  return vmErrorsCopy("hostRecovery", locale);
+}
+
+async function vmErrorsCopy(key: "providerCapacity" | "stateConflict" | "hostRecovery", locale: Locale): Promise<VmRequiresProCopy> {
   const translator = createTranslator({
     locale,
     messages: await loadMessages(locale),
@@ -345,7 +350,7 @@ export async function vmPlanBudgetCopy(
  */
 export async function vmActiveLimitCountedCopy(
   locale: Locale,
-  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" }[],
+  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" | "paused" }[],
 ): Promise<string> {
   if (machines.length === 0) return "";
   const t = createTranslator({

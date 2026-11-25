@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 extension cmuxApp {
@@ -22,4 +23,24 @@ extension cmuxApp {
         guard let workspace = manager.selectedWorkspace else { return }
         _ = AppDelegate.shared?.moveWorkspaceToNewWindow(workspaceId: workspace.id, focus: true)
     }
+}
+
+
+extension cmuxApp {
+    /// Every terminal inherits the app environment. When cmux is launched from
+    /// inside a cmux Claude session, NODE_OPTIONS carries that session's restore
+    /// preload, and `node` fails in every shell once the file is gone (#22274).
+    static func removeInheritedClaudeNodeOptionsPreload() {
+        let updates = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(
+            from: ProcessInfo.processInfo.environment
+        )
+        for (key, value) in updates {
+            if let value {
+                setenv(key, value, 1)
+            } else {
+                unsetenv(key)
+            }
+        }
+    }
+
 }

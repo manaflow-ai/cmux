@@ -11,9 +11,9 @@ import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../servic
 // cmux NEXT's `cloud set-idle-pause` and `new-machine --persistent` send
 // `PUT /api/vm/{id}/idle-pause` to cmux.com, which deploys from main. The route
 // existed only on feat-cmux-next, so production answered 404. These tests pin
-// that main serves it: Off is stored on the machine, a timeout cmux.com cannot
-// honour (it has no idle cron) is a 409 rather than a silent no-op, and a bad
-// body or a caller without access never reaches the store.
+// that main serves it: Off and every timeout the app offers are stored on the
+// machine (the vm-idle-pause cron honours them), and a bad body or a caller
+// without access never reaches the store.
 let active = false;
 let authedUser: AuthedUser | null = null;
 const programs: Array<Record<string, unknown>> = [];
@@ -116,17 +116,16 @@ describe("PUT /api/vm/[id]/idle-pause", () => {
     }
   });
 
-  test("a timeout cmux.com cannot honour is a 409 that never reaches the workflow", async () => {
+  test("every timeout the app offers is stored now that the idle cron honours it", async () => {
     for (const minutes of [15, 30, 60, 120]) {
+      programs.length = 0;
+      routeResult = { ok: true, value: { providerVmId: "fs-idle", idlePauseMinutes: minutes } };
       const response = await idlePauseRoute.PUT(put({ minutes }), params);
-      expect(response.status).toBe(409);
-      expect(await response.json()).toMatchObject({
-        error: "idle_pause_unavailable",
-        retryable: false,
-        details: { field: "minutes", minutes, available: [0] },
-      });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ id: "fs-idle", idlePauseMinutes: minutes });
+      expect(programs).toHaveLength(1);
+      expect(programs[0]).toMatchObject({ providerVmId: "fs-idle", minutes });
     }
-    expect(programs).toEqual([]);
   });
 
   test("a bad body is a 400 that never reaches the workflow", async () => {
@@ -163,13 +162,10 @@ describe("PUT /api/vm/[id]/idle-pause", () => {
 });
 
 describe("parseIdlePauseBody", () => {
-  test("takes off or 0, refuses a timeout with 409 and anything else with 400", () => {
+  test("takes off, 0, 15, 30, 60 or 120 and refuses anything else with 400", () => {
     expect(parseIdlePauseBody({ minutes: "off" })).toEqual({ ok: true, minutes: 0 });
     expect(parseIdlePauseBody({ minutes: 0 })).toEqual({ ok: true, minutes: 0 });
-    for (const minutes of [15, 30, 60, 120]) {
-      const parsed = parseIdlePauseBody({ minutes });
-      expect(parsed.ok === false && parsed.response.status).toBe(409);
-    }
+    for (const minutes of [15, 30, 60, 120]) expect(parseIdlePauseBody({ minutes })).toEqual({ ok: true, minutes });
     for (const body of [{ minutes: -1 }, { minutes: "off " }, { minutes: true }, undefined]) {
       const parsed = parseIdlePauseBody(body);
       expect(parsed.ok === false && parsed.response.status).toBe(400);

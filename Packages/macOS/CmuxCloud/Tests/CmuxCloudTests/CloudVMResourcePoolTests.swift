@@ -115,9 +115,9 @@ struct CloudVMResourcePoolTests {
         let pro = try validator.plan(from: ["planId": "pro"])
         let max = try validator.plan(from: ["planId": "max"])
 
-        #expect(go.limits.maxDiskMb == 16 * 1024)
-        #expect(go.limits.maxMemoryMb == 4 * 1024)
-        #expect(go.limits.maxVcpus == 2)
+        #expect(go.limits.maxDiskMb == 128 * 1024)
+        #expect(go.limits.maxMemoryMb == 16 * 1024)
+        #expect(go.limits.maxVcpus == 8)
         #expect(pro.limits.maxDiskMb == 128 * 1024)
         #expect(pro.limits.maxMemoryMb == 16 * 1024)
         #expect(pro.limits.maxVcpus == 8)
@@ -153,7 +153,58 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
-    func validatorCapsAdvertisedDiskAtTheCurrentPlanCeiling() throws {
+    func validatorTakesACurrentServersMemoryCeilingAboveTheTier() throws {
+        // A team's custom deal raises maxMemoryMb past the tier (#41335).
+        // lockedMemoryOptionsMb marks a control plane that sends it.
+        let team = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "team",
+            "maxMemoryMb": 24 * 1_024,
+            "maxVcpus": 12,
+            "memoryOptionsMb": [4096, 8192, 16384, 24576],
+            "lockedMemoryOptionsMb": [32768, 65536],
+        ])
+        #expect(team.limits.maxMemoryMb == 24 * 1_024)
+        #expect(team.limits.maxVcpus == 12)
+
+        let oversized = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "pro",
+            "maxMemoryMb": 128 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(oversized.limits.maxMemoryMb == 64 * 1_024)
+
+        let legacy = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "team",
+            "maxMemoryMb": 32 * 1_024,
+        ])
+        #expect(legacy.limits.maxMemoryMb == 16 * 1_024)
+    }
+
+    /// https://github.com/manaflow-ai/cmux/issues/44362: a team deal up to
+    /// 64 GiB / 32 vCPU resized only to 16 GiB / 8 vCPU.
+    @Test
+    func validatorAllowsATeamDealUpToTheLadderTop() throws {
+        let plan = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "team",
+            "maxMemoryMb": 64 * 1_024,
+            "maxVcpus": 32,
+            "memoryOptionsMb": [4096, 8192, 16384, 24576, 32768, 65536],
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(plan.limits.maxMemoryMb == 64 * 1_024)
+        #expect(plan.limits.maxVcpus == 32)
+        let violation = CloudVMResizePlanValidator().violation(
+            target: CloudVMResizeShape(vcpus: 32, memoryMb: 64 * 1_024),
+            current: CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1_024),
+            usesResourcePool: false,
+            limits: plan.limits
+        )
+        #expect(violation == nil)
+    }
+
+    @Test
+    func validatorCapsALegacyServersAdvertisedDiskAtThePlanTable() throws {
+        // No lockedMemoryOptionsMb: an older control plane whose ceilings may be stale.
         let pro = try CloudVMResizePlanValidator().plan(from: [
             "planId": "pro",
             "maxDiskMb": 256 * 1_024,
@@ -163,7 +214,125 @@ struct CloudVMResourcePoolTests {
             "maxDiskMb": 128 * 1_024,
         ])
         #expect(pro.limits.maxDiskMb == 128 * 1_024)
-        #expect(go.limits.maxDiskMb == 16 * 1_024)
+        #expect(go.limits.maxDiskMb == 128 * 1_024)
+    }
+
+    /// #47612: the server owns plan policy. A current control plane's ceilings
+    /// are used as published, so a server-side plan change (raising or
+    /// lowering a limit) takes effect without a client release. Only the
+    /// provider's largest machine bounds them.
+    @Test
+    func validatorUsesACurrentServersCeilingsWithoutAClientTable() throws {
+        let validator = CloudVMResizePlanValidator()
+        let raised = try validator.plan(from: [
+            "planId": "go",
+            "maxVcpus": 12,
+            "maxMemoryMb": 24 * 1_024,
+            "maxDiskMb": 192 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(raised.limits.maxVcpus == 12)
+        #expect(raised.limits.maxMemoryMb == 24 * 1_024)
+        #expect(raised.limits.maxDiskMb == 192 * 1_024)
+
+        let lowered = try validator.plan(from: [
+            "planId": "max",
+            "maxVcpus": 4,
+            "maxMemoryMb": 8 * 1_024,
+            "maxDiskMb": 32 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(lowered.limits.maxVcpus == 4)
+        #expect(lowered.limits.maxMemoryMb == 8 * 1_024)
+        #expect(lowered.limits.maxDiskMb == 32 * 1_024)
+
+        let unknownPlan = try validator.plan(from: [
+            "planId": "enterprise-2027",
+            "maxVcpus": 16,
+            "maxMemoryMb": 32 * 1_024,
+            "maxDiskMb": 256 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(unknownPlan.limits.maxVcpus == 16)
+        #expect(unknownPlan.limits.maxMemoryMb == 32 * 1_024)
+        #expect(unknownPlan.limits.maxDiskMb == 256 * 1_024)
+
+        let overProvider = try validator.plan(from: [
+            "planId": "max",
+            "maxVcpus": 64,
+            "maxMemoryMb": 128 * 1_024,
+            "maxDiskMb": 512 * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        #expect(overProvider.limits.maxVcpus == 32)
+        #expect(overProvider.limits.maxMemoryMb == 64 * 1_024)
+        #expect(overProvider.limits.maxDiskMb == 256 * 1_024)
+    }
+
+    /// Every plan's resize ceilings must match /pricing and the server's
+    /// `maxMemoryMbForPlan` / `maxVcpusForPlan` / `maxDiskMbForPlan`, both when
+    /// the server publishes explicit ceilings and when an older control plane
+    /// omits them (#47612: Plus was clamped to a 16 GiB disk).
+    @Test(arguments: [
+        // planId, vCPU, memory GiB, disk GiB
+        ("go", 8, 16, 128),
+        ("pro", 8, 16, 128),
+        ("team", 8, 16, 128),
+        ("founders", 8, 16, 128),
+        ("max", 32, 64, 256),
+        ("free", 4, 8, 128),
+    ])
+    func validatorCeilingsMatchPricing(plan: String, vcpus: Int, memoryGiB: Int, diskGiB: Int) throws {
+        let validator = CloudVMResizePlanValidator()
+        let fallback = try validator.plan(from: ["planId": plan])
+        let explicit = try validator.plan(from: [
+            "planId": plan,
+            "maxVcpus": vcpus,
+            "maxMemoryMb": memoryGiB * 1_024,
+            "maxDiskMb": diskGiB * 1_024,
+            "lockedMemoryOptionsMb": [] as [Int],
+        ])
+        for limits in [fallback.limits, explicit.limits] {
+            #expect(limits.maxVcpus == vcpus, "\(plan)")
+            #expect(limits.maxMemoryMb == memoryGiB * 1_024, "\(plan)")
+            #expect(limits.maxDiskMb == diskGiB * 1_024, "\(plan)")
+        }
+    }
+
+    /// #47612: a Plus machine at 4 vCPU / 8 GiB / 32 GiB grows its disk up to
+    /// the 128 GiB the plan sells, and only past that hits the plan ceiling.
+    @Test
+    func plusDiskResizeReachesThePricedCeiling() throws {
+        let validator = CloudVMResizePlanValidator()
+        let plus = try validator.plan(from: [
+            "planId": "go",
+            "maxVcpus": 8,
+            "maxMemoryMb": 16 * 1_024,
+            "maxDiskMb": 128 * 1_024,
+            "memoryOptionsMb": [4_096, 8_192, 16_384],
+            "lockedMemoryOptionsMb": [24_576, 32_768, 65_536],
+        ])
+        let current = CloudVMResizeShape(vcpus: 4, memoryMb: 8 * 1_024, diskMb: 32 * 1_024)
+        for diskGiB in [36, 64, 128] {
+            #expect(validator.violation(
+                target: CloudVMResizeShape(diskMb: diskGiB * 1_024),
+                current: current,
+                usesResourcePool: true,
+                limits: plus.limits
+            ) == nil, "\(diskGiB) GiB")
+        }
+        #expect(validator.violation(
+            target: CloudVMResizeShape(diskMb: 132 * 1_024),
+            current: current,
+            usesResourcePool: true,
+            limits: plus.limits
+        ) == .planLimit(resource: .disk, requested: 132 * 1_024, maximum: 128 * 1_024))
+        #expect(validator.violation(
+            target: CloudVMResizeShape(vcpus: 8, memoryMb: 16 * 1_024),
+            current: current,
+            usesResourcePool: true,
+            limits: plus.limits
+        ) == nil)
     }
 
     @Test

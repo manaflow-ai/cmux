@@ -1062,6 +1062,21 @@ impl Session {
         <Self as SessionPort>::agents(self)
     }
 
+    /// Clear one tab's unread marker without selecting or focusing it, as the
+    /// person has seen the tab (`ack-tab-notifications`). A remote daemon
+    /// without the command answers with an error, which only leaves the
+    /// marker in place.
+    pub fn acknowledge_tab_notifications(&self, surface: SurfaceId) {
+        match self {
+            Session::Local(mux) => {
+                mux.clear_surface_notification(surface);
+            }
+            Session::Remote(remote) => {
+                let _ = remote.notify(json!({"cmd": "ack-tab-notifications", "surface": surface}));
+            }
+        }
+    }
+
     fn agents_impl(&self) -> Vec<AgentInfo> {
         match self {
             Session::Local(mux) => mux

@@ -6,9 +6,10 @@ that commits its own package.json and bun.lock (scripts/gallery-matrix) needs it
 own install: webviews/node_modules is never on its path. On 2026-10-28 three
 `cmux-ci test --setup webviews` runs of scripts/gallery-matrix/geometry-audit.test.ts
 failed before any assertion with "Cannot find package 'pngjs'": the webviews setup
-installed webviews alone. Both Bun setups now install webviews and each
-scripts/<tool>/ workspace with a committed lockfile, frozen to that lockfile, so a
-lockfile change is always installed and a stale cache can never stand in for it.
+installed webviews alone. Both Bun setups now install webviews, each
+scripts/<tool>/ workspace with a committed lockfile and the backend/ workspace,
+each frozen to its lockfile, so a lockfile change is always installed and a stale
+cache can never stand in for it.
 """
 
 from __future__ import annotations
@@ -85,6 +86,31 @@ class FastChecksBunWorkspaceTests(unittest.TestCase):
             self.assertEqual(installed, ["future-tool", "gallery-matrix"])
             for line in log.read_text().splitlines():
                 self.assertTrue(line.endswith(" install --frozen-lockfile"), line)
+
+    def test_both_bun_setups_install_the_backend_workspace(self) -> None:
+        # 2026-10-28: backend/apps/api tests run through cmux-ci had no backend/node_modules
+        # (no vitest, no @cloudflare/vitest-pool-workers): no step installed backend/.
+        body = step("Install backend workspace dependencies")
+        self.assertIn(BUN_SETUPS, body)
+        script = run_script(body)
+        with tempfile.TemporaryDirectory() as root:
+            tree = Path(root)
+            shim = tree / "bin"
+            shim.mkdir()
+            log = tree / "installs.log"
+            (shim / "bun").write_text(f'#!/bin/bash\necho "$(basename "$PWD") $*" >> {log}\n')
+            (shim / "bun").chmod(0o755)
+            env = {**os.environ, "PATH": f"{shim}:{os.environ['PATH']}"}
+            # No backend (main's own tree): nothing to install.
+            subprocess.run(["bash", "-e", "-c", script], cwd=tree, env=env, check=True, stdout=subprocess.DEVNULL)
+            self.assertFalse(log.exists())
+            (tree / "backend").mkdir()
+            (tree / "backend" / "package.json").write_text("{}\n")
+            subprocess.run(["bash", "-e", "-c", script], cwd=tree, env=env, check=True, stdout=subprocess.DEVNULL)
+            self.assertFalse(log.exists())  # no lockfile: never an unfrozen install
+            (tree / "backend" / "bun.lock").write_text("{}\n")
+            subprocess.run(["bash", "-e", "-c", script], cwd=tree, env=env, check=True, stdout=subprocess.DEVNULL)
+            self.assertEqual(log.read_text().splitlines(), ["backend install --frozen-lockfile"])
 
     def test_the_script_is_a_no_op_without_script_workspaces(self) -> None:
         script = run_script(step("Install script workspace dependencies"))

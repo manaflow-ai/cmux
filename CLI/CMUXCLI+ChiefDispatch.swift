@@ -56,6 +56,15 @@ extension CMUXCLI {
             return
         }
         let options = try ChiefDispatchOptions.parse(args)
+        // Refuse before creating a worktree or workspace when Chief is off.
+        guard ChiefDispatchPlan.appOffersChief(
+            capabilities: try client.sendV2(method: "system.capabilities")
+        ) else {
+            throw CLIError(message: String(
+                localized: "cli.chief.dispatch.error.chiefUnavailable",
+                defaultValue: "Chief isn't available."
+            ))
+        }
         let rawPrompt: String
         switch options.prompt {
         case let .words(text):

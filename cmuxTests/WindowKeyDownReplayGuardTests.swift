@@ -520,6 +520,50 @@ struct WindowKeyDownReplayGuardTests {
         )
     }
 
+    @Test(arguments: [
+        (UInt16(kVK_ANSI_Z), ";", "z", true),
+        (UInt16(kVK_ANSI_Slash), "z", "/", false),
+    ])
+    func undoUsesTheCommandTable(
+        keyCode: UInt16, unmodified: String, command: String, expected: Bool
+    ) throws {
+        let event = try #require(makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: unmodified,
+            keyCode: keyCode
+        ))
+        #expect(event.cmuxIsUndoRedoCommandEquivalent(
+            layoutCharacterProvider: { _, modifiers in
+                modifiers.contains(.command) ? command : unmodified
+            }
+        ) == expected)
+    }
+
+    @Test
+    func heldUndoReadsTheViewportOnlyOnce() throws {
+        let view = GhosttyNSView(frame: .zero)
+        var reads = 0
+        var alternateScreen: Bool? = false
+        let read: () -> Bool? = { reads += 1; return alternateScreen }
+        let press = try #require(makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "z", keyCode: UInt16(kVK_ANSI_Z)
+        ))
+        let repeatEvent = try #require(makeCommandKeyDownEvent(
+            charactersIgnoringModifiers: "z", keyCode: UInt16(kVK_ANSI_Z), isARepeat: true
+        ))
+        #expect(view.alternateScreenActiveAtKeyPress(press, read: read) == false)
+        alternateScreen = true
+        #expect(view.alternateScreenActiveAtKeyPress(repeatEvent, read: read) == false)
+        #expect(reads == 1)
+        #expect(view.alternateScreenActiveAtKeyPress(press, read: read) == true)
+        #expect(reads == 2)
+        // An unreadable screen is remembered for the held key too.
+        alternateScreen = nil
+        #expect(view.alternateScreenActiveAtKeyPress(press, read: read) == nil)
+        alternateScreen = false
+        #expect(view.alternateScreenActiveAtKeyPress(repeatEvent, read: read) == nil)
+        #expect(reads == 3)
+    }
+
     /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/10872.
     ///
     /// "Dvorak - QWERTY ⌘" swaps to the QWERTY table while Command is held, so
@@ -664,10 +708,33 @@ struct WindowKeyDownReplayGuardTests {
         )
     }
 
+    @Test(arguments: [false, true])
+    func terminalKeyDownSendsLineEditorUndoOnlyOnMainScreen(alternateScreen: Bool) async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let terminal = try ScrollbackTestTerminal()
+            defer { terminal.close() }
+            try await terminal.launch()
+            if alternateScreen {
+                try terminal.output("\u{1b}[?1049h")
+            }
+            for isRepeat in [false, true] {
+                let event = try #require(makeCommandKeyDownEvent(
+                    charactersIgnoringModifiers: "z", keyCode: UInt16(kVK_ANSI_Z),
+                    isARepeat: isRepeat
+                ))
+                terminal.view.keyDown(with: event)
+            }
+            let bytes = try await terminal.inputBytesBeforeBarrier(orderedManualInput: true)
+            #expect(bytes == (alternateScreen ? Data() : Data([0x1f, 0x1f])),
+                    "Real keyDown must deliver Ctrl+_ exactly once per press/repeat only on the main screen")
+        }
+    }
+
     private func makeCommandKeyDownEvent(
         charactersIgnoringModifiers: String,
         keyCode: UInt16,
-        modifierFlags: NSEvent.ModifierFlags = [.command]
+        modifierFlags: NSEvent.ModifierFlags = [.command],
+        isARepeat: Bool = false
     ) -> NSEvent? {
         NSEvent.keyEvent(
             with: .keyDown,
@@ -678,7 +745,7 @@ struct WindowKeyDownReplayGuardTests {
             context: nil,
             characters: charactersIgnoringModifiers,
             charactersIgnoringModifiers: charactersIgnoringModifiers,
-            isARepeat: false,
+            isARepeat: isARepeat,
             keyCode: keyCode
         )
     }

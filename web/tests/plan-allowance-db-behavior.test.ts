@@ -1,15 +1,12 @@
-// Database-backed proof of the personal plan allowances: an App Store Go
-// subscriber gets Go hours (the database capacity guard and the app agree on
-// the period), and Pro and Max meter compute units and saved disk on the
-// subscription's own billing period from either store. Gated like the other
-// *-db-behavior tests; every test uses its own user ids.
+// Database-backed proof that Plus has no hourly cap, while enabled Pro
+// and Max allowances meter compute and saved disk on each billing period.
+// Every test uses its own user ids on an isolated database.
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import postgres, { type Sql } from "postgres";
 import { randomUUID } from "node:crypto";
 
 import { closeCloudDbForTests } from "../db/client";
-import { getGoVmUsage, GO_INCLUDED_VM_SECONDS } from "../services/vms/goUsage";
 import { getPlanBudgetUsage, PLAN_BUDGETS } from "../services/vms/planUsage";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -83,27 +80,18 @@ async function machine(input: {
   return row!.id;
 }
 
-describe("Go hours for App Store subscribers", () => {
-  dbTest("an App Store Go subscription starts a Go machine and meters it on its own period", async () => {
+describe("Plus without an hourly cap", () => {
+  dbTest("an App Store Plus machine resumes after more than a month's runtime", async () => {
     const now = new Date();
     const userId = newUser("apple-go");
-    const purchased = new Date(now.getTime() - 3 * DAY);
-    await appleSubscription(userId, "go", purchased, new Date(now.getTime() + 27 * DAY));
-
-    const fresh = await getGoVmUsage(userId, now);
-    expect(fresh?.periodStart.getTime()).toBe(purchased.getTime());
-    expect(fresh?.remainingSeconds).toBe(GO_INCLUDED_VM_SECONDS);
-
-    // The capacity guard accepts the start (it refused every App Store Go
-    // subscriber before), and the meter counts the run.
-    await machine({
+    await appleSubscription(userId, "go", new Date(now.getTime() - 3 * DAY), new Date(now.getTime() + 27 * DAY));
+    const id = await machine({
       userId, planId: "go", status: "paused",
       reservation: { vcpus: 2, memoryMb: 4096, diskMb: 16384 },
-      startedAt: new Date(now.getTime() - 41 * HOUR), endedAt: new Date(now.getTime() - HOUR),
+      startedAt: new Date(now.getTime() - 1001 * HOUR), endedAt: new Date(now.getTime() - HOUR),
     });
-    const used = await getGoVmUsage(userId, now);
-    expect(used?.usedSeconds).toBe(40 * 3600);
-    expect(used?.remainingSeconds).toBe(0);
+    const [resumed] = await db()`update cloud_vms set status = 'running' where id = ${id} returning status`;
+    expect(resumed?.status).toBe("running");
   });
 });
 

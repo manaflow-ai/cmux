@@ -103,7 +103,9 @@ public struct AutomationSection: View {
             agentAutoResumeCard
             canonicalAgentScratchCard
             AgentMessagesSettingsCard(isEnabled: agentMessagesModel.current, setEnabled: { agentMessagesModel.set($0) })
-            ChiefSettingsCard(defaultsStore: defaultsStore, catalog: catalog, controlWidth: Self.columnWidth)
+            if hostActions.isChiefAvailable {
+                ChiefSettingsCard(defaultsStore: defaultsStore, catalog: catalog, controlWidth: Self.columnWidth)
+            }
             ampCard
             cursorCard
             geminiCard

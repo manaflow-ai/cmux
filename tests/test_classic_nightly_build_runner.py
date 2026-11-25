@@ -6,7 +6,10 @@ scripts/ci/classic_nightly_build_runner.py, and the runs-on in nightly.yml that 
 
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import gzip
+import json
 import os
 import re
 import sys
@@ -86,6 +89,39 @@ class TrustedRoute(unittest.TestCase):
         self.assertTrue(trusted)
         self.assertIn("could not be read", why)
 
+    def test_an_unreadable_list_with_builds_already_on_the_mini_takes_the_cloud(self) -> None:
+        # 2026-11-25: every pick kept the pin while the list was unread; nine builds queued behind one mini.
+        clock = Clock()
+        trusted, why = picker.trusted_route(POOL, RUNNER, lambda: None, True, "1", sleep=clock.sleep, clock=clock,
+                                            backlog=lambda: 3)
+        self.assertFalse(trusted)
+        self.assertIn("3 nightly build(s)", why)
+        self.assertEqual(clock.at, 0)
+
+    def test_an_unreadable_list_with_an_empty_or_unread_backlog_keeps_the_pin(self) -> None:
+        for count in (0, None):
+            with self.subTest(count=count):
+                clock = Clock()
+                trusted, _ = picker.trusted_route(POOL, RUNNER, lambda: None, True, "1", sleep=clock.sleep,
+                                                  clock=clock, backlog=lambda: count)
+                self.assertTrue(trusted)
+
+    def test_the_backlog_counts_other_runs_jobs_on_the_pinned_label_only(self) -> None:
+        pages = {
+            f"/actions/workflows/{picker.NIGHTLY_WORKFLOW}/runs?status=in_progress&per_page={picker.BACKLOG_RUNS}":
+                {"workflow_runs": [{"id": 1}, {"id": 2}, {"id": 9}]},
+            f"/actions/workflows/{picker.NIGHTLY_WORKFLOW}/runs?status=queued&per_page={picker.BACKLOG_RUNS}":
+                {"workflow_runs": [{"id": 3}, {"id": 1}]},
+            "/actions/runs/1/jobs?filter=latest&per_page=100": {"jobs": [
+                {"status": "queued", "labels": [POOL, RUNNER]},
+                {"status": "completed", "labels": [POOL, RUNNER]},
+                {"status": "queued", "labels": ["blacksmith-6vcpu-macos-26"]}]},
+            "/actions/runs/2/jobs?filter=latest&per_page=100": {"jobs": [{"status": "in_progress", "labels": [POOL, RUNNER]}]},
+            "/actions/runs/3/jobs?filter=latest&per_page=100": {"jobs": [{"status": "queued", "labels": [POOL, RUNNER]}]},
+            "/actions/runs/9/jobs?filter=latest&per_page=100": {"jobs": [{"status": "queued", "labels": [POOL, RUNNER]}]},
+        }
+        self.assertEqual(picker.pinned_backlog(pages.__getitem__, RUNNER, "9"), 3)
+
     def test_off_later_attempts_and_bad_variables_never_ask_for_the_mini(self) -> None:
         idle = [[runner(POOL, RUNNER)]]
         self.assertFalse(self.route(idle, enabled=False)[0][0])
@@ -128,10 +164,14 @@ class FirstAndAlternate(unittest.TestCase):
         # A label that is not a candidate changes nothing.
         self.assertEqual(picker.blacksmith_route(None, now, "glaeda-std-xcode-26.6")[0], picker.LARGE)
 
-    def test_the_alternate_is_always_the_other_blacksmith_label(self) -> None:
+    def test_the_alternate_is_the_other_blacksmith_label_while_it_moves(self) -> None:
         self.assertEqual(picker.alternate(picker.SMALL), picker.LARGE)
         self.assertEqual(picker.alternate(picker.LARGE), picker.SMALL)
+        self.assertEqual(picker.alternate(picker.SMALL, snapshot(), NOW), picker.LARGE)
+        # Never a label the fresh snapshot saw stalled.
+        self.assertEqual(picker.alternate(picker.SMALL, snapshot(large=40), NOW), picker.SMALL)
         self.assertTrue(all(label.startswith("blacksmith-") for label in picker.CANDIDATES))
+
 
     def test_successive_reruns_never_return_to_the_label_that_stalled(self) -> None:
         """A consumer's runs-on: attempt > 1 and an older pick -> alternate, else the pick."""
@@ -155,8 +195,183 @@ class FirstAndAlternate(unittest.TestCase):
         # Re-run all jobs on attempt 2 with 6 vCPU stalled: a fresh pick of 12 vCPU, taken as is.
         fresh = pick(2, small=52)
         self.assertEqual(route(fresh, 2), picker.LARGE)
-        # 12 vCPU then stalls; re-run failed jobs on attempt 3 keeps attempt 2's outputs and leaves it.
-        self.assertEqual(route(fresh, 3), picker.SMALL)
+        # Re-run failed jobs on attempt 3 keeps attempt 2's outputs: the snapshot saw 6 vCPU stalled, so the
+        # alternate is the pick itself, never the label it saw stalled.
+        self.assertEqual(route(fresh, 3), picker.LARGE)
+        # A pick made with both moving offers the other label for a re-run.
+        self.assertEqual(route(pick(2), 3), picker.LARGE)
+
+def observed(generated: dt.datetime = NOW, **overrides: dict) -> dict:
+    """The queue janitor's 2026-10-30 18:37Z snapshot, as of `generated`: both labels stalled by the queue rule,
+    blacksmith-12vcpu-macos-26 with nothing running and no start (absent from label_started), 6 vCPU busy."""
+    pools = {picker.LARGE: {"queued": 180, "running": 0, "oldest_queued_minutes": 1399},
+             picker.SMALL: {"queued": 77, "running": 5, "oldest_queued_minutes": 552}}
+    started = {picker.SMALL: (generated - dt.timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    for label, entry in overrides.items():
+        pools[label] = {**pools[label], **entry}
+    return {"generated_at": generated.strftime("%Y-%m-%dT%H:%M:%SZ"), "pools": pools, "label_started": started}
+
+
+class DeadLabel(unittest.TestCase):
+    """A label that started nothing for an hour is dead, not busy: never picked or offered for a re-run while
+    another label shows life (2026-10-30: DEV daily verify and tip-dmg-build re-runs queued on 12 vCPU)."""
+
+    def outputs(self, snap, attempt: int = 1, first: str = "6vcpu", **env) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "out"
+            picker.main({"GITHUB_OUTPUT": str(output), "GITHUB_RUN_ATTEMPT": str(attempt), "FIRST": first,
+                         "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r", **env},
+                        read_snapshot=lambda token, repo: snap, now=NOW, sleep=lambda seconds: None, clock=Clock())
+            return dict(line.split("=", 1) for line in output.read_text().split())
+
+    def test_the_dev_daily_rerun_never_takes_the_dead_label(self) -> None:
+        out = self.outputs(observed())
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+
+    def test_a_dead_first_label_is_skipped_even_with_its_queue_cleared(self) -> None:
+        # The janitor cancelled 12 vCPU's queue: the stall rule sees nothing waiting there, but nothing started.
+        snap = observed(**{picker.LARGE: {"queued": 0, "oldest_queued_minutes": 0}})
+        self.assertEqual(picker.blacksmith_route(snap, NOW, picker.LARGE)[0], picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(snap, NOW, picker.SMALL)[0], picker.SMALL)
+        self.assertEqual(picker.alternate(picker.SMALL, snap, NOW), picker.SMALL)
+
+    def test_a_stale_snapshot_still_proves_a_label_dead(self) -> None:
+        stale = observed(NOW - dt.timedelta(minutes=50))
+        # Too old for the stall rule (the caller passes it as evidence only): 12 vCPU first would be the default.
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, stale)[0], picker.SMALL)
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, stale), picker.SMALL)
+        # Past the evidence window it proves nothing: the old defaults hold.
+        old = observed(NOW - dt.timedelta(hours=7))
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, old)[0], picker.LARGE)
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, old), picker.LARGE)
+
+    def test_main_reads_a_stale_snapshot_for_dead_labels(self) -> None:
+        out = self.outputs(observed(NOW - dt.timedelta(minutes=50)), first="12vcpu")
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+
+    def test_a_dead_small_label_gives_way_to_a_busy_large_one(self) -> None:
+        snap = observed(**{picker.SMALL: {"running": 0}, picker.LARGE: {"running": 4}})
+        snap["label_started"] = {picker.LARGE: snap["label_started"][picker.SMALL]}
+        label, why = picker.blacksmith_route(snap, NOW, picker.SMALL)
+        self.assertEqual(label, picker.LARGE, why)
+        self.assertEqual(picker.alternate(picker.LARGE, snap, NOW), picker.LARGE)
+
+    def test_a_label_that_started_a_job_lately_or_runs_one_is_alive(self) -> None:
+        snap = observed()
+        snap["label_started"][picker.LARGE] = (NOW - dt.timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.assertFalse(picker.picker.blacksmith_dead(snap, picker.LARGE, NOW))
+        snap["label_started"][picker.LARGE] = (NOW - dt.timedelta(minutes=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.assertTrue(picker.picker.blacksmith_dead(snap, picker.LARGE, NOW))
+        self.assertFalse(picker.picker.blacksmith_dead(observed(**{picker.LARGE: {"running": 1}}), picker.LARGE, NOW))
+
+    def test_a_truncated_snapshot_proves_no_label_dead(self) -> None:
+        # Its listing missed in-flight runs, so it can miss a running job or a start on the label.
+        for flag in (True, "yes", None):
+            with self.subTest(truncated=flag):
+                snap = dict(observed(NOW - dt.timedelta(minutes=50)), truncated=flag)
+                self.assertFalse(picker.picker.blacksmith_dead(snap, picker.LARGE, NOW))
+                self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, snap)[0], picker.LARGE)
+        complete = dict(observed(NOW - dt.timedelta(minutes=50)), truncated=False)
+        self.assertTrue(picker.picker.blacksmith_dead(complete, picker.LARGE, NOW))
+
+    def test_no_label_showing_life_or_no_start_map_changes_nothing(self) -> None:
+        both = observed(**{picker.SMALL: {"running": 0}})
+        both["label_started"] = {}
+        self.assertEqual(picker.blacksmith_route(both, NOW, picker.SMALL)[0], picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, both)[0], picker.LARGE)
+        older_janitor = observed()
+        del older_janitor["label_started"]
+        self.assertFalse(picker.picker.blacksmith_dead(older_janitor, picker.LARGE, NOW))
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, older_janitor)[0], picker.LARGE)
+
+
+def stamp(moment: dt.datetime) -> str:
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def both_dead(generated: dt.datetime) -> dict:
+    """2026-10-31 05:44Z: blacksmith-12vcpu-macos-26 88 queued, none running, the oldest 1403 min; 6 vCPU had
+    started nothing for an hour either, so the snapshot shows both labels dead."""
+    snap = observed(generated, **{picker.LARGE: {"queued": 88, "oldest_queued_minutes": 1403},
+                                  picker.SMALL: {"running": 0}})
+    snap["label_started"] = {picker.SMALL: stamp(generated - dt.timedelta(minutes=70))}
+    return snap
+
+
+class EveryLabelDead(unittest.TestCase):
+    """A re-run never takes a label the snapshot or RUNNER_POOLS' `_dead` marks show dead, even when every
+    candidate shows dead: dead_macos_26() drops evidence that names both, so a stale snapshot showing both dead
+    still offered blacksmith-12vcpu-macos-26 as `alternate` (DEV daily verify and tip-dmg-build re-runs)."""
+
+    outputs = DeadLabel.outputs
+
+    def test_a_stale_snapshot_showing_both_dead_offers_no_dead_alternate(self) -> None:
+        stale = both_dead(NOW - dt.timedelta(minutes=50))
+        self.assertEqual(picker.dead_labels(stale, NOW), set())
+        self.assertEqual(picker.every_dead(stale, NOW), {picker.LARGE, picker.SMALL})
+        out = self.outputs(stale)
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+        # Fresh too: the alternate is never the dead label.
+        out = self.outputs(both_dead(NOW))
+        self.assertEqual(out["alternate"], out["cloud"])
+
+    def test_dead_is_true_only_when_every_label_shows_dead(self) -> None:
+        # cmux-next-dev-daily.yml's tip-deltas skips on it rather than queue on a label that starts nothing.
+        self.assertEqual(self.outputs(both_dead(NOW - dt.timedelta(minutes=50)))["dead"], "true")
+        self.assertEqual(self.outputs(both_dead(NOW))["dead"], "true")
+        pools = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: stamp(NOW)}}
+        self.assertEqual(self.outputs(None, RUNNER_POOLS=__import__("json").dumps(pools))["dead"], "false")
+        pools["_dead"][picker.SMALL] = stamp(NOW)
+        self.assertEqual(self.outputs(None, RUNNER_POOLS=__import__("json").dumps(pools))["dead"], "true")
+
+    def test_runner_pools_marks_count_as_dead(self) -> None:
+        pools = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: stamp(NOW - dt.timedelta(minutes=5))}}
+        # No snapshot at all: the mark alone keeps the re-run off 12 vCPU and the 12 vCPU-first pick off it.
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, None, pools), picker.SMALL)
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, None, pools)[0], picker.SMALL)
+        out = self.outputs(None, first="12vcpu", RUNNER_POOLS=__import__("json").dumps(pools))
+        self.assertEqual((out["cloud"], out["alternate"]), (picker.SMALL, picker.SMALL))
+        # A mark older than runner_pools.DEAD_TTL, one in the future, or a malformed one proves nothing.
+        for since in (stamp(NOW - dt.timedelta(minutes=45)), stamp(NOW + dt.timedelta(hours=1)), "soon", None):
+            with self.subTest(since=since):
+                old = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: since}}
+                self.assertEqual(picker.alternate(picker.SMALL, None, NOW, None, old), picker.LARGE)
+        for raw in ("", "not json", "[1]", '{"_dead": []}'):
+            with self.subTest(raw=raw):
+                self.assertEqual(picker.marked_dead(picker.runner_pools(raw), NOW), set())
+
+    def test_every_label_dead_takes_the_pools_live_member(self) -> None:
+        stale = both_dead(NOW - dt.timedelta(minutes=50))
+        pools = {"macos_26": picker.SMALL, "_dead": {picker.LARGE: stamp(NOW), picker.SMALL: stamp(NOW)}}
+        for first in ("12vcpu", "6vcpu"):
+            with self.subTest(first=first):
+                self.assertEqual(picker.blacksmith_route(None, NOW, first, stale, pools)[0], picker.SMALL)
+                self.assertEqual(picker.blacksmith_route(stale, NOW, first, None, pools)[0], picker.SMALL)
+                self.assertEqual(picker.blacksmith_route(None, NOW, first, None, pools)[0], picker.SMALL)
+        self.assertEqual(picker.alternate(picker.SMALL, None, NOW, stale, pools), picker.SMALL)
+        # A member that is not a candidate is never printed; the caller's order holds.
+        odd = {**pools, "macos_26": "blacksmith-6vcpu-macos-15"}
+        self.assertEqual(picker.blacksmith_route(None, NOW, picker.LARGE, None, odd)[0], picker.LARGE)
+        self.assertEqual(picker.alternate(picker.LARGE, None, NOW, None, odd), picker.LARGE)
+
+    def test_the_mark_ttl_is_the_writers(self) -> None:
+        text = (ROOT / "scripts" / "ci" / "runner_pools.py").read_text()
+        self.assertIn(f'DEAD_KEY = "{picker.DEAD_KEY}"', text)
+        minutes = int(picker.MARK_TTL.total_seconds() // 60)
+        self.assertIn(f"DEAD_TTL = dt.timedelta(minutes={minutes})", text)
+
+    def test_every_picker_step_reads_runner_pools(self) -> None:
+        for name in ("nightly.yml", "cmux-next-dev-daily.yml"):
+            text = (ROOT / ".github" / "workflows" / name).read_text()
+            steps = re.findall(r"env:\n((?:          .*\n)+?)        run: python3 scripts/ci/classic_nightly_build_runner.py\n",
+                               text)
+            with self.subTest(workflow=name):
+                self.assertTrue(steps)
+                for env in steps:
+                    self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", env)
+                    if "TRUSTED_RUNNER:" in env and name == "nightly.yml":
+                        self.assertIn("RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}", env)
+
 
 class Main(unittest.TestCase):
     def run_main(self, env, runners, snap):
@@ -172,9 +387,11 @@ class Main(unittest.TestCase):
 
     def test_outputs(self) -> None:
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER)], snapshot()),
-                         {"trusted": "true", "cloud": picker.LARGE, "alternate": picker.SMALL, "attempt": "1"})
+                         {"trusted": "true", "cloud": picker.LARGE, "alternate": picker.SMALL, "attempt": "1",
+                          "dead": "false"})
         self.assertEqual(self.run_main({}, [runner(POOL, RUNNER, status="offline")], snapshot(large=30)),
-                         {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.LARGE, "attempt": "1"})
+                         {"trusted": "false", "cloud": picker.SMALL, "alternate": picker.SMALL, "attempt": "1",
+                          "dead": "false"})
 
     def test_a_failing_read_never_fails_the_job(self) -> None:
         def boom(token, repo):
@@ -185,6 +402,80 @@ class Main(unittest.TestCase):
                          "TRUSTED_RUNNER": RUNNER, "ENABLED": "1", "GITHUB_OUTPUT": str(out)},
                         read_runners=boom, read_snapshot=boom, now=NOW)
             self.assertIn(f"cloud={picker.LARGE}", out.read_text())
+
+
+def census(rows=(), groups=None, *, at=NOW, schema="runner-state/v1", complete=True) -> str:
+    state = {"schema": schema, "generated_at": at.isoformat(), "complete": complete,
+             "repository_runners": rows if isinstance(rows, int) else list(rows), "runner_groups": groups or {}}
+    return base64.b64encode(gzip.compress(json.dumps(state).encode())).decode()
+
+
+class Census(unittest.TestCase):
+    """A refused runner list is judged from vars.CI_RUNNER_STATE, so a pinned pair nobody carries goes to the cloud."""
+
+    def refused(self, state, argv=()):
+        def boom(token, repo):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out"
+            clock = Clock()
+            picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "TRUSTED_POOL": POOL, "TRUSTED_RUNNER": RUNNER,
+                         "ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out),
+                         **({"RUNNER_STATE": state} if state is not None else {})},
+                        argv=argv, read_runners=boom, read_snapshot=lambda token, repo: None,
+                        now=NOW, sleep=clock.sleep, clock=clock)
+            return dict(line.split("=", 1) for line in out.read_text().split())["trusted"], clock.at
+
+    def test_decodes_repository_and_group_rows_with_either_label_shape(self) -> None:
+        rows = picker.census_runners(census([{"status": "online", "busy": False, "labels": [POOL, RUNNER]}],
+                                            {"7": [runner(POOL, "glaeda-runner-other")]}), NOW)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(picker.runner_state(POOL, RUNNER, rows), "idle")
+
+    def test_a_stale_future_incomplete_foreign_or_broken_census_stays_unread(self) -> None:
+        cases = {"stale": census(at=NOW - dt.timedelta(minutes=31)),
+                 "future": census(at=NOW + dt.timedelta(minutes=1)),
+                 "incomplete": census(complete=False), "schema": census(schema="runner-state/v0"),
+                 "not base64": "%%%", "not gzip": base64.b64encode(b"{}").decode(), "empty": "",
+                 "oversize": "A" * (picker.CENSUS_MAX_ENCODED + 1)}
+        for name, raw in cases.items():
+            with self.subTest(name):
+                self.assertIsNone(picker.census_runners(raw, NOW))
+        self.assertIsNone(picker.census_runners(None, NOW))
+
+    def test_a_census_of_the_wrong_shape_never_fails_the_job(self) -> None:
+        for name, raw in {"int rows": census(5), "int group": census(groups={"7": 5})}.items():
+            with self.subTest(name):
+                self.assertIsNone(picker.census_runners(raw, NOW))
+        rows = picker.census_runners(census([{"status": "online", "labels": 5}, runner(POOL, RUNNER)]), NOW)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.refused(census([{"status": "online", "labels": 5}]))[0], "false")
+
+    def test_a_refused_list_with_no_carrier_in_the_census_takes_the_cloud_at_once(self) -> None:
+        nobody = census([runner(POOL, "glaeda-runner-cmux7s"), runner(POOL, RUNNER, status="offline")])
+        self.assertEqual(self.refused(nobody), ("false", 0))
+        self.assertEqual(self.refused(nobody, argv=["prepare"]), ("false", 0))
+
+    def test_a_refused_list_with_an_idle_carrier_in_the_census_keeps_the_mini(self) -> None:
+        self.assertEqual(self.refused(census([runner(POOL, RUNNER)])), ("true", 0))
+
+    def test_a_refused_list_without_a_census_keeps_the_pinned_pair(self) -> None:
+        self.assertEqual(self.refused(None)[0], "true")
+        self.assertEqual(self.refused(census(at=NOW - dt.timedelta(hours=2)))[0], "true")
+
+    def test_a_refused_list_with_a_backlog_on_the_mini_takes_the_cloud(self) -> None:
+        def boom(token, repo):
+            raise RuntimeError("HTTP Error 403: Forbidden")
+        for count, want in ((2, "false"), (0, "true")):
+            with self.subTest(count=count), tempfile.TemporaryDirectory() as directory:
+                out = Path(directory) / "out"
+                picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "SNAPSHOT_TOKEN": "s",
+                             "TRUSTED_POOL": POOL, "TRUSTED_RUNNER": RUNNER, "ENABLED": "1",
+                             "GITHUB_RUN_ATTEMPT": "1", "GITHUB_RUN_ID": "7", "GITHUB_OUTPUT": str(out)},
+                            read_runners=boom, read_snapshot=lambda token, repo: None,
+                            read_backlog=lambda token, repo, name, run: count if (name, run) == (RUNNER, "7") else -1,
+                            now=NOW)
+                self.assertIn(f"trusted={want}", out.read_text())
 
 
 class Prepare(unittest.TestCase):
@@ -249,9 +540,16 @@ class Workflow(unittest.TestCase):
         runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
         self.assertIn("pick-nightly-app-runner", re.search(r"^    needs: (.+)$", job, re.MULTILINE).group(1))
         self.assertIn("needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(", runs_on)
-        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}", runs_on)
+        self.assertIn("|| needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}", runs_on)
         # A failed or skipped picker never skips the build.
         self.assertRegex(re.search(r"^    if: (.+)$", job, re.MULTILINE).group(1), r"^\"!cancelled\(\) && needs\.decide\.result == 'success'")
+
+    def test_the_build_and_sign_picks_put_6vcpu_first(self) -> None:
+        # #39585 F1: the build pick's `cloud` is never empty, so runs-on's literal 6 vCPU fallback alone never
+        # applies; without FIRST the pick leads with the starved blacksmith-12vcpu-macos-26.
+        for name in ("pick-nightly-app-runner", "pick-classic-sign-runner"):
+            with self.subTest(name):
+                self.assertRegex(self.job(name), r"\n          FIRST: 6vcpu\n")
 
     def test_prepare_takes_the_pinned_mini_only_on_the_prepare_pick(self) -> None:
         job = self.job("prepare-nightly-variant")
@@ -268,6 +566,16 @@ class Workflow(unittest.TestCase):
         # Signing and verify keep the Blacksmith-only pick.
         for name in ("build-sign-notarize-nightly", "verify-signed-nightly"):
             self.assertNotIn("pick-classic-prepare-runner", self.job(name))
+
+    def test_dev_daily_reads_every_dead_label(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "cmux-next-dev-daily.yml").read_text(encoding="utf-8")
+        runner = text[text.index("\n  runner:\n"):text.index("\n  verify:\n")]
+        self.assertIn("cloud_dead: ${{ steps.cloud.outputs.dead }}", runner)
+        pool = runner[runner.index("id: pool"):]
+        self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", pool)
+        deltas = text[text.index("\n  tip-deltas:\n"):]
+        condition = re.search(r"^    if: (.+)$", deltas, re.MULTILINE).group(1)
+        self.assertIn("needs.runner.outputs.cloud_dead != 'true'", condition)
 
     def test_the_picker_runs_on_linux_and_never_fails(self) -> None:
         for name in ("pick-nightly-app-runner", "pick-classic-prepare-runner"):

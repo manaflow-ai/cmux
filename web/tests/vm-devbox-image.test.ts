@@ -27,6 +27,10 @@ import {
   CMUX_TUI_STATE_MAX_BYTES,
   agentPinDrift,
   devboxAgentPins,
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
   devboxCuaDriverVersion,
   devboxGhosttyVersion,
   devboxWaitForDaemonCommand,
@@ -785,7 +789,7 @@ test "$daemon_pid" = fixture
     // RUN, no ARG moved) and any non-blank line change in the bake script; a
     // Dockerfile comment moves nothing. Schema 1, the formula the first
     // promoted ladders were recorded with, ignores both.
-    const withStep = dockerfile.replace(/^    bubblewrap \\$/m, "    bubblewrap \\\n    cowsay \\");
+    const withStep = dockerfile.replace(/^    e2fsprogs \\$/m, "    e2fsprogs \\\n    cowsay \\");
     expect(withStep).not.toBe(dockerfile);
     expect(devboxSourceDigest("base", withStep)).not.toBe(devboxSourceDigest("base", dockerfile));
     expect(devboxSourceDigest("base", withStep, 1)).toBe(devboxSourceDigest("base", dockerfile, 1));
@@ -824,18 +828,21 @@ test "$daemon_pid" = fixture
   });
 
   test("codex's Linux sandbox prerequisite is installed and the first agent launch is verified", () => {
-    // bubblewrap: without the distro bwrap, codex 0.151+ warns on every
-    // launch that it is falling back to its bundled copy (seen live on the
-    // termid ladder, 2026-09-09). Both recipes install it and prove it.
-    expect(dockerfile).toContain("    bubblewrap \\");
-    expect(dockerfile).toContain("bwrap --version");
+    // The Dockerfile and Freestyle bake select the same checksum-pinned
+    // upstream release; the Ubuntu integration test exercises the install.
+    const url = devboxBubblewrapUrl(dockerfile);
+    const sha256 = devboxBubblewrapSha256(dockerfile);
+    const version = devboxBubblewrapVersion(dockerfile);
+    const instructions = dockerfile.replace(/[ \t]*\\\n[ \t]*/g, " ").split("\n");
+    const install = instructions.find((line) => line.startsWith("RUN ") && line.includes("/tmp/bubblewrap.tar.xz"))!;
+    expect(install).toBeDefined();
+    expect(install.slice(4).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_URL", url).replaceAll("$CMUX_IMAGE_BUBBLEWRAP_SHA256", sha256)).toBe(devboxBubblewrapInstallCommand(url, sha256, version));
     const bake = readScript("build-devbox-freestyle.ts");
-    expect(bake).toContain("util-linux e2fsprogs bubblewrap");
-    expect(bake).toContain("bwrap --version");
+    expect(bake).toContain("devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion())");
     // The verifier launches the real claude (root) and codex (root and the
     // work user) TUIs and requires the ready composer with no first-run gate text.
     const verify = readScript("verify-devbox-image.ts");
-    expect(verify).toContain("bubblewrap-ok");
+    expect(verify).toContain("devboxBubblewrapCheckCommand()");
     // The work user's claude launch is the verifier's own
     // `claude-reaches-the-prompt`; these add root (the provider's exec API
     // runs as root) and codex for both accounts.
@@ -894,7 +901,7 @@ test "$daemon_pid" = fixture
     const packageJson = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
-    expect(packageJson.dependencies.freestyle).toBe("0.2.10");
+    expect(packageJson.dependencies.freestyle).toBe("0.2.21");
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
   });
 

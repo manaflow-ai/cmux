@@ -500,11 +500,14 @@ public struct VMListPage: Sendable {
     public let vms: [VMSummary]
     public let limits: VMPlanLimits?
 
-    /// Machines the server counts against `limits.maxActiveVms`: running and
-    /// provisioning ones. Paused machines are listed but free their slot, so
-    /// `vms.count` overstates usage.
+    /// Saved machines counted against the plan, including paused machines.
+    public static func occupiesMachineSlot(forStatus status: String) -> Bool {
+        CloudVMResourcePool.usesResourcePool(forStatus: status)
+            || ["paused", "standby", "stopped"].contains(status.lowercased())
+    }
+
     public var activeMachineCount: Int {
-        limits?.activeVmCount ?? vms.count(where: { CloudVMResourcePool.usesResourcePool(forStatus: $0.status) })
+        limits?.activeVmCount ?? vms.count(where: { Self.occupiesMachineSlot(forStatus: $0.status) })
     }
 }
 

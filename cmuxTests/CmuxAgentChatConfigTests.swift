@@ -531,6 +531,19 @@ struct CmuxAgentChatConfigTests {
                 == String(localized: "menu.help.codexTeams", defaultValue: "Codex Teams")
         )
         #expect(both[1].subtitle(localContext) == "cmux codex-teams")
+        let allProviders = ContentView.commandPaletteAgentLauncherContributions(
+            availableProviders: Set(AgentSessionProviderID.allCases)
+        )
+        #expect(allProviders.map(\.commandId) == [
+            ContentView.commandPaletteLaunchClaudeTeamsCommandID,
+            ContentView.commandPaletteLaunchCodexTeamsCommandID,
+            ContentView.commandPaletteLaunchOpenCodeCommandID,
+        ])
+        #expect(
+            allProviders[2].title(localContext)
+                == String(localized: "menu.help.ohMyOpenCode", defaultValue: "oh-my-opencode")
+        )
+        #expect(allProviders[2].subtitle(localContext) == "cmux omo")
         #expect(ContentView.commandPaletteAgentLauncherContributions(availableProviders: []).isEmpty)
 
         var remoteContext = localContext
@@ -543,6 +556,38 @@ struct CmuxAgentChatConfigTests {
         #expect(codexOnly.map(\.commandId) == [
             ContentView.commandPaletteLaunchCodexTeamsCommandID,
         ])
+        let openCodeOnly = ContentView.commandPaletteAgentLauncherContributions(
+            availableProviders: [.opencode]
+        )
+        #expect(openCodeOnly.map(\.commandId) == [
+            ContentView.commandPaletteLaunchOpenCodeCommandID,
+        ])
+    }
+
+    @MainActor
+    @Test func commandPaletteAgentLauncherCoversEveryProvider() {
+        let contributions = ContentView.commandPaletteAgentLauncherContributions(
+            availableProviders: Set(AgentSessionProviderID.allCases)
+        )
+        #expect(contributions.count == AgentSessionProviderID.allCases.count)
+    }
+
+    @Test func commandPaletteAgentLauncherAvailabilityFindsOpenCodeOnSearchPath() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("CmuxAgentChatConfigTests-\(UUID().uuidString)", isDirectory: true)
+        let bin = root.appendingPathComponent("bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let executable = bin.appendingPathComponent("opencode")
+        try "#!/bin/sh\nexit 0\n".write(to: executable, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let available = ContentView.resolveCommandPaletteAgentLauncherProviders(
+            environment: ["PATH": bin.path, "HOME": root.path],
+            bundleResourceURL: root.appendingPathComponent("Resources", isDirectory: true),
+            configuredExecutablePaths: [:]
+        )
+        #expect(available.contains(.opencode))
     }
 
     @MainActor

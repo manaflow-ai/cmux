@@ -118,13 +118,13 @@ public protocol ControlWorkspaceGroupContext: AnyObject {
     ///   - routing: The routing selectors used for TabManager resolution.
     ///   - groupID: The group to update.
     ///   - isPinned: The new pinned state.
-    /// - Returns: `true` if the group existed and was updated, `false` if not
-    ///   found, or `nil` if no TabManager resolved.
+    /// - Returns: Whether the change applied, the group was missing, the app
+    ///   refused it, or no TabManager resolved.
     func controlSetWorkspaceGroupPinned(
         routing: ControlRoutingSelectors,
         groupID: UUID,
         isPinned: Bool
-    ) -> Bool?
+    ) -> ControlWorkspaceGroupPinResolution
 
     /// Adds a workspace to a group for `workspace.group.add`.
     ///

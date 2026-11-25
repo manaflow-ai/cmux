@@ -137,7 +137,7 @@ struct cmuxApp: App {
             StartupBreadcrumbLog.append("app.init.blockUntaggedDebugLaunch")
             Self.terminateForMissingLaunchTag()
         }
-
+        Self.removeInheritedClaudeNodeOptionsPreload()
         Self.configureGhosttyEnvironment()
         StartupBreadcrumbLog.append("app.init.ghosttyEnvironment.configured")
         let computerUsePaths = ComputerUseRuntimePaths()
@@ -202,6 +202,10 @@ struct cmuxApp: App {
                 )
             }
         )
+        // Load flag overrides, then hide unavailable shortcuts before the
+        // Settings search index reads their names.
+        _ = CmuxFeatureFlags.shared
+        KeyboardShortcutSettings.installSettingsAvailabilityProvider()
         self.settingsRuntime = SettingsRuntime(
             catalog: settingsCatalog,
             userDefaultsStore: devices.defaultsStore,
@@ -235,7 +239,7 @@ struct cmuxApp: App {
             workspaceCustomizationStore: workspaceCustomizationStore,
             nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
             cloudWorkspaceSelection: cloudWorkspaceCoordinator.makeSelectionState(),
-            sshClipboardWriteTrustStore: AppDelegate.shared?.sshClipboardWriteTrustStore
+            sshClipboardWriteTrustStore: _appDelegate.wrappedValue.sshClipboardWriteTrustStore
         )
         let historyMenuCoordinator = HistoryMenuCoordinator(
             closedItemHistoryStore: closedItemHistoryStore,
@@ -1324,7 +1328,7 @@ struct cmuxApp: App {
                 showNotificationsPopover()
             }
 
-            if chiefEnabled {
+            if chiefEnabled, CmuxFeatureFlags.shared.isChiefAvailable {
                 splitCommandButton(title: String(localized: "menu.view.chief", defaultValue: "Chief"), shortcut: menuShortcut(for: .openChief)) {
                     AppDelegate.shared?.openChiefHome(toggle: true, source: "menu.view.chief")
                 }

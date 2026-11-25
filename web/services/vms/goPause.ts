@@ -50,11 +50,21 @@ function pauseForAllowance(
     yield* mergeMetadata({ id: vm.id, patch: {
       [GO_PAUSE_INTENT_KEY]: { requestedAt: new Date().toISOString(), reason: options.reason },
     } });
-    if (options.capRuntime && setRuntimeBudget) yield* setRuntimeBudget(vm.provider, providerVmId, 0);
-    // The database may already say paused. An idempotent provider pause also
-    // stops machines resumed outside the control plane.
-    yield* providers.pause(vm.provider, providerVmId);
-    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
+    // Fence the pause before any provider effect, so no idle recovery undoes it while it is in flight;
+    // a provider effect that fails drops it again.
+    const intent = repo.recordPauseIntent ? yield* repo.recordPauseIntent({ id: vm.id, providerVmId, cause: "allowance" }) : null;
+    const pause = providers.pause;
+    yield* Effect.gen(function* () {
+      if (options.capRuntime && setRuntimeBudget) yield* setRuntimeBudget(vm.provider, providerVmId, 0);
+      // The database may already say paused. An idempotent provider pause also
+      // stops machines resumed outside the control plane.
+      yield* pause(vm.provider, providerVmId);
+    }).pipe(Effect.tapError(() => intent === null || !repo.clearPauseIntent
+      ? Effect.void
+      : repo.clearPauseIntent({ id: vm.id, epoch: intent }).pipe(Effect.catchAll(() => Effect.void))));
+    // A stated cause: it settles an idle pause claim and stamps the fence, so the idle cron never
+    // undoes this pause as a lost idle pause (services/vms/README.md, idle auto-pause).
+    const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused", pauseReason: "allowance" });
     if (!recorded) return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     yield* mergeMetadata({ id: vm.id, patch: { [GO_PAUSE_INTENT_KEY]: null } });
     yield* repo.recordUsageEvent({ userId: vm.userId, billingTeamId: vm.billingTeamId, billingPlanId: options.planId,

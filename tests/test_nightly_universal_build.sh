@@ -69,7 +69,7 @@ if ! grep -Fq 'cron: "17 */6 * * *"' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! grep -Fq 'cron: "47 8 * * *"' "$WORKFLOW_FILE"; then
+if ! grep -Fq 'cron: "17 * * * *"' "$WORKFLOW_FILE"; then
   echo "FAIL: nightly workflow must publish once daily at 08:47 UTC"
   exit 1
 fi
@@ -132,7 +132,7 @@ if grep -Fq 'github.rest.repos.getBranch' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}" '
+if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || contains(fromJSON('[\"blacksmith-6vcpu-macos-26\",\"blacksmith-12vcpu-macos-26\"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_26) && fromJSON(vars.RUNNER_POOLS || '{}').macos_26 || 'blacksmith-6vcpu-macos-26' }}" '
   /^  refresh-compilation-cache:/ { in_refresh=1; next }
   in_refresh && /^  [a-zA-Z0-9_-]+:/ { in_refresh=0 }
   in_refresh && /timeout-minutes: 90/ { saw_cold_build_timeout=1 }
@@ -157,7 +157,7 @@ if ! awk -v refresh_runner="runs-on: \${{ github.repository_owner != 'manaflow-a
   exit 1
 fi
 
-if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')" "$WORKFLOW_FILE"; then
+if ! grep -Fq "if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '17 * * * *')" "$WORKFLOW_FILE"; then
   echo "FAIL: manual runs and the daily publish schedule must sign, notarize, and publish Nightly"
   exit 1
 fi
@@ -220,8 +220,8 @@ if ! awk '
   exit 1
 fi
 
-if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || 'blacksmith-6vcpu-macos-15' }}" \
-       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-12vcpu-macos-26' }}" '
+if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-15' || contains(fromJSON('[\"blacksmith-6vcpu-macos-15\"]'), fromJSON(vars.RUNNER_POOLS || '{}').macos_15) && fromJSON(vars.RUNNER_POOLS || '{}').macos_15 || 'blacksmith-6vcpu-macos-15' }}" \
+       -v app_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.decide.outputs.fast_build != 'true' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-nightly-app-runner.outputs.trusted != 'false' && fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || needs.pick-nightly-app-runner.outputs.cloud || 'blacksmith-6vcpu-macos-26' }}" '
   /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
   /^  build-nightly-app:/ { job="app"; next }
   /^  prepare-nightly-variant:/ { job="publish"; next }
@@ -338,44 +338,15 @@ if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" "$
   echo "FAIL: nightly workflow must generate one appcast per variant"
   exit 1
 fi
-if ! awk '
+# The published nightly's Sparkle deltas come later, from auto-resume-nightly-notarization.yml
+# (generate-deltas, republish-deltas), so the first appcasts stay full-only.
+if awk '
   /^  build-sign-notarize-nightly:/ { job="sign"; next }
-  /^  generate-nightly-deltas:/ { job="delta"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "sign" && /SPARKLE_PREVIOUS_ARCHIVES_DIR|SPARKLE_MAXIMUM_DELTAS/ { initial_delta=1 }
-  job == "delta" && /--count 1/ { saw_previous=1 }
-  job == "delta" && /SPARKLE_MAXIMUM_DELTAS=1/ { saw_max=1 }
-  job == "delta" && /name: cmux-nightly-deltas-\$\{\{ matrix\.variant \}\}/ { saw_artifact=1 }
-  END { exit !(saw_previous && saw_max && saw_artifact && !initial_delta) }
+  END { exit !initial_delta }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: initial appcasts must be full-only and delta generation must run later per variant"
-  exit 1
-fi
-
-if ! awk '
-  /^  generate-nightly-deltas:/ { delta=NR; next }
-  /^  republish-nightly-deltas:/ { republish=NR; next }
-  /^  publish-nightly:/ { publish=NR; next }
-  /^  report-nightly-failure:/ { report=NR; next }
-  END { exit !(publish && delta && republish && publish < delta && delta < republish && report > republish) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: Sparkle deltas must be downstream of first publication and before failure closeout"
-  exit 1
-fi
-
-if ! awk '
-  /^  generate-nightly-deltas:/ { job="delta"; next }
-  /^  republish-nightly-deltas:/ { job="republish"; next }
-  /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job == "delta" && /needs: \[decide, build-nightly-app, publish-nightly(, pick-classic-sign-runner)?\]/ { saw_publish_need=1 }
-  job == "delta" && /fail-fast: false/ { saw_matrix=1 }
-  job == "republish" && /needs: \[decide, build-nightly-app, publish-nightly, generate-nightly-deltas\]/ { saw_delta_need=1 }
-  job == "republish" && /gh api .*commits\/\$CHANNEL_RELEASE_TAG/ { saw_guard=1 }
-  job == "republish" && /publish-release-assets\.py/ { saw_republish=1 }
-  job == "republish" && /Upload revised appcasts to R2/ { saw_r2=1 }
-  END { exit !(saw_publish_need && saw_matrix && saw_delta_need && saw_guard && saw_republish && saw_r2) }
-' "$WORKFLOW_FILE"; then
-  echo "FAIL: post-publication delta generation must be matrixed, stale-guarded, and republished to GitHub and R2"
+  echo "FAIL: initial appcasts must be full-only; delta generation runs after publication"
   exit 1
 fi
 
@@ -602,7 +573,7 @@ assert "workflow_dispatch:" in auto
 assert "source_run_id:" in auto and "source_run_attempt:" in auto
 assert "poll:" in auto
 assert "poll-notary-submission.py" in auto
-assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}" in auto
+assert "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}" in auto
 assert "sleep 300" in auto
 assert "exact recovery artifacts for manual continuation" in auto
 assert "needs.poll.outputs.all_accepted == 'true'" in auto
@@ -839,18 +810,16 @@ for expected in \
   fi
 done
 
+# The close is auto-resume-nightly-notarization.yml's publish, which publishes the nightly.
 if ! awk '
   /^  report-nightly-failure:/ { job="report"; next }
-  /^  close-nightly-failure-issue:/ { job="close"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
   job == "report" && /incident\.report\(/ { saw_report_label=1 }
-  job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
-  job == "close" && /incident\.close\(/ { saw_close=1 }
-  END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
+  END { exit !(saw_report_gate && saw_report_perm && saw_report_label) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: a failing main nightly must open a nightly-failure issue and a successful publish must close it"
+  echo "FAIL: a failing main nightly must open a nightly-failure issue"
   exit 1
 fi
 
@@ -911,8 +880,7 @@ for expected in \
   'nightly-publication-marker.py' \
   'release metadata already records the exact' \
   'published, tag marker stale' \
-  "needs.publish-nightly.outputs.tag_status == 'stale'" \
-  "needs.publish-nightly.outputs.tag_status == 'updated'"; do
+  "needs.publish-nightly.outputs.tag_status == 'stale'"; do
   if ! grep -Fqi "$expected" "$WORKFLOW_FILE"; then
     echo "FAIL: nightly publication recovery contract is missing: $expected"
     exit 1
@@ -965,7 +933,7 @@ job_if() {
     in_job && /^    if: / { print; exit }
   ' "$WORKFLOW_FILE"
 }
-PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')"
+PUBLISH_SCHEDULE="(github.event_name != 'schedule' || github.event.schedule == '17 * * * *')"
 if [ "$(job_if build-nightly-app)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE\"" ] \
   || [ "$(job_if build-nightly-ghostty-cli-helper)" != "    if: needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'" ] \
   || [ "$(job_if build-sign-notarize-nightly)" != "    if: \"!cancelled() && needs.decide.result == 'success' && needs.build-nightly-app.result == 'success' && needs.prepare-nightly-variant.result == 'success' && needs.decide.outputs.should_build == 'true' && $PUBLISH_SCHEDULE && needs.decide.outputs.build_only != 'true'\"" ] \

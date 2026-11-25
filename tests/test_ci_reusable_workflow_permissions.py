@@ -471,6 +471,8 @@ MANUAL_REF_RESOLVER = WORKFLOWS_DIR / "resolve-dispatch-ref.yml"
 MANUAL_REF_TARGETS = {
     "ios-screenshots.yml": {
         "screenshots": "ref: ${{ needs.resolve-ref.outputs.sha }}",
+        # The App Store Connect upload uses the Fastfile of the revision captured.
+        "app-store-upload": "ref: ${{ needs.resolve-ref.outputs.sha }}",
     },
     "iroh-release-gate.yml": {
         "tailscale-version-skew": "ref: ${{ needs.resolve-ref.outputs.sha }}",
@@ -505,7 +507,8 @@ def test_shared_manual_ref_resolver_normalizes_to_full_sha() -> None:
 
     assert "workflow_call:" in resolver
     assert "contents: read" in resolver
-    assert "blacksmith-4vcpu-ubuntu-2404" in resolver
+    # A Linux runner: the persistent pool label same-repository jobs name (#47956), or Blacksmith.
+    assert "'cmux-linux'" in resolver or "blacksmith-4vcpu-ubuntu-2404" in resolver
     assert "REQUESTED_REF: ${{ inputs.ref }}" in resolver
     assert "DEFAULT_SHA: ${{ github.sha }}" in resolver
     assert 'urllib.parse.quote(requested_ref, safe="")' in resolver

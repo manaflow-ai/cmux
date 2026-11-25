@@ -77,15 +77,8 @@ class NightlyArtifactAliasTests(unittest.TestCase):
                 "DMG_PREFIX": "cmux-nightly-macos",
                 "GITHUB_ENV": str(root / "github.env"),
             })
-            # Air's system Bash is 3.2 and cannot parse `${var,,}`. The real
-            # publish job runs on Ubuntu; fixture hashes are already lowercase,
-            # so direct comparison exercises the same gate here.
-            portable_assemble = assemble.replace(
-                '[ "${actual,,}" = "${expected,,}" ]',
-                '[ "$actual" = "$expected" ]',
-            )
             result = subprocess.run(
-                ["bash", "-euo", "pipefail", "-c", portable_assemble],
+                ["bash", "-euo", "pipefail", "-c", assemble],
                 cwd=root,
                 env=env,
                 capture_output=True,

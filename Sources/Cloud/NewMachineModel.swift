@@ -156,16 +156,14 @@ final class NewMachineModel {
     nonisolated static let freePlanMaxMemoryMb = 8192
     /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max gets the
     /// whole ladder (64 GB), Pro, Team, and Founder's Edition stop at 16 GB,
-    /// Go at 4 GB, and a free or unknown plan at 8 GB.
+    /// Plus at 16 GB, and a free or unknown plan at 8 GB.
     /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
     /// this mirror only covers a control plane that predates that field.
     nonisolated static func maxMemoryMb(planId: String?) -> Int {
         switch normalizedPlanId(planId) {
-        case "go":
-            return 4096
         case maxPlanId:
             return memoryOptionsMb.max() ?? standardPlanMaxMemoryMb
-        case "pro", "team", "founders":
+        case "go", "pro", "team", "founders":
             return standardPlanMaxMemoryMb
         default:
             return freePlanMaxMemoryMb

@@ -208,14 +208,6 @@ extension CMUXCLI {
         \(String(localized: "cli.help.agents.messages", defaultValue: "agent messages [on|off|status] [<target>] [--workspace]"))
         agent-hibernation <on|off>
         agent-hibernation <hibernate|wake> <surface>
-        chief open
-        chief dispatch [--agent codex|claude] [--name <title>] [--cwd <dir>|--worktree <repo> [--branch <name>]] [--agent-arg <arg>] [--focus|--no-focus] [--wait-working [--timeout <s>]] [--json] (-- <task>|--prompt-file <path|->)
-        chief send [--conversation <id>] [--from <name>] [--no-reply] <text|->
-        chief status|conversations [--json]
-        chief read [--conversation <id>] [--limit <n>] [--json]
-        chief stop [--conversation <id>]
-        chief home
-        chief memory <add <text|->|list|forget <id>|path> [--json]
         claude-teams [claude-args...]
         codex-teams [codex-args...]
         omo [opencode-args...]
@@ -311,6 +303,7 @@ extension CMUXCLI {
         themes [list|set|clear]
         import [<terminal>] [--dry-run] [--yes] [--path <file>] [--json]
         reload-config
+        left-sidebar <toggle|show|hide|focus|mode> [--workspace <id|ref|index>] [--window <id|ref|index>]
         right-sidebar <toggle|show|hide|focus|set|mode|files|find|vault|sessions|feed|dock|cloud|devices> [--workspace <id|ref|index>] [--window <id|ref|index>] [--no-focus]
         sidebar <templates|try|new|validate|reload|select|open> [name] [options]
         help
@@ -402,6 +395,8 @@ extension CMUXCLI {
         """
     }
 
+    /// The usage lines listed under the remote topic of the task-oriented help: account and
+    /// cloud machine commands, then the ssh, mosh and remote tmux commands.
     private var remoteCommandsHelp: String {
         return """
         auth <status|login|logout|team>
@@ -414,7 +409,7 @@ extension CMUXCLI {
         mosh <destination> [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus] [-- <remote-command-args>]
         mosh-tmux <destination> [--session <name>] [--name <title>] [--command <text>] [--port <n>] [--identity <path>] [-A|--forward-agent] [-a|--no-forward-agent] [--ssh-option <opt>] [--window <id|ref|index>] [--no-focus]
         session move <session-id> --to <ssh-destination|local> [--from <ssh-destination>] [--name <title>] [--no-code] [--port <n>] [--identity <path>] [--ssh-option <opt>] [--no-focus]
-        ssh-tmux <destination> [list|ls [--json] | attach <session>] [options]
+        ssh-tmux <destination> [list|ls [--json] | attach <session>] [--socket-name <name>] [options]
         ssh-session-list [--workspace <id|ref|index> | --all-workspaces]
         ssh-session-attach --session-id <id> [--workspace <id|ref|index>] [--pane <id|ref|index> | --split <left|right|up|down>]
         ssh-session-cleanup [--workspace <id|ref|index> | --all-workspaces] (--session-id <id> | --all)

@@ -65,6 +65,41 @@ struct SocketClientAuthorizationTests {
         ) == nil)
     }
 
+    @Test func cmuxOnlyAcceptsFreshDeliveryCapabilityAndRejectsExpired() throws {
+        let authority = SocketClientCapabilityAuthority(
+            secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),
+            audience: "com.cmuxterm.test"
+        )
+        let now = Date(timeIntervalSince1970: 10_000)
+        let fresh = authority.issueDeliveryCapability(
+            nonce: Data(repeating: 0x5A, count: SocketClientCapabilityAuthority.secureByteCount),
+            expiresAt: now.addingTimeInterval(30)
+        )
+        let expired = authority.issueDeliveryCapability(
+            nonce: Data(repeating: 0x6B, count: SocketClientCapabilityAuthority.secureByteCount),
+            expiresAt: now.addingTimeInterval(-1)
+        )
+        let freshEnvelope = try #require(SocketClientCapabilityEnvelope(capability: fresh))
+        let expiredEnvelope = try #require(SocketClientCapabilityEnvelope(capability: expired))
+
+        #expect(authorization.authorizedCommand(
+            freshEnvelope.wrap("hooks codex monitor"),
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: { _ in false },
+            now: now
+        ) == "hooks codex monitor")
+        #expect(authorization.authorizedCommand(
+            expiredEnvelope.wrap("hooks codex monitor"),
+            peerProcessID: 123,
+            peerHasSameUID: true,
+            capabilityAuthority: authority,
+            isDescendant: { _ in false },
+            now: now
+        ) == nil)
+    }
+
     @Test func cmuxOnlyRejectsCapabilityFromDifferentUser() throws {
         let authority = SocketClientCapabilityAuthority(
             secret: Data(repeating: 0xA5, count: SocketClientCapabilityAuthority.secureByteCount),

@@ -5,10 +5,16 @@ struct NotificationPopoverRow: View, Equatable {
     // Closures excluded from ==; equality is the rendered snapshot only (#2586).
     nonisolated static func == (lhs: NotificationPopoverRow, rhs: NotificationPopoverRow) -> Bool {
         lhs.notification == rhs.notification && lhs.workspaceTitle == rhs.workspaceTitle
+            && lhs.shortcut == rhs.shortcut && lhs.showsShortcutHint == rhs.showsShortcutHint
     }
 
     let notification: TerminalNotification
     let workspaceTitle: String?
+    /// The shortcut that opens this row while the popover is up (e.g. "⌘3"), or nil for a row
+    /// no digit reaches. VoiceOver reads it as the row's value.
+    var shortcut: String? = nil
+    /// Whether the hint pill shows ``shortcut``, which it does while the modifier is held.
+    var showsShortcutHint = false
     let onOpen: () -> Void
     let onClear: () -> Void
     let onToggleRead: () -> Void
@@ -17,6 +23,9 @@ struct NotificationPopoverRow: View, Equatable {
     @Environment(\.cmuxAccentColor) private var cmuxAccent
 
     private static let rowHeight: CGFloat = 56
+
+    private var shortcutHint: String? { showsShortcutHint ? shortcut : nil }
+    private var showsClearButton: Bool { isHovering && shortcutHint == nil }
 
     var body: some View {
         // Row uses a ZStack so the hover-only clear button is a *sibling* of the row's
@@ -40,6 +49,9 @@ struct NotificationPopoverRow: View, Equatable {
             // pass put them on the combined outer ZStack, which exposed the row as a
             // container rather than a button to accessibility clients.
             .accessibilityIdentifier("NotificationPopoverRow.\(notification.id.uuidString)")
+            // The pill is hidden from accessibility and shows only while the modifier is held,
+            // so the shortcut is the row's value, as Jump to Latest gives its own.
+            .accessibilityValue(shortcut ?? "")
             // XCUITest's `.click()` isn't always reliable for SwiftUI buttons hosted in an
             // `NSPopover`. Provide an explicit accessibility action so AXPress always routes to onOpen.
             .accessibilityAction { onOpen() }
@@ -53,14 +65,18 @@ struct NotificationPopoverRow: View, Equatable {
 
             clearButton
                 .padding(.trailing, 10)
-                .opacity(isHovering ? 1 : 0)
-                .allowsHitTesting(isHovering)
+                .opacity(showsClearButton ? 1 : 0)
+                // No fade: hit testing flips the moment the modifier changes, so the button
+                // must be visible exactly while it takes clicks.
+                .animation(nil, value: showsClearButton)
+                .allowsHitTesting(showsClearButton)
                 // Dismissal is exposed through the row Button's accessibility action and the
                 // context menu, so hide this hover-only affordance from keyboard focus /
                 // VoiceOver when not visible — otherwise Full Keyboard Access can tab to an
                 // invisible button.
-                .accessibilityHidden(!isHovering)
+                .accessibilityHidden(!showsClearButton)
         }
+        .shortcutHintVisibilityAnimation(value: shortcutHint != nil)
         .frame(maxWidth: .infinity, alignment: .leading)
         // Hover detection runs through an AppKit NSTrackingArea (HoverTrackingRepresentable)
         // because SwiftUI's `.onHover` / `.onContinuousHover` arbitrate with the row's
@@ -122,8 +138,22 @@ struct NotificationPopoverRow: View, Equatable {
                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
                         .cmuxFont(size: 10.5)
                         .foregroundColor(.secondary)
-                        .padding(.trailing, 34)
+                        // Room for the hover clear button, which the hint replaces.
+                        .padding(.trailing, shortcutHint == nil ? 34 : 0)
                         .layoutPriority(2)
+                    // In the header, after the time, so it can never cover it.
+                    if let shortcutHint {
+                        ShortcutHintPill(text: shortcutHint, fontSize: 10, emphasis: 1.05)
+                            // The pill is taller than this line's text; lay it out at the text's
+                            // height so holding the modifier doesn't grow the row and jump the list.
+                            .padding(.vertical, -2)
+                            .padding(.trailing, 10)
+                            .shortcutHintTransition()
+                            // Decorative: a click on the hint must reach the row's Button underneath.
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                            .layoutPriority(3)
+                    }
                 }
 
                 if let workspaceTitle, !workspaceTitle.isEmpty {

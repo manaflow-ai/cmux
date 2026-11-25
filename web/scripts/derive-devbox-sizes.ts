@@ -33,6 +33,7 @@ import {
 } from "../services/vms/images/sizes";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
+import { ciVmTags, throwawayVmOptions } from "./cloud-vm/ci-leftovers";
 import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
@@ -124,7 +125,10 @@ async function assignSlug(snapshotId: string, slug: string): Promise<string | nu
 const result: Record<string, { imageId: string; slug: string | null; size: VmImageSize; measured: unknown }> = {};
 
 // The master's own shape, so a size it already has is recorded without a copy.
-const probe = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} size-probe`, firewall: FIREWALL });
+// Probe and check machines are throwaway (idle pause, deadline, CI tag); the
+// resize machine becomes a snapshot, so it carries only the CI tag, which lets
+// a cancelled run's always() step find it (cloud-vm/ci-leftovers.ts).
+const probe = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} size-probe`, firewall: FIREWALL, ...throwawayVmOptions() });
 let masterShape: Awaited<ReturnType<typeof measure>>;
 try {
   masterShape = await measure(probe.vm);
@@ -165,7 +169,7 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
       if (masterShape.cpu > size.cpu || masterShape.memoryMb > size.memoryMb) {
         throw new Error(`${name}: master (${masterShape.cpu} vCPU, ${masterShape.memoryMb} MiB) is larger than the target; resize is grow-only, bake on a smaller base`);
       }
-      const { vm } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL });
+      const { vm } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL, ...ciVmTags() });
       try {
         const clock = await sh(vm, devboxSnapshotClockCommand);
         if (clock.code !== 0) throw new Error(`${name}: snapshot clock is unavailable`);
@@ -198,6 +202,9 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
         const settled = await sh(vm, devboxSettleBeforeSnapshotCommand(), 60_000);
         if (settled.code !== 0) throw new Error(`${name}: pre-snapshot settle failed: ${settled.out.slice(-300)}`);
         const snap = await vm.snapshot({ displayName: `cmux devbox ${slug} (${size.cpu} vCPU · ${size.memoryMb} MiB · ${size.storageMb} MiB)` });
+        // Before anything else can fail: the CI cleanup reads this line to find
+        // a snapshot that never got its slug (cloud-vm/ci-leftovers.ts --ledger).
+        if (snap.snapshotId) console.log(`SNAPSHOT_TAKEN ${snap.snapshotId}`);
         if (!snap.snapshotId) throw new Error(`${name}: snapshot response carried no id`);
         imageId = snap.snapshotId;
       } finally {
@@ -206,7 +213,7 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
     }
 
     // Boot the derived snapshot itself: the shape must survive the round trip.
-    const check = await fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL });
+    const check = await fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL, ...throwawayVmOptions() });
     let measured: Awaited<ReturnType<typeof measure>>;
     try {
       // The daemon is the last thing to come up on a resumed snapshot, so

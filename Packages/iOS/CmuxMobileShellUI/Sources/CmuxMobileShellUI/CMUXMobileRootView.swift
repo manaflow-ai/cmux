@@ -196,7 +196,10 @@ struct CMUXMobileRootView: View {
 
     private var shouldShowOnboardingPreview: Bool {
         #if os(iOS) && DEBUG
+        // Skip and Open Workspaces end the preview the way they end the real
+        // first-run tour.
         return UITestConfig.onboardingPreviewEnabled
+            && onboardingStore.progress != .complete
         #else
         return false
         #endif
@@ -1090,8 +1093,11 @@ struct CMUXMobileRootView: View {
             initialStage: initialOnboardingStage,
             context: .firstRun,
             isAuthenticated: isAuthenticated,
-            connectionPhase: onboardingConnectionPhase,
-            connectionMethod: connectionMethodStore?.method ?? .automatic,
+            connectionPhase: onboardingDemonstrationPolicy.connectionPhase(onboardingConnectionPhase),
+            connectionMethod: onboardingDemonstrationPolicy.connectionMethod(
+                connectionMethodStore?.method ?? .automatic
+            ),
+            offersConnectionMethodChoice: onboardingDemonstrationPolicy.offersConnectionMethodChoice,
             keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             onEnablePush: { await pushCoordinator.enable(trigger: "onboarding") },
@@ -1109,6 +1115,14 @@ struct CMUXMobileRootView: View {
         #endif
     }
 
+    #if os(iOS) && DEBUG
+    private var previewDemonstrationPolicy: OnboardingDemonstrationAccountPolicy {
+        OnboardingDemonstrationAccountPolicy(
+            isDemonstrationAccount: UITestConfig.onboardingDemonstrationAccountEnabled
+        )
+    }
+    #endif
+
     @ViewBuilder
     private var onboardingPreview: some View {
         #if os(iOS) && DEBUG
@@ -1116,10 +1130,13 @@ struct CMUXMobileRootView: View {
             initialStage: initialOnboardingStage,
             context: .preview,
             isAuthenticated: true,
-            connectionPhase: UITestConfig.onboardingConnectionFallbackEnabled
-                ? .fallback
-                : .searching,
-            connectionMethod: connectionMethodStore?.method ?? .automatic,
+            connectionPhase: previewDemonstrationPolicy.connectionPhase(
+                UITestConfig.onboardingConnectionFallbackEnabled ? .fallback : .searching
+            ),
+            connectionMethod: previewDemonstrationPolicy.connectionMethod(
+                connectionMethodStore?.method ?? .automatic
+            ),
+            offersConnectionMethodChoice: previewDemonstrationPolicy.offersConnectionMethodChoice,
             onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
             // The deterministic preview must never raise the OS alert.
             onEnablePush: { true },
@@ -1137,6 +1154,14 @@ struct CMUXMobileRootView: View {
     #if os(iOS)
     private var initialOnboardingStage: OnboardingStage {
         onboardingStore.progress == .connect ? .connect : .agents
+    }
+
+    /// The App Review demonstration account's Demo Mac stands in for a live
+    /// Mac during onboarding, and its connect page offers no Tailscale choice.
+    private var onboardingDemonstrationPolicy: OnboardingDemonstrationAccountPolicy {
+        OnboardingDemonstrationAccountPolicy(
+            isDemonstrationAccount: authManager.currentUser?.demonstrationContentEnabled == true
+        )
     }
 
     private var onboardingConnectionPhase: OnboardingConnectionPhase {
@@ -1398,7 +1423,14 @@ struct CMUXMobileRootView: View {
     }
 
     private func showOnboardingPairingScanner() {
-        guard currentlyAllowsManualPairing else { return }
+        #if os(iOS)
+        let gate = MobilePairingScannerGate(
+            entry: .onboarding,
+            setupStatus: store.tailscaleSetupStatus,
+            onboardingMethod: connectionMethodStore?.method
+        )
+        guard gate.allowsScanner else { return }
+        #endif
         presentPairing(.scanner(entry: .onboardingFallback))
     }
 
@@ -1442,7 +1474,11 @@ struct CMUXMobileRootView: View {
     /// a newly selected method yet.
     private var currentlyAllowsManualPairing: Bool {
         #if os(iOS)
-        store.tailscaleSetupStatus != .notSelected
+        MobilePairingScannerGate(
+            entry: .shell,
+            setupStatus: store.tailscaleSetupStatus,
+            onboardingMethod: nil
+        ).allowsScanner
         #else
         true
         #endif

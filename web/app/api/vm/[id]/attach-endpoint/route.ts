@@ -11,6 +11,7 @@ import { setSpanAttributes } from "../../../../../services/telemetry";
 import { runVmRoute } from "../../../../../services/vms/routeWorkflow";
 import { openAttachEndpoint, openVmCmuxRemote } from "../../../../../services/vms/workflows";
 import { vmModelPlaneRevoker } from "../../../../../services/vms/modelPlaneGateway";
+import { vmTeamDirectory } from "../../../../../services/vms/teamDirectory";
 import {
   capabilityList,
   optionalClientIdentifier,
@@ -74,6 +75,7 @@ export async function POST(
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
           maxActiveVms: account.entitlements.maxActiveVms,
+          entitlementOverride: account.entitlements.entitlementOverride,
           teamIds: user.teamIds,
           providerVmId: id,
           deviceFingerprint,
@@ -82,6 +84,10 @@ export async function POST(
           // An opted-in machine's agent-update exec runs after the response.
           deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
           modelPlane: vmModelPlaneRevoker(),
+        // vmKind: owner for the creator's machine while they remain a team member,
+        // and for a teammate it was shared with (services/vms/chatGrants.ts).
+        teamDirectory: vmTeamDirectory(),
+        readChatGrants: true,
         }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
         if (!run.ok) return run.response;
         return jsonResponse(run.value);
@@ -98,12 +104,17 @@ export async function POST(
         userId: user.id,
         billingTeamId: account.entitlements.billingTeamId,
         maxActiveVms: account.entitlements.maxActiveVms,
+        entitlementOverride: account.entitlements.entitlementOverride,
         callerPlanId: account.entitlements.planId,
         teamIds: user.teamIds,
         providerVmId: id,
         sessionTitle,
         options: { requireDaemon, sessionId, attachmentId },
         modelPlane: vmModelPlaneRevoker(),
+        // vmKind: owner for the creator's machine while they remain a team member,
+        // and for a teammate it was shared with (services/vms/chatGrants.ts).
+        teamDirectory: vmTeamDirectory(),
+        readChatGrants: true,
       }), { request, deadline: { operation: "attach", continuationKey: `attach:${id}` } });
       if (!run.ok) return run.response;
       const endpoint = run.value;

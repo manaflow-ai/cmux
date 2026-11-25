@@ -139,7 +139,8 @@ def parse_issue(issue: dict) -> Freeze:
 RATE_LIMITED = re.compile(r"rate limit|HTTP 429", re.IGNORECASE)
 
 
-FALLBACK_ERRORS = re.compile(r"HTTP 40[13]|rate limit|Bad credentials", re.I)
+# GraphQL names no HTTP status for a token without access: it says "Resource not accessible".
+FALLBACK_ERRORS = re.compile(r"HTTP 40[13]|rate limit|Bad credentials|Resource not accessible|FORBIDDEN", re.I)
 
 
 def gh(*args: str, write: bool = False) -> str:
@@ -154,10 +155,27 @@ def gh(*args: str, write: bool = False) -> str:
         return subprocess.run(["gh", *args], check=True, capture_output=True, text=True, env=env).stdout
 
 
-def gh_items(endpoint: str) -> list[dict]:
-    """Every item of a paginated list endpoint (one JSON object per line: older gh has no --slurp)."""
-    out = gh("api", "--paginate", endpoint, "--jq", ".[] | @json")
-    return [json.loads(line) for line in out.splitlines() if line.strip()]
+# One `gh api` call per page (see gh_items); a list longer than MAX_PAGES pages fails closed.
+PER_PAGE = 100
+MAX_PAGES = 30
+
+
+def gh_items(endpoint: str, max_pages: int = MAX_PAGES) -> list[dict]:
+    """Every item of a paginated list endpoint, one page per `gh api` call. Not `gh api --paginate`:
+    that is one invocation making any number of requests, which the gh quota shim can't charge and
+    refuses, and a refused read left every merge with an unknown freeze state. A list longer than
+    max_pages pages raises (status 2): a list cut short never reads as "no freeze"."""
+    sep = "&" if "?" in endpoint else "?"
+    items: list[dict] = []
+    for page in range(1, max_pages + 1):
+        batch = json.loads(gh("api", f"{endpoint}{sep}per_page={PER_PAGE}&page={page}"))
+        if not isinstance(batch, list):
+            raise TypeError(f"{endpoint} page {page} is not a list")
+        items.extend(batch)
+        if len(batch) < PER_PAGE:
+            return items
+    raise ValueError(f"{endpoint} has more than {max_pages} pages of {PER_PAGE}; "
+                     "refusing to read a list cut short as complete")
 
 
 def read_json_list(path: str) -> list[dict]:
@@ -209,10 +227,45 @@ def repo_role(repo: str, login: str) -> str | None:
     return json.loads(out).get("role_name")
 
 
+FREEZES_QUERY = """query($owner:String!,$name:String!,$l:String!,$c:String){repository(owner:$owner,name:$name){
+issues(states:OPEN,labels:[$l],first:100,after:$c){pageInfo{hasNextPage endCursor}
+nodes{number title body createdAt author{login} labels(first:100){nodes{name}}}}}}"""
+
+
+def open_freeze_issues(repo: str, max_pages: int = MAX_PAGES) -> list[dict]:
+    """The open issues labeled merge-freeze, in the REST shape parse_issue reads. Over GraphQL: this
+    runs on every pull request event, and REST calls draw on the GITHUB_TOKEN budget every workflow
+    shares (cmuxterm-hq#7062). Pull requests never show up here. A list longer than max_pages
+    pages raises, as gh_items does."""
+    owner, name = repo.split("/", 1)
+    issues: list[dict] = []
+    cursor = None
+    for _ in range(max_pages):
+        args = ["api", "graphql", "-f", f"query={FREEZES_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+                "-f", f"l={LABEL}"]
+        if cursor:
+            args += ["-f", f"c={cursor}"]
+        answer = json.loads(gh(*args))
+        if answer.get("errors"):
+            raise ValueError(f"{repo} open {LABEL} issues: GraphQL answered with errors: {answer['errors']}")
+        page = answer["data"]["repository"]["issues"]
+        for node in page["nodes"]:
+            issues.append({
+                "number": node["number"], "title": node.get("title"), "body": node.get("body"),
+                "created_at": node["createdAt"], "user": node.get("author") or {},
+                "labels": node["labels"]["nodes"],
+            })
+        if not page["pageInfo"]["hasNextPage"]:
+            return issues
+        cursor = page["pageInfo"]["endCursor"]
+    raise ValueError(f"{repo} has more than {max_pages} pages of open {LABEL} issues; "
+                     "refusing to read a list cut short as complete")
+
+
 def last_edited(repo: str, number: int) -> str | None:
     owner, name = repo.split("/", 1)
-    query = "query($o:String!,$n:String!,$i:Int!){repository(owner:$o,name:$n){issue(number:$i){lastEditedAt}}}"
-    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"o={owner}", "-f", f"n={name}", "-F", f"i={number}")
+    query = "query($owner:String!,$name:String!,$i:Int!){repository(owner:$owner,name:$name){issue(number:$i){lastEditedAt}}}"
+    out = gh("api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}", "-F", f"i={number}")
     return json.loads(out)["data"]["repository"]["issue"]["lastEditedAt"]
 
 
@@ -240,7 +293,7 @@ def open_freezes(repo: str, issues_file: str | None = None,
                   if i.get("state", "open") == "open"
                   and LABEL in {label.get("name") for label in i.get("labels", [])}]
     else:
-        issues = gh_items(f"repos/{repo}/issues?state=open&labels={LABEL}&per_page=100")
+        issues = open_freeze_issues(repo)
     freezes = []
     for issue in issues:
         if "pull_request" in issue:
@@ -254,7 +307,7 @@ def open_freezes(repo: str, issues_file: str | None = None,
             labeled_at, edited_at = issue.get("labeled_at"), issue.get("last_edited_at")
         else:
             labeler, labeled_at = last_labeler(
-                gh_items(f"repos/{repo}/issues/{freeze.number}/events?per_page=100"), LABEL)
+                gh_items(f"repos/{repo}/issues/{freeze.number}/events"), LABEL)
             role = repo_role(repo, labeler) if labeler else None
             edited_at = last_edited(repo, freeze.number)
         check_authority(freeze, labeler, role, labeled_at, edited_at)
@@ -361,7 +414,7 @@ def main(argv: list[str] | None = None) -> int:
                     files = [line.strip() for line in handle if line.strip()]
             else:
                 # Both ends of a rename: moving a file out of a frozen directory touches it too.
-                entries = gh_items(f"repos/{args.repo}/pulls/{args.pr}/files?per_page=100")
+                entries = gh_items(f"repos/{args.repo}/pulls/{args.pr}/files")
                 files = [e["filename"] for e in entries] + [e["previous_filename"] for e in entries
                                                             if e.get("previous_filename")]
                 # The files API stops at 3000 files; an incomplete list can't clear a freeze.
@@ -372,7 +425,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError(f"GitHub listed {len(entries)} of {expected} changed files")
             if any(applies(f, args.base, now) for f in freezes):
                 events = (read_json_list(args.events_file) if args.events_file is not None
-                          else gh_items(f"repos/{args.repo}/issues/{args.pr}/events?per_page=100"))
+                          else gh_items(f"repos/{args.repo}/issues/{args.pr}/events"))
                 labeler = ok_labeler(events)
         # TypeError, AttributeError: GitHub answered with an unexpected shape (a null issue or a missing
         # timestamp, say). Still unknown, not frozen.

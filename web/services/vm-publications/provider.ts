@@ -116,7 +116,7 @@ export type PublicationDnsInstruction = {
 
 /**
  * CMUX's stable representation of Freestyle's verification response. The
- * published 0.2.10 SDK calls these fields `id`, `recordName`, and
+ * published 0.2.21 SDK calls these fields `id`, `recordName`, and
  * `verificationCode`; those names deliberately stop at this adapter.
  */
 export type PublicationDomainVerification = {

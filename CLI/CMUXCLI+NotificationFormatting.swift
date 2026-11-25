@@ -121,11 +121,18 @@ extension CMUXCLI {
     /// lifecycle decision can share it (mirrors `hasActiveAntigravityBackgroundWork`).
     func hasActiveClaudeBackgroundWork(_ parsedInput: ClaudeHookParsedInput) -> Bool {
         guard let obj = parsedInput.rawObject else { return false }
-        if let crons = obj["session_crons"] as? [Any], !crons.isEmpty { return true }
+        if hasClaudeSessionCrons(parsedInput) == true { return true }
         if let tasks = obj["background_tasks"] as? [[String: Any]] {
             return tasks.contains { ($0["status"] as? String) == "running" }
         }
         return false
+    }
+
+    /// Whether a Claude `Stop` payload lists a session cron or scheduled
+    /// wakeup (`session_crons`, claude >= 2.1.145); nil when it does not say.
+    func hasClaudeSessionCrons(_ parsedInput: ClaudeHookParsedInput) -> Bool? {
+        guard let crons = parsedInput.rawObject?["session_crons"] as? [Any] else { return nil }
+        return !crons.isEmpty
     }
 
     func summarizeClaudeHookNotification(parsedInput: ClaudeHookParsedInput) -> (subtitle: String, body: String) {

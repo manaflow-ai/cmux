@@ -108,6 +108,10 @@ import {
   bakeMetadata,
   bakePreflight,
   devboxAgentPins,
+  devboxBubblewrapInstallCommand,
+  devboxBubblewrapSha256,
+  devboxBubblewrapUrl,
+  devboxBubblewrapVersion,
   devboxCuaDriverVersion,
   devboxDesktopPackages,
   devboxFileBytes,
@@ -284,12 +288,16 @@ try {
   // Cloud terminal.
   await step("work-user", devboxWorkUserSetupCommand());
 
-  // The Dockerfile's devtools list, bubblewrap included: codex's Linux sandbox
-  // prerequisite, so codex uses the distro's bwrap instead of warning on every
-  // launch that it is falling back to its bundled copy.
+  // The Dockerfile's devtools list.
   await step(
     "apt-devtools",
-    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs bubblewrap && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && bwrap --version",
+    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps coreutils iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V",
+  );
+
+  // Muse needs the pinned upstream bubblewrap, rather than Ubuntu's 0.9.0.
+  await step(
+    "bubblewrap",
+    devboxBubblewrapInstallCommand(devboxBubblewrapUrl(), devboxBubblewrapSha256(), devboxBubblewrapVersion()),
   );
 
   await step(

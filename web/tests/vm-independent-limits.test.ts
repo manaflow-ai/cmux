@@ -60,7 +60,7 @@ describe("independent Cloud VM limits", () => {
     }
   });
 
-  dbTest("the active-limit error names only the running and provisioning machines it counted", async () => {
+  dbTest("the saved-limit error names running, provisioning and paused machines", async () => {
     const team = "team-limit-names";
     await sql`delete from cloud_vms where billing_team_id = ${team}`;
     try {
@@ -78,7 +78,7 @@ describe("independent Cloud VM limits", () => {
       const failure = await runRepo(repo => repo.beginCreate({ ...input, idempotencyKey: "named-over" }).pipe(Effect.flip));
       expect(failure).toMatchObject({ _tag: "VmLimitExceededError", limit: 2 });
       const machines = (failure as { activeMachines?: readonly { name: string; status: string }[] }).activeMachines ?? [];
-      expect(machines.map(machine => machine.status).sort()).toEqual(["provisioning", "running"]);
+      expect(machines.map(machine => machine.status).sort()).toEqual(["paused", "provisioning", "running"]);
       expect(machines.find(machine => machine.status === "running")?.name).toBe("Box A");
       expect(machines.every(machine => machine.name.length > 0)).toBe(true);
     } finally {

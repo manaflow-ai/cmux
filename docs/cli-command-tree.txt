@@ -615,6 +615,7 @@ command  help  aliases=-
   arg  arguments  kind=argument  completion=-
 command  hooks  aliases=-
   arg  --agent  kind=option  completion=list(agy,amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,muse,omp,opencode,pi,qoder,rovo,rovodev)
+  arg  --global  kind=flag  completion=-
   arg  --project  kind=flag  completion=-
   arg  --yes  kind=flag  completion=-
   arg  arguments  kind=argument  completion=list(agy,amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,feed,gemini,grok,hermes-agent,kimi,kiro,muse,omp,opencode,pi,qoder,rovo,rovodev,setup,uninstall)
@@ -657,6 +658,10 @@ command  last-window  aliases=-
   arg  --window  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
 command  layout  aliases=-
+  arg  --workspace  kind=option  completion=custom
+  arg  arguments  kind=argument  completion=-
+command  left-sidebar  aliases=-
+  arg  --window  kind=option  completion=custom
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
 command  list-buffers  aliases=-
@@ -1274,6 +1279,7 @@ command  ssh-tmux  aliases=-
   arg  --new-window  kind=flag  completion=-
   arg  --no-focus  kind=flag  completion=-
   arg  --port  kind=option  completion=-
+  arg  --socket-name  kind=option  completion=-
   arg  arguments  kind=argument  completion=-
   arg  destination  kind=argument  completion=-
 command  sudo  aliases=-

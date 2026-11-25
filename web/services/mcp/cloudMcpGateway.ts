@@ -1,12 +1,14 @@
 import { cmuxTuiRunCommand } from "../vms/drivers/cmuxTuiDaemon";
 import type { VmRouteResult } from "../vms/routeWorkflow";
 import { execVm, listUserVms, type VmModelPlaneRevoker, type VmWorkflowProgram } from "../vms/workflows";
+import type { TeamEntitlementOverride } from "../vms/teamEntitlementOverride";
 import { CloudMcpToolError, type CloudMcpGateway } from "./cloudMcp";
 
 /** Billing scope and limits for machine access, as `POST /api/vm/:id/exec` resolves them. */
 export type CloudMcpAccessScope = {
   readonly billingTeamId: string | null;
   readonly maxActiveVms: number | null;
+  readonly entitlementOverride?: TeamEntitlementOverride | null;
   readonly planId: string | null;
 };
 
@@ -67,6 +69,7 @@ export function cloudMcpGatewayFor(
         billingTeamId: scope.billingTeamId,
         teamIds: caller.teamIds,
         maxActiveVms: scope.maxActiveVms,
+        entitlementOverride: scope.entitlementOverride,
         callerPlanId: scope.planId,
         providerVmId: machineId,
         command: cmuxTuiRunCommand(args),
