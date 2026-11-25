@@ -84,7 +84,11 @@ private nonisolated struct BookmarkOpWire: Encodable {
             try c.encodeIfPresent(title, forKey: .title)
             try c.encodeIfPresent(url?.absoluteString, forKey: .url)
             try Self.encode(favicon, forKey: .favicon, in: &c)
-            try Self.encode(lastUsed.map(BookmarkTime.ms), forKey: .lastUsed, in: &c)
+            switch lastUsed {
+            case .unchanged: break
+            case .set(let date): try c.encode(BookmarkTime.ms(date), forKey: .lastUsed)
+            case .clear: try c.encodeNil(forKey: .lastUsed)
+            }
             try Self.encode(icon, forKey: .icon, in: &c)
         case .move(let id, let parent, let index):
             try c.encode("move", forKey: .op)
