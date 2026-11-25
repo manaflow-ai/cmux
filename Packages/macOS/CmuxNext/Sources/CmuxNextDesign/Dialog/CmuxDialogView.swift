@@ -31,7 +31,8 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         setAccessibilityRole(.group)
         setAccessibilitySubrole(.dialog)
         setAccessibilityLabel(spec.title)
-        setAccessibilityHelp(([spec.origin.map(CmuxDialogStrings.from)].compactMap { $0 } + spec.lines).joined(separator: "\n"))
+        setAccessibilityHelp(([spec.origin.map(CmuxDialogStrings.from)].compactMap { $0 } + spec.lines + [spec.info].compactMap { $0 })
+            .joined(separator: "\n"))
         setAccessibilityModal(true)
         identifier = NSUserInterfaceItemIdentifier(spec.identifier ?? "cmux.dialog")
     }
@@ -151,6 +152,7 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
 
     /// The icon the card leads with: the spec's, else the app's for a cmux dialog; none for a web page's.
     static func icon(for spec: CmuxDialogSpec) -> NSImage? {
+        guard spec.leadsWithIcon else { return nil }
         if let data = spec.icon { return NSImage(data: data) }
         guard spec.origin == nil else { return nil }
         return NSApplication.shared.applicationIconImage
@@ -185,7 +187,23 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
         body.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
 
         let titleFont = Typography.dialogTitle
-        let title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
+        let title: NSView
+        if let info = spec.info {
+            // The circle sits right after the title's last word, not at the card's far edge: the title is as wide as
+            // its words (up to the room left beside the circle), and the row hugs them.
+            let circle = Self.infoCircle(info, font: titleFont)
+            let room = contentWidth - circle.fittingSize.width - Metrics.space2
+            let natural = ceil((spec.title as NSString).size(withAttributes: [.font: titleFont]).width) + 4
+            let words = label(spec.title, font: titleFont, role: .primary, width: min(natural, room))
+            let row = NSStackView(views: [words, circle])
+            row.orientation = .horizontal
+            row.alignment = .firstBaseline
+            row.spacing = Metrics.space2
+            row.translatesAutoresizingMaskIntoConstraints = false
+            title = row
+        } else {
+            title = label(spec.title, font: titleFont, role: .primary, width: contentWidth)
+        }
         body.addArrangedSubview(title)
         if let origin = spec.origin {
             body.addArrangedSubview(label(CmuxDialogStrings.from(origin), font: Typography.cardBody, role: .secondary, width: contentWidth))
@@ -368,6 +386,24 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
     }
 
     enum TextRole { case primary, secondary, danger }
+
+    /// The title's info circle: the card's ``CmuxDialogSpec/info`` in the themed tooltip on hover, in the
+    /// secondary ink, as tall as the title's capitals.
+    static func infoCircle(_ info: String, font: NSFont) -> ThemedImageView {
+        let config = NSImage.SymbolConfiguration(pointSize: font.pointSize * 0.85, weight: .regular)
+        let image = NSImage(systemSymbolName: "info.circle", accessibilityDescription: info)?.withSymbolConfiguration(config)
+        let view = ThemedImageView(image: image ?? NSImage())
+        view.themeTint = { Palette.sheetText(.secondary) }
+        view.identifier = NSUserInterfaceItemIdentifier("cmux.dialog.info")
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.setContentHuggingPriority(.required, for: .horizontal)
+        view.setContentCompressionResistancePriority(.required, for: .horizontal)
+        view.themedToolTip = info
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.image)
+        view.setAccessibilityLabel(info)
+        return view
+    }
 
     /// A themed label: it re-reads its ink in the scope it draws in (on joining a window and on every theme
     /// change), never the scope it was built in.
