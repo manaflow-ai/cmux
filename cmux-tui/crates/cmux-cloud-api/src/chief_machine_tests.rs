@@ -590,7 +590,10 @@ fn the_install_makes_a_root_only_folder_and_file_and_says_whether_it_changed() {
         "printf '[Service]\\n%s\\n' 'EnvironmentFile=-/run/cmux-chief/turn.env' > {}",
         chief_turn::TURN_UNIT_DROP_IN
     )));
-    assert!(script.contains("load=$(systemctl show cmux-chief.service -p LoadState --value 2>/dev/null)"));
+    assert!(
+        script
+            .contains("load=$(systemctl show cmux-chief.service -p LoadState --value 2>/dev/null)")
+    );
     assert!(script.contains("echo 'systemd unavailable' >&2; exit 1"));
     assert!(script.contains("[ \"$load\" = not-found ]"));
     assert!(script.contains("systemctl daemon-reload; unit=added"));
