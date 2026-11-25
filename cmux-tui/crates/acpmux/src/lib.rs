@@ -101,6 +101,7 @@ pub mod deps;
 pub mod desktop_bridge;
 pub mod desktop_link;
 pub mod directory_input;
+pub mod disk_evict;
 pub mod disk_usage;
 pub(crate) mod disk_writer;
 pub mod folder_instructions;
@@ -180,6 +181,7 @@ pub mod idempotency;
 #[cfg(windows)]
 mod job;
 mod joined_model_plane;
+pub mod terminal_autocompact;
 /// `cmux github` and the GitHub MCP bridge on a joined machine ask its hub (`joined_model_plane`).
 #[cfg(unix)]
 pub use joined_model_plane::install_github_source;
