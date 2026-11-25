@@ -49,8 +49,7 @@ import Testing
         let bar: CGFloat = preset == .cozy ? 34 : (28 / 0.9 * t * 2).rounded() / 2
         #expect(metrics.barHeight == bar && metrics.buttonSize == (preset == .cozy ? 28 : bar), "\(preset)")
         let font = preset == .cozy ? CGFloat((11 - 0.31) / 0.70459) : CGFloat((10 - 0.31) / 0.70459 / 0.9) * t
-        // Compact's is the user's tuned 13.753 (2026-11-19), the scaled size to three places.
-        #expect(abs(metrics.fontSize - font) < (preset == .compact ? 0.000_5 : 0.000_001), "\(preset): the omnibar font is \(metrics.fontSize), want \(font)")
+        #expect(abs(metrics.fontSize - font) < 0.000_001, "\(preset): the omnibar font is \(metrics.fontSize), want \(font)")
     }
 
     /// Lucas 2026-11-17: Default's omnibar is Compact's, every size the bar draws, on Chrome's 34 pt bar with 11 pt

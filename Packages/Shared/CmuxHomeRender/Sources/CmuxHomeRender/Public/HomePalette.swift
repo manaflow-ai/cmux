@@ -147,6 +147,9 @@ public struct HomePalette: Hashable, Sendable {
     public var placeholder: HomeColor
     /// The grey under the flying bubble while it is translucent (the field's glass).
     public var morphUnderlay: HomeColor
+    /// The composer field's fill over a see-through window (the web composer's surface there); nil
+    /// on an opaque window, where the field keeps its own glass.
+    public var composeFillOverGlass: HomeColor? = nil
     public var typingDot: HomeColor
     public var typingDotHighlight: HomeColor
     /// The composer's own text and symbols: the received text unless a chat
@@ -194,6 +197,11 @@ public struct HomePalette: Hashable, Sendable {
     /// receipts and captions on the page, the Chief's text on its bubble.
     public static let minimumTextContrast: Double = 4.5
 
+    /// How far system glass draws the composer field's fill toward mid grey, at most (measured 6 %
+    /// on white and on the dark field; chief-plain, b409aec1): the placeholder reads at
+    /// ``minimumTextContrast`` on the fill moved this far too.
+    static let glassFieldGreyPull: CGFloat = 0.1
+
     /// The least WCAG contrast of the field's edge against the page (1.4.11,
     /// non-text: a component's boundary needs 3:1) on a light theme, where the
     /// field's white fill is otherwise as pale as the page.
@@ -234,7 +242,10 @@ public struct HomePalette: Hashable, Sendable {
         var p = self
         let field = composeGlass.with(alpha: 1)
         p.incomingText = incomingText.readable(on: incomingBubble).readable(on: field)
-        p.placeholder = placeholder.readable(on: field)
+        // The field is system glass, which draws its fill a step toward mid grey (white came out 247,
+        // the dark field 60: 4.22:1 and 4.43:1 for a placeholder at 4.5:1 on the fill; chief-plain,
+        // b409aec1), so the placeholder reads on the fill and on the fill drawn that step and more.
+        p.placeholder = placeholder.readable(onEvery: [field, field.mixed(with: .gray255(128), Self.glassFieldGreyPull)])
         p.secondaryText = secondaryText.readable(on: background.with(alpha: 1))
         return p
     }
@@ -318,11 +329,25 @@ public struct HomePalette: Hashable, Sendable {
     /// - Parameters:
     ///   - fill: the colour the scene paints under the transcript.
     ///   - window: the opaque colour under `fill`.
+    ///   - placeholderOverGlass: the composer's placeholder when `fill` is see-through (the host's
+    ///     secondary text token); nil keeps the field-tier placeholder.
+    ///   - fieldFillOverGlass: the composer field's fill when `fill` is see-through (the web
+    ///     composer's surface there); nil keeps the field's clear glass.
     /// - Returns: the palette with `fill` as its background.
-    public func onBackground(_ fill: HomeColor, over window: HomeColor) -> HomePalette {
+    public func onBackground(_ fill: HomeColor, over window: HomeColor, placeholderOverGlass: HomeColor? = nil,
+                             fieldFillOverGlass: HomeColor? = nil) -> HomePalette {
         var p = self
         p.background = fill
         p.secondaryText = secondaryText.readable(on: window.with(alpha: 1).mixed(with: fill.with(alpha: 1), fill.alpha))
+        // A see-through fill: the field is clear glass over art or the desktop, where the field-tier
+        // placeholder fell to 1.8:1 (text-inputs-glass, chief-art). It takes the host's secondary text
+        // token, the ink every web field's placeholder takes over a see-through window
+        // (--cmux-text-secondary, ui/controls.css), so native and web draw the same pixels.
+        if fill.alpha < 1, let placeholderOverGlass { p.placeholder = placeholderOverGlass }
+        // The token alone held 2.7:1 (light) and 2.4:1 (dark) on art (be805d96): the clear field shows
+        // the picture under the text. The web composer lays its surface there (the solid at the chrome
+        // glass tint, composerStates.css), so the native field takes the same fill.
+        p.composeFillOverGlass = fill.alpha < 1 ? fieldFillOverGlass : nil
         return p
     }
 

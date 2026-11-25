@@ -47,6 +47,15 @@ RULES: list[tuple[str, re.Pattern[str]]] = [
      re.compile(r"\bNSRegularExpression\(|\btry\s+Regex\(|\bRegex\s*\{|(?<![\w/])#/|\.matches\(in:|\.firstMatch\(of:|\.wholeMatch\(of:")),
     ("JSON / property-list decode",
      re.compile(r"\bJSONDecoder\(\)|\bJSONSerialization\.jsonObject\(|\bPropertyListDecoder\(\)|\bPropertyListSerialization\.propertyList\(")),
+    # The encode half (2026-11-21, Leo's NIGHTLY: a page call's 512 KB `newTab.warm` parsed and written again with
+    # sorted keys on the main actor). Encode off the main actor, or keep the text the sender made.
+    ("JSON / property-list encode",
+     re.compile(r"\bJSONSerialization\.data\(withJSONObject:|\bJSONEncoder\(\)|\bPropertyListEncoder\(\)"
+                r"|\bPropertyListSerialization\.data\(fromPropertyList:")),
+    # Sorting every object's keys costs a comparison sort per object: only where something reads the order or
+    # compares the text (a digest, a dedupe), with `// main-actor-ok: <why the order is read>`.
+    ("JSON encode with sorted keys",
+     re.compile(r"\.sortedKeys\b")),
     ("directory walk",
      re.compile(r"\.enumerator\((at|atPath):|\.contentsOfDirectory\((at|atPath):|\.subpathsOfDirectory\(|\.subpaths\(atPath:")),
     ("process launch",

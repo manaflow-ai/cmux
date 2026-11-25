@@ -3,12 +3,15 @@
 //! bundled daemon and its app always agree.
 
 mod accepts;
+pub(crate) mod aliases;
 mod app_id;
 mod backdrop;
 mod build_defaults;
 mod chat_roots;
 mod json_schema;
 mod retired;
+pub mod shape;
+mod sidebar_rows;
 mod url;
 
 use std::collections::HashMap;
@@ -18,16 +21,34 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
+pub use accepts::{Accepted, accepts, aliased, effective_value, is_hex_color, is_search_template};
+pub use aliases::{choice_alias, choice_aliases};
+pub use backdrop::normalize_backdrop;
+pub use backdrop::{
+    RECENTS_CAP, is_location as is_backdrop_location, is_memory as is_backdrop_memory,
+    is_picture as is_backdrop_picture, is_recents as is_backdrop_recents,
+    is_schedule as is_backdrop_schedule, is_selection as is_background, previous_background,
+    recents_of, record_recent,
+};
 pub use build_defaults::{BUILD_DEFAULTS_ENV, build_defaults_from};
 pub use chat_roots::chat_root_is_valid;
-pub use retired::{Replaced, replaced_by_row, replaced_keys, retired_keys, retired_reason};
+pub use retired::{
+    Replaced, Retired, replaced_by_row, replaced_keys, retired_entries, retired_keys,
+    retired_reason,
+};
+pub use sidebar_rows::problems as sidebar_row_problems;
 pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
 
-/// A `static`, not a `const`: one copy, whose bytes the embedded rows borrow.
-static EMBEDDED: &str = include_str!("../../../../../schemas/settings/settings-schema.json");
+/// File settings read directly by acpmux outside the editable Settings catalog.
+pub const DESKTOP_BRIDGE_ENABLED: &str = "agents.desktopBridge.enabled";
+pub const DESKTOP_BRIDGE_ENTRYPOINTS: &str = "agents.desktopBridge.entrypoints";
+
+/// Compiled in compressed (cmux-embed): 2.4 MB of JSON, about 85 KB packed. Inflated once
+/// into the one text whose bytes the embedded rows borrow (`EMBEDDED.get()`).
+static EMBEDDED: cmux_embed::PackedStr =
+    cmux_embed::packed_str!(include_str!("../../../../../schemas/settings/settings-schema.json"));
 
 /// A text with the string catalog key it came from (nil for a product name).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -90,6 +111,12 @@ pub enum Kind {
     /// An object of notification sound rules (Swift `soundRules`): each member
     /// a sound name, or `{"sound", "volume", "events"}` (`NotificationSoundRule`).
     SoundRules,
+    /// A nested JSON value (arrays of arrays, maps of lists) of the row's own
+    /// `shape`: a JSON Schema (draft 2020-12) of the keywords `shape::check`
+    /// allows (`sidebar.workspaceRow.lines`). The shape is both the editor's
+    /// schema and the owner's check; a validation domain may add rules no
+    /// schema says (`DomainKind::SidebarRowLines`).
+    Json(Value),
 }
 
 impl Kind {
@@ -114,6 +141,7 @@ impl Kind {
             Kind::NumberList(_) => "number_list",
             Kind::StringMap => "string_map",
             Kind::SoundRules => "sound_rules",
+            Kind::Json(_) => "json",
         }
     }
 }
@@ -129,6 +157,10 @@ pub enum Validation {
 pub enum DomainKind {
     Theme,
     FontFamily,
+    /// `appearance.appFont`: any installed font family, proportional ones too
+    /// (the terminal rows' `font_family` domain is the fixed-pitch families);
+    /// the app does not publish this list, so the owner checks the shape only.
+    UiFontFamily,
     Sound,
     /// `appearance.background`: a listed choice or `system:<absolute path>`
     /// (Swift `BackdropSelectionSetting.accepts`; each Mac has its own
@@ -144,6 +176,16 @@ pub enum DomainKind {
     BackdropSchedule,
     /// `appearance.backgroundLocation`: `LAT,LON` (Swift `BackdropLocation`).
     BackdropLocation,
+    /// `appearance.backgroundMemory`: what each background mode last showed
+    /// (`rotate`, `folder`, `off`; Swift `BackdropSelectionSetting.acceptsMemory`).
+    BackdropMemory,
+    /// `appearance.backgroundPlacement`: picture ids to placement texts
+    /// (`crate::backdrop_placement`; Swift `BackdropPlacement`).
+    BackdropPlacement,
+    /// `appearance.backgroundRecents`: the backgrounds shown before, newest
+    /// first, each an `appearance.background` value, at most
+    /// `backdrop::RECENTS_CAP` (Swift `BackdropSelectionSetting.acceptsRecents`).
+    BackdropRecents,
     /// `agents.chats.roots`: absolute folders outside the protected ones
     /// (Swift `ChatRootValidator`).
     ChatRoots,
@@ -156,9 +198,30 @@ pub enum DomainKind {
     /// `agentPane.display.commandLabels`: a list of preset names and command
     /// label rules (Swift `CommandLabelsSetting.accepts`).
     CommandLabels,
+    /// `agentPane.display.thinking.glyph`: a `cmux.particles/1` document, checked by the one
+    /// validator (cmux-app-host `particles::validate`) that also checks scene `choreography` props.
+    ParticlesDocument,
+    /// `agentPane.display.transcriptTokens`: an object of transcript look
+    /// tokens, each in its range (`crate::transcript_look`; Swift
+    /// `TranscriptTokensSetting.accepts` checks the shape only).
+    TranscriptTokens,
+    /// `machines.hosts`: a list of hosts, each a label and the ssh endpoints
+    /// tried in order (`crate::hosts`; Swift `HostsSetting.accepts`).
+    Hosts,
     /// `tabs.newTabApp`: an id an app manifest may have
     /// (`app_id::is_valid_app_id`, the manifest schema's pattern; Swift `NewTabAppSetting.isValidID`).
     AppId,
+    /// `sidebar.sections.hidden` / `order`: distinct section ids of 1 to 128
+    /// characters, at most 256 (cmux-layout-reducer `sidebar_section_customization`;
+    /// Swift `SidebarSectionIDsSetting.accepts`).
+    SidebarSectionIds,
+    /// `sidebar.workspaceRow.lines`: a row layout the sidebar row reducer
+    /// draws as written (`cmux_layout_reducer::sidebar_row_layout`, `sidebar_rows`).
+    SidebarRowLines,
+    /// `sidebar.workspaceRow.linesByKind`: a layout per row kind, each drawn as written.
+    SidebarRowLinesByKind,
+    /// `sidebar.workspaceRow.linesByAgent`: a layout per agent id, each drawn as written.
+    SidebarRowLinesByAgent,
 }
 
 /// One descriptor row.
@@ -272,6 +335,9 @@ struct RawRow {
     range: Option<NumberRange>,
     #[serde(default)]
     url_key: Option<String>,
+    /// `json` rows: the value's JSON Schema.
+    #[serde(default)]
+    shape: Option<Value>,
     default: Option<Value>,
     default_label: Option<Text>,
     keywords: Vec<String>,
@@ -315,7 +381,8 @@ impl Schema {
     pub fn embedded() -> &'static Schema {
         static SCHEMA: OnceLock<Schema> = OnceLock::new();
         SCHEMA.get_or_init(|| {
-            let parsed = Schema::parse_keeping(EMBEDDED, |embedded, _| RowText::Embedded(embedded));
+            let parsed =
+                Schema::parse_keeping(EMBEDDED.get(), |embedded, _| RowText::Embedded(embedded));
             // crash-allow: the schema is compiled in; the behavior tests parse it on every run.
             let schema = parsed.expect("the embedded settings schema parses");
             // The build's defaults the app named (`CMUX_NEXT_SETTINGS_BUILD_DEFAULTS`, build_defaults.rs).
@@ -375,6 +442,50 @@ impl Schema {
     pub fn rows_in<'a>(&'a self, section: Option<&'a str>) -> impl Iterator<Item = &'a Row> + 'a {
         self.rows.iter().filter(move |row| section.is_none_or(|id| row.section == id))
     }
+
+    /// Rows `settings.reset_group` resets for `name`: a section id
+    /// (`appearance`, the Settings page's left column) takes every row of
+    /// the section; `<section>.<group>` (`appearance.sidebar`, a heading on
+    /// that page, [`Row::group_id`]) takes the rows of that group. Empty for
+    /// an unknown name.
+    pub fn rows_in_group(&self, name: &str) -> Vec<&Row> {
+        self.rows.iter().filter(|row| row.section == name || row.group_id() == name).collect()
+    }
+
+    /// Every name [`Schema::rows_in_group`] knows, in schema order: each
+    /// section with rows, then its groups.
+    pub fn group_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for row in &self.rows {
+            for name in [row.section.clone(), row.group_id()] {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        names
+    }
+}
+
+impl Row {
+    /// The row's group as `settings.reset_group` names it: its section and
+    /// the last part of the group's localization key
+    /// (`settings.group.sidebar` in section `appearance` is
+    /// `appearance.sidebar`), or the group's title in lowercase letters and
+    /// digits when it has no key.
+    pub fn group_id(&self) -> String {
+        let slug = match &self.group.key {
+            Some(key) => key.rsplit('.').next().unwrap_or(key).to_string(),
+            None => self
+                .group
+                .text
+                .chars()
+                .filter(char::is_ascii_alphanumeric)
+                .map(|c| c.to_ascii_lowercase())
+                .collect(),
+        };
+        format!("{}.{slug}", self.section)
+    }
 }
 
 fn row(raw: Value, text: RowText) -> Result<Row, String> {
@@ -407,22 +518,41 @@ fn row(raw: Value, text: RowText) -> Result<Row, String> {
         "number_list" => Kind::NumberList(range()?),
         "string_map" => Kind::StringMap,
         "sound_rules" => Kind::SoundRules,
+        "json" => {
+            let shape =
+                parsed.shape.clone().ok_or_else(|| format!("{}: shape missing", parsed.key))?;
+            shape::check(&shape).map_err(|error| format!("{}: shape {error}", parsed.key))?;
+            Kind::Json(shape)
+        }
         other => return Err(format!("{}: unknown kind {other}", parsed.key)),
     };
     let validation = match parsed.validation.as_str() {
         "portable" => Validation::Portable,
         "domain:theme" => Validation::Domain(DomainKind::Theme),
         "domain:font_family" => Validation::Domain(DomainKind::FontFamily),
+        "domain:ui_font_family" => Validation::Domain(DomainKind::UiFontFamily),
         "domain:sound" => Validation::Domain(DomainKind::Sound),
         "domain:backdrop_selection" => Validation::Domain(DomainKind::BackdropSelection),
         "domain:backdrop_picture" => Validation::Domain(DomainKind::BackdropPicture),
         "domain:backdrop_schedule" => Validation::Domain(DomainKind::BackdropSchedule),
         "domain:backdrop_location" => Validation::Domain(DomainKind::BackdropLocation),
+        "domain:backdrop_memory" => Validation::Domain(DomainKind::BackdropMemory),
+        "domain:backdrop_placement" => Validation::Domain(DomainKind::BackdropPlacement),
+        "domain:backdrop_recents" => Validation::Domain(DomainKind::BackdropRecents),
         "domain:chat_roots" => Validation::Domain(DomainKind::ChatRoots),
         "domain:search_template" => Validation::Domain(DomainKind::SearchTemplate),
         "domain:custom_densities" => Validation::Domain(DomainKind::CustomDensities),
         "domain:command_labels" => Validation::Domain(DomainKind::CommandLabels),
         "domain:app_id" => Validation::Domain(DomainKind::AppId),
+        "domain:particles_document" => Validation::Domain(DomainKind::ParticlesDocument),
+        "domain:sidebar_row_lines" => Validation::Domain(DomainKind::SidebarRowLines),
+        "domain:sidebar_row_lines_by_kind" => Validation::Domain(DomainKind::SidebarRowLinesByKind),
+        "domain:sidebar_row_lines_by_agent" => {
+            Validation::Domain(DomainKind::SidebarRowLinesByAgent)
+        }
+        "domain:transcript_tokens" => Validation::Domain(DomainKind::TranscriptTokens),
+        "domain:sidebar_section_ids" => Validation::Domain(DomainKind::SidebarSectionIds),
+        "domain:hosts" => Validation::Domain(DomainKind::Hosts),
         other => return Err(format!("{}: unknown validation {other}", parsed.key)),
     };
     Ok(Row {
@@ -463,14 +593,14 @@ mod row_text_tests {
 
     #[test]
     fn the_schema_hash_equals_the_whole_array_hash() {
-        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(EMBEDDED));
+        assert_eq!(Schema::embedded().schema_hash, rows_hash_reference(EMBEDDED.get()));
         let empty = r#"{"version":1,"sections":[],"rows":[]}"#;
         assert_eq!(Schema::parse(empty).expect("parses").schema_hash, rows_hash_reference(empty));
     }
 
     #[test]
     fn embedded_rows_keep_slices_of_the_compiled_text_not_heap_copies() {
-        let range = EMBEDDED.as_bytes().as_ptr_range();
+        let range = EMBEDDED.get().as_bytes().as_ptr_range();
         let rows = &Schema::embedded().rows;
         assert!(!rows.is_empty());
         for row in rows {
@@ -481,7 +611,7 @@ mod row_text_tests {
             assert!(range.contains(&start), "{}: not a slice of the embedded text", row.key);
         }
         // Another text keeps owned compact rows that give back the same values.
-        let parsed = Schema::parse(EMBEDDED).expect("parses");
+        let parsed = Schema::parse(EMBEDDED.get()).expect("parses");
         assert_eq!(parsed.schema_hash, Schema::embedded().schema_hash);
         for (owned, embedded) in parsed.rows.iter().zip(rows) {
             assert!(matches!(owned.raw, RowText::Owned(_)));

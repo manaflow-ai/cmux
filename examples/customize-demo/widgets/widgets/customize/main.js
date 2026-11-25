@@ -4,7 +4,7 @@
 // - the sidebar (cmux.section/1): Today, Agents, Usage and Pull requests, stacked as cards;
 // - each chat's Session Info (cmux.session.info.section/1): this chat's agent and state, the
 //   usage left on its provider, and its branch's pull request with the checks;
-// - every New Tab (cmux.newtab/1): the same cards in three columns, plus a world clock and
+// - every New Tab (cmux.newtab/1): the same cards two a row, plus a world clock and
 //   today's chats by project.
 //
 // The code is taken from the examples, so each card is the one already tested there:
@@ -375,7 +375,7 @@ function meter(row) {
   const left = () => (row().weeklyLeft === null ? null : shown()[row().id] ?? 0)
   return VStack({ spacing: 3 }, [
     HStack({ spacing: 6 }, [
-      Text(() => NAMES[row().id] ?? row().id).weight("semibold"),
+      Text(() => NAMES[row().id] ?? row().id).weight("semibold").fixedSize("horizontal"),
       Badge(() => `${row().usable}/${row().accounts}`, cmux.theme.accent).help("Accounts that can take work now, of all you have"),
       Spacer(),
       Text(() => (left() === null ? "–" : `${Math.round(left())}%`)).font("title3").monospaced().color(() => usageTone(row().weeklyLeft))
@@ -555,12 +555,18 @@ function renderPage() {
       ]),
       Spacer()
     ]),
-    // Each column keeps a width its cards fit in, so none is squeezed to a letter a line.
+    // The page has no wrap and no pane width to read, so the cards go two a row, each half of the row
+    // whatever its content (a width of "infinity" in both makes their flex bases equal): the time
+    // beside your agents, then usage beside your pull requests. It fits a pane from 600 pt up.
     HStack({ spacing: 12, alignment: "top" }, [
       VStack({ spacing: 12 }, [todayCard(true), worldClockCard()]),
-      VStack({ spacing: 12 }, [agentsCard({ rows: 6, page: true })]),
-      VStack({ spacing: 12 }, [usageCard(), prCard(6)])
-    ].map((column) => column.frame({ minWidth: 260, maxWidth: "infinity" }))),
+      agentsCard({ rows: 6, page: true })
+    ].map((cell) => cell.frame({ width: "infinity" }))),
+    // Where this cmux does not share the Usage app with views, the pull requests take the whole row.
+    () =>
+      usageReachable()
+        ? HStack({ spacing: 12, alignment: "top" }, [VStack([usageCard()]), prCard(6)].map((cell) => cell.frame({ width: "infinity" })))
+        : prCard(6),
     Spacer()
   ]).padding()
 }

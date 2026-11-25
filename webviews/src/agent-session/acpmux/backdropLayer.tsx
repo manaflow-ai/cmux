@@ -1,5 +1,7 @@
 import { use, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { naturalHeight } from "../../ui/popupHost";
+import { listPlacement } from "../../ui/listPlacement";
 import { backdropLayer, ListAnchor } from "./backdropLayerModel";
 /** The box the composer's lists float above (the chat's `.acpmux-composer-box`, New Tab's `.nt-box`). */
 export function ComposerListAnchor({
@@ -20,7 +22,13 @@ export function ComposerListAnchor({
  * Draws a composer list in its layer over the box. Outside a composer (no anchor) it draws in place.
  * Layout is read as the list opens and again only when the box, a box between it and the layer's
  * host, or the layer's parent changes size (the draft grows, a notice shows over the box, the pane
- * resizes) or a scroller between them moves the box: no frame loop.
+ * resizes), a scroller between them moves the box, or the list's rows change: no frame loop.
+ *
+ * The layer also tells the list (styles.css `.acpmux-composer-list-layer`) which side of the box
+ * has room (`data-side`, listPlacement.ts), how tall it may grow there (`--composer-list-room`), and
+ * the box's corner (`--composer-list-radius`), so the list never runs past the window's edge and
+ * reads as the box's own surface (David Beyer 2026-11-20: New Tab's `/` list ran over the screen's
+ * edge, in corners and type that were not the box's).
  */
 export function ComposerListLayer({ children }: { children: ReactNode }) {
   const { box, inert } = use(ListAnchor);
@@ -47,6 +55,26 @@ export function ComposerListLayer({ children }: { children: ReactNode }) {
         width: `${at.width / scaleX}px`,
         height: `${at.height / scaleY}px`,
       });
+      const list = node.firstElementChild instanceof HTMLElement ? node.firstElementChild : null;
+      const view = box.ownerDocument.defaultView;
+      if (list && view) {
+        // Window pixels to the layer's CSS pixels (a zoomed page).
+        const placed = listPlacement(at, view.innerHeight, naturalHeight(list) * scaleY);
+        if (node.dataset.side !== placed.side) node.dataset.side = placed.side;
+        node.style.setProperty("--composer-list-room", `${Math.max(0, placed.room / scaleY)}px`);
+      }
+      const corners = view?.getComputedStyle(box);
+      const radius = corners
+        ? Math.max(
+            ...[
+              corners.borderTopLeftRadius,
+              corners.borderTopRightRadius,
+              corners.borderBottomLeftRadius,
+              corners.borderBottomRightRadius,
+            ].map((value) => Number.parseFloat(value) || 0),
+          )
+        : 0;
+      if (radius > 0) node.style.setProperty("--composer-list-radius", `${radius}px`);
     };
     place();
     // A scroller around the box but not the layer moves one without the other; the transcript's
@@ -67,7 +95,11 @@ export function ComposerListLayer({ children }: { children: ReactNode }) {
     }
     window.addEventListener("resize", place);
     window.addEventListener("scroll", onScroll, true);
+    // The list's rows change as the query narrows it: its natural height decides the side.
+    const rows = typeof MutationObserver === "undefined" ? undefined : new MutationObserver(place);
+    rows?.observe(node, { childList: true, subtree: true });
     return () => {
+      rows?.disconnect();
       observer?.disconnect();
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", onScroll, true);

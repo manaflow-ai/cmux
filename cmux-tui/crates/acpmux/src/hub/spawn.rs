@@ -132,7 +132,11 @@ fn migrate_legacy_harness_state(
 impl Hub {
     /// `session/new` or `session/load` params for acpmux session `id`'s ACP
     /// harness: its folder and cmux's MCP servers (agent_tools.rs), none for
-    /// a remote origin or an isolated profile.
+    /// a remote origin or an isolated profile. `init` is this child's own `initialize` answer:
+    /// whether it takes HTTP servers (the daemon's gateway, `mcp_gateway.rs`) comes from it,
+    /// never from `meta`, a copy taken before the answer was recorded (a fresh chat's has no
+    /// capabilities, so a Codex chat got five stdio `acpmux *-mcp` processes, bench 2026-11-25).
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn acp_params(
         &self,
         id: &str,
@@ -141,6 +145,7 @@ impl Hub {
         session_id: Option<&str>,
         child: &crate::agent::ChildAgent,
         answer: &crate::agent_tools::CodexAnswer,
+        init: &Value,
     ) -> Value {
         let all =
             crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
@@ -155,12 +160,21 @@ impl Hub {
                 answer: Some(answer),
             },
         );
-        let servers =
-            crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all, codex);
+        let http = crate::agent_tools::takes_http(init.get("agentCapabilities"));
+        let servers = crate::agent_tools::acp_servers_for(
+            meta.remote_origin,
+            &profile.env,
+            id,
+            all,
+            http,
+            &meta.cwd,
+            codex,
+        );
         // A harness whose ACP server refuses per-session servers (OpenClaw's bridge) gets none:
         // its `session/new` would fail whole.
         let servers = if crate::agent_tools::takes_session_mcp(&meta.harness, profile) {
-            servers
+            // A harness that scrubs its MCP children's env (Hermes) gets the routing env inline.
+            crate::agent_tools::with_routing_env(servers, &meta.harness, profile, &profile.env)
         } else {
             json!([])
         };
@@ -315,10 +329,30 @@ impl Hub {
         for (k, v) in &meta.session_env {
             p.env.insert(k.clone(), v.clone());
         }
+        // A chat a person started asks sr2 for its person reserve (`sr2_priority.rs`), decided
+        // here from who created it, after the session env: never a profile's or request's.
+        crate::sr2_priority::mark(
+            &mut p.env,
+            meta.created_by.as_ref().is_some_and(|c| c.kind == crate::store::CreatorKind::Person),
+        );
         // A remote-origin chat with no answer of its own (a phone or Web client started it; one
         // another Mac's daemon started carries that Mac's, `cmux_tools_answer.rs`) gets none of
         // cmux's servers (`agent_tools::left_out`), and its person's own `cmux` entry gets `off`.
         crate::agent_tools::remote_origin_answer(&mut p.env, meta.remote_origin);
+        // The person's per-agent switch (cmux#49395): a Claude Code or Codex chat switched off in
+        // Settings > Agents gets the answer `off`.
+        let agent = if crate::agent_tools::is_codex(meta, Some(&p)) {
+            Some("codex")
+        } else if crate::agent_tools::is_claude_code(&meta.harness, &p) {
+            Some("claude")
+        } else {
+            None
+        };
+        crate::agent_tools::agent_switch_answer(
+            &mut p.env,
+            crate::user_settings::text().as_deref(),
+            agent,
+        );
         // A Claude Code cut off from cmux's tools passes the answer `off` to its own stdio servers
         // (a person's `cmux` entry), as a Codex one does (`agent_tools::person_entry_env`).
         if crate::agent_tools::is_claude_code(&meta.harness, &p)
@@ -394,22 +428,70 @@ impl Hub {
             let broker = false;
             let inputs =
                 crate::codex_cloud_auth::Inputs { root: &root, home: &home, var: &var, broker };
-            match crate::codex_cloud_auth::own_reason(
-                &inputs,
-                crate::codex_cloud_auth::host_resolves,
-            )
-            .await
+            // A machine joined to the cmux hub, not a Cloud image, whose launch opted in: the
+            // hub's gateway route, the machine credential filled in by the egress proxy
+            // (joined_model_plane.rs). Off unless asked for; asked for on a join that cannot
+            // serve it, the launch fails with the reason rather than run own mode.
+            let joined = match (!inputs.owner_cloud_image()
+                && crate::joined_model_plane::opted_in(&inputs, "CMUX_CODEX_AUTH", "codex"))
+            .then(crate::joined_model_plane::state)
             {
-                Some(reason) => {
-                    tracing::info!(session = %meta.id, reason, "codex on this Cloud machine uses its own sign-in");
-                    let cmux_config = inputs.cmux_config();
-                    crate::codex_cloud_auth::apply(&mut p.argv, &mut p.env, &var, cmux_config);
+                Some(Err(why)) => return Err(joined_declined(&meta.id, "codex", "join", &why)),
+                Some(Ok(join)) => join,
+                None => None,
+            };
+            if let Some(join) = joined {
+                let launch = |k: &str| p.env.get(k).cloned();
+                if crate::joined_model_plane::names_provider(&p.argv) {
+                    tracing::info!(session = %meta.id, "codex launch picks its own provider; it keeps it");
+                } else if let Some(proxy) = crate::vault::egress::machine_credential_env(&launch) {
+                    crate::joined_model_plane::apply_codex(&mut p.argv, &join);
+                    p.env.extend(proxy);
+                    tracing::info!(session = %meta.id, "codex on this joined machine uses the team's model plane through the hub");
+                } else {
+                    return Err(joined_declined(&meta.id, "codex", "no_proxy", NO_PROXY));
                 }
-                // Team mode: the provider's key in the launch env itself, since a remote-origin
-                // chat gets no login env to carry it.
-                None => {
-                    if crate::codex_cloud_auth::apply_team(&mut p.env, &inputs) {
-                        tracing::info!(session = %meta.id, "codex on this Cloud machine uses the team's model plane");
+            } else {
+                // Off a Cloud image and off a join, a Codex with no way in at all is refused here,
+                // naming the host and the fix, instead of starting and failing every turn
+                // (`codex_signed_out.rs`, hq#21792 event 12). Keychain sign-ins are not read on
+                // macOS, so there no sign-in seen is no proof of none.
+                if !cfg!(target_os = "macos")
+                    && !inputs.owner_cloud_image()
+                    && crate::codex_signed_out::no_way_in(&inputs, &p.argv)
+                {
+                    let codex_home = inputs.codex_home().to_string_lossy().into_owned();
+                    let probe_env = std::collections::BTreeMap::from([
+                        ("CODEX_HOME".to_owned(), codex_home),
+                        ("HOME".to_owned(), home.to_string_lossy().into_owned()),
+                    ]);
+                    let program = p.argv.first().map(String::as_str).unwrap_or("codex");
+                    if crate::codex_signed_out::says_not_logged_in(program, &probe_env).await {
+                        let host = crate::hand::pair::hostname();
+                        tracing::warn!(session = %meta.id, %host, code = "codex.no_sign_in", "codex has no sign-in, key or provider on this machine");
+                        return Err(RpcError::invalid_params(crate::codex_signed_out::refusal(
+                            &host,
+                            &meta.harness,
+                        )));
+                    }
+                }
+                match crate::codex_cloud_auth::own_reason(
+                    &inputs,
+                    crate::codex_cloud_auth::host_resolves,
+                )
+                .await
+                {
+                    Some(reason) => {
+                        tracing::info!(session = %meta.id, reason, "codex on this Cloud machine uses its own sign-in");
+                        let cmux_config = inputs.cmux_config();
+                        crate::codex_cloud_auth::apply(&mut p.argv, &mut p.env, &var, cmux_config);
+                    }
+                    // Team mode: the provider's key in the launch env itself, since a remote-origin
+                    // chat gets no login env to carry it.
+                    None => {
+                        if crate::codex_cloud_auth::apply_team(&mut p.env, &inputs) {
+                            tracing::info!(session = %meta.id, "codex on this Cloud machine uses the team's model plane");
+                        }
                     }
                 }
             }
@@ -427,13 +509,55 @@ impl Hub {
         // A launcher that picks Claude's provider itself (`claude-sr`, `claude-cr`) owns it too.
         // The owner's credential owns the provider, as for Codex above: a kept team choice on the
         // machine must not clear the token the launch just set.
-        let claude_on_cloud = !direct
+        // A machine joined to the cmux hub that is no Cloud image takes the hub's gateway route the
+        // same way, only when the launch opted in (joined_model_plane.rs; a cheap check first, so
+        // no other launch resolves its references twice). Not for a remote chain: its sandbox
+        // reaches no loopback proxy to fill the machine credential. Opted in, every gate that
+        // declines fails the launch with its reason (`joined_declined`); not opted in, a launch
+        // with no sign-in of its own fails with the fix (`joined_model_plane::no_sign_in`). An
+        // opted-in launch that keeps own on purpose (a launcher of its own, a pair it sets) logs
+        // why and keeps it.
+        let claude_family = !direct
             && crate::config::derive_family(&meta.harness, &p) == "claude"
-            && !p.env.contains_key(crate::routes::NAME_KEY)
-            && crate::claude_cloud_auth::launches_claude_itself(&p.argv)
-            && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root());
-        let resolved = match claude_on_cloud.then(|| crate::agent::resolved_profile_env(&p)) {
+            && !p.env.contains_key(crate::routes::NAME_KEY);
+        let claude_launch =
+            claude_family && crate::claude_cloud_auth::launches_claude_itself(&p.argv);
+        if claude_family
+            && !claude_launch
+            && !meta.remote_origin
+            && crate::joined_model_plane::may_opt_in(&p.env, "CMUX_CLAUDE_AUTH", "claude")
+            && !crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root())
+            && crate::joined_model_plane::now().is_some()
+        {
+            let file = p.argv.first().map(Path::new).and_then(Path::file_name);
+            let why = format!(
+                "the launch runs {}, not claude",
+                file.map(|f| f.to_string_lossy()).unwrap_or_default()
+            );
+            tracing::warn!(session = %meta.id, agent = "claude", why = %why, code = "joined_model_plane.keeps_own", "a launch that chose the team's model route keeps its own on this joined machine");
+        }
+        let claude_on_cloud =
+            claude_launch && crate::codex_cloud_auth::owner_cloud_image_at(&self.vm_marker_root());
+        let claude_here = claude_launch && !claude_on_cloud && !meta.remote_origin;
+        let claude_opted = claude_here
+            && crate::joined_model_plane::may_opt_in(&p.env, "CMUX_CLAUDE_AUTH", "claude");
+        let claude_joined = match claude_here.then(crate::joined_model_plane::state) {
+            Some(Err(why)) if claude_opted => {
+                return Err(joined_declined(&meta.id, "claude", "join", &why));
+            }
+            Some(Ok(join)) => join,
+            _ => None,
+        };
+        let claude_unchosen = claude_joined.is_some() && !claude_opted;
+        let claude_join = claude_joined.filter(|_| claude_opted);
+        let resolved = match (claude_on_cloud || claude_join.is_some() || claude_unchosen)
+            .then(|| crate::agent::resolved_profile_env(&p))
+        {
             Some(Ok(env)) => Some(env),
+            Some(Err(error)) if claude_join.is_some() => {
+                let why = format!("its profile env does not resolve: {error}");
+                return Err(joined_declined(&meta.id, "claude", "profile_env", &why));
+            }
             Some(Err(error)) => {
                 tracing::info!(session = %meta.id, %error, "claude profile env does not resolve; it keeps its own sign-in");
                 None
@@ -456,8 +580,29 @@ impl Hub {
             // The launch's own `--settings`, which Claude applies over every settings file; one
             // it cannot read keeps own.
             let flag = crate::claude_cloud_auth::flag_settings(p.argv.get(1..).unwrap_or(&[]), cwd);
+            if let Err(error) = &flag
+                && claude_join.is_some()
+            {
+                let why = format!("its --settings does not read: {error}");
+                return Err(joined_declined(&meta.id, "claude", "settings_flag", &why));
+            }
+            // Keychain sign-ins are never read (`claude_auth.rs`), so on macOS no sign-in seen is
+            // no proof of none.
+            if claude_unchosen
+                && !cfg!(target_os = "macos")
+                && let Ok(flag) = &flag
+                && crate::claude_cloud_auth::joined_without_sign_in(
+                    &inputs,
+                    &env,
+                    flag.as_ref(),
+                    cwd,
+                )
+            {
+                tracing::warn!(session = %meta.id, code = "joined_model_plane.no_sign_in", "claude on this joined machine has no sign-in and no choice");
+                return Err(RpcError::invalid_params(crate::joined_model_plane::no_sign_in()));
+            }
             let pair = match &flag {
-                Ok(flag) => {
+                Ok(flag) if claude_on_cloud => {
                     crate::claude_cloud_auth::team_pair(
                         &inputs,
                         &env,
@@ -467,24 +612,74 @@ impl Hub {
                     )
                     .await
                 }
+                Ok(flag) => {
+                    crate::claude_cloud_auth::joined_pair(
+                        &inputs,
+                        &env,
+                        flag.as_ref(),
+                        cwd,
+                        claude_join.as_ref(),
+                        crate::codex_cloud_auth::host_resolves,
+                    )
+                    .await
+                }
                 Err(error) => {
                     tracing::info!(session = %meta.id, %error, "claude --settings does not read; it keeps its own sign-in");
                     None
                 }
             };
+            if pair.is_none()
+                && let (Some(join), Ok(flag)) = (&claude_join, &flag)
+            {
+                match crate::claude_cloud_auth::joined_own_reason(&inputs, &env, flag.as_ref(), cwd)
+                {
+                    Some(why) => {
+                        tracing::warn!(session = %meta.id, agent = "claude", why, code = "joined_model_plane.keeps_own", "a launch that chose the team's model route keeps its own on this joined machine");
+                    }
+                    None => {
+                        let why = format!("the hub's host {} does not resolve", join.host());
+                        return Err(joined_declined(&meta.id, "claude", "hub_unresolved", &why));
+                    }
+                }
+            }
+            let headers =
+                env.get(crate::claude_cloud_auth::HEADERS).map(String::as_str).unwrap_or("");
+            // A joined machine's launch: the header with the machine credential's placeholder,
+            // and the egress proxy that fills it; without the proxy, own mode.
+            let joined = match (&pair, claude_on_cloud) {
+                (Some(_), false) => {
+                    let launch = |k: &str| p.env.get(k).cloned();
+                    let Some(proxy) = crate::vault::egress::machine_credential_env(&launch) else {
+                        return Err(joined_declined(&meta.id, "claude", "no_proxy", NO_PROXY));
+                    };
+                    Some(Some((proxy, crate::joined_model_plane::claude_headers(headers))))
+                }
+                _ => None,
+            };
+            let pair = pair.filter(|_| !matches!(joined, Some(None)));
             if let (Some(pair), Ok(flag)) = (pair, &flag) {
-                tracing::info!(session = %meta.id, "claude on this Cloud machine uses the team's model plane");
+                let headers = match &joined {
+                    Some(Some((proxy, headers))) => {
+                        p.env.extend(proxy.iter().cloned());
+                        tracing::info!(session = %meta.id, "claude on this joined machine uses the team's model plane through the hub");
+                        headers.as_str()
+                    }
+                    _ => {
+                        tracing::info!(session = %meta.id, "claude on this Cloud machine uses the team's model plane");
+                        headers
+                    }
+                };
                 crate::claude_cloud_auth::apply_team(
                     &mut p.env,
                     &mut p.argv,
                     flag.as_ref(),
                     pair,
-                    env.get(crate::claude_cloud_auth::HEADERS).map(String::as_str).unwrap_or(""),
+                    headers,
                     meta.remote_origin,
                 );
             }
         }
-        // Gemini and Grok on a cmux Cloud machine: the team's gateway when the person has no
+        // Gemini, Grok and Antigravity on a cmux Cloud machine: the team's gateway when the person has no
         // sign-in of their own and the gateway serves the agent (provider_cloud_auth.rs,
         // hq#11225). A bound route, or a launcher that picks the provider itself, owns it instead.
         // The probe waits at most `PROBE_DEADLINE`; any failure keeps own.
@@ -535,6 +730,12 @@ impl Hub {
                 }
             }
         }
+        // Antigravity with no key in its launch: the person's own one from `~/.gemini/.env`, where
+        // the Cloud sign-in card saves it; `agy` reads only its environment (acp_key_auth.rs).
+        let family = crate::config::derive_family(&meta.harness, &p);
+        crate::acp_key_auth::fill_key_from_gemini_dotenv(&mut p.env, &family, |k| {
+            std::env::var(k).ok()
+        });
         p.env.remove(crate::agent::REMOTE_ENV_POLICY_KEY);
         if meta.remote_origin {
             // Validate every executable after expansion and launcher
@@ -598,6 +799,9 @@ impl Hub {
                 crate::prompt_cache_env::PromptCache::current(),
                 &login,
             );
+            // Per-turn context in the user turn, not a trailing system message the
+            // next turn cannot read from the cache (prompt_cache_env.rs).
+            crate::prompt_cache_env::keep_turn_context_in_user_turn(&mut p.env, &login);
         }
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {
@@ -647,6 +851,25 @@ impl Hub {
     }
 }
 
+/// Why a joined launch gets no proxy (`vault::egress::machine_credential_env`).
+const NO_PROXY: &str = "the egress proxy cannot fill the machine credential for this launch (it \
+did not start, or the launch names an HTTPS proxy of its own)";
+
+/// The launch error of a launch that opted in to the joined model plane but whose `gate`
+/// declined it, with `why` (joined_model_plane.rs): one WARN with a stable code, then the error
+/// the caller (`acpmux run`) prints.
+fn joined_declined(session: &str, agent: &str, gate: &str, why: &str) -> RpcError {
+    tracing::warn!(
+        session,
+        agent,
+        gate,
+        why,
+        code = "joined_model_plane.declined",
+        "a launch that chose the team's model route cannot get it on this joined machine"
+    );
+    RpcError::invalid_params(crate::joined_model_plane::declined_text(agent, why))
+}
+
 /// A session's spawn: the profile as it is spawned, and the approval digest
 /// of the preset contents that profile was built from (under one config read).
 pub(super) struct Spawn {
@@ -677,3 +900,7 @@ mod claude_cloud_tests;
 #[cfg(test)]
 #[path = "spawn_codex_cloud_tests.rs"]
 mod codex_cloud_tests;
+
+#[cfg(all(test, unix, not(target_os = "macos")))]
+#[path = "spawn_codex_signed_out_tests.rs"]
+mod codex_signed_out_tests;

@@ -1,7 +1,12 @@
 // One launch of a cmux NEXT app the way the Dock launches it (CMUX-629, CMUX-631), timed from outside the app.
 //
-//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, type (separate or
-//                                                                      comma-separated)
+//   launch-ready APP HOME_ROOT LABEL [SETTLE_S [SOCKET [MODES...]]]   MODES: shell, keys, layout, movequit, type, guest,
+//                                                                      plain
+//                                                                      (separate or comma-separated)
+//
+// With `guest` (launch-ready.sh guest=1, a run on a person's own Mac while they work) the app opens without
+// activating and with CMUX_NEXT_NO_ACTIVATE=1, so the app never activates itself either: no focus is taken from what
+// they are typing into, its windows open behind theirs, and `active` stays null.
 //
 // With `shell` (launch-ready.sh state=bare), once the app marks `window_usable` the probe opens a terminal the way a
 // person's first one opens (`action.run newSurface` on the app's socket) and records `shell_requested`; the app's
@@ -20,10 +25,19 @@
 // keys_sent, keys_landed (how many of the sent keys the message holds) and keys_text.
 //
 // With `layout` (launch-ready.sh layout=1), from the first on-screen frame the probe samples the first window's frame
-// (CGWindowList, any build) every 16 ms and the sidebar's edge (the middle of `debug.layers`'
-// sidebar_resize_area_in_window: a bench or DEBUG build) every 48 ms, until neither changed for 1 s or 3 s passed,
+// (CGWindowList, any build) every 16 ms on one thread and the sidebar's edge (the middle of `debug.layers`'
+// sidebar_resize_area_in_window: a bench or DEBUG build) as often as the app answers on another, until neither changed
+// for 1 s or 3 s passed (the sidebar's first answer can come after the first frame: its first_at says when),
 // and adds `layout` to the row: each one's first and last value, the most it moved from the first (points), how
 // many times it changed after the first sample, and when it last changed (ms from process start).
+// With `movequit` (launch-ready.sh layout=movequit, a DEBUG build), just before the quit the probe sets the window to the
+// other of two frames (`debug.window_frame`: one setFrame, as an Accessibility client resizes) and the sidebar to the
+// other of two widths (`debug.update_surfaces sidebar-width`), then quits at once, so the next launch starts from a
+// record the launch snapshot may not have caught up with; the row's `movequit` says what was set and the ms to the quit.
+//
+// With `plain` (launch-ready.sh other=, any app that is not cmux) the probe gives the app no cmux variables and reads
+// no front from a control socket at the quit: the row has the times read from outside (process start, finished
+// launching, the first on-screen window, active) and `plain: true`.
 //
 // Opens APP through LaunchServices (NSWorkspace.openApplication: a new instance, activated, as a Dock click does)
 // with a home under HOME_ROOT, and prints one `LR-RUN <json>` line. Times are ms from the app's process start
@@ -60,7 +74,13 @@ guard socketPath.utf8.count <= 103 else { // sun_path less its NUL: the app coul
 }
 let modes = Set(args.dropFirst(6).flatMap { $0.split(separator: ",").map(String.init) })
 let opensShell = modes.contains("shell"), typesKeys = modes.contains("keys"), samplesLayout = modes.contains("layout")
-let typesFirstKey = modes.contains("type")
+let typesFirstKey = modes.contains("type"), movesBeforeQuit = modes.contains("movequit"), plainApp = modes.contains("plain")
+let activates = !modes.contains("guest")
+// record (launch-ready.sh record=1): the app records every window from its first frame (`--record-launch`, a Debug or
+// bench build's DebugWindowRecord) into HOME_ROOT/record-LABEL, for the row's PERCEIVED numbers (launch_shift.py);
+// the recording ends a second before the settle's quit, so its frames.json is written first.
+let recordDir: String? = modes.contains("record") ? homeRoot.appendingPathComponent("record-\(label)").path : nil
+if let recordDir { try? FileManager.default.removeItem(atPath: recordDir) }
 var shellRequested: Double?
 let home = homeRoot.appendingPathComponent("h"), tmp = homeRoot.appendingPathComponent("t")
 for sub in ["Library/Preferences", "Library/Application Support", "Library/Caches", "Library/Logs"] {
@@ -136,17 +156,23 @@ var environment: [String: String] = [
 ]
 // `type` (launch-ready.sh type=1): the app types one key at its first frame (LaunchTypeProbe) and marks its echo.
 if typesFirstKey { environment["CMUX_NEXT_LAUNCH_TYPE_PROBE"] = "1" }
+// `plain`: an app that is not cmux gets only the home, the temp folder and the shell basics.
+if plainApp { environment = environment.filter { !$0.key.hasPrefix("CMUX_") } }
 if let user = ProcessInfo.processInfo.environment["USER"] { environment["USER"] = user; environment["LOGNAME"] = user }
 // A side with its own settings (launch-ready.sh engines=): the app reads HOME_ROOT/cmux-next.json, not the account's.
 let sideConfig = homeRoot.appendingPathComponent("cmux-next.json").path
 if FileManager.default.fileExists(atPath: sideConfig) { environment["CMUX_NEXT_CONFIG_FILE"] = sideConfig }
+// guest: the app itself never activates either (AppEnvironment.noActivate, CmuxApplication.refusesActivation): every
+// activation request is dropped and its windows open ordered back, still on screen for window_on_screen.
+if !activates { environment["CMUX_NEXT_NO_ACTIVATE"] = "1" }
 
 let configuration = NSWorkspace.OpenConfiguration()
 configuration.createsNewApplicationInstance = true
-configuration.activates = true
+configuration.activates = activates
 configuration.addsToRecentItems = false
 configuration.environment = environment
 configuration.arguments = ["-ApplePersistenceIgnoreState", "YES"]
+    + (recordDir.map { ["--record-launch", $0, "--record-launch-seconds", String(max(1, min(12, settle - 1)))] } ?? [])
 
 let requested = now()
 var app: NSRunningApplication?, start: Double?
@@ -171,8 +197,8 @@ func ownWindows(_ pid: pid_t) -> [(number: Int, frame: [Double])] {
 func ownWindowOnScreen(_ pid: pid_t) -> Bool { !ownWindows(pid).isEmpty }
 
 // One request on the app's control socket (line JSON, release methods only): its result, or nil.
-func rpc(_ method: String) -> [String: Any]? {
-    guard let object = lineRequest(socketPath, ["id": 1, "method": method, "params": [String: Any]()]),
+func rpc(_ method: String, _ params: [String: Any] = [:]) -> [String: Any]? {
+    guard let object = lineRequest(socketPath, ["id": 1, "method": method, "params": params]),
           object["ok"] as? Bool == true else { return nil }
     return object["result"] as? [String: Any]
 }
@@ -220,29 +246,59 @@ struct LayoutSeries {
          "first_at": rel(firstAt), "last_change_at": rel(lastChangeAt)]
     }
 }
-// layout: from the first on-screen frame, on its own thread so the launch's timer keeps its 1 ms ticks.
-var layoutWindow = LayoutSeries(), layoutSidebar = LayoutSeries(), layoutSamples = 0
-let layoutDone = DispatchSemaphore(value: 0)
+// layout: from the first on-screen frame, the window on one thread (CGWindowList only, so 16 ms apart) and the sidebar
+// on another (each read waits on the app's socket), so neither slows the other or the launch's 1 ms timer.
+var layoutWindow = LayoutSeries(), layoutSidebar = LayoutSeries(), layoutSamples = 0, sidebarSamples = 0
+let layoutLock = NSLock(), layoutDone = DispatchGroup()
+var layoutQuietSince = 0.0
+func layoutChanged(_ t: Double) { layoutLock.lock(); layoutQuietSince = t; layoutLock.unlock() }
+func layoutGoing(pid: pid_t, from seen: Double) -> Bool {
+    layoutLock.lock(); defer { layoutLock.unlock() }
+    return now() - seen < 3000 && now() - layoutQuietSince < 1000 && kill(pid, 0) == 0
+}
 func sampleLayout(pid: pid_t, window number: Int, from seen: Double) {
+    layoutQuietSince = now()
+    layoutDone.enter()
     DispatchQueue.global(qos: .userInitiated).async {
-        var quietSince = now(), tick = 0
-        while now() - seen < 3000, now() - quietSince < 1000, kill(pid, 0) == 0 {
+        while layoutGoing(pid: pid, from: seen) {
             let t = now()
-            var changed = layoutWindow.add(ownWindows(pid).first { $0.number == number }?.frame, at: t)
-            if tick % 3 == 0 {
-                let windows = rpc("debug.layers")?["windows"] as? [[String: Any]] ?? []
-                let own = windows.first { ($0["window_number"] as? Double).map(Int.init) == number } ?? windows.first
-                if let area = own?["sidebar_resize_area_in_window"] as? [Double], area.count == 4 {
-                    changed = layoutSidebar.add([(area[0] + area[2] / 2).rounded(toPlaces: 1)], at: t) || changed
-                }
-            }
+            if layoutWindow.add(ownWindows(pid).first { $0.number == number }?.frame, at: t) { layoutChanged(t) }
             layoutSamples += 1
-            tick += 1
-            if changed { quietSince = t }
             usleep(16_000)
         }
-        layoutDone.signal()
+        layoutDone.leave()
     }
+    layoutDone.enter()
+    DispatchQueue.global(qos: .userInitiated).async {
+        while layoutGoing(pid: pid, from: seen) {
+            let windows = rpc("debug.layers")?["windows"] as? [[String: Any]] ?? []
+            let own = windows.first { ($0["window_number"] as? Double).map(Int.init) == number } ?? windows.first
+            if let area = own?["sidebar_resize_area_in_window"] as? [Double], area.count == 4 {
+                let t = now()
+                if layoutSidebar.add([(area[0] + area[2] / 2).rounded(toPlaces: 1)], at: t) { layoutChanged(t) }
+            }
+            sidebarSamples += 1
+            usleep(16_000)
+        }
+        layoutDone.leave()
+    }
+}
+
+// movequit: what was set just before the quit and how long before it.
+var moveQuit: [String: Any]?
+func moveThenQuit(_ pid: pid_t) {
+    // Which of the two the last launch of this home set (a file in the home root), so each quit changes both.
+    let marker = homeRoot.appendingPathComponent("movequit.next")
+    let index = (try? String(contentsOf: marker, encoding: .utf8)) == "1" ? 1 : 0
+    let frames: [[Double]] = [[410, 92, 1100, 720], [300, 80, 1300, 800]], widths: [Double] = [260, 320]
+    let frame = rpc("debug.window_frame", ["frame": frames[index]])
+    let sidebar = rpc("debug.update_surfaces", ["action": "sidebar-width", "width": widths[index]])
+    let changed = now()
+    try? (index == 1 ? "0" : "1").write(to: marker, atomically: true, encoding: .utf8)
+    quitSent = now()
+    kill(pid, SIGTERM)
+    moveQuit = ["frame": frames[index], "frame_set": frame?["frame"] ?? NSNull(), "sidebar_width": widths[index],
+                "sidebar_previous": sidebar?["previous"] ?? NSNull(), "ms_to_quit": (quitSent! - changed).rounded(toPlaces: 1)]
 }
 
 // What is in front: the focused workspace (its model key, stable across launches), its tab and that tab's page
@@ -449,12 +505,15 @@ let timer = Timer(timeInterval: 0.001, repeats: true) { _ in
         }
     }
     if let seen = windowSeenAt, quitSent == nil, t - seen >= settle * 1000 {
-        frontAtQuit = front()
+        if !plainApp { frontAtQuit = front() }
         if typesKeys { keysRead = sentText(since: returnSent ?? seen, sent: Array(keySequence.prefix(keyPosts.count))) }
-        quitSent = now(); kill(pid, SIGTERM)
+        if movesBeforeQuit { moveThenQuit(pid) } else { quitSent = now(); kill(pid, SIGTERM) }
     }
     if window == nil, quitSent == nil, t - requested > 30_000 { failure = "no window in 30 s"; quitSent = t; kill(pid, SIGTERM) }
-    if quitSent == nil, windowSeenAt != nil, app.isTerminated { quitSent = t }
+    // An app quit from outside (dev-loop-ceiling startup_loop SIGTERMs it, as reload.sh does): isTerminated alone can
+    // stay false after the process is gone, as launch-premain.swift and background-ready.swift already pair it with
+    // kill(pid, 0). 2026-11-21 step 4b9c45ea3d756d968ad03448: "launch-ready floor1 did not end 90 s after its app quit".
+    if quitSent == nil, app.isTerminated || kill(pid, 0) != 0 { quitSent = t }
     if let sent = quitSent {
         if app.isTerminated || kill(pid, 0) != 0 { done = true }
         else if t - sent > 30_000 { kill(pid, SIGKILL); done = true }
@@ -470,12 +529,37 @@ let keep = ["stub_main", "main_start", "main.warmup_started", "main.environment"
             "dfl.settings_read", "dfl.theme", "services.crash_reporting", "dfl.services", "dfl.bind", "dfl.menu", "dfl.home_history",
             "launch_snapshot_shown", "first_window_flushed", "did_finish_launching_end", "first_window_frame_committed", "home.first_page", "reveal.home",
             "deferred_windows_restored",
+            // The live tree applied and the restore began: from launch_snapshot_shown to here the window shows what the
+            // snapshot drew, so a stale snapshot was visible this long before the late check (hq#12660).
+            "daemon_snapshot_loaded", "launch.no_snapshot",
             // The bare launch's marks (piece 8): Home's composer takes keys; a terminal's shell printed its first output.
-            "window_usable", "first_shell_live",
+            "window_usable", "first_shell_live", "first_key_down",
             // A relaunch's restored terminal: its first frame, and with `type` the key typed at the first window frame,
             // when it left the app for the PTY, and its echo back (LaunchTypeProbe, LaunchInputMarks).
             "first_terminal_content_applied", "first_terminal_frame", "launch.visible_terminals_drawn",
             "terminal.probe_key_typed", "terminal_input_accepted", "terminal_echo"]
+// The launch's startup stages (startup-tti), each ms from process start to the earliest of its marks that came: the
+// table the app's launch-times.jsonl rows use (LaunchStages, LaunchTimesFile.swift) and scripts/ci/launch_stages.py;
+// tests/test_launch_stages.py keeps the three equal.
+let launchStages: [(stage: String, marks: [String])] = [
+    ("dyld", ["premain.first_initializer"]),
+    ("premain", ["main_start"]),
+    ("main_setup", ["main.setup_done"]),
+    ("did_finish_launching", ["did_finish_launching_start"]),
+    ("daemon_connected", ["daemon_connected"]),
+    ("first_window_shown", ["launch_snapshot_shown", "first_window_flushed", "dfl.windows"]),
+    ("first_frame", ["first_window_frame_committed"]),
+    ("webview_ready", ["cef.ready"]),
+    ("first_page_navigation", ["first_page.navigation_start"]),
+    ("first_page_dom_content_loaded", ["first_page.dom_content_loaded"]),
+    ("first_page_contentful_paint", ["first_page.first_contentful_paint"]),
+    ("first_chat_paint", ["agent_pane.painted", "agent_pane.newtab_painted", "home.saved_page_shown", "home.first_page"]),
+    ("first_interaction", ["terminal_echo", "agent_pane.input_echoed", "window_usable"]),
+]
+var stages: [String: Double] = [:]
+for (stage, names) in launchStages {
+    if let first = names.compactMap({ marks[$0] }).filter({ $0.isFinite && $0 >= 0 }).min() { stages[stage] = first.rounded(toPlaces: 1) }
+}
 var row: [String: Any] = [
     "label": label, "pid": app?.processIdentifier ?? 0, "start_epoch_ms": start ?? NSNull(),
     "request_to_start": start.map { ($0 - requested).rounded(toPlaces: 1) } ?? NSNull(),
@@ -491,14 +575,26 @@ var row: [String: Any] = [
     // its window still waited on the CLI (2026-11-17: 635 ms on a fresh home's prime launch, and no relaunch row).
     "marks": marks.filter { mark in
         label == "prime" || keep.contains(mark.key)
-            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "terminal."].contains { mark.key.hasPrefix($0) }
+            || ["dfl.", "home.", "reveal.", "cloud_env.", "app.", "daemon.", "launch_snapshot", "layout.", "web.layout.", "terminal.", "window.", "frame.", "premain.", "main.", "first_page."].contains { mark.key.hasPrefix($0) }
     },
     "all_marks": marks.count,
+    "stages": stages,
     "shell_requested": rel(shellRequested),
     // The region the window showed first (home, pane, ...): the region a person saw, whichever it is.
     "first_reveal": marks.filter { $0.key.hasPrefix("reveal.") }.min { $0.value < $1.value }.map { String($0.key.dropFirst("reveal.".count)) } ?? NSNull(),
 ]
 if let frontAtQuit { row["front"] = frontAtQuit }
+if plainApp { row["plain"] = true }
+// The settle (the app's layout.* marks, LaunchLayoutSettle), in ms after main_start like the summary's: the first frame
+// the watch read, the last change after it, and their difference, so a receipt can count pairs moving the same way.
+// Row key `settle`: `layout` is the probe's own layout=1 sampling below.
+if let first = marks["layout.first_frame"], let last = marks["layout.settle"] {
+    func afterMain(_ ms: Double) -> Any { marks["main_start"].map { (ms - $0).rounded(toPlaces: 1) } ?? NSNull() }
+    row["settle"] = ["first_frame_ms": afterMain(first), "settle_ms": afterMain(last),
+                     "settle_minus_first_frame_ms": (last - first).rounded(toPlaces: 1), "max_move_pt": marks["layout.max_move"] ?? 0]
+} else {
+    row["settle"] = "none"
+}
 if typesKeys {
     // first_key_ms: when the earliest sent key the sent message holds went out (step i: the window plus 100 i ms), ms
     // from process start as every time here; null when it holds none, or nothing was read back.
@@ -518,8 +614,10 @@ if typesKeys {
 if samplesLayout, window != nil {
     let finished = layoutDone.wait(timeout: .now() + 5) == .success
     row["layout"] = ["window": layoutWindow.row(rel), "sidebar": layoutSidebar.row(rel), "samples": layoutSamples,
-                     "complete": finished] as [String: Any]
+                     "sidebar_samples": sidebarSamples, "complete": finished] as [String: Any]
 }
+if let moveQuit { row["movequit"] = moveQuit }
+if let recordDir { row["record_dir"] = recordDir }
 if let failure { row["error"] = failure }
 let data = try! JSONSerialization.data(withJSONObject: row, options: [.sortedKeys])
 print("LR-RUN", String(decoding: data, as: UTF8.self))
