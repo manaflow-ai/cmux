@@ -169,11 +169,11 @@ jobs:
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ ((steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token)) != '' }}
+        if: ${{ steps.glaeda-token.outputs.token != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
           PROBE: ${{ github.workflow }}/analyze/before
         run: >-
           gh api rate_limit --jq
@@ -187,11 +187,11 @@ jobs:
         run: python3 scripts/ci/guard_attribution.py analyze --out "$RUNNER_TEMP/guard-report.json"
 
       - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && ((steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token)) != '' }}
+        if: ${{ !cancelled() && steps.glaeda-token.outputs.token != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
           PROBE: ${{ github.workflow }}/analyze/after
         run: >-
           gh api rate_limit --jq
@@ -357,11 +357,11 @@ jobs:
       # rate_limit read): the installation is shared, so the delta between `before`
       # and `after` is this step's reads plus whatever else ran meanwhile.
       - name: Log the glaeda-route App budget before
-        if: ${{ ((steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token)) != '' }}
+        if: ${{ steps.glaeda-token.outputs.token != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
           PROBE: ${{ github.workflow }}/report/before
         run: >-
           gh api rate_limit --jq
@@ -381,11 +381,11 @@ jobs:
           python3 scripts/ci/guard_attribution.py "${args[@]}"
 
       - name: Log the glaeda-route App budget after
-        if: ${{ !cancelled() && ((steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token)) != '' }}
+        if: ${{ !cancelled() && steps.glaeda-token.outputs.token != '' }}
         continue-on-error: true
         timeout-minutes: 1
         env:
-          GH_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
           PROBE: ${{ github.workflow }}/report/after
         run: >-
           gh api rate_limit --jq
