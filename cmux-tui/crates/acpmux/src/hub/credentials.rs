@@ -126,15 +126,39 @@ impl Hub {
             .with_data(json!({"reason": "credentials.claude_login_busy"})));
         }
         session.route_switch.store(false, Ordering::SeqCst);
-        let had_host = child.as_ref().is_some_and(|child| child.host_record().is_some())
-            || !Self::host_record_gone(&session.id);
+        // The old host's incarnation, read before it ends: its end is proven by its own live lock.
+        let old_nonce = child
+            .as_ref()
+            .and_then(|child| child.host_record())
+            .map(|record| record.start_nonce)
+            .or_else(|| {
+                let (good, _) =
+                    crate::agent_host::load_records(&crate::agent_host::hosts_dir()).ok()?;
+                good.into_iter()
+                    .find(|(_, record)| record.session_id == session.id)
+                    .map(|(_, record)| record.start_nonce)
+            });
+        let had_host = old_nonce.is_some() || !Self::host_record_gone(&session.id);
         if child.is_some() {
             self.detach_child(session).await;
         } else if had_host {
             self.end_unadopted_host(session).await;
         }
-        if session.child.lock().await.is_some() || had_host && !Self::host_record_gone(&session.id)
-        {
+        // A host that took its terminate releases its live lock as it exits, shortly after the
+        // detach returns: wait for that end, bounded, before calling the host unreachable.
+        let host_ended = match old_nonce {
+            Some(nonce) => {
+                crate::agent_host::wait_dead_async(
+                    crate::agent_host::hosts_dir(),
+                    session.id.clone(),
+                    nonce,
+                    std::time::Duration::from_secs(5),
+                )
+                .await
+            }
+            None => !had_host || Self::host_record_gone(&session.id),
+        };
+        if session.child.lock().await.is_some() || !host_ended {
             return Err(RpcError::internal(
                 "this session's agent host is still running, cannot be reached and did not end; close the session to end it",
             ));
