@@ -55,8 +55,6 @@ pub(crate) const STALE_RUN_MS: u64 = 30 * 60_000;
 /// Runs started longer ago than this are not read for the Home rows.
 const RUNNING_WINDOW_MS: u64 = 24 * 60 * 60_000;
 
-/// Most steps one run keeps.
-pub(crate) const MAX_RUN_STEPS: u64 = 2000;
 /// Most steps in one append.
 pub(crate) const MAX_APPEND_STEPS: usize = 64;
 /// Most bytes of all steps of one append, as JSON.
@@ -492,9 +490,8 @@ impl ConversationStore {
                     (u64::try_from(seq)?, at)
                 }
                 None => {
-                    if run.step_count >= MAX_RUN_STEPS {
-                        return Err(refused("run_full"));
-                    }
+                    // Steps are not capped by count: each is one row under the step table's
+                    // primary key, and readers page them by `rev` (`run_page`).
                     run.step_count += 1;
                     (run.step_count, now)
                 }

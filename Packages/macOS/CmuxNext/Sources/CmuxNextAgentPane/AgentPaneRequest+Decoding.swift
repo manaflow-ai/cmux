@@ -4,7 +4,7 @@ import CmuxNextSettings
 import Foundation
 
 extension AgentPaneRequest {
-    private static let maximumUploadStageChunk = 512 * 1024
+    private nonisolated static let maximumUploadStageChunk = 512 * 1024
 
     /// A Cloud environment id as the platform makes them (`env_` and up to 64 letters, digits, `_`
     /// or `-`): the only `environment` `action.run` passes on.
@@ -26,6 +26,18 @@ extension AgentPaneRequest {
             && token.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
     }
 
+    /// `action.run`'s `sessions`: Evacuate and Bring Back name 1...500 chats; a chat-list row's place pick, Cancel or
+    /// Retry names exactly one, and never with `session` (the tab's own chat). Each id is usable and has no comma
+    /// (the app's handlers read the list comma-joined).
+    static func areSessionTargets(_ sessions: [String], id: String, alongside session: String?) -> Bool {
+        let usable = sessions.allSatisfy { !$0.isEmpty && $0.count <= 256 && !$0.contains(",") }
+        switch id {
+        case "cloudEvacuate", "cloudBringBackAll": return usable && (1...500).contains(sessions.count)
+        case "chatPlace.set", "chatMove.cancel", "chatMove.retry": return usable && sessions.count == 1 && session == nil
+        default: return false
+        }
+    }
+
     /// A GitHub repository's full name (webviews githubConnect.ts `isGitHubRepo`): an owner of 1 to 39
     /// letters, digits and inner dashes, a name of 1 to 100 letters, digits, `.`, `_` and `-`, never
     /// `.` or `..`. Connect GitHub passes only such a one on.
@@ -36,7 +48,7 @@ extension AgentPaneRequest {
         return name != "." && name != ".."
     }
 
-    private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
+    nonisolated static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
         case "chat.upload.begin":
@@ -601,6 +613,11 @@ extension AgentPaneRequest {
         case "pane.tabRowTools.set":
             if let tools = AgentPaneTabRowTools.list(params?["tools"]) { self = .tabRowToolsSet(tools) }
             else { self = .unsupported(method) }
+        case "customizations.menu":
+            if let point = params?["point"] as? [String: Any],
+               let x = (point["x"] as? NSNumber)?.doubleValue, let y = (point["y"] as? NSNumber)?.doubleValue,
+               x.isFinite, y.isFinite { self = .customizationsMenu(x: x, y: y) }
+            else { self = .unsupported(method) }
         case "pane.tabRowTools.openMenu":
             guard let id = params?["id"] as? String, id == "chat-menu",
                   let rawMenuItemID = params?["menuItemId"], !(rawMenuItemID is NSNull) else {
@@ -680,11 +697,23 @@ extension AgentPaneRequest {
             // An `app` is the editor id of a folder action that opens one (Open in Editor, Open In ▸); any other
             // is refused, never dropped (which would open the default editor instead).
             let app = params?["app"].map { $0 as? String }
+            // A `mode` is Chat Place's only (`chatPlace.set`): where the chat runs (local, cloud or auto); any other is refused.
+            let mode = params?["mode"].map { $0 as? String }
+            // `queued` and `hasDraft` are what the page knows of the chat's cargo (Chat Place's set and retry only); any other is refused.
+            let queued = params?["queued"].map { $0 as? Int }
+            let hasDraft = params?["hasDraft"].map { $0 as? Bool }
+            // `sessions` names the chats a chat-list row or Evacuate acts on (never the tab's own chat, so the
+            // shown-chat guard does not bind it): 1...500 usable ids, Evacuate, Bring Back and a row's place pick only.
+            let sessions = params?["sessions"].map { $0 as? [String] }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
                environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
                handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true,
-               app.map({ $0.map { AgentPaneModel.editorActions.contains(id) && AgentPaneRequest.isEditorID($0) } ?? false }) ?? true {
+               app.map({ $0.map { AgentPaneModel.editorActions.contains(id) && AgentPaneRequest.isEditorID($0) } ?? false }) ?? true,
+               mode.map({ $0.map { id == "chatPlace.set" && ["local", "cloud", "auto"].contains($0) } ?? false }) ?? true,
+               queued.map({ $0.map { ["chatPlace.set", "chatMove.retry"].contains(id) && (0...100_000).contains($0) } ?? false }) ?? true,
+               hasDraft.map({ $0 != nil && ["chatPlace.set", "chatMove.retry"].contains(id) }) ?? true,
+               sessions.map({ $0.map { AgentPaneRequest.areSessionTargets($0, id: id, alongside: session ?? nil) } ?? false }) ?? true {
                 // Connect GitHub's card names the failed call's repository and the chat's link: a
                 // malformed one is dropped (Connect still runs, as from the palette); the link is
                 // checked against this build's links where it runs (AgentPaneModel+Actions.swift).
@@ -692,7 +721,8 @@ extension AgentPaneRequest {
                 let repo = (params?["repo"] as? String).flatMap { github && AgentPaneRequest.isGitHubRepo($0) ? $0 : nil }
                 let returnTo = (params?["returnTo"] as? String).flatMap { github && $0.utf8.count <= 512 ? $0 : nil }
                 self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil, app: app ?? nil,
-                                  repo: repo, returnTo: returnTo)
+                                  repo: repo, returnTo: returnTo,
+                                  mode: mode ?? nil, queued: queued ?? nil, hasDraft: hasDraft ?? nil, sessions: sessions ?? nil)
             } else {
                 self = .unsupported(method)
             }

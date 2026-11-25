@@ -232,6 +232,21 @@ To add a case: write the scenario (below), add its entry with a `check` that ret
 expected behaviour does not hold, and run `--map`. A check reads the run's steps (`run.traces`, each with its
 drawn rows), so it can say "at every step between these two records" as easily as "at the end".
 
+## Start at the interesting part
+
+```sh
+bun scripts/chat-sim.ts --replay test/fixtures/chat-sim/replay-lane-session.ndjson --start-at 50
+bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --seek-to-event 4200 --lead 2
+```
+
+`--start-at S` starts S seconds of virtual time into the scenario; `--seek-to-event SEQ --lead S` starts S
+seconds before the first record at or after SEQ. Every step before the start is still applied (the reducer
+and turn view see every record, so the chat there is exact, not a fast-forward); the trace and the
+violations begin at the start. `seekPlan` (sim/seek.ts) is the split: the steps to apply at once and the
+rest's delays. In Chrome, `window.__chatSim.seek(name, { startAtMs } | { seekToSeq, leadMs })` applies the
+prefix, draws that state in one frame and returns `start`, so a recorder plays from there and a clip shows
+only the part that differs (keep proof clips under about 15 s).
+
 ## Write a scenario
 
 ```ts
@@ -270,6 +285,14 @@ the escape hatch for any record acpmux writes.
   never draws none; `d-shift`: a settled row (two or more turns back, not live) keeps its top;
   `d-action-only`: a turn that ended draws more than its prompt and its action row; `d-steer-order`: no
   row of a steer's turn that came after the steer is drawn above it.
+- **(i) bubble integrity** (integrity.ts), on each turn's rows at its `turn_result` and at the run's last step
+  (Leo, 2026-11-22: "you also basically said the same thing", images/1157.png; "ok, well. this happened again",
+  1158.png): `i-split-bubble`: two reply rows of one message (same `messageId`), or the first cut inside an
+  open span, with nothing but a fold or header between them (a "Worked for" whose two sides are one message);
+  `i-repeated-paragraph`: a paragraph of 40+ characters drawn twice in one turn (a row repeating its own
+  paragraph, or a row whose text is another's suffix); `i-unclosed-markdown`: a settled reply left open inside
+  `**`, a fence, `$$` or an inline backtick; `i-placeholder-after-end`. The CLI exits 1 on any of them, and
+  `--replay DIR --integrity` runs them alone on a recorded chat.
 
 ## Read the trace
 
