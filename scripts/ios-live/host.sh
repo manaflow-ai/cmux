@@ -296,6 +296,7 @@ launch_env_args() {  # the app's launch environment, as KEY=VALUE words
   grep -v '^[[:space:]]*\(#\|$\)' "$root/launch.env" || true
 }
 
+launch_args=()
 install_and_launch() {
   local words=() w
   while IFS= read -r w; do words+=("$w"); done < <(launch_env_args)
@@ -307,7 +308,7 @@ install_and_launch() {
     simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
     local envs=()
     for w in ${words[@]+"${words[@]}"}; do envs+=("SIMCTL_CHILD_$w"); done
-    env ${envs[@]+"${envs[@]}"} xcrun simctl --set "$sims" launch "$udid" "$bundle_id" >/dev/null
+    env ${envs[@]+"${envs[@]}"} xcrun simctl --set "$sims" launch "$udid" "$bundle_id" ${launch_args[@]+"${launch_args[@]}"} >/dev/null
   fi
 }
 
@@ -369,8 +370,8 @@ case "$cmd" in
     has_live_code && [[ "$(state_get build_kind)" == live-code ]] || die "the running app is not a live code build: nothing to undo (use swap)"
     IOS_SIM_SET="$sims" bash "$src/scripts/live-code/ios-sim.sh" undo "$root/live" ${2:+"$2"} ;;
 
-  relaunch)
-    owner="${1:?}"; lease holds "$owner"; ensure_device
+  relaunch)  # relaunch OWNER [ARG...]: the app again, with ARGs as its launch arguments (a plain build)
+    owner="${1:?}"; shift; launch_args=("$@"); lease holds "$owner"; ensure_device
     app="$(state_get app)"; bundle_id="$(state_get bundle_id)"; build_kind="$(state_get build_kind)"
     install_and_launch; echo relaunched ;;
 
