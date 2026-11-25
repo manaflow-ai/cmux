@@ -8,6 +8,7 @@ public import CmuxNextDesignTokens
 public enum MetricKey: String, Sendable, CaseIterable, Codable {
     case sidebarWidth
     case sidebarRowHeight
+    case spaceButtonSpacing
     case tabStripHeight
     case tabMaxWidth
     /// Chrome's tab minimums (design-tokens.json `motion.tabStrip`): crowding shrinks every tab
@@ -162,6 +163,16 @@ public final class DesignSettings {
             BackdropImageStore.shared.desktop.tintEnabled = wallpaperTint
         }
     }
+    /// `appearance.wallpaperLighting`: treats the desktop wallpaper as a light source (glass edges
+    /// facing its brightest part catch its color, the composer glows with it, the glass leans toward
+    /// its hue). Off by default and until the setting reaches it (``SettingsApplier``).
+    public var wallpaperLighting = false {
+        didSet {
+            guard wallpaperLighting != oldValue else { return }
+            BackdropImageStore.shared.light.enabled = wallpaperLighting
+            BackdropImageStore.shared.desktop.lightingEnabled = wallpaperLighting
+        }
+    }
     /// `appearance.liveWallpaperFrameRate`: the most frames per second a live wallpaper draws (15, 30 or
     /// 60; ``BackdropLiveView``). A running wallpaper reads it on its next frame; a held one when it runs again.
     public var liveWallpaperFrameRate = 30
@@ -215,6 +226,9 @@ public final class DesignSettings {
     /// `experiments.agentBadges` and `experiments.agentBadgesBeam` (Settings > Advanced > Experiments): count pills on
     /// tabs, a status pill (and, `beam`, a running edge light) on sidebar rows; off is the shipped tabs and rows.
     public var agentBadges: AgentBadgesExperiment = .off
+    /// `experiments.terminalAgentMark` (Settings > Advanced > Experiments, off by default): an agent running in a terminal
+    /// tab draws its mark on a soft rounded square of its tint, so it is told from a GUI agent chat's bare mark.
+    public var terminalAgentMarks = false
     /// The desktop picture's color (and its bands) while the Wallpaper or Pictorial group palette is chosen; nil under
     /// any other palette or until the first sample lands. Observed, so the sidebar's groups repaint when the picture changes.
     public var groupWallpaperTint: WallpaperTint?
@@ -336,6 +350,11 @@ public final class DesignSettings {
     /// itself follows it too (``ProcessFontSmoothing/chrome``); stock AppKit text keeps the launch's
     /// value (``ProcessFontSmoothing/current``).
     public var fontSmoothing: FontSmoothing = .auto
+    /// `appearance.appFont`: the family cmux's interface draws in, nil for the system font. Every web
+    /// page takes it as its `--font-ui` live (``WebTheme/appFontStack(_:)``); native chrome text made
+    /// through ``Typography/system(_:size:weight:)`` takes it too while the `experiments.appFontChrome`
+    /// switch is on (``CheckedFont``), as each view makes its font again.
+    public var appFont: String?
     /// `experiments.*` (Settings > Experimental > Experiments, schemas/settings/source/experiments.json):
     /// each boolean key by its name (`menuStyleV2`), only the ones turned on. ``WebTheme`` sends it to
     /// every cmux page (`window.cmuxExperimentSettings`; webviews/src/experiments/hostSettings.ts maps
@@ -434,6 +453,7 @@ public final class DesignSettings {
         switch key {
         case .sidebarWidth: 160...420
         case .sidebarRowHeight: 20...48
+        case .spaceButtonSpacing: 18...48
         case .tabStripHeight: 22...44
         case .tabMaxWidth: 120...320
         case .tabMinActiveWidth: 32...200
