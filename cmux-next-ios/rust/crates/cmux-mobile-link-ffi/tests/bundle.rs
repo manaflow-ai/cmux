@@ -85,6 +85,8 @@ async fn rig_with(old_host: bool) -> Rig {
                 include_loopback: true,
                 relay_only: false,
                 block_udp: false,
+                proxy_only: false,
+                drop_wireguard: false,
                 video_lane: false,
                 webrtc_media: false,
                 ultra: cmux_mobile_link::UltraSetting::Off,
