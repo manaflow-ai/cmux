@@ -213,7 +213,7 @@ pub async fn dial_hub(
         local: true,
     });
     let options = crate::dial_options(request, Vec::new(), timeline);
-    match crate::dial_on(&socket, request, &options, false).await {
+    match crate::dial_on(&socket, request, &options, false, None).await {
         Ok(connected) => Ok((connected, socket)),
         Err(crate::Attempt::Failed(error)) => Err(error.into()),
         Err(crate::Attempt::Stale) => unreachable!("only a reused socket is probed"),
