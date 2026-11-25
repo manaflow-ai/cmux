@@ -87,17 +87,11 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
     /// When the chat was archived (Unix ms), from the `archived` tag's value (`_acpmux/archive` writes
     /// the time); nil when it is not archived or the tag holds no time (`"1"`, `"true"`).
     public var archivedAtMs: UInt64?
-    /// Where the chat stands and its next action, as acpmux keeps them after each turn a person
-    /// started (`rollingSummary.text`, `rollingSummary.next`, acpmux `hub/rolling_summary.rs`);
-    /// nil before the first, and from an older acpmux.
-    public var summary: String?
-    public var nextAction: String?
 
     public init(model: String? = nil, turnStartedAtMs: UInt64? = nil, prompt: String? = nil,
                 laneState: String? = nil, laneSinceMs: UInt64? = nil, cwd: String? = nil,
                 contextTokens: Int? = nil, contextWindow: Int? = nil, costUsd24h: Double? = nil, promptIsNotice: Bool = false,
-                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, archived: Bool = false,
-                summary: String? = nil, nextAction: String? = nil) {
+                subagentsRunning: Int = 0, subagentNames: [String] = [], commandsRunning: Int = 0, archived: Bool = false) {
         self.model = model
         self.turnStartedAtMs = turnStartedAtMs
         self.prompt = prompt
@@ -112,8 +106,6 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         self.subagentNames = subagentNames
         self.commandsRunning = commandsRunning
         self.archived = archived
-        self.summary = summary
-        self.nextAction = nextAction
     }
 
     /// One of the chat's latest subagents (acpmux `recentSubagents[]`).
@@ -177,7 +169,6 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
         }
         let lane = summary["lane"] as? [String: Any]
         let usage = summary["usageStats"] as? [String: Any]
-        let rolling = summary["rollingSummary"] as? [String: Any]
         // A count acpmux could not read is null; a negative or non-finite one is no count.
         let amount = { (value: Any?) -> Double? in
             guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
@@ -196,8 +187,7 @@ public nonisolated struct AgentChatDetail: Hashable, Sendable {
                                      subagentsRunning: count(summary["subagentsRunning"]),
                                      subagentNames: (summary["subagentNames"] as? [Any] ?? []).compactMap(text),
                                      commandsRunning: count(summary["commandsRunning"]),
-                                     archived: archived(summary),
-                                     summary: text(rolling?["text"]), nextAction: text(rolling?["next"]))
+                                     archived: archived(summary))
         if detail.archived { detail.archivedAtMs = archivedAtMs(summary) }
         detail.subagents = subagents(summary["recentSubagents"])
         detail.subagentsSeen = count(summary["subagentsSeen"])

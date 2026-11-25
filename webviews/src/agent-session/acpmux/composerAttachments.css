@@ -5,12 +5,23 @@
    side inset. The row is its own band above the prompt, so the caret never
    draws over a thumbnail. The remove button is a small × inside the thumbnail's corner, shown while
    the chip is hovered or focused. Theme tokens only. */
-.acpmux-composer-box {
+.acpmux-composer-box,
+.acpmux-newtab-box {
   --acpmux-attach-inset: 16px;
   --acpmux-attach-top: 8px;
   --acpmux-attach-gap: 6px;
   --acpmux-attach-height: 64px;
   --acpmux-attach-radius: max(4px, calc(var(--acpmux-composer-radius, 22px) - var(--acpmux-attach-inset)));
+}
+/* The strip's tile size (composer/attachStrip.experiment.ts, `data-attach-size` on the box): every
+   tile, the band the prompt gives up and the pending tile follow --acpmux-attach-height. */
+.acpmux-composer-box[data-attach-size="compact"] {
+  --acpmux-attach-height: 44px;
+  --acpmux-attach-top: 6px;
+}
+.acpmux-composer-box[data-attach-size="chips"] {
+  --acpmux-attach-height: 32px;
+  --acpmux-attach-top: 6px;
 }
 .acpmux-attachments {
   /* A column flex item: a 100% basis would be the box's height, and shrinking would clip the
@@ -84,6 +95,22 @@
    had, so it stood taller than the prompt it replaced. */
 .acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-field {
   padding-top: var(--acpmux-attach-gap);
+  /* The strip lives inside the top of the card's inner area and shares the prompt's max height
+     (Leo 2026-11-23, ask-525a5e502a: attachments sit within the top part of the composer, the inner
+     area grows at the top, no shift). The prompt gives up the strip's band (its top inset and a
+     tile), so at the cap adding or removing attachments leaves the card, the transcript and the hat
+     where they were; a short draft grows by the band less the top inset the prompt drops. */
+  --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
+}
+/* The New Tab card (NewTabPage.tsx) holds its strip the same way: inside its top, the strip's band
+   taken out of the prompt's max height (styles.css .acpmux-newtab-field), so a capped draft keeps the
+   card's height when attachments land (ask-525a5e502a). Its side inset is the row's 18 px text inset
+   (styles.css .acpmux-newtab-row). */
+.acpmux-newtab-box > .acpmux-attachments {
+  --acpmux-attach-inset: 18px;
+}
+.acpmux-newtab-box > .acpmux-attachments ~ .acpmux-newtab-row .acpmux-newtab-field.acpmux-md-field {
+  --acpmux-attach-band: calc(var(--acpmux-attach-top) + var(--acpmux-attach-height));
 }
 .acpmux-attachments ~ .acpmux-composer-field-menu .acpmux-md-placeholder {
   top: var(--acpmux-attach-gap);
@@ -602,6 +629,7 @@
 .acpmux-attachment-file .acpmux-attachment-remove {
   top: 8px;
 }
+[data-composer-buttons-visible] .acpmux-attachment-remove,
 .acpmux-attachment:hover .acpmux-attachment-remove,
 .acpmux-attachment:focus-within .acpmux-attachment-remove {
   opacity: 1;
@@ -1222,6 +1250,11 @@ button.acpmux-attachment-pasted-open:hover {
 }
 .acpmux-attachment:is(:hover, :focus-within) > .acpmux-source-badge {
   opacity: 0;
+}
+/* Leave the removal button its corner while keeping the attachment source visible. */
+[data-composer-buttons-visible] .acpmux-attachment:not(.acpmux-file-chip) > .acpmux-source-badge {
+  right: auto;
+  left: 4px;
 }
 .acpmux-attachment-document > .acpmux-source-badge { top: 20px; }
 /* A file chip's rides its file glyph's top-right corner, clear of the chip's ×. */

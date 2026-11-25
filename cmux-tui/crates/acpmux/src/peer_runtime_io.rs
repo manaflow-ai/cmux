@@ -31,10 +31,21 @@ impl Peer {
             Duration::ZERO
         });
         let deadline = started + budget;
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        let (tx, rx) = oneshot::channel();
+        // The `initialize` that left with the upgrade request (`early_initialize`) is already on
+        // the wire and registered: this takes its answer, and sends nothing.
+        let early =
+            if m == method::INITIALIZE { self.early_init.lock_or_recover().take() } else { None };
+        let sent_early = early.is_some();
+        let (id, rx) = match early {
+            Some(early) => early,
+            None => {
+                let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+                let (tx, rx) = oneshot::channel();
+                self.pending.lock().await.insert(Value::from(id).to_string(), tx);
+                (id, rx)
+            }
+        };
         let key = Value::from(id).to_string();
-        self.pending.lock().await.insert(key.clone(), tx);
         if let Some(session) = params.get("sessionId").and_then(Value::as_str) {
             self.replay_tail.lock_or_recover().remove(session);
         }
@@ -116,7 +127,14 @@ impl Peer {
             peer: self.name.clone(),
         });
         let frame = Outbound { epoch: tag, key: Some(key), line };
-        match tokio::time::timeout_at(deadline, self.out.send(frame)).await {
+        let sending = async {
+            if sent_early {
+                Ok(Ok(()))
+            } else {
+                tokio::time::timeout_at(deadline, self.out.send(frame)).await
+            }
+        };
+        match sending.await {
             Ok(Ok(())) => forget.cancel = cancel,
             Ok(Err(_)) => {
                 return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
@@ -237,6 +255,7 @@ impl Peer {
                 return;
             }
         }
+        self.watch_tailnet();
         let mut immediate_redial = false;
         while !self.stop.load(Ordering::SeqCst) {
             crate::gauges::bump(&crate::gauges::links().link_dials);
@@ -517,6 +536,41 @@ impl Peer {
         Ok(())
     }
 
+    /// The `initialize` this peer link opens with.
+    pub(super) fn initialize_hello(&self) -> Value {
+        let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION},
+            // Large replies (the session list) may come compressed (`frame_compress.rs`).
+            "_meta": {"acpmux": {"compression": crate::frame_compress::offer(),
+                // What this build reads (`server/client_features.rs`): the peer sends a gated
+                // notification only once it is listed.
+                crate::server::client_features::FIELD: crate::server::client_features::own()}}});
+        // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
+        if self.github_broker() {
+            hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));
+        }
+        hello
+    }
+
+    /// The `initialize` request for the upgrade's own flight: its id, and its masked WebSocket
+    /// frame (`Heard::wrap_early`). The listener reads the bytes behind the upgrade request
+    /// once it has answered 101, so the answer comes back one round trip sooner. None when the
+    /// frame would not fit a request line.
+    pub(super) fn early_initialize(&self) -> Option<(i64, Vec<u8>)> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let line = Message::request(id, method::INITIALIZE, self.initialize_hello())
+            .bounded_line()
+            .ok()?;
+        Some((id, crate::peer_link::masked_text_frame(line.as_bytes())))
+    }
+
+    /// Register the answer of the `initialize` sent early (`id`) before the link reads, so a
+    /// reply that arrived with the 101 finds its request.
+    pub(super) async fn adopt_early_initialize(&self, id: i64) {
+        let (tx, rx) = oneshot::channel();
+        self.pending.lock().await.insert(Value::from(id).to_string(), tx);
+        *self.early_init.lock_or_recover() = Some((id, rx));
+    }
+
     /// One link: dial this peer's paths (`peer_carriers.rs`), the one that carried it last
     /// first and each other one `STAGGER` later, and serve the first that opens until it ends.
     pub(super) async fn connect_once(
@@ -561,6 +615,10 @@ impl Peer {
             self.end_tunnel().await;
         }
         *self.presented.lock().unwrap_or_else(|e| e.into_inner()) = opened.presented;
+        *self.early_init.lock_or_recover() = None;
+        if let Some(id) = opened.early_id {
+            self.adopt_early_initialize(id).await;
+        }
         self.carried_by(via.carrier().wire());
         // Held while this link's connection is: `gauges.links.linksOpen`.
         let _open = crate::gauges::Held::on(&crate::gauges::links().links_open);
@@ -677,13 +735,7 @@ impl Peer {
         let (kept_tx, mut kept_rx) = oneshot::channel::<bool>();
         *self.pipelined_key.lock_or_recover() = None;
         let mut handshake = self.scope.spawn_named("peer-handshake", async move {
-            let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION},
-                // Large replies (the session list) may come compressed (`frame_compress.rs`).
-                "_meta": {"acpmux": {"compression": crate::frame_compress::offer()}}});
-            // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
-            if me.github_broker() {
-                hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));
-            }
+            let hello = me.initialize_hello();
             // The watch goes out with `initialize`, not a round trip after it, when the last link
             // says which it will be (`pipelined_watch`); its reply waits in the reader until the
             // initialize reply says it was the one to ask (`keep_pipelined`).
@@ -767,6 +819,13 @@ impl Peer {
                     ids.iter().any(|id| id.as_str() == Some(crate::capabilities::SESSION_MESSAGES))
                 });
             me.session_messages.store(messages, Ordering::SeqCst);
+            let channels = init
+                .pointer("/_meta/acpmux/capabilities")
+                .and_then(Value::as_array)
+                .is_some_and(|ids| {
+                    ids.iter().any(|id| id.as_str() == Some(crate::server::channels::CAPABILITY))
+                });
+            me.agent_channels.store(channels, Ordering::SeqCst);
             let follows =
                 init.pointer("/_meta/acpmux/capabilities").and_then(Value::as_array).is_some_and(
                     |ids| ids.iter().any(|id| id.as_str() == Some(crate::hub::row_log::CAPABILITY)),
@@ -925,8 +984,9 @@ impl Peer {
         let mut handshake_ended = false;
         let mut health_asked: Option<tokio::time::Instant> = None;
         // Holds until the link is ready and its list is in (`listed`), also a list read after
-        // ready. Moved on by each page of a list read in pages, up to `HANDSHAKE_MOST` in all: a
-        // peer that paces its lists still links, one that stops answering does not hold it.
+        // ready. Moved on by each page of a list read in pages, with no cap in all: a peer that
+        // paces its lists still links however long the list, one that stops answering for a
+        // whole `timings.handshake` does not hold it.
         let handshake_started = tokio::time::Instant::now();
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
@@ -1007,8 +1067,7 @@ impl Peer {
                         // More pages: the handshake asks for them.
                         Ok(Some(_)) => {
                             paged = Some((rows, held));
-                            let until = (tokio::time::Instant::now() + timings.handshake)
-                                .min(handshake_started + HANDSHAKE_MOST.max(timings.handshake));
+                            let until = tokio::time::Instant::now() + timings.handshake;
                             handshake_deadline.as_mut().reset(until);
                         }
                         // A bad cursor: the handshake fails and the link drops.

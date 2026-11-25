@@ -255,6 +255,11 @@ impl Hub {
                     (Some(a), Some(b)) => Some(a.min(b)),
                     (a, b) => a.or(b),
                 };
+                // The same task evicts idle chats from memory (`evict.rs`).
+                let next = match (next, hub.next_evict_deadline()) {
+                    (Some(a), Some(b)) => Some(a.min(b)),
+                    (a, b) => a.or(b),
+                };
                 (next, clock)
             };
             match next {
@@ -272,6 +277,7 @@ impl Hub {
                 hub.settle_stalled_turns(stalled);
             }
             hub.stop_idle_children().await;
+            hub.evict_idle_chats();
         }
     }
 
