@@ -14,6 +14,7 @@ import CmuxNextHomeEngine
 import CmuxNextRemote
 import CmuxNextSettings
 import CmuxNextTabs
+import CmuxNextWakeups
 import CmuxNextWindowRules
 import Observation
 
@@ -206,6 +207,12 @@ final class AgentTabStore {
     /// Takes back a closed, untouched new tab page as the pool's spare
     /// (NewTabSparePool.recycle); false when the pool already has one.
     var recycle: ((AgentPaneView) -> Bool)?
+    /// Why the New Tab pool holds a page (its spare, a closed page waiting for its release), nil when it does not
+    /// (NewTabSparePool.role(of:)): read by the page census (`AgentTabs+Liveness`).
+    var poolRole: ((AgentPaneView) -> AgentPageRole?)?
+    /// Every agent page ``makeView(_:)`` made and nobody closed; the census after a tab's release closes the ones
+    /// no owner holds (`AgentTabs+Liveness`).
+    let livePages = AgentPageLiveness(), orphanSweep = DemandTimer(owner: "AgentTabStore.orphanSweep")
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool); the next one follows as `refill` says.
     var takeSpare: ((AgentPaneSpareRefill) -> AgentPaneView?)?
     /// What ``idlePage(for:leaving:take:)`` asks of the windows: whether one shows tab `key` (a pane draws it, or a pane of a shown workspace has it selected; the pane that leaves the tab now is the one pane that does not count, so the same pane of another window of the workspace does; with no windows each tab counts, so no page is idle), and that a pane which holds the tab off screen lets go of the view that the tab gave away.
@@ -751,6 +758,7 @@ final class AgentTabStore {
         (model.readAloud, model.cloudMachines, model.remoteControl, model.transport.peerApprover) = (readAloud, cloudMachines, remoteControl, peerApprover)
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, pageHost: AgentPaneTunables.pageHost.value || AgentPaneTunables.chromium.value, shared: paneShared) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
+        livePages.made(view)
         view.customization = customization.current
         model.onIMessage = { [weak self, weak view] action in
             guard let view, let handler = self?.imessage else { return AgentPaneReply.failure(code: "unavailable", message: "unavailable") }

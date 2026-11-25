@@ -87,8 +87,21 @@ async fn handle(
                 hub.submit_secret(&session, id, value)?;
                 return Ok(json!({}));
             }
+            // "Keep as key NAME" (`Hub::keep_card_value`): checked before a phone's signature is
+            // spent, so a refused keep spends nothing.
+            let keep_as = str_param(params, "keepAs");
+            if let Some(key) = keep_as {
+                if value.is_none() {
+                    return Err(RpcError::invalid_params("keepAs needs the value it keeps"));
+                }
+                hub.check_keep(&session, id, key)?;
+            }
             if !conn.is_person() && !hub.card_answer_signed(&session, id, value.is_some(), params) {
                 return Err(crate::hub::person::person_required("filling a secret card"));
+            }
+            // Kept before the card is answered: a store that refuses leaves the card open.
+            if let (Some(key), Some(value)) = (keep_as, &value) {
+                hub.keep_card_value(&session, id, key, value).await?;
             }
             hub.submit_secret(&session, id, value)?;
             Ok(json!({}))
