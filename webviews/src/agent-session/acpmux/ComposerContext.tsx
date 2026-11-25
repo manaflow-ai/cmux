@@ -42,6 +42,7 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
+  environmentPickable,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
@@ -455,7 +456,8 @@ export function ComposerContext({
   const menuComputers = useMemo(() => {
     const sections = environmentSections(computers);
     return orderEnvironments(computers).map(({ detail: _kind, ...computer }) => {
-      const ready = environmentReady(computer);
+      // A machine still dialing is a pick with no state word (environmentPickable, Leo 2026-11-24).
+      const ready = environmentPickable(computer);
       const warning = warningText(computer.resources);
       return {
         ...computer,
@@ -1036,7 +1038,7 @@ export function ComposerContext({
     cloudPicked || sandboxPicked || savedPick || waiting || (layout === "where-machine" && localMachine)
       ? undefined
       : currentComputer
-        ? environmentReady(currentComputer) || (computerDipping && !computerDipSaid)
+        ? environmentPickable(currentComputer) || (computerDipping && !computerDipSaid)
         : undefined;
   // A Cloud machine that sleeps (withCloudSleep): paused is the quiet ring, resuming a spinner.
   const machineSleep =
