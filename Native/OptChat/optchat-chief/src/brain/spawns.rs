@@ -1417,6 +1417,25 @@ impl Brain {
         self.start_queued();
     }
 
+    fn discard_late_report(&mut self, id: &str, floor: Option<u64>, reason: &str) {
+        if let Some(sub) = self.state.sub_mut(id) {
+            if let Some(floor) = floor {
+                sub.floor = floor;
+            }
+            sub.status = SubStatus::Done;
+            sub.reopened = false;
+            sub.awaiting_task = false;
+            sub.auto_continues = 0;
+            sub.continued_ms = 0;
+        }
+        self.save();
+        (self.log)(&format!("subagent {id}: ignored a late {reason}"));
+        self.mark_workspace(id, true);
+        self.flush_inbox(id);
+        self.start_queued();
+        self.pause_own_vm(id);
+    }
+
     pub(super) fn sub_done(
         &mut self,
         id: &str,
@@ -1464,33 +1483,15 @@ impl Brain {
                 }
             }
         }
+        let previously_told = self.state.sub(id).is_some_and(|(_, sub)| {
+            sub.reported_ms > 0 && sub.told_ms >= sub.reported_ms
+        });
         // A stale idle turn can arrive after the real outcome was already
         // told. It has no report text, so it must not replace that report or
         // reopen the outcome ledger.
-        let late_empty = !held
-            && report == NO_REPLY_TEXT
-            && self.state.sub(id).is_some_and(|(_, sub)| {
-                sub.reported_ms > 0 && sub.told_ms >= sub.reported_ms
-            });
+        let late_empty = !held && previously_told && report == NO_REPLY_TEXT;
         if late_empty {
-            if let Some(sub) = self.state.sub_mut(id) {
-                if let Some(floor) = floor {
-                    sub.floor = floor;
-                }
-                sub.status = SubStatus::Done;
-                sub.reopened = false;
-                sub.awaiting_task = false;
-                sub.auto_continues = 0;
-                sub.continued_ms = 0;
-            }
-            self.save();
-            (self.log)(&format!(
-                "subagent {id}: ignored a late empty report after its outcome was told"
-            ));
-            self.mark_workspace(id, true);
-            self.flush_inbox(id);
-            self.start_queued();
-            self.pause_own_vm(id);
+            self.discard_late_report(id, floor, "empty report after its outcome was told");
             return;
         }
         // A run that stopped on an error: its report becomes "stopped: ..."
@@ -1501,6 +1502,20 @@ impl Brain {
         } else {
             self.plan_auto_resume(id, &report, stopped)
         };
+        let late_terminal_notice = !held
+            && previously_told
+            && planned.as_ref().is_some_and(|(note, quiet)| {
+                !quiet
+                    && note.starts_with(crate::auto_resume::RETRYABLE_STOP_NOTICE_PREFIX)
+            });
+        if late_terminal_notice {
+            self.discard_late_report(
+                id,
+                floor,
+                "retry-exhaustion notice after its outcome was told",
+            );
+            return;
+        }
         let resuming = planned.is_some();
         let (mut report, mut stopped) = match planned {
             Some((note, quiet)) => (note, quiet),

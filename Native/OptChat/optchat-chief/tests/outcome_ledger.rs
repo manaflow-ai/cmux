@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 
 use common::*;
 use optchat_chief::acpmux::AgentEvent;
+use optchat_chief::auto_resume::ResumePolicy;
 use optchat_chief::brain::{Input, UNTOLD_TAG};
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::Orchestrator;
@@ -161,7 +162,7 @@ fn a_report_turn_that_never_names_the_subagent_gets_one_untold_retry() {
             None
         }
     }));
-    report_and_settle(&mut h);
+    report_task(&mut h, "REPORT-QUESTION fix it");
     assert_eq!(
         h.brain.untold_outcomes(),
         vec!["a1".to_owned()],
@@ -229,6 +230,51 @@ fn a_late_empty_report_after_a_told_outcome_does_not_reopen_it() {
     assert!(
         h.brain.untold_outcomes().is_empty(),
         "an empty late report is not a new outcome"
+    );
+    let after = h.brain.state().sub("a1").unwrap().1;
+    assert_eq!(after.report, before.report, "keep the told report");
+    assert_eq!(after.reported_ms, before.reported_ms, "keep its report time");
+    assert!(after.told_ms >= after.reported_ms, "the outcome stays told");
+}
+
+#[test]
+fn a_late_retry_exhaustion_notice_after_a_told_outcome_does_not_reopen_it() {
+    let mut h = Harness::new(script(|_, prompt| {
+        prompt
+            .contains("[a1]")
+            .then_some("a1 landed the sidebar fix.")
+    }));
+    report_and_settle(&mut h);
+    let session = sub_session(&h).expect("the subagent session");
+    let before = h.brain.state().sub("a1").unwrap().1.clone();
+    assert!(before.told_ms >= before.reported_ms, "the setup must record a told outcome");
+    h.brain.set_auto_resume(
+        Some(ResumePolicy {
+            max_attempts: 0,
+            ..ResumePolicy::default()
+        }),
+        None,
+    );
+
+    h.agents.append_events(
+        &session,
+        vec![
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+            update(
+                "agent_message_chunk",
+                json!({"content": {"type": "text", "text": "(turn failed: API Error: 500)"}}),
+            ),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ],
+    );
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(running(&session))));
+    h.brain
+        .step(Input::from(AgentEvent::SessionChanged(idle(&session))));
+
+    assert!(
+        h.brain.untold_outcomes().is_empty(),
+        "a late exhausted-retry notice is not a new outcome"
     );
     let after = h.brain.state().sub("a1").unwrap().1;
     assert_eq!(after.report, before.report, "keep the told report");
