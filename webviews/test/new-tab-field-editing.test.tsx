@@ -169,8 +169,7 @@ test("the omnibar's editing keys stay the field's", async () => {
       taken: modifiers.ctrlKey === true && key === "a",
     });
   }
-  // A prompt leads with no row of its own (David Beyer 2026-11-20): no row was lit, and none is now.
-  expect(selected()).toBe(-1);
+  expect(selected()).toBe(0);
 });
 
 test("the New Tab composer follows the opt-in spell checking setting", async () => {

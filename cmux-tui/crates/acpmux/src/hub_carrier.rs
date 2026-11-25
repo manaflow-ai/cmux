@@ -84,8 +84,8 @@ use cmux_remote::crypto::{
 };
 use cmux_remote::link::FrameLink;
 use cmux_remote::provider::{
-    ConnectRequest, LinkRequest, RelayClientConfig, RelayCredentialSource, RelayDaemonConfig,
-    RelayDaemonRegistration, RelayIncoming, RelayProvider, TransportProvider,
+    ConnectRequest, LinkRequest, RegistrationState, RelayClientConfig, RelayCredentialSource,
+    RelayDaemonConfig, RelayDaemonRegistration, RelayIncoming, RelayProvider, TransportProvider,
     spawn_relay_daemon_registration,
 };
 use cmux_remote_protocol::{Lane, LanePolicy, SessionId};
@@ -124,6 +124,10 @@ pub struct CarrierAnswer {
     /// Register: the keys this machine lets in.
     #[serde(default)]
     pub peers: Vec<String>,
+    /// The other relays the platform may carry this slot on, in its order of preference after
+    /// `relay` (re-homing, `hub_carrier_rehome.rs`). Empty from a platform that knows one relay.
+    #[serde(default)]
+    pub relays: Vec<String>,
 }
 
 impl std::fmt::Debug for CarrierAnswer {
@@ -131,6 +135,7 @@ impl std::fmt::Debug for CarrierAnswer {
         f.debug_struct("CarrierAnswer")
             .field("relay", &cmux_remote::provider::sanitized_route_text(&self.relay))
             .field("peers", &self.peers.len())
+            .field("relays", &self.relays.len())
             .finish_non_exhaustive()
     }
 }
@@ -143,6 +148,11 @@ pub enum CircuitService {
     Acpmux,
     /// The machine's cmux-tui remote daemon, its WebSocket listener on loopback `port`.
     CmuxTui { port: u16 },
+    /// [`Self::CmuxTui`]'s daemon through a pipe this machine holds across the stream's end, so
+    /// an ssh session lives through the dialer's acpmux restarting (RFD 0127 cut 4,
+    /// `hub_carrier_resume.rs`). Hello `{"service":"cmux-tui","port":P,"target":"resume"}`; a
+    /// daemon from before it refuses it `service.unknown`, and the dialer opens a plain one.
+    CmuxTuiResume { port: u16 },
     /// The machine's own cmux-tui session daemon, the one its app shows (`CMUX_TUI_SOCKET`): a
     /// workspace and its terminals opened from another of the person's machines. Hello
     /// `{"service":"cmux-tui","target":"session"}`. Reached only while the person granted
@@ -193,7 +203,9 @@ impl CircuitLane {
     pub fn of(service: CircuitService) -> Self {
         match service {
             // A move's pages are bulk bytes, as a port pipe's are.
-            CircuitService::CmuxTui { .. } | CircuitService::TransferSource => Self::Bulk,
+            CircuitService::CmuxTui { .. }
+            | CircuitService::CmuxTuiResume { .. }
+            | CircuitService::TransferSource => Self::Bulk,
             CircuitService::Acpmux
             | CircuitService::CmuxTuiSession
             | CircuitService::MachineCall => Self::Cheap,
@@ -211,11 +223,17 @@ impl CircuitLane {
 /// The `target` a hello gives [`CircuitService::CmuxTuiSession`].
 pub const SESSION_TARGET: &str = "session";
 
+/// The `target` a hello gives [`CircuitService::CmuxTuiResume`].
+pub const RESUME_TARGET: &str = "resume";
+
 /// The first bytes of a record that names a circuit's service. A WebSocket upgrade (the acpmux
 /// service's first bytes) never starts with NUL.
 pub const SERVICE_HELLO: &[u8] = b"\0cmux-circuit/1\n";
 /// The service name a hello gives [`CircuitService::CmuxTui`].
 pub const CMUX_TUI_SERVICE: &str = "cmux-tui";
+/// The service name a kept circuit's stream gives [`CircuitService::Acpmux`]. A plain circuit
+/// to the acpmux listener still sends no hello, so a daemon from before this name reads it.
+pub const ACPMUX_SERVICE: &str = "acpmux";
 /// The longest hello or answer record.
 const MAX_HELLO_BYTES: usize = 1024;
 
@@ -265,12 +283,24 @@ pub trait MachineCallGate: Send + Sync + 'static {
     async fn open(&self, from: &str) -> Result<HubStream, ServiceRefusal>;
 }
 
-/// The hello record of `service`; None for the acpmux listener, whose circuits send none.
+/// The hello record of `service`; None for the acpmux listener, whose plain circuits send none.
 fn service_hello(service: CircuitService) -> Option<Bytes> {
+    match service {
+        CircuitService::Acpmux => None,
+        named => Some(hello_record(named)),
+    }
+}
+
+/// The hello record that names `service`, the acpmux listener included (a kept circuit's
+/// stream always names its service).
+fn hello_record(service: CircuitService) -> Bytes {
     let body = match service {
-        CircuitService::Acpmux => return None,
+        CircuitService::Acpmux => serde_json::json!({"service": ACPMUX_SERVICE}),
         CircuitService::CmuxTui { port } => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "port": port})
+        }
+        CircuitService::CmuxTuiResume { port } => {
+            serde_json::json!({"service": CMUX_TUI_SERVICE, "port": port, "target": RESUME_TARGET})
         }
         CircuitService::CmuxTuiSession => {
             serde_json::json!({"service": CMUX_TUI_SERVICE, "target": SESSION_TARGET})
@@ -280,7 +310,7 @@ fn service_hello(service: CircuitService) -> Option<Bytes> {
     };
     let mut record = SERVICE_HELLO.to_vec();
     record.extend_from_slice(body.to_string().as_bytes());
-    Some(Bytes::from(record))
+    Bytes::from(record)
 }
 
 /// The service a circuit's first record names: None when it names none (the acpmux listener's
@@ -303,6 +333,9 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         (Some(CMUX_TUI_SERVICE), Some(port), None) if port != 0 => {
             Ok(CircuitService::CmuxTui { port })
         }
+        (Some(CMUX_TUI_SERVICE), Some(port), Some(RESUME_TARGET)) if port != 0 => {
+            Ok(CircuitService::CmuxTuiResume { port })
+        }
         (Some(CMUX_TUI_SERVICE), None, Some(SESSION_TARGET)) if hello.get("port").is_none() => {
             Ok(CircuitService::CmuxTuiSession)
         }
@@ -311,6 +344,9 @@ fn named_service(first: &[u8]) -> Option<Result<CircuitService, ServiceRefusal>>
         }
         (Some(TRANSFER_SERVICE), None, None) if hello.get("port").is_none() => {
             Ok(CircuitService::TransferSource)
+        }
+        (Some(ACPMUX_SERVICE), None, None) if hello.get("port").is_none() => {
+            Ok(CircuitService::Acpmux)
         }
         _ => Err(unknown()),
     })
@@ -394,6 +430,9 @@ pub struct Timings {
     pub keepalive: Duration,
     /// How long a kept circuit with no stream stays open.
     pub kept_idle: Duration,
+    /// How long a serving carrier's registration may stay down before it registers on the
+    /// platform's next relay (`hub_carrier_rehome.rs`); only when the platform names another.
+    pub rehome_after: Duration,
 }
 
 impl Default for Timings {
@@ -405,8 +444,15 @@ impl Default for Timings {
             peer_join: Duration::from_secs(6),
             keepalive: Duration::from_secs(30),
             // The relay drops a circuit idle 10 min (`relays/cloudflare-do/src/abuse.rs`); the
-            // keepalive keeps it busy, and this lets go of a machine nobody dialed in that long.
-            kept_idle: Duration::from_secs(600),
+            // keepalive keeps it busy, and this lets go of a machine nobody dialed in an hour. At
+            // 10 min every 15-minute NOW weft probe pass and every agent's occasional ssh to a
+            // peer paid a whole new circuit (0.6 s p50, 0.86 s p95 measured 2026-11-24 from
+            // gcp-agent-lane-13) where a stream on the kept one costs 0.086 s p50: an idle kept
+            // circuit is one 30 s ping, so holding it an hour is cheap.
+            kept_idle: Duration::from_secs(3600),
+            // A relay that restarts is back in about a second (the registration's first retry);
+            // past this one that went away is taken as gone, and the host moves.
+            rehome_after: Duration::from_secs(3),
         }
     }
 }
@@ -428,6 +474,8 @@ pub struct Stats {
     pub kept_opens: AtomicU64,
     /// Kept circuits opened.
     pub kept_circuits: AtomicU64,
+    /// Times this machine's own slot moved to the platform's next relay (re-homing).
+    pub rehomes: AtomicU64,
 }
 
 /// Where a new circuit's time went, step by step (`RUST_LOG=acpmux::hub_carrier=debug` logs it
@@ -464,6 +512,45 @@ impl DialStages {
             total_ms = ms(self.total()),
             "hub carrier: a circuit opened"
         );
+    }
+}
+
+/// How one service dial went, for a caller that reports it (`_acpmux/remote.pipe`'s reply).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DialReport {
+    /// It rode a kept circuit that was already open: one stream OPEN and its ANSWER.
+    pub kept: bool,
+    /// The new circuit it opened, step by step (a kept circuit's first dial, or a plain one).
+    pub circuit: Option<DialStages>,
+    /// The stream's OPEN to its ANSWER on an already-open kept circuit.
+    pub stream: Duration,
+    /// The path it took: the relay, or a direct connection (`hub_carrier_direct.rs`).
+    pub via: direct::Via,
+}
+
+impl DialReport {
+    /// `{"circuit": "kept"|"new"|"plain", "ms": {...}}`, milliseconds per step.
+    pub fn to_json(&self) -> serde_json::Value {
+        let mut json = self.steps_json();
+        if let Some(object) = json.as_object_mut() {
+            object.insert("path".into(), self.via.name().into());
+        }
+        json
+    }
+
+    fn steps_json(&self) -> serde_json::Value {
+        let ms = |d: Duration| (d.as_secs_f64() * 1e4).round() / 10.0;
+        match (self.kept, self.circuit) {
+            (true, _) => serde_json::json!({"circuit": "kept", "ms": {"stream": ms(self.stream)}}),
+            (false, Some(st)) => serde_json::json!({
+                "circuit": "new",
+                "ms": {
+                    "ticket": ms(st.ticket), "relay": ms(st.relay), "peer_join": ms(st.peer_join),
+                    "noise": ms(st.noise), "answer": ms(st.answer), "total": ms(st.total()),
+                },
+            }),
+            (false, None) => serde_json::json!({"circuit": "unknown"}),
+        }
     }
 }
 
@@ -516,6 +603,15 @@ pub struct HubCarrier {
     /// Whether this machine serves kept circuits; off only to stand in for an acpmux that
     /// predates them ([`Self::serve_kept_circuits`]).
     serves_kept: std::sync::atomic::AtomicBool,
+    /// Whether acpmux links ride kept circuits as streams, dialed and served
+    /// ([`Self::acpmux_streams`]).
+    acpmux_streams: std::sync::atomic::AtomicBool,
+    /// Which relay last carried each far machine; a dial tries it first (re-homing).
+    homes: rehome::Homes,
+    /// The relay this machine's own slot is registered on now, once one is.
+    serving_on: RwLock<Option<String>>,
+    /// The direct path to machines on this machine's private network (`hub_carrier_direct.rs`).
+    direct: direct::Direct,
 }
 
 impl std::fmt::Debug for HubCarrier {
@@ -551,6 +647,10 @@ impl HubCarrier {
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
             serves_kept: std::sync::atomic::AtomicBool::new(true),
+            acpmux_streams: std::sync::atomic::AtomicBool::new(true),
+            homes: rehome::Homes::default(),
+            serving_on: RwLock::new(None),
+            direct: direct::Direct::default(),
         })
     }
 
@@ -584,6 +684,10 @@ impl HubCarrier {
             kept: mux::KeptCircuits::default(),
             alive: Arc::new(()),
             serves_kept: std::sync::atomic::AtomicBool::new(true),
+            acpmux_streams: std::sync::atomic::AtomicBool::new(true),
+            homes: rehome::Homes::default(),
+            serving_on: RwLock::new(None),
+            direct: direct::Direct::default(),
         })
     }
 
@@ -615,7 +719,9 @@ impl HubCarrier {
         drop(identity);
         // The far machines pinned the old key: its kept circuits go with it.
         self.kept.clear();
+        self.direct.kept.clear();
         self.ticket_cache.clear();
+        self.homes.clear();
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.rekeyed.notify_one();
         Ok(())
@@ -706,6 +812,19 @@ impl HubCarrier {
         self.dial_service_on(daemon, service, CircuitLane::of(service)).await
     }
 
+    /// [`Self::dial_service`], and where its time went ([`DialReport`]).
+    pub async fn dial_service_reported(
+        &self,
+        daemon: &str,
+        service: CircuitService,
+    ) -> Result<(HubStream, DialReport), String> {
+        let mut report = DialReport::default();
+        let stream = self
+            .dial_service_report(daemon, service, CircuitLane::of(service), &mut report)
+            .await?;
+        Ok((stream, report))
+    }
+
     /// [`Self::dial_service`] on the kept circuit of `lane`, whatever the service's own lane.
     pub async fn dial_service_on(
         &self,
@@ -713,16 +832,28 @@ impl HubCarrier {
         service: CircuitService,
         lane: CircuitLane,
     ) -> Result<HubStream, String> {
+        self.dial_service_report(daemon, service, lane, &mut DialReport::default()).await
+    }
+
+    async fn dial_service_report(
+        &self,
+        daemon: &str,
+        service: CircuitService,
+        lane: CircuitLane,
+        report: &mut DialReport,
+    ) -> Result<HubStream, String> {
         if !self.key_current() {
             return Err("the node key was replaced; this carrier is stopped".into());
         }
         let Some(hello) = service_hello(service) else {
-            crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
-            let (secure, stages) = self.open_circuit(daemon).await?;
-            stages.log(daemon, "plain");
-            return Ok(self.carry_plain(secure));
+            return self.dial_acpmux(daemon, lane).await;
         };
-        match self.kept_open(daemon, lane, hello.clone()).await {
+        match self.direct_open(daemon, lane, hello.clone(), report).await {
+            Some(KeptOpen::Stream(stream)) => return Ok(stream),
+            Some(KeptOpen::Refused(refusal)) => return Err(refusal.to_string()),
+            _ => {}
+        }
+        match self.kept_open(daemon, lane, hello.clone(), report, Path::Relay).await {
             KeptOpen::Stream(stream) => return Ok(stream),
             KeptOpen::Refused(refusal) => return Err(refusal.to_string()),
             KeptOpen::Failed(e) => return Err(e),
@@ -730,10 +861,53 @@ impl HubCarrier {
                 tracing::debug!("hub carrier: a plain circuit for this dial: {why}");
             }
         }
-        match self.plain_service(daemon, hello).await? {
+        match self.plain_service(daemon, hello, report).await? {
             Ok(secure) => Ok(self.carry_plain(secure)),
             Err(refusal) => Err(refusal.to_string()),
         }
+    }
+
+    /// An acpmux link to `daemon`: a stream on the pair's kept circuit, so the peer link and its
+    /// hub probe share one circuit; else a plain circuit with no hello, as every acpmux dial was
+    /// before. A machine whose kept circuits predate acpmux streams refuses the stream
+    /// (`service.unknown`); the dialer then goes plain to it for [`mux::NO_MUX_ASK_AGAIN`]
+    /// without asking again. A machine that keeps no circuits at all gets plain ones too.
+    async fn dial_acpmux(&self, daemon: &str, lane: CircuitLane) -> Result<HubStream, String> {
+        if self.acpmux_streams.load(Ordering::SeqCst) {
+            let slot = self.kept.slot(daemon, lane);
+            let refused_until = slot.lock().await.no_acpmux_until;
+            if refused_until.is_none_or(|until| Instant::now() >= until) {
+                let hello = hello_record(CircuitService::Acpmux);
+                let mut report = DialReport::default();
+                if let Some(KeptOpen::Stream(stream)) =
+                    self.direct_open(daemon, lane, hello.clone(), &mut report).await
+                {
+                    return Ok(stream);
+                }
+                match self.kept_open(daemon, lane, hello, &mut report, Path::Relay).await {
+                    KeptOpen::Stream(stream) => return Ok(stream),
+                    KeptOpen::Refused(refusal) => {
+                        tracing::debug!(
+                            "hub carrier: the machine takes no acpmux streams: {refusal}"
+                        );
+                        if refusal.reason == "service.unknown" {
+                            slot.lock().await.no_acpmux_until =
+                                Some(Instant::now() + mux::NO_MUX_ASK_AGAIN);
+                        }
+                    }
+                    // The circuit did not open: a plain one would not either, and a second
+                    // dial here would double the dials of a host whose links all dropped.
+                    KeptOpen::Failed(e) => return Err(e),
+                    KeptOpen::Plain(why) => {
+                        tracing::debug!("hub carrier: a plain circuit for this acpmux dial: {why}");
+                    }
+                }
+            }
+        }
+        crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
+        let (secure, stages) = self.open_circuit(daemon).await?;
+        stages.log(daemon, "plain");
+        Ok(self.carry_plain(secure))
     }
 
     /// A plain circuit to `daemon` whose `hello` was answered: the circuit, else the refusal
@@ -742,6 +916,7 @@ impl HubCarrier {
         &self,
         daemon: &str,
         hello: Bytes,
+        report: &mut DialReport,
     ) -> Result<Result<cmux_remote::crypto::SecureLink, ServiceRefusal>, String> {
         crate::gauges::bump(&crate::gauges::links().hub_plain_dials);
         let (secure, mut stages) = self.open_circuit(daemon).await?;
@@ -749,6 +924,12 @@ impl HubCarrier {
         let answer = Self::ask_service(&secure, hello, self.timings.handshake).await;
         stages.answer = answered.elapsed();
         stages.log(daemon, "plain");
+        *report = DialReport {
+            kept: false,
+            circuit: Some(stages),
+            stream: Duration::ZERO,
+            via: direct::Via::Hub,
+        };
         match answer {
             Ok(Ok(())) => Ok(Ok(secure)),
             Ok(Err(refusal)) => {
@@ -787,8 +968,18 @@ impl HubCarrier {
 
     /// A stream on the `lane` kept circuit to `daemon`, opening that circuit first if there is
     /// none. A circuit that fails under the open is dropped and opened again, once.
-    async fn kept_open(&self, daemon: &str, lane: CircuitLane, hello: Bytes) -> KeptOpen {
-        let slot = self.kept.slot(daemon, lane);
+    async fn kept_open(
+        &self,
+        daemon: &str,
+        lane: CircuitLane,
+        hello: Bytes,
+        report: &mut DialReport,
+        path: Path,
+    ) -> KeptOpen {
+        let slot = match path {
+            Path::Relay => self.kept.slot(daemon, lane),
+            Path::Direct(_) => self.direct.kept.slot(daemon, lane),
+        };
         let mut why = String::new();
         for _ in 0..2 {
             let mux = {
@@ -802,7 +993,7 @@ impl HubCarrier {
                         // Parallel dials wait here on this one open, not on one each. Never a
                         // plain dial beside it: a service hello can ask the far machine's owner
                         // for consent, and one dial asks once.
-                        let (mux, said, mut stages) = match self.open_kept(daemon).await {
+                        let (mux, said, mut stages) = match self.open_kept(daemon, path).await {
                             Ok(opened) => opened,
                             Err(e) => return KeptOpen::Failed(e),
                         };
@@ -816,6 +1007,12 @@ impl HubCarrier {
                         );
                         stages.answer = asked.elapsed();
                         stages.log(daemon, lane.name());
+                        *report = DialReport {
+                            kept: false,
+                            circuit: Some(stages),
+                            stream: Duration::ZERO,
+                            via: direct::Via::Hub,
+                        };
                         match said {
                             Ok(Ok(Ok(()))) => {
                                 self.stats.kept_circuits.fetch_add(1, Ordering::Relaxed);
@@ -848,7 +1045,15 @@ impl HubCarrier {
                     }
                 }
             };
-            match mux.open(hello.clone(), self.timings.handshake).await {
+            let asked = Instant::now();
+            let opened = mux.open(hello.clone(), self.timings.handshake).await;
+            *report = DialReport {
+                kept: true,
+                circuit: None,
+                stream: asked.elapsed(),
+                via: direct::Via::Hub,
+            };
+            match opened {
                 Ok(Ok(stream)) => return KeptOpen::Stream(stream),
                 Ok(Err(refusal)) => return KeptOpen::Refused(refusal),
                 Err(e) => {
@@ -863,15 +1068,54 @@ impl HubCarrier {
         KeptOpen::Plain(format!("the kept circuit failed twice: {why}"))
     }
 
+    /// The direct path's answer for a dial to `daemon` (`hub_carrier_direct.rs`), when it
+    /// decides it: a stream on the kept direct circuit, or the far machine's own refusal. None
+    /// (no direct address, or the path failed, which holds the machine off it a while): the
+    /// relay.
+    async fn direct_open(
+        &self,
+        daemon: &str,
+        lane: CircuitLane,
+        hello: Bytes,
+        report: &mut DialReport,
+    ) -> Option<KeptOpen> {
+        let address = self.direct_address(daemon).await?;
+        match self.kept_open(daemon, lane, hello, report, Path::Direct(address)).await {
+            KeptOpen::Stream(stream) => {
+                report.via = direct::Via::Direct;
+                Some(KeptOpen::Stream(stream))
+            }
+            KeptOpen::Refused(refusal) if refusal.reason != "service.unknown" => {
+                Some(KeptOpen::Refused(refusal))
+            }
+            KeptOpen::Refused(refusal) => {
+                tracing::debug!("hub carrier direct: {address} refused: {refusal}; the relay");
+                self.direct.miss(daemon);
+                *report = DialReport::default();
+                None
+            }
+            KeptOpen::Failed(why) | KeptOpen::Plain(why) => {
+                tracing::info!("hub carrier direct: {address} failed ({why}); the relay");
+                self.direct.miss(daemon);
+                *report = DialReport::default();
+                None
+            }
+        }
+    }
+
     /// Open a kept circuit to `daemon`: a circuit whose first record is the `mux` hello, its
     /// dialer's end running. The answer comes on `said` (a machine whose acpmux predates kept
     /// circuits refuses it, `service.unknown`, and closes the circuit).
     async fn open_kept(
         &self,
         daemon: &str,
+        path: Path,
     ) -> Result<(Arc<mux::Mux>, mux::HelloAnswer, DialStages), String> {
         crate::gauges::bump(&crate::gauges::links().hub_kept_dials);
-        let (secure, stages) = self.open_circuit(daemon).await?;
+        let (secure, stages) = match path {
+            Path::Relay => self.open_circuit(daemon).await?,
+            Path::Direct(address) => self.open_direct(daemon, address).await?,
+        };
         secure.send(mux::mux_hello()).await.map_err(|e| e.to_string())?;
         let (mux, said) = mux::start_dialer(
             Box::new(secure),
@@ -888,6 +1132,14 @@ impl HubCarrier {
     #[doc(hidden)]
     pub fn serve_kept_circuits(&self, on: bool) {
         self.serves_kept.store(on, Ordering::SeqCst);
+    }
+
+    /// `false` dials and serves acpmux links as a daemon from before they rode kept circuits:
+    /// dials go plain with no hello, and a kept circuit's acpmux stream is refused
+    /// `service.unknown`. Tests use it to check that new and old daemons still talk both ways.
+    #[doc(hidden)]
+    pub fn acpmux_streams(&self, on: bool) {
+        self.acpmux_streams.store(on, Ordering::SeqCst);
     }
 
     /// Whether a kept circuit to `daemon` is open now, and how many streams ride its kept
@@ -938,7 +1190,45 @@ impl HubCarrier {
         if pinned != key_bytes(daemon).unwrap_or(pinned) {
             return Err("the hub's peer key is not the one asked for".into());
         }
-        let endpoint = relay_url(&answer.relay)?;
+        // The relay that last carried this machine first, then the platform's order: a relay the
+        // host left answers `slot-offline` at once, so following a moved host is one fast refusal
+        // per relay passed (`hub_carrier_rehome.rs`). A failure past the circuit (the handshake)
+        // is the far machine's answer and is the same on every relay.
+        let order = self.homes.order(daemon, rehome::candidates(&answer));
+        let mut last = String::from("the hub named no relay");
+        let mut found = None;
+        for relay in order {
+            match self.circuit_on(daemon, &relay, &answer, &mut stages).await {
+                Ok(circuit) => {
+                    self.homes.carried(daemon, &relay);
+                    found = Some(circuit);
+                    break;
+                }
+                Err(e) => last = e,
+            }
+        }
+        let (link, session) = found.ok_or(last)?;
+        let step = Instant::now();
+        // The service hello rides behind the last Noise message; its first receive checks the
+        // daemon's welcome (the key is pinned, and enrolled auth never waits on a human).
+        let mut handshake = self.client_handshake(pinned, self.timings.handshake)?;
+        handshake.session = session;
+        let secure =
+            initiate_secure_link_pipelined(link, handshake).await.map_err(|e| e.to_string())?;
+        stages.noise = step.elapsed();
+        Ok((secure, stages))
+    }
+
+    /// One relay circuit to `daemon`'s slot on `relay`, before the handshake: the relay's
+    /// allocation and the far machine's join, timed into `stages`.
+    async fn circuit_on(
+        &self,
+        daemon: &str,
+        relay: &str,
+        answer: &CarrierAnswer,
+        stages: &mut DialStages,
+    ) -> Result<(Box<dyn FrameLink>, SessionId), String> {
+        let endpoint = relay_url(relay)?;
         // The ticket in hand first; a later relay authentication asks the platform again.
         let first = Arc::new(Mutex::new(Some(Zeroizing::new(answer.ticket.clone()))));
         let tickets = self.tickets.clone();
@@ -989,29 +1279,30 @@ impl HubCarrier {
             .map_err(|_| carrier_not_serving(self.timings.peer_join))?
             .map_err(|e| relay_refusal(e.to_string(), self.timings.peer_join))?;
         stages.peer_join = step.elapsed();
-        let step = Instant::now();
-        // The service hello rides behind the last Noise message; its first receive checks the
-        // daemon's welcome (the key is pinned, and enrolled auth never waits on a human).
-        let secure = initiate_secure_link_pipelined(
-            link,
-            ClientHandshake {
-                identity: self.identity(),
-                expected_daemon: Some(pinned),
-                auth: ClientAuthMode::Enrolled,
-                device_name: DEVICE_NAME.into(),
-                session,
-                lane: Lane::Control,
-                lanes: vec![Lane::Control],
-                generation: 0,
-                connection_attempt: ConnectionAttemptId(random_16()?),
-                resume: BTreeMap::new(),
-                handshake_timeout: self.timings.handshake,
-            },
-        )
-        .await
-        .map_err(|e| e.to_string())?;
-        stages.noise = step.elapsed();
-        Ok((secure, stages))
+        Ok((link, session))
+    }
+
+    /// The Noise XX dialer's side, its far key pinned to `pinned`, with a session of its own.
+    pub(crate) fn client_handshake(
+        &self,
+        pinned: [u8; 32],
+        handshake_timeout: Duration,
+    ) -> Result<ClientHandshake, String> {
+        Ok(ClientHandshake {
+            identity: self.identity(),
+            expected_daemon: Some(pinned),
+            auth: ClientAuthMode::Enrolled,
+            device_name: DEVICE_NAME.into(),
+            session: SessionId(random_16()?),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            connection_attempt: ConnectionAttemptId(random_16()?),
+            resume: BTreeMap::new(),
+            daemon_takes_ik: false,
+            early: Vec::new(),
+            handshake_timeout,
+        })
     }
 
     /// The probe hook: a full dial to `daemon` (ticket, relay, handshake), closed at once.
@@ -1029,7 +1320,7 @@ impl HubCarrier {
     pub fn serve(self: &Arc<Self>, websocket: SocketAddr) -> HubServe {
         let me = self.clone();
         let task = tokio::spawn(async move { me.serve_until_dropped(websocket).await });
-        HubServe { task, lease: None }
+        HubServe { task, lease: None, direct: None }
     }
 
     /// Serves under the current key; a [`Self::rekey`] ends that registration and starts the
@@ -1097,12 +1388,12 @@ impl HubCarrier {
         if attempts > 1 {
             tracing::info!("hub carrier: a register ticket came after {attempts} attempts");
         }
-        let endpoint = match relay_url(&answer.relay) {
-            Ok(endpoint) => endpoint,
-            Err(e) => {
-                tracing::warn!("hub carrier off: {e}");
-                return;
-            }
+        // Re-homing (`hub_carrier_rehome.rs`): the platform's first relay, then, each time a
+        // registration stays down past `rehome_after`, the next one it names.
+        let relays = rehome::candidates(&answer);
+        let Some(mut home) = relays.first().cloned() else {
+            tracing::warn!("hub carrier off: the hub named no relay");
+            return;
         };
         set_allowed(&allowed, &answer.peers);
         // Registered: from here the peers' Connect tickets are kept ready (cut 5), once per carrier.
@@ -1112,7 +1403,47 @@ impl HubCarrier {
                 self.ticket_cache.clone().premint_until(Arc::downgrade(&self.alive)),
             );
         }
-        let first = Arc::new(Mutex::new(Some(Zeroizing::new(answer.ticket.clone()))));
+        let mut first = Some(Zeroizing::new(answer.ticket.clone()));
+        loop {
+            let served = self
+                .clone()
+                .serve_on(websocket, generation, &home, &answer.slot, first.take(), relays.len())
+                .await;
+            *self.serving_on.write().unwrap_or_else(|e| e.into_inner()) = None;
+            if served == Served::Stop {
+                return;
+            }
+            let Some(next) = rehome::next_home(&relays, &home) else { return };
+            tracing::warn!(
+                "hub carrier: the relay stayed down over {}s; registering on the next one",
+                self.timings.rehome_after.as_secs_f32()
+            );
+            self.stats.rehomes.fetch_add(1, Ordering::Relaxed);
+            home = next;
+        }
+    }
+
+    /// One registration of this machine's slot on `relay`, until the carrier stops
+    /// ([`Served::Stop`]) or, when the platform names `relays` > 1, the registration stays down
+    /// past `rehome_after` ([`Served::Rehome`]). `first` is the Register ticket in hand.
+    async fn serve_on(
+        self: Arc<Self>,
+        websocket: SocketAddr,
+        generation: u64,
+        relay: &str,
+        slot: &str,
+        first: Option<Zeroizing<String>>,
+        relays: usize,
+    ) -> Served {
+        let allowed = self.allowed.clone();
+        let endpoint = match relay_url(relay) {
+            Ok(endpoint) => endpoint,
+            Err(e) => {
+                tracing::warn!("hub carrier off: {e}");
+                return Served::Stop;
+            }
+        };
+        let first = Arc::new(Mutex::new(first));
         let credentials = {
             let tickets = self.tickets.clone();
             let allowed = allowed.clone();
@@ -1131,11 +1462,13 @@ impl HubCarrier {
             })
         };
         let incoming = Arc::new(Incoming { carrier: self.clone(), websocket, allowed });
+        // Direct circuits are admitted as this registration's relay circuits are.
+        self.direct.set_incoming(&incoming);
         let registration = spawn_relay_daemon_registration(
             incoming,
             RelayDaemonConfig {
                 endpoint,
-                slot: answer.slot,
+                slot: slot.to_owned(),
                 ticket: String::new(),
                 maximum_frame_bytes: MAX_FRAME_BYTES,
                 control_timeout: self.timings.control,
@@ -1147,7 +1480,7 @@ impl HubCarrier {
             Ok(registration) => registration,
             Err(e) => {
                 tracing::warn!("hub carrier off: {e}");
-                return;
+                return Served::Stop;
             }
         };
         tracing::info!("hub carrier: serving on the relay as {}", self.identity().fingerprint());
@@ -1159,11 +1492,28 @@ impl HubCarrier {
         every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // False once the registration's task ended (only at shutdown, which the drop does).
         let mut reporting = true;
+        // Since when the relay has not held the registration (a refusal, no answer, or the first
+        // attempt still running); a missing ticket is the platform's, never the relay's.
+        let mut down_since = Some(tokio::time::Instant::now());
         loop {
-            let reason =
-                state.borrow_and_update().reason().map(|_| OfflineReason::CredentialUnavailable);
-            self.set_serve_reason(reason);
+            let now = state.borrow_and_update().clone();
+            self.set_serve_reason(now.reason().map(|_| OfflineReason::CredentialUnavailable));
+            match now {
+                RegistrationState::Registered => {
+                    down_since = None;
+                    *self.serving_on.write().unwrap_or_else(|e| e.into_inner()) =
+                        Some(relay.to_owned());
+                }
+                RegistrationState::CredentialUnavailable { .. } => down_since = None,
+                RegistrationState::Registering | RegistrationState::RelayUnavailable { .. } => {
+                    *self.serving_on.write().unwrap_or_else(|e| e.into_inner()) = None;
+                    down_since.get_or_insert_with(tokio::time::Instant::now);
+                }
+            }
+            let rehome_at =
+                down_since.filter(|_| relays > 1).map(|since| since + self.timings.rehome_after);
             tokio::select! {
+                () = sleep_until_some(rehome_at), if rehome_at.is_some() => return Served::Rehome,
                 _ = every.tick() => {}
                 () = self.rekeyed.notified() => {}
                 changed = state.changed(), if reporting => {
@@ -1172,13 +1522,40 @@ impl HubCarrier {
                 }
             }
             if self.generation.load(Ordering::SeqCst) != generation {
-                return;
+                return Served::Stop;
             }
             if !self.key_current() {
                 tracing::warn!("hub carrier: the node key was replaced; unregistering");
-                return;
+                return Served::Stop;
             }
         }
+    }
+
+    /// The relay this machine's own slot is registered on now, if it is.
+    pub fn serving_relay(&self) -> Option<String> {
+        self.serving_on.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// The relay that last carried a circuit to `daemon`.
+    pub fn relay_of(&self, daemon: &str) -> Option<String> {
+        self.homes.of(daemon)
+    }
+}
+
+/// How one registration of [`HubCarrier::serve_on`] ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Served {
+    /// The carrier stops (shutdown, a rekey, a replaced key): the caller decides what follows.
+    Stop,
+    /// The relay stayed down past `rehome_after`: register on the next one.
+    Rehome,
+}
+
+/// Sleeps until `at`; never returns without one (its `select!` arm is off then).
+async fn sleep_until_some(at: Option<tokio::time::Instant>) {
+    match at {
+        Some(at) => tokio::time::sleep_until(at).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -1187,13 +1564,15 @@ impl HubCarrier {
 pub struct HubServe {
     task: tokio::task::JoinHandle<()>,
     lease: Option<KeyLease>,
+    /// The direct listener (`hub_carrier_direct.rs`), when `directPort` is set.
+    direct: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl HubServe {
     /// A registration that is `task` (a test's stand-in), dropped as a real one is.
     #[cfg(test)]
     pub(crate) fn of_task(task: tokio::task::JoinHandle<()>) -> Self {
-        Self { task, lease: None }
+        Self { task, lease: None, direct: None }
     }
 
     /// True once the registration stopped for good (its key was replaced).
@@ -1205,6 +1584,9 @@ impl HubServe {
 impl Drop for HubServe {
     fn drop(&mut self) {
         self.task.abort();
+        if let Some(direct) = &self.direct {
+            direct.abort();
+        }
     }
 }
 
@@ -1366,16 +1748,19 @@ impl Incoming {
 #[async_trait]
 impl RelayIncoming for Incoming {
     async fn incoming(self: Arc<Self>, link: Box<dyn FrameLink>) {
+        self.accept(link, NetworkPeer::Relay).await;
+    }
+}
+
+impl Incoming {
+    /// A circuit from the relay or a direct connection (`peer`): the Noise handshake against
+    /// the admitted keys, then the service its first record names.
+    async fn accept(self: Arc<Self>, link: Box<dyn FrameLink>, peer: NetworkPeer) {
         let keys = PeerKeys(self.allowed.read().unwrap_or_else(|e| e.into_inner()).clone());
         let identity = self.carrier.identity();
         let accepted = tokio::time::timeout(
             self.carrier.timings.handshake,
-            accept_secure_link(
-                link,
-                &identity,
-                &keys,
-                InboundAuthEvidence::Network(NetworkPeer::Relay),
-            ),
+            accept_secure_link(link, &identity, &keys, InboundAuthEvidence::Network(peer)),
         )
         .await;
         let accepted = match accepted {
@@ -1517,9 +1902,11 @@ impl RelayIncoming for Incoming {
                 let reached = match named {
                     Ok(CircuitService::Acpmux) => Ok(local),
                     Ok(CircuitService::CmuxTui { port }) => self.cmux_tui(port).await,
-                    // Served above; never reaches a TCP target.
+                    // Served above; never reaches a TCP target. A held pipe rides only a kept
+                    // circuit's stream, whose mux serves it; its dialer then opens a plain one.
                     Ok(
-                        CircuitService::CmuxTuiSession
+                        CircuitService::CmuxTuiResume { .. }
+                        | CircuitService::CmuxTuiSession
                         | CircuitService::MachineCall
                         | CircuitService::TransferSource,
                     ) => Err(ServiceRefusal::new("service.unknown", "no such service")),
@@ -1940,9 +2327,54 @@ pub async fn start_configured(
     tracing::info!(
         "hub carrier: on, bridging admitted circuits to this daemon's listener {websocket}"
     );
+    let direct_port = hub.config.read().await.direct_port;
     let mut serving = carrier.serve(websocket);
     serving.lease = lease;
+    if let Some(port) = direct_port {
+        serving.direct = start_direct(hub, &carrier, port).await;
+    }
     Some(serving)
+}
+
+/// The direct path on `port` (`hub_carrier_direct.rs`): dial the person's other machines on it
+/// first, by the name the hub's address book lists each by, and listen on it. A port that will
+/// not bind leaves dialing on and says why.
+async fn start_direct(
+    hub: &Arc<crate::hub::Hub>,
+    carrier: &Arc<HubCarrier>,
+    port: u16,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let book = Arc::downgrade(hub);
+    carrier.set_direct(
+        port,
+        Some(Arc::new(move |daemon: &str| {
+            let hub = book.upgrade()?;
+            hub.mesh_book_machines()
+                .into_iter()
+                .find(|(key, _)| key == daemon)
+                .map(|(_, host)| host)
+        })),
+    );
+    match tokio::net::TcpListener::bind((std::net::Ipv6Addr::UNSPECIFIED, port)).await {
+        Ok(listener) => {
+            tracing::info!("hub carrier direct: listening on port {port}");
+            Some(carrier.serve_direct(listener))
+        }
+        Err(e) => {
+            match tokio::net::TcpListener::bind((std::net::Ipv4Addr::UNSPECIFIED, port)).await {
+                Ok(listener) => {
+                    tracing::info!("hub carrier direct: listening on port {port} (IPv4)");
+                    Some(carrier.serve_direct(listener))
+                }
+                Err(e4) => {
+                    tracing::warn!(
+                        "hub carrier direct: port {port} will not bind ({e}; {e4}); dialing only"
+                    );
+                    None
+                }
+            }
+        }
+    }
 }
 
 /// [`start_configured`] on the daemon's key lock (its WireGuard transport's, else the carrier's
@@ -1982,6 +2414,19 @@ pub mod tickets;
 
 #[path = "hub_carrier_mux.rs"]
 mod mux;
+
+#[path = "hub_carrier_rehome.rs"]
+mod rehome;
+
+#[path = "hub_carrier_direct.rs"]
+pub mod direct;
+
+/// Which path a kept circuit runs on.
+#[derive(Clone, Copy, Debug)]
+enum Path {
+    Relay,
+    Direct(SocketAddr),
+}
 
 #[cfg(test)]
 #[path = "hub_carrier_register_log_tests.rs"]

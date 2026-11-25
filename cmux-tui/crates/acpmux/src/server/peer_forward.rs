@@ -39,6 +39,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_STATUS,
     method::MUX_PERF,
     method::MUX_CALLERS,
+    method::MUX_FELT_SNAPSHOT,
     method::MUX_SESSIONS,
     method::MUX_USAGE,
     method::MUX_WEB_MODES,
@@ -67,6 +68,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_GITHUB_ACTION,
     // The app's cmux sign-in is for this daemon alone (`github_app_token.rs`).
     method::MUX_GITHUB_APP_LEASE,
+    // So are the app's own GitHub calls with it (`github_rest_op.rs`).
+    method::MUX_GITHUB_REST,
     // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
     method::MUX_TASK_NEW,
     method::MUX_TASKS,
@@ -107,7 +110,10 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
+    // This machine's own load and swap, for its app's warning (`host_overload.rs`).
+    "_acpmux/host_overload",
     "_acpmux/place",
+    method::MUX_PLACE_CHAT,
     "_acpmux/move_targets",
     "_acpmux/models",
     crate::catalog::RPC_GET,
@@ -298,7 +304,16 @@ pub(super) fn trust_peer<'a>(m: &str, params: &'a Value) -> Result<Option<&'a st
 /// refused. The app gives each upload call 120 s (`AcpmuxStatusClient.putFile`).
 pub(super) const UPLOAD_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// The upload methods that wait for a peer's link (`await_upload_link`).
+/// How long a prompt for a peer's chat waits for that peer's link to come back before it is
+/// refused as unreachable: a game holds a player's action through a short drop instead of
+/// failing it. The wait wakes the peer (`Peer::wake`), so a connect attempt comes at most
+/// `Backoff::WANTED_CAP` (1 s) after the last while it waits (`peer_wanted.rs`; a restart's
+/// Close 1012 keeps the peer wanted for `RESTART_WANTED_FOR` anyway). 8 s is about seven attempts,
+/// each with its handshake: a daemon's restart handoff or a Wi-Fi drop of a few seconds. Past it
+/// the machine is likely off or resuming (about a minute) and the caller hears so, as before.
+pub(super) const PROMPT_LINK_WAIT: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// The upload methods that wait for a peer's link (`await_link`).
 pub(super) fn waits_for_link(m: &str) -> bool {
     matches!(
         m,
@@ -310,16 +325,14 @@ pub(super) fn waits_for_link(m: &str) -> bool {
     )
 }
 
-/// A file the person dropped for a chat on `peer` waits, up to `within`, for the peer's link to be
-/// up instead of failing at once while it reconnects: the peer is wanted (`peer_wanted.rs`), so the
-/// next attempt comes within a second, and each settled attempt is checked. Before, the first
-/// try of a pasted video met a link that was reconnecting and failed, and only the person's Retry
-/// got it through (Leo, 2026-11-01: "i had to retry to get it to load???"). Whether it came up:
-/// a link still down is refused as unreachable by the request, as before.
-pub(super) async fn await_upload_link(
-    peer: &crate::peer::Peer,
-    within: std::time::Duration,
-) -> bool {
+/// A file the person dropped, or a prompt, for a chat on `peer` waits, up to `within`, for the
+/// peer's link to be up instead of failing at once while it reconnects: the peer is wanted
+/// (`peer_wanted.rs`), so the next attempt comes within a second, and each settled attempt is
+/// checked. Before, the first try of a pasted video met a link that was reconnecting and failed,
+/// and only the person's Retry got it through (Leo, 2026-11-01: "i had to retry to get it to
+/// load???"). Whether it came up: a link still down is refused as unreachable by the request, as
+/// before, and a peer removed or replaced ends the wait at once (`Peer::stopped`).
+pub(super) async fn await_link(peer: &crate::peer::Peer, within: std::time::Duration) -> bool {
     let mut stopped = peer.stopped();
     if *stopped.borrow() {
         return false;
@@ -395,6 +408,9 @@ async fn gated(
     let Some((peer, id, _, _)) = remote else {
         return forward_inner(hub, conn, m, params, None).await.transpose();
     };
+    if let Err(e) = wait_for_prompt_link(conn, &peer, params).await {
+        return Some(Err(e));
+    }
     let mut tries = 0;
     loop {
         tries += 1;
@@ -412,6 +428,34 @@ async fn gated(
             continue;
         }
         return reply;
+    }
+}
+
+/// A prompt for a chat on `peer`, whose link is down, waits up to [`PROMPT_LINK_WAIT`] for it
+/// (`await_link`) before it goes through the gate, so it goes on the link that came back once
+/// that link's restores are decided, or is refused by `forward_inner` as unreachable, as before.
+/// Nothing went out while it waited: a cancel (`request_cancel.rs` drops this future) or a
+/// client that leaves ends the wait with nothing sent.
+///
+/// The prompt is checked first, so a bad one is refused at once. The outbox's own attempts
+/// (`outbox.rs`) do not wait: it keeps the delivery, tries again the moment the link is ready
+/// (`Outbox::peer_ready`), and hands a delivery that reached no one to the mesh relay at once.
+async fn wait_for_prompt_link(
+    conn: &Conn,
+    peer: &crate::peer::Peer,
+    params: &Value,
+) -> Result<(), RpcError> {
+    if peer.ready() || conn.socket_peer == crate::sender_harness::SocketPeer::Outbox {
+        return Ok(());
+    }
+    crate::author::of_prompt(params)?;
+    crate::prompt_provenance::notice_checked(params)?;
+    // A message wakes the peer's machine as its refusal would have (`ask_back`), now instead of
+    // after the wait.
+    peer.wake();
+    tokio::select! {
+        _ = await_link(peer, PROMPT_LINK_WAIT) => Ok(()),
+        () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
     }
 }
 
@@ -444,7 +488,8 @@ fn wake_if_composing(peer: &crate::peer::Peer, m: &str, params: &Value, origin: 
 }
 
 /// Whether request `m` says a person is writing to the chat: typing turned on
-/// (`_acpmux/typing`), or a surface's unsent text that is not blank (`_acpmux/composer_set`).
+/// (`_acpmux/typing`), or a surface's unsent draft that is not blank: text, or an image
+/// (`_acpmux/composer_set`).
 /// Clearing it or stopping typing is not, and neither is `_acpmux/draft_set`: the pane saves the
 /// last chat's draft when it switches away, unchanged, which is no one writing.
 fn composing(m: &str, params: &Value) -> bool {
@@ -452,6 +497,7 @@ fn composing(m: &str, params: &Value) -> bool {
         method::MUX_TYPING => params.get("on").and_then(Value::as_bool) == Some(true),
         method::MUX_COMPOSER_SET => {
             params.get("text").and_then(Value::as_str).is_some_and(|text| !text.trim().is_empty())
+                || params.get("images").and_then(Value::as_array).is_some_and(|i| !i.is_empty())
         }
         _ => false,
     }
@@ -570,6 +616,14 @@ async fn forward_inner(
         {
             return Err(super::fork_through::retarget_unsupported(&peer.name));
         }
+        // A subagent's fork, or one in a picked mode or on a model of the chat's own harness, goes
+        // only to a peer that takes them: an older build would fork the whole chat as it is.
+        if m == method::SESSION_FORK
+            && super::fork_through::asks_start(params)
+            && !peer.lists(crate::hub::fork_subagent::FEATURE)
+        {
+            return Err(super::fork_through::start_unsupported(&peer.name));
+        }
         // A conditional stop runs only where the session lives: an older peer would ignore the
         // condition and stop it anyway (`hub/stop_if_idle.rs`).
         if m == method::MUX_KILL && crate::hub::stop_if_idle::StopCondition::asked(params) {
@@ -578,7 +632,7 @@ async fn forward_inner(
         // An upload waits for a link that is reconnecting; the client that leaves stops the wait.
         if waits_for_link(m) && !peer.ready() {
             let ready = tokio::select! {
-                ready = await_upload_link(&peer, UPLOAD_LINK_WAIT) => ready,
+                ready = await_link(&peer, UPLOAD_LINK_WAIT) => ready,
                 () = conn.closed() => return Err(RpcError::internal("the client closed the connection")),
             };
             // The old peer instance may have been removed or replaced while
@@ -699,6 +753,15 @@ async fn forward_inner(
         if m == method::MUX_NATIVE_HISTORY && !peer.supports_native_history() {
             return Err(crate::hub::media_read::peer_unsupported(&peer, m)
                 .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
+        // Every other method a peer feature gates (`peer::PEER_FEATURES`) goes only to a peer
+        // that listed one of its features; a link that is down lists none, so it is unreachable.
+        let features = crate::peer::features_gating(m);
+        if !features.is_empty() && !features.iter().any(|f| peer.lists(f)) {
+            if !peer.ready() {
+                return Err(peer.unreachable_error());
+            }
+            return Err(peer_feature_unsupported(&peer, m, &features));
         }
         // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
         // forwarded, whatever the peer serves this link as, one entry there would stand for
@@ -1380,7 +1443,7 @@ mod tests {
         for _ in 0..2 {
             let peer = peer.clone();
             pending.push(tokio::spawn(async move {
-                await_upload_link(&peer, std::time::Duration::from_secs(30)).await
+                await_link(&peer, std::time::Duration::from_secs(30)).await
             }));
         }
         // Peer::run is deliberately absent: removal itself, not a later
@@ -1568,3 +1631,18 @@ mod message_identity_tests {
 #[cfg(test)]
 #[path = "row_read_tests.rs"]
 mod row_read_tests;
+
+/// A method `features` gate, for a peer that listed none of them: its build does not serve it.
+fn peer_feature_unsupported(peer: &crate::peer::Peer, m: &str, features: &[&str]) -> RpcError {
+    RpcError::method_not_found(&format!(
+        "{m} (peer {} runs acpmux build {}, which lists none of {features:?}; run `acpmux machine update {}`)",
+        peer.name,
+        peer.remote_build().unwrap_or_else(|| "unknown".into()),
+        peer.name
+    ))
+    .with_data(json!({"reason": "peerFeature.unsupported", "peer": peer.name, "features": features}))
+}
+
+#[cfg(test)]
+#[path = "prompt_link_wait_tests.rs"]
+mod prompt_link_wait_tests;

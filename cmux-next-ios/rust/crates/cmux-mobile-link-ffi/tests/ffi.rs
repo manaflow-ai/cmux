@@ -68,6 +68,7 @@ async fn round_trip(transport: Transport) {
             include_loopback: true,
             relay_only: false,
             block_udp: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -86,6 +87,9 @@ async fn round_trip(transport: Transport) {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     assert_eq!(handle.path(), LinkPath::Direct);
+    // A direct path names where its peer is (the host's loopback, LAN or tailnet address the
+    // dial picked); only a relayed path names none.
+    assert!(["lan", "tailnet", "wan"].contains(&handle.peer_scope().as_str()), "{}", handle.peer_scope());
     let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
     channel.send(b"hello".to_vec()).await.unwrap();
     assert_eq!(channel.recv().await, ChannelMessage::Data { bytes: b"hello".to_vec() });
@@ -152,6 +156,7 @@ async fn wireguard_relay_only_rides_turn() {
                 include_loopback: true,
                 relay_only: true,
                 block_udp: false,
+                force_relay: false,
                 video_lane: false,
                 webrtc_media: false,
                 ultra: cmux_mobile_link::UltraSetting::Off,
@@ -174,6 +179,8 @@ async fn wireguard_relay_only_rides_turn() {
         // The direct UDP path would have been confirmed well within this.
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert_eq!(handle.path(), LinkPath::Turn);
+        // Through TURN there is no peer address of its own: not the LAN, not a tailnet.
+        assert_eq!(handle.peer_scope(), "");
         let events = recorder.0.lock().unwrap().clone();
         assert!(!events.contains(&LinkEvent::PathChanged { path: LinkPath::Direct }), "{events:?}");
         handle.close();
@@ -181,10 +188,12 @@ async fn wireguard_relay_only_rides_turn() {
     .await;
 }
 
-/// Relay only over WireGuard without a TURN server has no path at all (the
-/// backend relay is retired): the dial fails at once.
+/// UDP blocked over WireGuard without a TURN server, toward a Mac whose build
+/// has no cmux relay: no path at all. The dial fails at once with
+/// `network_blocked` and what each path did, which the app turns into the
+/// person's sentence (PROTOCOL.md "When no path works").
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn wireguard_relay_only_without_turn_fails_fast() {
+async fn wireguard_with_no_path_says_the_network_blocks_it() {
     let server = FakeSignaling::start(FakeOptions::default()).await;
     let mac_id = uuid::Uuid::new_v4().to_string();
     spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
@@ -200,6 +209,7 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
             include_loopback: true,
             relay_only: false,
             block_udp: true,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -208,13 +218,94 @@ async fn wireguard_relay_only_without_turn_fails_fast() {
     )
     .await;
     match result {
-        Err(cmux_mobile_link_ffi::CmuxMobileError::Transport { message }) => {
-            assert!(message.contains("TURN"), "{message}");
+        Err(cmux_mobile_link_ffi::CmuxMobileError::Refused { code, message }) => {
+            assert_eq!(code, cmux_mobile_link_ffi::NETWORK_BLOCKED);
+            let failures: serde_json::Value = serde_json::from_str(&message).unwrap();
+            assert_eq!(failures["udp"], "off", "{message}");
+            assert_eq!(failures["turn"], "none_offered", "{message}");
+            assert_eq!(failures["relay"], "peer_cannot", "{message}");
         }
         Err(other) => panic!("unexpected error {other:?}"),
-        Ok(_) => panic!("UDP-blocked WireGuard connected without TURN"),
+        Ok(_) => panic!("UDP-blocked WireGuard connected with no path"),
     }
     assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+/// Debug "Relay via cmux (HTTPS) only" through the FFI: the phone's dial
+/// joins the service's relay (the fake's, at the request's base URL) and
+/// the link rides it, path `HttpsRelay`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wireguard_forced_relay_rides_the_services_relay() {
+    within(Duration::from_secs(60), "wireguard_forced_relay_rides_the_services_relay", async {
+        let server = FakeSignaling::start(FakeOptions::default()).await;
+        let mac_id = uuid::Uuid::new_v4().to_string();
+        let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+        let relay = cmux_mobile_link::dial::relay::RelayEndpoint::with_token(
+            server.base_url.clone(),
+            None,
+            mac_id.clone(),
+            "user:alice",
+        );
+        tokio::spawn(async move {
+            while let Some(session) = mac.next_session().await {
+                let first = session.first;
+                let events = SessionEvents {
+                    backend: mac.events(),
+                    session_id: first.session_id.clone(),
+                    session: session.events,
+                };
+                let (mac, relay) = (mac.clone(), relay.clone());
+                tokio::spawn(async move {
+                    let options =
+                        DialOptions { include_loopback: true, relay: Some(relay), ..DialOptions::default() };
+                    let connected =
+                        dial::answer(&mac, first, events, &options, LinkConfig::default()).await.unwrap();
+                    while let Some(mut incoming) = connected.link.accept().await {
+                        tokio::spawn(async move {
+                            while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                                let _ = incoming.channel.send(bytes).await;
+                            }
+                        });
+                    }
+                });
+            }
+        });
+        let handle = connect_inner(
+            ConnectRequest {
+                base_url: server.base_url.clone(),
+                token: "user:alice".into(),
+                team_id: "team".into(),
+                device_id: uuid::Uuid::new_v4().to_string(),
+                mac_device_id: mac_id,
+                transport: Transport::WireGuard,
+                include_loopback: true,
+                relay_only: false,
+                block_udp: false,
+                force_relay: true,
+                video_lane: false,
+                webrtc_media: false,
+                ultra: cmux_mobile_link::UltraSetting::Off,
+            },
+            None,
+        )
+        .await
+        .expect("connect through the relay");
+        let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
+        let payload = vec![9u8; 100_000];
+        channel.send(payload.clone()).await.unwrap();
+        let mut received = Vec::new();
+        while received.len() < payload.len() {
+            match channel.recv().await {
+                ChannelMessage::Data { bytes } => received.extend(bytes),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(received, payload);
+        assert_eq!(handle.path(), LinkPath::HttpsRelay);
+        assert_eq!(server.relay_joins(), 2);
+        handle.close();
+    })
+    .await;
 }
 
 /// The service refusing the access token (401 on the signaling upgrade) comes
@@ -238,6 +329,7 @@ async fn a_refused_token_is_typed_unauthorized() {
                 include_loopback: true,
                 relay_only: false,
                 block_udp: false,
+                force_relay: false,
                 video_lane: false,
                 webrtc_media: false,
                 ultra: cmux_mobile_link::UltraSetting::Off,
@@ -274,6 +366,7 @@ async fn webrtc_relay_only_without_turn_fails_fast() {
             include_loopback: true,
             relay_only: true,
             block_udp: false,
+            force_relay: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -302,6 +395,7 @@ fn request(server: &FakeSignaling, device_id: &str, mac_id: &str) -> ConnectRequ
         include_loopback: true,
         relay_only: false,
         block_udp: false,
+        force_relay: false,
         video_lane: false,
         webrtc_media: false,
         ultra: cmux_mobile_link::UltraSetting::Off,
@@ -542,4 +636,65 @@ fn every_test_reading_warm_state_dials_on_its_own_pool() {
         "these tests assert warm-pool marks on the process's shared pool, which parallel tests reset and \
          trim; give each a `WarmPool::new()`: {offenders:?}"
     );
+}
+
+/// A Mac whose ad outlived its network (the phone left the Wi-Fi; the hub socket opens and then
+/// says nothing, or the WireGuard dial over host candidates stalls) costs the service dial
+/// nothing: the hub races it instead of going first, and the service link wins.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stale_local_ad_does_not_delay_the_service_dial() {
+    use cmux_mobile_link_ffi::local_link::{
+        LocalEndpoint, LocalTxt, local_link_nearby, local_link_observe, local_link_pair, local_link_remove,
+    };
+
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let device = uuid::Uuid::new_v4().to_string();
+    let pool = WarmPool::new();
+
+    // The baseline: the same dial with no ad.
+    let started = std::time::Instant::now();
+    let plain = pool.connect(request(&server, &device, &mac_id), None).await.expect("connect");
+    let baseline = started.elapsed();
+    plain.close();
+    drop(plain);
+
+    // A hub that accepts and never answers: its connect alone would wait HUB_CONNECT_WAIT.
+    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = silent.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = silent.accept().await {
+            held.push(stream);
+        }
+    });
+    let instance = format!("stale-{mac_id}");
+    // A paired Mac's ad with its key's tag: the one kind of ad a dial trusts.
+    let key = b"stale-mac-key".to_vec();
+    local_link_pair(mac_id.clone(), Some(key.clone()));
+    assert!(local_link_observe(
+        instance.clone(),
+        vec![
+            LocalTxt { key: "id".into(), value: mac_id.clone() },
+            LocalTxt { key: "v".into(), value: "1".into() },
+            LocalTxt { key: "k".into(), value: cmux_mobile_link::local::key_tag(&key) },
+        ],
+        vec![LocalEndpoint { host: "127.0.0.1".into(), port }],
+    ));
+    assert!(local_link_nearby(mac_id.clone()), "the dial below must race the stale hub");
+
+    let started = std::time::Instant::now();
+    let raced = pool.connect(request(&server, &device, &mac_id), None).await.expect("connect");
+    let elapsed = started.elapsed();
+    let marks = raced.timings();
+    assert!(!names(&marks).contains(&"local_link"), "{marks:?}");
+    assert!(
+        elapsed < baseline + Duration::from_millis(500),
+        "the stale ad delayed the service dial: {elapsed:?} against {baseline:?} with no ad"
+    );
+    raced.close();
+    local_link_remove(instance);
+    local_link_pair(mac_id, None);
+    pool.reset().await;
 }

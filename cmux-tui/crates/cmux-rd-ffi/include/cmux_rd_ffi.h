@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 /* Version of this ABI; bumped on every incompatible change. */
-#define CMUX_RD_FFI_ABI_VERSION 8u
+#define CMUX_RD_FFI_ABI_VERSION 9u
 
 /* Carriers. */
 #define CMUX_RD_CARRIER_DATAGRAM 0u
@@ -105,7 +105,7 @@ typedef struct CmuxRdStats {
     uint64_t frames_lost;
     uint32_t acked_frame;
     bool need_recovery;
-    uint64_t frames_skipped; /* frames a newer keyframe replaced on the ready queue (ABI 8) */
+    uint64_t frames_skipped; /* frames a newer keyframe replaced on the ready queue (ABI 9) */
 } CmuxRdStats;
 
 /* One viewer input event. Fields the kind does not use are ignored. */

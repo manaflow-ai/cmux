@@ -23,7 +23,7 @@ use crate::Res;
 use cmux_rd_core::cc::{CcConfig, PathKind};
 use cmux_rd_core::clock::ClockEstimator;
 use cmux_rd_core::input::{seq_at_or_before, InputSender};
-use cmux_rd_core::ledger::StageLedger;
+use cmux_rd_core::ledger::{StageLedger, SCHEMA as LEDGER_SCHEMA};
 use cmux_rd_core::reassembly::{CompleteFrame, Reassembler};
 use cmux_rd_core::service::caps;
 use cmux_rd_core::upstream::{UpstreamConfig, UpstreamSender};
@@ -715,6 +715,52 @@ impl Viewer {
         Ok(())
     }
 
+    /// One sample's frame from the stage ledger, under the names scripts/screen-share-vs.py
+    /// reads (`sample_times[].ledger`), every time in µs on the host's clock. Without a clock
+    /// estimate only the viewer's times are given, on this Mac's clock, so spans between them
+    /// (Reassembly, Decode) still read right. A time never known is left out, never zero.
+    fn sample_ledger(&self, frame: u32, sent_ns: u64) -> Option<serde_json::Value> {
+        // The newest row of the frame (a host that started over numbers frames again).
+        let row = self
+            .ledger
+            .rows()
+            .filter(|r| r.frame == frame && r.viewer.decoded_us.is_some())
+            .last()?;
+        let offset = self.clock.as_ref().and_then(ClockEstimator::estimate).map(|e| e.offset_us);
+        let mut out = serde_json::Map::new();
+        out.insert("schema".into(), json!(LEDGER_SCHEMA));
+        let clock = if offset.is_some() { "host monotonic" } else { "viewer monotonic" };
+        out.insert("clock".into(), json!(clock));
+        out.insert("frame".into(), json!(frame));
+        let viewer = [
+            ("input_sent_us", Some(sent_ns / 1000)),
+            ("first_shard_us", row.viewer.first_shard_us),
+            ("last_shard_us", row.viewer.last_shard_us),
+            ("released_us", row.viewer.released_us),
+            ("decoded_us", row.viewer.decoded_us),
+            ("presented_us", row.viewer.presented_us),
+        ];
+        for (key, us) in viewer {
+            let host = us.and_then(|us| offset.map_or(Some(us), |o| us.checked_add_signed(o)));
+            if let Some(us) = host {
+                out.insert(key.into(), json!(us));
+            }
+        }
+        if let (Some(h), Some(_)) = (row.host, offset) {
+            let host = [
+                ("display_us", h.display_us),
+                ("encode_start_us", h.encode_start_us),
+                ("bitstream_ready_us", h.encoded_us),
+                ("first_datagram_sent_us", h.first_sent_us),
+                ("last_datagram_sent_us", h.last_sent_us),
+            ];
+            for (key, us) in host.into_iter().filter(|(_, us)| *us > 0) {
+                out.insert(key.into(), json!(us));
+            }
+        }
+        Some(serde_json::Value::Object(out))
+    }
+
     fn send_input(&mut self) -> Res<()> {
         if let Some(packet) = self.sender.packet() {
             let mut d = Vec::new();
@@ -1189,12 +1235,13 @@ pub fn run(opts: &Opts) -> Res<()> {
     let mut capture_to_decoded = Vec::new();
     // Each shown sample on this Mac's clock (ns) with the host's capture time (µs), for a
     // breakdown against the host's CMUX_RD_TIMING_LOG (scripts/screen-share-vs.py).
-    let mut sample_times = Vec::new();
+    let mut sample_times: Vec<serde_json::Value> = Vec::new();
     let mut lost = 0usize;
     let initial_changes = v.marker_changes;
     let mut last_input = None;
     while g2g.len() + lost < samples && v.ended.is_none() {
         let expected = v.marker.unwrap_or(0).wrapping_add(1);
+        let sampled = sample_times.len();
         let t0 = now_ns();
         let last_seq = match input.as_str() {
             // The cloud browser's marker page counts mousedown and wheel as well as keydown.
@@ -1246,9 +1293,20 @@ pub fn run(opts: &Opts) -> Res<()> {
                 break;
             }
         }
+        let shown = (sample_times.len() > sampled).then_some(v.marker_frame);
         let gap_end = now_ns() + rng.range(40, 160) * 1_000_000;
         while now_ns() < gap_end {
             v.pump(gap_end.saturating_sub(now_ns()).max(1_000_000))?;
+        }
+        // The frame's ledger row once the gap has passed: the host's `FrameTimes` follow its
+        // last shard, so they are in by now.
+        if let Some(frame) = shown {
+            let ledger = v.sample_ledger(frame, t0);
+            if let (Some(ledger), Some(sample)) =
+                (ledger, sample_times.last_mut().and_then(serde_json::Value::as_object_mut))
+            {
+                sample.insert("ledger".into(), ledger);
+            }
         }
     }
     let secs = (now_ns() - t_begin) as f64 / 1e9;
