@@ -26,7 +26,11 @@ sha1 = "0.10"
 md5 = { package = "md-5", version = "0.10" }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Networking_WinSock"], optional = true }
+windows-sys = { version = "0.61", features = [
+    "Win32_Networking_WinSock",
+    "Win32_System_Performance",
+    "Win32_System_SystemInformation",
+], optional = true }
 
 [[test]]
 name = "net"
