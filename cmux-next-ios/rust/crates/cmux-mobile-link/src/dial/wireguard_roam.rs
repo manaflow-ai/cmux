@@ -176,6 +176,9 @@ pub(super) struct RelayShared {
     confirmed_elsewhere: AtomicBool,
     /// The held carrier's view of the peer's socket.
     peer_online: Mutex<Option<watch::Receiver<bool>>>,
+    /// The newest joined carrier's text side for relay-held sends (RFD 0142
+    /// R8): a new join replaces it, so a hold route follows the redials.
+    hold_port: watch::Sender<Option<super::super::relay::HoldPort>>,
     state: Mutex<RelayClock>,
     asked: tokio::sync::Notify,
 }
@@ -248,6 +251,7 @@ impl Default for RelayShared {
             on_relay: AtomicBool::new(true),
             confirmed_elsewhere: AtomicBool::new(false),
             peer_online: Mutex::new(None),
+            hold_port: watch::Sender::new(None),
             state: Mutex::new(RelayClock {
                 lost: None,
                 since: Instant::now(),
@@ -1760,6 +1764,16 @@ pub fn relay_held(session_id: &str, dialer: bool) -> Option<bool> {
     find(session_id, dialer).map(|s| s.relay_shared.held())
 }
 
+/// The relay-held send queue's socket for a live session (RFD 0142 R8): the
+/// newest joined relay carrier's [`HoldPort`](super::super::relay::HoldPort),
+/// as it changes (`None` before the first join). `None` without the session.
+pub fn relay_hold_port(
+    session_id: &str,
+    dialer: bool,
+) -> Option<watch::Receiver<Option<super::super::relay::HoldPort>>> {
+    find(session_id, dialer).map(|s| s.relay_shared.hold_port.subscribe())
+}
+
 /// Join cmux's relay whenever this session needs it ([`RelayShared::due`]),
 /// until the session ends. A side that joins on its own (not because the
 /// peer asked or said it would) asks the peer to join too.
@@ -1844,6 +1858,7 @@ async fn run_relay_watch(session: Weak<Session>) {
                     shared.sticky.store(true, Ordering::Relaxed);
                 }
                 *lock(&shared.peer_online) = Some(carrier.peer_online_watch());
+                shared.hold_port.send_replace(Some(carrier.hold_port()));
                 if session.control.send(Control::Relay(carrier)).is_err() {
                     return;
                 }
