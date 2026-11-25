@@ -3217,6 +3217,8 @@ impl Hub {
             deleted.map_err(|e| RpcError::internal(e.to_string()))?;
             // An earlier run's caller token proves a purged session no more (`caller_registry.rs`).
             self.caller_registry.forget(&session.id);
+            // Its chat secrets go with it (`chat_secrets.rs`).
+            crate::chat_secrets::clear(&session.id);
             #[cfg(test)]
             {
                 let seam = self.purge_seam.lock().unwrap_or_else(|e| e.into_inner()).take();

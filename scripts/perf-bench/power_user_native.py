@@ -496,6 +496,60 @@ def summarize(results: list) -> dict:
             "lag_frames": total("lag_frames"), "lost": total("lost"), "reloads": total("reloads")}
 
 
+# The perf cron's rows (perf-cron.py's budgets kind reads report.json `rows`; part `power-user-native`). One family a
+# class: frame p95 and p99 (worst burst; budget BUDGETS' refresh multiple at the run's refresh), and each count rule
+# summed over the class's bursts (budget 0, or BUDGETS' value). A burst the run could not measure (the app hung or
+# died, a socket call failed, the deadline) counts in `not_measured` (budget 0): a hang is a row, not a silence.
+COUNT_ROWS = ("missed", "long", "blank_frames", "flashes", "pixel_blank_frames", "shift_frames", "lost", "reloads")
+
+
+def cron_rows(report: dict) -> list:
+    """report.json `rows` for the perf cron, from a finished (or cut) run's bursts."""
+    rows = []
+    budgets = report.get("budgets") or BUDGETS
+    bursts = report.get("bursts") or []
+    for klass in CLASSES:
+        mine = [b for b in bursts if b.get("class") == klass]
+        if not mine:
+            continue
+        good = [b for b in mine if not b.get("error")]
+        prefix = f"power_user.native.{klass}"
+        refresh = max([float(b["refresh_ms"]) for b in good if b.get("refresh_ms")], default=pd.REFRESH_120)
+        for key, mult in (("p95_ms", budgets["p95_refresh"]), ("p99_ms", budgets["p99_refresh"])):
+            values = [b[key] for b in good if b.get(key) is not None]
+            if values:
+                rows.append({"name": f"{prefix}.{key[:3]}", "p50": pct(values, 0.5), "p95": max(values), "unit": "ms",
+                             "budget": round(mult * refresh, 2), "floor": 1.0})
+        for key in COUNT_ROWS:
+            values = [b[key] for b in good if b.get(key) is not None]
+            if values:
+                total = sum(values)
+                rows.append({"name": f"{prefix}.{key}", "p50": total, "p95": total, "unit": "frames" if
+                             key.endswith("frames") or key in ("missed", "long") else "count",
+                             "budget": budgets.get(key, 0) if key not in ("missed",) else None, "floor": 0.5})
+        lag = [b["lag_run"] for b in good if b.get("lag_run") is not None]
+        if lag:
+            rows.append({"name": f"{prefix}.lag_run", "p50": pct(lag, 0.5), "p95": max(lag), "unit": "frames",
+                         "budget": budgets["lag_run"], "floor": 0.5})
+        missing = len(mine) - len(good)
+        rows.append({"name": f"{prefix}.not_measured", "p50": missing, "p95": missing, "unit": "bursts", "budget": 0,
+                     "floor": 0.5})
+    return rows
+
+
+def incomplete(report: dict) -> list:
+    """The run's coverage gaps, perf-cron.py's `incomplete` (the rows are kept; the tip is not a new last good)."""
+    out = []
+    if report.get("error"):
+        out.append({"name": "power_user.native", "reason": str(report["error"])[:300]})
+    elif not report.get("bursts"):
+        out.append({"name": "power_user.native", "reason": "no burst ran"})
+    cut = [b for b in report.get("bursts") or [] if b.get("error")]
+    if cut:
+        out.append({"name": "power_user.native", "reason": f"{len(cut)} bursts not measured: {cut[0]['error']}"[:300]})
+    return out
+
+
 # ---------------------------------------------------------------- the fixture (reloads are counted on it)
 
 
@@ -586,6 +640,12 @@ def run_bursts(opts) -> int:
                     "budgets": budgets, "bursts": [], "classes": {}, "breaches": []}
 
     def write():
+        report["rows"] = cron_rows(report)
+        gaps = incomplete(report)
+        if gaps:
+            report["incomplete"] = gaps
+        else:
+            report.pop("incomplete", None)
         if opts.json:
             with open(opts.json + ".tmp", "w") as handle:
                 json.dump(report, handle, indent=1)
