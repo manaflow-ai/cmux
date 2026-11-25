@@ -423,7 +423,7 @@ impl Endpoint {
             // braid paths): its first measured RTT is reported on the same
             // path, or callers that size by path RTT never learn it.
             Ok(None) if !had_rtt && self.selector.current() == Some(path) => {
-                self.report_switch(Some(path))
+                self.report_switch(Some(path));
             }
             _ => {}
         }
