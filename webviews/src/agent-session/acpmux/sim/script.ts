@@ -186,13 +186,13 @@ export class SimBuilder {
       fromSessionId: "sim-0000-0000-0000-0000000000aa",
       to: this.sessionId,
     };
-    this.steers += 1;
+    this.incomingSteers += 1;
     return this.record(
       "mux",
       "user_message",
       {
         text: value,
-        promptId: `steer-${this.turns}-${this.steers}`,
+        promptId: `steer-${this.turns}-${this.incomingSteers}`,
         turnId: this.turnId,
         steer: true,
         client: "acpmux-cli#1",
@@ -202,7 +202,7 @@ export class SimBuilder {
       `steer ${provenance.kind}: ${value.slice(0, 40)}`,
     );
   }
-  private steers = 0;
+  private incomingSteers = 0;
 
   /** Another agent's message steered into the running turn (acpmux's `steer: true` `agent_message`): it opens no turn. */
   message(value: string, { fromName = "other-lane", after = 400 } = {}): this {
