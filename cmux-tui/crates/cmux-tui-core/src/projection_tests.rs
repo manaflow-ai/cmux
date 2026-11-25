@@ -263,6 +263,104 @@ fn a_line_without_the_mark_is_refused() {
 }
 
 #[test]
+fn binary_lines_come_back_whole_mixed_with_base64_ones() {
+    // Every byte value, newlines and escapes among them, on both sides of a line's cut.
+    let bytes: Vec<u8> =
+        (0..2_500_000u32).map(|n| (n.wrapping_mul(2_654_435_761) >> 11) as u8).collect();
+    let mut sent = Vec::new();
+    {
+        let mut writer = LineWriter::new(&mut sent);
+        writer.write_all(b"head\n").unwrap();
+    }
+    {
+        let mut writer = LineWriter::binary(&mut sent);
+        writer.write_all(&bytes).unwrap();
+        writer.write_all(b"\n\\n\\").unwrap();
+        writer.flush().unwrap();
+    }
+    let lines: Vec<&[u8]> =
+        sent.split(|byte| *byte == b'\n').filter(|line| !line.is_empty()).collect();
+    assert_eq!(lines.first().and_then(|line| line.first()), Some(&LINE_MARK));
+    assert!(
+        lines
+            .iter()
+            .skip(1)
+            .all(|line| { line.first() == Some(&BINARY_MARK) && line.len() <= LINE_BYTES * 2 + 1 })
+    );
+    // About 1/128 of noise is escaped: far under base64's third.
+    let binary: usize = lines.iter().skip(1).map(|line| line.len() + 1).sum();
+    assert!(binary < bytes.len() + bytes.len() / 50, "{binary}");
+    let mut back = Vec::new();
+    LineReader::new(std::io::Cursor::new(sent)).read_to_end(&mut back).unwrap();
+    assert_eq!(back.get(..5), Some(&b"head\n"[..]));
+    assert_eq!(back.get(5..5 + bytes.len()), Some(bytes.as_slice()));
+    assert_eq!(back.get(5 + bytes.len()..), Some(&b"\n\\n\\"[..]));
+}
+
+#[test]
+fn a_binary_line_with_a_bad_escape_is_refused() {
+    let mut back = Vec::new();
+    let error = LineReader::new(std::io::Cursor::new(b"!ab\\x\n".to_vec())).read_to_end(&mut back);
+    assert_eq!(error.unwrap_err().kind(), std::io::ErrorKind::InvalidData);
+}
+
+#[test]
+fn only_a_serve_dial_that_says_wire_2_gets_binary_lines_and_packed_answers() {
+    assert!(wants_wire(
+        r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x","lines":true,"wire":2}"#
+    ));
+    assert!(!wants_wire(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x","lines":true}"#));
+    assert!(!wants_wire(r#"{"id":1,"cmd":"projection.layer","name":"a","at":"/x","wire":2}"#));
+}
+
+/// The bytes a projection's answers cost on the carrier, before (plain answers in base64 lines)
+/// and after (packed answers in binary lines), for every file of this crate's source folder.
+#[test]
+fn packed_answers_in_binary_lines_cost_less_than_base64_ones() {
+    use cmux_projection::wire::{Part, read_answer, write_answer, write_packed_answer};
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files: Vec<Vec<u8>> = Vec::new();
+    let mut stack = vec![folder];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                files.push(std::fs::read(path).unwrap());
+            }
+        }
+    }
+    let raw: usize = files.iter().map(Vec::len).sum();
+    let (mut before, mut after) = (Vec::new(), Vec::new());
+    for (ask, file) in files.iter().enumerate() {
+        let parts = [Part::ok(file.clone())];
+        let ask = u32::try_from(ask).unwrap();
+        // As the Mac answers: through a 1 MiB buffer, flushed after each answer.
+        let mut plain = std::io::BufWriter::with_capacity(1 << 20, LineWriter::new(&mut before));
+        write_answer(&mut plain, ask, &parts).unwrap();
+        plain.flush().unwrap();
+        drop(plain);
+        let mut packed = std::io::BufWriter::with_capacity(1 << 20, LineWriter::binary(&mut after));
+        write_packed_answer(&mut packed, ask, &parts).unwrap();
+        packed.flush().unwrap();
+    }
+    eprintln!(
+        "{} files, {raw} bytes: base64 plain {} bytes, binary packed {} bytes ({:.2}x)",
+        files.len(),
+        before.len(),
+        after.len(),
+        before.len() as f64 / after.len() as f64
+    );
+    assert!(after.len() * 2 < before.len());
+    let mut reader = LineReader::new(std::io::Cursor::new(after));
+    for file in &files {
+        let (_, parts) = read_answer(&mut reader).unwrap().unwrap();
+        assert_eq!(&parts[0].bytes, file);
+    }
+}
+
+#[test]
 fn only_a_dial_that_says_lines_gets_lines() {
     assert!(wants_lines(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x","lines":true}"#));
     assert!(!wants_lines(r#"{"id":1,"cmd":"projection.serve","name":"a","at":"/x"}"#));

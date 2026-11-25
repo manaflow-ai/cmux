@@ -252,6 +252,15 @@ public enum HomeListNote: Equatable, Sendable {
         if homeMacID != nil { return .connecting }
         return macsMayExist ? .loading : .none
     }
+
+    /// `make`'s `macsMayExist`: a Mac's list can still come with no Mac chosen. Only while Macs
+    /// are tracked live (`live`; the mock and a demo without a Mac link never answer), and the
+    /// account's Macs are not known yet or one of them is online. Before, a mock Home, or an
+    /// account whose every Mac is offline, said "Loading conversations…" forever (iOS release
+    /// bar read-back, 2026-11-22, shot 04).
+    public static func macsMayAnswer(live: Bool, macsKnown: Bool, anyOnline: Bool) -> Bool {
+        live && (!macsKnown || anyOnline)
+    }
 }
 
 /// What Home says while its Mac's list is not live (CMUX-489), in the Workspaces tab's words

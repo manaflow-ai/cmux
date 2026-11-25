@@ -14,7 +14,7 @@
 // Every tray gets a header first, one item too (Leo, 2026-11-07: a lone line that opened its subagent
 // on the first click "instead of expanding it"; folded, a lone item's header names it, what it does
 // now and its time, `loneHeadOf`), as the Codex and Claude desktop apps head their running agents: a still running-work mark (never the spinner, which stays on each
-// working line, #27103), "2 subagents running · 1 command", the time since the first started as
+// working line, #27103), "2 subagents · 1 command", the time since the first started as
 // quiet meta right after the counts (never a column of its own far from them), and the chevron in
 // the trailing column every line's chevron ends in; between turns it says "Running in background ·
 // 2 subagents · 1 command". The
@@ -111,7 +111,7 @@ import { StopButton } from "./SubagentGroup";
 import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, trayItemKey, type TrayItem, itemStart } from "./runningTray";
+import { commandStatus, itemStart, trayItemKey, type TrayItem } from "./runningTray";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
 import { attentionFirst, type TrayCard } from "./trayAttention";
 import { actionDetail, latestLine, namedAction } from "./trayDetail";
@@ -147,7 +147,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
-import { setHatHeight, useHatHeight, HAT_OPEN_SLOP, hatDragEnd, hatDragHeight } from "./trayResize";
+import { HAT_OPEN_SLOP, hatDragEnd, hatDragHeight, setHatHeight, useHatHeight } from "./trayResize";
 import { PlanList } from "../conversation/PlanList";
 import type { AcpmuxPlanEntry } from "../model";
 import type { TrayHandleSide } from "../chatDisplay";
@@ -581,9 +581,9 @@ export const SubagentTray = memo(function SubagentTray({
   const headParts = useMemo(
     () =>
       foldHead === "kinds" || foldHead === "tally"
-        ? trayHeadParts(t, { items, finished, waiting, working }, foldHead === "tally", chatHarness)
+        ? trayHeadParts(t, { items, finished, waiting }, foldHead === "tally", chatHarness)
         : NO_PARTS,
-    [foldHead, t, items, finished, waiting, working, chatHarness],
+    [foldHead, t, items, finished, waiting, chatHarness],
   );
   // One icon per subagent in the kinds header, each naming its own (HatFaces.tsx).
   const faces = useMemo(

@@ -221,12 +221,19 @@ pub struct Conn {
     /// one peer's rows as one `_acpmux/peer_rows_changed` (`Events::send_remote_batch`) and
     /// follow the list for them, not one `session_changed` per row.
     peer_row_batches: AtomicBool,
+    /// The features its `initialize` listed (`client_features.rs`): a gated notification goes
+    /// to it only once it listed the gate.
+    client_features: client_features::ClientFeatures,
     /// Compact text chunks on its event streams (`chunk_deltas.rs`), when its `initialize` asked.
     chunk_deltas: chunk_deltas::ChunkDeltas,
     /// The client asked, in its `initialize` (`_meta.acpmux.sessionChangedDelta`), to hear a chat's
     /// row changes after the first as `_acpmux/session_patch`; `sent_rows` keeps what it holds.
     session_delta: AtomicBool,
     sent_rows: StdMutex<session_patch::SentRows>,
+    /// The client draws no time breakdown and asked, in its `initialize`
+    /// (`_meta.acpmux.omitTimeBreakdown`), for none in any row: its attaches and the
+    /// `session_changed` of the chats it attached (`requests/time_breakdown_gate.rs`).
+    omit_time_breakdown: AtomicBool,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -1337,6 +1344,21 @@ pub async fn serve_ws_until(
     auth: WsAuth,
     shutdown: WsShutdown,
 ) -> Result<()> {
+    serve_ws_gated(hub, listener, token, auth, shutdown, None).await
+}
+
+/// [`serve_ws_until`] with an admission gate: the tailnet listener (`tailnet_carrier.rs`) reads
+/// no byte of a connection whose source `whois` does not name a node of this person, and treats
+/// one it admits as it does the end of an `ssh -W` tunnel (a loopback source: the peer token is
+/// proven over it). Without a gate every connection is as before.
+pub async fn serve_ws_gated(
+    hub: Arc<Hub>,
+    listener: TcpListener,
+    token: String,
+    auth: WsAuth,
+    shutdown: WsShutdown,
+    gate: Option<Arc<crate::tailnet_carrier::Gate>>,
+) -> Result<()> {
     let (shutdown, _draining) = shutdown.listener();
     anyhow::ensure!(!token.is_empty(), "the acpmux web listener needs a token");
     if shutdown.is_requested() {
@@ -1391,9 +1413,20 @@ pub async fn serve_ws_until(
         let local_app = auth.local_app.clone();
         let peer_auth = auth.peer.clone();
         let shutdown = shutdown.clone();
+        let gate = gate.clone();
         connections.spawn(async move {
             let _handshake_slot = handshake_slot;
             let mut stream = stream;
+            let peer = match &gate {
+                Some(gate) if gate.admits(peer).await => {
+                    std::net::SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), peer.port())
+                }
+                Some(_) => {
+                    tracing::debug!(peer = %peer, "tailnet connection refused: not this person's node");
+                    return;
+                }
+                None => peer,
+            };
             // The whole head routes the request (`ws_peek.rs`). Each path checks it: serve_http
             // as it reads, tungstenite as it parses it again for the callback.
             let mut probed = false;
@@ -2040,9 +2073,11 @@ async fn serve_connection_from(
         watch_all: AtomicBool::new(false),
         watch_tools: AtomicBool::new(false),
         peer_row_batches: AtomicBool::new(false),
+        client_features: Default::default(),
         chunk_deltas: Default::default(),
         session_delta: AtomicBool::new(false),
         sent_rows: StdMutex::default(),
+        omit_time_breakdown: AtomicBool::new(false),
         watch_inventory: StdMutex::new(false),
         peer,
         socket_peer,
@@ -2165,6 +2200,17 @@ async fn serve_connection_from(
             }
         };
         match msg {
+            // Which of this connection's requests still run (`in_flight.rs` `states`): answered
+            // here, in order with the requests read before it, and never queued for a slot, so a
+            // client whose slots are all taken by slow requests still gets its proof. Only this
+            // connection's own requests, like a `$/cancel_request`: any client may ask.
+            Message::Request { id, method: m, .. } if m == method::MUX_REQUEST_STATE => {
+                let (running, answered) = conn.in_flight.states();
+                conn.send_replying(
+                    &Message::ok(id, json!({"running": running, "answered": answered})),
+                    Some(&m),
+                );
+            }
             Message::Request { id, method: m, mut params } => {
                 // Every request its caller sent, refused ones too (`caller_stats.rs`); an
                 // `initialize` once it named the client, below.
@@ -2573,7 +2619,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             && let Ok(s) = hub.resolve(&ev.session_id)
         {
             let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-            let session = if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            let mut session =
+                if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) };
+            if conn.omit_time_breakdown.load(Ordering::SeqCst) {
+                requests::without_time_breakdown(&mut session);
+            }
             let notice = json!({"sessionId": ev.session_id, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq});
             // A patch names the row it builds on, so it is never replaced in the queue.
             if session_patch::send_row(conn, &ev.session_id, full, &session, notice) {
@@ -2687,20 +2737,29 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // (`hub/peer_snapshot.rs` `take_record`): without this, the turn's own `session/prompt`
         // stopped it until the next page, so a move during a long turn found a copy without
         // the running turn or the prompts queued behind it.
-        if !sent && rec.seq > 0 && conn.origin == Origin::Peer && ev.remote.is_none() {
+        if !sent
+            && rec.seq > 0
+            && conn.origin == Origin::Peer
+            && ev.remote.is_none()
+            && conn.client_features.hears_any(&[client_features::UNSENT_FEATURE])
+        {
             conn.send(&Message::notification(
                 method::MUX_UNSENT,
                 json!({"sessionId": ev.session_id, "seq": rec.seq}),
             ));
         }
-        if message && heard && !repeat {
+        if message
+            && heard
+            && !repeat
+            && conn.client_features.hears_any(&[crate::capabilities::SESSION_MESSAGES])
+        {
             // Routed as the event beside it: a peer's chat id alone may match one here.
             conn.send(&Message::notification(method::MUX_MESSAGE, routed(rec.msg.clone())));
         }
         if rec.dir == "mux" && is_permission_ask(&rec.kind) {
             conn.send(&Message::notification(
                 method::MUX_PERMISSION_PENDING,
-                routed(permission_pending(&ev.session_id, rec, "attach")),
+                routed(permission_pending(&ev.session_id, rec, "attach", ev.remote.is_none())),
             ));
         }
         if let Some(following) = &sub.rows
@@ -2740,8 +2799,11 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
                 let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
                 // The packed row, parsed for this line only (`RemoteRef::summary`).
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
-                let session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
+                let mut session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
                     .unwrap_or(Value::Null);
+                if conn.omit_time_breakdown.load(Ordering::SeqCst) {
+                    requests::without_time_breakdown(&mut session);
+                }
                 let qualified = remote.qualified_id(&ev.session_id);
                 if rec.kind == "purged" {
                     session_patch::forget(conn, &qualified);
@@ -2786,11 +2848,28 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         // Built once per record, by the first watcher that sends it, and shared by the others
         // (`HubEvent::row`): with many watchers, each built the whole row again.
         let full = attached || conn.watch_tools.load(Ordering::SeqCst);
-        let [list_row, full_row] = &ev.row.cells;
-        let row = if full { full_row } else { list_row };
+        // A full row is mostly its time breakdown (93 of 96 KB on a 2,000-turn chat), sent again
+        // on every record of a running turn; a client that draws none shares a row without it.
+        let lean = full && conn.omit_time_breakdown.load(Ordering::SeqCst);
+        let [list_row, full_row, lean_row] = &ev.row.cells;
+        let row = if lean {
+            lean_row
+        } else if full {
+            full_row
+        } else {
+            list_row
+        };
         let summary = row.get_or_build(|| {
             let s = hub.resolve(&ev.session_id).ok()?;
-            Some(if full { hub.session_summary(&s) } else { hub.session_list_summary(&s) })
+            Some(if full {
+                let mut summary = hub.session_summary(&s);
+                if lean {
+                    requests::without_time_breakdown(&mut summary);
+                }
+                summary
+            } else {
+                hub.session_list_summary(&s)
+            })
         });
         if let Some(summary) = summary {
             let notice = json!({"sessionId": ev.session_id, "kind": kind, "recordKind": rec.kind, "seq": rec.seq, "listSeq": ev.list_seq});
@@ -2812,7 +2891,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             conn.send_row(
                 &Message::notification(
                     method::MUX_PERMISSION_PENDING,
-                    permission_pending(&ev.session_id, rec, "watch"),
+                    permission_pending(&ev.session_id, rec, "watch", ev.remote.is_none()),
                 ),
                 outbound::Row::After(row_key()),
             );
@@ -2847,6 +2926,7 @@ mod cancel_prompt_tests;
 #[cfg(test)]
 #[path = "chatgpt_import_tests.rs"]
 mod chatgpt_import_tests;
+pub(crate) mod client_features;
 mod client_request;
 pub(crate) mod computer_use_relay;
 #[cfg(test)]
@@ -2939,7 +3019,8 @@ pub(crate) mod queue_gauge;
 mod review_queue;
 mod run_elsewhere;
 mod sign_in_follow;
-mod ssh_carry;
+pub(crate) mod ssh_carry;
+mod surgery;
 mod task_list;
 pub use pairing::serve_connection_device;
 mod chat_place;

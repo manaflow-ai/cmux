@@ -57,6 +57,8 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/watch_take_over", "_acpmux/project_new", // New project: AgentPaneProjectNewRelayTests.
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/peers", "_acpmux/move_targets", "_acpmux/draft_get",
+        // Which page requests the daemon still runs, in page ids (AcpmuxRequestIds.requestStateMethod).
+        "_acpmux/request_state",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
         // Auto's Where (direct.ts placeChat, autoWhereModel.ts): a read-only decision. acpmux reads this

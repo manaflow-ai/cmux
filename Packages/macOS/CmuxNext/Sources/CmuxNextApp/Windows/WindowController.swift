@@ -38,7 +38,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parkSerial: UInt64 = 0
     /// The next Cmd-N's view, built before the key in idle steps on the daemon's reserved workspace (its own slot).
     private(set) lazy var reservedContent = WorkspaceSpareSlot<WorkspaceContentController>(owner: "WorkspaceSpare", on: services.mainWork, wanted: { [weak self] in
-        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace } ?? false
+        self.map { $0.services.windows.active === $0 && $0.content != nil && $0.services.daemon.reservesWorkspace && $0.services.windows.deferredWindows.isEmpty } ?? false
     }, reserve: { [weak self] in
         self.flatMap { $0.services.agentTabs.reserveWorkspace(on: $0.services.daemon, cwd: WorkspaceSpawn().startFolder(roomFolder: $0.services.machines.local.store.profile($0.state.profileID)?.defaults?.cwd, local: true, daemonDefault: NewTerminalStart.defaultFolder(on: $0.services.daemon))) }
     }, build: { [weak self] model in

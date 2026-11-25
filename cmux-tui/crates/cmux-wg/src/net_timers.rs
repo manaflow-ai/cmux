@@ -60,6 +60,7 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, true)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
             self.handshake_retry.on_initiation(Instant::now(), false);
             self.schedule.on_activity(Instant::now());
         }
@@ -109,6 +110,7 @@ impl Driver {
             self.tunn.format_handshake_initiation(&mut self.scratch, false)
         {
             self.underlay.send(packet);
+            self.initiated_at = Some(Instant::now());
             // `false` sends only when no handshake is in progress.
             self.handshake_retry.on_initiation(Instant::now(), true);
             self.schedule.on_activity(Instant::now());
@@ -131,6 +133,9 @@ impl Driver {
         };
         if let TunnResult::WriteToNetwork(packet) = result {
             self.underlay.send(packet);
+            if !fresh {
+                self.initiated_at = Some(Instant::now());
+            }
         }
         self.schedule.on_activity(Instant::now());
     }

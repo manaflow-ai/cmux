@@ -61,6 +61,15 @@
 //! A dial whose line says `"lines": true` sends every byte after that line, and gets every byte
 //! after its answer, as text lines instead ([`LineReader`], [`LineWriter`]): the Cloud carrier
 //! carries a dial as a `mux-control` stream, which moves whole lines only.
+//!
+//! Wire 2 (RFD 0065, "Projection answers compressed and binary"; negotiated on the dial, no
+//! capability): a `projection.serve` line with `"wire": 2` says the Mac reads binary lines and
+//! packed answers. This daemon then answers with `"wire": 2` in its data, writes binary lines
+//! ([`LineWriter::binary`]: the raw bytes with only a newline and the escape byte escaped, not
+//! base64's +33%), and takes the Mac's packed answers (`cmux_projection::wire::OK_ZSTD`, zstd
+//! level 3 per file where it shrinks). The Mac packs and writes binary only once the answer says
+//! `"wire": 2`, so with either side older than this the dial keeps base64 lines and plain
+//! answers. A [`LineReader`] takes either kind of line.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -79,6 +88,9 @@ use serde_json::{Value, json};
 pub const PROJECTION_CAPABILITY: &str = "projection-v1";
 /// The capability that carries `"head"` and `"extend"` on `projection.serve`.
 pub const PROJECTION_EXTEND_CAPABILITY: &str = "projection-extend-v1";
+/// The wire version a `projection.serve` line and its answer name for binary lines and packed
+/// answers (module docs).
+pub const WIRE: u32 = 2;
 /// The one op: a dial that serves a projection.
 pub const SERVE: &str = "projection.serve";
 /// Bring Back's dials (module docs).
@@ -110,6 +122,9 @@ struct ServeLine {
     /// The bytes after this line, both ways, travel as [`LineWriter`] lines.
     #[serde(default)]
     lines: bool,
+    /// [`WIRE`] or more: the Mac reads binary lines and packed answers (module docs).
+    #[serde(default)]
+    wire: u32,
     /// With no manifest bytes and no mount of this name: the stored revision to mount instead
     /// (RFD 0007, open question 3). The Mac sends this on a resume, so the listing comes from the
     /// store and not over its uplink.
@@ -160,19 +175,30 @@ fn fetch_revision(revision: &RevisionRef) -> Result<cmux_projection::manifest::M
 /// The first byte of every [`LineWriter`] line: never a JSON value's first byte, so a carrier
 /// that sorts lines by their JSON never reads one as a request or a reply.
 const LINE_MARK: u8 = b'~';
-/// The most bytes one [`LineWriter`] line carries (1.4 MB of text, far below the carrier's
-/// 16 MiB line limit).
+/// The first byte of every binary [`LineWriter`] line: never a JSON value's first byte either.
+const BINARY_MARK: u8 = b'!';
+/// In a binary line, the byte that escapes the next: `\\` is itself and `\n` a newline.
+const ESCAPE: u8 = b'\\';
+/// The most bytes one [`LineWriter`] line carries (1.4 MB of text, or at most 2 MiB of escaped
+/// binary, far below the carrier's 16 MiB line limit).
 const LINE_BYTES: usize = 1024 * 1024;
 
-/// Bytes written as text lines: each `write` of up to [`LINE_BYTES`] becomes one line,
-/// `~` and its base64.
+/// Bytes written as lines: each `write` of up to [`LINE_BYTES`] becomes one line, `~` and its
+/// base64, or with [`LineWriter::binary`] `!` and the bytes with each newline and [`ESCAPE`]
+/// escaped (0.8% more on compressed bytes, against base64's 33%).
 pub struct LineWriter<W: Write> {
     inner: W,
+    binary: bool,
 }
 
 impl<W: Write> LineWriter<W> {
     pub fn new(inner: W) -> Self {
-        Self { inner }
+        Self { inner, binary: false }
+    }
+
+    /// A writer of binary lines, for a reader that said it takes them (`"wire": 2`).
+    pub fn binary(inner: W) -> Self {
+        Self { inner, binary: true }
     }
 }
 
@@ -183,9 +209,24 @@ impl<W: Write> Write for LineWriter<W> {
         if chunk.is_empty() {
             return Ok(0);
         }
-        let mut line = Vec::with_capacity(chunk.len() / 3 * 4 + 6);
-        line.push(LINE_MARK);
-        line.extend_from_slice(base64::engine::general_purpose::STANDARD.encode(chunk).as_bytes());
+        let mut line;
+        if self.binary {
+            line = Vec::with_capacity(chunk.len() + chunk.len() / 64 + 2);
+            line.push(BINARY_MARK);
+            for &byte in chunk {
+                match byte {
+                    b'\n' => line.extend_from_slice(&[ESCAPE, b'n']),
+                    ESCAPE => line.extend_from_slice(&[ESCAPE, ESCAPE]),
+                    byte => line.push(byte),
+                }
+            }
+        } else {
+            line = Vec::with_capacity(chunk.len() / 3 * 4 + 6);
+            line.push(LINE_MARK);
+            line.extend_from_slice(
+                base64::engine::general_purpose::STANDARD.encode(chunk).as_bytes(),
+            );
+        }
         line.push(b'\n');
         self.inner.write_all(&line)?;
         Ok(chunk.len())
@@ -220,8 +261,11 @@ impl<R: std::io::BufRead> Read for LineReader<R> {
             if line.last() == Some(&b'\n') {
                 line.pop();
             }
-            let text = match line.split_first() {
-                Some((&LINE_MARK, text)) => text,
+            self.decoded = match line.split_first() {
+                Some((&LINE_MARK, text)) => base64::engine::general_purpose::STANDARD
+                    .decode(text)
+                    .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?,
+                Some((&BINARY_MARK, escaped)) => unescape(escaped)?,
                 _ => {
                     return Err(std::io::Error::new(
                         std::io::ErrorKind::InvalidData,
@@ -229,9 +273,6 @@ impl<R: std::io::BufRead> Read for LineReader<R> {
                     ));
                 }
             };
-            self.decoded = base64::engine::general_purpose::STANDARD
-                .decode(text)
-                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
             self.at = 0;
         }
         let rest = self.decoded.get(self.at..).unwrap_or_default();
@@ -244,9 +285,39 @@ impl<R: std::io::BufRead> Read for LineReader<R> {
     }
 }
 
+/// The bytes of a binary line's `escaped` text (after its mark, before its newline).
+fn unescape(escaped: &[u8]) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(escaped.len());
+    let mut rest = escaped.iter();
+    while let Some(&byte) = rest.next() {
+        bytes.push(if byte == ESCAPE {
+            match rest.next() {
+                Some(b'n') => b'\n',
+                Some(&ESCAPE) => ESCAPE,
+                _ => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        "a bad escape in a projection line",
+                    ));
+                }
+            }
+        } else {
+            byte
+        });
+    }
+    Ok(bytes)
+}
+
 /// Whether the dial line `first` asks for [`LineWriter`] lines.
 fn wants_lines(first: &str) -> bool {
     serde_json::from_str::<ServeLine>(first).is_ok_and(|line| line.lines)
+}
+
+/// Whether the dial line `first` is a `projection.serve` whose Mac reads binary lines and packed
+/// answers ([`WIRE`]).
+fn wants_wire(first: &str) -> bool {
+    serde_json::from_str::<ServeLine>(first)
+        .is_ok_and(|line| line.cmd == SERVE && line.wire >= WIRE)
 }
 
 /// `projection.serve` (or one of Bring Back's dials) when `line` asks for it, exactly.
@@ -343,7 +414,11 @@ pub fn serve_io(
     let reader = std::io::Cursor::new(leftover).chain(reader);
     if wants_lines(first) {
         let reader = LineReader::new(std::io::BufReader::with_capacity(256 * 1024, reader));
-        serve_dial(reader, writer, first, roots, LineWriter::new);
+        if wants_wire(first) {
+            serve_dial(reader, writer, first, roots, LineWriter::binary);
+        } else {
+            serve_dial(reader, writer, first, roots, LineWriter::new);
+        }
     } else {
         serve_dial(reader, writer, first, roots, |writer| writer);
     }
@@ -367,7 +442,13 @@ fn serve_dial<R: Read, W: Write + Send + 'static, F: Write + Send + 'static>(
         return;
     }
     let projected = match attach(first, &mut reader, roots) {
-        Ok((projected, data)) => {
+        Ok((projected, mut data)) => {
+            // The Mac packs its answers (and writes binary lines) once it reads this.
+            if wants_wire(first)
+                && let Some(object) = data.as_object_mut()
+            {
+                object.insert("wire".into(), json!(WIRE));
+            }
             if send_line(&mut writer, &json!({"id": id, "ok": true, "data": data})).is_err() {
                 return;
             }
@@ -776,7 +857,7 @@ pub fn reap_once(acpmux_socket: Option<&Path>) -> cmux_projection::reap::Report 
 /// [`REAP_EVERY`]. Only where this daemon serves projections (Linux, with file roots), and once.
 pub fn start_reaper(acpmux_socket: Option<PathBuf>) {
     static STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    if advertised().is_empty() || STARTED.swap(true, std::sync::atomic::Ordering::SeqCst) {
+    if advertised().is_empty() || STARTED.swap(true, Ordering::SeqCst) {
         return;
     }
     let spawned =

@@ -5016,3 +5016,44 @@ CCmuxAppFFI pin (app-ffi-pin.json) lags the Rust catalog, so the Swift tests rea
 re-pin PR. A PR run of a job red on the base tells nobody anything gh-merge-green does not already excuse, so a pull
 request skips it while the newest base push verdict is red (scripts/ci/base_red_skip.py: fails open, 10% audit, the
 full-ci label runs it, push and dispatch always run it). `vars.CI_SKIP_WHILE_BASE_RED` set to `0` turns it off.
+
+## note-557
+
+Above `runs-on` in app-compile-fleet and swift-canary-fleet in `.github/workflows/cmux-next.yml`.
+
+Both jobs used to take a gateway runner and hold it while the build fleet compiled the head: the client
+submitted the Debug `--app` compile and waited up to 25 minutes for it. 2026-11-23..24, app-compile-fleet held
+gateway runners for about 22,900 runner-min a day (1,791 jobs) doing nothing but wait.
+
+Now the compile check posts its result back instead of holding a runner. The controller (cmuxterm-hq
+cmux_next_app_debug_check.go) submits the Debug `--app` compile of a same-repository pull request head when
+it sees either job queued, or when the job's read names the pull request, and serves the record at
+`compile-checks/v1/<sha>?phase=app-debug` (configuration `debug`, recipe 2). That record never stands for the
+land Release. The job runs on cmux-linux and reads only that record with the trusted base copy of
+scripts/ci/fleet_compile_result.py (`--phase app-debug`). The check name, its `if`, its placement and its
+verdicts are unchanged: pass is green, fail is red, and no result in 40 minutes (no record after 5 minutes,
+the service down, or a base reader without the phase) is `unavailable` and fails closed, as a cmux-ci exit
+other than 0, 1 or 75 did. A check the fleet still holds queued (`pending`) is a warning, as exit 75 was. swift-canary-fleet does the same for a pull request; any non-pass still lets the Mac
+canary run, and a push keeps its tip-check read and gateway compile.
+
+## note-affected-set-replay
+
+How much of a PR's verdict goes to checks its diff could not have made fail (Leo, 2026-11-21: "help 100x ci speed
+... while maintaining a partial semblance of checks. and we can infrequenrly have fuller checks."). Replayed over
+the last 20 non-bot PRs squash-merged into feat-cmux-next with `scripts/ci/affected_set_replay.py fetch` then
+`report` (input map and assumptions in its header; test `tests/test_ci_affected_set_replay.py`). It is also the
+before-number for cmux#54763.
+
+| Measure (20 PRs, 2026-11-24) | Value |
+| --- | --- |
+| Machine minutes on checks the diff could not have failed | 103 of 1396 (7%) |
+| Verdict wall summed, affected-only vs all | 1367 of 1380 min (1% less) |
+| Verdict wall p50, all checks that ran | 29.4 min |
+| Critical-path wall p50, affected checks only | 29.4 min |
+| Costliest unaffectable checks (machine min) | tooling-tests 64, app compile (build fleet) 16, fast tier (cargo) 12 |
+
+Reading: path routing already skips what the diff cannot touch (a skipped check costs nothing and is not counted),
+so the checks that did run were nearly all inputs of the diff, the PR itself, or the routers that decide the rest.
+An ideal input-based routing would save about 7% of minutes and almost no wall; the verdict wall is the slowest
+affected check (and queue and reruns), not unaffected work. Lower bound: routers, placement, comment and
+PR-metadata jobs and unknown checks count as affected, and CI plumbing paths are an input of every check.

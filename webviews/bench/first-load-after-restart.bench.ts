@@ -1395,7 +1395,8 @@ try {
     layoutShift: (r: Round) => r.layoutShift,
     frames: (r: Round) => r.metrics.frames,
   } as const;
-  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, recordMs: RECORD_MS, rounds: ROUNDS };
+  // How long each round recorded is its mode's (`recordMs`: a refused mode records longer), so it goes with the mode.
+  const json: Record<string, unknown> = { turns: TURNS, downMs: DOWN_MS, rounds: ROUNDS };
   let failed = false;
   for (const [mode, rounds] of byMode) {
     console.log(
@@ -1608,6 +1609,7 @@ try {
       });
     }
     json[mode] = {
+      recordMs: recordMs(mode),
       rounds: rounds.map(({ frames: _frames, metrics: { blankAt: _blankAt, shiftAt, ...metrics }, ...rest }) => ({
         ...rest,
         ...metrics,

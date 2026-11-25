@@ -201,7 +201,7 @@ impl SilenceBudget {
                 self.rttvar = rtt / 2;
             }
             Some(srtt) => {
-                let deviation = if srtt > rtt { srtt - rtt } else { rtt - srtt };
+                let deviation = srtt.abs_diff(rtt);
                 self.rttvar = (self.rttvar * 3 + deviation) / 4;
                 self.srtt = Some((srtt * 7 + rtt) / 8);
             }

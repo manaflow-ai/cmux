@@ -145,7 +145,7 @@ import Testing
             .control, .alternate, .command, .shift, .paste, .tab, .escape, .returnKey, .chord("c"), .chord("d"),
             .up, .down, .left, .right, .launcher(.claude), .launcher(.codex), .launcher(.ollama),
         ])
-        #expect(Array(KeyBarKey.row.suffix(3)) == [.zoomOut, .zoomIn, .hideChrome])
+        #expect(Array(KeyBarKey.row.suffix(4)) == [.zoomOut, .zoomIn, .wide, .hideChrome])
         #expect(Set(KeyBarKey.row).count == KeyBarKey.row.count)
         // The compose key is pinned, never in the scroller.
         #expect(!KeyBarKey.row.contains(.composer))

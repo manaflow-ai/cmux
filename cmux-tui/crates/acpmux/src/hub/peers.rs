@@ -667,6 +667,13 @@ impl Hub {
             row
         }));
         v.sort_by_key(|p| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned());
+        // Each machine the fleet registry gives `lanes`: its elastic add/drain state
+        // (`fleet_elastic.rs`, version 1).
+        crate::fleet_elastic::annotate_with(
+            &mut v,
+            crate::fleet_elastic::registry().as_deref(),
+            crate::fleet_elastic::maker_states().as_deref(),
+        );
         v
     }
 
@@ -902,7 +909,7 @@ impl Hub {
                     self.events.origin_tee(&peer, OriginState::Connected, crate::store::now_ms());
                     // The link takes requests again: messages waiting for a peer go now, not
                     // after the rest of their retry delay (`server/outbox.rs` `deliver`).
-                    self.outbox.peer_ready.notify_waiters();
+                    self.outbox.note_peer_ready(&peer);
                     // Sessions can be saved before the handshake marks the link ready.
                     // Persist its cleared outage once, without rewriting an already-clear cache.
                     if self.peer(&peer).is_some_and(|p| {

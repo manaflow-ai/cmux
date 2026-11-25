@@ -263,7 +263,9 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         scrollView.keyboardDismissMode = .interactive
         scrollView.alwaysBounceVertical = true
         scrollView.backgroundColor = .cmuxMobileBackground
-        scrollView.topEdgeEffect.style = .soft
+        // A hard edge: text scrolled under the header stops at it instead of showing through
+        // into the title (iOS release bar read-back, 2026-11-22, shot 08; tbd d-189cea06b1).
+        scrollView.topEdgeEffect.style = .hard
         list.scrollDelegate = self
         // Safari's bottom bar: a tap on the page while the field is being edited ends the
         // editing and lowers the keyboard (CMUX-34). The draft stays in the composer, and the
