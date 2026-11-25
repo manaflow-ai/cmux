@@ -49,16 +49,22 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(w.plan(["webviews/src/App.tsx"])["web"])
         self.assertTrue(w.plan(["cmux-tui/frontends/web/src/x.ts"])["web"])
 
-    def test_the_web_tree_holds_what_the_webviews_install_reads(self):
-        # bun install's postinstall and protocol:codegen read these outside webviews/; a web tree without one fails
-        # every web look at "bun install exited 1" (found on the Linux pool, 2026-11-25).
-        reads = {"webviews/scripts/pages/gen-feature-tips.mjs": "release-notes/next/highlights",
-                 "webviews/scripts/pages/gen-design-scale.mjs": "schemas/design-scale/design-scale.json",
-                 "webviews/scripts/acpmux-protocol-codegen.ts": "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"}
-        for script, path in reads.items():
-            self.assertIn(path, (ROOT / script).read_text(), script)
-            self.assertTrue(any(path.startswith(p) for p in w.WEB_SPARSE), path)
-        self.assertIn("*.xcstrings", w.WEB_SPARSE)
+    def test_the_web_tree_leaves_out_only_folders_no_web_file_imports(self):
+        # bun install, protocol:codegen and the gallery read release-notes/, schemas/, Packages/ fixtures,
+        # cmux-tui/crates/ and web/data/; a tree missing one failed every web look (Linux pool, 2026-11-25).
+        self.assertEqual(w.WEB_SPARSE[0], "/*")
+        left_out = [p[2:].rstrip("/") for p in w.WEB_SPARSE if p.startswith("!/")]
+        import re
+        spec = re.compile(r"""(?:from\s+|import\s*\(\s*|import\s+|require\(\s*)["'](\.\.?/[^"'?]+)""")
+        for base in ("webviews", "first-party-apps", "design"):
+            for f in (ROOT / base).rglob("*"):
+                if "node_modules" in f.parts or f.suffix not in {".ts", ".tsx", ".mjs", ".js", ".css"} or not f.is_file():
+                    continue
+                for m in spec.finditer(f.read_text(errors="ignore")):
+                    target = (f.parent / m.group(1)).resolve()
+                    if ROOT in target.parents:
+                        top = target.relative_to(ROOT).parts[0]
+                        self.assertNotIn(top, left_out, f"{f.relative_to(ROOT)} imports {m.group(1)}")
 
     def test_a_linked_module_with_no_scene_is_nothing(self):
         p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextSettings/S.swift"])

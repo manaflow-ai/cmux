@@ -95,11 +95,10 @@ SWIFT_SCENES = {
 SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
 WEB_CAP = 4
 SWIFT_SPARSE = ("Packages/", "Prototypes/", "Resources/", "vendor/")
-WEB_SPARSE = ("webviews/", "design/", "first-party-apps/", "scripts/cmux-next/", "cmux-tui/frontends/",
-              "Resources/", "package.json", "bun.lock",
-              # What bun install's postinstall (gen-strings: feature tips, design scales, strings) and the gallery's
-              # protocol:codegen read outside webviews/; without them every web look fails at "bun install exited 1".
-              "release-notes/next/", "schemas/", "cmux-tui/crates/acpmux/spec/", "*.xcstrings")
+# The web tree: everything but the large folders no web file imports. A hand list of folders drifted: bun install's
+# postinstall reads release-notes/ and schemas/, protocol:codegen the acpmux IR, gallery entries fixtures under
+# Packages/ and cmux-tui/crates/, the model catalog under web/data/; each missing one failed every web look.
+WEB_SPARSE = ("/*", "!/cmux-next-ios/", "!/ghostty/", "!/ghostty-next/")
 GALLERY_PORT = 4217
 KEEP_H = 36
 # Bounds, seconds.
