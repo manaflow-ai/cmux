@@ -210,12 +210,6 @@ pub struct SessionSummary {
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
-    /// What is done and what is next across the chat's turns (`task_list.rs`): its harness's
-    /// latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
-    /// (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
-    #[serde(default)]
-    #[schemars(default)]
-    pub task_list: Option<crate::task_list::TaskListSummary>,
     /// The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps
     /// in sight while the agent builds it. Absent until one, and from a peer on an older acpmux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -654,8 +648,6 @@ pub struct TurnSummary {
     /// What the turn does right now: its latest tool call's title, masked
     /// (`secret_scan`); null until it calls one (`hub/activity.rs`).
     pub activity: Option<String>,
-    /// Its plan's entry in progress, masked; null without one.
-    pub plan_step: Option<String>,
     /// Since when it has stalled: no tool call in flight and no sign of its
     /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
     /// null while it has not.
