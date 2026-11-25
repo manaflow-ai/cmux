@@ -216,3 +216,88 @@ test("picking a starting Cloud machine drops this machine's extra folders at onc
     await act(async () => root.unmount());
   }
 });
+
+// cmux#48299: on this Mac the folder menu has no Add another folder… row; a folder row's + (or Shift-Return on
+// it) adds that folder for the chat to see, and the menu stays open.
+const folderField = () => dom.window.document.querySelector<HTMLInputElement>(".acpmux-location-search")!;
+const typeFolder = async (value: string) => {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(folderField(), value);
+    folderField().dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  await settle();
+};
+const keyFolder = async (key: string, options: KeyboardEventInit = {}) => {
+  await act(async () =>
+    folderField().dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...options })),
+  );
+  await settle();
+};
+const folderRow = (name: string) =>
+  [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-folder-popover [role=option]")].find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === name,
+  );
+const alsoSee = (name: string) => folderRow(name)?.querySelector<HTMLElement>("[data-also-see]") ?? null;
+
+test("a folder row's + adds it beside the chat's folder, the menu stays open, and × removes it", async () => {
+  const picked: string[] = [];
+  const { root, changes } = await renderTray({ onProject: (cwd: string) => picked.push(cwd) });
+  try {
+    await openFolderMenu();
+    // The chat's own folder has no +; the others do, named for what they do.
+    expect(alsoSee("app")).toBeNull();
+    expect(alsoSee("notes")?.getAttribute("title")).toBe("Also let the chat see notes");
+    await press(alsoSee("notes")!);
+    expect(changes.at(-1)).toEqual({ machine: "local", folders: ["/Users/me/notes"] });
+    expect(picked).toEqual([]);
+    expect(dom.window.document.querySelector(".acpmux-folder-popover")).not.toBeNull();
+    expect(face()).toContain("+1");
+    // An added folder has no + any more and is listed with its ×.
+    expect(alsoSee("notes")).toBeNull();
+    expect(dom.window.document.querySelectorAll(".acpmux-extra-folder").length).toBe(1);
+    await press(dom.window.document.querySelector<HTMLElement>('[aria-label="Remove notes"]')!);
+    expect(changes.at(-1)).toBeUndefined();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Shift-Return adds the highlighted folder and keeps the menu open; Return still moves the chat", async () => {
+  const picked: string[] = [];
+  const { root, changes } = await renderTray({ onProject: (cwd: string) => picked.push(cwd) });
+  try {
+    await openFolderMenu();
+    await typeFolder("data");
+    await keyFolder("Enter", { shiftKey: true });
+    expect(changes.at(-1)).toEqual({ machine: "local", folders: ["/Users/me/data"] });
+    expect(picked).toEqual([]);
+    expect(dom.window.document.querySelector(".acpmux-folder-popover")).not.toBeNull();
+    // A typed absolute path is added the same way.
+    await typeFolder("/Users/me/other/");
+    await keyFolder("Enter", { shiftKey: true });
+    expect(changes.at(-1)).toEqual({ machine: "local", folders: ["/Users/me/data", "/Users/me/other"] });
+    // Shift-Return on the chat's own folder adds nothing and picks nothing.
+    await typeFolder("app");
+    await keyFolder("Enter", { shiftKey: true });
+    expect(changes.length).toBe(2);
+    expect(picked).toEqual([]);
+    await typeFolder("notes");
+    await keyFolder("Enter");
+    expect(picked).toEqual(["/Users/me/notes"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Cloud and Sandboxed folder menus draw no folder row +", async () => {
+  for (const mode of ["cloud", "sandboxed"] as const) {
+    const { root } = await renderTray({ runMode: { mode, onMode: () => {} } });
+    try {
+      await openFolderMenu();
+      expect(dom.window.document.querySelector("[data-also-see]")).toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+    }
+  }
+});
