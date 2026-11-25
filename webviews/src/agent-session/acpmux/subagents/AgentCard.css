@@ -86,7 +86,7 @@
   padding-inline-start: var(--grid-transcript-text-gap);
   max-height: 160px;
   overflow: auto;
-  font-family: var(--cv-font-mono, ui-monospace, monospace);
+  font-family: var(--cv-mono, ui-monospace, monospace);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   color: var(--cv-text-muted);
