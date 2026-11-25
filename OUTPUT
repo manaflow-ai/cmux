@@ -1,0 +1,48 @@
+ci-step cvr-swift-stale-settings-f712f76: scripts/cmux-next/regenerate-settings-exports.sh settings-exports.patch at f712f76ca2e70c67ea3e94d63f8fe9c0e5fc5f03: exit 1
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+456 |     private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+145 |     static func interrupted(_ error: Error) -> Bool {
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+/Volumes/ephemeral0/cmux-build-fleet/step-warm/slot-0/wsrc/Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests/CloudChatNamesTests.swift:74:83: error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+    |                                                                                   `- error: main actor-isolated property 'fired' can not be mutated from a Sendable closure
+ci-step cvr-swift-stale-settings-f712f76 exited 1
