@@ -2265,7 +2265,12 @@ async fn dispatch_request_with_identity(
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks).await
+                prompt_preparation(
+                    admission.answer_due(),
+                    "prompt_uploads::owned",
+                    crate::prompt_uploads::owned(&s.id, &blocks),
+                )
+                .await?
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
@@ -2502,11 +2507,19 @@ async fn dispatch_request_with_identity(
             // the owner only: a person's prompt neither replaces nor is replaced.
             let supersede = crate::hub::supersede_key(&params)?.filter(|_| !person_message);
             let supersede_set = supersede.is_some();
-            let inbox_on =
-                match tokio::time::timeout_at(admission.answer_due(), hub.config.read()).await {
-                    Ok(config) => config.agent_inbox(),
-                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
-                };
+            let inbox_on = match prompt_preparation(
+                admission.answer_due(),
+                "hub.config.read",
+                hub.config.read(),
+            )
+            .await
+            {
+                Ok(config) => config.agent_inbox(),
+                Err(error) => {
+                    preserve_owned_uploads_for_retry(&mut owned);
+                    return Err(error);
+                }
+            };
             // Files uploaded first and named in the prompt get their bytes back here, before
             // anything reads them (`prompt_uploads.rs`). A prompt id the chat took already goes on
             // to `prompt_with`, which answers with its first run even once its uploads are gone
@@ -2524,9 +2537,12 @@ async fn dispatch_request_with_identity(
                         result => result.map(|()| blocks),
                     }
                 });
-                blocks = match tokio::time::timeout_at(admission.answer_due(), resolved).await {
+                blocks = match prompt_preparation(admission.answer_due(), "prompt_uploads::resolve", resolved).await {
                     Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
-                    Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
+                    Err(error) => {
+                        preserve_owned_uploads_for_retry(&mut owned);
+                        return Err(error);
+                    }
                 };
             }
             // Files sent with the message (`acpmux send --attach`), after every check that can
@@ -2539,14 +2555,14 @@ async fn dispatch_request_with_identity(
                 let received = tokio::task::spawn_blocking(move || {
                     crate::attach::receive(&id, web, &mut blocks).map(|saved| (blocks, saved))
                 });
-                (blocks, saved) =
-                    match tokio::time::timeout_at(admission.answer_due(), received).await {
-                        Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
-                        Err(_) => return Err(crate::hub::auto_resume::retry_turn::busy()),
-                    };
+                (blocks, saved) = match prompt_preparation(admission.answer_due(), "attach::receive", received).await {
+                    Ok(result) => result.map_err(|e| RpcError::internal(e.to_string()))??,
+                    Err(error) => {
+                        preserve_owned_uploads_for_retry(&mut owned);
+                        return Err(error);
+                    }
+                };
             }
-            // From here the prompt's own uploads go only if the session refuses it.
-            let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
             // Where the send came from, as its harness says and the daemon checked: a record of
             // its own beside the prompt, written once the prompt is kept, never part of who sent
             // it (`sender_harness.rs`). Not from the app or a Web client, which name no harness.
@@ -2610,10 +2626,7 @@ async fn dispatch_request_with_identity(
                 prompt_id,
                 message_id,
                 message_sender,
-                on_accepted: match &saved {
-                    Some(saved) => saved.watch(on_accepted),
-                    None => on_accepted,
-                },
+                on_accepted,
                 resend: flag("resend") == Some(true),
                 control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 cloud_mobile: params.pointer("/_meta/acpmux/via").and_then(Value::as_str)
@@ -2677,7 +2690,25 @@ async fn dispatch_request_with_identity(
             let agent_message = opts.provenance.is_some()
                 && !crate::prompt_provenance::is_unverified(opts.provenance.as_ref())
                 && !person_message;
-            super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
+            if let Err(error) = prompt_preparation(
+                admission.answer_due(),
+                "agent_messages::person_prompt",
+                super::agent_messages::person_prompt(hub, conn, &s, agent_message),
+            )
+            .await
+            {
+                // The inline attachment guard is not installed until this preparation finishes.
+                // Keep prompt-owned uploads for the caller's retry, while the received inline
+                // folder (if any) is cleaned up by its own guard.
+                preserve_owned_uploads_for_retry(&mut owned);
+                return Err(error);
+            }
+            // From here the prompt's own uploads go only if the session refuses it.
+            let saved = crate::attach::Saved::with_owned(saved, &s.id, owned.take());
+            opts.on_accepted = match &saved {
+                Some(saved) => saved.watch(opts.on_accepted.take()),
+                None => opts.on_accepted.take(),
+            };
             // The person's own `acpmux send` names the machine it ran on (`cli/sender.rs`): the
             // recorded client says it (`acpmux-cli#…@big-red`), and the transcript shows "via CLI on
             // big-red" under their prompt. An agent's message names its sender instead.
@@ -4777,6 +4808,23 @@ mod shutdown_reason_tests {
         assert_eq!(shutdown_reason(&json!({"reason": "  "})), "unspecified");
         assert_eq!(shutdown_reason(&json!({"reason": 7})), "unspecified");
     }
+}
+
+/// Bounds every await while an incoming prompt is prepared for the hub.
+async fn prompt_preparation<T>(
+    expires: tokio::time::Instant,
+    wait: &'static str,
+    preparation: impl std::future::Future<Output = T>,
+) -> Result<T, RpcError> {
+    let timeout = expires.saturating_duration_since(tokio::time::Instant::now());
+    tokio::time::timeout_at(expires, preparation)
+        .await
+        .map_err(|_| RpcError::deadline_exceeded(wait, timeout))
+}
+
+/// A timed-out preparation must leave prompt-owned uploads for the caller's retry.
+fn preserve_owned_uploads_for_retry(owned: &mut crate::attach::OwnedUploads) {
+    let _ = owned.take();
 }
 
 fn preparation_budget(deadline: Option<&Value>, now: u64) -> Result<std::time::Duration, RpcError> {
