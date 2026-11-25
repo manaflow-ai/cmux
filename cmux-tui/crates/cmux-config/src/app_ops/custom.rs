@@ -1182,7 +1182,7 @@ mod tests {
     #[test]
     fn agent_mouse_defaults_and_choices() {
         let absent = read("agent_mouse", json!({}));
-        assert_eq!(absent["values"], json!({"motion": "human", "maxMoveMs": 350.0}));
+        assert_eq!(absent["values"], json!({"motion": "human", "maxMoveMs": 350}));
         let chosen = read("agent_mouse", json!({"browser": {"agentMouse": {"motion": "instant", "maxMoveMs": 200}}}));
         assert_eq!(chosen["values"]["motion"], "instant");
         assert_eq!(chosen["values"]["maxMoveMs"], 200.0);
