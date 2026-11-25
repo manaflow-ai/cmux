@@ -122,8 +122,10 @@ import Testing
         return row
     }
 
-    @Test(arguments: DensityPreset.allCases, [Metrics.sidebarMinWidth, 260])
-    func aPinnedGroupMemberDrawsItsPinBesideItsIconAndStatus(_ preset: DensityPreset, width: CGFloat) throws {
+    // Test arguments are built off the main actor, so the narrowest width is read inside the test.
+    @Test(arguments: DensityPreset.allCases, [true, false])
+    func aPinnedGroupMemberDrawsItsPinBesideItsIconAndStatus(_ preset: DensityPreset, narrowest: Bool) throws {
+        let width: CGFloat = narrowest ? Metrics.sidebarMinWidth : 260
         try autoreleasepool {
             Motion.reduceMotionOverride = true
             defer { Motion.reduceMotionOverride = nil }
