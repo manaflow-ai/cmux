@@ -223,6 +223,7 @@ jobs:
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
+          use-cache: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       # A 502/504 from the package host while build.rs fetches the Ghostty packages
@@ -463,6 +464,7 @@ jobs:
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
         with:
+          use-cache: ${{ (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           version: ${{ steps.ghostty-zig-version.outputs.version }}
 
       # A 502/504 from the package host while build.rs fetches the Ghostty packages
