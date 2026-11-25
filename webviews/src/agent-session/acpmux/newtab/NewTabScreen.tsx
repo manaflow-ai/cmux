@@ -148,6 +148,7 @@ import { isStashKey, useDraftStash } from "../composer/useDraftStash";
 import { ComposerListAnchor, ComposerListLayer } from "../backdropLayer";
 import { mentionQuery } from "../mentionMenuModel";
 import { toolMentionsIn, isToolCommand } from "../toolMentions";
+import { withFolderCommands, folderChat, skillsFirst } from "./folderCommands";
 import {
   applyCommand,
   insertsText,
@@ -223,6 +224,9 @@ export type NewTabScreenActions = NewTabCommandActions & {
   /// gesture still opens the setup window and the prompt stays (CMUX-682).
   /// `late`: the send resumed after a wait (files read, dictation ended, setup done): hold and say why only.
   holdsSend?(text: string, place: ComputerUsePlace, late?: boolean): boolean;
+  /// A chat's last command list as acpmux keeps it (direct.ts `sessionCommands`): the New Tab's `/`
+  /// menu lists the person's newest chat in its folder until its own deferred chat answers.
+  readChatCommands?(sessionId: string): Promise<SlashCommand[]>;
   /// `here`: an Open Tabs pick, moved into this page's pane (cx-jfo7).
   onJump(target: "tab" | "workspace" | "here" | "closed", id: string): void;
   /// A Commands palette action row (Cmd-Shift-P's actions, `omnibar.actions`): the host runs it as
@@ -1261,9 +1265,17 @@ export function NewTabScreen(props: Props) {
   const commandQuery = commandAt?.query;
   // The `/` menu's commands: the agent's, cmux's and the extensions'. Computer use and browser use
   // (toolMentions.ts) are plugins, listed only after `@` (Lucas 2026-11-24).
+  // Until the agent's deferred chat answers (its start can take seconds), the list of the person's
+  // newest chat of that agent in this folder, which acpmux keeps (folderCommands.ts). Skills first, A to Z.
+  const keptKey = `${harness ?? ""}\u0000${chatFolder ?? ""}`;
+  const [keptRead, setKeptRead] = useState<{ key: string; commands: SlashCommand[] }>();
+  const keptCommands = keptRead?.key === keptKey ? keptRead.commands : undefined;
   const slashCommands = useMemo(
-    () => (snapshot.commands ?? []).filter((command) => !isToolCommand(command)),
-    [snapshot.commands],
+    () =>
+      skillsFirst(
+        withFolderCommands(snapshot.commands ?? [], keptCommands).filter((command) => !isToolCommand(command)),
+      ),
+    [snapshot.commands, keptCommands],
   );
   // The person's saved prompts (savedPrompts.ts) first, as in the chat composer; read again as the list opens.
   const commandOpening = commandAt !== undefined;
@@ -1275,6 +1287,24 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     if (commandOpening) void refreshSavedPrompts();
   }, [commandOpening]);
+  // The kept chat's list is read once per agent and folder, as the menu first opens: the chat list
+  // is looked at only then, never on each change to it (a Minimal page reads only what changed).
+  const readChatCommands = props.readChatCommands;
+  const keptReadFor = keptRead?.key;
+  const sessions = snapshot.sessions;
+  useEffect(() => {
+    if (!commandOpening || !readChatCommands || keptReadFor === keptKey) return;
+    const chat = folderChat(sessions, harness, chatFolder);
+    if (!chat) return;
+    let current = true;
+    void readChatCommands(chat).then(
+      (commands) => current && setKeptRead({ key: keptKey, commands }),
+      () => undefined,
+    );
+    return () => {
+      current = false;
+    };
+  }, [commandOpening, readChatCommands, keptReadFor, keptKey, sessions, harness, chatFolder]);
   const commandMatches = useMemo(
     () => (commandAt ? slashMatches(menuCommands, commandAt) : []),
     [commandAt, menuCommands],

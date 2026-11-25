@@ -282,6 +282,7 @@ export type PaneBodyDeps = NewTabShown &
     commandSession: string | undefined;
     newTabSnapshot: AcpmuxSnapshot;
     pendingCommands: SlashCommand[] | undefined;
+    readSessionCommands: (sessionId: string) => Promise<SlashCommand[]>;
     extensionCommands: readonly SlashCommand[];
     /// Computer use and browser use in the `/` and `$` menus (toolMentions.ts).
     toolCommands: readonly SlashCommand[];
@@ -583,6 +584,7 @@ export function drawPaneBody({
   commandSession,
   newTabSnapshot,
   pendingCommands,
+  readSessionCommands,
   extensionCommands,
   toolCommands,
   holdsForComputerUseSetup,
@@ -909,6 +911,7 @@ export function drawPaneBody({
                   // The machine the person last picked for a new chat (cmux#46019), while acpmux lists it.
                   {...(newTabStartMachine ? { startMachine: newTabStartMachine } : {})}
                   onCommands={(harness, cwd) => void newTabCommandsChat(callNative, harness, cwd)}
+                  readChatCommands={readSessionCommands}
                   key={newTabGeneration}
                   environments
                   onLeaveDraft={leaveNewTabDraft}

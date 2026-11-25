@@ -11016,6 +11016,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     commandSession,
     newTabSnapshot,
     pendingCommands,
+    readSessionCommands,
     extensionCommands,
     newTabFixError,
     newTabStartFailure,
