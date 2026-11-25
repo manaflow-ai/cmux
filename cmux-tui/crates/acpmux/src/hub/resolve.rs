@@ -414,7 +414,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         unread_turns: 0,
         last_return: None,
         away_recap: None,
-        rolling_summary: None,
         approved_plan: None,
         read_through: Default::default(),
         claude_unstored: false,
@@ -449,6 +448,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         // Read off the async runtime by `session/new` (`adoption::start_folder`).
         totals: None,
         harness_cost_usd: None,
+        task_cost_usd: None,
         pull_requests: vec![],
         pull_request_times: Default::default(),
         closed_pull_requests: vec![],

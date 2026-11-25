@@ -177,6 +177,7 @@ async fn ssh_down_with_a_found_overlay_connects_over_the_cmux_link() {
     let dir = paired_link_dir();
     // The tokens the earlier ssh read kept (configured here: ssh is down).
     let peer = ssh_peer("ssh-down-overlay", Some("token"), Some("peer-token"));
+    peer.refuse_early(); // its fake listener is a plain tungstenite accept, as before the early request
     // The machine was reached over ssh before: its paths exist, with ssh alone.
     assert_eq!(peer.dial_order(), [Via::Ssh]);
     assert!(peer.learn_overlay_in(dir.path(), &json!({"link": {"install": "inst_b"}})));
