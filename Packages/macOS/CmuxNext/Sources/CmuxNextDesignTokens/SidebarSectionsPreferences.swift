@@ -84,6 +84,12 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.showSearchButton`: the footer's Search button after the profile avatar
     /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
     public var showSearchButton = true
+    /// `sidebar.showLiveToggle`: the footer's Live button after the profile avatar (Leo 2026-11-24: "an icon
+    /// maybe toggle somewhere omnipresent... say the bottom left of the sidebar area"). On by default; off
+    /// hides the button only.
+    public var showLiveToggle = true
+    /// `presence.live`: whether this Mac is live to teammates and agents. The Live button shows and flips it.
+    public var presenceLive = false
     /// `sidebar.showNewWorkspaceChooser`: the titlebar's chevron beside the + that opens the New
     /// Workspace chooser. Off by default (Lawrence 2026-10-30: "by default i dont want to have
     /// workspace titlebar dropdowns at all, i just want to have linear list of workspaces"): the +

@@ -14,10 +14,12 @@ export function sizeStore(key: string, least: number, retired: readonly string[]
   } catch {
     // A blocked store has nothing to drop.
   }
+  // A size kept under a floor raised since reads as the floor, not the default.
   const stored = (): number | undefined => {
     try {
-      const value = Number(globalThis.localStorage?.getItem(key));
-      return Number.isFinite(value) && value >= least ? Math.round(value) : undefined;
+      const raw = globalThis.localStorage?.getItem(key);
+      const value = raw == null ? Number.NaN : Number(raw);
+      return Number.isFinite(value) && value > 0 ? Math.max(least, Math.round(value)) : undefined;
     } catch {
       return undefined;
     }
