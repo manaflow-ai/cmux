@@ -555,8 +555,8 @@ class PullRequestShardsTest(unittest.TestCase):
         finally:
             ps.shard_files = real
 
-    def test_shard_1_runs_the_touched_tests_of_the_shards_past_it(self) -> None:
-        """--direct-out: shard 1 runs the touched tests the pick found in every shard, and no second job does."""
+    def test_a_picked_shard_past_1_owns_only_its_touched_tests(self) -> None:
+        """--direct-out: touched tests past shard 1 fold into shard 1's one job (up to FOLD_MAX), not any shard's closure share."""
         import webviews_pr_shards as ps  # noqa: PLC0415
         self.touched("webviews/src/leaf.ts")
         split = {1: {"webviews/test/a.test.ts"}, 2: {"webviews/test/leaf.test.ts", "webviews/test/b.test.ts"},
@@ -566,10 +566,17 @@ class PullRequestShardsTest(unittest.TestCase):
         try:
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
             self.assertEqual((shards, own), ([1], {1: ["test/leaf.test.ts"]}))
-            # Touched tests in several shards past 1 all run in shard 1.
+            # Touched tests in several shards past 1 join shard 1's one job.
             self.touched("webviews/test/other.test.ts", "webviews/test/leaf.test.ts")
             shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
             self.assertEqual((shards, own), ([1], {1: ["test/leaf.test.ts", "test/other.test.ts"]}))
+            # More than FOLD_MAX keep their own job under the lowest shard.
+            ps.FOLD_MAX = 1
+            try:
+                shards, _, own = ps.pick(self.root, "HEAD^1", "HEAD", 4)
+            finally:
+                ps.FOLD_MAX = 40
+            self.assertEqual((shards, own), ([1, 2], {1: [], 2: ["test/leaf.test.ts", "test/other.test.ts"]}))
         finally:
             ps.shard_files = real
         self.touched("webviews/package.json")
