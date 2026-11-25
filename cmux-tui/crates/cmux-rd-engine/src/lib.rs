@@ -62,6 +62,10 @@ pub const IDLE_COPY_PERCENT: u64 = 1;
 /// Frames the idle-link copy remembers (more than a second at any frame rate).
 const IDLE_COPY_FRAMES: usize = 512;
 /// Most streams per peer (the viewer's CMUX_RD_SESSION_MAX_STREAMS).
+/// Measured: each popup stream runs its own video encoder on the host (`pump.rs` `add_stream`),
+/// and popups share [`POPUP_SHARE_PERCENT`] (20 %) of the target with a floor of
+/// [`MIN_POPUP_KBPS`] each: 16 x 300 kbps = 4.8 Mbps, the whole share of a 24 Mbps target. Past
+/// that every popup's floor takes from the main stream. Derived from these constants, not timed.
 pub const MAX_STREAMS: usize = 16;
 /// Share of the target that popup streams may take together, in percent.
 pub const POPUP_SHARE_PERCENT: u64 = 20;
@@ -253,8 +257,6 @@ pub struct EngineStats {
     pub target_bps: u64,
 }
 
-/// Most upstream media streams per peer.
-pub const MAX_UPSTREAMS: usize = 4;
 /// Upstream feedback interval while upstream media flows.
 const UPSTREAM_FEEDBACK_US: u64 = 50_000;
 /// How long an upstream frame may wait for missing shards.
@@ -686,9 +688,8 @@ impl MediaEngine {
         if self.upstreams.contains_key(&stream) || self.streams.contains_key(&stream) {
             return Err(StreamError::Exists(stream));
         }
-        if self.upstreams.len() >= MAX_UPSTREAMS {
-            return Err(StreamError::TooMany);
-        }
+        // Any number: an upstream is a reassembler whose frames wait at most
+        // UPSTREAM_DEADLINE_US.
         self.upstreams.insert(stream, Upstream::new());
         Ok(())
     }

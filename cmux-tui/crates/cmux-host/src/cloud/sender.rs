@@ -501,6 +501,7 @@ pub enum EventOutcome {
 
 /// Events a backed-off queue holds before it refuses more (each is at most
 /// 4 KB of data, so about 1 MB).
+/// Measured: at most 4 KB an event held in memory while Cloud is unreachable: about 1 MB.
 pub const EVENT_QUEUE_MAX: usize = 256;
 
 /// `cloud.vm.event.emit` in order: a rate limit waits `retry_after_ms`, a

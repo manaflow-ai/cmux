@@ -299,6 +299,8 @@ cmux-relay = { path = "../cmux-relay" }
 axum.workspace = true
 # The Remote and Cloud fault harness (tests/rc_faults.rs: disk-full mid-turn).
 cmux-fault.workspace = true
+# The one chat send queue the send bench's attachment leg sends through (tests/mobile_link_conditions.rs).
+cmux-composer-send.workspace = true
 # WireGuard's construction hash, which the hub carrier's Noise hash must equal (tests/hub_carrier.rs).
 blake2 = "0.10"
 # A Codex state database for the Codex desktop bridge's tests (`codex_desktop_tests.rs`).
