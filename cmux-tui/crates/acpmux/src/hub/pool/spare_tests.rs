@@ -78,3 +78,16 @@ fn a_reserve_moves_home_chat_shapes_to_its_folder_and_remembers_the_persons_pick
          folder's stays"
     );
 }
+
+#[test]
+fn the_shapes_sent_are_the_newest_four_recent_ones_without_folders() {
+    let mut codex = r("codex", "/a", 50);
+    codex.model = Some("gpt-5.5".into());
+    let list =
+        vec![r("claude", "/a", 10), codex, r("a", "/a", 20), r("b", "/a", 30), r("c", "/a", 40)];
+    let sent = shapes_to_send(&list, 60);
+    assert_eq!(sent.len(), 4);
+    assert_eq!(sent[0], json!({"harness": "codex", "model": "gpt-5.5"}));
+    assert!(sent.iter().all(|v| v.get("cwd").is_none()));
+    assert!(!sent.contains(&json!({"harness": "claude"})), "the oldest is left out");
+}

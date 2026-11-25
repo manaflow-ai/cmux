@@ -130,6 +130,31 @@ pub(super) fn missing(
     recent(list, now_ms).into_iter().filter(|r| !has_spare(&r.harness)).collect()
 }
 
+/// `list`'s recent shapes at `now_ms` as `warm-home --shape` takes them: newest first, at most
+/// 4, folders left out (a Cloud machine warms them in its own reserved folder).
+pub(super) fn shapes_to_send(list: &[Remembered], now_ms: u64) -> Vec<Value> {
+    let mut list = recent(list, now_ms);
+    list.sort_by(|a, b| b.used_at_ms.cmp(&a.used_at_ms));
+    list.into_iter()
+        .take(4)
+        .map(|r| {
+            let mut v = json!({"harness": r.harness});
+            if let Some(p) = r.preset {
+                v["preset"] = json!(p);
+            }
+            if let Some(m) = r.model {
+                v["model"] = json!(m);
+            }
+            v
+        })
+        .collect()
+}
+
+/// [`shapes_to_send`] of this machine's `pool-spares.json` (`acpmux spare-shapes`).
+pub fn person_spare_shapes() -> Vec<Value> {
+    shapes_to_send(&read_file(&file_path()), now_ms())
+}
+
 fn read_file(path: &Path) -> Vec<Remembered> {
     std::fs::read(path)
         .ok()
