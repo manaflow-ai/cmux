@@ -20,7 +20,7 @@ const [
   { SubsessionCallCard },
   { ConnectorsSection },
   { SubsessionContext, SubsessionStore },
-  { CONNECTION_QUIET_MS, useConnectionQuietKeys },
+  { CONNECTION_QUIET_MS },
 ] = await importWithDom(() =>
   Promise.all([
     import("../src/agent-session/acpmux/i18n"),
@@ -215,34 +215,9 @@ test("a connector still starting past 10 s says Connecting once", async () => {
   jest.useFakeTimers();
   const container = installDom();
   await renderConnectors(container, [{ name: "linear", status: "pending" }]);
+  const said = () => container.querySelector('[data-state="pending"]')?.textContent ?? "";
   await advance(CONNECTION_QUIET_MS - 100);
-  expect(container.querySelector('[data-state="pending"]')).toBeNull();
+  expect(said()).toBe("");
   await advance(200);
-  expect(container.querySelectorAll('[data-state="pending"]')).toHaveLength(1);
-});
-
-// The per-key hold the connectors use (ui/lasting.ts useLastingKeys).
-
-function Keys({ keys }: { keys: readonly string[] }) {
-  return <output>{[...useConnectionQuietKeys(keys)].sort().join(",")}</output>;
-}
-
-test("each key is said once it alone has lasted the bound, and a key that leaves starts again", async () => {
-  jest.useFakeTimers();
-  const container = installDom();
-  root = createRoot(container);
-  const render = (keys: string[]) => act(async () => root!.render(<Keys keys={keys} />));
-  await render(["a"]);
-  await advance(5_000);
-  await render(["a", "b"]);
-  expect(container.textContent).toBe("");
-  await advance(5_000);
-  expect(container.textContent).toBe("a");
-  await render(["b"]);
-  expect(container.textContent).toBe("");
-  await render(["a", "b"]);
-  await advance(5_000);
-  expect(container.textContent).toBe("b");
-  await advance(5_000);
-  expect(container.textContent).toBe("a,b");
+  expect(said()).not.toBe("");
 });

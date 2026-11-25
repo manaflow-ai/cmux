@@ -175,7 +175,7 @@ public final class NativePopupHost {
             side = preferred
         } else {
             let placed = PopupPlacement.frame(anchor: anchor, size: size, preferred: preferred, trailing: trailing,
-                                              centered: centered, screen: screen.visibleFrame)
+                                              centered: centered, in: window, screen: screen.visibleFrame)
             frame = placed.frame
             side = placed.side
         }

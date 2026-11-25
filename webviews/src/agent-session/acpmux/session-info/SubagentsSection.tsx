@@ -6,8 +6,9 @@
 // Session Info lab). Past five, "Show more" opens the rest. The ones that ended fold under one row,
 // "94 done · 1 failed", failed first. Every line opens what it names: a subagent's pane or view
 // (App.tsx `showSubagent`), a chat beside this one (`chat.offer.open`); its hover card names it and
-// says its state and its task. The live counts sit in the section's head ("3 running · 40 done",
-// `subagentCounts`).
+// says its state and its task. The live counts sit in the section's head (the running ones as their mark
+// and number, then "40 done",
+// `subagentCountParts`).
 import { useState } from "react";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { formatDuration } from "../conversation/turns";
@@ -34,7 +35,8 @@ import { orderedSessions, sessionStatus, sessionStateText } from "./childSession
 import "./SubagentsSection.css";
 import { heightAbove, useFoldMotion } from "./foldMotion";
 import { SessionInfoFold } from "./SessionInfoSection";
-import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCounts } from "./subagentsSectionModel";
+import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCountParts } from "./subagentsSectionModel";
+import { CountLine } from "../summary/LiveCount";
 import { WindowedRows } from "./WindowedRows";
 
 /// The section head's counts on the clock the lines read, so an idle one leaves "running" in both
@@ -50,8 +52,12 @@ export function SubagentCountsMeta({
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
-  const text = subagentCounts(t, agents, waiting, sessions, now);
-  return text ? <span className="acpmux-session-info-section__value">{text}</span> : null;
+  const parts = subagentCountParts(t, agents, waiting, sessions, now);
+  return parts.length > 0 ? (
+    <span className="acpmux-session-info-section__value">
+      <CountLine parts={parts} />
+    </span>
+  ) : null;
 }
 
 /// "94 done · 1 failed": the ended row's words, the done ones first as Leo asked for them (its
