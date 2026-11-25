@@ -2,11 +2,14 @@
 """What a carrier relay run deploys, and the two rules that keep it safe (.github/workflows/cloudflare-relay.yml).
 
 `plan` prints GitHub output lines (mode, sha, version, staging, production, journeys, migrations_changed).
-`guard` runs in a deploy job right before it deploys, so a re-run of an old job is checked again.
+`guard` runs in a deploy job right before it deploys, so a re-run of an old job is checked again. It fails
+closed: a relay whose served commit is unknown at that moment is refused unless the run passed the
+relay-migrations approval (the bootstrap of a relay with no /version yet).
 
 Ordering: a deploy (push, or dispatch action=deploy) ships only a commit equal to, or a descendant of,
 the commit each target relay serves (its GET /version). A re-run of an older push after a newer deploy
-is refused. Only action=rollback may go back, and only to a commit on feat-cmux-next.
+is refused. Only action=rollback may go back, and only to a commit on feat-cmux-next whose relay has
+GET /version (an older one could never pass the deploy's check; roll back to its Worker version id).
 
 Migrations: a Durable Object migration cannot be rolled back, so the run waits on relay-migrations
 approval when the commit's [[migrations]] differ from what any target relay serves, and also whenever
@@ -30,6 +33,9 @@ SHA = re.compile(r"[0-9a-f]{40}")
 VERSION_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 WRANGLER = "cmux-tui/relays/cloudflare-do/wrangler.toml"
 SOURCE = ("cmux-tui/relays/cloudflare-do", "cmux-tui/crates/cmux-remote-protocol")
+ROUTING = "cmux-tui/relays/cloudflare-do/src/routing.rs"
+# The relay's GET /version route (#38564). A relay built before it cannot pass the deploy's /version check.
+VERSION_ROUTE = 'path == "/version"'
 
 
 class Refused(Exception):
@@ -55,9 +61,25 @@ def migrations(repo: str, rev: str) -> str | None:
     return json.dumps(tomllib.loads(shown.stdout).get("migrations", []), sort_keys=True)
 
 
-def check_order(repo: str, worker: str, served: str, source: str) -> None:
-    """A deploy never moves a relay to an older or unrelated commit."""
-    if known(repo, served) and not ancestor(repo, served, source):
+def has_version_route(repo: str, rev: str) -> bool:
+    shown = git(repo, "show", f"{rev}:{ROUTING}")
+    return shown.returncode == 0 and VERSION_ROUTE in shown.stdout
+
+
+def check_order(repo: str, worker: str, served: str, source: str, bootstrap_approved: bool = False) -> None:
+    """A deploy never moves a relay to an older or unrelated commit.
+
+    An unknown served commit (no /version, a failed fetch, a commit this checkout lacks) cannot be ordered,
+    so it is refused unless the run carries the relay-migrations approval, which plan requires in that case.
+    """
+    if not known(repo, served):
+        if bootstrap_approved:
+            return
+        raise Refused(
+            f"{worker} reports no commit this checkout knows ({served or 'no /version answer'}), so {source} "
+            "cannot be ordered against it; a deploy over an unknown relay needs the run's relay-migrations approval"
+        )
+    if not ancestor(repo, served, source):
         raise Refused(
             f"{worker} serves {served}, which {source} does not descend from: an older or unrelated source "
             "is refused (a re-run of an old push?); go back only with action=rollback"
@@ -84,6 +106,12 @@ def plan(args: argparse.Namespace) -> dict[str, str]:
                 raise Refused(f"commit {sha} is not on feat-cmux-next")
             if migrations(repo, sha) is None:
                 raise Refused(f"commit {sha} has no relay")
+            if not has_version_route(repo, sha):
+                raise Refused(
+                    f"the relay at {sha} predates GET /version, so its deploy cannot be verified; roll back to the "
+                    "Worker version that served it instead: rollback_to=<version id> (a deploy run's summary, or "
+                    "`wrangler deployments list --name <worker>`) with target staging or production"
+                )
             out.update(mode="sha", sha=sha)
         elif VERSION_ID.fullmatch(args.rollback_to):
             if args.target == "both":
@@ -98,7 +126,8 @@ def plan(args: argparse.Namespace) -> dict[str, str]:
 
     if out["mode"] == "deploy":
         for env in targets:
-            check_order(repo, env, served[env], out["sha"])
+            # Unknown here only requires the approval (below); the deploy job's guard enforces it.
+            check_order(repo, env, served[env], out["sha"], bootstrap_approved=True)
         unchanged = all(
             known(repo, served[env])
             and git(repo, "diff", "--quiet", served[env], out["sha"], "--", *SOURCE).returncode == 0
@@ -143,11 +172,13 @@ def main(argv: list[str]) -> int:
     g.add_argument("--mode", required=True)
     g.add_argument("--source", required=True)
     g.add_argument("--served", default="")
+    g.add_argument("--bootstrap-approved", action="store_true",
+                   help="this run passed the relay-migrations approval, which admits an unknown served commit")
     args = parser.parse_args(argv)
     try:
         if args.command == "guard":
             if args.mode == "deploy":
-                check_order(args.repo, args.worker, args.served, args.source)
+                check_order(args.repo, args.worker, args.served, args.source, args.bootstrap_approved)
             print(f"{args.worker}: {args.mode} of {args.source or 'a version'} admitted (serving {args.served or 'unknown'})")
             return 0
         for key, value in plan(args).items():

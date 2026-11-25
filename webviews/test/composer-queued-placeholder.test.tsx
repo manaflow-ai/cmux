@@ -1,6 +1,6 @@
 // An agent that steers takes Return into the running turn (it reads the prompt when its current
 // step ends) and ⌘Return queues it for after the turn (Leo 2026-10-20). Its empty prompt keeps
-// Claude desktop's "Type / for commands" and the Send button's tooltip names "↵ steer · ⌘↵ queue"
+// Claude desktop's "Type / for commands" and the Send button's tooltip names "↩ steer · ⌘↩ queue"
 // (Leo 2026-11-03). The Quick Composer, whose ⌘Return opens the window, says "Steer this turn…". Nothing sent stops the turn: an agent
 // that cannot take a prompt mid-turn queues on both keys and says "Queue a follow-up". An idle
 // chat, and a running one whose composer cannot send (blocked), keep the usual placeholder.
@@ -138,12 +138,12 @@ const steering = (fields: Partial<AcpmuxSnapshot> = {}) => {
 
 const sendTitle = () => host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")?.title;
 
-test("a running turn says Type / for commands; Send's tooltip names ↵ steer and ⌘↵ queue", async () => {
+test("a running turn says Type / for commands; Send's tooltip names ↩ steer and ⌘↩ queue", async () => {
   let handle: ComposerHandle | null = null;
   await render(steering({ isWorking: true }), undefined, { handle: (value) => void (handle = value) });
   expect(shown()).toBe("Type / for commands");
   await act(async () => handle!.restore("Use the cache", []));
-  expect(sendTitle()).toBe("↵ steer · ⌘↵ queue");
+  expect(sendTitle()).toBe("↩ steer · ⌘↩ queue");
 });
 
 /** Types `text` and presses Return (⌘Return with `command`); returns each send's steer flag. */
@@ -305,7 +305,7 @@ test("with only an attachment staged, Return steers it and ⌘Return queues it",
   };
   await act(async () => handle!.restore("", [note]));
   expect(shown()).toBe("Type / for commands");
-  expect(sendTitle()).toBe("↵ steer · ⌘↵ queue");
+  expect(sendTitle()).toBe("↩ steer · ⌘↩ queue");
   const field = host.querySelector<HTMLElement>("[role=combobox]")!;
   for (const metaKey of [false, true]) {
     await act(async () => handle!.restore("", [note]));
@@ -374,7 +374,7 @@ test("a trust read keeps the running turn's steer and queue choices", async () =
   await render(steering({ isWorking: true }), {}, { handle: (value) => void (handle = value) });
   expect(shown()).toBe("Type / for commands");
   await act(async () => handle!.restore("Use the cache", []));
-  expect(sendTitle()).toBe("↵ steer · ⌘↵ queue");
+  expect(sendTitle()).toBe("↩ steer · ⌘↩ queue");
 });
 
 test("a concrete trust block keeps the draft for click and Return", async () => {

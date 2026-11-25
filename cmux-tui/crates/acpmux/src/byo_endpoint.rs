@@ -440,7 +440,7 @@ pub async fn fetch_models(
     })?;
     let url = models_url(kind, &base);
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .timeout(timeout)
         // timeout: connecting to the endpoint's model list (a check of a harness being added); the whole fetch keeps FETCH_TIMEOUT
         .connect_timeout(timeout.min(std::time::Duration::from_secs(5)))

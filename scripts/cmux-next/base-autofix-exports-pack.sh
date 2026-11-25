@@ -51,7 +51,7 @@ trap restore EXIT
 
 marker="$work/marker"
 : > "$marker"
-sleep 1 # anything the regenerations write is newer than the marker
+sleep 1 # sleep-ok: an mtime-granularity tick; anything the regenerations write is newer than the marker
 "$regen_actions" "$work/actions" >&2
 CMUX_SETTINGS_EXPORTS_ALL=1 "$regen_settings" "$work/settings" >&2
 

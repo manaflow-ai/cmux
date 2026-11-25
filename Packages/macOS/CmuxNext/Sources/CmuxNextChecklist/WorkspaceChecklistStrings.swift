@@ -4,7 +4,7 @@ package import Foundation
 package nonisolated struct WorkspaceChecklistStrings {
     package nonisolated init() {}
     /// The bundle that holds `Resources/WorkspaceChecklist.xcstrings` (this module's), for tests.
-    package static var bundle: Bundle { .module }
+    package static var bundle: Bundle { .localizedModule }
     package static var pageTitle: String { text("workspaceChecklist.page.title", "Todo") }
     package static var addPlaceholder: String { text("workspaceChecklist.page.addPlaceholder", "Add an item") }
     package static var empty: String { text("workspaceChecklist.page.empty", "No items yet.") }
@@ -22,6 +22,6 @@ package nonisolated struct WorkspaceChecklistStrings {
     package static var noImage: String { text("workspaceChecklist.refusal.noImage", "a path argument naming an image file is required") }
 
     private static func text(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "WorkspaceChecklist", bundle: .module)
+        String(localized: key, defaultValue: value, table: "WorkspaceChecklist", bundle: .localizedModule)
     }
 }

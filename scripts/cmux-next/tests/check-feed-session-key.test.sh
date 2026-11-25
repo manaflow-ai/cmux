@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # check-feed-session-key.py (review of #41240, F1): on the feed path a raw
 # sessionId read or a hand-made peer/id key fails, also when its statement spans
-# lines (review of #41471, F1); writing sessionId into a
+# lines (review of #41471, F1) or sits in a
+# closure whose opener reads the peer (review of #41483, F1); writing sessionId into a
 # request, a comment, an allowed line and files off the feed path pass.
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -70,6 +71,21 @@ fail "a peer/id key built over three lines" \
 fail "a raw read inside an interpolation that spans lines" \
   "$BRIDGE=let s = \"\\(params[
   \"sessionId\"] ?? \"\")\""
+
+# Review of #41483, F1: a block's body counts the peer read of the statement that opens it.
+fail "a peer/id key built in a one-line closure" \
+  "$GATE=let key = row[\"peer\"].map { \"\\(\$0)/\\(id)\" }"
+fail "a peer/id key built in a closure over lines" \
+  "$GATE=let key = (row[\"peer\"] as? String).map { peer in
+    \"\\(peer)/\\(id)\"
+}"
+pass "a path built in a block whose opener reads no peer" \
+  "$GATE=if let peer = row[\"peer\"] as? String { use(peer) }
+for row in rows {
+    let path = \"\\(dir)/\\(name)\"
+}"
+pass "an allowed opener" \
+  "$READS=return row[\"peer\"].map { \"\\(\$0)/\\(id)\" } // feed-key-allow: the one key"
 
 pass "the shared key" "$BRIDGE=guard let session = AcpmuxPendingReads.sessionKey(params) else { return }"
 pass "sessionId written into a request" "$BRIDGE=await call(\"_acpmux/info\", [\"sessionId\": session])"

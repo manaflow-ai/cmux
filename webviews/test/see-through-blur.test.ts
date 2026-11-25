@@ -16,7 +16,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { PNG } from "pngjs";
 import { backdropBlurRadius, drawsBackdropOver, holeIn, holeMask } from "../src/ui/glass/seeThroughBlur";
 import { REFRACTIONS } from "../src/ui/glass/rimRefraction";
-import { requireBrowserLane } from "./support/requireBrowserLane";
+import { probeEngineOrSkip, requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("see-through-blur.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -325,7 +325,7 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
         page.evaluate(() =>
           getComputedStyle(document.getElementById("popover")!).getPropertyValue("--glass-underlay").trim(),
         );
-      expect(await underlay()).toBe("70%");
+      expect(await underlay()).toBe("40%");
       await attach(page);
       expect(await underlay()).toBe("0%");
       await page.close();
@@ -420,25 +420,28 @@ await requireBrowserLane("see-through-blur.test.ts", async () => {
         (document.querySelector(".dock") as HTMLElement).style.height = "60px";
       });
       await settle(page);
-      expect(await underlay()).toBe("70%");
+      expect(await underlay()).toBe("40%");
       await page.close();
     });
   });
 
-  describe("see-through blur in webkit", () => {
-    let browser: Browser;
-    beforeAll(async () => {
-      browser = await webkit.launch({ headless: true });
-    });
-    afterAll(async () => browser?.close());
+  // WebKit runs where it launches; where it cannot and the lane is not required, it skips (probeEngineOrSkip).
+  if (await probeEngineOrSkip("see-through-blur webkit", "webkit", webkit)) {
+    describe("see-through blur in webkit", () => {
+      let browser: Browser;
+      beforeAll(async () => {
+        browser = await webkit.launch({ headless: true });
+      });
+      afterAll(async () => browser?.close());
 
-    test("WebKit's backdrop already draws in place: nothing is attached", async () => {
-      const page = await open(browser);
-      await attach(page);
-      expect(await page.evaluate(() => document.querySelectorAll("[data-glass-under], [data-glass-over]").length)).toBe(
-        0,
-      );
-      await page.close();
+      test("WebKit's backdrop already draws in place: nothing is attached", async () => {
+        const page = await open(browser);
+        await attach(page);
+        expect(
+          await page.evaluate(() => document.querySelectorAll("[data-glass-under], [data-glass-over]").length),
+        ).toBe(0);
+        await page.close();
+      });
     });
-  });
+  }
 });

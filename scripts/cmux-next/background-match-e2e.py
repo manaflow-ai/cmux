@@ -23,6 +23,7 @@ its own surface alone.
 import argparse, glob, json, os, signal, socket, struct, subprocess, sys, tempfile, time, zlib
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -235,7 +236,9 @@ try:
     safe_print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 90, 0.5):
         sys.exit("the tagged app did not come up")
-    time.sleep(2)
+    # First frame and restore settle before the first config write: the window's surfaces hold still.
+    wait_stable(lambda: (rpc("debug.surfaces") or {}).get("windows"), "the launch window's surfaces", timeout=15,
+                interval=0.2, raise_on_timeout=False)
     for opacity in ([float(v) for v in opts.opacities.split(",")] if "match" in PHASES else []):
         for blur in [int(v) for v in opts.blurs.split(",")]:
             write_config(opacity, blur)

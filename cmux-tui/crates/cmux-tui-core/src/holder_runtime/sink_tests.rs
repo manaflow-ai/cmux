@@ -58,6 +58,58 @@ fn the_sink_acknowledges_what_the_parser_parsed_so_the_holder_sends_more() {
     assert!(last >= ACK_EVERY && last <= 2 * chunk.len() as u64, "{acks:?}");
 }
 
+/// An idle terminal keeps none of a parsed burst's queue (CMUX-571:
+/// 1,000 idle terminals each kept their largest burst's capacity).
+#[test]
+fn a_parsed_burst_leaves_no_queue_capacity_behind() {
+    let sink = HolderSink::new(0);
+    let burst = vec![b'a'; 256 * 1024];
+    sink.data(0, &burst);
+    let mut reader = SinkReader(sink.clone());
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut read = 0;
+    while read < burst.len() {
+        read += reader.read(&mut buf).unwrap();
+    }
+    sink.confirm_parsed();
+    let state = sink.state.lock().unwrap();
+    assert!(state.bytes.is_empty());
+    assert!(state.bytes.capacity() <= IDLE_QUEUE_BYTES, "{}", state.bytes.capacity());
+    assert!(state.runs.capacity() <= IDLE_QUEUE_RUNS, "{}", state.runs.capacity());
+}
+
+/// The reader thread waits for output before it takes its read buffer
+/// (CMUX-571: every idle terminal held a 64 KiB one through its blocked
+/// read). The wait is the read's start: what the parser parsed is
+/// acknowledged before it blocks, and the read after it takes the bytes.
+#[test]
+fn a_wait_for_output_acknowledges_first_and_the_read_after_it_takes_the_bytes() {
+    let acks = Arc::new(Mutex::new(Vec::new()));
+    let sink = HolderSink::new(0);
+    let chunk = vec![b'a'; ACK_EVERY as usize];
+    sink.data(0, &chunk);
+    let recorded = acks.clone();
+    sink.set_acker(Box::new(move |offset| recorded.lock().unwrap().push(offset)));
+    let mut reader = SinkReader(sink.clone());
+    let mut buf = vec![0u8; chunk.len()];
+    assert_eq!(reader.read(&mut buf).unwrap(), chunk.len());
+    sink.confirm_parsed();
+    let waiting = std::thread::spawn({
+        let sink = sink.clone();
+        move || sink.wait_readable()
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    while acks.lock().unwrap().last() != Some(&(chunk.len() as u64)) {
+        assert!(std::time::Instant::now() < deadline, "no acknowledgement before the wait");
+        std::thread::yield_now();
+    }
+    assert!(!waiting.is_finished(), "nothing to read yet");
+    sink.data(chunk.len() as u64, b"prompt$ ");
+    waiting.join().unwrap();
+    assert_eq!(reader.read(&mut buf).unwrap(), 8);
+    assert_eq!(buf.get(..8), Some(&b"prompt$ "[..]));
+}
+
 #[test]
 fn missing_bytes_are_cancelled_not_spliced() {
     let sink = HolderSink::new(0);
@@ -183,4 +235,48 @@ fn a_taken_chunk_stays_pending_until_the_parser_confirms_it() {
     assert_eq!((pending.confirmed, pending.received), (4, 14));
     assert!(pending.head.is_empty());
     assert_eq!(pending.all, b";5;196mRED");
+}
+
+#[test]
+fn a_parked_reader_resumes_on_output_and_on_the_end() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static RESUMED: AtomicUsize = AtomicUsize::new(0);
+    fn resume(tag: usize) {
+        RESUMED.fetch_add(tag, Ordering::SeqCst);
+    }
+    let sink = HolderSink::new(0);
+    // Quiet: the reader parks, and nothing runs it until output comes.
+    assert!(!sink.wait_readable_for(std::time::Duration::from_millis(1)));
+    assert!(sink.park(1, resume).is_ok());
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 0);
+    sink.data(0, b"x");
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 1);
+    // Output waiting: the reader is told to read on, not parked.
+    assert_eq!(sink.park(10, resume), Err(10));
+    let mut buf = [0u8; 4];
+    assert_eq!(SinkReader(sink.clone()).read(&mut buf).unwrap(), 1);
+    sink.confirm_parsed();
+    // Parked again, the end resumes it too (the reader then takes the end).
+    assert!(sink.park(100, resume).is_ok());
+    sink.exit(ExitStatus::Exited(0), 1);
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 101);
+    assert!(sink.wait_readable_for(std::time::Duration::ZERO));
+    assert_eq!(sink.park(1000, resume), Err(1000));
+}
+
+#[test]
+fn a_detach_or_a_loss_resumes_a_parked_reader() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static RESUMED: AtomicUsize = AtomicUsize::new(0);
+    fn resume((): ()) {
+        RESUMED.fetch_add(1, Ordering::SeqCst);
+    }
+    let detached = HolderSink::new(0);
+    assert!(detached.park((), resume).is_ok());
+    detached.detach();
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 1);
+    let lost = HolderSink::new(0);
+    assert!(lost.park((), resume).is_ok());
+    lost.lose();
+    assert_eq!(RESUMED.load(Ordering::SeqCst), 2);
 }

@@ -30,7 +30,29 @@ describe("first-load record", () => {
       shifts: 0,
       blank: 0,
       why: "",
+      painted: -1,
+      seen: 0,
+      seenWhy: "",
+      seenAt: -1,
+      seenPx: 0,
     });
+  });
+
+  test("only what moved after the host was told the page shows the chat counts as seen", () => {
+    const fields = firstLoadFields(
+      [
+        frame(40),
+        frame(56, { composer: { top: 640, height: 136 } }),
+        frame(72, { composer: { top: 620, height: 156 } }),
+      ],
+      60,
+    );
+    expect(fields?.shifts).toBe(2);
+    expect(fields?.painted).toBe(60);
+    expect(fields?.seen).toBe(1);
+    expect(fields?.seenWhy).toBe("composer top");
+    expect(fields?.seenAt).toBe(12);
+    expect(fields?.seenPx).toBe(-20);
   });
 
   test("a composer that moves after the first paint counts, by kind only", () => {

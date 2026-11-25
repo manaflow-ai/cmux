@@ -37,6 +37,15 @@ Each pass it
   linux_16 (gallery health's shards, compiles, large suites) spills the same way. A spill never leaves the pool's
   declared members (spill_candidates()): on 2026-11-18 linux_16 sat on 2 and then 4 vCPU, outside its members, and
   memory-heavy legs there failed (rustc OOM) instead of only waiting;
+- admits by expected wait, not by label (admit(), cmuxterm-hq#16113 step 3): with RUNNER_ADMISSION_CONTROLLER set,
+  expected_wait.py reads the build controller's job and timing feeds (no GitHub quota) and judges each capped pool
+  (GitHub-hosted Linux, 20 jobs at once; owned Macs, their runner count): (queued + running) / slots x p50 run time
+  against a 5-minute target. The verdict goes into RUNNER_POOLS as `_admission` and `hosted_saturated`, and an
+  ADMISSION_POOLS pool whose member is a saturated capped label moves to its next declared member that is neither
+  dead nor saturated. Never while CI_LINUX_HOSTED_RUNNER (the Blacksmith pause) is set: the later members are the
+  paused Blacksmith sizes, so the pools stay on the hosted label. No controller, an unread or stale feed, or no p50
+  is no verdict: the pool routes as before, and the keys are left out. The verdict is rewritten only when a pool's
+  `saturated` changes or the published one is 15 minutes old (expected_wait.record()), not for its numbers alone;
 - writes RUNNER_POOLS and the LINUX_RUNNER mirror (main's mirror_writes(), so the overflow switch's record still
   wins) only when something changed.
 
@@ -63,10 +72,20 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import runner_pool_reconcile  # noqa: E402  (load_policy(): main's policy, never this checkout's)
 
+try:  # main's probe checks out only the files it lists; without this one there is no admission verdict.
+    import expected_wait  # noqa: E402
+except ImportError:  # pragma: no cover - exercised by main's sparse checkout
+    expected_wait = None
+
 UTC = dt.timezone.utc
 VARIABLE = "RUNNER_POOLS"
 SPILL_KEY = "_spill"
 QUEUE_AWARE_POOLS = ("linux", "linux_16")
+# The pools expected-wait admission may move off a saturated capped member (admit()): the x64 Linux classes. Never
+# promotion (the nightly's overflow), provenance (id-token: write publishing, GitHub-hosted only), arm64, macOS or
+# Windows. Forks never read RUNNER_POOLS (check_runs_on_pools.py), so no fork job follows a move.
+ADMISSION_POOLS = ("linux", "linux_2", "linux_4", "linux_8", "linux_16", "linux_32")
+ADMISSION_KEY, HOSTED_SATURATED_KEY = "_admission", "hosted_saturated"
 LINUX_LABEL = re.compile(r"^blacksmith-[0-9]+vcpu-ubuntu-[0-9][\w.-]*$")
 # A sampled queued job counts as `waited` once it has waited this long.
 WAITED_MINUTES = 3
@@ -275,6 +294,29 @@ def spill_choice(name: str, candidates: Sequence[str], dead: Mapping[str, Any], 
                         "member has room; staying"]
 
 
+def saturated(admission: Mapping[str, Any] | None) -> set[str]:
+    """The capped labels this pass's admission verdict (expected_wait.record()) calls saturated."""
+    pools = (admission or {}).get(ADMISSION_KEY, {})
+    pools = pools.get("pools") if isinstance(pools, Mapping) else None
+    if not isinstance(pools, Mapping):
+        return set()
+    return {label for label, verdict in pools.items()
+            if isinstance(verdict, Mapping) and verdict.get("saturated") is True}
+
+
+def admit(name: str, members: Sequence[str], dead: Mapping[str, Any], chosen: str,
+          full: set[str]) -> tuple[str, list[str]]:
+    """(member, lines): `chosen`, or, when it is a saturated capped label, the next declared member after it that is
+    neither dead nor saturated. A pool outside ADMISSION_POOLS, or with no such member, keeps `chosen`."""
+    if name not in ADMISSION_POOLS or chosen not in full or chosen not in members:
+        return chosen, []
+    for member in members[members.index(chosen) + 1:]:
+        if member not in dead and member not in full:
+            return member, [f"pools.{name}: {chosen} is saturated (expected wait over the admission target); "
+                            f"next rung {member}"]
+    return chosen, [f"pools.{name}: {chosen} is saturated and no later live member is free; staying"]
+
+
 class Recorder:
     """The switch main's policy writes through: reads go to the real variables, writes are only recorded."""
 
@@ -322,9 +364,12 @@ def sample_client(switch_module: Any, token: str, repo: str, fallback: str | Non
 
 
 def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping[str, Any],
-          load: Mapping[str, Any] | None, *, now: dt.datetime) -> tuple[dict[str, Any], list[str]]:
+          load: Mapping[str, Any] | None, *, now: dt.datetime,
+          admission: Mapping[str, Any] | None = None, paused: bool = False) -> tuple[dict[str, Any], list[str]]:
     """The RUNNER_POOLS value after the spill step: main's next value (`policy_value`, else the current one) with the
-    linux pool spilled or brought back, and `_spill` carried from the current raw value."""
+    linux pool spilled or brought back, `_spill` carried from the current raw value, and this pass's admission
+    verdict (`admission`, expected_wait.record()) applied (admit()) and published. None or {} publishes none.
+    `paused` (CI_LINUX_HOSTED_RUNNER set) applies none: a move would land on a paused Blacksmith size."""
     chosen, _ = policy.parse_value(policy_value if policy_value is not None else raw, pools)
     try:
         previous = json.loads(raw) if (raw or "").strip() else {}
@@ -362,11 +407,30 @@ def apply(policy: Any, raw: str | None, policy_value: str | None, pools: Mapping
         value[SPILL_KEY] = kept
     else:
         value.pop(SPILL_KEY, None)
+    full = saturated(admission)
+    for name in ADMISSION_POOLS:
+        if name not in pools or name not in value:
+            continue
+        if paused or (isinstance(pools[name], Mapping) and pools[name].get("hosted") is True):
+            # Main's load_pools() puts the override's hosted label first and marks the pool `hosted` while
+            # Blacksmith Linux is paused: every later member is a paused size, so none is a rung to move to.
+            if value[name] in full:
+                lines.append(f"pools.{name}: {value[name]} is saturated, but Blacksmith Linux is paused "
+                             "(CI_LINUX_HOSTED_RUNNER); staying")
+            continue
+        member, said = admit(name, policy.members(pools[name]), dead, value[name], full)
+        lines += said
+        value[name] = member
+    for key in (ADMISSION_KEY, HOSTED_SATURATED_KEY):
+        value.pop(key, None)
+        if admission and key in admission:
+            value[key] = admission[key]
     return value, lines
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *, policy: Any = None,
-         switch: Any = None, client: Any = None, api: Any = None, now: dt.datetime | None = None) -> int:
+         switch: Any = None, client: Any = None, api: Any = None, now: dt.datetime | None = None,
+         admission: Mapping[str, Any] | None = None) -> int:
     env = os.environ if env is None else env
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--policy-root", type=Path, default=Path.cwd(),
@@ -404,15 +468,28 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     load = sample_load(client, now=now) if client is not None else None
     if load is not None:
         print("linux queue sample: " + json.dumps(load, sort_keys=True))
-    value, lines = apply(policy, raw, recorder.writes.get(VARIABLE), pools, load, now=now)
-    for line in lines:
-        print(line)
     try:
         before = json.loads(raw) if (raw or "").strip() else {}
     except ValueError:
         before = {}
     before = before if isinstance(before, dict) else {}
-    strip = lambda mapping: {k: v for k, v in mapping.items() if k != policy.UPDATED_KEY}  # noqa: E731
+    if admission is None and expected_wait is not None:
+        try:
+            admission = expected_wait.admission(env, now, previous=before.get(ADMISSION_KEY))
+        except Exception as error:  # noqa: BLE001 - no verdict routes as before
+            print(f"::warning title=Linux pool spill::no expected-wait verdict ({error})")
+            admission = {}
+    if admission:
+        print("admission verdict: " + json.dumps(admission, sort_keys=True))
+    override = getattr(policy, "hosted_override", None)
+    paused = bool(override(env) if callable(override) else (env.get("CI_LINUX_HOSTED_RUNNER") or "").strip())
+    value, lines = apply(policy, raw, recorder.writes.get(VARIABLE), pools, load, now=now, admission=admission,
+                         paused=paused)
+    for line in lines:
+        print(line)
+    # `_updated` says when the routing last changed: the verdict's numbers move every pass, so they do not count.
+    strip = lambda mapping: {k: v for k, v in mapping.items()  # noqa: E731
+                             if k not in (policy.UPDATED_KEY, ADMISSION_KEY)}
     if strip(value) != strip(before) or policy.UPDATED_KEY not in before:
         value[policy.UPDATED_KEY] = iso(now)
     else:

@@ -4,25 +4,16 @@
 # first-party app runs its own tests as a fork with only the public SDK
 # (first-party-apps/fork-check.ts, docs/app-store-platonic-ideal.md 5; known gaps in
 # first-party-apps/fork-check-gaps.json). Bun only: no Cargo, no app build, about 2 s of tests.
-# Any pull request, or a push to main or feat-cmux-next (changes land there by direct push), that
-# touches what the gate reads runs it. A push to a branch with no pull request starts nothing
-# (the 2026-10-27 push flood). A lane can dispatch it on any pushed ref:
+# A pull request runs it as the app-platform step of ci/steps.toml (pr-pipeline.yml), when it touches what
+# the gate reads. A push to main or feat-cmux-next (changes land there by direct push) that touches the same
+# runs it here. A push to a branch with no pull request starts nothing (the 2026-10-27 push flood). A lane
+# can dispatch it on any pushed ref:
 #   gh workflow run app-platform.yml --repo manaflow-ai/cmux --ref <branch>
 # Bun is pinned to the version the webviews and the fleet hosts use.
 
 name: app platform
 
 on:
-  pull_request:
-    paths:
-      - cmux-tui/crates/cmux-app-host/**
-      - samples/apps/**
-      - first-party-apps/**
-      - examples/extensions/**
-      - Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/**
-      - scripts/cmux-next/check-app-platform.sh
-      - scripts/cmux-next/sync-app-runtime.sh
-      - .github/workflows/app-platform.yml
   push:
     branches: [main, feat-cmux-next]
     paths:
@@ -44,20 +35,25 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
-  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
   check:
     name: app platform (runtime, SDK, samples, first-party forks)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - run: bash scripts/cmux-next/check-app-platform.sh

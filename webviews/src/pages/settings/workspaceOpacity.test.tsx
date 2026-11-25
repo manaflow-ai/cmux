@@ -11,7 +11,7 @@ const { renderPage, settle } = await import("./testing");
 
 async function thisWorkspace(appBackground: string, workspaceValue: string | null) {
   const page = await renderPage({
-    path: "/settings/personalization?part=background&workspace=ws-1",
+    path: "/settings/appearance?workspace=ws-1",
     mock: {
       values: { "appearance.background": appBackground },
       workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: workspaceValue, opacity: null }],
@@ -25,7 +25,7 @@ async function thisWorkspace(appBackground: string, workspaceValue: string | nul
 }
 
 test("the background deep link reveals the saved tile once per visit", async () => {
-  const link = "/settings/personalization?focus=appearance.background&workspace=ws-1";
+  const link = "/settings/appearance?focus=appearance.background&workspace=ws-1";
   const page = await renderPage({
     path: link,
     mock: {
@@ -45,7 +45,7 @@ test("the background deep link reveals the saved tile once per visit", async () 
     expect(scope.checked).toBe(true);
     expect(document.activeElement).toBe(scope);
 
-    await act(async () => page.history.push("/settings/personalization?part=background&workspace=ws-1"));
+    await act(async () => page.history.push("/settings/appearance?workspace=ws-1"));
     await settle();
     await act(async () => page.history.back());
     await settle();

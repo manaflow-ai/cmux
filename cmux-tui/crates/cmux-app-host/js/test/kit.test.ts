@@ -295,6 +295,65 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
     const focus = host.calls.find((c) => c.name === "workspace.focus")!
     expect([focus.params, focus.options.gesture]).toEqual([{ workspace: "ws_2" }, "g5"])
   })
+
+  // The New Tab templates (cmux.newtab/1): mounted with the tab's context, over a few chats.
+  const newTab = (name: string, chats: unknown[]) => {
+    const host = new FakeHost(load(name), declared(name))
+    const now = Date.now()
+    host.handlers["agent_chat.list"] = ok({
+      chats: chats.map((c: any, i) => ({
+        harness: "claude", project: "api", cwd: "/src/api", workspace: null, machine: null, unread: false, step: null, error: null,
+        since_ms: now - i * 60_000, updated_ms: now - i * 60_000, created_ms: now - i * 60_000 - 1, pull_requests: [], ...c
+      }))
+    })
+    host.handlers["action.run"] = ok()
+    expect(host.mount("m", "renderNewTab", { surface: "newTab", cwd: "/src/api" })).toBe("")
+    return host
+  }
+  const chats3 = [
+    { id: "s1", title: "Approve the migration", state: "input" },
+    { id: "s2", title: "Run the suite", state: "working" },
+    { id: "s3", title: "Old docs pass", state: "idle" }
+  ]
+  const submits = async (host: FakeHost) => {
+    host.dispatch("m", host.findNode("m", (n) => n.type === "TextField")!, "submit", { text: "Fix the build" })
+    await host.settle()
+    expect(host.calls.find((c) => c.name === "action.run")?.params).toEqual({ id: "newTab.submit", args: { text: "Fix the build" } })
+  }
+
+  test("newtab-cards: the folder chip and the three newest chats as cards; the field runs newTab.submit", async () => {
+    const host = newTab("newtab-cards", [...chats3, { id: "s4", title: "Oldest one", state: "idle" }])
+    await host.settle()
+    expect(liveTexts(host)).toEqual(expect.arrayContaining(["Approve the migration", "Run the suite", "Old docs pass", "Input", "Working"]))
+    expect(liveTexts(host)).not.toContain("Oldest one")
+    expect(titles(host, "m", "Badge")).toContain("api")
+    await submits(host)
+  })
+
+  test("newtab-calm: the folder, the needs-you chat apart from the recent ones; the field runs newTab.submit", async () => {
+    const host = newTab("newtab-calm", [...chats3].reverse()) // the needs-you chat is the oldest
+    await host.settle()
+    expect(titles(host, "m", "Panel")).toEqual(expect.arrayContaining(["Needs you", "Recent"]))
+    expect(rowTitles(host)).toEqual(["api", "Approve the migration", "Old docs pass", "Run the suite"])
+    expect(liveTexts(host)).not.toContain("Cannot read your chats")
+    await submits(host)
+  })
+
+  test("newtab-threads: every chat as a row, newest first; the field runs newTab.submit", async () => {
+    const host = newTab("newtab-threads", chats3)
+    await host.settle()
+    expect(rowTitles(host)).toEqual(["Approve the migration", "Run the suite", "Old docs pass"])
+    await submits(host)
+  })
+
+  test("newtab-console: every chat as a tagged line; the > prompt runs newTab.submit", async () => {
+    const host = newTab("newtab-console", chats3)
+    await host.settle()
+    const texts = liveTexts(host)
+    expect(texts).toEqual(expect.arrayContaining([">", "[input]", "Approve the migration", "Run the suite", "Old docs pass", "recently closed…"]))
+    expect(texts.indexOf("Approve the migration")).toBeLessThan(texts.indexOf("Old docs pass"))
+    await submits(host)
+  })
 })
 
 describe("the widget templates (clock-weather, my-prs, design-links, media-player, start-page)", () => {

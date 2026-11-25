@@ -1,5 +1,14 @@
 --- a/Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift
 +++ b/Sources/MessagesLabHome/Vendor/appkit-native/Materials.swift
+@@ -73,7 +73,7 @@
+             // White on dark glass, black on light glass (light Messages capture, 2026-10-09).
+             b.contentTintColor = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .aqua ? .black : .white }
+             b.setAccessibilityLabel(label)
+-            b.toolTip = label
++            b.setHomeToolTip(label)  // cmux: the host's themed tooltip (HomeToolTip.swift)
+             b.target = self
+             b.action = sel
+             g.contentView = b
 @@ -95,7 +95,7 @@
      /// the text view.
      override func hitTest(_ point: NSPoint) -> NSView? {
@@ -44,6 +53,15 @@
      }
  
      /// Model geometry (no animation), unless an animation is moving there.
+@@ -486,7 +497,7 @@
+             b.target = self
+             b.action = #selector(tapped(_:))
+             b.setAccessibilityLabel(label)
+-            b.toolTip = label
++            b.setHomeToolTip(label)  // cmux: the host's themed tooltip (HomeToolTip.swift)
+             b.widthAnchor.constraint(equalToConstant: Self.pitch).isActive = true
+             b.heightAnchor.constraint(equalToConstant: Self.size.height).isActive = true
+             stack.addArrangedSubview(b)
 @@ -609,13 +620,13 @@
  extension FieldChrome {
      /// Compose glyphs, fitted to the lossless stills: plus and emoji 15.5 pt medium.

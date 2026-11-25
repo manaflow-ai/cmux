@@ -342,3 +342,39 @@ fn a_send_held_for_approval_answers_permission_waiting_at_once() {
     assert_eq!(error(&outcome), ("chat.permission_waiting", 2));
     assert!(fake.slices.is_empty(), "it does not wait");
 }
+
+/// `_acpmux/wait`'s answer, read as `agents wait`'s match was: a timeout waits on, a ready chat
+/// is idle, a permission blocks, a gone chat says so.
+#[test]
+fn an_acpmux_wait_answer_reads_as_the_turns_state() {
+    use super::waited;
+    let row = |row: Value| json!({"sessions": [row], "resolved": [row], "timedOut": false});
+    assert_eq!(waited(CHAT, &json!({"sessions": [], "resolved": [], "timedOut": true})), None);
+    let state = |answer: Value| waited(CHAT, &answer).map(|found| found["state"].clone());
+    assert_eq!(state(row(json!({"status": "ready"}))), Some(json!("idle")));
+    assert_eq!(state(row(json!({"status": "idle"}))), Some(json!("idle")));
+    assert_eq!(
+        state(row(json!({"status": "ready", "pendingPermissions": 1}))),
+        Some(json!("blocked"))
+    );
+    assert_eq!(state(row(json!({"status": "waiting"}))), Some(json!("blocked")));
+    assert_eq!(state(row(json!({"status": "closed", "missing": true}))), Some(json!("closed")));
+    assert_eq!(state(row(json!({"status": "disconnected"}))), Some(json!("disconnected")));
+    assert_eq!(state(row(json!({"status": "running"}))), None, "not an answer: wait again");
+}
+
+/// An event inside the gap after a check is owed, not dropped: the next wake once the gap passed
+/// checks, so a turn's end at the tail of a burst is seen within the gap, not a second later.
+#[test]
+fn an_event_inside_the_check_gap_is_checked_when_the_gap_passes() {
+    use super::super::wait::CheckGate;
+    let start = Instant::now();
+    let at = |ms: u64| start + Duration::from_millis(ms);
+    let mut gate = CheckGate::new(start);
+    assert!(gate.due(true, at(250)), "an event after the gap checks at once");
+    assert!(!gate.due(true, at(300)), "inside the gap: owed");
+    assert!(!gate.due(false, at(400)), "a wake still inside the gap waits");
+    assert!(gate.due(false, at(450)), "the owed check runs once the gap passed");
+    assert!(!gate.due(false, at(700)), "nothing owed: a wake does not check");
+    assert!(gate.due(false, at(1450)), "the recheck still runs every second");
+}

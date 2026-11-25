@@ -3,9 +3,9 @@
 display at 120 Hz, light and under load, for every interaction the person feels. Lawrence: "i want us to match
 chrome's smoothness, throughout the entire app, don't stop until it's to chrome's quality".
 
-This is a bench tool, never a CI gate, job, step or perf-gate row (CLAUDE.md). The fleet entry is
-scripts/measure/perf-bench.sh suite=parity (README "Chrome parity"). Run it only on a quiet fleet mini, never on a
-person's Mac.
+This is a bench tool, not a CI gate, job, step or perf-gate row (kept off CI under the 2026-10-23 no-new-CI rule,
+since lifted). The fleet entry is scripts/measure/perf-bench.sh suite=parity (README "Chrome parity"). Run it only
+on a quiet fleet mini, never on a person's Mac.
 
   chrome_parity.py run --cmux CMUX.app --out DIR [--chrome "/Applications/Google Chrome.app"] [--rounds 2]
                        [--rows key-field,...] [--loads light,load] [--vdisplay 120x1] [--max-load 2]

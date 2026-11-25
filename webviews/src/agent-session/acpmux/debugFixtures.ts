@@ -1,9 +1,10 @@
 // Loaded only by an explicit debug seed; native chats never evaluate these fixtures.
-export { syntheticRows } from "./synthetic";
-export { workedTurnRows } from "./workedTurn";
+export { syntheticRows, workedResizeRows } from "./synthetic";
+export { workedTurnPageRows, workedTurnRows } from "./workedTurn";
 export { incomingRows } from "./incomingFixture";
 export { LINKED_GITHUB_PULL_REQUEST, linkRows } from "./linkFixture";
 export { selectionRows } from "./selectionFixture";
+export { mermaidRows } from "./mermaidFixture";
 export { organizationRows } from "./organizationFixture";
 export { toolSummaryRows } from "./toolSummaryFixture";
 export { SUBAGENT_TRAY_STEPS, subagentTrayRows } from "./subagentsFixture";

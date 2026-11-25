@@ -50,28 +50,39 @@ public nonisolated enum StatusIconSet: String, Sendable, CaseIterable, TunableCh
     /// chat bubble with dots, a padlock, a check, a warning triangle. Debug only; never the default.
     case stillPictograms
 
-    /// The Debug Settings switch (the Debug menu writes the same value).
+    /// The Debug Settings switch (the Debug menu writes the same value). Its override wins over
+    /// the user setting `appearance.statusIndicator.iconSet`; its default is that setting's default.
     public static let tunable = Tunable<StatusIconSet>.choice(
         "status.iconSet", .status, "Status icons",
-        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Codex-like is the default; Dots is the original drawing.",
+        help: "The marks for agent working, blocked (permission, question, auth), done and error everywhere. Overrides the Status Icons setting; Dots is the original drawing.",
         default: .codex, code: "StatusIconSet.tunable")
+
+    /// The set every indicator draws: a Debug override of `tunable`, else `setting` (the raw value
+    /// of `appearance.statusIndicator.iconSet`, `StatusIndicatorSettings.iconSet`), else the default.
+    public static func resolved(setting: String?, in store: TunableStore = .shared) -> StatusIconSet {
+        tunable.override(in: store) ?? setting.flatMap(Self.init(rawValue:)) ?? tunable.defaultValue
+    }
+
+    /// A Debug-only candidate (`stillDots`, `stillPictograms`): the Debug switch offers it, the
+    /// user setting does not.
+    public var isDebugOnly: Bool { self == .stillDots || self == .stillPictograms }
 
     public var tunableTitle: String {
         switch self {
-        case .current: String(localized: "statusIconSet.current", defaultValue: "Dots (original)", bundle: .module)
-        case .shapes: String(localized: "statusIconSet.shapes", defaultValue: "Shapes", bundle: .module)
-        case .rings: String(localized: "statusIconSet.rings", defaultValue: "Rings", bundle: .module)
-        case .badges: String(localized: "statusIconSet.badges", defaultValue: "Badges", bundle: .module)
-        case .bars: String(localized: "statusIconSet.bars", defaultValue: "Pulse Bars", bundle: .module)
-        case .pips: String(localized: "statusIconSet.pips", defaultValue: "Minimal Pips", bundle: .module)
-        case .signs: String(localized: "statusIconSet.signs", defaultValue: "Signs", bundle: .module)
-        case .letters: String(localized: "statusIconSet.letters", defaultValue: "Letters", bundle: .module)
-        case .symbols: String(localized: "statusIconSet.symbols", defaultValue: "Symbols", bundle: .module)
-        case .symbolsOutline: String(localized: "statusIconSet.symbolsOutline", defaultValue: "Outlined Symbols", bundle: .module)
-        case .still: String(localized: "statusIconSet.still", defaultValue: "Static", bundle: .module)
-        case .codex: String(localized: "statusIconSet.codex", defaultValue: "Codex-like", bundle: .module)
-        case .stillDots: String(localized: "statusIconSet.stillDots", defaultValue: "Static Dots", bundle: .module)
-        case .stillPictograms: String(localized: "statusIconSet.stillPictograms", defaultValue: "Static Pictograms", bundle: .module)
+        case .current: String(localized: "statusIconSet.current", defaultValue: "Dots (original)", bundle: .localizedModule)
+        case .shapes: String(localized: "statusIconSet.shapes", defaultValue: "Shapes", bundle: .localizedModule)
+        case .rings: String(localized: "statusIconSet.rings", defaultValue: "Rings", bundle: .localizedModule)
+        case .badges: String(localized: "statusIconSet.badges", defaultValue: "Badges", bundle: .localizedModule)
+        case .bars: String(localized: "statusIconSet.bars", defaultValue: "Pulse Bars", bundle: .localizedModule)
+        case .pips: String(localized: "statusIconSet.pips", defaultValue: "Minimal Pips", bundle: .localizedModule)
+        case .signs: String(localized: "statusIconSet.signs", defaultValue: "Signs", bundle: .localizedModule)
+        case .letters: String(localized: "statusIconSet.letters", defaultValue: "Letters", bundle: .localizedModule)
+        case .symbols: String(localized: "statusIconSet.symbols", defaultValue: "Symbols", bundle: .localizedModule)
+        case .symbolsOutline: String(localized: "statusIconSet.symbolsOutline", defaultValue: "Outlined Symbols", bundle: .localizedModule)
+        case .still: String(localized: "statusIconSet.still", defaultValue: "Static", bundle: .localizedModule)
+        case .codex: String(localized: "statusIconSet.codex", defaultValue: "Codex-like", bundle: .localizedModule)
+        case .stillDots: String(localized: "statusIconSet.stillDots", defaultValue: "Static Dots", bundle: .localizedModule)
+        case .stillPictograms: String(localized: "statusIconSet.stillPictograms", defaultValue: "Static Pictograms", bundle: .localizedModule)
         }
     }
 
