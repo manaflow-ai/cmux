@@ -485,7 +485,7 @@ class PipelineTest(unittest.TestCase):
         import pr_router
 
         callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
-        self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux", "web-browser"])
+        self.assertEqual(callees["pr-pipeline.yml"]["table_jobs"], ["linux", "web-browser", "mac"])
         self.assertIs(callees["pr-pipeline.yml"].get("draft"), True, "the workflows it replaced ran on drafts")
 
         def started(files, **pr):
@@ -520,8 +520,14 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(routed(callees, ["web/app/page.tsx"]), ["linux", "web-browser"])
         self.assertEqual(routed(callees, ["docs/x.md"]), ["linux"])
         # Unknown changes or an unreadable table run every job.
-        self.assertEqual(routed(callees, None), ["linux", "web-browser"])
-        self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser"])
+        self.assertEqual(routed(callees, None), ["linux", "web-browser", "mac"])
+        self.assertEqual(routed(callees, ["docs/x.md"], ROOT / "no-such.toml"), ["linux", "web-browser", "mac"])
+        # The mac job runs only on a full-tier head: a draft's Swift change routes it nowhere.
+        swift = ["Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry.swift"]
+        self.assertIn("mac", routed(callees, swift))
+        self.assertNotIn("mac", routed(callees, swift, full=False))
+        self.assertEqual(routed(callees, None, full=False), ["linux", "web-browser"])
+        self.assertEqual(pr_router.FULL_TIER_JOBS, ("mac",))
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
             with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
@@ -544,7 +550,9 @@ class PipelineTest(unittest.TestCase):
                 self.assertEqual(len(runs), 1)
                 self.assertEqual(job["steps"][0]["with"]["fetch-depth"], 2)
                 self.assertIs(job["steps"][0]["with"]["persist-credentials"], False)
-                self.assertEqual(job["runs-on"], wf["jobs"]["linux"]["runs-on"])
+                # The mac job runs on a Mac (MacJobTest holds its label); every other job on linux's.
+                if name != "mac":
+                    self.assertEqual(job["runs-on"], wf["jobs"]["linux"]["runs-on"])
                 steps = [s for s in ci_steps.load().steps.values() if s.job == name]
                 shared = [s for s in steps if not s.alone]
                 need = (ci_steps.SETUP_TIMEOUT + ci_steps.TOOL_TIMEOUT
@@ -755,6 +763,92 @@ class PipelineTest(unittest.TestCase):
                 + sum(s.timeout for s in linux if s.alone))
         wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
         self.assertGreaterEqual(wf["jobs"]["linux"]["timeout-minutes"] * 60, need)
+
+
+class MacJobTest(unittest.TestCase):
+    """The `mac` job: cmux-next.yml's swift-canary and fast-tier jobs on a feat-cmux-next pull request, folded into
+    the table (CI v2 step 11). Leo, 2026-11-24: "how about finishing up our borg/ci v2? did we finish all 27+
+    things?"
+    """
+
+    # Paths cmux_next_route.py routes to the fast tier or the canary, one or more of each kind of input it reads.
+    ROUTED = (
+        "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionRegistry.swift",
+        "Packages/macOS/CmuxNext/Package.swift",
+        "scripts/cmux-next/fast-tier.py",
+    )
+
+    def test_it_runs_on_an_owned_mac_and_a_fork_on_blacksmith(self) -> None:
+        wf = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        self.assertEqual(
+            wf["jobs"]["mac"]["runs-on"],
+            "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
+            "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
+            "vars.CI_OVERFLOW_MAC || 'cmux-mac' }}")
+
+    def test_its_mac_setup_steps_keep_their_names(self) -> None:
+        # owned_pool_rescue.py reads "Select Xcode"; the lease's holder lives as long as the workflow step.
+        job = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())["jobs"]["mac"]
+        names = [s.get("name") for s in job["steps"]]
+        for name in ("Route the Mac tiers", "Select Xcode", "Keep Swift package builds on this owned Mac",
+                     "Restore the CmuxNext build", "Upload fast-tier timing receipt"):
+            with self.subTest(name=name):
+                self.assertIn(name, names)
+        self.assertLess(names.index("Route the Mac tiers"), names.index("Select Xcode"))
+        self.assertLess(names.index("Restore the CmuxNext build"),
+                        names.index("Run the routed mac steps (ci/steps.toml)"))
+        upload = job["steps"][names.index("Upload fast-tier timing receipt")]
+        self.assertEqual(upload["with"]["name"],
+                         "cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}")
+
+    def test_each_step_asks_the_router_first(self) -> None:
+        steps = [s for s in ci_steps.load().steps.values() if s.job == "mac"]
+        self.assertEqual(sorted(s.name for s in steps), ["mac-fast-tier", "mac-swift-canary"])
+        for step in steps:
+            with self.subTest(step=step.name):
+                tier = {"mac-fast-tier": "fast_tier", "mac-swift-canary": "swift_canary"}[step.name]
+                first = step.run.strip().splitlines()[0]
+                self.assertTrue(first.startswith(f"python3 -I scripts/ci/mac_tiers.py has {tier} "), first)
+                self.assertTrue(first.endswith("|| exit 0"), first)
+                self.assertTrue(step.inputs and step.blocks)
+        self.assertTrue(ci_steps.load().steps["mac-fast-tier"].alone)
+
+    def test_the_inputs_cover_what_the_router_routes(self) -> None:
+        t = ci_steps.load()
+        for path in self.ROUTED:
+            with self.subTest(path=path):
+                self.assertIn("mac-fast-tier", ci_steps.route(t, [path]).get("mac", []))
+        self.assertEqual(ci_steps.route(t, ["docs/x.md"]).get("mac"), None)
+
+    def test_a_draft_starts_no_mac(self) -> None:
+        import pr_router
+
+        callees = {"pr-pipeline.yml": pr_router.load_manifest()["pr-pipeline.yml"]}
+        event = {"action": "synchronize", "pull_request": {"draft": True}}
+        swift = [self.ROUTED[0]]
+        start, why = pr_router.route(event, callees, swift)
+        self.assertNotIn("mac-", why["pr-pipeline.yml"])
+        if start:
+            self.assertNotIn("mac", pr_router.table_jobs_routed(callees, swift, full=False))
+        ready = {"action": "synchronize", "pull_request": {"draft": False}}
+        self.assertEqual(pr_router.route(ready, callees, swift)[0], ["pr-pipeline.yml"])
+
+    def test_cmux_next_keeps_them_only_off_the_pull_request(self) -> None:
+        jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text())["jobs"]
+        for name in ("fast-tier", "fast-tier-fleet", "fast-tier-rerun-placement"):
+            with self.subTest(job=name):
+                self.assertNotIn("github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next'",
+                                 jobs[name]["if"])
+                self.assertIn("(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
+                              jobs[name]["if"])
+        for name in ("swift-canary", "swift-canary-fleet"):
+            with self.subTest(job=name):
+                self.assertIn("&& github.event_name != 'pull_request'", jobs[name]["if"])
+                self.assertNotIn("head.repo.full_name == github.repository", jobs[name]["if"])
+        placement = jobs["macos-placement"]["steps"]
+        text = json.dumps(placement)
+        self.assertNotIn("'swift-canary daemon-test generated-files'", text)
+        self.assertNotIn("'fast-tier daemon-test generated-files'", text)
 
 
 class RepositoryAdvisoryStepsTest(unittest.TestCase):

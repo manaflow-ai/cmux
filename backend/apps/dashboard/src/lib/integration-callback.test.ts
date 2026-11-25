@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { integrationCompletionRequest, integrationConfigureLink, integrationReturnLink, integrationTeamHint } from "./integration-callback"
+import { integrationCompletionRequest, integrationConfigureLink, integrationReturnLink, integrationSavedOnGitHub, integrationTeamHint } from "./integration-callback"
 
 const token = (payload: unknown) =>
   `header.${btoa(JSON.stringify(payload)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_")}.signature`
@@ -61,4 +61,18 @@ test("returns only to a cmux chat link the API answered", () => {
   }
   expect(integrationReturnLink({ status: "active" })).toBeUndefined()
   expect(integrationReturnLink(null)).toBeUndefined()
+})
+
+// #55104: Connect GitHub opened the person's own installation settings; GitHub's save came back with no state, and the
+// page asked a web sign-in that could not finish anything. A stateless save is not a connect: it says so, no sign-in.
+test("a save on GitHub's installation page with no state asks no sign-in", () => {
+  expect(integrationSavedOnGitHub({ installation_id: "183460287", setup_action: "update", code: "901636c8dc556" } as never)).toBe(true)
+  // A fresh install from the App's public page is linked to no team: not "picked up by itself".
+  expect(integrationSavedOnGitHub({ installation_id: "183460287", setup_action: "install" })).toBe(false)
+  // A connect (state), a cancel, an owner's approval request or anything without an installation is the page's as before.
+  expect(integrationSavedOnGitHub({ state: "a.b.c", installation_id: "1", setup_action: "update" })).toBe(false)
+  expect(integrationSavedOnGitHub({ installation_id: "1", setup_action: "update", error: "access_denied" })).toBe(false)
+  expect(integrationSavedOnGitHub({ installation_id: "1", setup_action: "request" })).toBe(false)
+  expect(integrationSavedOnGitHub({ setup_action: "update" })).toBe(false)
+  expect(integrationSavedOnGitHub({ installation_id: "1x", setup_action: "update" })).toBe(false)
 })

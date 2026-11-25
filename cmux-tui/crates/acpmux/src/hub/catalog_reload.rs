@@ -102,13 +102,13 @@ impl Hub {
                 page_rule,
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
+                auto_resume_disk_free_bytes,
                 login_env_allow,
                 coderouter_claude_route,
                 machine_wake,
                 peer_wake,
                 btw,
                 titles,
-                summaries,
                 context_overrides,
                 send_relay,
                 new_relay,
@@ -203,6 +203,8 @@ impl Hub {
             current.mcp_store = mcp_store;
             current.hold_agent_starts_to_starter = hold_agent_starts_to_starter;
             current.auto_resume_delays_ms = auto_resume_delays_ms;
+            // The disk waiter reads it at each re-check (`auto_resume/disk_wait.rs`).
+            current.auto_resume_disk_free_bytes = auto_resume_disk_free_bytes;
             current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
             // The next wake of any peer runs the new command (`Peer::wake`).
@@ -211,7 +213,6 @@ impl Hub {
             current.peer_wake = peer_wake;
             current.btw = btw;
             current.titles = titles;
-            current.summaries = summaries;
             current.context_overrides = context_overrides;
             current.send_relay = send_relay;
             current.new_relay = new_relay;
