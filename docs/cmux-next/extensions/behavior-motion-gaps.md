@@ -15,7 +15,7 @@ the profiles lane goes here first, then into a PR.
 | Surface | Expressible today? | Missing piece |
 | --- | --- | --- |
 | A prop change animates (spring, timed curve, design-token springs) | Yes: `.animation(m)`, runtime 1.4.0, web and native renderers | Done here: one Rust contract `cmux.motion/1` (`cmux-app-host/src/motion.rs`, `cmux_extension_sdk::motion`) normalizes it on every batch, so both renderers read the same value |
-| Enter and exit transitions of a node | Yes: `.transition(opacity slide scale move pop)` | A transition takes no timing: it always uses the renderer's own spring. A `{kind, motion}` form would let a profile match another app's panel timing |
+| Enter and exit transitions of a node | Yes: `.transition(opacity slide scale move pop)` | Done here: `.transition({kind, motion})` times the move and fade with a motion token, spring or timed curve on both renderers; `cmux.motion/1` sends a transition without a motion as the bare kind, so it keeps the renderer's own springs |
 | Looping effects (pulse, breathe, spin, ...) | Yes: `.loop({effect, period, amount})` | The native renderer clamps `amount` to [0, 10], so a counterclockwise `spin` (negative amount, as ABI.md says) turns clockwise on macOS. Fix it in `Motion+AppScene.swift` |
 | Particles and choreographed glyphs | Yes: `Particles({preset})`, `cmux.particles/1` (validated in Rust) | None found |
 | Named motion presets shared by an app's nodes | Partly: a JS constant passed to `.animation()` | No manifest- or theme-level preset table, so a profile cannot retime its extensions in one place |
@@ -40,8 +40,15 @@ the profiles lane goes here first, then into a PR.
 
 ## Gaps from the profiles lane
 
-None are recorded here yet. On 2026-11-25 goal-customize-app-profiles-a had been closed for 22 hours and had
-not written its gaps down. When the lane that adopts it finds one, it adds a row above.
+The codex profile (`examples/looks/codex/profile`, built from these docs only) found these:
+
+| Surface | Expressible today? | Missing piece |
+| --- | --- | --- |
+| More than one feature look's customize app in one look | No: a look carries one `customize/` app (`local/customize`), and `implements` names each interface once | A whole profile cannot ship two `cmux.section/1` sections, so the codex sidebar's Chats and the codex threads' Activity cannot both ship. Allow a look to carry several apps (`customize/<name>/`), or let `implements` take a list per interface |
+| A key for "next chat that needs you" | No: there is no public action for it (only `nextSidebarTab`, `focusNextPane` and the diff viewer's next file and hunk) | Add an action such as `agentPane.nextAttention` to the action catalog, so a profile can bind the reference app's key |
+| Model and effort as separate chips | Partly: `cmux.composer.chip/1` can draw one, but only from the look's one app | A setting that splits effort out of the model menu into its own chip |
+| Work location and branch chips under the composer, and moving a chat to a worktree | No | A composer chip row for location (local, worktree, cloud) and branch, and a chat op to move a chat between checkouts |
+| `cmux customize apply NAME` when `CMUX_NEXT_CONFIG_FILE` is set | No: it exits 0 and prints "nothing to apply: what is live is already generation 1", while the toast says the config file is pinned | Exit non-zero and say why on the command line, so a script or capture run does not shoot stock cmux. `cmux setup install` works in that case |
 
 ## Order
 
@@ -51,4 +58,4 @@ not written its gaps down. When the lane that adopts it finds one, it adds a row
 4. Profile-level motion tokens: a `motion` block in a theme or look, bounded like `cmux.motion/1`.
 5. `cmux.pane/1` open arguments and results, so a pane can return a value (panel flows).
 6. Scene state that survives a hot reload.
-7. Timed transitions (`{kind, motion}`).
+7. Timed transitions (`{kind, motion}`) (landed).
