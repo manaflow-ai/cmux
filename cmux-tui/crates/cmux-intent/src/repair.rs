@@ -83,7 +83,13 @@ fn trial(cmd: &mut Command, prog: &str, argv: &[String]) -> Option<clap::Error> 
     let full: Vec<String> = std::iter::once(prog.to_owned()).chain(argv.iter().cloned()).collect();
     match cmd.try_get_matches_from_mut(full) {
         Ok(_) => None,
-        Err(e) if eligible(e.kind()) => Some(e),
+        // A group named with no subcommand only prints its help: no form that runs.
+        Err(e)
+            if eligible(e.kind())
+                || e.kind() == ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand =>
+        {
+            Some(e)
+        }
         Err(_) => None,
     }
 }
@@ -282,7 +288,7 @@ fn sub_edits(argv: &[String], walk: &Walk<'_>, tbl: &Table, prog: &str) -> Vec<E
     let syn: Vec<String> = tbl
         .mates(&tok, false)
         .into_iter()
-        .filter(|m| all.iter().any(|c| c == m))
+        .filter(|m| *m != "help" && all.iter().any(|c| c == m))
         .map(str::to_owned)
         .collect();
     for m in dedup(syn) {
@@ -362,7 +368,9 @@ fn sub_edits(argv: &[String], walk: &Walk<'_>, tbl: &Table, prog: &str) -> Vec<E
                 &mut out,
             );
         }
-        _ if out.is_empty() => {
+        // A word shaped like a command (letters, `-`, `_`) is a mistyped verb, not the rest a
+        // verb takes: `acpmux whoami` never runs `acpmux wait whoami`. The table's default still applies.
+        _ if out.is_empty() && !command_shaped(&tok) => {
             for c in cmd.get_subcommands().filter(|c| !c.is_hide_set() && c.get_name() != "help") {
                 let word = c.get_name().to_owned();
                 let mut full = path.clone();
@@ -383,6 +391,13 @@ fn sub_edits(argv: &[String], walk: &Walk<'_>, tbl: &Table, prog: &str) -> Vec<E
         _ => {}
     }
     out
+}
+
+/// Whether `word` reads as a command name: letters joined by `-` or `_`, no digits, paths or
+/// addresses (`whoami`, `send_status`; not `11296`, `lane-1`, `o/r#1`).
+fn command_shaped(word: &str) -> bool {
+    word.chars().any(|c| c.is_alphabetic())
+        && word.chars().all(|c| c.is_alphabetic() || c == '-' || c == '_')
 }
 
 fn context_string(e: &clap::Error, kind: ContextKind) -> Option<String> {
@@ -580,6 +595,24 @@ pub fn repair(cmd: &Command, prog: &str, argv: &[String], tbl: &Table) -> Repair
     }
     let fewest = parsed.iter().map(|p| p.notes.len()).min().unwrap_or(0);
     parsed.retain(|p| p.notes.len() == fewest);
+    // Two names of one command (`whoelse`, `who-else`) are one meaning, not a choice: a name the
+    // layer supplied is the command's own; a name the person typed (`peer` for `machine`) stays.
+    let mut seen: Vec<Vec<String>> = Vec::new();
+    parsed.retain_mut(|p| {
+        let key = canonical_argv(&built, &p.argv);
+        let fresh = !seen.contains(&key);
+        seen.push(key.clone());
+        for (slot, now) in p.argv.iter_mut().zip(&key) {
+            if slot == now || argv.contains(slot) {
+                continue;
+            }
+            for n in &mut p.notes {
+                *n = n.replace(&format!("`{slot}`"), &format!("`{now}`"));
+            }
+            now.clone_into(slot);
+        }
+        fresh
+    });
     parsed.truncate(MAX_SHOWN);
     if let [only] = parsed.as_slice() {
         let word = unsafe_in(&built, &only.argv, tbl, prog)
@@ -634,6 +667,20 @@ pub fn repair(cmd: &Command, prog: &str, argv: &[String], tbl: &Table) -> Repair
     Repair { outcome: Kind::Candidates, argv, candidates: parsed, error: first_text, word: None }
 }
 
+/// `argv` with each subcommand word as its command's own name (an alias as what it names).
+fn canonical_argv(root: &Command, argv: &[String]) -> Vec<String> {
+    let walk = walk::walk(root, argv);
+    let mut out = argv.to_vec();
+    for (k, level) in walk.levels.iter().enumerate() {
+        if let (Some(i), Some(next)) = (level.sub, walk.levels.get(k + 1))
+            && let Some(slot) = out.get_mut(i)
+        {
+            next.cmd.get_name().clone_into(slot);
+        }
+    }
+    out
+}
+
 fn reading(word: &str, prog: &str, tbl: &Table) -> bool {
     tbl.reads.iter().any(|r| r == word)
         || tbl.cli_entry(prog).is_some_and(|e| e.safe.iter().any(|s| s == word))
@@ -642,7 +689,9 @@ fn reading(word: &str, prog: &str, tbl: &Table) -> bool {
 /// The word the layer would supply that is not a known read, else None. A word it puts in (a subcommand or a
 /// choice: `docs pull` -> `docs sync`, `keepupp` -> `keepup`) runs only when it is a read (the table's `reads` or
 /// the CLI's `safe`), or sits in a subcommand path that ends in one (`land-status` -> `land status`): a write's
-/// verb is never supplied. Flags and reordering supply no new word. Twin of `_supplied_write` in tools/intent.py.
+/// verb is never supplied. Flags and reordering supply no new word, and neither does respelling a typed word's
+/// separators or case (`who_else` -> `who-else`): the person typed it. Twin of `_supplied_write` in
+/// tools/intent.py.
 fn supplied_write(
     root: &Command,
     typed: &[String],
@@ -650,9 +699,10 @@ fn supplied_write(
     tbl: &Table,
     prog: &str,
 ) -> Option<String> {
-    let mut added: Vec<&String> = new.iter().filter(|t| !t.starts_with('-')).collect();
+    let mut added: Vec<String> =
+        new.iter().filter(|t| !t.starts_with('-')).map(|t| bare(t)).collect();
     for t in typed.iter().filter(|t| !t.starts_with('-')) {
-        if let Some(i) = added.iter().position(|a| *a == t) {
+        if let Some(i) = added.iter().position(|a| *a == bare(t)) {
             added.remove(i);
         }
     }
@@ -670,7 +720,7 @@ fn supplied_write(
         if word.starts_with('-') {
             continue;
         }
-        if let Some(k) = added.iter().position(|a| *a == word) {
+        if let Some(k) = added.iter().position(|a| *a == bare(word)) {
             added.remove(k);
             if !ok(i) {
                 return Some(word.clone());
@@ -678,6 +728,11 @@ fn supplied_write(
         }
     }
     None
+}
+
+/// `word` without its separators or case: `who_else`, `who-else` and `WhoElse` are one typed word.
+fn bare(word: &str) -> String {
+    word.chars().filter(|c| *c != '-' && *c != '_').flat_map(char::to_lowercase).collect()
 }
 
 /// Whether `argv` runs a subcommand that only reads: its last subcommand word is in `reads` or the CLI's

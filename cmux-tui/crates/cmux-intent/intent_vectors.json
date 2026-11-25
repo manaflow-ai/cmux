@@ -21,7 +21,8 @@
   "amb": {"subs": {"show": {"args": ["id"], "flags": {"--field": "value", "--find": "value"}}, "get": {"args": ["id"]}, "list": {}}},
   "amb2": {"flags": {"--field": "value", "--find": "value"}, "args": ["id"]},
   "amb3": {"subs": {"remember": {"args": ["id"], "flags": {"--field": "value", "--find": "value"}}, "list": {}}},
-  "flat": {"flags": {"--dry-run": "switch", "--reason": "value", "--force": "switch", "--wait": "int"}, "args": ["name"]}
+  "flat": {"flags": {"--dry-run": "switch", "--reason": "value", "--force": "switch", "--wait": "int"}, "args": ["name"]},
+  "seps": {"subs": {"who-else": {"flags": {"--topic": "value"}}, "send-note": {"args": ["text"]}}}
  },
  "vectors": [
   {"name": "synonym subcommand (glaeda-disk status)", "parser": "disk", "argv": ["status"], "outcome": "ran", "to": ["report"]},
@@ -52,6 +53,8 @@
   {"name": "unsafe subcommand is never a synonym's target", "parser": "sess", "argv": ["rotat", "x"], "outcome": "exact", "to": [["rotate", "x"]]},
   {"name": "missing verb: the reading verbs that take the rest, the best runs (agent-memory 11296)", "parser": "mem", "argv": ["11296"], "outcome": "ran", "to": ["search", "11296"]},
   {"name": "missing verb: a write's verb is never supplied", "parser": "amb3", "argv": ["x"], "outcome": "none"},
+  {"name": "missing verb: a command-shaped word is a mistyped verb, never the rest (acpmux whoami)", "parser": "mem", "argv": ["whoami"], "outcome": "none"},
+  {"name": "a typed verb respelled by its separators is not supplied (acpmux who_else)", "parser": "seps", "argv": ["who_else", "--topic", "x"], "outcome": "ran", "to": ["who-else", "--topic", "x"]},
   {"name": "synonym beats close (agent-memory show N)", "parser": "mem", "argv": ["show", "11296"], "outcome": "ran", "to": ["get", "11296"]},
   {"name": "missing verb by the table's default", "parser": "mem", "argv": ["some words"], "cli": {"mem": {"default": "search"}}, "outcome": "ran", "to": ["search", "some words"]},
   {"name": "table alias", "parser": "mem", "argv": ["recall", "x"], "cli": {"mem": {"aliases": [{"from": ["recall"], "to": ["search"]}]}}, "outcome": "ran", "to": ["search", "x"]},

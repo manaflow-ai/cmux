@@ -79,3 +79,84 @@ fn a_known_miss_session_inbox_mark_read_needs_a_thread() {
     let r = fix(&["session", "inbox", "lane-1", "--mark-read"]);
     assert_eq!(r.outcome, Kind::None, "{r:?}");
 }
+
+/// The acpmux forms clap refused on gcp-agent-lane-2 in the 7 days to 2026-11-25 (leo-workspace
+/// `tools/cli_misses.py scan --since 7d`, hook refusals left out), as typed, ids made generic.
+/// Before: every one was a refused call the agent then retried. The receipt prints what each does now.
+const MEASURED: &[&[&str]] = &[
+    &["bg", "output", "bg-1"],
+    &["peers"],
+    &["who-else", "--files", "a,b"],
+    &["bg", "wait", "bg-1"],
+    &["session", "inbox", "lane-1", "--mark-read"],
+    &["session", "tags", "lane-1"],
+    &["machine", "doctor", "--here"],
+    &["who_else", "--topic", "x"],
+    &["status", "host/lane-1"],
+    &["peer", "list"],
+    &["--host", "host-1", "info", "lane-1"],
+    &["inbox", "read"],
+    &["whoami"],
+    &["session", "last", "host/lane-1"],
+    &["machine", "exec", "host-1", "--", "sh", "-lc", "cmux version"],
+    &["machines"],
+    &["share-host", "status"],
+    &["last", "host/lane-1"],
+    &["process", "bg", "output", "bg-1"],
+    &["tail", "lane-1"],
+    &["send", "--dry-run", "host/lane-1", "readback"],
+    &["session", "tail", "host/lane-1", "-n"],
+    &["session", "inbox", "lane-1", "--thread", "t-1", "--mark-read"],
+    &["last", "host/lane-1", "--inbox"],
+    &["send_status"],
+];
+
+/// Weights: how many times each MEASURED form was refused in the 7 days.
+const MEASURED_COUNT: &[usize] =
+    &[6, 2, 2, 2, 2, 2, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 2, 1, 1, 1, 1, 1, 1, 1, 1];
+
+/// What each MEASURED form that the layer runs must run: its meant form, never another read.
+const MEANT: &[(&[&str], &[&str])] = &[
+    (&["peer", "list"], &["peer", "ls"]),
+    (&["who_else", "--topic", "x"], &["who-else", "--topic", "x"]),
+];
+
+#[test]
+fn the_measured_refusals_run_only_their_meant_form() {
+    assert_eq!(MEASURED.len(), MEASURED_COUNT.len());
+    let (mut ran, mut parses, mut refused, mut total) = (0, 0, 0, 0);
+    for (args, n) in MEASURED.iter().zip(MEASURED_COUNT) {
+        total += n;
+        let mut grammar = Cli::command().name("acpmux").bin_name("acpmux");
+        let argv: Vec<std::ffi::OsString> =
+            std::iter::once("acpmux").chain(args.iter().copied()).map(Into::into).collect();
+        let Err(e) = grammar.try_get_matches_from_mut(argv) else {
+            parses += n;
+            eprintln!("receipt: acpmux {} -> parses as typed", args.join(" "));
+            continue;
+        };
+        let r = fix(args);
+        match r.outcome {
+            Kind::Ran => {
+                ran += n;
+                eprintln!("receipt: acpmux {} -> ran {}", args.join(" "), r.argv.join(" "));
+                let want = MEANT.iter().find(|(from, _)| from == args).map(|(_, to)| *to);
+                assert_eq!(
+                    Some(to(&r).as_slice()),
+                    want,
+                    "acpmux {} ran a form it did not mean: {e}",
+                    args.join(" ")
+                );
+            }
+            other => {
+                refused += n;
+                eprintln!("receipt: acpmux {} -> {other:?}, nothing ran", args.join(" "));
+            }
+        }
+    }
+    eprintln!(
+        "receipt: of {total} refused calls, {parses} parse as typed, {ran} run their meant form, \
+         {refused} still refused"
+    );
+    assert!(ran >= MEANT.len(), "{ran} of {total} ran; every MEANT form should");
+}
