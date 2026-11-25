@@ -967,6 +967,111 @@ mod tests {
         );
     }
 
+    /// The lines of a source that are part of an assert statement (`assert!`, `assert_eq!`, a
+    /// `panic!`, or a call to a helper whose name starts `assert`), and the lines that start one.
+    /// A statement runs from its first line until its parentheses close.
+    fn assert_statements(lines: &[&str]) -> (Vec<bool>, Vec<bool>) {
+        let start =
+            regex::Regex::new(r"^\s*(?:[a-z_]+::)*(?:assert[a-z_]*!?|panic!)\s*\(").unwrap();
+        let (mut inside, mut starts) = (vec![false; lines.len()], vec![false; lines.len()]);
+        let mut at = 0;
+        while at < lines.len() {
+            if !start.is_match(lines[at]) {
+                at += 1;
+                continue;
+            }
+            starts[at] = true;
+            let mut depth = 0i64;
+            while at < lines.len() {
+                depth +=
+                    lines[at].matches('(').count() as i64 - lines[at].matches(')').count() as i64;
+                inside[at] = true;
+                at += 1;
+                if depth <= 0 {
+                    break;
+                }
+            }
+        }
+        (inside, starts)
+    }
+
+    /// For each function of `source` and each gate name it spells, an assert statement that
+    /// starts after the name's first mention outside an assert and before its last such
+    /// mention (the line written): the assert's line and the name.
+    fn asserts_before_writes(source: &Source) -> Vec<(usize, String)> {
+        let (inside, starts) = assert_statements(&source.lines);
+        let mut found = Vec::new();
+        for (_, first, last) in &source.functions {
+            let mut mentions: HashMap<&str, Vec<usize>> = HashMap::new();
+            for (at, name) in &source.names {
+                if first <= at && at <= last && !inside[*at] {
+                    mentions.entry(*name).or_default().push(*at);
+                }
+            }
+            for (name, ats) in mentions {
+                let (opens, writes) = (ats[0], ats[ats.len() - 1]);
+                if let Some(assert) = (opens + 1..writes).find(|at| starts[*at]) {
+                    found.push((assert + 1, name.to_owned()));
+                }
+            }
+        }
+        found.sort();
+        found
+    }
+
+    /// A gate test writes its row's line before it asserts anything about the measure: an
+    /// assert that fails first leaves the row with no line, the home reads it "the gate did not
+    /// report a measure" and exits 2, and the night's report carries none of the home's rows
+    /// (`v2.pr05.summary_change`'s 10 µs bound, 2026-11-22 to 11-24). Written first, the line
+    /// is kept and `run-v2-gates.sh` marks it `gate_failed`, so the row reads red with its
+    /// numbers. The check reads a row's first mention (its rounds report, a `let name =`) and
+    /// its last (the line written) in each function, skipping mentions inside assert messages.
+    #[test]
+    fn a_gate_writes_its_row_before_it_asserts() {
+        let mut early = Vec::new();
+        for (file, text) in gate_sources() {
+            let source = Source::read(&text);
+            for (line, name) in asserts_before_writes(&source) {
+                early.push(format!(
+                    "{}:{line} asserts before {name}'s line is written",
+                    file.display()
+                ));
+            }
+        }
+        assert!(
+            early.is_empty(),
+            "move each assert after the row's line is written (the home re-judges the bounds): {early:#?}"
+        );
+    }
+
+    #[test]
+    fn the_assert_check_reads_the_rows_first_and_last_mention() {
+        let text = [
+            "fn late() {",
+            "    gate_rounds::report(\"v2.pr99.late\", &rounds);",
+            "    assert!(",
+            "        god <= small,",
+            "        \"v2.pr99.late: {god}\"",
+            "    );",
+            "    gate(\"v2.pr99.late\", small, god);",
+            "}",
+            "fn written_first() {",
+            "    gate_rounds::report(\"v2.pr99.first\", &rounds);",
+            "    gate(\"v2.pr99.first\", small, god);",
+            "    assert!(god <= small, \"v2.pr99.first: {god}\");",
+            "}",
+            "fn named_in_a_helper_assert() {",
+            "    list_daemon::assert_fds_given_back(\"v2.pr99.helper\", fds);",
+            "    assert!(god <= small);",
+            "    let name = \"v2.pr99.helper\";",
+            "    emit(name, small, god);",
+            "}",
+        ]
+        .join("\n");
+        let source = Source::read(&text);
+        assert_eq!(asserts_before_writes(&source), [(3, "v2.pr99.late".to_owned())]);
+    }
+
     #[test]
     fn a_row_reports_its_rounds_through_the_functions_it_calls() {
         let text = [
