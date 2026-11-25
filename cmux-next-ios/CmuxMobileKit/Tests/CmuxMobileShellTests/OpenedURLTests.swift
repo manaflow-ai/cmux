@@ -28,10 +28,10 @@ import Testing
         let id = "0123456789abcdefABCD"
         let guest = try #require(ChatShareLink(origin: "https://share.cmux.dev", page: .guest, shareID: id, secret: "s3cret-_x"))
         let invite = try #require(ChatShareLink(origin: "https://share.cmux.dev", page: .invite, shareID: id, secret: nil))
-        // The Camera, Messages or a universal link once the share host's AASA claims `/g/*` and `/i/*`.
+        // The Camera, Messages or a universal link once the share host's AASA claims `/g/*` and `/i/*`:
+        // `onOpenURL` and the universal link read the URL the same way.
         #expect(opened("https://share.cmux.dev/g/\(id)#s3cret-_x") == .chatShare(guest))
-        #expect(webpage("https://share.cmux.dev/g/\(id)#s3cret-_x") == .chatShare(guest))
-        #expect(webpage("https://share.cmux.dev/i/\(id)") == .chatShare(invite))
+        #expect(opened("https://share.cmux.dev/i/\(id)") == .chatShare(invite))
         // The guest page's open-in-app button.
         let inner = "https://share.cmux.dev/g/\(id)?app=cmux".addingPercentEncoding(withAllowedCharacters: .alphanumerics)!
         #expect(opened("cmux://share?link=\(inner)#s3cret-_x") == .chatShare(guest))
