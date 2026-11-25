@@ -22,6 +22,8 @@ use serde_json::{Value, json};
 
 const SURFACE: u64 = 7;
 const SESSION: &str = "acp_chat_1";
+/// The public id of tab [`SURFACE`], which outlives a restart of the source daemon.
+const TAB: &str = "tab_0000000000000000000000000000000a";
 
 /// What a fake daemon does with one request line.
 enum Reply {
@@ -126,12 +128,30 @@ struct Source {
     began_staged: bool,
     /// Every `prepare_id` a begin named, in order.
     begin_prepares: Vec<Value>,
+    /// Answers the tab's public id ([`TAB`]) and takes `tab` for `surface` (else an older
+    /// daemon, which refuses `tab` as an unknown field).
+    tab_ids: bool,
+    /// The daemon restarted: its tabs are back in new slots, so [`SURFACE`] names none.
+    restarted: bool,
+    /// The next read is lost as the daemon restarts (and `restarted` is set).
+    restart_at_read: bool,
 }
 
 impl Source {
     fn handle(&mut self, request: &Value) -> Reply {
         let cmd = request["cmd"].as_str().unwrap_or_default();
         if request.get("surface").is_some() && request["surface"] != json!(SURFACE) {
+            return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
+        }
+        if let Some(tab) = request.get("tab") {
+            if !self.tab_ids {
+                return Reply::Error("agent_transfer.bad_request", "unknown field tab".into());
+            }
+            if tab != &json!(TAB) {
+                return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
+            }
+        } else if self.restarted && request.get("surface").is_some() {
+            // The tab is restored in another slot.
             return Reply::Error("agent_transfer.unknown_tab", "not an agent tab".into());
         }
         let transfer = request["transfer_id"].as_str().map(str::to_string);
@@ -176,7 +196,11 @@ impl Source {
             }
             "agent-transfer-source" => {
                 let session = self.rebound.clone().unwrap_or_else(|| SESSION.to_string());
-                Reply::Data(json!({"session": session}))
+                let mut answer = json!({"session": session});
+                if self.tab_ids {
+                    answer["tab"] = json!(TAB);
+                }
+                Reply::Data(answer)
             }
             "agent-transfer-begin" => {
                 self.interrupts.push(request["interrupt"].clone());
@@ -217,6 +241,9 @@ impl Source {
                 let mut answer = json!({"transfer_id": id, "source_session": SESSION, "manifest": {
                     "schema": "acpmux.transfer.v1", "transferId": id, "sessionId": SESSION,
                     "files": files, "session": {"sessionId": SESSION, "harness": "claude"}}});
+                if self.tab_ids {
+                    answer["tab"] = json!(TAB);
+                }
                 if self.began_staged {
                     answer["staged"] = json!(true);
                     answer["history_later"] = json!(true);
@@ -224,6 +251,10 @@ impl Source {
                 Reply::Data(answer)
             }
             "agent-transfer-read" => {
+                if std::mem::take(&mut self.restart_at_read) {
+                    self.restarted = true;
+                    return Reply::Drop;
+                }
                 let files = match transfer.as_deref() {
                     Some("pre_1") if self.later => self.prefix.clone(),
                     Some("pre_h") if self.later => self.history.clone(),
@@ -792,6 +823,54 @@ mod agent_move {
         let source = world.source.lock().unwrap();
         assert_eq!(source.committed.as_deref(), Some("xfer_1"));
         assert!(source.aborted.is_empty());
+    }
+
+    #[test]
+    fn a_source_daemon_that_restarts_mid_copy_gives_the_chat_back_by_its_tab() {
+        // kill-mid-move drill `cloud-cloud after-receive` (run 45389153532): the source VM's
+        // daemon restarted under the move, its restore gave the tab a new surface slot, and the
+        // give back by `--surface` was refused "not an agent tab": the chat stayed frozen there.
+        let world = World::new(Target::default());
+        {
+            let mut source = world.source.lock().unwrap();
+            source.tab_ids = true;
+            source.restart_at_read = true;
+        }
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("source_unreachable"), "{answer}");
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.aborted, ["xfer_1"], "the chat is given back here: {answer}");
+        assert!(source.moving.is_none() && source.committed.is_none());
+    }
+
+    #[test]
+    fn a_rerun_after_the_source_daemon_restarted_commits_by_the_tab() {
+        // The chat landed with the target gone before it answered; then the source daemon
+        // restarted (new surface slots). The rerun confirms the chat and closes it by its tab.
+        let world = World::new(Target { finish: Finish::LandThenGoDown, ..Target::default() });
+        world.source.lock().unwrap().tab_ids = true;
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_unresolved"), "{answer}");
+
+        world.source.lock().unwrap().restarted = true;
+        world.target_down.store(false, Ordering::SeqCst);
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(answer["transfer_id"], json!("xfer_1"));
+        let source = world.source.lock().unwrap();
+        assert_eq!(source.committed.as_deref(), Some("xfer_1"));
+        assert_eq!(source.begun, 1);
+    }
+
+    #[test]
+    fn an_older_source_without_tab_ids_is_named_by_surface() {
+        let world = World::new(Target { finish: Finish::DropWithoutLanding, ..Target::default() });
+        let (code, answer) = world.run_move();
+        assert_eq!(code, 1);
+        assert_eq!(answer["error_code"], json!("move_failed"), "{answer}");
+        assert_eq!(world.source.lock().unwrap().aborted, ["xfer_1"]);
     }
 
     #[test]
