@@ -119,9 +119,6 @@ public final class SidebarView: NSView {
             needsLayout = true
         }
     }
-    /// The Restoring sessions card's Details (app health's popover). The sidebar draws no health line (Leo,
-    /// 2026-11-11: "slow indicator on the bottom left is uselsss"; 2026-11-22, ask-eacfb2ec1f: "we dont need it. ever.").
-    public var onHealthDetails: (() -> Void)?
     /// The "Experiment on · #N" mark (CmuxNextPages `CustomizeExperimentsMarkView`), floating over the sidebar
     /// just above the footer row (``SidebarFooterBand/placeExperimentsMark(above:)``); it shows and hides itself and asks for a layout.
     /// It never fades with the footer.
