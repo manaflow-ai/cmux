@@ -1,5 +1,10 @@
 //! A client's request for a chat on a peer is that peer's use (`peer_demand.rs`): it keeps the
-//! peer's link from closing unused, and dials a peer left undialed. The request waits for that
+//! peer's link from closing unused, and dials a peer left undialed. Listing is not: a chat's
+//! metadata read (`_acpmux/info`) is what a list asks of every row it shows (a phone's chat list
+//! reads each row's, `cmux-tui-core` `mobile_chat.rs` `visible`; the message policy reads each
+//! chat's workspace, `agent_session_link.rs`), so with 130 machines one list would dial them
+//! all. For a peer left undialed it is answered from the chat's last-known row, marked so and
+//! with the link `idle`, and it never counts as a use of a link that is up. The request waits for that
 //! dial up to [`IDLE_DIAL_WAIT`] instead of meeting a link that is down, so the first look at a
 //! machine nobody used since this daemon started reads it live, not refused and retried. A sign
 //! that a person writes (`composing`) waits for nothing: it only starts the dial, and
@@ -24,16 +29,52 @@ fn target_peer(hub: &Hub, m: &str, params: &Value) -> Option<Arc<crate::peer::Pe
     super::peer_forward::target(hub, m, key).map(|(peer, ..)| peer)
 }
 
+/// Whether request `m` only reads what a chat's listed row already holds: no use of its peer.
+fn lists(m: &str) -> bool {
+    m == method::MUX_INFO
+}
+
+/// A metadata read for a chat of a peer left undialed, answered from the row this daemon keeps
+/// of it (`lists`); None when it names no such chat (or one with no row), or the peer is linked.
+fn from_last_known(hub: &Hub, m: &str, params: &Value) -> Option<Value> {
+    let key = session_key(params).ok()?;
+    let (peer, _, row, _) = super::peer_forward::target(hub, m, key)?;
+    if !peer.idle_parked() || row.is_null() {
+        return None;
+    }
+    let mut reply = super::peer_forward::from_row(&row, &peer.name);
+    if let Some(obj) = reply.as_object_mut() {
+        obj.insert("stale".into(), json!(true));
+        // Down at its last record reads `offline`; else `idle`, also before its run first reports.
+        let link = match peer.state() {
+            crate::peer_link::PeerState::Offline => "offline",
+            _ => "idle",
+        };
+        obj.insert("link".into(), json!(link));
+    }
+    Some(reply)
+}
+
 /// Before a request is forwarded (`peer_forward::forward`): note the use, and dial an idle peer.
-pub(super) async fn use_peer(hub: &Hub, m: &str, params: &Value) {
-    let Some(peer) = target_peer(hub, m, params) else { return };
+/// A listing read (`lists`) is neither: it is answered here, from the last-known row, while the
+/// peer waits to be used (Some), and goes on to a linked peer without counting as its use.
+pub(super) async fn use_peer(hub: &Hub, m: &str, params: &Value) -> Option<Value> {
+    if lists(m) {
+        return from_last_known(hub, m, params);
+    }
+    let peer = target_peer(hub, m, params)?;
     peer.note_use();
     if !peer.idle_parked() {
-        return;
+        return None;
     }
     if super::peer_forward::composing(m, params) {
         peer.want();
-        return;
+        return None;
     }
     super::peer_forward::await_link(&peer, IDLE_DIAL_WAIT).await;
+    None
 }
+
+#[cfg(test)]
+#[path = "peer_demand_wait_tests.rs"]
+mod tests;

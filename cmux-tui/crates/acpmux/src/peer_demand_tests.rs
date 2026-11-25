@@ -102,6 +102,27 @@ async fn an_unused_link_is_due_to_close_after_the_bound_and_any_use_holds_it() {
     assert!(!leased.idle_due());
 }
 
+/// A quiet link still in use stays past the bound: a client attached to one of its chats or a
+/// delivery for it (what the hub's keeper says, `Hub::keeps_peer`); once neither holds, it is due
+/// to close, as one with no keeper is.
+#[tokio::test(start_paused = true)]
+async fn a_quiet_link_an_open_chat_or_a_pending_delivery_needs_stays_past_the_bound() {
+    let kept = Arc::new(AtomicBool::new(true));
+    let peer = saved(|| built("box"));
+    peer.set_keeper(Box::new({
+        let kept = kept.clone();
+        move |_| kept.load(Ordering::SeqCst)
+    }));
+    tokio::time::advance(IDLE_CLOSE_AFTER * 3).await;
+    assert!(!peer.idle_due(), "a chat open on it, or a delivery for it, keeps the link");
+    kept.store(false, Ordering::SeqCst);
+    assert!(peer.idle_due(), "neither: it closes");
+
+    let plain = saved(|| built("plain"));
+    tokio::time::advance(IDLE_CLOSE_AFTER).await;
+    assert!(plain.idle_due());
+}
+
 /// The link closes unused: no outage, no failed attempt, no error, no ask, and the peer waits to
 /// be used.
 #[tokio::test]

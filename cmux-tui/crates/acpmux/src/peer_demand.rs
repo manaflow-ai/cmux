@@ -13,9 +13,14 @@
 //!   it (the outbox sends through that same path), a chat of it that was working or asking when
 //!   the daemon stopped (`load_peer_cache`), an add, an explicit reconnect, and every `want` and
 //!   `wake` (`peer_wanted.rs`).
+//! - Listing never dials: a chat's metadata read (`_acpmux/info`, what a list row or a phone's
+//!   list asks of each chat) is answered from the peer's last-known row while the peer waits
+//!   to be used, and is no use of a link that is up (`server/peer_demand_wait.rs`).
 //! - A link nothing used for [`IDLE_CLOSE_AFTER`] closes (`LinkEnd::Idle`): no client request
 //!   for it, no chat activity on it (events, row changes, acceptances), no request or prompt in
-//!   flight, no ask. Its rows turn last-known, with no outage and no failed attempt counted.
+//!   flight, no ask. Its rows turn last-known, with no outage and no failed attempt counted. A
+//!   quiet link still in use stays open: a client attached to one of its chats, or a delivery
+//!   for it not settled yet ([`Keeper`], `hub/peer_idle.rs` `Hub::keeps_peer`).
 //! - A link that dropped while nothing used it stops redialing once it has gone unused that long:
 //!   it is `offline` and reconnects on use, instead of logging in to a machine nobody reads.
 //!
@@ -91,12 +96,28 @@ pub(crate) fn lazily<T>(f: impl FnOnce() -> T) -> T {
     starting(|_| Start::Lazy, f)
 }
 
+/// What keeps a quiet link open beside a use (`Hub::keeps_peer`): a client attached to one of
+/// its chats, or a delivery for it not settled yet. Asked only once the link is otherwise due
+/// to close.
+pub(crate) type Keeper = Box<dyn Fn(&Peer) -> bool + Send + Sync>;
+
 /// Whether the peer waits to be used before it dials, and when it was last used.
-#[derive(Debug)]
 pub(crate) struct Demand {
     parked: AtomicBool,
     closes_idle: bool,
     used_at: StdMutex<Instant>,
+    keeper: std::sync::OnceLock<Keeper>,
+}
+
+impl std::fmt::Debug for Demand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Demand")
+            .field("parked", &self.parked)
+            .field("closes_idle", &self.closes_idle)
+            .field("used_at", &self.used_at)
+            .field("keeper", &self.keeper.get().is_some())
+            .finish()
+    }
 }
 
 impl Default for Demand {
@@ -106,6 +127,7 @@ impl Default for Demand {
             parked: AtomicBool::new(start == Start::Lazy),
             closes_idle: start != Start::Dial,
             used_at: StdMutex::new(Instant::now()),
+            keeper: std::sync::OnceLock::new(),
         }
     }
 }
@@ -114,6 +136,17 @@ impl Peer {
     /// Something used the peer now: a client's request for it, or a chat's activity on its link.
     pub(crate) fn note_use(&self) {
         *self.wanted.demand.used_at.lock().unwrap_or_else(|e| e.into_inner()) = Instant::now();
+    }
+
+    /// Hands the peer what keeps its quiet link open ([`Keeper`]; `Hub::spawn_peer`).
+    pub(crate) fn set_keeper(&self, keeper: Keeper) {
+        let _ = self.wanted.demand.keeper.set(keeper);
+    }
+
+    /// The chats of this peer local clients asked to stream (`mark_attached`); a mark outlives
+    /// its client, so whether one still listens is the hub's to say (`Hub::keeps_peer`).
+    pub(crate) fn attached_chats(&self) -> Vec<String> {
+        self.attached.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect()
     }
 
     /// Whether the peer is left undialed until something uses it (`await_demand`).
@@ -148,10 +181,20 @@ impl Peer {
         self.wanted.demand.closes_idle && !self.github_broker()
     }
 
+    /// Whether the peer has gone unused for [`IDLE_CLOSE_AFTER`] with nothing keeping it: no
+    /// ask or request waiting on it, and no attached client or unsettled delivery ([`Keeper`],
+    /// asked last, since it reads the hub).
+    fn unused(&self) -> bool {
+        self.closes_idle()
+            && !self.in_use()
+            && self.unused_for() >= IDLE_CLOSE_AFTER
+            && !self.wanted.demand.keeper.get().is_some_and(|keeps| keeps(self))
+    }
+
     /// Whether the ready link has gone unused for [`IDLE_CLOSE_AFTER`] and closes now
     /// (`serve`, on its ping tick).
     pub(super) fn idle_due(&self) -> bool {
-        self.closes_idle() && !self.in_use() && self.unused_for() >= IDLE_CLOSE_AFTER
+        self.unused()
     }
 
     /// Before each connect attempt (`Peer::run`): a peer left undialed waits here until
@@ -161,9 +204,7 @@ impl Peer {
     pub(super) async fn await_demand(&self) -> bool {
         let demand = &self.wanted.demand;
         if !demand.parked.load(Ordering::SeqCst) {
-            let unused =
-                self.closes_idle() && !self.in_use() && self.unused_for() >= IDLE_CLOSE_AFTER;
-            if !unused {
+            if !self.unused() {
                 return true;
             }
             demand.parked.store(true, Ordering::SeqCst);

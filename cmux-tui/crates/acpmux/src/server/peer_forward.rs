@@ -403,7 +403,10 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    super::peer_demand_wait::use_peer(hub, m, params).await;
+    // A listing read of a peer left undialed is answered from its last-known row: no dial.
+    if let Some(row) = super::peer_demand_wait::use_peer(hub, m, params).await {
+        return Some(Ok(row));
+    }
     let reply = gated(hub, conn, m, params).await;
     // A message this daemon handed to a peer's session is a cross-host send (`xhost_audit.rs`).
     // A prompt kept for its peer's link (`queue_for_link`) is sent by the outbox, which records it.
@@ -1493,7 +1496,7 @@ fn row_will_do(params: &Value) -> bool {
 }
 
 /// A peer chat's mirrored row as a read's answer, marked so (`ROW_WILL_DO`).
-fn from_row(row: &Value, peer: &str) -> Value {
+pub(super) fn from_row(row: &Value, peer: &str) -> Value {
     let mut reply = row.clone();
     if let Some(obj) = reply.as_object_mut() {
         obj.insert("peer".into(), json!(peer));

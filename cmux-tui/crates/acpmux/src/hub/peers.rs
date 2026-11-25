@@ -264,6 +264,11 @@ impl Hub {
         peer.set_github_broker(pc.github_broker);
         peer.set_github_app(self.github_app.clone());
         peer.set_mirror(self.link_v2.clone());
+        // A quiet link an open chat or a pending delivery still needs stays (`peer_idle.rs`).
+        let hub = self.hub_ref.get().cloned();
+        peer.set_keeper(Box::new(move |peer| {
+            hub.as_ref().and_then(std::sync::Weak::upgrade).is_some_and(|hub| hub.keeps_peer(peer))
+        }));
         let settled = peer.settled();
         // Register under the peer lock and the rows writer lock (lock order: `peers`, then
         // `remote_sessions`): a purge or notice of the instance this replaces, checked current

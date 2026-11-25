@@ -640,6 +640,20 @@ impl OutboxState {
         })
     }
 
+    /// Each delivery not settled yet, as its target and the peer it is pinned to: what a peer's
+    /// quiet link is still kept for (`Hub::keeps_peer`). Never waits: None while a writer holds
+    /// the book (the link is kept then, and asked again on its next tick).
+    pub(crate) fn unsettled_targets(&self) -> Option<Vec<(String, Option<String>)>> {
+        let book = self.deliveries.try_lock()?;
+        Some(
+            book.deliveries
+                .values()
+                .filter(|d| !d.settled() && !d.projection_only() && !d.is_team_receipt())
+                .map(|d| (d.target.clone(), d.pin.as_ref().map(|p| p.peer.clone())))
+                .collect(),
+        )
+    }
+
     /// How many deliveries are not settled yet (a projection intent waiting on its receiver's
     /// journal counts).
     /// Never waits: `status` (every pane's connect, `ls`) reads it, and a writer can hold the
