@@ -5,6 +5,44 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationConnectResult {
+    pub connection: Connection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authorize_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connected: Option<BoolLit<true>>,
+}
+
+wire_errors! {
+    /// The error codes integration.connect declares.
+    IntegrationConnectError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationLimit = "integration.limit",
+        IntegrationNotConfigured = "integration.not_configured",
+        PolicyDenied = "policy.denied",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// List the team's connections the caller may use (no secrets) and which providers this deployment can connect.
+    IntegrationListOp {
+        name: "integration.list",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: IntegrationListParams,
+        result: IntegrationListResult,
+        error: IntegrationListError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IntegrationListParams {}
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -862,32 +900,5 @@ wire_op! {
         params: MuxConfigureParams,
         result: Value,
         error: MuxConfigureError,
-    }
-}
-
-wire_enum! {
-    MuxConfigureParamsBrain {
-        Local = "local",
-        Cloud = "cloud",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MuxConfigureParams {
-    pub agent: AgentId,
-    pub brain: MuxConfigureParamsBrain,
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
-    pub brain_host: Option<Option<String>>,
-}
-
-wire_errors! {
-    /// The error codes mux.configure declares.
-    MuxConfigureError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
     }
 }

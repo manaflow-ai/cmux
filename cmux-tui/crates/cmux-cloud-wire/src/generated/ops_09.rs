@@ -4,6 +4,33 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_enum! {
+    MuxConfigureParamsBrain {
+        Local = "local",
+        Cloud = "cloud",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MuxConfigureParams {
+    pub agent: AgentId,
+    pub brain: MuxConfigureParamsBrain,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub brain_host: Option<Option<String>>,
+}
+
+wire_errors! {
+    /// The error codes mux.configure declares.
+    MuxConfigureError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        InvalidParams = "invalid_params",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// List the caller-owned private Cloud networks.
     NetworkListOp {
@@ -875,28 +902,5 @@ wire_op! {
         params: SlackPostAsBotParams,
         result: Value,
         error: SlackPostAsBotError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SlackPostAsBotParams {
-    pub connection: ConnectionId,
-    pub channel: String,
-    pub text: String,
-}
-
-wire_errors! {
-    /// The error codes slack.post_as_bot declares.
-    SlackPostAsBotError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationUnavailable = "integration.unavailable",
-        MutationIndeterminate = "mutation.indeterminate",
-        PolicyDenied = "policy.denied",
-        ProviderError = "provider.error",
-        RevisionConflict = "revision.conflict",
-        SelectorNotFound = "selector.not_found",
-        ValidationInvalid = "validation.invalid",
     }
 }

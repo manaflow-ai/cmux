@@ -4,6 +4,34 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_errors! {
+    /// The error codes domain.list declares.
+    DomainListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Give up a claimed or verified domain (owners and admins). Another team may then verify it.
+    DomainReleaseOp {
+        name: "domain.release",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: DomainReleaseParams,
+        result: DomainReleaseResult,
+        error: DomainReleaseError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct DomainReleaseParams {
+    pub domain: EmailDomain,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DomainReleaseResult {
     pub domain: EmailDomain,
@@ -872,30 +900,4 @@ pub struct FirewallCreateParamsSource {
     pub port: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub protocol: Option<FirewallCreateParamsSourceProtocol>,
-}
-
-wire_enum! {
-    FirewallCreateParamsDestinationProtocol {
-        Tcp = "tcp",
-        Udp = "udp",
-        Icmp = "icmp",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FirewallCreateParamsDestination {
-    #[serde(rename = "vmId", default, skip_serializing_if = "Option::is_none")]
-    pub vm_id: Option<String>,
-    #[serde(rename = "vpcId", default, skip_serializing_if = "Option::is_none")]
-    pub vpc_id: Option<String>,
-    #[serde(rename = "tunnelId", default, skip_serializing_if = "Option::is_none")]
-    pub tunnel_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cidr: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub public: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub port: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<FirewallCreateParamsDestinationProtocol>,
 }

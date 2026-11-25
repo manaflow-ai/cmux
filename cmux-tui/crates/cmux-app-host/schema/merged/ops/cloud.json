@@ -549,7 +549,7 @@
       "owner": "cloud:CloudDO",
       "class": "mutation",
       "risk": "execute",
-      "digest": "490f3eb545a67997"
+      "digest": "bd1a173ec0a3df5e"
     },
     "cloud.vm.network_policy": {
       "source": "cloud",

@@ -38,7 +38,9 @@ Agents can call the `machine_request` tool (acpmux MCP) instead. The answer come
 - `fits`: this machine already has it.
 - `grow`: it grows now, within your plan, and keeps running.
 - `over_plan`: past your plan; the answer names the largest size the plan takes and what lifts it.
-- `fanout`: past one machine (32 vCPU / 64 GiB is the largest), so the work runs on K machines.
+- `fanout`: past one machine (32 vCPU / 64 GiB is the largest): K machines are made now. The
+  answer is their handle with each machine's id; `cmux vm exec ID -- CMD` runs work on one.
+  64 cores is 2 x 2xl: `cmux machine request --vcpu 64 --for \"build farm\" --until 2h`.
 - `unavailable`: a kind (mac, gpu) Cloud does not offer yet.
 
 Sizes: sm 2/4, md 4/8, lg 8/16, lgx 12/24, xl 16/32, 2xl 32/64 (vCPU / GiB).

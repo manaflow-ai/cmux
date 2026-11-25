@@ -38711,6 +38711,13 @@
                 "type": {
                   "kind": "object",
                   "fields": {
+                    "handle": {
+                      "required": true,
+                      "type": {
+                        "kind": "primitive",
+                        "name": "string"
+                      }
+                    },
                     "width": {
                       "required": true,
                       "type": {
@@ -38734,8 +38741,119 @@
                     "each": {
                       "required": true,
                       "type": {
-                        "kind": "primitive",
-                        "name": "string"
+                        "kind": "object",
+                        "fields": {
+                          "name": {
+                            "required": false,
+                            "type": {
+                              "kind": "primitive",
+                              "name": "string"
+                            }
+                          },
+                          "vcpu": {
+                            "required": true,
+                            "type": {
+                              "kind": "union",
+                              "variants": [
+                                {
+                                  "kind": "primitive",
+                                  "name": "float64"
+                                },
+                                {
+                                  "kind": "enum",
+                                  "values": [
+                                    "Infinity",
+                                    "-Infinity",
+                                    "NaN"
+                                  ]
+                                }
+                              ]
+                            }
+                          },
+                          "mem_gib": {
+                            "required": true,
+                            "type": {
+                              "kind": "union",
+                              "variants": [
+                                {
+                                  "kind": "primitive",
+                                  "name": "float64"
+                                },
+                                {
+                                  "kind": "enum",
+                                  "values": [
+                                    "Infinity",
+                                    "-Infinity",
+                                    "NaN"
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "slots": {
+                      "required": true,
+                      "type": {
+                        "kind": "array",
+                        "items": {
+                          "kind": "object",
+                          "fields": {
+                            "index": {
+                              "required": true,
+                              "type": {
+                                "kind": "union",
+                                "variants": [
+                                  {
+                                    "kind": "primitive",
+                                    "name": "float64"
+                                  },
+                                  {
+                                    "kind": "enum",
+                                    "values": [
+                                      "Infinity",
+                                      "-Infinity",
+                                      "NaN"
+                                    ]
+                                  }
+                                ]
+                              }
+                            },
+                            "status": {
+                              "required": true,
+                              "type": {
+                                "kind": "enum",
+                                "values": [
+                                  "created",
+                                  "refused",
+                                  "unconfirmed"
+                                ]
+                              }
+                            },
+                            "machine": {
+                              "required": false,
+                              "type": {
+                                "kind": "primitive",
+                                "name": "string"
+                              }
+                            },
+                            "code": {
+                              "required": false,
+                              "type": {
+                                "kind": "primitive",
+                                "name": "string"
+                              }
+                            },
+                            "message": {
+                              "required": false,
+                              "type": {
+                                "kind": "primitive",
+                                "name": "string"
+                              }
+                            }
+                          }
+                        }
                       }
                     }
                   }
@@ -38781,7 +38899,7 @@
         "expose": "never",
         "group": "cloud"
       },
-      "docs": "Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a fan-out past one machine, a kind not offered). Never waits for the machine. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).",
+      "docs": "Ask for more capacity for the work this machine runs: grows it live within the creator's plan, or says what it takes (over the plan, a kind not offered); past one machine, makes a fan-out of K machines and answers its handle (each machine's id). Never waits for a machine to be ready. No idempotency key: a report or event is a fresh fact and nothing replays. VM installs only (kind vm, grant vm-self, its own bound machine).",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -38906,6 +39024,9 @@
           "fanout": {
             "type": "object",
             "properties": {
+              "handle": {
+                "type": "string"
+              },
               "width": {
                 "anyOf": [
                   {
@@ -38922,12 +39043,99 @@
                 ]
               },
               "each": {
-                "type": "string"
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "vcpu": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  },
+                  "mem_gib": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "vcpu",
+                  "mem_gib"
+                ],
+                "additionalProperties": true
+              },
+              "slots": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "index": {
+                      "anyOf": [
+                        {
+                          "type": "number"
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Infinity",
+                            "-Infinity",
+                            "NaN"
+                          ]
+                        }
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "created",
+                        "refused",
+                        "unconfirmed"
+                      ]
+                    },
+                    "machine": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "index",
+                    "status"
+                  ],
+                  "additionalProperties": true
+                }
               }
             },
             "required": [
+              "handle",
               "width",
-              "each"
+              "each",
+              "slots"
             ],
             "additionalProperties": true
           },
