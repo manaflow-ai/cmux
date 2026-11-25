@@ -119,6 +119,11 @@ const USAGE: &str = "usage: cmux link seed push --socket PATH LOCAL_FOLDER REMOT
 /// Longest time between two `git.seed.status` requests (the first waits are shorter:
 /// [`super::spans::PollWait`]).
 const STATUS_EVERY: Duration = Duration::from_millis(500);
+/// How long a `git.seed.status` asks the machine to hold its answer while the job runs
+/// (cmux-tui-core `git_seed::job`): it answers as soon as the job ends or reaches its head,
+/// so a seed's end costs no poll sleep and no extra request. A machine that answers without
+/// `waited` is older, and is paused for between requests as before.
+pub(crate) const STATUS_HOLD_MS: u64 = 500;
 /// Longest a seed job is waited for (a first clone of a big repository).
 const SEED_DEADLINE: Duration = Duration::from_secs(45 * 60);
 /// Least time between two progress lines.
@@ -1234,7 +1239,7 @@ fn wait_job(
 ) -> Result<Ended, SeedError> {
     let mut report = throttled();
     loop {
-        let status = call("git.seed.status", json!({"job": job}))?;
+        let status = call("git.seed.status", json!({"job": job, "wait_ms": STATUS_HOLD_MS}))?;
         match status.get("state").and_then(Value::as_str) {
             Some("done") => {
                 super::spans::remote("git.seed.start", &status);
@@ -1277,7 +1282,10 @@ fn wait_job(
                 format!("the seed did not finish within {} minutes", SEED_DEADLINE.as_secs() / 60),
             ));
         }
-        pause();
+        // The machine held the answer while the job ran: ask again at once.
+        if status.get("waited").and_then(Value::as_bool) != Some(true) {
+            pause();
+        }
     }
 }
 
@@ -1446,6 +1454,7 @@ mod tests {
             bundle_bytes: 10,
             unchanged: false,
             lfs_attributes: Vec::new(),
+            lfs_files: Vec::new(),
         }
     }
 
