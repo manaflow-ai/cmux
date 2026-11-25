@@ -266,6 +266,20 @@ extension CmuxRemoteService {
         }
     }
 
+    /// The person moved, resized, hid or showed `session`'s live preview card: the daemon keeps it
+    /// (`remote-host-call computer_use.preview`, computer_use_preview_place.rs) and sends the card
+    /// back with its place. Returns at once; a refusal is logged.
+    public func sendComputerUsePreview(session: String, update: [String: CmuxNextDaemon.JSONValue]) {
+        var params = update
+        params["session"] = .string(session)
+        // task-owner: one request to the local daemon; a newer move sends its own.
+        Task { [weak self] in
+            do { _ = try await self?.call("computer_use.preview", .object(params), timeout: .seconds(5)) } catch {
+                computerUseLogger.notice("computer_use.preview refused: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
     /// Asks for a grant in the signed host that macOS lists in System Settings.
     public func requestGrant(_ permission: String) async {
         guard computerUse.embedded else {

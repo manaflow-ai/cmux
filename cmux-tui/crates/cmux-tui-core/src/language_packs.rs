@@ -458,7 +458,7 @@ pub(crate) fn download(pack: &Pack, archive: &Path) -> Result<(), Code> {
     let runtime =
         tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_| Code::Io)?;
     let digest = runtime.block_on(async {
-        let client = reqwest::Client::builder()
+        let client = cmux_egress::client_builder("cmux_tui_core::language_packs")
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
             .timeout(DOWNLOAD_TIMEOUT)
