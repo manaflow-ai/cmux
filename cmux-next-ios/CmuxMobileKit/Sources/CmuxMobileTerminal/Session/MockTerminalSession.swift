@@ -535,6 +535,14 @@ public final class MockTerminalSession: TerminalSession {
             let rows = (older + 1...older + shown).map(row)
             heldBack = ((1...older).map(row), rows, delay)
             write(rows.map { $0 + "\r\n" }.joined())
+        case "widetable":
+            // widetable [COLUMNS=180] [ROWS=12]: a table wider than the phone
+            // (Leo, 2026-11-23: "an extra wide table... just doesnt even work
+            // right now"), every row one line: `|` cells of 10 columns named
+            // by their first column, the last one `END`.
+            let width = parts.count > 1 ? Int(parts[1]) ?? 180 : 180
+            let count = parts.count > 2 ? Int(parts[2]) ?? 12 : 12
+            try await stream(MockOutput.wideTable(columns: width, rows: count), lineDelay: 4)
         case "clear": write("\u{1B}[H\u{1B}[2J")
         case "echo": write(parts.dropFirst().joined(separator: " ") + "\r\n")
         case "cat": try await stream(MockOutput.file(named: parts.dropFirst().first ?? ""))
