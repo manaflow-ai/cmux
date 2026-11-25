@@ -122,3 +122,24 @@ fn draft_takes_a_fresh_nonce_and_refuses_an_unregistered_phone() {
         Err(CmuxMobileError::Refused { code, .. }) if code == "share.no_device"
     ));
 }
+
+/// A control tap signs the control format's own bytes and comes back as that format, and a
+/// share tap's signature never finishes a control draft.
+#[test]
+fn a_control_draft_signs_and_answers_the_control_format() {
+    let (ask, at, nonce) = vector_ask(&vector());
+    let phone = PhoneKey::new();
+    let share = draft_at(&ask, at, &nonce).unwrap();
+    let control = draft_for(cmux_share_approval::CONTROL_VERSION, &ask, at, &nonce).unwrap();
+    assert!(control.canonical.starts_with("cmux.control-approval.v1\n"));
+    assert_ne!(control.canonical, share.canonical);
+    let signature = phone.sign(&control.canonical);
+    let wire: Value =
+        serde_json::from_str(&share_approval_signed(control.clone(), signature, phone.public()).unwrap())
+            .unwrap();
+    assert_eq!(wire["v"], "cmux.control-approval.v1");
+    let read: ShareApproval = serde_json::from_value(wire).unwrap();
+    assert_eq!(read.canonical(), control.canonical);
+    let crossed = share_approval_signed(control, phone.sign(&share.canonical), phone.public());
+    assert!(matches!(crossed, Err(CmuxMobileError::Refused { code, .. }) if code == "share.bad_signature"));
+}

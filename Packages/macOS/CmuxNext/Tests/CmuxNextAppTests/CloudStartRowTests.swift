@@ -45,6 +45,29 @@ struct CloudStartRowTests {
         #expect(strip.title(chat) == "Cloud row names")
     }
 
+    /// cmux#55540: the Mac tab that shows its Cloud chat in place read "Agent" (the chat's record's title on its machine) or
+    /// its workspace's name once the start handed off. It reads as the start's prompt until the chat has a title of its own.
+    @Test func aMacTabShowingItsCloudChatInPlaceReadsAsTheStart() throws {
+        let titles = AgentCloudStartTitles(), mac = try Self.page(DaemonStore(), surface: 64)
+        var chatSnapshot = TabSnapshot(surface: SurfaceID(rawValue: 65), kind: .conversation, title: AgentPaneModel.tabTitle, url: "about:blank")
+        chatSnapshot.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:cloud", session: nil, harness: "claude"))
+        let cloud = DaemonStore()
+        cloud.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 7, key: nil, name: "workspace-7", screens: [
+            ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chatSnapshot])])])]))
+        let chat = try #require(cloud.tab(surface: SurfaceID(rawValue: 65)))
+        var strip = TabTitleResolver(newTabPages: [])
+        strip.cloudStarts = titles
+        strip.workspaceName = "workspace-6"
+        strip.chatTitle = { _ in AgentPaneModel.tabTitle }
+        strip.fronted = { $0 === mac ? chat : nil }
+        #expect(strip.title(mac) != "List the folder", "fixture: the chat has no title of its own")
+        titles.begin(mac, task: "List the folder", untitled: AgentPaneModel.tabTitle)
+        titles.hand(from: mac, to: chat)
+        titles.opened(mac)
+        titles.end(mac)
+        #expect(strip.title(mac) == "List the folder", "the tab read \(AgentPaneModel.tabTitle) or workspace-6")
+    }
+
     /// cmux#45947: New Cloud Chat opens a workspace of its own whose row reads as Cloud from the click, before any Send,
     /// and reads as this Mac's again once its start ended (refused or failed: the chat stays here).
     @Test func newCloudChatsWorkspaceReadsAsCloudFromTheClickUntilItsStartEnds() {

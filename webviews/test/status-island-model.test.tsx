@@ -157,7 +157,11 @@ describe("islandAnswers", () => {
 describe("StatusIsland", () => {
   test("compact pills: idle and three running", () => {
     expect(text(renderToStaticMarkup(<StatusIsland state={state([])} actions={actions} />))).toBe("No agents running");
-    expect(text(renderToStaticMarkup(<StatusIsland state={state(working)} actions={actions} />))).toBe("Running · 3");
+    expect(text(renderToStaticMarkup(<StatusIsland state={state(working)} actions={actions} />))).toBe("3");
+    // No word on the pill; its hover and VoiceOver still name it.
+    expect(renderToStaticMarkup(<StatusIsland state={state(working)} actions={actions} />)).toContain(
+      'aria-label="Running · 3"',
+    );
   });
 
   test("the approval card names the asking chat and draws Allow then Deny", () => {
@@ -168,7 +172,8 @@ describe("StatusIsland", () => {
       />,
     );
     expect(html).toContain("data-expanded");
-    expect(text(html)).toBe("Tab strip review Claude Running · 3 Run the linter bun run lint Allow Deny");
+    expect(text(html)).toBe("Tab strip review Claude 3 Run the linter bun run lint Allow Deny");
+    expect(html).toContain('class="acpmux-status-island__count" role="img" aria-label="Running · 3"');
   });
 
   test("the error card says the agent stopped, with its error and Open Chat", () => {

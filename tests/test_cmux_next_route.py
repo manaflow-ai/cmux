@@ -939,6 +939,12 @@ class UnreadDocs(unittest.TestCase):
         self.assertEqual(result["macos"], "false")
         self.assertEqual(result["swift_targets"], "")
 
+    def test_a_sidebar_owner_entry_file_alone_runs_no_mac_tier(self):
+        """New entries are one file each under plans/cmux-next/sidebar-owner/ (scripts/ci/entry_logs.py)."""
+        result = tiers(["plans/cmux-next/sidebar-owner/2026-11-25-title-inset.md"])
+        self.assertEqual(mac_tiers(result), [])
+        self.assertEqual(result["macos"], "false")
+
     def test_a_note_beside_swift_keeps_the_swift_route(self):
         result = tiers(["plans/cmux-next/sidebar-owner.md", *PR_17470])
         self.assertEqual(result, tiers(PR_17470))
@@ -1261,10 +1267,13 @@ class WorkflowRoute(unittest.TestCase):
         """Path routing, placement, the web bundles and the fast tier feed or are Mac jobs WORKFLOW_JOB_TIERS
         does not place: a change to one runs every tier."""
         for old, new in (("    name: cmux-next path routing", "    name: cmux-next path routing (old)"),
-                         ("    name: cmux-next web bundles (source-keyed cache)", "    name: old bundles"),
-                         ("    name: cmux-next fast tier\n", "    name: old fast tier\n")):
+                         ("    name: cmux-next web bundles (source-keyed cache)", "    name: old bundles")):
             with self.subTest(job=new):
                 self.assertEqual(self.route_with_base(self.base_without(old, new))["full"], "true")
+        # A pull request's fast tier is pr-pipeline.yml's `mac` job (ci/steps.toml, note-556): this file's fast-tier
+        # job runs off the pull request only, so an edit to it routes no tier here.
+        self.assertEqual(self.route_with_base(self.base_without("    name: cmux-next fast tier\n",
+                                                                "    name: old fast tier\n"))["full"], "false")
         for job in ("macos-placement", "swift-canary-fleet", "push-head-preflight"):
             with self.subTest(job=job):
                 self.assertEqual(self.route_with_base(self.base_with_job_edited(job))["full"], "true")
@@ -1377,10 +1386,12 @@ class WorkflowRoute(unittest.TestCase):
         from cmux_next_route import never_on_pull_request
         jobs = yaml_jobs(self.HEAD)
         for job in ("dev-landing-place", "dev-landing-compile", "release-compile-fast", "request-nightly-next",
-                    "request-cmux-next-dev-publish", "dev-daily-tree-wait", "dev-daily-place"):
+                    "request-cmux-next-dev-publish", "dev-daily-tree-wait", "dev-daily-place",
+                    # pr-pipeline.yml's `mac` job runs a pull request's fast tier (note-556).
+                    "fast-tier"):
             self.assertTrue(never_on_pull_request(job, jobs), job)
         for job in ("swift-test", "daemon-test", "generated-files", "release-compile", "app-compile-fleet",
-                    "cmux-scheme-compile", "fast-tier", "macos-placement", "path_route", "web-bundles"):
+                    "cmux-scheme-compile", "macos-placement", "path_route", "web-bundles"):
             self.assertFalse(never_on_pull_request(job, jobs), job)
         synthetic = {
             "push": {"if": "${{ !cancelled() && github.event_name == 'push' }}"},
