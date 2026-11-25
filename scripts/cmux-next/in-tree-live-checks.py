@@ -73,7 +73,7 @@ pane beside the terminal:
 Every row prints `PASS|FAIL|INFO | name | detail`; --json writes the rows and the raw readouts. Exits 0 when no row
 fails. The app is quit at the end. Fleet GUI host only (debug.key needs no event-posting grant).
 """
-import argparse, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
+import argparse, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time, zlib
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -83,7 +83,7 @@ parser.add_argument("--json")
 parser.add_argument("--in-tree", dest="in_tree", choices=["on", "off"], default="on")
 parser.add_argument("--idle", type=float, default=8.0)
 parser.add_argument("--checks", default="mode,census,focus,shortcuts,prompts,file_after_popup,pane_fit,divider_resize,"
-                    "window_resize,fullscreen,resize_hitch,live_resize,divider_load,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
+                    "window_resize,fullscreen,resize_hitch,chaos_resize,live_resize,divider_load,window_move,tab_spam,pane_zoom,popup_float,omnibar_narrow,key_route,element_fullscreen,"
                     "two_pages,reveal",
                     help="comma-separated; `regressions` names every row of in-tree-regressions.md (bugs 4, 9 to 15)")
 parser.add_argument("--reveal-hidden", dest="reveal_hidden", type=float, default=10.0,
@@ -97,7 +97,7 @@ os.makedirs(opts.out, exist_ok=True)
 CHECKS = set(opts.checks.split(","))
 if "regressions" in CHECKS:  # in-tree-regressions.md: the live rows of the bugs found in real use
     CHECKS |= {"mode", "prompts", "file_after_popup", "reveal", "pane_fit", "divider_resize", "window_resize", "fullscreen",
-               "resize_hitch", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
+               "resize_hitch", "chaos_resize", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom", "popup_float", "omnibar_narrow", "key_route", "element_fullscreen"}
 with open(os.path.join(opts.app, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(opts.app, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
@@ -1683,6 +1683,117 @@ def build_user_grid(page_tab):
     return made
 
 
+def check_chaos_resize(tab, pane):
+    """Person-like drags (pointer_paths.chaotic_path: varying speed, pauses, overshoots that come back, quick flicks,
+    back-and-forth wiggles), three seeded drags each of the window's bottom-right corner, right edge, bottom edge and
+    left edge, and the vertical divider nearest the window's middle. Window drags are one held drag through the app's
+    own event queue (debug.mouse down, a dragged event at each point's time, up), which AppKit's live resize tracks:
+    pointer events posted to the pid from outside (cua-driver's drag, CGEventPostToPid) never resize or move a window,
+    the window server tracks those from the hardware pointer (0 of 7 on the other Mac, 2026-11-24). The divider gets
+    both: the held drag, and cua-driver's real pid-posted drags (the path cut into strokes at its pauses and turns,
+    the button up between strokes). Per drag: each live-resize step's main-thread time (debug.layout_counters
+    resize_steps), the app's frames (debug.frames), layout passes, the window's frame after. A window drag that made no
+    live-resize step did not reach the edge: the row fails and says so, never a silent pass."""
+    import pointer_paths
+    pid = int(RAW.get("pid") or 0)
+    layers = main_layers()
+    fx, fy, W, H = layers.get("frame") or [0, 0, 0, 0]
+    if not W:
+        row("INFO", "chaos_resize", {"note": "no window frame (debug.layers)"})
+        return
+    targets = [("corner", (W - 2, H - 2), "xy", (240, 150)), ("right_edge", (W - 1, H / 2), "x", (240, 0)),
+               ("bottom_edge", (W / 2, H - 1), "y", (0, 150)), ("left_edge", (1, H / 2), "x", (200, 0))]
+    divider = vertical_divider_near(W / 2, layers)  # window points from the top left, ON or OFF
+    if divider:
+        targets.append(("divider", divider, "x", (160, 0)))
+    window_id, scale = None, 2.0
+    if CUA_DRIVER and pid:
+        wins = [w for w in (cua("list_windows", {}).get("windows") or []) if w.get("pid") == pid and w.get("bounds")]
+        wins.sort(key=lambda w: -w["bounds"]["width"] * w["bounds"]["height"])
+        window_id = wins[0].get("window_id") if wins else None
+        # cua-driver's drag takes window screenshot pixels: the window's display's backing scale (its get_screen_size
+        # reports the main display's, 1 for an external display beside a Retina window).
+        scale = float(layers.get("backing_scale") or 2.0)
+
+    def held(path):
+        x, y = path[0][1], path[0][2]
+        rpc("debug.mouse", {"action": "down", "x": x, "y": y})
+        base = time.monotonic()
+        for t, nx, ny in path[1:]:
+            if base + t > time.monotonic():
+                time.sleep(base + t - time.monotonic())  # test harness: one event at each point's time, as a hand moves
+            rpc("debug.mouse", {"action": "drag", "x": x, "y": y, "to_x": nx, "to_y": ny, "steps": 1, "press": False,
+                                "release": False})
+            x, y = nx, ny
+        rpc("debug.mouse", {"action": "up", "x": x, "y": y})
+        return {"route": "held", "events": len(path)}
+
+    def cua_strokes(path):
+        done = []
+        for x0, y0, x1, y1, ms, steps in pointer_paths.strokes(path):
+            q = {"pid": pid, "from_x": scale * x0, "from_y": scale * y0, "to_x": scale * x1, "to_y": scale * y1,
+                 "duration_ms": ms, "steps": max(2, steps)}
+            if window_id:
+                q["window_id"] = window_id
+            reply = cua("drag", q)
+            done.append(str(reply)[:40])
+        return {"route": "cua", "strokes": len(done), "refused": sum("✅" not in d for d in done)}
+
+    def measure(drive, path):
+        rpc("debug.layout_counters", {"reset": True})
+        rpc("debug.frames", {"action": "start"})
+        started = time.monotonic()
+        how = drive(path)
+        drag_s = round(time.monotonic() - started, 2)
+        app_frames = rpc("debug.frames", {"action": "stop"})
+        counters = rpc("debug.layout_counters") or {}
+        steps = counters.get("resize_steps") or {}
+        return dict(how, drag_s=drag_s, points=len(path), app_frames=frame_detail(app_frames),
+                    layouts=counters.get("layout_root_layouts"), pane_chrome=counters.get("pane_chrome_updates"),
+                    frame_after=(main_layers().get("frame")),
+                    resize_steps={k: {m: (round(v[m], 2) if isinstance(v.get(m), float) else v.get(m))
+                                      for m in ("steps", "p50_ms", "p95_ms", "max_ms", "total_ms")}
+                                  for k, v in steps.items()} if isinstance(steps, dict) else steps)
+
+    results = {}
+    for name, start, axis, reach in targets:
+        drives = [("held", held)] + ([("cua", cua_strokes)] if name == "divider" and CUA_DRIVER and pid else [])
+        for route, drive in drives:
+            per = []
+            for seed in (1, 2, 3):
+                rng = pointer_paths.seeded(zlib.crc32(f"{name}/{seed}".encode()))
+                path = pointer_paths.chaotic_path(start, rng, axis, reach, seconds=3.5)
+                frame0 = main_layers().get("frame")
+                per.append(dict(measure(drive, path), seed=seed, frame_before=frame0))
+                if name != "divider" and main_layers().get("frame") != frame0:
+                    rpc("debug.window_frame", {"frame": frame0})  # back to the start frame for the next drag
+                time.sleep(0.6)  # test harness: the window rests between drags
+            key = name if route == "held" else f"{name}_{route}"
+            results[key] = per
+            window_drag = name != "divider"
+            resized = all(((r["resize_steps"] or {}).get("set_frame") or {}).get("steps") for r in per) if window_drag \
+                else all((r.get("layouts") or 0) >= 20 for r in per)
+            refresh = max(((r["app_frames"] or {}).get("refresh_ms") or 0) for r in per) or 16.7
+            worst = max(((r["app_frames"] or {}).get("max_ms") or 0) for r in per)
+            p95 = max(((r["app_frames"] or {}).get("p95_ms") or 0) for r in per)
+            set_frame = [((r["resize_steps"] or {}).get("set_frame") or {}) for r in per]
+            fit = [((r["resize_steps"] or {}).get("root_fit_screens") or {}) for r in per]
+            summary = {"bug": 19, "route": route, "in_tree": opts.in_tree,
+                       "set_frame_p50_ms": [s.get("p50_ms") for s in set_frame],
+                       "set_frame_p95_ms": [s.get("p95_ms") for s in set_frame],
+                       "set_frame_steps": [s.get("steps") for s in set_frame],
+                       "root_fit_p50_ms": [f.get("p50_ms") for f in fit],
+                       "layouts": [r.get("layouts") for r in per],
+                       "app_p95_ms_worst": round(p95, 1), "app_max_ms_worst": round(worst, 1), "runs": per}
+            if not resized:
+                row(False, f"chaos_resize.{key}", dict(summary, note="the drag made no resize step: it did not reach "
+                                                       "the window's edge or the divider (not a result)"))
+                continue
+            row(p95 <= 1.5 * refresh and worst <= 50, f"chaos_resize.{key}",
+                dict(summary, pass_if="app frame p95 <= 1.5 refresh and max <= 50 ms in each of 3 chaotic drags"))
+    RAW["chaos_resize"] = results
+
+
 def check_divider_load(tab, pane):
     """The divider fence's quality and frame-rate cost on a light page and a heavy one (the user's animating canvas):
     the same three out-and-back divider drags as live_resize.divider, recorded by the app's recorder, each frame
@@ -2079,7 +2190,7 @@ def check_element_fullscreen(tab, pane):
             time.sleep(1.0)  # test harness: the window settles
 
 
-REGRESSION_CHECKS = ("user_grid", "pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom",
+REGRESSION_CHECKS = ("user_grid", "pane_fit", "divider_resize", "window_resize", "fullscreen", "resize_hitch", "chaos_resize", "live_resize", "divider_load", "window_move", "tab_spam", "pane_zoom",
                      "popup_float", "omnibar_narrow", "key_route", "element_fullscreen")
 
 
@@ -2317,7 +2428,7 @@ try:
                 pane = page_pane(page_tab) or pane  # the measured page keeps its pane
             for name, run in (("pane_fit", check_pane_fit), ("divider_resize", check_divider_resize),
                               ("window_resize", check_window_resize), ("fullscreen", check_fullscreen),
-                              ("resize_hitch", check_resize_hitch), ("live_resize", check_live_resize), ("divider_load", check_divider_load),
+                              ("resize_hitch", check_resize_hitch), ("chaos_resize", check_chaos_resize), ("live_resize", check_live_resize), ("divider_load", check_divider_load),
                               ("pane_zoom", check_pane_zoom), ("popup_float", check_popup_float),
                               ("omnibar_narrow", check_omnibar_narrow), ("window_move", check_window_move), ("tab_spam", check_tab_spam),
                               ("key_route", check_key_route), ("element_fullscreen", check_element_fullscreen)):
