@@ -60,6 +60,7 @@ mod udp;
 mod ultra;
 mod ultra_auto;
 mod ultra_hello;
+mod ultra_period;
 mod ultra_rs;
 mod underlay;
 mod underlay_batch;
