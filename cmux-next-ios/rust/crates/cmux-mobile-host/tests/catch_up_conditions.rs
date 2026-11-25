@@ -294,14 +294,13 @@ fn relay_fixture(chats: usize, tabs: usize, events: u64) -> RelayFixture {
     let mut logs = std::collections::BTreeMap::new();
     let mut deltas = 0;
     for (surface, pages) in &plain {
-        let stream = delta::delta_stream(surface);
         let mut log = delta::DeltaLog::new();
         for (k, page) in pages.iter().enumerate() {
             let position = Position { epoch: RELAY_EPOCH, seq: 11 + k as u64 };
             let sealed = cmux_relay_snapshot::seal(
                 &mac,
                 &phone.public_key(),
-                &stream,
+                &delta::delta_stream(surface),
                 position,
                 page.to_string().as_bytes(),
             )
@@ -309,7 +308,7 @@ fn relay_fixture(chats: usize, tabs: usize, events: u64) -> RelayFixture {
             log.append(sealed, 0).unwrap();
             deltas += 1;
         }
-        logs.insert(stream, log);
+        logs.insert(surface.clone(), log);
     }
     RelayFixture {
         mac,
@@ -411,8 +410,13 @@ async fn relay_catch_up<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>
     use cmux_mobile_core::catch_up::relay;
     let mut floors = relay::Floors::default();
     floors.set_from_mac(&fixture.surfaces.iter().map(|s| (s.clone(), (RELAY_EPOCH, 10))).collect());
-    let body = relay::request(&floors, &fixture.surfaces, relay::MAX_BUDGET_BYTES).unwrap().to_string();
-    let path = relay::path("mac-1", "catch-up", "phone-1");
+    // The phone's steps (cmux-mobile-link-ffi `relay_request` / `relay_apply`): core picks the
+    // streams, the one relay cache client builds the call and opens the reply.
+    use cmux_mobile_link::relay_cache;
+    let mut wanted = relay::wanted(&floors, &fixture.surfaces);
+    let asks = relay_cache::resume_asks(&wanted);
+    let body = relay_cache::catch_up_body(&asks, relay_cache::MAX_BUDGET_BYTES).unwrap().to_string();
+    let path = relay_cache::path("phone-1", "mac-1", "catch-up", &[]);
     let request = format!(
         "POST {path} HTTP/1.1\r\nhost: relay\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
         body.len()
@@ -420,7 +424,19 @@ async fn relay_catch_up<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>
     stream.get_mut().write_all(request.as_bytes()).await.unwrap();
     let reply = read_http(stream, "HTTP/1.1 200").await.unwrap();
     let source = p256::PublicKey::from(fixture.mac.verifying_key());
-    let got = relay::read(&mut floors, &fixture.phone, &source, &reply).unwrap();
+    let reply_json = relay_cache::read_catch_up(&reply).unwrap();
+    let resume = relay_cache::apply_catch_up(reply_json, &source, &fixture.phone, &mut wanted).unwrap();
+    let opened: Vec<relay::Opened<'_>> = resume
+        .surfaces
+        .iter()
+        .map(|s| relay::Opened {
+            surface: &s.surface,
+            applied: &s.applied,
+            stopped: s.stopped.as_ref(),
+            head: s.head,
+        })
+        .collect();
+    let got = relay::take(&mut floors, &resume.cut, &opened);
     assert!(got.cut.is_empty(), "{:?}", got.cut_why);
     assert_eq!(got.answers.len(), fixture.deltas);
     (start.elapsed().as_secs_f64() * 1000.0, reply.len())
