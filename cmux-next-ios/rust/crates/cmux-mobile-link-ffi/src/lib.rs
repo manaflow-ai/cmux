@@ -22,6 +22,7 @@ mod chat_prompt_outbox;
 mod classic_leftovers;
 mod composer_outbox;
 mod follow_camera;
+mod lan;
 mod last_place;
 mod link_side;
 pub mod local_link;
@@ -328,8 +329,9 @@ fn timing_marks(timeline: &Timeline) -> Vec<TimingMark> {
 pub struct LinkHandle {
     link: cmux_mobile_link::Link,
     /// The (shared, warm) signaling socket this link was dialed on; it
-    /// stays open for the next dial while the warm pool holds it.
-    /// `None` for a link resumed on a dormant tunnel (no signaling ran).
+    /// stays open for the next dial while the warm pool holds it. `None` for a
+    /// link resumed on a dormant tunnel (no signaling ran) or one that came up
+    /// directly on the LAN (`lan.rs`).
     _signaling: Option<Arc<WarmSocket>>,
     transport: Transport,
     path: tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>,
@@ -946,7 +948,11 @@ async fn connect_on(
     let timeline = Timeline::new();
     let transport = request.transport;
     emit(&observer, LinkEvent::Connecting { transport });
-    let result = dial(pool, &request, &timeline).await;
+    // The relay dial may itself come back without a socket (a dormant resume), so the race's
+    // "no socket" and the dial's fold into one.
+    let result = lan::race(&request.mac_device_id, &timeline, dial(pool, &request, &timeline))
+        .await
+        .map(|(connected, signaling)| (connected, signaling.flatten()));
     let (connected, signaling) = match result {
         Ok(ok) => ok,
         Err(error) => {
@@ -974,6 +980,7 @@ async fn finish_link(
         Some(socket) if connected.webrtc_media => Some(media_manager(pool, request, &connected, socket)),
         _ => None,
     };
+    lan::enroll_later(connected.link.clone(), request.mac_device_id.clone());
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
@@ -1043,6 +1050,7 @@ async fn finish_link(
         timeline.clone(),
         match &signaling {
             Some(socket) => current_signaling(pool, socket),
+            // A LAN direct link (lan.rs) has no socket of its own: the pool's, when one is open.
             None => pooled_signaling(pool, request),
         },
         connected.session_id.clone(),
