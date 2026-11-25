@@ -46,6 +46,9 @@ use sha2::Digest as _;
 /// The flag that turns the chain off (`0`).
 pub const FLAG: &str = "CMUX_PROJECTION_PEERS";
 
+/// Maximum body retained from an optional peer or cache response.
+pub const MAX_HTTP_BODY_BYTES: usize = 16 * 1024 * 1024;
+
 /// The git object id of a blob with these bytes: sha1 for a 40-hex id, sha256 for a 64-hex id.
 /// Bytes that carry a SHA-1 collision attack hash to no id (an empty string), so they never match.
 #[must_use]
@@ -141,6 +144,27 @@ impl Http {
     }
 }
 
+fn bounded_body(mut response: reqwest::blocking::Response) -> Answer {
+    if response.content_length().is_some_and(|length| length > MAX_HTTP_BODY_BYTES as u64) {
+        return Answer::Failed;
+    }
+    let mut bytes = Vec::new();
+    let mut chunk = [0_u8; 8192];
+    loop {
+        let remaining = MAX_HTTP_BODY_BYTES - bytes.len();
+        let read_limit = chunk.len().min(remaining.saturating_add(1));
+        let read = match response.read(&mut chunk[..read_limit]) {
+            Ok(0) => return Answer::Found(bytes),
+            Ok(read) if read <= remaining => read,
+            _ => return Answer::Failed,
+        };
+        if bytes.len().checked_add(read).is_none() {
+            return Answer::Failed;
+        }
+        bytes.extend_from_slice(&chunk[..read]);
+    }
+}
+
 impl Get for Http {
     fn get(&self, url: &str, token: Option<&str>, deadline: Duration) -> Answer {
         let mut request = self.client.get(url).timeout(deadline);
@@ -150,9 +174,7 @@ impl Get for Http {
         match request.send() {
             Ok(response) if response.status().as_u16() == 404 => Answer::Absent,
             Ok(response) if matches!(response.status().as_u16(), 429 | 503) => Answer::Busy,
-            Ok(response) if response.status().is_success() => {
-                response.bytes().map_or(Answer::Failed, |bytes| Answer::Found(bytes.to_vec()))
-            }
+            Ok(response) if response.status().is_success() => bounded_body(response),
             _ => Answer::Failed,
         }
     }
@@ -992,33 +1014,109 @@ pub fn beat_repo(git_dir: &Path, repo: &str) -> BeatRepo {
     BeatRepo { repo: repo.to_owned(), packs, tips }
 }
 
+/// How a heartbeat posts: each try's bound, the beat period, and the first retry's backoff.
+#[derive(Debug, Clone, Copy)]
+pub struct BeatPolicy {
+    /// One try's bound. The index has answered in anywhere from 0.13 s to more than 15 s, so a
+    /// 10 s bound failed a beat the index would have taken.
+    pub attempt: Duration,
+    /// Time from one beat's start to the next.
+    pub period: Duration,
+    /// The first retry's backoff. Each retry doubles it, up to `period / 4`, jittered to 50-150%.
+    pub backoff: Duration,
+}
+
+impl BeatPolicy {
+    /// Production: try for up to 30 s, beat every minute, retry from 2 s.
+    pub const DEFAULT: Self = Self {
+        attempt: Duration::from_secs(30),
+        period: Duration::from_secs(60),
+        backoff: Duration::from_secs(2),
+    };
+}
+
+/// A factor in [0.5, 1.5) from the std hasher's random keys, so seeds that fail together
+/// don't all retry at once.
+fn jitter() -> f64 {
+    use std::hash::{BuildHasher as _, Hasher as _};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(Instant::now().elapsed().as_nanos());
+    0.5 + (hasher.finish() % 1000) as f64 / 1000.0
+}
+
+/// Posts one beat's `body` to `url`, retrying with jittered backoff until it lands or the next
+/// beat is due (`start + policy.period`). Returns the number of tries it took, or the last error.
+/// A 4xx other than 408 and 429 is the index refusing the beat itself, so it is not retried.
+pub fn post_beat(
+    client: &reqwest::blocking::Client,
+    url: &str,
+    token: Option<&str>,
+    body: &[u8],
+    policy: BeatPolicy,
+    start: Instant,
+) -> Result<usize, String> {
+    let deadline = start + policy.period;
+    let mut backoff = policy.backoff;
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        let left = deadline.saturating_duration_since(Instant::now());
+        let mut request = client
+            .post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .timeout(policy.attempt.min(left).max(Duration::from_millis(100)))
+            .body(body.to_vec());
+        if let Some(token) = token {
+            request = request.bearer_auth(token);
+        }
+        let error = match request.send() {
+            Ok(response) if response.status().is_success() => return Ok(tries),
+            Ok(response) => {
+                let status = response.status();
+                if status.is_client_error()
+                    && status != reqwest::StatusCode::REQUEST_TIMEOUT
+                    && status != reqwest::StatusCode::TOO_MANY_REQUESTS
+                {
+                    return Err(format!("{status} (not retried)"));
+                }
+                status.to_string()
+            }
+            Err(error) => format!("{error:#}"),
+        };
+        let wait = backoff.mul_f64(jitter());
+        if Instant::now() + wait >= deadline {
+            return Err(format!("{error} after {tries} tries"));
+        }
+        eprintln!("cmux-projection seed: heartbeat {url}: {error}; retry in {wait:?}");
+        // The retry's backoff, not a synchronization wait.
+        std::thread::sleep(wait);
+        backoff = (backoff * 2).min(policy.period / 4);
+    }
+}
+
 /// Posts `beat()` to `url` now and every minute after, never returning, so the controller's
 /// index (which forgets a seed after three minutes) lists this host while it seeds. Run it on a
-/// thread of the seed's scope. A failed post is logged and the next minute tries again; it never
+/// thread of the seed's scope. A failed try is retried with jittered backoff until the next beat
+/// is due ([`post_beat`]), so one slow or failed answer never costs the seed its listing; it never
 /// stops the seed.
 pub fn heartbeat(url: &str, token: Option<&str>, beat: &dyn Fn() -> Beat) {
     let _ = rustls::crypto::ring::default_provider().install_default();
+    let policy = BeatPolicy::DEFAULT;
     let Ok(client) = cmux_egress::blocking_client_builder("cmux_projection::peers")
-        .timeout(Duration::from_secs(10))
+        .connect_timeout(Duration::from_secs(5))
         .build()
     else {
         eprintln!("cmux-projection seed: no HTTP client; no heartbeat");
         return;
     };
     loop {
-        let mut request = client.post(url).json(&beat());
-        if let Some(token) = token {
-            request = request.bearer_auth(token);
-        }
-        match request.send() {
-            Ok(response) if response.status().is_success() => {}
-            Ok(response) => {
-                eprintln!("cmux-projection seed: heartbeat {url}: {}", response.status());
-            }
-            Err(error) => eprintln!("cmux-projection seed: heartbeat {url}: {error}"),
+        let start = Instant::now();
+        let body = serde_json::to_vec(&beat()).unwrap_or_default();
+        if let Err(error) = post_beat(&client, url, token, &body, policy, start) {
+            eprintln!("cmux-projection seed: heartbeat {url}: {error}");
         }
         // The heartbeat's period, not a synchronization wait.
-        std::thread::sleep(Duration::from_secs(60));
+        std::thread::sleep(policy.period.saturating_sub(start.elapsed()));
     }
 }
 
