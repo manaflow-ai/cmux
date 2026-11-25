@@ -10,6 +10,7 @@ you put it on live and take it off with one command.
 | [Weather](../leo-weather) | Live, animated conditions where you are | `cmux ext dev examples/extensions/leo-weather` | [#44224](https://github.com/manaflow-ai/cmux/pull/44224) |
 | [Gacha](../leo-gacha) | Pull a Chief: rarity glow, confetti, a collection log | `cmux ext dev examples/extensions/leo-gacha` | [#44199](https://github.com/manaflow-ai/cmux/pull/44199) |
 | [Usage](../leo-usage) | Tokens and spend across all your agents | `cmux ext dev examples/extensions/leo-usage` | signal [#44145](https://github.com/manaflow-ai/cmux/pull/44145) |
+| [Ambient](../leo-ambient) | Usage rings, checks on your pull requests and machine load, on New Tab or as a widget | `cmux ext dev examples/extensions/leo-ambient` | this PR |
 | [Theme](../../customize/leo) | The look: dusk, daylight or neon | `cmux customize use examples/customize/leo/dusk.json` | [#44176](https://github.com/manaflow-ai/cmux/pull/44176) |
 
 A piece whose PR has not merged yet is skipped by `install.sh`; until then, try it from its own
