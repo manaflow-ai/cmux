@@ -85,9 +85,13 @@ jobs:
             src="$RUNNER_TEMP/auto-journey-src"
             git worktree add --detach "$src" "$sha"
           fi
-          git -C "$src" submodule update --init --depth 1 ghostty ghostty-next
           echo "src=$src" >> "$GITHUB_OUTPUT"
           echo "sha=$(git -C "$src" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # Its own step, in the form tests/check_ghostty_zig_workflows.py reads as Ghostty's init.
+      - name: Init the commit's Ghostty submodules
+        working-directory: ${{ steps.at.outputs.src }}
+        run: git submodule update --init --depth 1 ghostty ghostty-next
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
