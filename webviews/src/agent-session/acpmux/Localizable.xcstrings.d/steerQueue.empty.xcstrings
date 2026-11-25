@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "steerQueue.empty" : {
+      "comment" : "Steer queue with no chat to list",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nothing needs you: every chat is idle and read."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "لا شيء يحتاجك: كل المحادثات خاملة ومقروءة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ništa te ne treba: svi razgovori miruju i pročitani su."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Intet kræver dig: alle chats er i ro og læst."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nichts braucht dich: Jeder Chat ruht und ist gelesen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada te necesita: todos los chats están inactivos y leídos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rien ne vous attend : chaque discussion est inactive et lue."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Niente ti aspetta: ogni chat è inattiva e letta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "対応が必要なものはありません。すべてのチャットは待機中で既読です。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "គ្មានអ្វីត្រូវការអ្នកទេ៖ ការជជែកទាំងអស់ទំនេរ និងបានអាន។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "처리할 항목이 없습니다. 모든 채팅이 대기 중이며 읽음 상태입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ingenting trenger deg: alle chatter er i ro og lest."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nic na ciebie nie czeka: każdy czat jest bezczynny i przeczytany."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nada precisa de você: todos os chats estão ociosos e lidos."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ничто вас не ждёт: все чаты простаивают и прочитаны."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่มีอะไรต้องให้คุณจัดการ: ทุกแชตว่างและอ่านแล้ว"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Seni bekleyen bir şey yok: tüm sohbetler boşta ve okundu."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ніщо на вас не чекає: усі чати простоюють і прочитані."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không có gì cần bạn: mọi cuộc trò chuyện đều rảnh và đã đọc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "没有需要你处理的：所有对话都空闲且已读。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "沒有需要你處理的：所有對話都閒置且已讀。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

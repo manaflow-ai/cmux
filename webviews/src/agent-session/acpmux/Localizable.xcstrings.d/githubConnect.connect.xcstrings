@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "githubConnect.connect" : {
+      "comment" : "Agent pane: the Sign in with GitHub card under a turn whose GitHub call found no GitHub access for this chat (conversation/GitHubConnectCard.tsx): the card's one button",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in with GitHub"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

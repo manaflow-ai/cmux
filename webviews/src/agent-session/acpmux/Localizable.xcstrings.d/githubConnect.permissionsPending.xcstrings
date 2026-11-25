@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "githubConnect.permissionsPending" : {
+      "comment" : "Agent pane: the Sign in with GitHub card under a turn whose GitHub call was refused because the cmux GitHub App's installation has not accepted its updated permissions yet (conversation/GitHubConnectCard.tsx): the card's line",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "GitHub needs you to accept cmux's updated permissions"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "cloudRepository.connect" : {
+      "comment" : "Agent pane: Cloud repository picker, recovery and a Cloud start that can't clone its repository: the button that signs in with GitHub (installs the cmux GitHub App on the repository's account)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sign in with GitHub"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
