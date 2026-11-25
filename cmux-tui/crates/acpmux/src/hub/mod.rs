@@ -557,7 +557,7 @@ mod translator_queue_tests;
 mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
-mod turn_cost;
+pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
 pub(crate) mod turn_shots;
