@@ -65,6 +65,9 @@ async fn a_pending_inbox_receipt_survives_a_513_acceptance_burst() {
     // turn id, so it must be retained while completed or unknown entries are evicted.
     for i in 0..KEPT_ACCEPTS {
         let id = format!("later-{i}");
+        // A receipt is only kept for a prompt with a live ledger outcome. Keep every later
+        // outcome pending so this burst exercises the overflow map, not an empty-cache path.
+        let _later_outcome = ledger_entry(&session, &id);
         keep_acceptance(&session, &id, &json!({"promptId": id, "queued": true}));
     }
 
