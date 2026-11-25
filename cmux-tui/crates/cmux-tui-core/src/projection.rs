@@ -165,6 +165,9 @@ struct ServeLine {
     at: String,
     #[serde(default)]
     manifest_bytes: u64,
+    /// A running server reconnecting, including when it resends its entire manifest.
+    #[serde(default)]
+    redial: bool,
     /// The bytes after this line, both ways, travel as [`LineWriter`] lines.
     #[serde(default)]
     lines: bool,
@@ -1180,7 +1183,7 @@ fn attach(
     }
     // An existing server redials without a manifest. Only a new explicit serve may add back a
     // detached folder. Check alongside detach's table update, before offering a manifest retry.
-    if encoded.is_empty() {
+    if line.redial || encoded.is_empty() {
         allow_redial(&state, &line.name)?;
     }
     let existing = existing.filter(|projected| projected.at == at);
@@ -1209,8 +1212,7 @@ fn attach(
     let (files, bytes) = manifest.totals();
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
-    let projected =
-        mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
+    let projected = mount(&line, manifest, &state, &at, digest)?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME"))
         && let Err(error) = git_stat::keep(dir, Path::new(&home), &at)
     {
@@ -1349,16 +1351,22 @@ fn mount_point(at: &str, roots: &[PathBuf]) -> Result<PathBuf, Refusal> {
 
 #[cfg(target_os = "linux")]
 fn mount(
-    name: &str,
+    line: &ServeLine,
     manifest: cmux_projection::manifest::Manifest,
     state: &Path,
     at: &Path,
     digest: u64,
-    head: bool,
-    from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     use std::os::unix::fs::MetadataExt as _;
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+    let name = line.name.as_str();
+    let head = line.head;
+    let from = line.from.as_deref();
+    // Fetching a stored manifest can overlap detach. Recheck under the same table lock
+    // before changing the mount or clearing the persisted detach.
+    if line.redial || line.manifest_bytes == 0 {
+        allow_redial(state, name)?;
+    }
     // A barrier the old mount held at its head: a remount that is no head dial has the whole
     // folder to offer, so it opens (below, once that mount is up); another head dial takes its own.
     let mut old_barrier = None;
@@ -1499,13 +1507,11 @@ fn mount(
 
 #[cfg(not(target_os = "linux"))]
 fn mount(
-    _name: &str,
+    _line: &ServeLine,
     _manifest: cmux_projection::manifest::Manifest,
     _state: &Path,
     _at: &Path,
     _digest: u64,
-    _head: bool,
-    _from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     Err(("projection.unavailable", "projected folders mount on Linux only".into()))
 }

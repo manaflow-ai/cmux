@@ -489,6 +489,25 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn detach_wins_over_a_redial_that_already_loaded_its_manifest() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let name = "p-late-redial";
+    let (state, at) = projected_state(home.path(), name);
+    let manifest = cmux_projection::manifest::Manifest::build(0, Vec::new()).unwrap();
+    detach(&control_line(name, None, None), &state).unwrap();
+    // Exercise the mount decision after the store fetch or the client's full-manifest retry.
+    for bytes in [0, 123] {
+        let line = serde_json::from_value(json!({
+            "cmd": SERVE, "name": name, "at": at, "manifest_bytes": bytes, "redial": true
+        }))
+        .unwrap();
+        let refused = mount(&line, manifest.clone(), &state, &at, 0).err().unwrap();
+        assert_eq!(refused.0, "projection.detached");
+    }
+}
+
 /// Leo, 2026-11-25: "we'll also presumably want to deal with various cases of like them maybe
 /// adding/removing folders and files per chat?" A folder removed from its chat keeps its edits
 /// for Bring Back, records which chat removed it, and is attached again when added back.

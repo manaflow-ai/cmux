@@ -603,7 +603,7 @@ fn serve_command(args: &[String]) -> anyhow::Result<Value> {
     let kept_already = super::base::kept(&folder, &at);
     let (dialed, made) = std::thread::scope(|scope| {
         let made = (!kept_already).then(|| scope.spawn(|| base_of_listing(&folder, &listed)));
-        (dial(&socket, &name, &at, &encoded, None), made.map(|made| made.join()))
+        (dial(&socket, &name, &at, &encoded, None, false), made.map(|made| made.join()))
     });
     let (stream, mut answer) = dialed?;
     if !ok(&answer) {
@@ -893,9 +893,9 @@ fn redial(
     if let Some(quiet) = quiet_socket(socket)
         && let Ok(stream) = UnixStream::connect(&quiet)
     {
-        return (ask(stream, name, at, encoded, revision), true);
+        return (ask(stream, name, at, encoded, revision, true), true);
     }
-    (dial(socket, name, at, encoded, revision), false)
+    (dial(socket, name, at, encoded, revision, true), false)
 }
 
 /// Dials the machine and asks it to serve projection `name` at `at` (`encoded`: the manifest, or
@@ -906,10 +906,11 @@ fn dial(
     at: &str,
     encoded: &[u8],
     revision: Option<&Value>,
+    redial: bool,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let stream = UnixStream::connect(socket)
         .with_context(|| format!("cannot reach the machine at {}", socket.display()))?;
-    ask(stream, name, at, encoded, revision)
+    ask(stream, name, at, encoded, revision, redial)
 }
 
 /// A dial the machine closed before it answered (a quiet socket while the machine sleeps).
@@ -935,6 +936,7 @@ fn ask(
     at: &str,
     encoded: &[u8],
     revision: Option<&Value>,
+    redial: bool,
 ) -> anyhow::Result<(BufReader<UnixStream>, Value)> {
     let mut line = json!({
         "id": 1,
@@ -942,6 +944,7 @@ fn ask(
         "name": name,
         "at": at,
         "manifest_bytes": encoded.len(),
+        "redial": redial,
         // Every byte after this line goes as text lines, both ways: the Cloud carrier carries
         // the dial as a `mux-control` stream, which moves whole lines only.
         "lines": true,

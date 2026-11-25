@@ -181,7 +181,7 @@ pub(crate) fn release_command(args: &[String]) -> anyhow::Result<Value> {
     let line = json!({"cmd": "projection.release", "name": found.name, "why": why});
     match dial_answer(&socket, &line)? {
         Ok(answer) => {
-            let _ = super::project::stop_recorded_server(&socket, &found);
+            let _ = super::project::stop_server(&found.remote);
             forget(&found.name);
             Ok(json!({"ok": true, "released": true,
                       "freed_bytes": field(&answer, "/data/freed_bytes")}))
@@ -382,7 +382,7 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
             Ok(answer) => {
                 dropped = field(&answer, "/data/dropped").as_bool() == Some(true);
                 freed_bytes = field(&answer, "/data/freed_bytes").as_u64();
-                let _ = super::project::stop_recorded_server(socket, found);
+                let _ = super::project::stop_server(&found.remote);
                 forget(&found.name);
             }
             Err(answer)
