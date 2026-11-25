@@ -485,13 +485,17 @@ pub(super) fn move_words(session: &str, machine: &str) -> Vec<String> {
 /// about 3 s on loopback, and a mid-turn move writes one continuation prompt today).
 fn move_once(global: &GlobalArgs, session: &str, machine: &str) -> Result<(), (String, bool)> {
     let mut runner = cloud_start_chat::SelfRunner::new(global);
-    match step_result(&runner.cmux(&move_words(session, machine))) {
-        Ok(_) => Ok(()),
-        Err(error) => {
-            let again = error.get("retryable").and_then(Value::as_bool) == Some(true);
-            Err((reason_of(&error), again))
-        }
-    }
+    move_outcome(step_result(&runner.cmux(&move_words(session, machine))))
+}
+
+/// What the driver makes of the move's answer: why it failed (the app's own reason, as a move
+/// refused for the owner's login names its step and cause) and whether to try again.
+pub(super) fn move_outcome(answer: Result<Value, Value>) -> Result<(), (String, bool)> {
+    let error = answer.err();
+    error.map_or(Ok(()), |error| {
+        let again = error.get("retryable").and_then(Value::as_bool) == Some(true);
+        Err((reason_of(&error), again))
+    })
 }
 
 /// The pause of a machine whose chat stayed here.
