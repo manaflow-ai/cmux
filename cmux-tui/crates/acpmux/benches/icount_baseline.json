@@ -1,0 +1,9 @@
+{
+  "about": "Callgrind instruction counts (Ir) of benches/icount.rs's cases on the cmux-linux runners; `cargo bench -p acpmux --bench icount -- check --update` rewrites them.",
+  "cases": {
+    "chat_frame": 47534031,
+    "jsonrpc_round": 21840988,
+    "mcp_connect": 132730938
+  },
+  "tolerance_pct": 2.0
+}

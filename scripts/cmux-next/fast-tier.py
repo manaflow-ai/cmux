@@ -377,6 +377,18 @@ def stale_lock_explained(root, refusals):
     return subprocess.run(explain, input="".join(refusals), text=True).returncode == 0
 
 
+# CMUX_SWIFT_TEST_PRODUCTS=fleet on a Mac: a package's test bundles come from the fleet job that built them for this
+# commit (scripts/ci/fleet-test-products.py); with none, or on any fault, this Mac builds them as it does without it.
+FLEET_OR_BUILD = ('python3 scripts/ci/fleet-test-products.py "$1" || { echo "::warning title=Fleet test products::$1: '
+                  'none for this commit; building them on this Mac"; swift build --build-tests --package-path "$1"; }')
+
+
+def swift_build_tests(package):
+    if os.environ.get("CMUX_SWIFT_TEST_PRODUCTS") == "fleet" and sys.platform == "darwin":
+        return ["bash", "-c", FLEET_OR_BUILD, "fleet-or-build", package]
+    return ["swift", "build", "--build-tests", "--package-path", package]
+
+
 def build_packages(root, entries, dry_run, timing):
     """Builds every Swift package and cargo test binary once, outside the entries' time cap.
 
@@ -391,7 +403,7 @@ def build_packages(root, entries, dry_run, timing):
     # (runs 41537871686, 41546766492).
     swift = [step
              for package in dict.fromkeys(e["package"] for e in entries if e["kind"] == "swift")
-             for step in ((["swift", "build", "--build-tests", "--package-path", package], ".", package),
+             for step in ((swift_build_tests(package), ".", package),
                           (["swift", "test", "--skip-build", "--list-tests", "--package-path", package], ".",
                            f"{package} test plan"))]
     # One build per cargo package, the same `-p` its entry runs with: one build of
