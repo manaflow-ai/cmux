@@ -160,7 +160,20 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             scripts/cmux-next
-            scripts/ci
+            scripts/ci/cargo_affected.py
+            scripts/ci/check_cmux_tui_tree_inputs.py
+            scripts/ci/defaults_guard.py
+            scripts/ci/job_inputs.py
+            scripts/ci/fast_check_route.py
+            scripts/ci/same_tree_reuse.py
+            scripts/ci/fast-check-inputs.json
+            scripts/ci/generated-files.json
+            scripts/ci/generated-files-baseline.txt
+            scripts/ci/generated_outputs.py
+            scripts/ci/affected-jobs.json
+            scripts/ci/pr_router.json
+            scripts/ci/job-inputs-always.json
+            scripts/ci/same_tree_reuse.json
           persist-credentials: false
 
       # The freshness guard and the changed paths need the true merge base: the
@@ -212,10 +225,26 @@ jobs:
           # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
           # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
           # restore to fetch them itself.
-          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next scripts/ci | awk '$1 == "blob" { print $2 }' |
+          ci_helpers=(
+            scripts/ci/cargo_affected.py
+            scripts/ci/check_cmux_tui_tree_inputs.py
+            scripts/ci/defaults_guard.py
+            scripts/ci/job_inputs.py
+            scripts/ci/fast_check_route.py
+            scripts/ci/same_tree_reuse.py
+            scripts/ci/fast-check-inputs.json
+            scripts/ci/generated-files.json
+            scripts/ci/generated-files-baseline.txt
+            scripts/ci/generated_outputs.py
+            scripts/ci/affected-jobs.json
+            scripts/ci/pr_router.json
+            scripts/ci/job-inputs-always.json
+            scripts/ci/same_tree_reuse.json
+          )
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next "${ci_helpers[@]}" | awk '$1 == "blob" { print $2 }' |
             git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
               --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
-          git --work-tree="$RUNNER_TEMP/autofix" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/cmux-next scripts/ci
+          git --work-tree="$RUNNER_TEMP/autofix" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/cmux-next "${ci_helpers[@]}"
 
       - name: Refuse stale generator inputs
         env:
@@ -1068,6 +1097,29 @@ jobs:
               cd "$RUNNER_TEMP/pr-autofix-context"
               find scripts/cmux-next scripts/ci -type f ! -name .gitignore -printf '%P\n' | sort
             ) > "$artifact_paths"
+            required_paths="$RUNNER_TEMP/autofix-required-paths"
+            ci_helpers=(
+              scripts/ci/cargo_affected.py
+              scripts/ci/check_cmux_tui_tree_inputs.py
+              scripts/ci/defaults_guard.py
+              scripts/ci/job_inputs.py
+              scripts/ci/fast_check_route.py
+              scripts/ci/same_tree_reuse.py
+              scripts/ci/fast-check-inputs.json
+              scripts/ci/generated-files.json
+              scripts/ci/generated-files-baseline.txt
+              scripts/ci/generated_outputs.py
+              scripts/ci/affected-jobs.json
+              scripts/ci/pr_router.json
+              scripts/ci/job-inputs-always.json
+              scripts/ci/same_tree_reuse.json
+            )
+            {
+              awk -F '\t' '$2 ~ /^scripts\/cmux-next\// { print $2 }' "$base_manifest"
+              printf '%s\n' "${ci_helpers[@]}"
+            } | sort -u > "$required_paths"
+            missing_paths="$(comm -23 "$required_paths" "$artifact_paths")"
+            [[ -z "$missing_paths" ]] || artifact_ok=false
             expected_hashes="$RUNNER_TEMP/autofix-base-hashes"
             actual_hashes="$RUNNER_TEMP/autofix-artifact-hashes"
             if ! awk 'NR == FNR { oid[$2] = $1; next }
