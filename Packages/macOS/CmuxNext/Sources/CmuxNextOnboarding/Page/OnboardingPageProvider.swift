@@ -111,11 +111,15 @@ final class OnboardingPageProvider: PageProvider {
             guard let value = WorkStyle(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown work style") }
             model.makeItYours.setWorkStyle(value)
         case "cmux.onboarding.makeItYours.density":
-            guard let value = DensityChoice(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
-            model.makeItYours.setDensity(value)
+            guard model.makeItYours.setDensity(try Self.string(params, "value")) else { throw PageError.invalidParams("unknown density") }
         case "cmux.onboarding.makeItYours.background":
             // null: no background.
             guard model.makeItYours.setBackground(params["id"]?.stringValue) else { throw PageError.invalidParams("unknown background") }
+        case "cmux.onboarding.makeItYours.opacity":
+            guard let value = params["value"]?.doubleValue, model.makeItYours.setOpacity(value) else { throw PageError.invalidParams("opacity is 0 to 1") }
+        case "cmux.onboarding.makeItYours.material":
+            guard let value = FirstRunMaterial(rawValue: try Self.string(params, "value")) else { throw PageError.invalidParams("unknown material") }
+            model.makeItYours.setMaterial(value)
         default: throw PageError.unknownOp(op)
         }
     }
