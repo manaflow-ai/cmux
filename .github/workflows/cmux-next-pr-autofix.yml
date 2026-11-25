@@ -150,7 +150,7 @@ jobs:
       grant_runner: ${{ steps.grant.outputs.grant_runner }}
       grant_jobs: ${{ steps.grant.outputs.grant_jobs }}
     steps:
-      # Only the merge commit and scripts/cmux-next (the fallback copies of the
+      # Only the merge commit and the autofix helper trees (the fallback copies of the
       # two scripts below); the next step fetches the history it needs. A
       # fetch-depth 0 checkout fetched every branch's (about 25,000) commits
       # and trees and the whole tree's blobs: 3-6 min on 2026-11-03.
@@ -160,6 +160,7 @@ jobs:
           filter: blob:none
           sparse-checkout: |
             scripts/cmux-next
+            scripts/ci
           persist-credentials: false
 
       # The freshness guard and the changed paths need the true merge base: the
@@ -211,10 +212,10 @@ jobs:
           # request each: 3.7 min on the GCP pool, and 13 min then a failure on a Freestyle VM (cmux#47189,
           # 2026-11-23); a local blobless clone made 1,675 fetches for 981 files. A failed batch leaves the
           # restore to fetch them itself.
-          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next | awk '$1 == "blob" { print $2 }' |
+          git ls-tree -r --format='%(objecttype) %(objectname)' "$BASE_SHA" -- scripts/cmux-next scripts/ci | awk '$1 == "blob" { print $2 }' |
             git -c fetch.negotiationAlgorithm=noop fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no \
               --filter=blob:none --stdin origin || echo "::warning::batched blob fetch failed; restore fetches them one at a time"
-          git --work-tree="$RUNNER_TEMP/autofix" restore --source="$BASE_SHA" --worktree -- scripts/cmux-next
+          git --work-tree="$RUNNER_TEMP/autofix" restore --ignore-skip-worktree-bits --source="$BASE_SHA" --worktree -- scripts/cmux-next scripts/ci
 
       - name: Refuse stale generator inputs
         env:
@@ -279,6 +280,7 @@ jobs:
           rm -rf "$context"
           mkdir -p "$context/scripts"
           cp -R "$RUNNER_TEMP/autofix/scripts/cmux-next" "$context/scripts/"
+          cp -R "$RUNNER_TEMP/autofix/scripts/ci" "$context/scripts/"
           cp "$RUNNER_TEMP/changed.txt" "$context/changed.txt"
           : > "$context/generator-inputs-verified"
 
@@ -1035,8 +1037,11 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/autofix"
           if [[ -f "$RUNNER_TEMP/pr-autofix-context/generator-inputs-verified" ]]; then
-            cp -R "$RUNNER_TEMP/pr-autofix-context/scripts/cmux-next" "$RUNNER_TEMP/autofix/"
-            cp "$RUNNER_TEMP/pr-autofix-context/changed.txt" "$RUNNER_TEMP/changed.txt"
+            mkdir -p "$RUNNER_TEMP/autofix/scripts"
+            cp -R "$RUNNER_TEMP/pr-autofix-context/scripts/." "$RUNNER_TEMP/autofix/scripts/"
+            # Artifact archives do not retain executable bits. Every directly invoked
+            # helper is a shell script; restore that bit before the checks and repair run.
+            find "$RUNNER_TEMP/autofix/scripts" -type f -name '*.sh' -exec chmod +x {} +
             echo "Reused PR autofix context artifact; skipping the base script restore."
             echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
             exit 0
