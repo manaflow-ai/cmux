@@ -674,12 +674,15 @@ class WorkflowShape(unittest.TestCase):
         gates_job = job(workflow())
         steps = gates_job["steps"]
         gates = steps.index(step_named(steps, "Fast gates on the merge"))
-        total = 0
+        # A "Pool mirror: X" step runs instead of its twin X (one on a cmux-runner-pool VM, the other elsewhere), so a
+        # job spends only the larger of the two bounds.
+        bounds: dict[str, int] = {}
         for step in steps[:gates]:
             with self.subTest(step=step["name"]):
                 self.assertIn("timeout-minutes", step)
-                total += int(step["timeout-minutes"])
-        self.assertLessEqual(total, 40)
+                name = step["name"].removeprefix("Pool mirror: ").lower()
+                bounds[name] = max(bounds.get(name, 0), int(step["timeout-minutes"]))
+        self.assertLessEqual(sum(bounds.values()), 40)
         # Node never comes from GitHub's node-versions releases (setup-node's download): the tool cache or nodejs.org.
         node = step_named(steps, "Setup Node")
         self.assertNotIn("uses", node)
@@ -735,6 +738,9 @@ class WorkflowShape(unittest.TestCase):
         for step in steps:
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
+                continue
+            # So are the Bun package cache steps (#55346): a miss or a hung restore is a slower install, never a red.
+            if str(step.get("uses", "")).startswith(("actions/cache@", "actions/cache/restore@")):
                 continue
             if step.get("continue-on-error") is True and not any(r in step["name"] for r in receipt_steps):
                 with self.subTest(gated=step["name"]):
