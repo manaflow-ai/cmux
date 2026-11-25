@@ -309,6 +309,7 @@ private struct TeamStep: View {
                             SkeletonList(rows: 2, leadingSquare: theme.metrics.teamAvatar, delay: .zero)
                                 .transition(.opacity)
                                 .accessibilityIdentifier("setup.teams.loading")
+                                .placeholderBound("onboarding.teams.skeleton", .milliseconds(2000))
                         case .failed:
                             failedRow
                                 .transition(.opacity)
@@ -481,8 +482,7 @@ private struct CreateTeamPage: View {
         SetupPage(symbol: "person.2", title: "Create your team") {
             VStack(alignment: .leading, spacing: 10) {
                 TextField("Team name", text: $name)
-                    // Names are code-like: no autocorrect, no capitals (full verify D5).
-                    .autocorrectionDisabled()
+                    // Names are code-like: no capitals (full verify D5); autocorrect stays on, as on every GUI field (Leo, 2026-11-23).
                     .textInputAutocapitalization(.never)
                     .font(theme.type.body)
                     .cmuxMobileInputField()

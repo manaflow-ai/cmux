@@ -21,6 +21,12 @@ mod exit_429;
 #[path = "auto_resume_429_storm.rs"]
 mod storm_429;
 
+#[path = "auto_resume_overload_storm.rs"]
+mod overload_storm;
+
+#[path = "auto_resume_529_chaos.rs"]
+mod chaos_529;
+
 #[path = "auto_resume_limits.rs"]
 mod limits;
 
