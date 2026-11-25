@@ -364,7 +364,10 @@ class GeneratedFoldTest(unittest.TestCase):
             self.assertIn(FOLD, give["if"])
             self.assertNotIn("exit 1", give["run"])
             self.assertNotIn("Fail on stale generated files", names)
-        self.assertIn(STALE, self.step(self.generated, "Fail on stale generated files")["run"])
+        # The Mac fallback's step runs the fleet job's verdict script (scripts/ci/cmux-next-steps/generated-files-linux.sh).
+        fail = self.step(self.generated, "Fail on stale generated files")["run"]
+        self.assertEqual(fail, "bash scripts/ci/cmux-next-steps/generated-files-linux.sh verdict")
+        self.assertIn(STALE, (ROOT / "scripts/ci/cmux-next-steps/generated-files-linux.sh").read_text())
 
     def test_the_verdict_job_fails_a_stale_file_or_a_missing_verdict(self):
         self.assertEqual(self.verdict["needs"], ["path_route", "swift-test", "daemon-test"])
@@ -382,7 +385,7 @@ class GeneratedFoldTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             summary, output = Path(temp) / "summary", Path(temp) / "output"
             summary.write_text(""); output.write_text("")
-            result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True,
+            result = subprocess.run(["bash", "-e", "-c", script], capture_output=True, text=True, cwd=ROOT,
                                     env={**os.environ, "GITHUB_STEP_SUMMARY": str(summary), "GITHUB_OUTPUT": str(output),
                                          **env})
             return result, summary.read_text(), output.read_text()
