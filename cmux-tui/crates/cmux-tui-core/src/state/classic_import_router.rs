@@ -8,14 +8,21 @@
 //! the app, which makes the workspaces.
 //!
 //! - `classic_import.plan` (read): `{ledger, decision, source, backups,
-//!   error, plan, preview}` for one run, `automatic` (at launch) or
+//!   error, classic_running, plan, preview}` for one run, `automatic` (at launch) or
 //!   `manual` (Import Workspaces from Classic cmux). `decision` says whether
 //!   an automatic run starts; `plan` is what the run makes against the
 //!   ledger, the workspaces open now and the groups that exist now.
+//!   `classic_running` says whether the classic app that saved `source` is
+//!   open now (its socket lock, or its launch sentinel and a recent save).
+//!   Each tab's `scrollback` is the read-only text its new shell prints;
+//!   `outline: true` leaves every one out (null) for a caller that only
+//!   counts workspaces or lists folders.
 //! - `classic_import.record` (mutation): one ledger step. `seen` and
 //!   `baseline` are a launch's first contact (nothing made); `begin` backs up
 //!   the classic files read and marks the run in progress; `workspace` and
-//!   `group` record what was made; `finish` marks it completed.
+//!   `group` record what was made; `finish` marks it completed. `decline`
+//!   keeps a launch's No (`declinedAt`): later launches skip with
+//!   `declined` until a run begins or finishes, which clears it.
 //!
 //! A caller names a bundle id, never a path: the daemon reads only classic's
 //! session files and writes only the migration's own folder. A newer build's
@@ -39,6 +46,9 @@ use crate::state::store::{StateChanges, StateCommit};
 use crate::workspace_registry::WorkspaceMutation;
 use crate::{Mux, ResourceTarget};
 
+/// The folder a DEV build's launch names for classic's data (BuildStatePaths `classicImportDirectoryKey`).
+const CLASSIC_DIR_ENV: &str = "CMUX_NEXT_CLASSIC_IMPORT_DIR";
+
 /// Advertised in identify: the daemon answers `classic_import.plan` and
 /// `classic_import.record`.
 pub const CAPABILITY: &str = "classic-import-v1";
@@ -49,6 +59,13 @@ pub(crate) const NEWER_LEDGER: &str = "ledger from a newer cmux";
 pub(crate) const PLAN_OPERATION: &str = "classic_import.plan";
 pub(crate) const RECORD_OPERATION: &str = "classic_import.record";
 pub(crate) const UNREADABLE_LEDGER: &str = "ledger could not be read";
+
+/// The most a plan's JSON takes in its `classic_import.plan` reply: the
+/// server's control-reply limit (`REMOTE_SESSION_MESSAGE_MAX_BYTES`, past
+/// which `send_control` closes the connection) less room for the envelope,
+/// the source, the backups and the preview. A bigger plan keeps each
+/// terminal's newest scrollback (`Plan::fit`).
+pub(crate) const PLAN_REPLY_BUDGET: usize = crate::REMOTE_SESSION_MESSAGE_MAX_BYTES - 1024 * 1024;
 
 pub(crate) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -62,29 +79,53 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
 #[derive(Debug, Clone)]
 pub(crate) struct Places {
     pub(crate) home: PathBuf,
+    /// Classic's Application Support: `<home>/Library/Application Support`, or a DEV build's own folder
+    /// ([`CLASSIC_DIR_ENV`]), which also holds the ledger (`cmux-next/<bundle id>/classic-migration`).
+    pub(crate) support: PathBuf,
+    /// The home whose classic socket locks say classic runs: `home`, or the DEV build's own folder.
+    pub(crate) probe_home: PathBuf,
     pub(crate) xdg_state_home: Option<String>,
+    /// Where classic's `/tmp` socket lock is (`/tmp`; a test's own folder).
+    pub(crate) tmp: PathBuf,
 }
 
 impl Places {
     fn from_env() -> Option<Self> {
-        let var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
-        let home = std::env::var_os(var).filter(|value| !value.is_empty())?;
+        Self::from_vars(|name| std::env::var_os(name))
+    }
+
+    /// The places of a process with the environment `var`. A DEV build's launch names its own folder
+    /// ([`CLASSIC_DIR_ENV`]): classic's files, the ledger and whether classic runs are all read there, so a DEV
+    /// build never imports (or records against) the person's classic, production data. The folder starts
+    /// empty; a test puts a classic session in it.
+    pub(crate) fn from_vars(var: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<Self> {
+        let home_var = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        let home = PathBuf::from(var(home_var).filter(|value| !value.is_empty())?);
+        if let Some(own) = var(CLASSIC_DIR_ENV).filter(|value| !value.is_empty()).map(PathBuf::from)
+        {
+            return Some(Self {
+                home,
+                xdg_state_home: Some(own.join("state").to_string_lossy().into_owned()),
+                tmp: own.join("tmp"),
+                probe_home: own.clone(),
+                support: own,
+            });
+        }
         Some(Self {
-            home: PathBuf::from(home),
-            xdg_state_home: std::env::var("XDG_STATE_HOME").ok(),
+            support: home.join("Library/Application Support"),
+            probe_home: home.clone(),
+            home,
+            xdg_state_home: var("XDG_STATE_HOME").and_then(|value| value.into_string().ok()),
+            tmp: PathBuf::from("/tmp"),
         })
     }
 
-    fn support(&self) -> PathBuf {
-        self.home.join("Library/Application Support")
-    }
-
     fn finder(&self, bundle_id: &str) -> Finder {
-        Finder::new(&self.support(), Some(bundle_id))
+        Finder::new(&self.support, Some(bundle_id))
     }
 
     fn folder(&self, bundle_id: &str) -> Result<Folder, ResourceError> {
-        ledger::default_directory(&self.home, bundle_id).map(Folder::new).ok_or_else(|| {
+        ledger::directory_in(&self.support, bundle_id).map(Folder::new).ok_or_else(|| {
             ResourceError::validation_invalid(
                 Some("bundle_id"),
                 "bundle_id is a reverse-DNS bundle identifier",
@@ -93,8 +134,14 @@ impl Places {
     }
 
     fn classic_running(&self, source: &Source) -> bool {
-        let root = RunningProbe::default_state_root(&self.home, self.xdg_state_home.as_deref());
-        RunningProbe { state_root: root }.is_running(source, seconds(std::time::SystemTime::now()))
+        let root =
+            RunningProbe::default_state_root(&self.probe_home, self.xdg_state_home.as_deref());
+        RunningProbe { state_root: root }.is_open(
+            source,
+            &self.probe_home,
+            &self.tmp,
+            seconds(std::time::SystemTime::now()),
+        )
     }
 }
 
@@ -139,6 +186,16 @@ fn texts(fields: &Map<String, Value>, name: &'static str) -> Result<Vec<String>,
     }
 }
 
+fn outline(fields: &Map<String, Value>) -> Result<bool, ResourceError> {
+    match fields.get("outline") {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(outline)) => Ok(*outline),
+        Some(_) => {
+            Err(ResourceError::validation_invalid(Some("outline"), "outline must be a boolean"))
+        }
+    }
+}
+
 fn mode(fields: &Map<String, Value>) -> Result<Mode, ResourceError> {
     match required(fields, "mode")? {
         "automatic" => Ok(Mode::Automatic),
@@ -171,6 +228,12 @@ pub(crate) enum Event {
     Group {
         classic: String,
         next: String,
+    },
+    /// The person cancelled the launch's preview: later launches stop
+    /// asking until a manual run begins or finishes. `source` is recorded
+    /// when the ledger names none yet.
+    Decline {
+        source: Option<Source>,
     },
     /// The run (or a plan with nothing to make) is done.
     Finish {
@@ -251,6 +314,7 @@ impl Record {
                 classic: required(fields, "classic_group")?.to_string(),
                 next: required(fields, "next_group")?.to_string(),
             },
+            "decline" => Event::Decline { source: source(false)? },
             "finish" => Event::Finish {
                 source: source(false)?,
                 cloud_vms: texts(fields, "cloud_vm_keys")?,
@@ -259,7 +323,7 @@ impl Record {
             _ => {
                 return Err(ResourceError::validation_invalid(
                     Some("event"),
-                    "event must be seen, baseline, begin, workspace, group or finish",
+                    "event must be seen, baseline, begin, workspace, group, decline or finish",
                 ));
             }
         };
@@ -306,6 +370,7 @@ impl Record {
             Event::Begin { source, cloud_vms, app_version, .. } => {
                 skip_cloud_vms(&mut ledger, cloud_vms);
                 ledger.state = State::InProgress;
+                ledger.declined_at = None;
                 ledger.source = Some(source.clone());
                 ledger.runs = ledger.runs.saturating_add(1);
                 ledger.app_version = app_version.clone().or(ledger.app_version);
@@ -316,9 +381,19 @@ impl Record {
             Event::Group { classic, next } => {
                 ledger.groups.insert(classic.clone(), next.clone());
             }
+            Event::Decline { source } => {
+                ledger.declined_at = Some(now);
+                // A declined resume ends too, so no launch asks again.
+                ledger.state = State::Completed;
+                if ledger.source.is_none() {
+                    ledger.source = source.clone();
+                }
+            }
             Event::Finish { source, cloud_vms, app_version } => {
                 skip_cloud_vms(&mut ledger, cloud_vms);
                 ledger.state = State::Completed;
+                // Asking by hand, even with nothing left to bring, takes back a launch's No.
+                ledger.declined_at = None;
                 if let Some(source) = source {
                     ledger.source = Some(source.clone());
                 }
@@ -367,10 +442,12 @@ impl Mux {
         places: Option<&Places>,
         bundle_id: &str,
         mode: Mode,
+        outline: bool,
     ) -> Result<Value, ResourceError> {
         let Some(places) = places else {
             return Ok(json!({"ledger": "none", "decision": null, "source": null, "backups": [],
-                             "error": null, "plan": null, "preview": null}));
+                             "error": null, "classic_running": false, "plan": null,
+                             "preview": null}));
         };
         let folder = places.folder(bundle_id)?;
         let load = folder.load();
@@ -400,12 +477,13 @@ impl Mux {
         reply.insert("source".into(), json!(save.as_ref().map(|save| &save.source)));
         reply.insert("backups".into(), json!(backups));
         reply.insert("error".into(), json!(error));
+        let source = save.as_ref().map(|save| &save.source);
+        let running = source.is_some_and(|source| places.classic_running(source));
+        reply.insert("classic_running".into(), json!(running));
         reply.insert("plan".into(), Value::Null);
         reply.insert("preview".into(), Value::Null);
         match mode {
             Mode::Automatic => {
-                let source = save.as_ref().map(|save| &save.source);
-                let running = source.is_some_and(|source| places.classic_running(source));
                 let decision = plan::decision(&load, source, running);
                 reply.insert("decision".into(), json!(decision));
                 if matches!(decision, plan::Decision::Skip(_)) {
@@ -428,6 +506,13 @@ impl Mux {
         let Some(save) = save else { return Ok(Value::Object(reply)) };
         let (live, live_groups) = self.classic_live();
         let made = plan::plan(&save.snapshot, load.ledger().as_ref(), &live, &live_groups, mode);
+        drop(save.snapshot);
+        let mut made = if outline { made.outline() } else { made };
+        // One reply carries the plan: past the control limit the connection closes.
+        if let Err(too_large) = made.fit(PLAN_REPLY_BUDGET) {
+            reply.insert("error".into(), json!(too_large.to_string()));
+            return Ok(Value::Object(reply));
+        }
         reply.insert("preview".into(), json!(Preview::new(&save.source, &made)));
         reply.insert("plan".into(), json!(made));
         Ok(Value::Object(reply))
@@ -446,6 +531,15 @@ impl Mux {
             anyhow::bail!("bad request: the daemon has no home folder")
         };
         let folder = places.folder(&record.bundle_id).map_err(anyhow::Error::from)?;
+        // A retried step that already ran answers its first result before
+        // any file is checked or copied: classic may have saved again, or
+        // removed a file, since. The commit checks again, for a retry that
+        // races the first.
+        if let Some(replayed) =
+            self.state_commit_replay(mutation, RECORD_OPERATION, &record.fingerprint, None)?
+        {
+            return Ok(replayed);
+        }
         // Classic's files are copied before the commit, with no lock held (a
         // session can be hundreds of megabytes), into a staged folder that
         // becomes a backup only inside the commit: a replayed step keeps
@@ -512,13 +606,26 @@ pub(crate) fn dispatch(
     mux: &std::sync::Arc<Mux>,
     request: ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
+    dispatch_in(mux, request, dispatch_places())
+}
+
+/// [`dispatch`] under `places` (a test's own home instead of the daemon's).
+pub(crate) fn dispatch_in(
+    mux: &std::sync::Arc<Mux>,
+    request: ParsedResourceRequest,
+    places: Option<Places>,
+) -> Result<Value, ResourceError> {
     debug_assert!(handles(request.envelope.operation));
     mux.resolve_resource_path(ResourceTarget::Session, &request.selectors)?;
-    let places = Places::from_env();
     match request.envelope.operation {
         ResourceOperation::ClassicImportPlan => {
             let bundle_id = required(&request.fields, "bundle_id")?;
-            mux.classic_import_plan(places.as_ref(), bundle_id, mode(&request.fields)?)
+            mux.classic_import_plan(
+                places.as_ref(),
+                bundle_id,
+                mode(&request.fields)?,
+                outline(&request.fields)?,
+            )
         }
         ResourceOperation::ClassicImportRecord => {
             let record = Record::parse(&request.fields)?;
@@ -535,7 +642,27 @@ pub(crate) fn dispatch(
     }
 }
 
+/// The daemon's places; a test that drives the wire names its own home.
+fn dispatch_places() -> Option<Places> {
+    #[cfg(test)]
+    if let Some(home) = TEST_HOME.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    {
+        return Some(places_for_test(&home));
+    }
+    Places::from_env()
+}
+
 #[cfg(test)]
 pub(crate) fn places_for_test(home: &std::path::Path) -> Places {
-    Places { home: home.to_path_buf(), xdg_state_home: None }
+    Places {
+        home: home.to_path_buf(),
+        support: home.join("Library/Application Support"),
+        probe_home: home.to_path_buf(),
+        xdg_state_home: None,
+        tmp: home.join("tmp"),
+    }
 }
+
+/// The home the wire's `classic_import.*` reads in a test, in place of `HOME`.
+#[cfg(test)]
+pub(crate) static TEST_HOME: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);

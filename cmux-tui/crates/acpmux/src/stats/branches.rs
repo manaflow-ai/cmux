@@ -110,7 +110,7 @@ impl Branches {
 /// whose harness does not count its cache apart (`fresh_harness`,
 /// `SessionMeta::input_excludes_cache`) has the cache taken out, at no less
 /// than none, as the agent pane does (webviews tokenSplit.ts).
-pub(super) fn turn_usage(msg: &Value, fresh_harness: bool) -> TurnUsage {
+pub(crate) fn turn_usage(msg: &Value, fresh_harness: bool) -> TurnUsage {
     let count = |key: &str| msg.get(key).and_then(Value::as_u64);
     let cache_read = count("cacheReadTokens");
     let cache_write = count("cacheWriteTokens");
@@ -130,6 +130,7 @@ pub(super) fn turn_usage(msg: &Value, fresh_harness: bool) -> TurnUsage {
         output_tokens: count("outputTokens"),
         cache_read_tokens: cache_read,
         cache_write_tokens: cache_write,
+        cache_write_1h_tokens: count("cacheWrite1hTokens"),
     }
 }
 

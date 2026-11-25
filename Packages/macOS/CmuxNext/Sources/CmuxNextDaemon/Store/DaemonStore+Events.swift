@@ -117,6 +117,14 @@ extension DaemonStore {
         case .daemonShutdown:
             return DaemonConnectionChange.shutdown.apply(to: self)
 
+        case .screenDeviceChanged(let id):
+            guard let envelope, let stamp = sideEvents.controlStamp,
+                  envelope.sourceID == stamp.sourceID, envelope.connectionSerial == stamp.serial,
+                  var identity else { return .none }
+            identity.screenDeviceID = DaemonIdentity.normalizedScreenDeviceID(id)
+            noteHandshake(identity)
+            return .none
+
         case .workspaceAdded(let delta):
             return applyWorkspaceDelta(delta) { store, delta in
                 if let existing = store.index.workspacesByID[WorkspaceModel.identity(delta.entity)] {
@@ -224,7 +232,7 @@ extension DaemonStore {
                 indexed(existing, in: pane)
             } else {
                 let tab = TabModel(delta.entity)
-                tab.setAgent(agents.bySurface[delta.surface])
+                tab.setAgent(agents.status(for: tab))
                 pane.insertTab(tab, at: delta.index ?? pane.tabs.count)
                 indexed(tab, in: pane)
             }
@@ -293,8 +301,8 @@ extension DaemonStore {
             clearPresence()
             return .resync
 
-        case .titleChanged(let surface, let title):
-            tabsBySurface[surface]?.setTitle(title)
+        case .titleChanged(let surface, let title, let activity):
+            tabsBySurface[surface]?.setTitle(title, activity: activity)
             return .none
         case .surfaceResized(let surface, let size):
             tabsBySurface[surface]?.setSize(size)
@@ -310,14 +318,19 @@ extension DaemonStore {
             // follows with `tree-changed`/`tab-changed`, which settle the state.
             return .none
         case .agentChanged(let status):
-            if agents.apply(status) { tabsBySurface[status.surface]?.setAgent(status) }
+            if agents.apply(status) {
+                // Every tab of the terminal, not only the one on the surface the event names: a
+                // restored or reopened terminal's tab has a surface of its own (cmux#49392).
+                tabsBySurface[status.surface]?.setAgent(status)
+                if let terminal = status.terminalID { for tab in index.tabs(terminalResource: terminal) { tab.setAgent(status) } }
+            }
             return .none
         case .agentPresenceChanged(let presence):
             holdPresence(presence)
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
-        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
+        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .agentSessionShareChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
             sideEvents.deliver(event, envelope: envelope)
             return .none

@@ -134,6 +134,26 @@ import Testing
         return s.isEmpty ? 0 : s[min(s.count - 1, Int((Double(s.count - 1) * q).rounded()))]
     }
 
+    /// New senders change the rows but not the messages array: a later width pass (a panel opening) must not
+    /// bring back the rows from before them, as it brought the Chief's letter back over its picture.
+    @Test func aWidthPassKeepsAnAvatarThatCameAfterTheLastOne() throws {
+        var rig = Self.rig(messages: 20, width: 1200)
+        rig.store.dispatch(.cmuxSetSenders(rig.store.state.conversation.participants, group: true))
+        Self.resize(rig, to: 1000) // remembers these rows, with no picture yet
+        rig.frames.start()
+        let picture = "file:///Users/me/.cmux/chiefs/agent_chief/3f2a.png"
+        // `setAvatars` is mutating: call it first, then require its action (#require cannot call a mutating member).
+        let changed = rig.core.setAvatars([Self.chief.rawValue: .image(picture)])
+        rig.store.dispatch(try #require(changed))
+        Self.resize(rig, to: 900)
+        rig.frames.start()
+        let avatars = rig.view.model.rows.compactMap { row -> SenderAvatar? in
+            if case let .part(p) = row.spec.kind, !p.outgoing { p.cmuxAvatar } else { nil }
+        }
+        #expect(!avatars.isEmpty)
+        #expect(avatars.allSatisfy { $0 == .image(picture) })
+    }
+
     /// A slow frame (budget 0: every frame's first pass uses the whole budget) defers the frame's later
     /// width changes: a narrower one must still lay the rows out at once, so no bubble is cut off.
     @Test func aSlowFrameNeverShowsRowsWiderThanTheView() {
@@ -142,7 +162,10 @@ import Testing
         defer { MessagesWindowView.widthPassFrameBudget = saved }
         var rig = Self.rig(messages: 120, width: 1200)
         Self.stream(&rig, "I restarted everything")
+        let passes0 = MessagesWindowView.widthPasses
         let (stale, _) = Self.drag(&rig)
+        print("STREAMRESIZE slow frame: width passes near the viewport \(rig.view.widthPassesNearViewport) of \(MessagesWindowView.widthPasses - passes0)"
+              + ", a fading row at the end \(rig.view.model.hasGhosts), loaded rows \(rig.view.model.liveCount)")
         #expect(stale.isEmpty, "\(stale.count) frames showed rows wider than the view: \(stale.prefix(5))")
     }
 
@@ -151,9 +174,11 @@ import Testing
     @Test func aStreamingReplyKeepsTheWidthPassFast() {
         var rig = Self.rig(messages: 400, width: 1200)
         Self.stream(&rig, "I restarted everything")
-        let full0 = MessagesWindowView.widthRowsDerived
+        let full0 = MessagesWindowView.widthRowsDerived, passes0 = MessagesWindowView.widthPasses
         let (stale, ms) = Self.drag(&rig)
         let full = MessagesWindowView.widthRowsDerived - full0
+        print("STREAMRESIZE width passes near the viewport \(rig.view.widthPassesNearViewport) of \(MessagesWindowView.widthPasses - passes0)"
+              + ", a fading row at the end \(rig.view.model.hasGhosts), loaded rows \(rig.view.model.liveCount)")
         print(String(format: "STREAMRESIZE frames %d p50 %.2f p95 %.2f max %.2f ms, full derivations %d, deferred %d, stale %d",
                      ms.count, Self.p(ms, 0.5), Self.p(ms, 0.95), ms.max() ?? 0, full, MessagesWindowView.widthPassesDeferred, stale.count))
         #expect(full <= 1, "\(full) width passes derived every loaded message again while the reply streamed")

@@ -2,7 +2,6 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
-import Observation
 
 /// The toolbar band in the window's top row, right of the traffic lights
 /// (R68/R69, spec titlebar-area.md): the sidebar toggle first (it lives in
@@ -44,6 +43,7 @@ final class TitlebarToolbarBand: NSView {
     /// Back and Forward through the location trail (R69).
     let backButton = TitlebarBandButton(symbol: "chevron.left")
     let forwardButton = TitlebarBandButton(symbol: "chevron.right")
+    var appButtons: () -> [TitlebarBandButton] = { [] } // the apps' items after Forward (`contributes.toolbarItems`, CmuxNextApps)
     /// Runs the toggle's action (the registry's `toggleSidebar`).
     var onToggleSidebar: (() -> Void)?
     /// Runs Back or Forward (`focusHistoryBack` / `focusHistoryForward`).
@@ -56,6 +56,7 @@ final class TitlebarToolbarBand: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         sidebarToggle.customImage = SidebarToggleIcon.image(named:pointSize:) // its candidate glyphs
+        TitlebarBandButton.styleTopRow(toggle: sidebarToggle, back: backButton, forward: forwardButton) // one glyph height
         sidebarToggle.target = self
         sidebarToggle.action = #selector(toggle)
         backButton.target = self
@@ -138,7 +139,7 @@ final class TitlebarToolbarBand: NSView {
         }
         guard changed else { return }
         glyphLeg = (glyphProgress, target)
-        let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(hidden ? .disappear : .appear) : 0
+        let duration = Motion.sidebar.canAnimate(in: self) ? Motion.sidebar.duration(hidden ? .disappear : .appear, in: window) : 0
         glyphMotion.run(duration: duration, in: self, trace: "sidebar.toggleGlyph")
     }
 
@@ -148,21 +149,12 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.symbol = SidebarToggleIcon.slideSymbol(progress: glyphProgress)
     }
 
-    /// The band's full width: the toggle, a group gap (`space3`, as after
-    /// the traffic lights), then Back and Forward `space1` apart.
-    static var width: CGFloat { TitlebarBandButton.side * 3 + Metrics.space3 + Metrics.space1 }
-
-    /// Each item is `presence` of its width, and the gaps close with it, so
-    /// the band reaches 0 width with no jump.
+    private let ink = GlyphInkMeasure()
+    /// The buttons' slots: one ink gap between this density's glyphs (`TopRowSpacing`); each item and gap is `presence` of it.
+    func slots() -> TopRowSpacing.Slots { ink.slots(for: [sidebarToggle, backButton, forwardButton] + appButtons(), gap: TopRowSpacing.glyphGap) }
     override func layout() {
         super.layout()
-        let side = TitlebarBandButton.side
-        let width = side * presence
-        var x: CGFloat = 0
-        for (button, gap) in [(sidebarToggle, Metrics.space3), (backButton, Metrics.space1), (forwardButton, 0)] {
-            button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
-            x += (side + gap) * presence
-        }
+        for (button, frame) in zip([sidebarToggle, backButton, forwardButton] + appButtons(), slots().frames(presence: presence, height: bounds.height)) { button.frame = frame }
     }
 
     /// Names the toggle with its action title and bound key.

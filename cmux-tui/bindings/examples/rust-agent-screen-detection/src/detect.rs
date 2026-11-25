@@ -51,13 +51,19 @@ pub(crate) const QUIESCENCE_DEBOUNCE_MS: u64 = 300;
 /// phase it exists to report.
 pub(crate) const MAX_EVAL_INTERVAL_MS: u64 = 1_000;
 
+/// How long after a terminal size change its output is the agent's redraw
+/// (SIGWINCH), not a working signal (W5-Q, bench round 4 screen #8).
+pub(crate) const RESIZE_REDRAW_GRACE_MS: u64 = 1_000;
+
 /// Recent PTY output is a working signal for a screen source. It upgrades an
 /// otherwise idle screen and expires through one deterministic re-evaluation.
 /// A read of the agent's own idle prompt (`visible_idle`) is held only
 /// through [`QUIESCENCE_DEBOUNCE_MS`]: the prompt with no spinner is positive
 /// evidence, so an interrupted turn shows idle within a second of its last
 /// redraw (manaflow-ai/cmux#36529), not 1.5 s after it. A working agent's
-/// spinner redraws far more often than that.
+/// spinner redraws far more often than that. On that prompt the output only
+/// holds a state: it does not start work for an agent that reads idle
+/// ([`ScreenDetectTracker::apply_output_activity`]).
 pub(crate) const WORKING_ACTIVITY_WINDOW_MS: u64 = 1_500;
 
 /// Whether output last seen at `at` still counts as activity at `now`, for an
@@ -249,6 +255,11 @@ struct TrackedTerminal {
     /// When output last advanced the revision. The first observation only
     /// anchors the tracker and is not treated as fresh activity.
     last_output_at: Option<Instant>,
+    /// Terminal size `(cols, rows)` at the last [`ScreenDetectTracker::observe_size`].
+    size: Option<(u16, u16)>,
+    /// When the size last changed: output until [`RESIZE_REDRAW_GRACE_MS`]
+    /// after it is the agent's redraw, no working signal.
+    resized_at: Option<Instant>,
     /// The last evaluation used output activity to upgrade idle to working.
     /// This creates one expiry re-evaluation even when the screen is unchanged.
     evaluated_with_activity: bool,
@@ -300,6 +311,18 @@ pub struct ScreenDetectTracker {
 }
 
 impl ScreenDetectTracker {
+    /// Record the terminal's current size. A change (a pane move, a split,
+    /// a window resize) makes the agent redraw its whole screen; output
+    /// within [`RESIZE_REDRAW_GRACE_MS`] after it does not read as working.
+    /// The first size only anchors the terminal.
+    pub fn observe_size(&mut self, terminal_id: &str, cols: u16, rows: u16, now: Instant) {
+        let entry = self.terminals.entry(terminal_id.to_string()).or_default();
+        if entry.size.is_some_and(|size| size != (cols, rows)) {
+            entry.resized_at = Some(now);
+        }
+        entry.size = Some((cols, rows));
+    }
+
     /// Record the terminal's current output revision. Returns `true` when
     /// the screen changed since the last evaluation and either output has
     /// been quiet for the debounce window or the max-interval pacer is due
@@ -314,7 +337,13 @@ impl ScreenDetectTracker {
         } else if entry.revision != revision {
             entry.revision = revision;
             entry.quiet_since = Some(now);
-            entry.last_output_at = Some(now);
+            // A redraw that answers a size change is no output of work.
+            let redraw = entry.resized_at.is_some_and(|at| {
+                now.saturating_duration_since(at).as_millis() as u64 <= RESIZE_REDRAW_GRACE_MS
+            });
+            if !redraw {
+                entry.last_output_at = Some(now);
+            }
         }
         let output_active = entry
             .last_output_at
@@ -389,6 +418,20 @@ impl ScreenDetectTracker {
     /// ([`WORKING_ACTIVITY_WINDOW_MS`]) becomes working, and the tracker then
     /// owes one expiry re-evaluation. Hooks still win in the core roster
     /// reducer.
+    ///
+    /// A read of the agent's own idle prompt (`visible_idle`) is a fact of
+    /// the screen, so output on it does not start work: when the last
+    /// reported state is idle, or there is none, the read stays idle. One
+    /// redraw of a prompt at rest (a clock in a status line, a notice) is
+    /// then no `working` report and no `idle` report after it. After a
+    /// working or blocked report the output still holds the read, because a
+    /// read can land between two parts of a redraw and see the prompt with
+    /// no spinner.
+    ///
+    /// One exception: a read whose matched idle rule has no working rule of
+    /// its manifest above it ([`Detection::idle_above_working`]). A working
+    /// rule can win on that prompt only at a tie of priorities, so output is
+    /// the fact of work there and still starts it.
     pub fn apply_output_activity(
         &mut self,
         terminal_id: &str,
@@ -400,6 +443,10 @@ impl ScreenDetectTracker {
         }
         let Some(entry) = self.terminals.get_mut(terminal_id) else { return };
         if !entry.last_output_at.is_some_and(|at| output_within(at, now, detection.visible_idle)) {
+            return;
+        }
+        let at_rest = entry.emitted.as_ref().is_none_or(|(_, state)| *state == AgentState::Idle);
+        if detection.visible_idle && at_rest && !detection.idle_above_working {
             return;
         }
         detection.state = ScreenState::Working;
@@ -424,6 +471,11 @@ impl ScreenDetectTracker {
         // have emitted its OSC title or progress before the process probe
         // caught up, so do not discard that evidence on the first edge.
         entry.osc_metadata_state.is_fresh(stream_revision)
+    }
+
+    /// The tracker holds an entry for `terminal_id`.
+    pub(crate) fn tracks(&self, terminal_id: &str) -> bool {
+        self.terminals.contains_key(terminal_id)
     }
 
     /// True when this terminal previously journaled a screen-derived state

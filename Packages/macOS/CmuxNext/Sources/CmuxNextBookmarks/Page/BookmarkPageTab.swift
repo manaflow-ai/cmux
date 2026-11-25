@@ -40,9 +40,12 @@ public final class BookmarkPageTab: BrowserTab {
         contentView = webPage ?? NSView()
     }
 
-    /// Shows bookmark `id`: its folder, with it selected.
+    /// Shows bookmark `id`: its folder, with it selected. A page that does not listen yet (still
+    /// loading) gets the `#/?reveal=<id>` route instead, which it reads when it starts or as a hash change.
     public func reveal(_ id: String) {
-        webPage?.send(command: BookmarkPageHostProvider.revealCommand, arguments: ["bookmark": .string(id)])
+        guard let webPage, !webPage.send(command: BookmarkPageHostProvider.revealCommand, arguments: ["bookmark": .string(id)]),
+              let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else { return }
+        webPage.open(route: "#/?reveal=" + encoded)
     }
 
     public func load(_ url: URL) {

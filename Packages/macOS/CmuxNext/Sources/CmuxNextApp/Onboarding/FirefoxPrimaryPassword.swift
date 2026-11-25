@@ -14,7 +14,7 @@ struct FirefoxPrimaryPassword {
 
     static func prompt(_ profile: BrowserSourceProfile) async -> SecretBytes? {
         let center = CmuxDialogCenter(host: CmuxDialogCenter.shared.host)
-        let spec = CmuxDialogSpec(
+        let spec = CmuxDialogSpec(usesTransientMaterial: true,
             title: FirefoxPrimaryPasswordStrings.title(profile.browser.displayName),
             lines: [FirefoxPrimaryPasswordStrings.message],
             fields: [.text(id: field, label: FirefoxPrimaryPasswordStrings.field, initial: "", placeholder: nil, secure: true)],
@@ -29,7 +29,7 @@ struct FirefoxPrimaryPassword {
 
 enum FirefoxPrimaryPasswordStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module)
+        String(localized: key, defaultValue: value, table: "Passwords", bundle: .module.inAppLanguage)
     }
 
     static func title(_ browser: String) -> String {

@@ -34,7 +34,6 @@ const INK = {
 } as const;
 
 const SURFACES: readonly [string, (state: string) => string][] = [
-  ["agent-session/acpmux/chips/chips.css", (s) => `.cv-chip.is-ref[data-pr-state="${s}"] .cv-chip__icon--gh`],
   ["agent-session/acpmux/chips/linkCard.css", (s) => `.acpmux-pr-card__glyph[data-state=${s}]`],
   ["agent-session/acpmux/header/header.css", (s) => `.acpmux-header-pr[data-state=${s}]>svg`],
   ["agent-session/acpmux/summary/summary.css", (s) => `.acpmux-summary-link[data-state=${s}]>svg`],

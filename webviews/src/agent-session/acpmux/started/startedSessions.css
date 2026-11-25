@@ -123,12 +123,16 @@
    text colour so it is no louder than the red or the magenta). The dot is drawn a 6px disc, centred
    in the same 11px box as every other status glyph. */
 .acpmux-session-status[data-status="unread"] {
-  color: color-mix(in srgb, var(--cmux-messages-blue, var(--agent-accent)) 65%, var(--agent-text));
+  --acpmux-unread-ink: color-mix(in srgb, var(--cmux-messages-blue, var(--agent-accent)) 65%, var(--agent-text));
+  /* On glass (a hover card) the status ink's share (glass.css, THE STATUS INKS ON GLASS). */
+  color: color-mix(in srgb, var(--acpmux-unread-ink) var(--glass-ink-status-share, 100%), var(--agent-text));
 }
 .acpmux-session-status[data-status="unread"] > svg {
   scale: 1.5;
 }
-.acpmux-session-status[data-status="done"],
+/* A finished session keeps the line's quiet ink: done is no success state (Leo, 2026-11-14, on Worked
+   for turning green once done; conversation/finishedInk.test.ts). Ready and open are its pull
+   request's states, which GitHub draws green. */
 .acpmux-session-status[data-status="ready"],
 .acpmux-session-status[data-status="open"] {
   color: var(--agent-status-success);
@@ -150,7 +154,7 @@
   padding: 1px 5px;
   border: 0;
   border-radius: 4px;
-  background: color-mix(in srgb, var(--cv-text, var(--agent-text)) 9%, transparent);
+  background: var(--ds-surface-inset);
   color: var(--cv-text, var(--agent-text));
   font: inherit;
   text-align: inherit;

@@ -25,14 +25,14 @@ final class BrowserTitleAttention {
             (seen[key], marked) = (nil, [])
             return false
         }
-        guard !selected, !tab.title.isEmpty else {
+        guard !selected, !tab.titleText.isEmpty else {
             if selected { marked.remove(key) }
             seen[key] = nil
             return marked.contains(key)
         }
-        if let last = seen[key], last.url == tab.url, last.title != tab.title,
+        if let last = seen[key], last.url == tab.url, last.title != tab.titleText,
            cache.existingBrowser(key)?.tab.state.isLoading != true { marked.insert(key) }
-        seen[key] = (tab.url, tab.title)
+        seen[key] = (tab.url, tab.titleText)
         return marked.contains(key)
     }
 

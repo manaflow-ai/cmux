@@ -75,9 +75,9 @@ Turning a switch back on removes its key (the default). A managed key refuses.
 The toggles are MCP tools (not in the MCP `systemChange` exemption), unlike the
 older speed and kind toggles. Strings: English plus 20 translations in
 `CmuxNextSettings/Localizable.xcstrings` and `CmuxNextActions/ActionCatalog.xcstrings`.
-`ui.animationSpeed`, `ui.paneAnimations`, `ui.animations.newTab`,
-`ui.animations.newWorkspace` and `ui.animations.bounce` keep working inside
-their categories.
+`ui.animationSpeed`, `ui.paneAnimations`, `ui.animations.newTab` and
+`ui.animations.newWorkspace` keep working inside their categories.
+(`ui.animations.bounce` was retired on 2026-11-10: no motion bounces.)
 
 ## Future-proofing
 

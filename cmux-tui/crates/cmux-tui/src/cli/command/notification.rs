@@ -116,8 +116,10 @@ pub(super) fn parse_notification(
 /// parity. `--desktop false` asks the app for no banner; like the local flag
 /// it is not validated with `--clear`.
 pub(super) fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
-    if !words.is_empty() {
-        return usage("notify takes flags only");
+    if let Some(word) = words.first() {
+        return Err(UsageError::new(format!(
+            "notify takes flags only, not {word:?}; run `cmux notify --help` for its flags"
+        )));
     }
     let selectors = Selectors::default();
     let reply = flags.boolean("reply");

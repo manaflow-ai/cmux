@@ -15,6 +15,13 @@ macro_rules! interfaces {
 }
 
 interfaces! {
+    "cmux.chat.action/1" => "cmux.chat.action",
+    "cmux.composer.chip/1" => "cmux.composer.chip",
+    "cmux.composer.toolbar/1" => "cmux.composer.toolbar",
+    "cmux.composer.command/1" => "cmux.composer.command",
+    "cmux.composer.mention/1" => "cmux.composer.mention",
+    "cmux.composer.model.picker/1" => "cmux.composer.model.picker",
+    "cmux.chat.widget/1" => "cmux.chat.widget",
     "cmux.contact.provider/1" => "cmux.contact.provider",
     "cmux.credential.provider/1" => "cmux.credential.provider",
     "cmux.diff.renderer/1" => "cmux.diff.renderer",
@@ -23,6 +30,7 @@ interfaces! {
     "cmux.feed.source/1" => "cmux.feed.source",
     "cmux.fs.provider/1" => "cmux.fs.provider",
     "cmux.hovercard/1" => "cmux.hovercard",
+    "cmux.newtab/1" => "cmux.newtab",
     "cmux.opener/1" => "cmux.opener",
     "cmux.palette.scope/1" => "cmux.palette.scope",
     "cmux.pane/1" => "cmux.pane",
@@ -30,10 +38,12 @@ interfaces! {
     "cmux.section/1" => "cmux.section",
     "cmux.session.info.section/1" => "cmux.session.info.section",
     "cmux.sidebar.rows/1" => "cmux.sidebar.rows",
+    "cmux.signal.source/1" => "cmux.signal.source",
     "cmux.status/1" => "cmux.status",
     "cmux.terminal.backend/1" => "cmux.terminal.backend",
     "cmux.terminal.connector/1" => "cmux.terminal.connector",
     "cmux.viewer/1" => "cmux.viewer",
+    "cmux.widget/1" => "cmux.widget",
 }
 
 /// Host capabilities this cmux version provides (`requires.hostCapabilities`;
@@ -85,4 +95,11 @@ pub(crate) fn option_errors(interface: &str, options: &Value) -> Vec<(String, St
         }
         None => vec![(String::new(), format!("{interface} takes no options"))],
     }
+}
+
+/// Each known interface with its file as embedded (`name`, `docs`, `props`, `methods`,
+/// `options`), in [`KNOWN_INTERFACES`] order: what `cmux customize schema` lists as the
+/// extension points and view slots.
+pub fn interface_files() -> &'static [(&'static str, &'static str)] {
+    FILES
 }

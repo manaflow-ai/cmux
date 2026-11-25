@@ -10,6 +10,7 @@ import { useContext } from "react";
 
 import { formatDuration } from "../conversation/turns";
 import { AgentLine } from "../subagents/AgentLine";
+import { ResumeControl, type ResumeActions } from "../subagents/ResumeControl";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -29,12 +30,14 @@ import { ChildSessionRows } from "../session-info/ChildSessionRows";
 import { sessionStatus } from "../session-info/childSessionRowsModel";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
+import { CountLine, live as liveCount, type CountPart } from "./LiveCount";
 import { AgentIdentity } from "../subagents/AgentIdentity";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subagents/agentIdentityModel";
 import { agentTone } from "../subagents/agentTones";
 import { useSenderIconLook } from "../subagents/senderIconLook";
 import { orderedSubagents } from "./subagentOrder";
 import { subagentStatus, subagentStateText, SUBSESSION_STATUS } from "./subagentStatusListModel";
+import { WindowedRows } from "../session-info/WindowedRows";
 
 const ROW_ICON = rowIconSize(12);
 const NO_SESSIONS: readonly StartedSession[] = [];
@@ -61,8 +64,11 @@ export function SubagentStatusList({
   onOpenSession,
   sessions = NO_SESSIONS,
   stack = NO_STACK,
+  resume,
 }: {
   agents: readonly Subagent[];
+  /// Resume on a stopped subagent's line (subagents/ResumeControl.tsx), as its end line offers it.
+  resume?: ResumeActions;
   waiting: ReadonlySet<string>;
   /// The chat's sub-sessions, after its subagents (subagents/subsessions.ts `subsessionRows`).
   subsessions?: readonly SubsessionRow[];
@@ -75,8 +81,9 @@ export function SubagentStatusList({
   autoOpen?: { on: boolean; set: (on: boolean) => void };
   /// Opens the card's Subagents tab; the title is a button only with it.
   onShowAll?: () => void;
-  /// Overall activity counts move here when the popover has no title row.
-  counts?: string;
+  /// Overall activity counts move here when the popover has no title row (the running ones as their
+  /// mark and number, LiveCount.tsx).
+  counts?: readonly CountPart[];
   /// Opens Session Info's complete Subagents section beside the chat.
   onOpenInPane?: () => void;
   /// The other chats the agent started, after the sub-sessions.
@@ -96,11 +103,52 @@ export function SubagentStatusList({
     agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
     subsessions.filter((session) => session.state === "working" || sessionRetry(session).kind === "retrying").length +
     sessions.filter((child) => sessionStatus(child) === "running").length;
-  const heading = counts
-    ? `${title} · ${counts}`
-    : live > 0
-      ? `${title} · ${t("summary.subagents.running", { n: live })}`
-      : title;
+  // Every subagent, drawn only as far as the card's body (a scroller) shows and a few past it, over a box
+  // as tall as the rest that its scroll reaches; the rest draw as it scrolls to them (WindowedRows). A
+  // coordinator's card drew every subagent its chat ever ran (chat-100k-flat CASES=coordinator: 2,386
+  // card body elements at 20k records, 11,772 at 100k).
+  const lines = ordered(agents, waiting);
+  const agentRow = ({ agent, depth }: { agent: Subagent; depth: number }) => {
+    const status = subagentStatus(agent, waiting);
+    return (
+      <li key={agent.id}>
+        {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
+        <AgentLine
+          name={agent.name}
+          icon={SUBAGENT_FALLBACK}
+          mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
+          status={status}
+          state={subagentStateText(t, agent, waiting)}
+          working={Boolean(retrying(agent))}
+          time={formatDuration(elapsed(agent, now))}
+          iconSize={ROW_ICON}
+          depth={depth}
+          current={agent.id === current}
+          // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles
+          // are bad"): the tooltip keeps it under its task.
+          title={
+            [agent.task, agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined]
+              .filter(Boolean)
+              .join("\n") || undefined
+          }
+          tone={agentTone(agent.id)}
+          onOpen={onOpen ? () => onOpen(agent.id) : undefined}
+          after={resume && <ResumeControl agent={agent} actions={resume} />}
+        />
+      </li>
+    );
+  };
+  // The running ones are their mark and their number, no word (LiveCount.tsx).
+  const parts = counts?.length ? counts : [liveCount(live, t("summary.subagents.running", { n: live }))];
+  const shown = parts.filter((part): part is CountPart => part !== false);
+  const heading =
+    shown.length > 0 ? (
+      <>
+        {title} · <CountLine parts={shown} />
+      </>
+    ) : (
+      title
+    );
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
       <h3 className="acpmux-summary-title">
@@ -113,37 +161,13 @@ export function SubagentStatusList({
           heading
         )}
       </h3>
+      {/* The subagents' list, then the rest's: two lists with no margin or padding draw as one, and the
+          windowed rows' box ends their own list (WindowedRows reads its last row as the list's). */}
       <ul className="acpmux-summary-list">
         {agents.length === 0 && stack.length > 0 && <SubagentStack subagents={stack} />}
-        {ordered(agents, waiting).map(({ agent, depth }) => {
-          const status = subagentStatus(agent, waiting);
-          return (
-            <li key={agent.id}>
-              {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
-              <AgentLine
-                name={agent.name}
-                icon={SUBAGENT_FALLBACK}
-                mark={foreignHarness(agent.harness, chatHarness, senderBadge)}
-                status={status}
-                state={subagentStateText(t, agent, waiting)}
-                working={Boolean(retrying(agent))}
-                time={formatDuration(elapsed(agent, now))}
-                iconSize={ROW_ICON}
-                depth={depth}
-                current={agent.id === current}
-                // Its kind is no subtitle on the line (Leo, 2026-10-31: "a lot of these subtitles
-                // are bad"): the tooltip keeps it under its task.
-                title={
-                  [agent.task, agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined]
-                    .filter(Boolean)
-                    .join("\n") || undefined
-                }
-                tone={agentTone(agent.id)}
-                onOpen={onOpen ? () => onOpen(agent.id) : undefined}
-              />
-            </li>
-          );
-        })}
+        <WindowedRows items={lines} render={agentRow} />
+      </ul>
+      <ul className="acpmux-summary-list">
         {subsessions.map((session) => (
           <li key={`session:${session.sessionId}`}>
             <SubsessionStatusRow session={session} onOpen={onOpenSession} />

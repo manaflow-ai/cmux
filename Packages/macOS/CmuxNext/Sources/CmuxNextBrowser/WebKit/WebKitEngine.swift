@@ -114,13 +114,20 @@ public final class WebKitEngine: BrowserEngine {
     /// A tab that cannot carry a machine store. `webViewConfiguration` is set
     /// only for page-opened windows, where WebKit hands over the
     /// configuration that links the new page to its opener.
+    ///
+    /// - Parameter loadsAfter: Runs the first load of `initialURL` later. The app passes its after-frame commit for
+    ///   a tab a key just made: the first `load` of a new `WKWebView` holds the main thread 15-23 ms, and it came
+    ///   before the tab's chrome and its omnibar's focus (`webkit_new`, fleet). nil loads at once. A navigation that
+    ///   started first (the person's own address) wins: the later load is skipped.
     public func makeWebKitTab(id: BrowserTabID = .random(), profile: BrowserProfileID = .default, initialURL: URL? = nil,
-                              zoom: Double = 1, webViewConfiguration: WKWebViewConfiguration? = nil) -> WebKitTab {
+                              zoom: Double = 1, webViewConfiguration: WKWebViewConfiguration? = nil,
+                              loadsAfter: ((@escaping @MainActor () -> Void) -> Void)? = nil) -> WebKitTab {
         makeTab(unproxied: BrowserTabConfiguration(id: id, profile: profile, initialURL: initialURL, zoom: zoom),
-                webViewConfiguration: webViewConfiguration)
+                webViewConfiguration: webViewConfiguration, loadsAfter: loadsAfter)
     }
 
-    private func makeTab(unproxied configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration?) -> WebKitTab {
+    private func makeTab(unproxied configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration?,
+                         loadsAfter: ((@escaping @MainActor () -> Void) -> Void)? = nil) -> WebKitTab {
         let tab: WebKitTab
         // A page-opened window's view must be made from WebKit's configuration, which links it to its opener.
         if webViewConfiguration == nil, configuration.profile == .default, let spare = spareTab.take() {
@@ -137,7 +144,14 @@ public final class WebKitEngine: BrowserEngine {
         }
         openTabs.add(tab)
         if let url = configuration.initialURL {
-            tab.load(url)
+            if let loadsAfter {
+                loadsAfter { [weak tab] in
+                    guard let tab, tab.webView.url == nil, !tab.webView.isLoading else { return } // the person's navigation started first
+                    tab.load(url)
+                }
+            } else {
+                tab.load(url)
+            }
         }
         return tab
     }

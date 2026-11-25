@@ -23,6 +23,12 @@ pub type CMSampleBufferRef = *mut c_void;
 pub type CVPixelBufferRef = *mut c_void;
 pub type IOSurfaceRef = *mut c_void;
 pub type DispatchQueue = *mut c_void;
+pub type CGColorSpaceRef = *mut c_void;
+pub type CGContextRef = *mut c_void;
+pub type CGImageRef = *mut c_void;
+
+/// kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big: RGBA8 in memory order.
+pub const BITMAP_RGBA_PREMULTIPLIED: u32 = 1 | (4 << 12);
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -112,6 +118,9 @@ pub const SCROLL_UNIT_LINE: u32 = 1;
 pub const TAP_HID: u32 = 0;
 pub const SOURCE_STATE_HID_SYSTEM: i32 = 1;
 
+/// kCGWindowListOptionIncludingWindow: CGWindowListCopyWindowInfo describes one window.
+pub const WINDOW_LIST_INCLUDING_WINDOW: u32 = 1 << 3;
+
 /// kCMTimeFlags_Valid.
 pub const CM_TIME_VALID: u32 = 1;
 /// kCFNumberSInt64Type.
@@ -125,12 +134,15 @@ framework! {
         fn CFArrayGetValueAtIndex(array: CFArrayRef, index: c_long) -> CFTypeRef;
         fn CFDictionaryGetValue(dictionary: CFDictionaryRef, key: CFTypeRef) -> CFTypeRef;
         fn CFNumberGetValue(number: CFNumberRef, kind: c_long, out: *mut c_void) -> u8;
+        fn CFBooleanGetValue(boolean: CFTypeRef) -> u8;
     }
 }
 
 framework! {
     pub mod cg = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics" {
         static kCGColorSpaceSRGB: CFStringRef;
+        static kCGWindowBounds: CFStringRef;
+        static kCGWindowIsOnscreen: CFStringRef;
         fn CGMainDisplayID() -> u32;
         fn CGDisplayBounds(display: u32) -> CGRect;
         fn CGDisplayCopyDisplayMode(display: u32) -> CGDisplayModeRef;
@@ -139,6 +151,10 @@ framework! {
         fn CGDisplayModeGetRefreshRate(mode: CGDisplayModeRef) -> f64;
         fn CGDisplayModeRelease(mode: CGDisplayModeRef);
         fn CGRectMakeWithDictionaryRepresentation(dictionary: CFDictionaryRef, rect: *mut CGRect) -> u8;
+        // One shared window (window.rs): its frame and whether it is on screen, read again
+        // while it is shared, and the display it is on (CGWindowListCopyWindowInfo below).
+        fn CGWindowListCopyWindowInfo(option: u32, relative_to: u32) -> CFArrayRef;
+        fn CGGetDisplaysWithPoint(point: CGPoint, max: u32, displays: *mut u32, count: *mut u32) -> i32;
         fn CGEventSourceCreate(state: i32) -> CGEventSourceRef;
         fn CGEventCreateMouseEvent(source: CGEventSourceRef, kind: u32, point: CGPoint, button: u32) -> CGEventRef;
         fn CGEventCreateKeyboardEvent(source: CGEventSourceRef, code: u16, down: bool) -> CGEventRef;
@@ -147,6 +163,21 @@ framework! {
         fn CGEventSetFlags(event: CGEventRef, flags: u64);
         fn CGEventKeyboardSetUnicodeString(event: CGEventRef, length: usize, units: *const u16);
         fn CGEventPost(tap: u32, event: CGEventRef);
+        // The cursor as metadata (cursor.rs): where it is, and its shape drawn into pixels.
+        fn CGEventCreate(source: CGEventSourceRef) -> CGEventRef;
+        fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
+        fn CGColorSpaceCreateWithName(name: CFStringRef) -> CGColorSpaceRef;
+        fn CGColorSpaceRelease(space: CGColorSpaceRef);
+        fn CGBitmapContextCreate(data: *mut c_void, width: usize, height: usize, bits: usize, row: usize, space: CGColorSpaceRef, info: u32) -> CGContextRef;
+        fn CGContextDrawImage(context: CGContextRef, rect: CGRect, image: CGImageRef);
+        fn CGContextRelease(context: CGContextRef);
+    }
+}
+
+framework! {
+    // NSCursor is registered once AppKit loaded (cursor.rs reads the system cursor).
+    pub mod appkit = "/System/Library/Frameworks/AppKit.framework/AppKit" {
+        ref NSAppKitVersionNumber: f64;
     }
 }
 
@@ -160,6 +191,11 @@ framework! {
 framework! {
     pub mod cv = "/System/Library/Frameworks/CoreVideo.framework/CoreVideo" {
         fn CVPixelBufferGetIOSurface(buffer: CVPixelBufferRef) -> IOSurfaceRef;
+        fn CVPixelBufferLockBaseAddress(buffer: CVPixelBufferRef, flags: u64) -> i32;
+        fn CVPixelBufferUnlockBaseAddress(buffer: CVPixelBufferRef, flags: u64) -> i32;
+        fn CVPixelBufferGetBaseAddressOfPlane(buffer: CVPixelBufferRef, plane: usize) -> *const u8;
+        fn CVPixelBufferGetBytesPerRowOfPlane(buffer: CVPixelBufferRef, plane: usize) -> usize;
+        fn CVPixelBufferGetHeightOfPlane(buffer: CVPixelBufferRef, plane: usize) -> usize;
     }
 }
 

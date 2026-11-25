@@ -21,12 +21,14 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
         sources = scripts.map(Self.chromiumSource) + [Self.navigationScript, Self.hostDropScript]
     }
 
-    /// The user scripts of `controller`.
+    /// The user scripts of `controller`, but WebKit's VoiceOver press script (``PageAccessibilityPress``): it
+    /// needs its own content world, which a Chromium new-document script has not, and Chromium's presses
+    /// count through `ChromiumAccessibilityPress`.
     ///
     /// - Parameter controller: A page's WebKit user content controller.
     @MainActor
     public init(controller: WKUserContentController) {
-        self.init(scripts: controller.userScripts.map {
+        self.init(scripts: controller.userScripts.filter { $0.source != PageAccessibilityPress.script }.map {
             ($0.source, $0.injectionTime == .atDocumentEnd, $0.isForMainFrameOnly)
         })
     }
@@ -44,6 +46,40 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
         \(script.source)
         };
         if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", run, { once: true }); else run();
+        })();
+        """
+    }
+
+    /// Chromium's DPR includes page zoom. Publish the rendered zoom during resize, before paint:
+    /// the host's sizing script and SetZoomLevel travel over separate asynchronous channels.
+    static func pageZoomScript(backingScale: Double) -> String {
+        """
+        (() => {
+          if (window !== window.top) return;
+          if (window.__cmuxSyncPageZoom) { window.__cmuxSyncPageZoom(\(backingScale)); return; }
+          let deviceScale = \(backingScale);
+          const sync = (nextDeviceScale) => {
+            if (Number.isFinite(nextDeviceScale) && nextDeviceScale > 0) deviceScale = nextDeviceScale;
+            const root = document.documentElement;
+            if (!root) return;
+            const zoom = window.devicePixelRatio / deviceScale;
+            if (!Number.isFinite(zoom) || zoom <= 0) return;
+            const value = String(zoom);
+            if (root.style.getPropertyValue('--cmux-ui-scale') === value) return;
+            root.style.setProperty('--cmux-ui-scale', value);
+            window.dispatchEvent(new Event('cmux-ui-scale-change'));
+          };
+          window.__cmuxSyncPageZoom = sync;
+          window.addEventListener('resize', () => sync());
+          if (!document.documentElement) {
+            const observer = new MutationObserver(() => {
+              if (!document.documentElement) return;
+              observer.disconnect();
+              sync();
+            });
+            observer.observe(document, { childList: true, subtree: true });
+          }
+          sync();
         })();
         """
     }

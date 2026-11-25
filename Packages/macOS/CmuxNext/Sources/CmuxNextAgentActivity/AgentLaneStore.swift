@@ -1,3 +1,4 @@
+public import Foundation
 public import Observation
 
 /// Every acpmux session's lane (cx-v9k2f): this Mac's and the acpmux peers' it mirrors, from the
@@ -24,9 +25,12 @@ public final class AgentLaneStore {
             return storage
         }
         set {
+            if storage != newValue { revision &+= 1 }
             withMutation(keyPath: \.lanes) { storage = newValue }
             waiting = Set(newValue.compactMap { $0.value.state == .input ? $0.key : nil })
+            if waitingSessions != waiting { waitingSessions = waiting }
             working = Set(newValue.compactMap { $0.value.state == .working ? $0.key : nil })
+            if workingSessions != working { workingSessions = working }
             unread = Set(newValue.compactMap { $0.value.unread ? $0.key : nil })
             syncCells()
             syncChiefParticipants()
@@ -39,9 +43,15 @@ public final class AgentLaneStore {
     /// the menu bar's count) reads a few lanes instead of ranking every one. Not observed: read
     /// it when it is used.
     @ObservationIgnored public private(set) var waiting: Set<String> = []
+    /// ``waiting``, observed: written only when a session starts or stops waiting, so a reader of the waiting sessions
+    /// (the Needs You tray's approvals) is not told of every agent step (main-thread-scheduling.md section 3, O7).
+    public private(set) var waitingSessions: Set<String> = []
     /// The sessions whose lane runs a turn (`.working`), kept as ``waiting`` is: the menu bar's
     /// Running list reads these few lanes, never every one.
     @ObservationIgnored public private(set) var working: Set<String> = []
+    /// ``working``, observed: written only when a session starts or stops a turn, as ``waitingSessions``
+    /// is, so a reader of who works (the backdrop's agent glow) is not told of every agent step.
+    public private(set) var workingSessions: Set<String> = []
     /// The sessions whose lane has a result nobody has seen (`unread`), kept as ``waiting`` is: the
     /// menu bar's Unread list. The person's read marks (`AgentPriorityMarks`) still apply on top.
     @ObservationIgnored public private(set) var unread: Set<String> = []
@@ -53,22 +63,51 @@ public final class AgentLaneStore {
     public func set(_ session: String, _ lane: AgentActivityLane?) {
         let ownedBefore = Self.chiefOwnership(storage[session])
         let nameBefore = storage[session]?.name
+        let startBefore = storage[session]?.createdAt
+        if storage[session] != lane { revision &+= 1 }
         withMutation(keyPath: \.lanes) { storage[session] = lane }
+        let wasWaiting = waiting.contains(session)
         if lane?.state == .input { waiting.insert(session) } else { waiting.remove(session) }
+        if waiting.contains(session) != wasWaiting { waitingSessions = waiting }
+        let wasWorking = working.contains(session)
         if lane?.state == .working { working.insert(session) } else { working.remove(session) }
+        if working.contains(session) != wasWorking { workingSessions = working }
         if lane?.unread == true { unread.insert(session) } else { unread.remove(session) }
         // Only this session's cell can change: the others' lanes are as they were.
         syncCell(session)
         // Rescan only when this session's Chief tags change, not on every step of its output.
         if Self.chiefOwnership(lane) != ownedBefore { syncChiefParticipants() }
-        // Only a session that came, went or was renamed changes the names: a step of its output does not.
-        if lane?.name != nameBefore { syncNames() }
+        // Only a session that came, went or was renamed changes the names: a step of its output does not. Then
+        // only the name it left and the name it has are looked at, never every lane (hq#22614: 2-8 s hangs in the
+        // old whole-store rebuild, 214 chats and many peers' lanes on Leo's Mac).
+        if lane?.name != nameBefore || lane?.createdAt != startBefore {
+            let touched = nameIndex.move(session, from: nameBefore, to: lane.map { ($0.name, $0.createdAt) })
+            for name in touched { syncName(name) }
+        }
     }
 
+    /// ``names`` and ``sessionStarts`` from the whole store (a whole-store write): O(lanes).
     private func syncNames() {
-        let current = Set(storage.values.map(\.name))
+        nameIndex = LaneNameIndex(storage)
+        let current = nameIndex.names
         if names != current { names = current }
+        let starts = nameIndex.starts
+        if sessionStarts != starts { sessionStarts = starts }
     }
+
+    /// ``names`` and ``sessionStarts`` for `name` alone, from the index: O(sessions of that name). Each is written
+    /// only when it changed, so its readers are told only when a name comes, goes or its start moves.
+    private func syncName(_ name: String) {
+        let present = nameIndex.has(name)
+        if names.contains(name) != present {
+            if present { names.insert(name) } else { names.remove(name) }
+        }
+        let start = nameIndex.start(of: name)
+        if sessionStarts[name] != start { sessionStarts[name] = start }
+    }
+    /// Which sessions have each lane name, and their starts: what ``names`` and ``sessionStarts`` are made of, kept
+    /// per session so a session's write updates its names without a pass over every lane.
+    @ObservationIgnored private var nameIndex = LaneNameIndex()
 
     /// A lane's Chief ownership pair (its `mux.children` key and participant), on this Mac only.
     private static func chiefOwnership(_ lane: AgentActivityLane?) -> [String]? {
@@ -83,6 +122,11 @@ public final class AgentLaneStore {
         if chiefParticipants != identities { chiefParticipants = identities }
     }
     @ObservationIgnored private var storage: [String: AgentActivityLane] = [:]
+    /// Counts the writes that changed a lane (``set(_:_:)``, ``lanes``' setter), observed: a reader that only needs to
+    /// know that some lane changed (`agent_chat.changed`, AppProviderChangeFeed.agentChats) reads this one number
+    /// instead of every lane. Reading ``lanes`` there mapped and compared every lane on the main thread at each agent
+    /// step (a 2.0 s hang in NIGHTLY 23c9f5a, 2026-11-11 01:11:27Z, `agentChats` under the feed's observation).
+    public private(set) var revision: UInt64 = 0
     /// One observable cell per session a reader asked for (``lane(_:)``, ``links(_:)``).
     @ObservationIgnored private var cells: [String: AgentLaneCell] = [:]
     /// The acpmux socket whose watch fills the store (set by `AgentTurnStateFeed`), for requests
@@ -108,6 +152,10 @@ public final class AgentLaneStore {
     /// `optchat-sub-<home>-a<n>` subagents). Changes only when a session comes, goes or is renamed, so a
     /// reader that needs which sessions exist (Home's queued agents that start) is not told of every step.
     public private(set) var names: Set<String> = []
+    /// When each named session began (its lane's `createdAt`), by session name; a session whose start is not known
+    /// is left out. Changes only when a session comes, goes, is renamed or learns its start, as ``names`` does, so
+    /// Home's agent pills count from a session's start without being told of every step.
+    public private(set) var sessionStarts: [String: Date] = [:]
 
     public init() {}
 
@@ -156,5 +204,44 @@ public final class AgentLaneStore {
         let wasLive = cell.hasLiveSession
         cell.update(lane)
         if wasLive, lane == nil { cells[session] = nil }
+    }
+}
+
+/// Lane names to the sessions that have them (and each session's start), for ``AgentLaneStore``'s ``names`` and
+/// ``sessionStarts``: moving one session costs the sessions sharing its old and new names, never every lane.
+struct LaneNameIndex {
+    private var sessions: [String: [String: Date?]] = [:]
+
+    init() {}
+
+    init(_ lanes: [String: AgentActivityLane]) {
+        for (session, lane) in lanes { sessions[lane.name, default: [:]][session] = .some(lane.createdAt) }
+    }
+
+    var names: Set<String> { Set(sessions.keys) }
+
+    /// The newest start of each name that has one (as `Dictionary(uniquingKeysWith: max)` made it).
+    var starts: [String: Date] {
+        var starts: [String: Date] = [:]
+        for name in sessions.keys { if let start = start(of: name) { starts[name] = start } }
+        return starts
+    }
+
+    func has(_ name: String) -> Bool { sessions[name] != nil }
+
+    /// The newest start among `name`'s sessions; nil when none knows its start.
+    func start(of name: String) -> Date? {
+        sessions[name]?.values.compactMap { $0 }.max()
+    }
+
+    /// Moves `session` from the name it had (`old`, nil: it had no lane) to `new` (nil: its lane ended); returns the
+    /// names whose sessions changed.
+    mutating func move(_ session: String, from old: String?, to new: (name: String, start: Date?)?) -> [String] {
+        if let old {
+            sessions[old]?[session] = nil
+            if sessions[old]?.isEmpty == true { sessions[old] = nil }
+        }
+        if let new { sessions[new.name, default: [:]][session] = .some(new.start) }
+        return [old, new?.name].compactMap { $0 }.reduce(into: []) { if !$0.contains($1) { $0.append($1) } }
     }
 }

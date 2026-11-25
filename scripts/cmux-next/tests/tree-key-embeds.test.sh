@@ -11,6 +11,7 @@ ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 
 python3 "$ROOT/scripts/ci/check_cmux_tui_tree_inputs.py" --root "$ROOT" || fail "the repository's tree key misses embedded files (above)"

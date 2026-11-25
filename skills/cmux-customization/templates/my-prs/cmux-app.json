@@ -1,0 +1,25 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "My views",
+  "version": "1.0.0",
+  "description": "Your pull requests and the reviews you owe, live in the sidebar, in the order you keep them.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.section/1": {
+      "export": "renderPRs",
+      "title": "Pull requests",
+      "symbol": "arrow.triangle.pull",
+      "options": { "defaultRegion": "middle", "maxRows": 12 }
+    }
+  },
+  "scopes": {
+    "integration:github:read": "Read your pull requests with the connected GitHub account.",
+    "agent_chat:read": "Look again as soon as one of your agent chats changes (it may have opened a PR).",
+    "net:api.github.com": "Read public pull requests for the login you type, when GitHub is not connected.",
+    "storage:local": "Keep the order you move your pull requests into, and your login.",
+    "actions:run": "Open a pull request in a browser tab when you click it."
+  }
+}

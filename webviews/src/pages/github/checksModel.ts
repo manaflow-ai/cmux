@@ -3,6 +3,7 @@
 // person acts on them (failing, running, queued, then passed folded to one line); the tally, the
 // share done, and an ETA from how long each job took at the base branch's tip.
 import type { DashboardChecks, DashboardJob } from "./types";
+import { intl } from "../../ui/intl";
 
 export type JobState = DashboardJob["state"];
 
@@ -93,12 +94,18 @@ export function dashboardSummary(jobs: readonly DashboardJob[], now: number): Da
   return { passed, failed, running, queued, total, progress: total ? (passed + failed) / total : 1, eta };
 }
 
-/** Seconds since `job` started (to its end when it ended), 0 when it has not. */
+/**
+ * Seconds since `job` started (to its end when it ended), 0 when it has not. Only a running job counts
+ * up to `now`: a finished job with no end time (a commit status such as `cmux-next/fast-gates`, which
+ * GitHub dates only by when it was posted) has no known duration, 0. Counting it to `now` showed a
+ * two-minute gate as "22m 57s" and growing in the panel (Leo, 2026-11-11: "how can "fast gates" be 23+
+ * minutes and growing").
+ */
 export function elapsed(job: DashboardJob, now: number): number {
   const start = Date.parse(job.startedAt);
   if (!Number.isFinite(start)) return 0;
-  const end = job.completedAt ? Date.parse(job.completedAt) : now;
-  return Math.max(0, ((Number.isFinite(end) ? end : now) - start) / 1000);
+  const end = job.completedAt ? Date.parse(job.completedAt) : job.state === "running" ? now : start;
+  return Math.max(0, ((Number.isFinite(end) ? end : start) - start) / 1000);
 }
 
 /** `seconds` as `1h 4m`, `4m 12s` or `12s`, each unit in `locale`'s narrow form. */
@@ -107,7 +114,7 @@ export function duration(seconds: number, locale?: string): string {
   const hours = Math.floor(whole / 3600);
   const minutes = Math.floor((whole % 3600) / 60);
   const unit = (value: number, name: "hour" | "minute" | "second") =>
-    new Intl.NumberFormat(locale, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
+    intl.NumberFormat(locale, { style: "unit", unit: name, unitDisplay: "narrow" }).format(value);
   if (hours) return `${unit(hours, "hour")} ${unit(minutes, "minute")}`;
   if (minutes) return `${unit(minutes, "minute")} ${unit(whole % 60, "second")}`;
   return unit(whole, "second");

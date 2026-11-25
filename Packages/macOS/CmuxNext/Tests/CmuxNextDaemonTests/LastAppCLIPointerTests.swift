@@ -31,4 +31,23 @@ struct LastAppCLIPointerTests {
         #expect(pointer.publish(cliPath: cli.path))
         #expect(try String(contentsOf: pointer.file, encoding: .utf8) == cli.path + "\n")
     }
+
+    /// A dev shim installed before NEXT's own folder reads only classic's pointer: one already there follows the app,
+    /// and a Mac without one never gets one (goals/next-store-out-of-classic).
+    @Test func classicsPointerIsKeptCurrentOnlyWhereItIs() throws {
+        let home = try Self.home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let pointer = LastAppCLIPointer(userHome: home)
+        let cli = home.appending(path: "cmux")
+        try Data("#!/bin/sh\n".utf8).write(to: cli)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
+        #expect(pointer.publish(cliPath: cli.path))
+        #expect(!FileManager.default.fileExists(atPath: pointer.legacyFile.path))
+
+        try FileManager.default.createDirectory(at: pointer.legacyFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("/old/cmux NIGHTLY.app/Contents/Resources/bin/cmux\n".utf8).write(to: pointer.legacyFile)
+        #expect(pointer.publish(cliPath: cli.path))
+        #expect(try String(contentsOf: pointer.legacyFile, encoding: .utf8) == cli.path + "\n")
+        #expect(try String(contentsOf: pointer.file, encoding: .utf8) == cli.path + "\n")
+    }
 }

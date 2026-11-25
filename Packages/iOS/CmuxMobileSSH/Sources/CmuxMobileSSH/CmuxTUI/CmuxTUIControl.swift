@@ -588,7 +588,7 @@ public actor CmuxTUIControl {
         case "tree-changed":
             subscription?.yield(.treeChanged)
         case "title-changed":
-            if let surface = event.surface { subscription?.yield(.titleChanged(surface: surface, title: event.title ?? "")) }
+            if let surface = event.surface { subscription?.yield(.titleChanged(surface: surface, title: event.text ?? event.title ?? "")) }
         case "surface-exited":
             if let surface = event.surface { subscription?.yield(.surfaceExited(surface: surface)) }
         case "surface-resized":

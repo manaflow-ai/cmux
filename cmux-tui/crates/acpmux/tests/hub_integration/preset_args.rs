@@ -141,8 +141,9 @@ async fn allowlisted_args_and_the_system_prompt_file_reach_the_claude_command() 
     let s = c.request(method::SESSION_NEW, new_params("cached")).await.unwrap();
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let got = argv_of(&hub, &mut c, &id).await;
-    // The preset's words, then acpmux's own system prompt flag, then the
-    // flags that carry acpmux's protocol.
+    // The preset's words, then acpmux's own system prompt flags (the preset's
+    // file, then cmux's rules appended to the system prompt), then the flags
+    // that carry acpmux's protocol.
     let file = std::fs::canonicalize(&file).unwrap();
     assert_eq!(
         got[..6],
@@ -156,7 +157,9 @@ async fn allowlisted_args_and_the_system_prompt_file_reach_the_claude_command() 
         ],
         "{got:?}"
     );
-    assert_eq!(got[6], "-p", "{got:?}");
+    assert_eq!(got[6], "--append-system-prompt", "{got:?}");
+    assert!(got[7].starts_with(acpmux::agent_tools::CONCURRENT_WORK_RULE), "{got:?}");
+    assert_eq!(got[8], "-p", "{got:?}");
 }
 
 #[tokio::test]
@@ -302,6 +305,13 @@ async fn preset_args_are_validated() {
         json!(["--setting-sources", "user"]),
         json!(["--setting-sources", "project,local,user"]),
         json!(["--setting-sources", "local"]),
+        json!(["--disallowedTools"]),
+        json!(["--disallowedTools", ""]),
+        json!(["--disallowedTools", "Bash(rm:*)"]),
+        json!(["--disallowedTools", "--dangerously-skip-permissions"]),
+        json!(["--disallowedTools", "Agent Workflow"]),
+        json!(["--disallowedTools", "Agent", "Workflow"]),
+        json!(["--disallowedTools=Agent"]),
     ] {
         let err =
             c.request(method::MUX_PRESETS, set(words.clone(), "fakeclaude")).await.unwrap_err();
@@ -320,6 +330,10 @@ async fn preset_args_are_validated() {
     let local = json!(["--setting-sources", "project,local", "--disable-slash-commands"]);
     let ok = c.request(method::MUX_PRESETS, set(local.clone(), "fakeclaude")).await.unwrap();
     assert_eq!(ok["args"], local);
+    // A Chief subagent's deny list: tools only taken away.
+    let deny = json!(["--disallowedTools", "Task,Agent,AskUserQuestion,Workflow,mcp__cmux__app_*"]);
+    let ok = c.request(method::MUX_PRESETS, set(deny.clone(), "fakeclaude")).await.unwrap();
+    assert_eq!(ok["args"], deny);
     // A refused set changes nothing.
     let list = c.request(method::MUX_PRESETS, json!({})).await.unwrap();
     assert_eq!(list["presets"].as_array().unwrap().len(), 1, "{list}");

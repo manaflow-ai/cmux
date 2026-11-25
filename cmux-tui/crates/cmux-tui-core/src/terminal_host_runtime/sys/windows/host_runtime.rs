@@ -111,6 +111,25 @@ pub(crate) fn pty_poll_handle(_master: &dyn MasterPty) -> anyhow::Result<PtyPoll
     Ok(PtyPollHandle)
 }
 
+/// A ConPTY pipe read blocks and already returns up to the whole buffer, so
+/// the reader never needs a second read for one frame.
+pub(crate) fn pty_reads_without_waiting(_pty: PtyPollHandle) -> bool {
+    false
+}
+
+/// See `pty_reads_without_waiting`: never a second read.
+pub(crate) fn pty_readable_now(_pty: PtyPollHandle) -> bool {
+    false
+}
+
+/// The ConPTY input pipe stays blocking; its writer is kept as it is.
+pub(crate) fn nonblocking_pty_writer(
+    _pty: PtyPollHandle,
+    writer: Box<dyn io::Write + Send>,
+) -> anyhow::Result<Box<dyn io::Write + Send>> {
+    Ok(writer)
+}
+
 /// Ok(true): read the PTY (the read blocks until bytes or end-of-file).
 /// Ok(false) once a forced drain's window has passed.
 pub(crate) fn wait_for_pty_readable_or_forced_drain(
@@ -203,6 +222,7 @@ pub(crate) mod adopt_launch {
         for (key, value) in &launch.extra_env {
             command.env(key, value);
         }
+        command.terminal_identity();
         for key in crate::shell_integration::keys_to_unset_in_child(&launch.extra_env) {
             command.env_remove(key);
         }

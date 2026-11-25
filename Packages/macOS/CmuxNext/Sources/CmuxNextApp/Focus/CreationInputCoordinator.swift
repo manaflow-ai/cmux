@@ -1,10 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextTerminal
-import os
 
 /// Where a creation hold's keys run again (#28436): `AppDelegate` passes `NSApp.sendEvent`, to the key window a person types
 /// in; a test, whose window is never key, passes its window. Arguments: the key, the window that held it, the key router.
@@ -39,13 +39,12 @@ final class CreationInputCoordinator {
     /// How each window's creation holds ended (``CreationHoldEnd``, R-L5: its end is a signal).
     var holdEnds = CreationHoldLog() // a page's arrival writes it (``CreationHoldLog/pageArrived(_:)``)
 
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.creation-hold")
-
     /// How `window`'s last creation hold ended; nil when it never held.
     func lastHoldEnd(in window: NSWindow?) -> CreationHoldEnd? { window.flatMap { holdEnds.last[$0.windowNumber] } }
 
     /// Whether `window`'s keys wait in a creation hold now (tests: a key typed meanwhile is replayed later).
     func isHolding(in window: NSWindow?) -> Bool { window.map { buffers[$0.windowNumber] != nil } ?? false }
+    private var markedFirstKey = false // the process's first key-down marked what the hold read of it (``holdReading(in:)``)
     init(router: KeyRouter, replay: @escaping HeldKeyReplay) { (self.router, self.replay) = (router, replay) }
 
     /// Holds `controller`'s keys for the person's new workspace's terminal under a new intent, and claims its keyboard;
@@ -95,12 +94,12 @@ final class CreationInputCoordinator {
 
     /// Opens the window's buffer for one creation that moves focus under the user intent
     /// `generation`; nil without a window, or when the creation may not move focus (a CLI,
-    /// script or agent run without `focus`), which leaves the keys where they are.
-    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil) -> CreationInputBuffer.Ticket? {
+    /// script or agent run without `focus`), which leaves the keys where they are. `newTerminal`, `standInSends`, `typesIntoTab`: `CreationInputBuffer.open`'s.
+    func begin(in window: NSWindow?, generation: UInt64?, earlyTab: String? = nil, tab: String? = nil, machine: String? = nil, newTerminal: Bool = false, standInSends: Bool = true, typesIntoTab: Bool = true) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed() else { return nil }
         defer { router?.newTabInputCoordinator.creationTookKeys(in: window) } // the newer intent: a New Tab hold's keys come here, in order
         defer { if let focus = router?.focus(for: window).0?.focus, focus.state.awaitsOtherTab, let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) } } // the page the person left gives this hold the keys now (P0 INVERSE-KEY)
-        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: machine ?? router?.focus(for: window).0?.content?.daemon.machineID)
+        return buffer(in: window).open(generation: generation, earlyTab: earlyTab, tab: tab, machine: machine ?? router?.focus(for: window).0?.content?.daemon.machineID, newTerminal: newTerminal, standInSends: standInSends, typesIntoTab: typesIntoTab)
     }
 
     /// ``CreationInputBuffer/keepsKeysFromLeftPage(awaitsOtherTab:generation:focusedTab:)`` for `window`'s hold.
@@ -114,20 +113,27 @@ final class CreationInputCoordinator {
         return begin(in: window, generation: generation)
     }
 
-    /// Whether a creation or its asynchronous placement is still outstanding in this window.
-    func hasPendingCreation(in window: NSWindow?) -> Bool { window.flatMap { buffers[$0.windowNumber] }?.hasPendingCreation == true }
+    func hasPendingCreation(in window: NSWindow?) -> Bool { window.flatMap { buffers[$0.windowNumber] }?.hasPendingCreation == true } // a creation or its asynchronous placement is still outstanding in this window
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
-    /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``).
+    /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``), with the keys a New Tab page's opening holds for it. So are the keys its
+    /// terminal already sent to the daemon: there (``CreatingTerminalInput/close()``), and when the daemon gives them back (``GivenBackInput/creationClosed(terminal:)``).
     func drop(tab: String, in window: NSWindow?) {
+        if let input = router?.services?.cache.existingTerminal(tab)?.io.creatingInput { GivenBackInput.shared.creationClosed(terminal: input.terminalID); input.close() }
         if let window, buffers[window.windowNumber]?.cancel(tab: tab) == true { scheduleFlush(in: window) }
+        router?.newTabInputCoordinator.drop(tab: tab, in: window)
+    }
+
+    /// The person closed what holds `panes` (a workspace, a screen, a stand-in pane): the same drop for each terminal of them that has
+    /// not started, so the keys it gave back never go to the terminal that the window shows and focuses next.
+    func drop(closing panes: [PaneModel]) {
+        guard let services = router?.services else { return }
+        let windows = services.windows.controllers.compactMap(\.window)
+        for tab in panes.flatMap(\.tabs) where services.cache.existingTerminal(tab.id)?.gate != nil { windows.forEach { drop(tab: tab.id, in: $0) } }
     }
 
     /// A selection shows a terminal whose surface comes later: keys wait for it, at most `holdLimit`.
-    func holdUntilShown(in window: NSWindow?) {
-        guard let window, ActionRunScope.viewChangeAllowed() else { return }
-        _ = buffer(in: window)
-    }
+    func holdUntilShown(in window: NSWindow?) { if let window, ActionRunScope.viewChangeAllowed() { _ = buffer(in: window) } }
 
     private func buffer(in window: NSWindow) -> CreationInputBuffer {
         let number = window.windowNumber
@@ -154,12 +160,12 @@ final class CreationInputCoordinator {
     /// The creation behind `ticket` got its reply (`landed`: its focus was asked for) or failed.
     /// The keys go on in a new main-actor turn: outside the creation's task (its action scope)
     /// and after the focus events the reply queued.
-    /// `workspace`: the workspace a ``beginWorkspace(in:)`` create made (nil: none, and the keys typed for it go with it).
-    func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String? = nil, in window: NSWindow?) {
+    /// `workspace`: the workspace a ``beginWorkspace(in:)`` create made (nil: none, and the keys typed for it go with it). `madeTab`, `madeSurface`: `CreationInputBuffer.resolve`'s.
+    func resolve(_ ticket: CreationInputBuffer.Ticket?, landed: Bool, workspace: String? = nil, in window: NSWindow?, madeTab: (@MainActor () -> String?)? = nil, madeSurface: UInt64? = nil) {
         if let window, let workspace, let ticket { claims.made(workspace, by: ticket, in: window); _ = claimHolds(in: window) }
         guard let ticket, let window, let buffer = buffers[window.windowNumber], buffer.owns(ticket) else { return } // a reply after its hold ended
         if !landed { holdEnds.creationFailed(in: window.windowNumber) }
-        buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace)
+        buffer.resolve(ticket, awaitsFocus: landed, workspace: workspace, madeTab: madeTab, madeSurface: madeSurface)
         scheduleFlush(in: window)
         // The focus it asked for may never land (a split from a page tab shows a New Tab page):
         // the keys go on `holdLimit` after the reply at the latest.
@@ -200,16 +206,17 @@ final class CreationInputCoordinator {
         resolve(ticket, landed: controller != nil, in: window)
     }
 
-    /// Whether `event`'s binding in `controller`'s focus is a close action (Close Tab, Cmd-W).
-    private static func closes(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> Bool {
-        guard KeyRouter.isChord(event.modifierFlags) else { return false }
+    /// What `event`'s binding does in `controller`'s focus: whether it is a close action (Close Tab, Cmd-W), and what it does to the pane's tabs.
+    private static func act(_ event: NSEvent, in window: NSWindow, controller: WindowController, router: KeyRouter) -> (closes: Bool, tabKey: CreationInputBuffer.TabKey?) {
+        guard KeyRouter.isChord(event.modifierFlags) else { return (false, nil) }
         let context = router.keyContext(for: controller.focus.currentState(), facts: router.facts(in: window, controller: controller))
-        guard let binding = router.resolve(event, context: context) else { return false }
-        return WindowKeyTable.isClose(binding.command)
+        let command = router.resolve(event, context: context)?.command
+        return (command.map(WindowKeyTable.isClose) == true, CreationInputBuffer.TabKey(action: command))
     }
 
     /// Takes `event` while a creation in its window is pending.
     func capture(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        if !markedFirstKey { markedFirstKey = true; DebugTimings.markLaunch("terminal.first_key.\(holdReading(in: window))") } // hq#22681
         guard let router, let window else { return false }
         let (controller, kind) = router.focus(for: window)
         // A Chromium page window is a child of the shell, whose number keys the buffer.
@@ -229,8 +236,8 @@ final class CreationInputCoordinator {
         // Automation's focus move (a new generation) does not take the key from it: the claim decides first.
         let forNewWorkspace = claimHolds(in: shell) || controller.map { buffer.newestGeneration == $0.focus.state.generation } ?? false
         if kind == .content, let controller, buffer.passesOn(focusedTab: controller.focus.state.typingTab), Self.responderTakesKeys(controller, window: shell) { return false } // moved on
-        // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
-        let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
+        // A close key (Cmd-W) acts now on what it closes; in the content the Close Tab key waits behind a held key that makes or closes a tab, of its pane or of the shown new workspace's terminal (a panel's key is the panel's).
+        let closes = controller.map { focused in let act = Self.act(event, in: shell, controller: focused, router: router); return kind == .content ? buffer.closeKeyActsNow(act, pane: focused.focus.state.pane, shown: focused.focus.currentState().topology.workspace) { Self.act($0, in: shell, controller: focused, router: router).tabKey } : act.closes } ?? false
         // A close of a pending creation of this hold (the focus it asked for is still on its way):
         // the keys typed for it go with it, the others keep waiting in order, and the close runs now
         // (TabLifecycle cancels the creation). Nothing is run into whatever has the focus first.
@@ -244,19 +251,19 @@ final class CreationInputCoordinator {
         if closes, buffer.isClosing(tab: controller?.focus.state.terminalTab) { return false }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it). A surface hold keeps a chord no app shortcut takes (Ctrl-C).
-        // A page hold keeps every key but a close (Cmd-L needs the page), until its bound.
-        guard kind == .content, let focused = controller, (!closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: focused.focus.currentState(), facts: router.facts(in: shell, controller: focused)))?.command.rawValue, pageCreated: router.focusedBrowserTab(in: focused)?.pageCreated ?? false)) || (!closes && KeyRouter.isChord(event.modifierFlags) && buffer.awaitedTab.map { shortcut(event, tab: $0, in: shell) == nil } == true) || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
+        // A page hold keeps every key but a close (Cmd-L needs the page), until its bound. An omnibar that edits is a bar field (a new browser tab's, on its stand-in).
+        guard kind == .content, let focused = controller, !Self.omnibarHasKeys(focused, shell), (!closes && buffer.awaitsPage && ContinuousClock.now - buffer.began < holdLimit && AwaitedContent.pageHoldKeeps(isChord: KeyRouter.isChord(event.modifierFlags), holdIsEmpty: buffer.isEmpty, command: router.resolve(event, context: router.keyContext(for: focused.focus.currentState(), facts: router.facts(in: shell, controller: focused)))?.command.rawValue, pageCreated: router.focusedBrowserTab(in: focused)?.pageCreated ?? false)) || (!closes && KeyRouter.isChord(event.modifierFlags) && buffer.awaitedTab.map { shortcut(event, tab: $0, in: shell) == nil } == true) || buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
             if buffer.waitedPastReplyBound() { buffer.onBound?(buffer, .reply) } else { flush(in: shell, force: true, end: .focusLeft) }
             guard let next = buffers[shell.windowNumber] else { return kind == .content && keepsFromWindow(event, in: shell) }
             guard next.holds(event, limit: holdLimit, expiring: false, closes: closes) else { return false }
-            next.capture(event, focusedTab: controller?.focus.state.typingTab)
+            next.capture(event, focusedTab: controller?.focus.state.typingTab, pane: controller?.focus.state.pane)
             return true
         }
         // A pending creation's early view has the keyboard: the keys held for it first, then this one if it was typed for
         // it too. Keys typed for another creation wait for that one's terminal (P0 1193).
         if let controller, let lane = Self.keyboardTerminal(controller, shell).flatMap(buffer.earlyLane(tab:)), runAgain(buffer.take(lane: lane), from: buffer, in: shell),
            lane == buffer.lane(focusedTab: controller.focus.state.typingTab) { return false }
-        buffer.capture(event, focusedTab: controller?.focus.state.typingTab, forNewWorkspace: forNewWorkspace)
+        buffer.capture(event, focusedTab: controller?.focus.state.typingTab, forNewWorkspace: forNewWorkspace, forNewestIntent: controller.map { buffer.newestGeneration == $0.focus.state.generation } ?? false, pane: controller?.focus.state.pane)
         return true
     }
 
@@ -268,9 +275,9 @@ final class CreationInputCoordinator {
         for (index, key) in keys.enumerated() {
             replaying = (key.lane != nil, run)
             switch key {
-            case .run(let event, _): if let router { replay(event, window, router) }
-            case .type(let events, let lane): type(events, into: lane)
-            case .command(let event, let lane): // with that terminal's tab as its target; no binding now: its key
+            case .run(let event, _, _): if let router { replay(event, window, router) }
+            case .type(let events, let lane, _): type(events, into: lane)
+            case .command(let event, let lane, _): // with that terminal's tab as its target; no binding now: its key
                 guard let (binding, context) = shortcut(event, tab: lane.tab, in: window), let router else { type([event], into: lane); break }
                 RegistryKeyBindings(router.registry).run(binding, keyContext: context.bits, target: ActionTargetRef(kind: .tab, id: lane.tab))
             }
@@ -283,16 +290,15 @@ final class CreationInputCoordinator {
     }
 
     /// Types `events` into `lane`'s terminal with its own key encoding: its view's (also hidden), else, its view gone, the
-    /// daemon's (that terminal's modes; another machine's terminal too). A closed terminal takes its keys with it.
+    /// daemon's (that terminal's modes; another machine's terminal too): to the id a New Terminal Tab's reply named (`made`: the daemon has that terminal before the store lists its tab), else to the listed tab's. A closed terminal takes its keys with it.
     private func type(_ events: [NSEvent], into lane: CreationInputBuffer.HeldLane) {
         guard let services = router?.services else { return }
         if let view = services.cache.existingTerminal(lane.tab)?.session.surfaceView { return events.forEach(view.typeHeldKey) }
-        guard let machine = lane.machine, let (tab, pane) = services.locateTab(lane.tab, onMachine: machine), tab.kind == .pty else {
-            return Self.logger.notice("\(events.count, privacy: .public) held key(s) went with their closed terminal")
-        }
-        let (inputs, skipped) = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue), surface = tab.surface
-        if skipped > 0 { Self.logger.error("\(skipped, privacy: .public) held key(s) have no daemon key name") }
-        services.daemon(for: pane).sendInOrder("send-key", to: surface) { connection in // after this terminal's earlier held sends
+        let made = lane.madeSurface.map { SurfaceID(rawValue: $0) }, listed = made == nil ? lane.machine.flatMap { services.locateTab(lane.tab, onMachine: $0) } : nil
+        let daemon = made == nil ? listed.map { services.daemon(for: $0.1) } : lane.machine.flatMap { services.machines.daemon(machine: $0) }
+        guard let daemon, let surface = made ?? (listed?.0.kind == .pty ? listed?.0.surface : nil) else { return holdEnds.wentWithTerminal(events.count) } // lost: no terminal gets them, and the hold's end counts them
+        let inputs = HeldKeyInput.inputs(for: events, optionAsAlt: GhosttyRuntime.shared.optionAsAltValue, log: holdEnds)
+        daemon.sendInOrder("send-key", to: surface) { connection in // after this terminal's earlier held sends
             for input in inputs {
                 switch input {
                 case .text(let text): try await connection.send(surface, text: text)
@@ -311,6 +317,8 @@ final class CreationInputCoordinator {
         return router.resolve(event, context: context).map { ($0, context) }
     }
 
+    /// The focus is on a shown browser tab's omnibar and it edits as `window`'s first responder: a key typed now lands in it.
+    private static func omnibarHasKeys(_ controller: WindowController, _ window: NSWindow) -> Bool { guard case .addressBar(let pane, let tab) = controller.focus.state.resolved, let shown = controller.content?.paneController(key: pane), shown.currentTabKey == tab, case .browser(let entry)? = shown.currentContent, let bar = entry.chrome?.addressBar else { return false }; return bar.window === window && bar.editsAsFirstResponder }
     /// The focused terminal's tab when its shown view has the keyboard (never another view: a composer, a text field).
     private static func keyboardTerminal(_ controller: WindowController, _ window: NSWindow) -> String? {
         guard case .terminal(let pane, let tab) = controller.focus.state.resolved, let shown = controller.content?.paneController(key: pane),
@@ -322,7 +330,7 @@ final class CreationInputCoordinator {
     /// wait for a focused terminal of the window that showed that terminal, never another window's.
     /// Keys from a terminal no window shows any more are dropped (never typed into a guess).
     func giveBack(_ bytes: Data, terminal terminalID: String) {
-        GivenBackInput.shared.deliver(adding: bytes, window: window(ofCreatingTerminal: terminalID), to: nil)
+        GivenBackInput.shared.deliver(adding: bytes, from: terminalID, window: window(ofCreatingTerminal: terminalID), to: nil)
         giveBack()
     }
 
@@ -342,8 +350,8 @@ final class CreationInputCoordinator {
         return services.windows.owner(of: window)?.state.id
     }
 
-    /// `key`'s page arrived or Chromium created its browser: a hold that awaited it ends now (reopen-browser-plain-keys cycle B).
-    func pageArrived(_ key: String) { holdEnds.pageArrived(key); router?.services?.windows.controllers.compactMap(\.window).filter { buffers[$0.windowNumber]?.awaitedTab == key }.forEach(scheduleFlush) }
+    /// `key`'s page arrived or Chromium created its browser: a hold that awaited it ends now (reopen-browser-plain-keys cycle B). Nil: the page window of a cmux page or an agent chat got its grant, and every page hold checks again.
+    func pageArrived(_ key: String?) { if let key { holdEnds.pageArrived(key) }; router?.services?.windows.controllers.compactMap(\.window).filter { key == nil ? buffers[$0.windowNumber]?.awaitsPage == true : buffers[$0.windowNumber]?.awaitedTab == key }.forEach(scheduleFlush) }
 
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
@@ -355,10 +363,7 @@ final class CreationInputCoordinator {
 
     private func scheduleFlush(in window: NSWindow) {
         // task-owner: one flush check in a fresh main-actor turn, without the creating action's task-locals
-        Task.detached { @MainActor [weak self, weak window] in
-            guard let self, let window else { return }
-            flush(in: window)
-        }
+        Task.detached { @MainActor [weak self, weak window] in if let window { self?.flush(in: window) } }
     }
 
     /// `force`: the hold ends now (its limit, focus left the content), whatever it waited for.
@@ -366,44 +371,58 @@ final class CreationInputCoordinator {
     private func flush(in window: NSWindow, force: Bool = false, end forcedEnd: CreationHoldEnd = .limitReached) {
         guard let buffer = buffers[window.windowNumber], asking[window.windowNumber] == nil else { return } // a close's question is up: the keys wait for its answer, never typed into it (a Return would press Close)
         guard force || buffer.isResolved else {
-            // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle).
+            // Before every reply, only a creation whose early view has the keyboard takes its own keys (a focus settle); an omnibar that edits takes them all, as a bar field.
+            if let controller = router?.focus(for: window).0, Self.omnibarHasKeys(controller, window) { return flush(in: window, force: true, end: .focusLeft) }
             if let lane = router?.focus(for: window).0.flatMap({ Self.keyboardTerminal($0, window).flatMap(buffer.earlyLane(tab:)) }) { _ = runAgain(buffer.take(lane: lane), from: buffer, in: window) }
             return
         }
         guard let router, let controller = router.focus(for: window).0 else { return endClosed(buffer, window: window.windowNumber) }
         // Reduced: a topology the window marked changed counts (the new workspace may show in this turn).
         let shown = controller.focus.currentState().topology.workspace
+        let reduce = { (forced: Bool) in self.holdEnds.tabKeysReduced(buffer.reduceTabKeys(dropsLoneClose: forced) { Self.act($0, in: window, controller: controller, router: router).tabKey }) } // a held Close Tab key goes with its New Tab key
         if !force {
             let focus = controller.focus.state
             if let expectation = focus.expectation, buffer.awaits(expectation.generation) { return }
             let terminal = Self.keyboardTerminal(controller, window) // a new workspace's keys wait for it to show with its terminal (a left one's: its own)
             if let workspace = buffer.shownWorkspaceToWaitFor, workspace != shown || terminal == nil { return }
-            guard Self.responderTakesKeys(controller, window: window) else { return }
+            guard Self.responderTakesKeys(controller, window: window), !buffer.holdsForMadeTab(wake: { [weak self, weak window] in if let window { self?.flush(in: window) } }) else { return } // the store's change that lists the made tab runs this flush again
             if let awaited = buffer.awaitedTab, Self.awaitedContent(controller)?.tab == awaited { return } // its surface comes on a later frame
-            if let kept = buffer.keysKeptForLeftWorkspace(shown: shown, terminalReady: terminal != nil) { return _ = runAgain(buffer.take(focused: terminal, keeping: kept) { self.shortcut($0, tab: $1, in: window) != nil }, from: buffer, in: window) }
+            if let kept = buffer.keysKeptForLeftWorkspace(shown: shown, terminalReady: terminal != nil) { reduce(false); return _ = runAgain(buffer.take(focused: terminal, keeping: kept) { self.shortcut($0, tab: $1, in: window) != nil }, from: buffer, in: window) }
         }
         buffers[window.windowNumber] = nil
         // A forced end drops the keys of a new workspace the window does not show, or the focus still waits: it applies again.
         if buffer.dropKeys(ofWorkspacesOtherThan: shown) || controller.focus.state.awaitsOtherTab, let pane = controller.focus.state.pane { controller.focus.send(.contentPresented(pane: pane)) }
         let daemon = controller.content?.daemon
-        if buffer.awaitedWorkspace == shown, let daemon { buffer.bindNewWorkspaceKeys(to: shown.flatMap(daemon.store.firstTerminalTab(ofWorkspace:))?.id, machine: daemon.machineID) }
-        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil)
+        if buffer.awaitedWorkspace == shown, let daemon { buffer.bindNewWorkspaceKeys(to: shown.flatMap(daemon.store.firstTerminalTab(ofWorkspace:))?.id, machine: daemon.machineID) { tab in controller.focus.currentState().topology.panes.first { $0.tab(tab) != nil }?.id } }
+        let end = holdEnds.end(in: window.windowNumber, forced: force ? forcedEnd : nil, pageTab: buffer.awaitsPage ? buffer.awaitedTab : nil), lastAction = router.lastInterception?.action.rawValue // read before the keys run again: each of them sets it anew
+        reduce(force)
         let pending = buffer.take(focused: Self.keyboardTerminal(controller, window)) { self.shortcut($0, tab: $1, in: window) != nil }
-        CreationHoldLog.noteEnded(end, window: window.windowNumber, keys: pending.count, lastAction: router.lastInterception?.action.rawValue, untyped: buffer.untypedTerminalKeys)
         _ = runAgain(pending, from: buffer, in: window)
+        holdEnds.noteEnded(end, window: window.windowNumber, keys: pending.count, lastAction: lastAction, untyped: buffer.untypedTerminalKeys) // after the keys ran: it counts those a gone terminal took
     }
 }
 
 extension CreationInputCoordinator {
-    /// The focused content a key typed now would miss (``AwaitedContent``): a terminal whose surface is not shown in its
-    /// pane yet, or a browser tab whose page is not made yet (a restored Chromium tab starts after the window shows).
-    static func awaitedContent(_ controller: WindowController) -> AwaitedContent? {
+    /// The focused content a key typed now would miss (``AwaitedContent``): a terminal whose surface is not shown in its pane yet, a browser tab whose
+    /// page is not made yet (a restored Chromium tab starts after the window shows), or an agent chat or page tab whose view is not shown yet.
+    static func awaitedContent(_ controller: WindowController, reading: ((String) -> Void)? = nil) -> AwaitedContent? {
         let state = controller.focus.currentState()
-        guard case let (pane, tab, isPage)? = state.awaitableContent, let content = controller.content, content.workspace.id == state.topology.workspace else { return nil }
+        guard case let (pane, tab, isPage)? = state.awaitableContent, let content = controller.content, content.workspace.id == state.topology.workspace else { reading?("focus_not_content"); return nil }
         let shown = content.paneController(key: pane).map { shown in
-            AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey, shownKind: shown.currentContent.flatMap { if case .terminal = $0 { .terminal } else if case .browser = $0 { .browser } else { nil } }, selectedIsLiveTerminal: shown.showsLiveTerminal, shownPageReady: shown.currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab.pageReady } else { nil } } ?? true)
+            AwaitedContent.Pane(selectedTab: shown.stripModel.selectedID?.rawValue, shownTab: shown.currentTabKey, shownKind: shown.currentContent.flatMap { if case .terminal = $0 { .terminal } else if case .conversation = $0 { nil } else { .browser } }, selectedIsLiveTerminal: shown.showsLiveTerminal, shownPageReady: AwaitedContent.Pane.pageReady(browser: shown.currentContent.flatMap { if case .browser(let entry) = $0 { entry.tab.pageReady } else { nil } }, pageWindow: shown.currentContent?.childWindowTab?.pageReady))
         }
-        return AwaitedContent.awaited(isPage ? .browser : .terminal, tab: tab, pane: shown, paneInTopology: state.topology.panes.contains { $0.id == pane })
+        let (kind, inTopology): (AwaitedContent.Kind, Bool) = (isPage ? .browser : .terminal, state.topology.panes.contains { $0.id == pane })
+        reading?("\(isPage ? "page" : "terminal")_\(AwaitedContent.reading(kind, tab: tab, pane: shown, paneInTopology: inTopology))")
+        return AwaitedContent.awaited(kind, tab: tab, pane: shown, paneInTopology: inTopology)
+    }
+
+    /// hq#22681: what the hold reads of a key typed into `window` now, the first condition of ``capture(_:in:)`` that fails.
+    private func holdReading(in window: NSWindow?) -> String {
+        guard let router, let window, case let (controller?, .content) = router.focus(for: window) else { return "not_content" }
+        if isHolding(in: controller.window ?? window) { return "hold_open" }
+        var reading = "view_change_refused"
+        if ActionRunScope.viewChangeAllowed() { _ = Self.awaitedContent(controller) { reading = $0 } }
+        return reading
     }
 
     /// False while focus names a terminal whose view does not have the keyboard and the window's

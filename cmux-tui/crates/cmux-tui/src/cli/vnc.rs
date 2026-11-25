@@ -33,7 +33,7 @@ const PROMPT_ATTEMPTS: usize = 3;
 pub(super) const HELP: &str = "\
 USAGE
   cmux vnc <ADDRESS> [OPTIONS]
-  cmux vnc machine:<MACHINE_ID> [--port <n>] [OPTIONS]
+  cmux vnc vm:<VM_ID> [--port <n>] [OPTIONS]
 
 Shows a VNC (RFB) server's screen in this terminal pane and sends it your
 keyboard and mouse. Works with macOS Screen Sharing, Windows (TightVNC,
@@ -44,7 +44,7 @@ ADDRESS
   host:N             display N (port 5900+N) when N < 100, else port N
   host::PORT         a port
   [v6addr]:PORT      an IPv6 address
-  machine:ID         a cmux Cloud machine's desktop, through `cmux cloud
+  vm:ID              a cmux Cloud VM's desktop, through `cmux vm
                      port-forward` (port 5901 unless --port)
 
 OPTIONS
@@ -54,7 +54,7 @@ OPTIONS
   --password-file <path>     read the password from the file's first line
   --proxy-command <cmd>      speak RFB over the command's stdin and stdout
                              (for example `ssh -W localhost:5901 box`)
-  --port <n>                 the machine port for machine:ID (default 5901)
+  --port <n>                 the VM port for vm:ID (default 5901)
   --view-only                show the screen; send no input
   --resize auto|remote|scale auto (default): resize the remote desktop to the
                              pane when the server allows it, else scale;
@@ -209,32 +209,34 @@ pub(super) fn parse(
         None => env(&password_env).filter(|value| !value.is_empty()),
     };
     let (target, label) = match (address, proxy) {
-        (Some(address), None) => match address.strip_prefix("machine:") {
-            Some(id) if !id.is_empty() => (
-                Target::Machine { id: id.to_owned(), port: port.unwrap_or(CLOUD_DESKTOP_PORT) },
-                address.clone(),
-            ),
-            Some(_) => {
-                return Err(UsageError::new("machine: needs a machine id (machine:<MACHINE_ID>)"));
-            }
-            None => {
-                if port.is_some() {
-                    return Err(UsageError::new(
-                        "--port is for machine:<ID>; put the port in the address (host::port)",
-                    ));
+        (Some(address), None) => {
+            match address.strip_prefix("vm:").or_else(|| address.strip_prefix("machine:")) {
+                Some(id) if !id.is_empty() => (
+                    Target::Machine { id: id.to_owned(), port: port.unwrap_or(CLOUD_DESKTOP_PORT) },
+                    address.clone(),
+                ),
+                Some(_) => {
+                    return Err(UsageError::new("vm: needs a VM id (vm:<VM_ID>)"));
                 }
-                let endpoint = Endpoint::parse(&address).map_err(UsageError::new)?;
-                let label = endpoint.to_string();
-                (Target::Tcp(endpoint), label)
+                None => {
+                    if port.is_some() {
+                        return Err(UsageError::new(
+                            "--port is for vm:<ID>; put the port in the address (host::port)",
+                        ));
+                    }
+                    let endpoint = Endpoint::parse(&address).map_err(UsageError::new)?;
+                    let label = endpoint.to_string();
+                    (Target::Tcp(endpoint), label)
+                }
             }
-        },
+        }
         (None, Some(command)) => (Target::Proxy(command.clone()), command),
         (Some(_), Some(_)) => {
             return Err(UsageError::new("give an address or --proxy-command, not both"));
         }
         (None, None) => {
             return Err(UsageError::new(
-                "cmux vnc needs an address: host[:display], host::port or machine:<ID>",
+                "cmux vnc needs an address: host[:display], host::port or vm:<ID>",
             ));
         }
     };
@@ -291,6 +293,7 @@ fn with_stderr(error: VncError, stderr: &str) -> VncError {
 fn forward_machine_port(id: &str, port: u16) -> Result<Endpoint, VncError> {
     let exe = std::env::current_exe()?;
     let output = cmux_process::Command::new(exe)
+        .env(super::vm_words::STEP_ENV, "1")
         .args([
             "--json",
             "cloud",

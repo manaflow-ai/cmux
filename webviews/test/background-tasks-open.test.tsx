@@ -6,6 +6,7 @@
 // opening its own transcript with a way back.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -59,12 +60,8 @@ type BackgroundGroup = import("../src/agent-session/acpmux/backgroundTasks/backg
 type AcpmuxRow = import("../src/agent-session/acpmux/model").AcpmuxRow;
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -107,8 +104,9 @@ describe("the running tray opens the Background tasks panel", () => {
       // A sibling of the header's own button (a button holds no button), over its slot.
       expect(bar.head().contains(button)).toBe(false);
       expect(bar.head().querySelector(".acpmux-running-tray__open-slot")).not.toBeNull();
-      // The folded header keeps its names (#33104, #33364: the newest one, then +N more).
-      expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("Audit the stack");
+      // The folded header counts its two groups in words while they fit (the `groups` default,
+      // trayFoldHead.experiment.ts; an unmeasured header draws its richest step); running needs no word.
+      expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents");
       await act(async () => button!.click());
       expect(opened).toBe(1);
       expect(bar.head().getAttribute("aria-expanded")).toBe("false");
@@ -247,7 +245,8 @@ describe("the Background tasks panel", () => {
     const view = await panel();
     try {
       const heads = [...view.host.querySelectorAll(".acpmux-bg__section-head")].map((node) => node.textContent);
-      expect(heads).toEqual(["Running1", "Finished2"]);
+      // Running is its mark and count, no word (Leo, 2026-11-23: ""running" doesn't need text").
+      expect(heads).toEqual(["1", "Finished2"]);
       const live = view.host.querySelector('[data-group="agent:live"]')!;
       expect(live.querySelector(".acpmux-bg__fold")?.textContent).toBe("3 tasks, 1 failed");
       // A heading folds its agents: Finished starts folded, as Claude Desktop's panel opens.

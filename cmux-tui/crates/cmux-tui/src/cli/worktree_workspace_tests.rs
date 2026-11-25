@@ -10,7 +10,9 @@ use super::*;
 
 const WORKSPACE: &str = "ws_0123456789abcdef0123456789abcdef";
 
-/// Answers each operation from `answers`; records every request.
+/// Answers each operation from `answers`; records every request. An
+/// operation listed more than once gets its answers in order, the last one
+/// again after that.
 struct FakeDaemon {
     answers: Vec<(&'static str, Result<Value, Value>)>,
     sent: RefCell<Vec<Value>>,
@@ -38,6 +40,16 @@ impl FakeDaemon {
             .unwrap_or_default()
     }
 
+    /// The params of every `operation` request, in order.
+    fn all_params(&self, operation: &str) -> Vec<Value> {
+        self.sent
+            .borrow()
+            .iter()
+            .filter(|request| request["operation"] == operation)
+            .map(|request| request["params"].clone())
+            .collect()
+    }
+
     fn key(&self, operation: &str) -> Value {
         self.sent
             .borrow()
@@ -52,8 +64,10 @@ impl Daemon for FakeDaemon {
     fn request(&self, _session: Option<&str>, plan: RequestPlan) -> Result<Value, CallFailure> {
         let request = request_value(&plan).expect("a valid request");
         let operation = request["operation"].as_str().unwrap_or_default().to_owned();
+        let asked = self.operations().iter().filter(|sent| **sent == operation).count();
         self.sent.borrow_mut().push(request);
-        match self.answers.iter().find(|(name, _)| *name == operation) {
+        let answers: Vec<_> = self.answers.iter().filter(|(name, _)| *name == operation).collect();
+        match answers.get(asked).or(answers.last()) {
             Some((_, Ok(value))) => Ok(value.clone()),
             Some((_, Err(error))) => Err(CallFailure {
                 kind: FailureKind::Rejected,
@@ -239,36 +253,60 @@ fn read_run_worktree_close_without_an_agent_folder_removes_the_terminals_worktre
 }
 
 /// W5-O (bench round 4): the close left the workspace's shells running with
-/// no tab, in the folder the removal took. Each terminal whose every tab was
-/// in the workspace ends after the close; one with a tab elsewhere, and an
-/// exited one, stay.
+/// no tab, in the folder the removal took. After the close, each terminal
+/// that had a tab in the workspace and now has none ends with `if_unplaced`
+/// (the session refuses a kept or attached one). One with a tab elsewhere,
+/// an exited one, one that had no tab here and the caller's own stay.
 #[test]
-fn w5o_worktree_close_ends_the_terminals_that_had_tabs_only_in_the_workspace() {
+fn w5o_worktree_close_ends_the_terminals_it_left_with_no_tab() {
     const OTHER: &str = "ws_ffffffffffffffffffffffffffffffff";
     const HERE: &str = "term_11111111111111111111111111111111";
-    let snapshot = json!({
-        "workspaces": [{"id": WORKSPACE}, {"id": OTHER}],
-        "screens": [{"id": "screen_a", "workspace_id": WORKSPACE},
-                    {"id": "screen_b", "workspace_id": OTHER}],
-        "panes": [{"id": "pane_a", "screen_id": "screen_a"},
-                  {"id": "pane_b", "screen_id": "screen_b"}],
-        "tabs": [{"id": "tab_1", "pane_id": "pane_a"}, {"id": "tab_2", "pane_id": "pane_a"},
-                 {"id": "tab_3", "pane_id": "pane_a"}, {"id": "tab_4", "pane_id": "pane_b"},
-                 {"id": "tab_5", "pane_id": "pane_a"}],
-        "terminals": [
+    const ELSEWHERE_TOO: &str = "term_22222222222222222222222222222222";
+    const CALLER: &str = "term_66666666666666666666666666666666";
+    let tabs = json!([{"id": "tab_1", "pane_id": "pane_a"}, {"id": "tab_2", "pane_id": "pane_a"},
+                      {"id": "tab_3", "pane_id": "pane_a"}, {"id": "tab_4", "pane_id": "pane_b"},
+                      {"id": "tab_5", "pane_id": "pane_a"}, {"id": "tab_6", "pane_id": "pane_a"}]);
+    let session = |tabs: Value, terminals: Value| {
+        json!({
+            "workspaces": [{"id": WORKSPACE}, {"id": OTHER}],
+            "screens": [{"id": "screen_a", "workspace_id": WORKSPACE},
+                        {"id": "screen_b", "workspace_id": OTHER}],
+            "panes": [{"id": "pane_a", "screen_id": "screen_a"},
+                      {"id": "pane_b", "screen_id": "screen_b"}],
+            "tabs": tabs,
+            "terminals": terminals,
+        })
+    };
+    let before = session(
+        tabs,
+        json!([
             {"id": HERE, "lifecycle": "running", "tab_ids": ["tab_1", "tab_2"]},
-            {"id": "term_22222222222222222222222222222222", "lifecycle": "running", "tab_ids": ["tab_3", "tab_4"]},
+            {"id": ELSEWHERE_TOO, "lifecycle": "running", "tab_ids": ["tab_3", "tab_4"]},
             {"id": "term_33333333333333333333333333333333", "lifecycle": "running", "tab_ids": ["tab_4"]},
             {"id": "term_44444444444444444444444444444444", "lifecycle": "exited", "tab_ids": ["tab_5"]},
             {"id": "term_55555555555555555555555555555555", "lifecycle": "running", "tab_ids": []},
-        ],
-    });
+            {"id": CALLER, "lifecycle": "running", "tab_ids": ["tab_6"]},
+        ]),
+    );
+    let after = session(
+        json!([{"id": "tab_4", "pane_id": "pane_b"}]),
+        json!([
+            {"id": HERE, "lifecycle": "running", "tab_ids": []},
+            {"id": ELSEWHERE_TOO, "lifecycle": "running", "tab_ids": ["tab_4"]},
+            {"id": "term_33333333333333333333333333333333", "lifecycle": "running", "tab_ids": ["tab_4"]},
+            {"id": "term_44444444444444444444444444444444", "lifecycle": "exited", "tab_ids": []},
+            {"id": "term_55555555555555555555555555555555", "lifecycle": "running", "tab_ids": []},
+            {"id": CALLER, "lifecycle": "running", "tab_ids": []},
+        ]),
+    );
     let daemon = FakeDaemon::new(vec![
         ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {"agent_folder": "/w"}}))),
         ("git.worktree.remove", Ok(json!({"value": {"root": "/w", "branch_deleted": true}}))),
-        ("session.snapshot", Ok(snapshot)),
+        ("session.snapshot", Ok(before)),
+        ("session.snapshot", Ok(after)),
     ]);
-    let request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
+    let mut request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
+    request.caller_terminal = Some(CALLER.to_owned());
     let result = close(&daemon, &request, "key-6").expect("closed");
     assert_eq!(
         daemon.operations(),
@@ -277,10 +315,143 @@ fn w5o_worktree_close_ends_the_terminals_that_had_tabs_only_in_the_workspace() {
             "git.worktree.remove",
             "session.snapshot",
             "workspace.close",
+            "session.snapshot",
             "terminal.close"
         ]
     );
-    assert_eq!(daemon.params("terminal.close")["terminal"], HERE);
+    let end = daemon.params("terminal.close");
+    assert_eq!(end["terminal"], HERE);
+    assert_eq!(end["if_unplaced"], true, "a kept or attached terminal must stay: {end}");
     assert_eq!(result["ended_terminals"], json!([HERE]));
     assert_eq!(result["worktree"]["root"], "/w");
+}
+
+/// A terminal the session refuses to end (kept, attached, or given a tab
+/// since the read) is not reported as ended; the close stands.
+#[test]
+fn w5o_worktree_close_reports_only_the_terminals_the_session_ended() {
+    const HERE: &str = "term_11111111111111111111111111111111";
+    let session = |tab_ids: Value| {
+        json!({
+            "screens": [{"id": "screen_a", "workspace_id": WORKSPACE}],
+            "panes": [{"id": "pane_a", "screen_id": "screen_a"}],
+            "tabs": [{"id": "tab_1", "pane_id": "pane_a"}],
+            "terminals": [{"id": HERE, "lifecycle": "running", "tab_ids": tab_ids}],
+        })
+    };
+    let refused = json!({"code": "operation.failed",
+                         "details": {"extra": {"terminal_retained": true}}});
+    let daemon = FakeDaemon::new(vec![
+        ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {"agent_folder": "/w"}}))),
+        ("git.worktree.remove", Ok(json!({"value": {"root": "/w"}}))),
+        ("session.snapshot", Ok(session(json!(["tab_1"])))),
+        ("session.snapshot", Ok(session(json!([])))),
+        ("terminal.close", Err(refused)),
+    ]);
+    let request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
+    let result = close(&daemon, &request, "key-7").expect("the close stands");
+    assert_eq!(daemon.params("terminal.close")["terminal"], HERE);
+    assert_eq!(daemon.all_params("terminal.close").len(), 1, "a refusal sends no plain end");
+    assert_eq!(result["ended_terminals"], json!([]));
+}
+
+/// Build skew: a daemon older than `if_unplaced` refuses an unknown request
+/// parameter. That refusal, from the daemon that receives the close, picks
+/// the plain end; the caller's terminal is still spared.
+///
+/// A fake stands in for the older daemon: CI builds only the current tree,
+/// and a current daemon accepts the field. The contract is pinned at both
+/// ends instead: the core test
+/// `w5o_an_unknown_terminal_close_field_is_refused_before_it_is_keyed` shows
+/// the refusal a daemon gives to an unknown `terminal.close` field (the
+/// catalog has `extra: false` for it since its first commit, so an older
+/// daemon gives it to `if_unplaced`), and this test feeds that same refusal
+/// to the command.
+#[test]
+fn w5o_worktree_close_on_an_older_daemon_ends_without_if_unplaced() {
+    const HERE: &str = "term_11111111111111111111111111111111";
+    const CALLER: &str = "term_66666666666666666666666666666666";
+    let session = |here: Value, caller: Value| {
+        json!({
+            "screens": [{"id": "screen_a", "workspace_id": WORKSPACE}],
+            "panes": [{"id": "pane_a", "screen_id": "screen_a"}],
+            "tabs": [{"id": "tab_1", "pane_id": "pane_a"}, {"id": "tab_2", "pane_id": "pane_a"}],
+            "terminals": [{"id": HERE, "lifecycle": "running", "tab_ids": here},
+                          {"id": CALLER, "lifecycle": "running", "tab_ids": caller}],
+        })
+    };
+    let unknown = json!({"code": "validation.invalid",
+                         "message": "request contains unknown parameters",
+                         "details": {"reason": "request contains unknown parameters"}});
+    let daemon = FakeDaemon::new(vec![
+        ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {"agent_folder": "/w"}}))),
+        ("git.worktree.remove", Ok(json!({"value": {"root": "/w"}}))),
+        ("session.snapshot", Ok(session(json!(["tab_1"]), json!(["tab_2"])))),
+        ("session.snapshot", Ok(session(json!([]), json!([])))),
+        ("terminal.close", Err(unknown)),
+        ("terminal.close", Ok(json!({"value": {}, "revision": "9"}))),
+    ]);
+    let mut request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
+    request.caller_terminal = Some(CALLER.to_owned());
+    let result = close(&daemon, &request, "key-8").expect("closed");
+    let ends = daemon.all_params("terminal.close");
+    let [guarded, plain] = ends.as_slice() else { panic!("two ends: {ends:?}") };
+    assert_eq!(guarded["terminal"], HERE);
+    assert_eq!(guarded["if_unplaced"], true);
+    assert_eq!(plain["terminal"], HERE);
+    assert!(plain.get("if_unplaced").is_none(), "the plain end: {plain}");
+    assert_eq!(result["ended_terminals"], json!([HERE]));
+}
+
+/// W5-O follow-up review: a daemon whose `identify` cannot be read (Windows,
+/// a timeout) or does not list the capability still gets the guard; only
+/// the daemon's own refusal of the field picks the plain end.
+#[test]
+fn w5o_worktree_close_guards_the_end_when_identify_cannot_tell() {
+    const HERE: &str = "term_11111111111111111111111111111111";
+    let session = |tab_ids: Value| {
+        json!({
+            "screens": [{"id": "screen_a", "workspace_id": WORKSPACE}],
+            "panes": [{"id": "pane_a", "screen_id": "screen_a"}],
+            "tabs": [{"id": "tab_1", "pane_id": "pane_a"}],
+            "terminals": [{"id": HERE, "lifecycle": "running", "tab_ids": tab_ids}],
+        })
+    };
+    let daemon = FakeDaemon::new(vec![
+        ("workspace.get", Ok(json!({"id": WORKSPACE, "extra": {"agent_folder": "/w"}}))),
+        ("git.worktree.remove", Ok(json!({"value": {"root": "/w"}}))),
+        ("session.snapshot", Ok(session(json!(["tab_1"])))),
+        ("session.snapshot", Ok(session(json!([])))),
+    ]);
+    let request = parse_close(WORKSPACE, &strings(&["--remove-worktree"])).expect("parsed");
+    let result = close(&daemon, &request, "key-9").expect("closed");
+    let end = daemon.params("terminal.close");
+    assert_eq!(end["if_unplaced"], true, "the guard must not depend on identify: {end}");
+    assert_eq!(result["ended_terminals"], json!([HERE]));
+}
+
+/// W5-Q follow-up (#39580 review): the close ends only terminals whose
+/// lifecycle says they run (`running`, `launching`, `adopting`). One with
+/// another word (`tombstoned`, a newer daemon's word) or with no
+/// `lifecycle` field is left to the session.
+#[test]
+fn w5q_worktree_close_counts_only_terminals_whose_lifecycle_says_they_run() {
+    let snapshot = json!({
+        "screens": [{"id": "screen_a", "workspace_id": WORKSPACE}],
+        "panes": [{"id": "pane_a", "screen_id": "screen_a"}],
+        "tabs": [{"id": "tab_1", "pane_id": "pane_a"}, {"id": "tab_2", "pane_id": "pane_a"},
+                 {"id": "tab_3", "pane_id": "pane_a"}, {"id": "tab_4", "pane_id": "pane_a"},
+                 {"id": "tab_5", "pane_id": "pane_a"}],
+        "terminals": [
+            {"id": "term_running", "lifecycle": "running", "tab_ids": ["tab_1"]},
+            {"id": "term_launching", "lifecycle": "launching", "tab_ids": ["tab_2"]},
+            {"id": "term_tombstoned", "lifecycle": "tombstoned", "tab_ids": ["tab_3"]},
+            {"id": "term_unknown_word", "lifecycle": "suspended", "tab_ids": ["tab_4"]},
+            {"id": "term_no_lifecycle", "tab_ids": ["tab_5"]},
+        ],
+    });
+    assert_eq!(
+        running_terminals_with_a_tab_in(&snapshot, WORKSPACE),
+        ["term_running", "term_launching"]
+    );
 }

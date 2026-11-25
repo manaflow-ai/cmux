@@ -6,10 +6,14 @@ mod declared;
 mod delete_retry;
 mod environment;
 mod machine;
+mod machine_lifecycle;
 mod machine_projection;
 mod migration;
+mod pause_all;
 mod plan;
 mod snapshot;
+pub(crate) mod start_retry;
+pub mod surge;
 
 pub use declared::{backend_ops, declared_errors};
 pub use machine_projection::{Projection, WatchEvent};
@@ -44,9 +48,17 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.machine.rename", Kind::Mutation),
     ("cloud.machine.start", Kind::Mutation),
     ("cloud.machine.pause", Kind::Mutation),
+    ("cloud.machine.pause_all", Kind::Mutation),
     ("cloud.machine.resize", Kind::UserOnly),
     ("cloud.machine.delete", Kind::UserOnly),
     ("cloud.machine.idle_policy.set", Kind::Mutation),
+    // Automatic cleanup (cmux-platform Retention.ts): Keep pins a machine
+    // (no money, nothing lost); archive and delete removes the machine (its
+    // disk stays as an archive snapshot), so a person confirms it; the
+    // retention settings are the team's numbers and the caller's email choice.
+    ("cloud.machine.keep", Kind::Mutation),
+    ("cloud.machine.archive_delete", Kind::UserOnly),
+    ("cloud.retention.set", Kind::Mutation),
     ("cloud.machine.connect_info", Kind::Read),
     ("cloud.snapshot.list", Kind::Read),
     // A snapshot counts against the plan's saved limit: a money op.
@@ -62,6 +74,7 @@ const OPS: &[(&str, Kind)] = &[
     ("cloud.environment.boot", Kind::UserOnly),
     ("cloud.environment.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
+    ("cloud.usage.current", Kind::Read),
     ("cloud.billing.checkout", Kind::UserOnly),
     // Classic migration (contract 4): one way per user, then per machine.
     ("cloud.migration.status", Kind::Read),
@@ -166,6 +179,8 @@ const REVISION_RESULTS: &[&str] = &[
     "cloud.machine.pause",
     "cloud.machine.resize",
     "cloud.machine.idle_policy.set",
+    "cloud.machine.keep",
+    "cloud.machine.archive_delete",
     "cloud.machine.upgrade",
     "cloud.snapshot.restore",
 ];
@@ -189,6 +204,9 @@ pub(crate) fn admit(request: &Request) -> Result<Admitted, CloudError> {
         CloudError::new(codes::UNKNOWN_OP, format!("{} is not a Cloud op", request.op))
     })?;
     let kind = kind_of(name);
+    if name == "cloud.machine.pause_all" && request.origin == Origin::Agent {
+        return Err(CloudError::new(codes::ORIGIN_REFUSED, "pausing machines needs a person"));
+    }
     let args = relay_args(&request.op, name, &request.args);
     let key = request.idempotency_key.as_deref().map(str::trim).filter(|k| !k.is_empty());
     if kind == Kind::UserOnly && request.origin != Origin::User {
@@ -225,6 +243,7 @@ pub struct Server<C> {
     control_plane: C,
     projection: Projection,
     ledger: Ledger,
+    lifecycle: machine_lifecycle::Ledger,
     attach: crate::link::Attach,
     edge: crate::ports::Edge,
     /// Host-only ops this server sent and their answers (crate::api::host).
@@ -275,6 +294,7 @@ impl<C: ControlPlane> Server<C> {
             control_plane,
             projection: Projection::default(),
             ledger: Ledger::default(),
+            lifecycle: machine_lifecycle::Ledger::default(),
             attach,
             edge,
             host: crate::api::host::HostRequests::default(),
@@ -450,7 +470,23 @@ impl<C: ControlPlane> Server<C> {
             let upstream = upstream_key(name, &args, key);
             return self.run(name, &args, request, Some(&upstream));
         }
+        if matches!(name, "cloud.machine.start" | "cloud.machine.pause" | "cloud.machine.delete") {
+            self.ledger.replay(key, name, &args)?;
+            self.ledger.attempt(key, name, &args);
+            let result = self.run(name, &args, request, Some(key));
+            if result.as_ref().is_err_and(|error| error.code == codes::INVALID_ARGS) {
+                self.ledger.forget(key);
+            }
+            return result;
+        }
         if let Some(done) = self.ledger.replay(key, name, &args)? {
+            if name == "cloud.machine.pause_all" && pause_all::retryable(&done) {
+                let mut ctx = Ctx::new(&mut self.control_plane, &mut self.projection, Some(key))
+                    .with_origin(request.origin);
+                let result = pause_all::retry(&mut ctx, done)?;
+                self.ledger.succeed(key, result.clone());
+                return Ok(result);
+            }
             // The host's open token is never cached: a replay of an op that
             // needs one answers only a request that carries one.
             if TOKEN_OPS.contains(&name) {
@@ -513,10 +549,10 @@ impl<C: ControlPlane> Server<C> {
         match group {
             "auth" => auth::run(&mut ctx, name, args),
             _ if name == "cloud.machine.upgrade" => migration::run(&mut ctx, name, args),
-            "machine" => machine::run(&mut ctx, name, args),
+            "machine" => machine::run(&mut ctx, &mut self.lifecycle, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
             "environment" => environment::run(&mut ctx, name, args),
-            "plan" | "billing" => plan::run(&mut ctx, name, args),
+            "plan" | "usage" | "billing" | "retention" => plan::run(&mut ctx, name, args),
             "migration" => migration::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
         }

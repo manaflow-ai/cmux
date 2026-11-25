@@ -2,9 +2,17 @@
 // name) opens it on the right; a right-click on the same element must tell the host which chat it
 // is, so the menu can offer Open on Right and Go to Chat (Leo, ask-e9c4803262: "right split is fine
 // on click by default ... and you can right click to go to it").
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { menuPartAt, openSessionAttributes } from "./menuParts";
+
+const scope = globalThis as Record<string, unknown>;
+const hadAnchor = "HTMLAnchorElement" in scope;
+const anchor = scope.HTMLAnchorElement;
+afterAll(() => {
+  if (hadAnchor) scope.HTMLAnchorElement = anchor;
+  else delete scope.HTMLAnchorElement;
+});
 
 const page = (html: string) => {
   const { window } = new JSDOM(html);

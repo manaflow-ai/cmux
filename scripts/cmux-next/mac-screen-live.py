@@ -16,6 +16,7 @@ import argparse, json, os, plistlib, signal, socket, stat, subprocess, sys, temp
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -117,15 +118,19 @@ try:
     streamed = wait(live, 60, step=0.1)
     report["connect_to_picture_s"] = round(time.time() - started, 2) if streamed else None
     step("Connect streams the Mac: a picture shows, fitted in the pane", streamed, {"state": state()})
-    time.sleep(2)  # let the stats window fill before the capture
+    # The stats show before the capture: the streaming tab reports a frame rate and throughput.
+    filled = wait(lambda: tab_where(lambda t: t.get("tab") == tab and all(
+        isinstance(t.get(k), (int, float)) and t.get(k) > 0 for k in ("fps", "kilobytes_per_second"))), 15, step=0.2)
+    if not filled:
+        safe_print("note: the stream's stats (fps, kilobytes_per_second) never showed in 15 s", flush=True)
     report["streaming_state"] = state()
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(opts.out, "mac-screen.png")})
     if opts.hold > 0:
-        print(f"holding {opts.hold:.0f} s for interaction (pid {app.pid})", flush=True)
-        time.sleep(opts.hold)  # intentional: keeps the app up for the interaction agent
+        safe_print(f"holding {opts.hold:.0f} s for interaction (pid {app.pid})", flush=True)
+        time.sleep(opts.hold)  # sleep-ok: --hold keeps the app up this long on purpose, for the interaction agent
 finally:
     report["final_state"] = state()
-    print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
+    safe_print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
     try:
         app.wait(30)
     except subprocess.TimeoutExpired:

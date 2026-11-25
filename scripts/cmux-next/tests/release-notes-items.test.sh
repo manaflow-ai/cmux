@@ -3,9 +3,11 @@
 # newest first, the title without its "(#1234)" suffix, the author and the
 # PR number; subjects without a PR keep their whole title and no pr.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/release-notes.py"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 git -C "$tmp" init -q
 commit() { GIT_AUTHOR_NAME="$1" GIT_COMMITTER_NAME="$1" GIT_AUTHOR_EMAIL=a@example.com GIT_COMMITTER_EMAIL=a@example.com \
   git -C "$tmp" commit -q --allow-empty -m "$2"; }

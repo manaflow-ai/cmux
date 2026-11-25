@@ -159,10 +159,14 @@ const resolveToken = (token: string, index: Map<string, Array<{ file: string; va
   if (files.length) {
     const inModule = found.filter((c) => files.includes(c.file) || files.some((f) => f.endsWith("/mod.rs") && c.file.startsWith(f.slice(0, -"mod.rs".length))) || files.some((f) => c.file.startsWith(f.slice(0, -".rs".length) + "/")))
     if (distinct(inModule).length === 1) return inModule[0]!.value
-    // A re-export in the module file: `use path::OTHER as NAME;` or `use path::NAME;`.
+    // A re-export in the module file: `use path::OTHER as NAME;` or `use path::NAME;`, or a constant that names
+    // another: `const NAME: &str = path::OTHER;` (the index holds only string literals).
     for (const file of files) {
       const text = stripComments(reader.read(file) ?? "")
-      const alias = text.match(new RegExp(`\\buse\\s+([\\w:]+)::(\\w+)\\s+as\\s+${name}\\s*;`)) ?? text.match(new RegExp(`\\buse\\s+([\\w:]+)::(${name})\\s*;`))
+      const alias =
+        text.match(new RegExp(`\\buse\\s+([\\w:]+)::(\\w+)\\s+as\\s+${name}\\s*;`)) ??
+        text.match(new RegExp(`\\buse\\s+([\\w:]+)::(${name})\\s*;`)) ??
+        text.match(new RegExp(`\\bconst\\s+${name}\\s*:\\s*&\\s*(?:'static\\s+)?str\\s*=\\s*([\\w:]+)::(\\w+)\\s*;`))
       if (!alias || depth >= 4) continue
       // A relative path (`use open_url::X`) names a child of this module first.
       const path = alias[1]!.split("::")

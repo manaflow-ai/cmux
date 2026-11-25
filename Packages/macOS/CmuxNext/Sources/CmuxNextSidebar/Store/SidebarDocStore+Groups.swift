@@ -86,6 +86,17 @@ extension SidebarModel {
         return self.group(item) != nil ? item : own
     }
 
+    /// The group shown for group target `target` that the personal store may not hold yet (one made a moment ago,
+    /// before its create's echo), with its personal id: by the sidebar's id, else by the daemon's id once the daemon
+    /// made it under its own (`created`: a sidebar-made id's daemon id). nil when no shown group matches (a stale target).
+    public func shownGroup(target: String, created: (String) -> String?) -> (group: SidebarGroup, personalID: String)? {
+        let landed = created(SidebarDocStore.personalGroupID(item: target))
+        for case let candidate? in [target, landed, landed.map(SidebarDocStore.groupItemID(personal:))] {
+            if let group = group(GroupID(candidate)) { return (group, landed ?? SidebarDocStore.personalGroupID(item: candidate)) }
+        }
+        return nil
+    }
+
     /// The personal group id of the group the active workspace is in (its own id, or its document item's
     /// group id on the sidebar document); nil when the active workspace is in no group.
     public var activeGroupPersonalID: String? {

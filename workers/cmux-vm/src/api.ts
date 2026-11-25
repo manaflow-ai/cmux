@@ -19,7 +19,7 @@ import {
   ServiceUnavailable,
   Unauthorized,
 } from "./errors.ts";
-import { SnapshotId, VmId } from "./lib/ids.ts";
+import { MeshId, SnapshotId, VmId } from "./lib/ids.ts";
 import { VmCreationsGroupDefinition } from "./api/creations.ts";
 import { SnapshotsGroupDefinition } from "./api/snapshots.ts";
 import { TerminalsGroupDefinition } from "./api/terminals.ts";
@@ -170,6 +170,7 @@ export class CreateVmRequest extends Schema.Class<CreateVmRequest>("CreateVmRequ
     maxRunSeconds: Schema.optional(MaxRunSeconds),
     autoDeleteSeconds: Schema.optional(AutoDeleteSeconds),
     labels: Schema.optional(Labels),
+    meshId: Schema.optional(MeshId.annotations({ description: "Create the VM on this mesh's private network, so it is on the network from its first boot. Needs the mesh:write scope and a mesh of the caller's team (404 otherwise). The VM is reachable only after PUT /v1/meshes/{meshId}/vms/{vmId}, which applies the mesh's access rules; that call is still required, and is faster for a VM created this way. Omit to create the VM on no network." })),
   },
   {
     description: BASE_IMAGE_DESCRIPTION,
@@ -362,7 +363,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
         describe(
           "Create a VM",
           "vm:write",
-          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied.",
+          "Refused with 402 when the tenant's plan does not include VMs and 429 at the tenant's VM quota. Dev/test tenants may not ask for an idle timeout over 300 seconds and default to 300; other tenants default to -1 (never pause for idleness). When no Idempotency-Key is supplied, the API issues a public creationKey and journals the allocation. Save this handle and use it as Idempotency-Key for retries; a separate request without a key is a new intent. GET /v1/vm-creations can recover a lost server-issued handle. Unconfirmed allocations retain quota until reconciliation or verified cancellation. Server-issued handles never expire into permission to allocate again. A retry with the same Idempotency-Key returns the first VM instead of creating another; the same key with a different body is 409. Keys with a resource allowlist cannot create. initialNetwork additionally requires vm:network; proxy destinations must be enabled by the deployment. When initialNetwork is requested, its receipt confirms the accepted policy. A missing receipt means the API does not support that request; do not assume the policy was applied. meshId additionally requires mesh:write and names a mesh of the caller's team; the VM joins that mesh's private network at creation and still needs PUT /v1/meshes/{meshId}/vms/{vmId} to become reachable.",
         ),
       ),
   )
@@ -401,7 +402,16 @@ export class VmsGroup extends HttpApiGroup.make("vms")
       .addSuccess(VmPublicEgress)
       .addError(Forbidden).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
       .annotateContext(describe("Allow a VM's public egress", "vm:network",
-        "Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready.")),
+        "Lets an existing VM reach the public Internet, as a create with initialNetwork.publicEgress does: one rule whose source is exactly this VM, deleted with the VM. Idempotent: a VM that already has such a rule gets no second one. It never turns egress off (revokeVmPublicEgress does) and never changes HTTPS proxies or shared-network rules. For a VM created private (a copy that resumes another VM's memory, say) that must join the Internet only once its guest is ready.")),
+  )
+  .add(
+    HttpApiEndpoint.del("revokeVmPublicEgress", "/v1/vms/:vmId/public-egress")
+      .setPath(VmPath)
+      .setHeaders(TeamHeaders)
+      .addSuccess(VmPublicEgress)
+      .addError(Forbidden).addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+      .annotateContext(describe("Revoke a VM's public egress", "vm:network",
+        "Stops an existing VM reaching the public Internet, live: deletes every rule whose source is exactly this VM (or a create's inline rule) and whose destination is the whole public Internet, then reads the rules again and answers 503 unless none is left. Idempotent: a VM without such a rule changes nothing. It never deletes a narrower rule, an HTTPS proxy (the VM keeps those) or a shared-network rule.")),
   )
   .add(
     HttpApiEndpoint.get("getVm", "/v1/vms/:vmId")

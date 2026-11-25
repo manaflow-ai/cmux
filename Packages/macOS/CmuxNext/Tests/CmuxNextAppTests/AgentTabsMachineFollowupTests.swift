@@ -32,8 +32,11 @@ struct AgentTabsMachineFollowupTests {
         #expect(onA.model.header?.showsChat("s-b") == false)
     }
 
-    /// F2: a chat tab's fallback page handler finds its tab on the machine it was asked for.
-    @Test func aChatsPageHandlerFindsItsTabWhenAnotherMachineHasTheSameID() async throws {
+    /// F2: a chat tab's fallback page handler finds its tab on the machine it was asked for. It runs
+    /// the app on a same-tree daemon (``AgentChatActionFixture``), so it runs where the lane has one,
+    /// as that fixture's other suites do.
+    @Test(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+    func aChatsPageHandlerFindsItsTabWhenAnotherMachineHasTheSameID() async throws {
         try await AgentChatActionFixture.withApp { services, _ in
             let tabs = services.agentTabs
             let pane = try #require(services.windows.active?.focusedPane)

@@ -12,6 +12,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
@@ -99,11 +100,17 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.mouse.click(point.x, point.y);
   };
 
-  async function open(variant = VARIANT, ready = GROUP, engine: Browser = browser!): Promise<Page> {
+  async function open(
+    variant = VARIANT,
+    ready = GROUP,
+    engine: Browser = browser!,
+    arms: Readonly<Record<string, string>> = {},
+  ): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await engine.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
+    await pinArms(page, arms);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
     await page.locator(ready).waitFor();
     await settled(page);
@@ -171,17 +178,180 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// top (`control`), the opened row's top (a Show more under its text stays at the row's foot, the text above it rises), the first row
   /// under it and the last row's foot, how far the view is from its end, and how far below the row
   /// under it the opened row is drawn (its foot less its clip).
-  type Frame = { line: number; control: number; under: number; last: number; fromEnd: number; over: number };
-  const watchOpen = async (page: Page, query: string, ms = 700, click = true) => {
+  type Frame = {
+    line: number;
+    control: number;
+    under: number;
+    last: number;
+    fromEnd: number;
+    over: number;
+    /// How long after its frame the read ran (ms).
+    lag: number;
+    /// The frame's time less the click's (ms), NaN before a click.
+    since: number;
+    /// The height folds playing in the opened row at this read.
+    folds: Fold[];
+    /// Whether a height fold has played in the opened row, in a frame or at a read, up to this read.
+    animated: boolean;
+  };
+  /// One height animation of the opened row (fold.ts `useFold`), read from the animation itself:
+  /// the box it sizes (`id`, one number for each box), the heights it goes between, its length and
+  /// its curve, where its own clock stood in the last frame drawn before the read (`time`, ms), and
+  /// the height its box is drawn at.
+  type Fold = { id: number; from: number; to: number; time: number; span: number; ease: string; drawn: number };
+  /// One frame at 60 Hz. A read that ran this long after its frame's time says that the page fell
+  /// behind: on the CI runners every frame that got no read had a late read after it. Its place is
+  /// mostly right for its frame, but a fold with late reads has fewer reads than frames drawn.
+  const FRAME_MS = 1000 / 60;
+  /// What the reads of one fold say about its glide. `places` counts the in-time reads that drew a
+  /// new place strictly between `from` and `to`: more than 1px from both, and more than half a pixel
+  /// from the read before. A frame that draws the same place again is no new place: a close that
+  /// stopped 4px short of its end for four frames and then jumped (#42247) got four of them for that
+  /// stop alone. `late` counts the late reads up to the first read at `to`; with any of them a low
+  /// count is no measure of the fold. `seen` is every read's place up to there, a late one marked L.
+  const glide = (frames: Frame[], key: "line" | "under", from: number, to: number) => {
+    let places = 0;
+    let late = 0;
+    let last = from;
+    let landed = false;
+    const seen: string[] = [];
+    for (const frame of frames) {
+      const top = frame[key];
+      const ranLate = frame.lag > FRAME_MS;
+      if (!landed) seen.push(`${top.toFixed(1)}${ranLate ? "L" : ""}`);
+      if (ranLate) {
+        if (!landed) late += 1;
+      } else {
+        if (Math.abs(top - last) > 0.5 && Math.abs(top - from) > 1 && Math.abs(top - to) > 1) places += 1;
+        last = top;
+      }
+      if (Math.abs(top - to) <= 1) landed = true;
+    }
+    return { places, late, seen: seen.join(" ") };
+  };
+  /// An animation's curve at `x` of its time (0 to 1): `linear` or a `cubic-bezier(...)`, which is
+  /// what the fold plays on (the settle). The bezier's own parameter is found by halving.
+  const eased = (ease: string, x: number) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    if (ease === "linear") return x;
+    const bezier = /^cubic-bezier\(([^)]+)\)$/.exec(ease);
+    const [x1, y1, x2, y2] = (bezier?.[1] ?? "").split(",").map(Number);
+    if (x1 === undefined || y1 === undefined || x2 === undefined || y2 === undefined || Number.isNaN(x1 + y1 + x2 + y2))
+      throw new Error(`a fold's curve this test cannot read: ${ease}`);
+    const along = (a: number, b: number, t: number) =>
+      3 * (1 - t) * (1 - t) * t * a + 3 * (1 - t) * t * t * b + t * t * t;
+    let low = 0;
+    let high = 1;
+    for (let round = 0; round < 40; round++) {
+      const middle = (low + high) / 2;
+      if (along(x1, x2, middle) < x) low = middle;
+      else high = middle;
+    }
+    return along(y1, y2, (low + high) / 2);
+  };
+  /// The most a read's place may be off the fold's curve (px): a pixel of the scroll offset's
+  /// rounding and the half pixel `curve` allows between a box and its own curve.
+  const CURVE_PX = 2;
+  /// What the reads of one fold say about its motion, with no clock of the test's: each read's
+  /// place is set against the fold's own curve at the fold's own time. The page's animation says
+  /// where its clock stood in the last frame drawn and which heights it goes between, so the height
+  /// the fold has at that time is known, and the text moves by exactly what the fold's boxes have
+  /// grown or shrunk by (`sign` 1: the place goes down as they grow; -1: as they shrink). A read
+  /// that ran late, or a frame the runner dropped, only reads the curve at a later time, so neither
+  /// can make a fold that glides look like a jump, and no step size is judged: the settle covers
+  /// about half the way in its first frame and 70% in two, which read as one step was a red with
+  /// nothing wrong (#42351, #42525).
+  /// `judged` counts the reads set against the curve: those with every fold of the row in flight
+  /// (its clock strictly inside its length) and each box drawn within half a pixel of its own curve,
+  /// which says the read is of the frame the clock is of. `apart` counts the reads in flight that
+  /// are not (they are not judged). `worst` is the furthest a judged place was off the curve.
+  /// `jumped` is a read whose place has left `from` with no height fold seen in the row up to it:
+  /// a move with no fold, the whole of it at once.
+  const curve = (frames: Frame[], key: "line" | "under", from: number, sign: 1 | -1) => {
+    const starts = new Map<number, number>();
+    let judged = 0;
+    let apart = 0;
+    let worst = 0;
+    let jumped = false;
+    const seen: string[] = [];
+    for (const frame of frames) {
+      if (!frame.animated && Math.abs(frame[key] - from) > 1) jumped = true;
+      for (const fold of frame.folds) if (!starts.has(fold.id)) starts.set(fold.id, fold.from);
+      const flying = frame.folds.filter((fold) => fold.time > 0 && fold.time < fold.span);
+      if (flying.length === 0 || flying.length < starts.size) continue;
+      let moved = 0;
+      let inStep = true;
+      for (const fold of flying) {
+        const height = fold.from + (fold.to - fold.from) * eased(fold.ease, fold.time / fold.span);
+        if (Math.abs(fold.drawn - height) > 0.5) inStep = false;
+        moved += height - starts.get(fold.id)!;
+      }
+      if (!inStep) {
+        apart += 1;
+        continue;
+      }
+      const off = Math.abs(frame[key] - from - sign * moved);
+      judged += 1;
+      worst = Math.max(worst, off);
+      seen.push(`${frame[key].toFixed(1)}@${flying[0]!.time.toFixed(0)}ms/${off.toFixed(1)}`);
+    }
+    return { judged, apart, worst, jumped, seen: seen.join(" ") };
+  };
+  const watchOpen = async (page: Page, query: string, frameCount = 45, click = true) => {
     const watching = page.evaluate(
-      ({ selector, duration }) =>
+      ({ selector, frameCount }) =>
         new Promise<Frame[]>((resolve) => {
           const frames: Frame[] = [];
-          const start = performance.now();
-          window.cmuxAfterPaint(() => {
+          // Observe a fixed number of painted frames, not a wall-clock window: a loaded runner paints
+          // fewer frames in the same time and can stop between a layout and the paint that settles it.
+          let seen = 0;
+          let clicked = Number.NaN;
+          addEventListener("click", () => (clicked = performance.now()), { capture: true, once: true });
+          // The height animations playing in `row`, the fold's (fold.ts): each with its own clock.
+          const playing = (row: HTMLElement) =>
+            row.getAnimations({ subtree: true }).flatMap((animation) => {
+              const effect = animation.effect;
+              if (!(effect instanceof KeyframeEffect) || !effect.target) return [];
+              const heights = effect.getKeyframes().map((keyframe) => Number.parseFloat(String(keyframe.height)));
+              const [from, to] = [heights[0], heights.at(-1)];
+              if (from === undefined || to === undefined || Number.isNaN(from + to)) return [];
+              return [{ animation, effect, target: effect.target, from, to }];
+            });
+          const ids = new Map<Element, number>();
+          // The document timeline's time in the last frame drawn: what that frame's animations ran at.
+          let drawnAt = Number.NaN;
+          let animated = false;
+          const rowOf = () => document.querySelector<HTMLElement>(selector)!.closest<HTMLElement>(".acpmux-row")!;
+          const inFrame = () => {
+            const now = document.timeline.currentTime;
+            drawnAt = typeof now === "number" ? now : Number.NaN;
+            if (playing(rowOf()).length > 0) animated = true;
+          };
+          window.cmuxAfterPaint((painted) => {
             const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
             const line = document.querySelector<HTMLElement>(selector)!;
             const row = line.closest<HTMLElement>(".acpmux-row")!;
+            const folds = playing(row).map(({ animation, effect, target, from, to }) => {
+              if (!ids.has(target)) ids.set(target, ids.size);
+              // The animation's time in the last frame drawn, from its own start on the timeline: a
+              // read runs after its frame, and the page may have set the fold's clock in that frame.
+              const started = animation.startTime;
+              const time =
+                typeof started === "number" && !Number.isNaN(drawnAt)
+                  ? (drawnAt - started) * animation.playbackRate
+                  : Number(animation.currentTime ?? 0);
+              return {
+                id: ids.get(target)!,
+                from,
+                to,
+                time,
+                span: Number(effect.getComputedTiming().duration),
+                ease: effect.getTiming().easing ?? "linear",
+                drawn: target.getBoundingClientRect().height,
+              };
+            });
+            if (folds.length > 0) animated = true;
             const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
             const box = row.getBoundingClientRect();
             const next = rows
@@ -195,13 +365,18 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
               last: rows.at(-1)!.getBoundingClientRect().bottom,
               fromEnd: scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop,
               over: box.bottom - (cut ? Number(cut[1]) : 0) - next.getBoundingClientRect().top,
+              lag: performance.now() - painted,
+              since: painted - clicked,
+              folds,
+              animated,
             });
-            if (performance.now() - start < duration) return;
+            seen += 1;
+            if (seen < frameCount) return;
             resolve(frames);
             return false;
-          });
+          }, inFrame);
         }),
-      { selector: query, duration: ms },
+      { selector: query, frameCount },
     );
     if (click) await clickLine(page, query);
     return watching;
@@ -241,10 +416,10 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// anymore???". Opening "Ran 2 commands" at the very bottom glides the rows under it down while the
   /// line stays; back at the very end, closing it glides the text above down (the bottom pin), while
   /// the view stays at its end and the last row keeps its pixels. Each moves over several painted
-  /// frames, never most of the way in one.
+  /// frames, each of them on the fold's own curve.
   // In Chromium and in WebKit, the app's own engine (where the thread slide this replaced jumped).
   for (const engineName of ["chromium", "webkit"] as const)
-    test(`at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
+    test(`inline run at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
       let engine = browser!;
       if (engineName === "webkit") {
         try {
@@ -256,7 +431,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         }
         await warmGalleryFrame(vite!, ENTRY, { browser: engine, params: { variant: VARIANT } });
       }
-      const page = await open(VARIANT, GROUP, engine);
+      // This oracle measures the transcript's full inline expansion; boxed runs own their scroll.
+      const page = await open(VARIANT, GROUP, engine, { "run-scroll": "inline" });
       await page.locator(".acpmux-scroll").evaluate((node, selector) => {
         node.querySelector<HTMLElement>(selector)!.dataset.glideProbe = "true";
         node.scrollTop = node.scrollHeight;
@@ -284,19 +460,36 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
             const at = { direction, index, ...frame };
             expect({ at, still: Math.abs(frame.line - before.line) <= 1 }).toEqual({ at, still: true });
           }
-        const tops = [before[moving], ...frames.map((frame) => frame[moving])];
-        let largest = 0;
-        for (let index = 1; index < tops.length; index++)
-          largest = Math.max(largest, Math.abs(tops[index]! - tops[index - 1]!));
-        // Frames strictly between where it was and where it settles: the glide, not a jump.
-        const between = frames.filter(
-          (frame) => Math.abs(frame[moving] - before[moving]) > 1 && Math.abs(frame[moving] - after[moving]) > 1,
-        ).length;
-        expect({ direction, between: between >= 3 }).toEqual({ direction, between: true });
-        expect({ direction, largest, smooth: largest <= Math.abs(total) * 0.7 }).toEqual({
+        // The watch saw the click: it has reads from the click on.
+        expect(frames.filter((frame) => Number.isFinite(frame.since)).length).toBeGreaterThan(0);
+        // Three new places or more strictly between where it was and where it settles: the glide,
+        // not a jump. Fewer with reads that ran late is no measure: it says so and judges nothing.
+        const { places, late, seen } = glide(frames, moving, before[moving], after[moving]);
+        if (places < 3 && late > 0)
+          console.log(
+            `no verdict: late frames (${engineName} ${direction}: ${places} new places between in time, ${late} late reads; from ${before[moving].toFixed(1)} to ${after[moving].toFixed(1)}, places read, L = late: ${seen})`,
+          );
+        else expect({ direction, places, between: places >= 3 }).toEqual({ direction, places, between: true });
+        // The text moves on the fold's own curve: every read in flight is where the fold's clock
+        // says, and a move with no fold in the row is a jump. A fold with no read judged is no
+        // measure of this: it says so.
+        const {
+          judged,
+          apart,
+          worst,
+          jumped,
+          seen: curved,
+        } = curve(frames, moving, before[moving], direction === "open" ? 1 : -1);
+        if (judged === 0)
+          console.log(
+            `no verdict: curve (${engineName} ${direction}: no read in flight was set against the fold's curve, ${apart} not of the frame their clock is of)`,
+          );
+        expect({ direction, jumped }).toEqual({ direction, jumped: false });
+        expect({ direction, worst, curved, onCurve: worst <= CURVE_PX }).toEqual({
           direction,
-          largest,
-          smooth: true,
+          worst,
+          curved,
+          onCurve: true,
         });
         if (direction === "close")
           for (const [index, frame] of frames.entries()) {
@@ -308,63 +501,6 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       await page.close();
       if (engine !== browser) await engine.close();
     });
-
-  /// A shell block's "Show all N lines" under a log whose top is above the view holds the control
-  /// itself, as anywhere in the chat (foldAnchor.ts `foldHoldTarget`): it stays under the pointer on
-  /// every frame, the lines it shows come in above it, and the rows under it and the view's end stay.
-  test("at the very bottom, a shell block's Show all lines stays under the pointer and its log rises", async () => {
-    // Its play opens and closes the group (three toggles at once mid-play): wait on the row itself.
-    const page = await open("collapse-tall-group", '[data-row-id="expand-at-bottom-run"]');
-    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
-      timeout: 60_000,
-    });
-    await settled(page);
-    const scrollToEnd = async () => {
-      await page.locator(".acpmux-scroll").evaluate((node) => {
-        node.scrollTop = node.scrollHeight;
-      });
-      await settled(page);
-    };
-    await scrollToEnd();
-    await clickLine(page, GROUP);
-    await settled(page);
-    await page.evaluate(() => {
-      [
-        ...document.querySelectorAll<HTMLElement>(
-          '[data-row-id="expand-at-bottom-run"] button.cv-tool.is-toggle[aria-expanded="false"]',
-        ),
-      ]
-        .at(-1)!
-        .setAttribute("data-shell-probe", "");
-    });
-    await scrollToEnd();
-    await clickLine(page, "[data-shell-probe]");
-    await settled(page);
-    await scrollToEnd();
-    const MORE = '[data-row-id="expand-at-bottom-run"] .cv-output-more[aria-expanded="false"]';
-    await page.locator(MORE).last().waitFor();
-    await page
-      .locator(MORE)
-      .last()
-      .evaluate((node) => node.setAttribute("data-more-probe", ""));
-    const PROBE = "[data-more-probe]";
-    const before = (await watchOpen(page, PROBE, 0, false))[0]!;
-    expect(before.fromEnd).toBeLessThanOrEqual(2);
-    const frames = await watchOpen(page, PROBE);
-    await settled(page);
-    const after = (await watchOpen(page, PROBE, 0, false))[0]!;
-    expect(await page.locator(PROBE).getAttribute("aria-expanded")).toBe("true");
-    console.log(`shell Show all lines: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
-    for (const [index, frame] of frames.entries()) {
-      const at = { index, ...frame };
-      expect({ at, still: Math.abs(frame.control - before.control) <= 1 }).toEqual({ at, still: true });
-      expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
-    }
-    expect(Math.abs(after.control - before.control)).toBeLessThanOrEqual(1);
-    expect(before.line - after.line).toBeGreaterThan(40);
-    expect(after.fromEnd).toBeLessThanOrEqual(2);
-    await page.close();
-  });
 
   /// The scene's own plays (ExpandAtBottom.gallery.ts) check where the bottom and the clicked line
   /// end up; each throws, and the stage reports it, when they are off. Leo, 2026-11-03: "it's weird

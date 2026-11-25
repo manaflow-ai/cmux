@@ -54,6 +54,13 @@ impl Hub {
             }
             tracing::info!(session = %session.id, harness = %meta.harness, "harness profile changed since its agent started: respawning it at its turn end");
             self.mark_profile_respawn(&session);
+            // A background process or subagent at work would end with the harness, at the turn's
+            // end too: it restarts once nothing runs in it instead (`idle.rs` `respawn_when_quiet`),
+            // as an agent on a replaced binary does (`stale_host_respawn.rs`).
+            if self.holds_work_below(&session) {
+                self.respawn_when_quiet(&session);
+                continue;
+            }
             stale.insert(session.id.clone());
         }
         if stale.is_empty() {
@@ -72,10 +79,12 @@ impl Hub {
 
     /// The session's agent ended or a start runs the profile as it is now: no respawn waits.
     pub(super) fn settle_profile_respawn(&self, session: &Session) {
+        // So does a restart that waited for its agent to be quiet (`idle.rs` `quiet_respawn`).
+        session.respawn_when_quiet.store(false, Ordering::SeqCst);
         if session.profile_respawn.swap(false, Ordering::SeqCst) {
             // The next list is built anew; the start's own records follow.
             session.state_seq.fetch_add(1, Ordering::SeqCst);
-            self.events.changed();
+            self.events.row_changed(session);
         }
     }
 

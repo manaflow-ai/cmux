@@ -27,9 +27,9 @@ use windows_sys::Win32::Security::Authorization::{
     SDDL_REVISION_1, SE_FILE_OBJECT, SetSecurityInfo,
 };
 use windows_sys::Win32::Security::{
-    ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, GetAce, GetSecurityDescriptorDacl,
-    OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
-    SECURITY_ATTRIBUTES,
+    ACE_HEADER, ACL, DACL_SECURITY_INFORMATION, GetAce, GetSecurityDescriptorControl,
+    GetSecurityDescriptorDacl, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION,
+    PSECURITY_DESCRIPTOR, PSID, SE_DACL_PROTECTED, SECURITY_ATTRIBUTES,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     BY_HANDLE_FILE_INFORMATION, CREATE_NEW, CreateDirectoryW, CreateFileW,
@@ -382,6 +382,36 @@ fn ensure_safe_parent(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// The volume serial and file index of `path` itself (a link is not followed): what stays the
+/// same for one folder however it is renamed, and differs for a new folder made at its path.
+pub(crate) fn file_id(path: &Path) -> io::Result<(u64, u64)> {
+    let name = wide(path);
+    // SAFETY: a NUL-terminated path; the handle is owned by File below.
+    let handle = unsafe {
+        CreateFileW(
+            name.as_ptr(),
+            0x80, // FILE_READ_ATTRIBUTES
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            null_mut(),
+        )
+    };
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: CreateFileW returned one owned handle.
+    let opened = unsafe { File::from_raw_handle(handle) };
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // SAFETY: a valid handle and a zeroed out-parameter.
+    if unsafe { GetFileInformationByHandle(opened.as_raw_handle(), &mut info) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let index = (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow);
+    Ok((u64::from(info.dwVolumeSerialNumber), index))
+}
+
 fn same_opened_object(left: &File, right: &File) -> io::Result<bool> {
     let identity = |file: &File| -> io::Result<(u32, u64)> {
         let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
@@ -464,6 +494,36 @@ pub(crate) fn changer_other_than_us(path: &Path) -> io::Result<Option<String>> {
 pub(crate) fn only_owner_reads(path: &Path) -> io::Result<bool> {
     let opened = open_for_security(path, false)?;
     only_owner_reads_opened(&opened)
+}
+
+/// True when `path` has an explicit DACL that does not inherit entries from
+/// its parent. Effective owner-only access alone is insufficient here because
+/// a private directory can make an unprotected child appear owner-only.
+pub(crate) fn dacl_is_protected(path: &Path) -> io::Result<bool> {
+    let opened = open_for_security(path, false)?;
+    let mut sd: PSECURITY_DESCRIPTOR = null_mut();
+    let status = unsafe {
+        GetSecurityInfo(
+            opened.as_raw_handle(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            null_mut(),
+            &mut sd,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    let _free = Local(sd);
+    let mut control = 0u16;
+    let mut _revision = 0u32;
+    if unsafe { GetSecurityDescriptorControl(sd, &mut control, &mut _revision) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(control & SE_DACL_PROTECTED != 0)
 }
 
 fn only_owner_reads_opened(opened: &File) -> io::Result<bool> {
@@ -622,113 +682,5 @@ fn opened_is_dir(opened: &File) -> io::Result<bool> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn grant_everyone(path: &Path) {
-        let output = std::process::Command::new("icacls")
-            .arg(path)
-            .args(["/grant", "*S-1-1-0:(OI)(CI)F"])
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
-    }
-
-    fn grant_everyone_read(path: &Path) {
-        let output = std::process::Command::new("icacls")
-            .arg(path)
-            .args(["/grant", "*S-1-1-0:(OI)(CI)R"])
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
-    }
-
-    fn grant_everyone_add_subdirectory(path: &Path) {
-        let output = std::process::Command::new("icacls")
-            .arg(path)
-            .args(["/grant", "*S-1-1-0:(AD)"])
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
-    }
-
-    fn grant_everyone_add_file(path: &Path) {
-        let output = std::process::Command::new("icacls")
-            .arg(path)
-            .args(["/grant", "*S-1-1-0:(WD)"])
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "icacls: {}", String::from_utf8_lossy(&output.stderr));
-    }
-
-    #[test]
-    fn private_dir_refuses_an_existing_directory_another_sid_can_change() {
-        let root = std::env::temp_dir().join(format!(
-            "acpmux-owner-writable-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        let checked = root.join("checked");
-        std::fs::create_dir_all(&checked).unwrap();
-        grant_everyone(&checked);
-        private_dir(&checked).expect_err("a directory writable by Everyone was trusted");
-        assert!(!only_owner_reads(&checked).unwrap(), "the unsafe DACL was silently erased");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn private_dir_allows_an_ancestor_that_can_only_add_a_sibling() {
-        let root = std::env::temp_dir().join(format!(
-            "acpmux-owner-add-only-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        let checked = root.join("checked");
-        private_dir(&root).unwrap();
-        private_dir(&checked).unwrap();
-        grant_everyone_add_subdirectory(&root);
-
-        private_dir(&checked).expect("add-subdirectory alone could replace an existing child");
-        assert!(only_owner_reads(&checked).unwrap());
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn private_dir_refuses_an_ancestor_that_can_be_made_a_reparse_point() {
-        let root = std::env::temp_dir().join(format!(
-            "acpmux-owner-add-file-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        private_dir(&root).unwrap();
-        grant_everyone_add_file(&root);
-
-        private_dir(&root.join("checked"))
-            .expect_err("FILE_WRITE_DATA can turn the ancestor into a reparse point");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[test]
-    fn private_dir_normalizes_the_opened_directory_not_a_replacement_path() {
-        let root = std::env::temp_dir().join(format!(
-            "acpmux-owner-handle-{}-{}",
-            std::process::id(),
-            uuid::Uuid::now_v7()
-        ));
-        let checked = root.join("checked");
-        let moved = root.join("moved");
-        std::fs::create_dir_all(&checked).unwrap();
-        grant_everyone_read(&checked);
-
-        ensure_safe_parent(&checked).unwrap();
-        let opened = open_directory(&checked).unwrap();
-        std::fs::rename(&checked, &moved).unwrap();
-        std::fs::create_dir(&checked).unwrap();
-        grant_everyone(&checked);
-        finish_private_dir(&checked, &opened).expect_err("a replacement pathname was accepted");
-
-        assert!(only_owner_reads(&moved).unwrap(), "the checked object stayed wide");
-        assert!(!only_owner_reads(&checked).unwrap(), "the replacement path was changed");
-        let _ = std::fs::remove_dir_all(&root);
-    }
-}
+#[path = "owner_only_tests.rs"]
+mod tests;

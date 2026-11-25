@@ -22,6 +22,8 @@ pub(super) const DEFAULT_SNAPSHOT_LIMIT: usize = 100;
 pub(super) const MAX_SNAPSHOT_LIMIT: usize = 1_000;
 
 mod events;
+pub(in crate::cli) use events::follow as follow_events;
+pub(super) mod turn;
 mod wait;
 
 pub(super) use events::{
@@ -39,6 +41,14 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     let (mut global, mut command_args) = parse_globals(args).ok()?;
     if command_args.first().map(String::as_str) != Some("agents") {
         return None;
+    }
+    // `agents chat new --on TARGET`: the start `cmux chat --on TARGET` makes (a Cloud chat with
+    // its folder or none, harness, model, effort and mode, as the composer starts one).
+    if let Some(words) = chat_control::on_target_words(args) {
+        return Some(match words {
+            Ok(words) => super::chat_start::run_if_requested(&words).unwrap_or(2),
+            Err(error) => print_usage(&global, &error.0),
+        });
     }
     // A local, read-only report: its human table stays the default.
     if command_args.get(1).map(String::as_str) == Some("doctor") {
@@ -112,10 +122,11 @@ fn normalize_qualified_target(
 
 fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
     if args.is_empty() || asks_help(args) {
-        println!("{HELP}");
+        println!("{}", verb_help(args).unwrap_or_else(|| HELP.to_owned()));
         return 0;
     }
-    let command = match command(args) {
+    // The CLI waits longer than an MCP tool call may (wait.rs `MAX_CLI_TIMEOUT_SECONDS`).
+    let command = match command_capped(args, wait::MAX_CLI_TIMEOUT_SECONDS) {
         Ok(AgentCommand::Snapshot) => return run_snapshot(&global),
         Ok(command) => command,
         Err(error) => return print_usage(&global, &error.0),
@@ -134,10 +145,17 @@ fn run(global: GlobalArgs, args: &[String], lines: bool) -> i32 {
     let outcome = execute(&backend, None, &command, global.idempotency_key.as_deref(), "agents");
     drop(notes);
     match outcome {
-        // A wait that timed out prints its receipt and exits 1, as
-        // `screen wait` does (docs/cli-contract.md).
-        Ok(value) if matches!(command, AgentCommand::Wait(_)) && value["matched"] == false => {
-            wire::print_local_success(&value, global.output).max(1)
+        // A wait that timed out prints its receipt and exits 124, as
+        // `screen wait` and `terminal send` do (docs/cli-contract.md).
+        Ok(value)
+            if matches!(command, AgentCommand::Wait(_))
+                && (value.get("timed_out").and_then(Value::as_bool) == Some(true)
+                    || value.get("matched").and_then(Value::as_bool) == Some(false)) =>
+        {
+            match wire::print_local_success(&value, global.output) {
+                0 => wire::wait_timeout::TIMEOUT_EXIT,
+                code => code,
+            }
         }
         // The cursor goes to stderr, so stdout is only the events.
         Ok(value) if lines => {
@@ -173,6 +191,38 @@ fn events_ran_out(command: &AgentCommand, value: &Value) -> bool {
 }
 
 /// `--help` or `-h` before any `--` (chat text after `--` may hold either).
+/// `cmux agents chat new --help`: the lines of [`HELP`] for the verb asked about (the longest
+/// run of its words that has any), `None` for the whole help. Before, every verb printed it all
+/// (the Cloud and remote command matrix).
+fn verb_help(args: &[String]) -> Option<String> {
+    let words = args
+        .iter()
+        .take_while(|arg| *arg != "--")
+        .filter(|arg| !arg.starts_with('-'))
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let (verb, lines) = (1..=words.len()).rev().find_map(|count| {
+        let verb = words.get(..count)?.join(" ");
+        let prefix = format!("  cmux agents {verb}");
+        let lines = HELP
+            .lines()
+            .filter(|line| {
+                line.strip_prefix(&prefix)
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            })
+            .collect::<Vec<_>>();
+        (!lines.is_empty()).then_some((verb, lines))
+    })?;
+    let mut text = format!("Usage: cmux agents {verb}\n\n{}", lines.join("\n"));
+    if verb == "chat new" || verb == "chat" {
+        text.push_str(
+            "\n\n`cmux agents chat new --on vm:ID|NAME|new` starts the chat on a Cloud machine, as \
+             `cmux chat --on` does (`cmux chat --help`).",
+        );
+    }
+    Some(text)
+}
+
 fn asks_help(args: &[String]) -> bool {
     args.iter().take_while(|arg| *arg != "--").any(|arg| matches!(arg.as_str(), "--help" | "-h"))
 }
@@ -188,7 +238,7 @@ pub(super) enum AgentCommand {
         args: Vec<String>,
     },
     Wait(wait::WaitRequest),
-    Events(events::EventsRequest),
+    Events(Box<events::EventsRequest>),
     /// Prompt another agent chat or read its transcript (chat.rs).
     Chat(chat::ChatCommand),
 }
@@ -204,6 +254,11 @@ pub(super) enum AgentFailure {
 /// Parses `cmux agents` words (after `agents`) into a command. The MCP
 /// `agents_<verb>` tools build the same words, so both run this grammar.
 pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
+    command_capped(args, wait::MAX_TIMEOUT_SECONDS)
+}
+
+/// [`command`], with `agents wait --timeout` at most `wait_max` seconds.
+fn command_capped(args: &[String], wait_max: u64) -> Result<AgentCommand, UsageError> {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     match words.as_slice() {
         [family] if *family == "snapshot" => Ok(AgentCommand::Snapshot),
@@ -263,8 +318,10 @@ pub(super) fn command(args: &[String]) -> Result<AgentCommand, UsageError> {
                 .chain(rest.iter().map(|value| (*value).into()))
                 .collect(),
         }),
-        ["wait", rest @ ..] => wait::parse(rest).map(AgentCommand::Wait),
-        ["events", rest @ ..] => events::parse(rest).map(AgentCommand::Events),
+        ["wait", rest @ ..] => wait::parse(rest, wait_max).map(AgentCommand::Wait),
+        ["events", rest @ ..] => {
+            events::parse(rest).map(|request| AgentCommand::Events(Box::new(request)))
+        }
         _ => Err(UsageError::new("unknown agents command; run `cmux agents --help`")),
     }
 }
@@ -946,6 +1003,6 @@ pub(super) fn snapshot_tool() -> Value {
 }
 
 pub(super) mod chat;
-mod chat_control;
+pub(super) mod chat_control;
 #[cfg(test)]
 mod tests;

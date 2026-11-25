@@ -18,7 +18,7 @@
 //! EXISTS`, so an older binary ignores it. Rows naming a closed tab are
 //! inert (reads join live tabs) and are pruned on the next write.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
@@ -147,12 +147,25 @@ pub(crate) fn read_kept_tabs(
 /// The `extra.relaunch` of one tab: `{cwd}` for a kept tab (with
 /// `on_show: true` for a parked one), else null.
 pub(crate) fn relaunch_value(connection: &Connection, tab_id: &str) -> anyhow::Result<Value> {
-    let row = connection
-        .query_row("SELECT cwd, on_show FROM kept_tabs WHERE tab_id = ?1", [tab_id], |row| {
-            Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0))
-        })
-        .optional()?;
+    let row = super::values::query_row_cached(
+        connection,
+        "SELECT cwd, on_show FROM kept_tabs WHERE tab_id = ?1",
+        [tab_id],
+        |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, i64>(1)? != 0)),
+    )
+    .optional()?;
     Ok(row.map_or(Value::Null, |(cwd, on_show)| relaunch_json(cwd.as_deref(), on_show)))
+}
+
+/// [`relaunch_value`] of each kept tab, by tab id, for a list of the
+/// session's tabs: the table is read one time, not one time for each tab.
+pub(crate) fn relaunch_values(connection: &Connection) -> anyhow::Result<HashMap<String, Value>> {
+    let mut statement = connection.prepare("SELECT tab_id, cwd, on_show FROM kept_tabs")?;
+    let rows = statement.query_map([], |row| {
+        let (cwd, on_show) = (row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)? != 0);
+        Ok((row.get::<_, String>(0)?, relaunch_json(cwd.as_deref(), on_show)))
+    })?;
+    Ok(rows.collect::<Result<HashMap<_, _>, _>>()?)
 }
 
 /// `{cwd}`, with `on_show: true` for a tab parked by `park-tabs`.
@@ -284,6 +297,15 @@ impl WorkspaceRegistry {
         Ok(rows)
     }
 
+    /// The id of each kept tab, read with one statement (the parked read of the output store asks for each
+    /// terminal of the session, `Mux::parked_terminal_ids`).
+    pub(crate) fn kept_tab_ids(&self) -> anyhow::Result<HashSet<String>> {
+        let db = self.connection.get();
+        let mut statement = db.prepare("SELECT tab_id FROM kept_tabs")?;
+        let rows = statement.query_map([], |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<Result<HashSet<_>, _>>()?)
+    }
+
     /// Whether any of `tab_ids` is a kept tab.
     pub fn any_kept_tab(&self, tab_ids: &[String]) -> anyhow::Result<bool> {
         let db = self.connection.get();
@@ -298,38 +320,5 @@ impl WorkspaceRegistry {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A table an older build created gains the title column; its rows stay.
-    #[test]
-    fn kept_tab_schema_adds_the_title_column_to_an_older_table() {
-        let mut connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE kept_tabs (tab_id TEXT PRIMARY KEY NOT NULL, cwd TEXT);
-                 INSERT INTO kept_tabs(tab_id, cwd) VALUES('tab_old', '/tmp');",
-            )
-            .unwrap();
-        for _ in 0..2 {
-            let transaction = connection.transaction().unwrap();
-            create_kept_tab_schema(&transaction).unwrap();
-            transaction.commit().unwrap();
-        }
-        let row = connection
-            .query_row("SELECT cwd, title FROM kept_tabs WHERE tab_id = 'tab_old'", [], |row| {
-                Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?))
-            })
-            .unwrap();
-        assert_eq!(row, (Some("/tmp".into()), None));
-    }
-
-    #[test]
-    fn kept_title_drops_empty_and_cuts_long_titles_at_a_char_boundary() {
-        assert_eq!(kept_title(""), None);
-        assert_eq!(kept_title("vim"), Some("vim".into()));
-        let long = "é".repeat(MAX_KEPT_TAB_TITLE_BYTES);
-        let cut = kept_title(&long).unwrap();
-        assert!(cut.len() <= MAX_KEPT_TAB_TITLE_BYTES && cut.chars().all(|c| c == 'é'));
-    }
-}
+#[path = "kept_tab_store_tests.rs"]
+mod tests;

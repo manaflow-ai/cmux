@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -100,6 +100,25 @@ fn a_long_chat_keeps_its_newest_messages() {
     assert!(doc.message(doc.messages.len() - 1).starts_with("prompt3"));
 }
 
+/// A newest message past the bound alone (a pasted 50 MB log) keeps its newest text: the chat
+/// was held with no text at all, so no word of it was found (`text_scale_bench`).
+#[test]
+fn a_message_past_the_bound_alone_keeps_its_newest_text() {
+    let words = needle("tailword");
+    // Two-byte characters, so the cut falls inside one.
+    let huge = format!("headword {} tailword", "é".repeat(CHAT_BYTES));
+    let stamp = Stamp { updated_ms: 0, messages: None };
+    let read = Doc::new(stamp, &[turn("start", "short"), turn("paste", &huge)]);
+    let mut edited = Doc::new(stamp, &[turn("start", "short")]);
+    edited.edit(1, &[turn("paste", &huge)], 0);
+    for doc in [read, edited] {
+        assert!(doc.is_sound(), "{} bytes", doc.text.len());
+        let found = doc.find(&words, &Matcher::new(&words)).expect("the newest text is found");
+        assert_eq!(doc.messages[found.message as usize].turn, 1);
+        assert!(doc.find(&needle("headword"), &Matcher::new(&needle("headword"))).is_none());
+    }
+}
+
 #[test]
 fn a_chat_is_read_again_only_when_it_changed_and_a_gone_chat_is_dropped() {
     let text = index();
@@ -131,6 +150,50 @@ fn a_query_is_answered_from_memory_once_until_the_text_changes() {
     assert!(Arc::ptr_eq(&first, &text.search(&needle("DEPLOY"))), "the same words: kept");
     text.update(&[chat("a", 2)], &|_| Some(vec![turn("x", "fine now")]));
     assert!(text.search(&needle("deploy")).is_empty(), "the text changed: searched again");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+/// A key typed onto the query searches only the chats the query before found; a text change, a
+/// key taken back or a word that is not inside the new ones searches every chat again.
+#[test]
+fn a_narrowing_query_searches_the_last_hits_until_the_text_changes() {
+    let text = index();
+    let said = |id: &str| match id {
+        "a" => "the deploy failed",
+        "b" => "a deep dive",
+        _ => "nothing here",
+    };
+    let chats = |c_updated: i64| vec![chat("a", 1), chat("b", 1), chat("c", c_updated)];
+    text.update(&chats(1), &|entry| Some(vec![turn("x", said(&entry.session_id))]));
+    let keys = |found: &HashMap<String, Found>| {
+        let mut keys: Vec<String> = found.keys().cloned().collect();
+        keys.sort();
+        keys
+    };
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("de"))), ["codex:a", "codex:b"]);
+    assert_eq!(text.scanned() - at, 3, "the first key searches every chat");
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("dep"))), ["codex:a"]);
+    assert_eq!(text.scanned() - at, 2, "the next key searches the two the first found");
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("DEPLOY fail"))), ["codex:a"]);
+    assert_eq!(text.scanned() - at, 1, "a word added narrows too");
+    // A chat now says the words: the text changed, so every chat is searched again.
+    text.update(&chats(2), &|entry| {
+        let said =
+            if entry.session_id == "c" { "deploy failed again" } else { said(&entry.session_id) };
+        Some(vec![turn("x", said)])
+    });
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("deploy failed"))), ["codex:a", "codex:c"]);
+    assert_eq!(text.scanned() - at, 3, "the text changed: every chat");
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("de"))), ["codex:a", "codex:b", "codex:c"]);
+    assert_eq!(text.scanned() - at, 3, "a key taken back: every chat");
+    let at = text.scanned();
+    assert_eq!(keys(&text.search(&needle("dive"))), ["codex:b"]);
+    assert_eq!(text.scanned() - at, 3, "a word that does not hold the last one: every chat");
     let _ = std::fs::remove_file(&text.path);
 }
 
@@ -182,6 +245,19 @@ fn the_text_is_saved_private_and_read_back_and_chats_off_empty_it() {
 }
 
 #[test]
+fn a_stamp_only_change_does_not_rewrite_the_saved_text() {
+    let text = index();
+    let turns = vec![turn("x", "same searchable content")];
+    text.update(&[chat("a", 1)], &|_| Some(turns.clone()));
+    let saved = text.saves();
+
+    // The chat index stamp moved, but the transcript content did not.
+    text.update(&[chat("a", 2)], &|_| Some(turns.clone()));
+    assert_eq!(text.saves(), saved, "a metadata-only stamp update rewrote the text index");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+#[test]
 fn a_gone_chat_leaves_the_saved_copy_at_once_and_the_first_pass_marks_it_filled() {
     let text = index();
     assert!(!text.filled(), "nothing read yet");
@@ -196,6 +272,78 @@ fn a_gone_chat_leaves_the_saved_copy_at_once_and_the_first_pass_marks_it_filled(
     let off = ChatText::new(text.path.clone());
     off.load();
     assert_eq!(off.held(), (0, 0), "chats off: nothing saved");
+    let _ = std::fs::remove_file(&text.path);
+}
+
+/// Leo's history holds more text than the bound, so every pass runs at it: the newest chat grows
+/// and the oldest held chat is let go of. Before, each such pass rewrote the whole saved copy (up
+/// to 128 MB, every pass the text thread ran) and read the first chat past the bound again only to
+/// let it go. Now a pass at the bound writes nothing until the timed save and reads only the chat
+/// that changed; a chat gone from the chat index still leaves the saved copy at once.
+#[test]
+fn at_the_bound_a_pass_writes_nothing_and_reads_only_what_changed() {
+    const OLDER: usize = 60;
+    const PASSES: i64 = 300;
+    let path = std::env::temp_dir().join(format!("acpmux-text-{}.json", uuid::Uuid::now_v7()));
+    let text = ChatText::with_total(path, 40 * 1024);
+    let reads = Cell::new(0_usize);
+    // The newest chat has as many turns as its time says (~20 bytes each); every older chat has
+    // ten (~1.2 KB).
+    let read = |entry: &ChatEntry| {
+        reads.set(reads.get() + 1);
+        let (turns, answer) = if entry.session_id == "new" {
+            (entry.updated_ms, "ok".to_owned())
+        } else {
+            (10, "answer ".repeat(14))
+        };
+        Some(
+            (0..turns)
+                .map(|t| turn(&format!("prompt {t} of {}", entry.session_id), &answer))
+                .collect(),
+        )
+    };
+    let older: Vec<IndexedChat> = (0..OLDER).map(|c| chat(&format!("c{c:02}"), 1)).collect();
+    let list = |turns: i64| {
+        let mut chats = vec![chat("new", turns)];
+        chats.extend(older.iter().cloned());
+        chats
+    };
+    text.update(&list(10), &read);
+    let (_, held) = text.held();
+    assert!(held <= 40 * 1024 && held > 30 * 1024, "the first fill holds up to the bound: {held}");
+    let first = (text.saves(), reads.get());
+    let held_at_first = text.held().0;
+    for turns in 11..10 + PASSES {
+        text.update(&list(turns), &read);
+    }
+    let (chats, bytes) = text.held();
+    assert!(bytes <= 40 * 1024, "the bound holds: {bytes}");
+    assert!(chats < held_at_first, "the newest chat grew, so older chats were let go of");
+    assert_eq!(
+        text.saves(),
+        first.0,
+        "no pass at the bound rewrote the saved copy ({} bytes written by the first)",
+        first.0.1
+    );
+    assert_eq!(
+        reads.get() - first.1,
+        usize::try_from(PASSES - 1).unwrap(),
+        "each pass read only the chat that changed, not the chat past the bound"
+    );
+    // Newest first: the newest chats are found, the oldest let go of are not.
+    assert!(text.search(&needle("prompt of new")).contains_key("codex:new"));
+    assert!(text.search(&needle("prompt of c00")).contains_key("codex:c00"));
+    assert!(text.search(&needle("prompt of c59")).is_empty());
+    let every = text.search(&needle("prompt of")).len();
+    assert_eq!(every, chats, "every held chat and only those");
+    // A chat gone leaves the saved copy at once, within the timed save's interval.
+    let mut without_c00 = list(10 + PASSES);
+    without_c00.remove(1);
+    text.update(&without_c00, &read);
+    assert_eq!(text.saves().0, first.0.0 + 1, "a chat gone is written out now");
+    let again = ChatText::new(text.path.clone());
+    again.load();
+    assert!(again.search(&needle("prompt of c00")).is_empty(), "c00's text left the saved copy");
     let _ = std::fs::remove_file(&text.path);
 }
 
@@ -317,4 +465,35 @@ fn search_bench() {
         took[took.len() - 1]
     );
     let _ = std::fs::remove_file(&text.path);
+}
+
+/// A save under the held home is whole or not there: its copy is written and synced beside the
+/// file, then renamed over it in the same folder. Interrupted between the two (the process ends
+/// at `config::seams::on_before_rename`), the old copy is still there, whole.
+#[test]
+fn a_held_save_interrupted_before_its_rename_leaves_the_old_copy() {
+    crate::lost_home_race_tests::isolated(
+        module_path!(),
+        "a_held_save_interrupted_before_its_rename_leaves_the_old_copy",
+        |home| {
+            let path = home.join("chat-index").join("text-v1.json");
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, "old").unwrap();
+            crate::config::hold_home();
+            let _hold = crate::config::seams::on_before_rename(|_| {
+                println!("held-before-rename");
+                std::process::exit(0);
+            });
+            let text = ChatText::new(path);
+            text.update(&[chat("a", 1)], &|_| Some(vec![turn("x", "new words")]));
+        },
+        |home, stdout| {
+            assert!(
+                stdout.contains("held-before-rename"),
+                "the save never stopped at a synced copy before its rename: {stdout}"
+            );
+            let kept = std::fs::read_to_string(home.join("chat-index").join("text-v1.json"));
+            assert_eq!(kept.unwrap(), "old", "an interrupted save changed the old copy");
+        },
+    );
 }

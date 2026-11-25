@@ -16,7 +16,7 @@
         "--focus"
       ],
       "wait": 4,
-      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/SettingsActionCatalog.swift:127 (WhatsNewPage.open needs a view change: --focus)"
+      "cite": "cmux-tui/crates/cmux-action-catalog/src/catalog/settings.rs (WhatsNewPage.open needs a view change: --focus)"
     }
   ]
 }

@@ -3,7 +3,7 @@
 // highlighted and numbered from where the read started, the first eight under a fade with "Show all
 // N lines". A text or file search: how many lines and files it found, then each file with its
 // matching lines, line number first; a file name or a line opens the file in cmux as a path chip in
-// a reply does (`link.openPath`; the host only takes the path, so it opens at its top). The closed row
+// a reply does (`link.openPath`; a numbered result carries its line). The closed row
 // stays one line (ToolRow.tsx). Leo, 2026-11-05: "could we potentially do even better?"; the same web
 // draws it on the Mac and the phone.
 import { cornerAction } from "./cornerActions";
@@ -14,8 +14,8 @@ import { FileKindIcon } from "../chips/FileKindIcon";
 import { usePathInfo } from "../chips/linkStore";
 import { useMessageScope } from "../chips/messageScope";
 import { isDeniedPath, pathName } from "../chips/paths";
-import { PreviewMore } from "./BlockParts";
 import { usePreview } from "./blockPartsModel";
+import { useMoreBelow } from "./moreBelow";
 import { ExpandRow } from "./ExpandRow";
 import { CodeLines } from "./CodeBlock";
 import { CopyButton } from "./CopyButton";
@@ -36,7 +36,8 @@ export function FileResultCard({ id, card, reveal }: { id: string; card: FileCar
 
 /// Opens `path` in cmux on a click, where this page may: never for another machine's chat, a shared
 /// read-only one, or a path on the deny list (as PathChip). Otherwise it draws as plain text.
-function FileButton(props: { path: string; className: string; label: string; children: ReactNode }) {
+type FileButtonProps = { path: string; line?: number; className: string; label: string; children: ReactNode };
+function FileButton(props: FileButtonProps) {
   const scope = useMessageScope();
   const readOnly = useTranscriptReadOnly();
   if (scope?.host !== undefined || readOnly || isDeniedPath(props.path))
@@ -48,17 +49,7 @@ function FileButton(props: { path: string; className: string; label: string; chi
 /// is in the session's folders, or outside them where `agentPane.links.outsideRoots` lets it open.
 /// A chat on another machine gets no place for its paths, so its files stay text, as do missing and
 /// denied ones; until the host answers, the line is text too, so a click never goes nowhere.
-function HostFileButton({
-  path,
-  className,
-  label,
-  children,
-}: {
-  path: string;
-  className: string;
-  label: string;
-  children: ReactNode;
-}) {
+function HostFileButton({ path, line, className, label, children }: FileButtonProps) {
   const { info, answered, policy } = usePathInfo(path);
   const opens = answered && (info?.place === "root" || (info?.place === "outside" && policy.outsideRoots !== "text"));
   if (!opens) return <span className={className}>{children}</span>;
@@ -69,7 +60,7 @@ function HostFileButton({
       data-path={path}
       /* tooltip-allow: the row shows a short name; the tooltip names the whole path and line */
       title={label}
-      onClick={() => void callChipHost("link.openPath", { path })}
+      onClick={() => void callChipHost("link.openPath", policy.supportsFileLine && line ? { path, line } : { path })}
     >
       {children}
     </button>
@@ -80,6 +71,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
   const t = useT();
   const lines = read.end - read.start + 1;
   const preview = usePreview(lines, reveal);
+  const body = useMoreBelow<HTMLDivElement>(read.code);
   const numbers = useMemo(
     () => Array.from({ length: lines }, (_, index) => read.start + index).join("\n"),
     [lines, read.start],
@@ -87,7 +79,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
   return (
     <div id={id} className="cv-edit-diff cv-filepeek">
       <div className="cv-edit-diff__header">
-        <FileButton path={read.path} className="cv-filepeek__name" label={read.path}>
+        <FileButton path={read.path} line={read.start} className="cv-filepeek__name" label={read.path}>
           <FileKindIcon path={read.path} className="cv-filepeek__icon" />
           <span className="cv-edit-diff__name">{pathName(read.path)}</span>
         </FileButton>
@@ -98,7 +90,7 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
         </span>
         <CopyButton text={read.code} label={t("code.copy")} className={`${cornerAction()} cv-edit-diff__copy`} />
       </div>
-      <div className="cv-filepeek__body" data-preview={preview.attribute}>
+      <div ref={body} className="cv-filepeek__body" data-preview={preview.attribute}>
         <div className="cv-filepeek__code">
           <pre className="cv-filepeek__gutter" aria-hidden data-find-skip>
             {numbers}
@@ -106,7 +98,6 @@ function ReadCard({ id, read, reveal }: { id: string; read: ReadPeek; reveal: nu
           <CodeLines code={read.code} path={read.path} />
         </div>
       </div>
-      <PreviewMore preview={preview} />
     </div>
   );
 }
@@ -177,6 +168,7 @@ function SearchCard({
               <FileButton
                 key={index}
                 path={file.open}
+                line={match.line}
                 className="cv-filematches__line"
                 label={match.line === undefined ? file.open : `${file.open}:${match.line}`}
               >

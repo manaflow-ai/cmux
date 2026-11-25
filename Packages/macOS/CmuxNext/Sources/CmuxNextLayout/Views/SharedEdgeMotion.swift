@@ -290,12 +290,6 @@ extension SharedEdgeMotion {
                     (horizontal ? to.maxX - from.maxX : to.maxY - from.maxY) / lineMove)
         }
 
-        /// How fast `pane`'s size along the axis changes for each point per second of the line's change of speed.
-        func sizeShare(_ pane: PaneID) -> CGFloat {
-            guard let from = caught.panes[pane], let to = probe.panes[pane] else { return 0 }
-            return (axis == .horizontal ? to.width - from.width : to.height - from.height) / lineMove
-        }
-
         /// A fraction of 1: the edge moves as the line does.
         static func rigid(_ fraction: CGFloat) -> Bool { abs(fraction - 1) < 0.000_001 }
 
@@ -337,43 +331,58 @@ extension SharedEdgeMotion {
 
 extension SharedEdgeMotion {
     /// Whether some pane could show a negative size after this press (rule C keeps each edge's spring leftover through a
-    /// drag): along either axis, its size's leftover from its rest size (`targets`: the caught layout's; nil: its own
-    /// target) and its size's speed (plus `influence`'s share of `speedChange`), followed on `spring` for as long as it
-    /// moves, must stay above minus `minimum` there: a drag (any mode) can shrink its rest size to that minimum, never
-    /// under. Any pane, not only the ones this drag resizes: a modifier can resize others. With `clampLeftover` (the
-    /// line's leftover from where the layout clamps it, after the press; it does not move then), also the size along the
-    /// axis without the pane's share of it: the pointer can take any part of the clamp's spring off at any time
-    /// (`SharedEdgeClamp.follow`), and springs are linear, so the size stays between the two paths. True: the press takes
-    /// the drag from before S2B, whose frames snap to rest and never show a negative size.
+    /// drag): along either axis, its two edges, from where they show to their rest places (`targets`: the caught
+    /// layout's; nil: its own target) at their speeds (plus `influence`'s share of `speedChange` for each edge), followed
+    /// on `spring` for as long as they move, must keep its size above its rest size minus `minimum` there: a drag (any
+    /// mode) can shrink its rest size to that minimum, never under. Any pane, not only the ones this drag resizes: a
+    /// modifier can resize others. With `clampLeftover` (the line's leftover from where the layout clamps it, after the
+    /// press; it does not move then), also the size along the axis without each edge's share of it: the pointer can take
+    /// any part of the clamp's spring off at any time (`SharedEdgeClamp.follow`). True: the press takes the drag from
+    /// before S2B, whose frames snap to rest and never show a negative size.
+    ///
+    /// The edges are followed one by one, as the frames step them (`AnimatedFrame.advance`): an edge starts each step
+    /// with no more velocity than cannot pass its place (`SpringParameters.admitted`), so a size is not one spring when
+    /// one of its edges is over that limit, and following the size alone would miss a dip.
     static func mayShowNegativeSize(_ frames: [PaneID: AnimatedFrame], targets: [PaneID: CGRect]?, influence: Influence?,
                                     speedChange: CGFloat, clampLeftover: CGFloat = 0, minimum: CGSize, spring: SpringParameters) -> Bool {
         let horizontal = influence?.axis != .vertical
         for (pane, frame) in frames {
             let target = targets?[pane] ?? frame.targetRect
-            let share = influence?.sizeShare(pane) ?? 0
-            let width = (leftover: frame.width.value - target.width, speed: frame.width.velocity + (horizontal ? speedChange * share : 0))
-            let height = (leftover: frame.height.value - target.height, speed: frame.height.velocity + (horizontal ? 0 : speedChange * share))
+            var width = Edges(start: frame.x, extent: frame.width), height = Edges(start: frame.y, extent: frame.height)
+            (width.lowTarget, width.highTarget) = (target.minX, target.maxX)
+            (height.lowTarget, height.highTarget) = (target.minY, target.maxY)
+            let share = influence.flatMap { $0.fractions(from: $0.caught.panes[pane], to: $0.probe.panes[pane]) } ?? (low: 0, high: 0)
+            if horizontal {
+                (width.lowSpeed, width.highSpeed) = (width.lowSpeed + speedChange * share.low, width.highSpeed + speedChange * share.high)
+            } else {
+                (height.lowSpeed, height.highSpeed) = (height.lowSpeed + speedChange * share.low, height.highSpeed + speedChange * share.high)
+            }
             if lowest(width, spring: spring) < 1 - minimum.width || lowest(height, spring: spring) < 1 - minimum.height { return true }
             guard abs(clampLeftover) > 0.001 else { continue } // a clamped press only (`SharedEdgeClamp`'s threshold)
-            let along = horizontal ? width : height
-            let released: (leftover: CGFloat, speed: CGFloat) = (along.leftover - share * clampLeftover, along.speed)
+            var released = horizontal ? width : height
+            (released.low, released.high) = (released.low - share.low * clampLeftover, released.high - share.high * clampLeftover)
             if lowest(released, spring: spring) < 1 - (horizontal ? minimum.width : minimum.height) { return true }
         }
         return false
     }
 
-    /// The lowest leftover a spring from `state` (leftover, speed) reaches before it rests, sampled at a fortieth of its
-    /// response (at most the settle horizon). Zero for a spring at rest.
-    private static func lowest(_ state: (leftover: CGFloat, speed: CGFloat), spring: SpringParameters) -> CGFloat {
-        guard state.leftover != 0 || state.speed != 0 else { return 0 }
-        var value = SpringValue(0)
-        (value.value, value.velocity) = (state.leftover, state.speed)
+    /// The lowest leftover of a size (its two edges' distance less their rest places' distance) while its edges go to
+    /// rest on `spring`, each as a frame steps it, sampled at a fortieth of the response (at most the settle horizon).
+    /// Zero for edges at rest.
+    private static func lowest(_ edges: Edges, spring: SpringParameters) -> CGFloat {
+        var low = SpringValue(edges.low), high = SpringValue(edges.high)
+        (low.velocity, low.target) = (edges.lowSpeed, edges.lowTarget)
+        (high.velocity, high.target) = (edges.highSpeed, edges.highTarget)
+        let rest = edges.highTarget - edges.lowTarget
+        let start = (edges.high - edges.low) - rest
+        guard low.value != low.target || high.value != high.target || low.velocity != 0 || high.velocity != 0 else { return 0 }
         let dt = max(spring.response, 0.05) / 40
-        var lowest = min(state.leftover, 0)
+        var lowest = min(start, 0)
         for _ in 0..<400 {
-            value.step(dt, parameters: spring)
-            lowest = min(lowest, value.value)
-            if abs(value.value) < 0.25, abs(value.velocity) < 2 { break }
+            low.step(dt, parameters: spring)
+            high.step(dt, parameters: spring)
+            lowest = min(lowest, (high.value - low.value) - rest)
+            if [low, high].allSatisfy({ abs($0.value - $0.target) < 0.25 && abs($0.velocity) < 2 }) { break }
         }
         return lowest
     }

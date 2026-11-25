@@ -139,9 +139,19 @@ impl Facts {
     }
 }
 
+/// Whether a folder is one no git may run in unasked: on macOS a read inside
+/// a privacy-protected folder (Desktop, Documents, iCloud Drive, another
+/// volume, ...) raises a prompt naming the app, on a screen that may have
+/// nobody at it (LAUNCH-NO-TCC-PROMPTS). acpmux passes
+/// `protected_folders::in_protected_location`; the crate keeps no list of its own.
+pub type Guarded = dyn Fn(&Path) -> bool + Send + Sync;
+
 /// The repositories at or one level under each of `roots`, plus those of
-/// `extra` folders (session folders), each once.
-pub fn repositories(roots: &[PathBuf], extra: &[PathBuf]) -> Vec<PathBuf> {
+/// `extra` folders (session folders), each once. A folder `guarded` names,
+/// and a repository whose git folder or main checkout it names, is skipped
+/// before any git runs there: a session someone once ran on the Desktop is
+/// no reason to read the Desktop at every daemon start.
+pub fn repositories(roots: &[PathBuf], extra: &[PathBuf], guarded: &Guarded) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     for root in roots {
         candidates.push(root.clone());
@@ -155,15 +165,41 @@ pub fn repositories(roots: &[PathBuf], extra: &[PathBuf]) -> Vec<PathBuf> {
     let mut seen = HashSet::new();
     let mut found = Vec::new();
     for folder in candidates {
+        // A stat raises no prompt; a git run in the folder reads inside it.
+        if guarded(&folder) {
+            continue;
+        }
         if !folder.join(".git").exists() && !extra.contains(&folder) {
             continue;
         }
+        // A linked worktree's `.git` file names its repository's git folder,
+        // which git reads first: one in a guarded folder is skipped unread.
+        if linked_git_dir(&folder).is_some_and(|dir| guarded(&dir)) {
+            continue;
+        }
         let Some(common) = common_dir(&folder) else { continue };
+        if guarded(&common) || cmux_git::main_root(&common).is_some_and(guarded) {
+            continue;
+        }
         if seen.insert(common.clone()) {
             found.push(common);
         }
     }
     found
+}
+
+/// The git folder a linked worktree's `.git` file names (`gitdir: <path>`),
+/// read in the process: no git run.
+fn linked_git_dir(folder: &Path) -> Option<PathBuf> {
+    use std::io::Read as _;
+    let path = folder.join(".git");
+    if !std::fs::symlink_metadata(&path).ok()?.is_file() {
+        return None;
+    }
+    let mut text = String::new();
+    std::fs::File::open(&path).ok()?.take(4096).read_to_string(&mut text).ok()?;
+    let named = PathBuf::from(text.lines().next()?.strip_prefix("gitdir:")?.trim());
+    Some(if named.is_absolute() { named } else { folder.join(named) })
 }
 
 /// The common git folder of the repository `folder` is in.
@@ -188,6 +224,18 @@ pub fn scan_with_memo(
     bases: &[String],
     finished: Arc<FinishedMemo>,
 ) -> Result<Repo, String> {
+    scan_guarded(common_dir, bases, finished, &|_| false)
+}
+
+/// `scan_with_memo` without the linked worktrees `guarded` names: no git
+/// runs in them and the pass never acts on them (a worktree someone put on
+/// the Desktop stays as it is).
+pub fn scan_guarded(
+    common_dir: &Path,
+    bases: &[String],
+    finished: Arc<FinishedMemo>,
+    guarded: &Guarded,
+) -> Result<Repo, String> {
     let main_root = cmux_git::main_root(common_dir).map(Path::to_path_buf);
     let anchor = main_root.clone().unwrap_or_else(|| common_dir.to_path_buf());
     let overrides = cmux_git::filter_overrides(&anchor).map_err(|f| f.reason())?;
@@ -205,6 +253,7 @@ pub fn scan_with_memo(
             || main_root.as_deref().is_some_and(|main| same_path(main, &entry.path))
             || entry.bare
             || same_path(common_dir, &entry.path)
+            || guarded(&entry.path)
         {
             continue;
         }
@@ -539,7 +588,8 @@ pub const MERGE_TREE_MEMORY: u64 = 768 << 20;
 /// Nonblocking host-wide lock shared by daemon and standalone scans. Busy or
 /// unreadable means unknown, never a remembered negative answer. The lock is
 /// independent of the pass lock, which daemon callers already hold.
-fn merge_tree_claim(dir: Option<&Path>) -> Option<std::fs::File> {
+/// Its drop unlocks before it closes, so a child the daemon forked meanwhile keeps no lock.
+fn merge_tree_claim(dir: Option<&Path>) -> Option<cmux_file_lock::FileLock> {
     let dir = dir.map(Path::to_path_buf).or_else(crate::Store::default_dir)?;
     std::fs::create_dir_all(&dir).ok()?;
     let mut options = std::fs::OpenOptions::new();
@@ -550,8 +600,7 @@ fn merge_tree_claim(dir: Option<&Path>) -> Option<std::fs::File> {
         options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
     let file = options.open(dir.join(".merge-tree.lock")).ok()?;
-    file.try_lock().ok()?;
-    Some(file)
+    cmux_file_lock::FileLock::try_take(file, cmux_file_lock::Kind::Exclusive).ok()
 }
 
 /// Whether history in this repository can differ from what its ids say:
@@ -793,78 +842,5 @@ pub fn now_ms() -> u64 {
 }
 
 #[cfg(test)]
-mod care_tests {
-    use super::*;
-
-    #[test]
-    fn the_worktree_list_names_each_worktree_with_its_state() {
-        let listing = b"worktree /r\0HEAD 1111111111111111111111111111111111111111\0branch refs/heads/main\0\0worktree /w/a\0HEAD 2222222222222222222222222222222222222222\0detached\0locked\0\0worktree /w/b\0HEAD 3333333333333333333333333333333333333333\0branch refs/heads/feat/x\0prunable gitdir file points to non-existent location\0\0";
-        let entries = parse_worktree_list(listing);
-        assert_eq!(entries.len(), 3);
-        assert_eq!(entries[0].branch.as_deref(), Some("main"));
-        assert!(entries[1].locked && entries[1].branch.is_none());
-        assert!(entries[2].prunable);
-        assert_eq!(entries[2].branch.as_deref(), Some("feat/x"));
-    }
-
-    #[test]
-    fn build_output_needs_its_name_and_its_marker() {
-        let root = crate::store::care_tests::scratch("markers");
-        std::fs::create_dir_all(root.join("webviews")).unwrap();
-        std::fs::write(root.join("webviews/package.json"), "{}").unwrap();
-        std::fs::create_dir_all(root.join("cmux-tui")).unwrap();
-        std::fs::write(root.join("cmux-tui/Cargo.toml"), "").unwrap();
-        assert!(is_build_output_at(&root, "webviews/node_modules/"));
-        assert!(is_build_output_at(&root, "cmux-tui/target/"));
-        assert!(is_build_output_at(&root, "cmux-tui/target/debug/x"));
-        assert!(is_build_output_at(&root, "a/b/__pycache__/"));
-        assert!(!is_build_output_at(&root, "node_modules/"), "no package.json beside it");
-        assert!(!is_build_output_at(&root, "docs/target/"), "a target/ that is not cargo's");
-        assert!(!is_build_output_at(&root, ".env"));
-        assert!(!is_build_output_at(&root, "webviews/src/generated/"));
-        assert!(!is_build_output_at(&root, "targets.txt"));
-    }
-
-    #[test]
-    fn the_reflog_time_is_the_last_entry_s() {
-        let dir = crate::store::care_tests::scratch("reflog");
-        let log = dir.join("HEAD");
-        std::fs::write(
-            &log,
-            "0000 1111 A <a@b> 1700000000 +0000\tclone\n1111 2222 A <a@b> 1700000500 -0700\tcommit: x\n",
-        )
-        .unwrap();
-        assert_eq!(reflog_time(&log), Some(1_700_000_500_000));
-    }
-
-    #[test]
-    fn persisted_finished_answers_survive_a_restart() {
-        let path = crate::store::care_tests::scratch("finished-memo").join("answers.json");
-        let memo = FinishedMemo::load(path.clone());
-        let root = Path::new("/worktrees/a");
-        memo.remember(
-            root,
-            "1111111111111111111111111111111111111111",
-            "2222222222222222222222222222222222222222",
-            Some(Finish::Squashed),
-        );
-        memo.flush();
-        drop(memo);
-        let restarted = FinishedMemo::load(path);
-        assert_eq!(
-            restarted.remembered(
-                root,
-                "1111111111111111111111111111111111111111",
-                "2222222222222222222222222222222222222222"
-            ),
-            Some(Some(Finish::Squashed))
-        );
-    }
-
-    #[test]
-    fn an_oversized_pair_skips_merge_tree() {
-        assert!(within_squash_limit("128"));
-        assert!(!within_squash_limit("129"));
-        assert!(!within_squash_limit("not-a-count"));
-    }
-}
+#[path = "inventory_care_tests.rs"]
+mod care_tests;

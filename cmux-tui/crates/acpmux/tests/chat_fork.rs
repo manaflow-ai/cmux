@@ -64,6 +64,29 @@ fn muse(env: Value) -> Value {
     json!({"muse": {"argv": ["python3", FAKE], "family": "muse", "env": env}})
 }
 
+/// The fork's agent gets the profile's env as every spawn does, its `${env:X}` references
+/// resolved: here the session prefix the fake agent answers with comes from the daemon's env,
+/// never the literal placeholder.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_fork_resolves_the_profiles_env_references() {
+    // SAFETY: a name only this test reads; no other test sets or reads it.
+    unsafe { std::env::set_var("ACPMUX_TEST_FORK_PREFIX", "resolved-fork-") };
+    let (_hub, tx, mut rx) = connect(
+        muse(json!({"FAKE_SESSION_PREFIX": "${env:ACPMUX_TEST_FORK_PREFIX}"})),
+        Origin::Local,
+    )
+    .await;
+    let reply = call(
+        &tx,
+        &mut rx,
+        2,
+        "_acpmux/chat_fork",
+        json!({"harness": "muse", "agentSessionId": "01a1802b-9ee5-7312-830f-ca44184d261e", "cwd": "/tmp"}),
+    )
+    .await;
+    assert_eq!(reply["result"]["agentSessionId"], "resolved-fork-1", "{reply}");
+}
+
 /// A terminal Muse forks through its ACP agent: the answer is the agent's new session id.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn chat_fork_a_terminal_muse_session_forks_through_its_acp_agent() {

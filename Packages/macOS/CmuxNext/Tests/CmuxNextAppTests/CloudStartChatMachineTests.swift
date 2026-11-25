@@ -36,9 +36,9 @@ struct CloudStartChatMachineTests {
     /// reaches them and throws or answers in its own terms.
     @Test func theStartsChecksComeFromTheRustRules() throws {
         let teamA: [String?] = [Self.me, "team-a"], teamB: [String?] = [Self.me, "team-b"]
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: true) == nil)
-        #expect(CloudStartChat.refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
-        #expect(CloudStartChat.refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
+        #expect(CloudStartCore().refusal(cloudDisabled: false, signedIn: true) == nil)
+        #expect(CloudStartCore().refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
+        #expect(CloudStartCore().refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
         #expect(CloudStartCore().accountText([Self.me, nil]) == "user-leo/")
         try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: true)
         #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamB, listCurrent: true) }
@@ -190,7 +190,7 @@ struct CloudStartChatMachineTests {
     /// A signed-out first send keeps its stable refusal code for callers, but the
     /// card must tell the person how to sign in instead of displaying `not_signed_in`.
     @Test func aSignedOutFirstSendCarriesActionableRecoveryCopy() {
-        #expect(CloudStartChat.refusalMessage("not_signed_in") == CloudStrings.signInFirst)
-        #expect(CloudStartChat.refusalMessage("cloud_disabled") == "cloud_disabled")
+        #expect(CloudStrings.startRefusal("not_signed_in") == CloudStrings.signInFirst)
+        #expect(CloudStrings.startRefusal("cloud_disabled") == "cloud_disabled")
     }
 }

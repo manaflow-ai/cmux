@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 import { resetTranscriptDisclosure, useRowDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const STORAGE_KEY = "cmux.acpmux.transcriptDisclosure";
 let dom: JSDOM | undefined;
@@ -18,6 +19,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

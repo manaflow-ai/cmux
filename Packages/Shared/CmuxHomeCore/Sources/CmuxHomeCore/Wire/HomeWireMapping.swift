@@ -59,6 +59,9 @@ struct HomeWireMapping: Sendable {
                 return .question(question)
             }
             return .text("question")
+        case "widget":
+            // Chat widgets are gone; a message an older build stored with one shows its fallback text.
+            return .text(json["fallback"].string ?? json["url"].string ?? "")
         default:
             // A part type this build does not know: its link when it has one, else its type.
             if let url = json["url"].string, !url.isEmpty { return .text(url) }

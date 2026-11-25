@@ -4,7 +4,9 @@ import { defineConfig } from "vite";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { viteCacheDir } from "./dev-server/viteCacheDir.mjs";
+import { jsonDevSourceMap } from "./dev-server/jsonDevSourceMap.mjs";
 import { agentPaneHost, perfBudgetsDevEntry } from "./dev-server/plugins";
+import { paneLocales } from "./scripts/agent-pane/paneLocales.mjs";
 
 // Dev server for the real agent pane (src/agent-session/acpmux) with hot
 // reload. A Debug or tagged cmux-next launched with
@@ -29,6 +31,9 @@ export default defineConfig({
   },
   plugins: [
     artifactRuntimeVite(),
+    // A build (the benches' pane) loads English plus the page's language as the shipped page does,
+    // not dev.tsx's whole 21-locale table.
+    paneLocales(path.join(paneRoot, "generated/strings.json")),
     // Keep the standalone pane dev server's host contract identical to `bun run dev`: real,
     // confined checkout reads are served by /__dev-host/read instead of silently becoming stubs.
     // Install only this host plugin so `/` remains the pane, rather than the generic dev index.
@@ -46,5 +51,7 @@ export default defineConfig({
       },
     },
     ...reactWithCompiler(),
+    // generated/strings.json is served as 26.7 MB without this, 5.1 MB with it (dev-server/jsonDevSourceMap.mjs).
+    jsonDevSourceMap(),
   ],
 });

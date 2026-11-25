@@ -67,11 +67,18 @@ struct ForkApi {
   int (*tab_set_transparent_background)(int, int) = nullptr;
   uint32_t (*browser_set_layer_hosting)(int, int) = nullptr;
   int (*browser_set_resize_sync)(int, int) = nullptr;
+  // API 32 (version >= 34 on the Chromium 157 line): window frame sync.
+  int (*browser_resize_fence)(int, uint32_t, int, int, int, void (*)(void*, int), void*) = nullptr;
   void (*set_new_tab_page_url)(const char*) = nullptr;
   void (*set_install_prompt_handler)(void (*)(void*, int, int, const char*), void*) = nullptr;
   int (*install_prompt_reply)(int, int) = nullptr;
   char* (*omnibox_keywords)(int) = nullptr;
   int (*omnibox_input)(int, const char*, int, const char*, int) = nullptr;
+  // API version 33: omnibox preloading (Chrome's predictor, preconnect and
+  // direct-URL-input prerender for the omnibar).
+  int (*omnibox_preload_text_changed)(int, const char*, const char* const*, const int*, int, double*) = nullptr;
+  int (*omnibox_preload_opened)(int, const char*, int) = nullptr;
+  void (*set_omnibox_prerender)(int) = nullptr;
   void (*set_omnibox_suggestions_handler)(void (*)(void*, int, const char*, const char*), void*) = nullptr;
   int (*add_native_messaging_dir)(const char*, int) = nullptr;
   // API version 11: popup windows extensions create.
@@ -87,6 +94,8 @@ struct ForkApi {
   // API version 18: profile (Touch ID) passkeys, metadata only.
   int (*profile_passkeys_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*profile_passkey_delete)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 23: WebAuthn per tab (refuse every request of an agent-driven tab).
+  int (*tab_set_webauthn_mode)(int, int) = nullptr;
   // API version 18: password manager core (shim_password_core.mm).
   int (*password_list)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*password_remove)(const char*, const char* const*, int, void (*)(void*, int), void*) = nullptr;
@@ -117,6 +126,12 @@ struct ForkApi {
   void (*set_drag_source_handler)(void (*)(void*, int, const void*), void*) = nullptr;
   int (*browser_drag_source_ended)(int, double, double, double, double, int) = nullptr;
   int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
+  // API version 25: cmux's own Safe Storage keychain item (cmux_shim_set_keychain_item).
+  int (*set_keychain_item)(const char*, const char*) = nullptr;
+  // API version 35: draw on input (a page's key frame without waiting for the next vsync).
+  int (*browser_set_draw_on_input)(int, int) = nullptr;
+  // API version 35: frames that mode drew for a key, so a bench can prove it is live, not inert.
+  int (*draw_on_input_key_frames)(int) = nullptr;
 };
 
 struct Host {
@@ -166,6 +181,8 @@ int NextInternalDevToolsId(int browser_id);
 // CMUX_SHIM_DEVTOOLS_EVENT. True when the message is consumed (a raw-send
 // reply), so it never reaches OnDevToolsMethodResult.
 bool ForwardDevToolsMessage(int browser_id, const void* message, size_t message_size);
+// The open DevTools frontend whose own id is `browser_id` (devtools_call_target.h); null when none.
+CefRefPtr<CefBrowser> DevToolsFrontendById(int browser_id);
 // The browser closed: drop its watch, raw-send mark and id counter.
 void ForgetDevToolsProtocol(int browser_id);
 
@@ -281,7 +298,7 @@ std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url
 std::string DisplayTitle(CefRefPtr<CefBrowser> browser, const std::string& title);
 // The request handler that adds the store's browser headers to requests to
 // the Chrome Web Store's origin, or null for any other URL (shim_webstore.mm).
-CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url);
+CefRefPtr<CefResourceRequestHandler> WebStoreRequestHandler(const std::string& url, const std::string& page_url);
 bool IsWebStoreURL(const std::string& url);
 // The Web Store's CRX download URL (https://clients2.google.com/service/
 // update2/crx, any query): the URL Chromium's WebstoreInstaller downloads an
@@ -301,6 +318,14 @@ void ForgetDownloads();
 CefRefPtr<CefPermissionHandler> PermissionHandler();
 // Releases every waiting prompt callback (before CefShutdown).
 void ForgetPermissionPrompts();
+// A waiting HTTP sign-in (AUTH_PROMPT), by token; ends it cancelled. UI thread.
+int AddAuthPrompt(CefRefPtr<CefAuthCallback> callback);
+int ContinueAuthPrompt(int token, const char* user, const char* password);
+void ForgetAuthPrompts();
+
+// Before CefShutdown: page requests waiting for their frame's URL (DeferredPageResource) stop
+// polling and are judged at once.
+void StopDeferredPageRequests();
 
 // A Proceed the host asked for on a certificate warning
 // (cmux_shim_certificate_proceed, shim_site.mm, UI thread): taken by the

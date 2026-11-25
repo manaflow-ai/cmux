@@ -6,7 +6,7 @@ use cmux_agent_pane_policy::check::{
     Checked, FrameState, PaneScope, check_frame as full_check, closes_connection,
 };
 use cmux_agent_pane_policy::environment::{default_socket_path, resolve, socket_path, tag_slug};
-use cmux_agent_pane_policy::gesture::{PermissionOptions, needs_gesture};
+use cmux_agent_pane_policy::gesture::{Gesture, PermissionOptions, needs_gesture};
 use cmux_agent_pane_policy::params::{
     breaks_params_rule, requested_setting, session_refusal, stripping_prompt_meta,
     take_gesture_ticket,
@@ -94,7 +94,7 @@ fn frames() {
 #[test]
 fn full_check_order() {
     let all = cases("check.json");
-    assert_eq!(all.as_array().unwrap().len(), 70, "check.json: the full order's 70 cases");
+    assert_eq!(all.as_array().unwrap().len(), 80, "check.json: the full order's 80 cases");
     for c in all.as_array().unwrap() {
         let s = &c["state"];
         let modes: Option<BTreeSet<String>> = s["mode_fields"]
@@ -143,9 +143,18 @@ fn full_check_order() {
                     "toolCall": {"_meta": {"acpmux": {"question": {"items": items}}}}}}});
             options.observe(pending.as_object().unwrap(), None);
         }
+        // The person's gesture the host holds (state `gesture`: `key` or
+        // `click`); a case without it holds none.
+        let gesture = match s.get("gesture").map(|g| g.as_str().unwrap()) {
+            None => Gesture::None,
+            Some("key") => Gesture::Key,
+            Some("click") => Gesture::Click,
+            Some(other) => panic!("{}: no gesture {other}", name(c)),
+        };
         let state = FrameState {
             is_first: s["first"].as_bool().unwrap(),
             remote_wire: s.get("remote_wire").and_then(Value::as_bool).unwrap_or(false),
+            gesture,
             local_app_token: s["token"].as_str(),
             mode_fields: modes.as_ref(),
             scope: &scope,
@@ -190,6 +199,7 @@ fn debug_output_is_redacted() {
         local_app_token: Some(&token),
         mode_fields: None,
         remote_wire: false,
+        gesture: Gesture::None,
         scope: &scope,
         options: &options,
     };
@@ -284,6 +294,25 @@ fn trust_peer_selector_requires_a_nonempty_string() {
             });
             assert!(breaks_params_rule(&object(&frame), None), "{method} must refuse peer {peer}");
         }
+    }
+}
+
+#[test]
+fn harnesses_peer_selector_requires_a_nonempty_string() {
+    let frame = |peer: Value| {
+        serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "_acpmux/harnesses",
+            "params": {"cwd": "/x", "_meta": {"acpmux": {"peer": peer}}}
+        })
+    };
+    assert!(!breaks_params_rule(&object(&frame(serde_json::json!("dev-box"))), None));
+    for peer in [
+        Value::Null,
+        serde_json::json!(""),
+        serde_json::json!(42),
+        serde_json::json!({"name": "dev-box"}),
+    ] {
+        assert!(breaks_params_rule(&object(&frame(peer.clone())), None), "must refuse peer {peer}");
     }
 }
 

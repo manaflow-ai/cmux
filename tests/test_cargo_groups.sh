@@ -26,7 +26,7 @@ while (($#)); do
   esac
   shift
 done
-echo "started ${bins[*]}" >> "$FAKE_LOG"
+echo "started ${bins[*]} jobs=${CARGO_BUILD_JOBS:-}" >> "$FAKE_LOG"
 # A group that waits for a file only finishes when another group is running too.
 if [[ -n "$wait_for" ]]; then
   for _ in $(seq 1 200); do [[ -e "$wait_for" ]] && break; sleep 0.05; done
@@ -90,5 +90,24 @@ if out="$("$script" "$td" "$t" \
   fail "a missing required binary passed: $out"
 fi
 grep -q "cmux-relay" <<<"$out" || fail "the missing binary is not named: $out"
+
+# 5. Group 1 gets every core; the others share 2 x cores. A caller's
+#    CARGO_BUILD_JOBS applies to every group.
+cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+share=$(((2 * cores + 2) / 3))
+lead=$((cores > share ? cores : share))
+rm -rf "$td"; : > "$FAKE_LOG"
+out="$(env -u CARGO_BUILD_JOBS "$script" "$td" "$t" \
+  "cmux-tui" "cargo build --bin cmux-tui --target $t" \
+  "acpmux" "cargo build --bin acpmux --target $t" \
+  "cmux-relay" "cargo build --bin cmux-relay --target $t" 2>&1)" || fail "job split run failed: $out"
+grep -qx "started cmux-tui jobs=$lead" "$FAKE_LOG" || fail "group 1 did not get $lead jobs: $(cat "$FAKE_LOG")"
+grep -qx "started acpmux jobs=$share" "$FAKE_LOG" || fail "group 2 did not get $share jobs: $(cat "$FAKE_LOG")"
+grep -qx "started cmux-relay jobs=$share" "$FAKE_LOG" || fail "group 3 did not get $share jobs: $(cat "$FAKE_LOG")"
+rm -rf "$td"; : > "$FAKE_LOG"
+out="$(CARGO_BUILD_JOBS=3 "$script" "$td" "$t" \
+  "cmux-tui" "cargo build --bin cmux-tui --target $t" \
+  "acpmux" "cargo build --bin acpmux --target $t" 2>&1)" || fail "caller jobs run failed: $out"
+[[ "$(grep -c ' jobs=3$' "$FAKE_LOG")" == 2 ]] || fail "a caller's CARGO_BUILD_JOBS did not reach every group: $(cat "$FAKE_LOG")"
 
 echo "PASS: cargo-groups.sh"

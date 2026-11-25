@@ -3,7 +3,7 @@
 // questions and pull requests; code changes waiting on review stay the Review queue's job
 // (review/), which this page links to. Nothing here is a store of its own: an item leaves as soon
 // as acpmux stops reporting it, and an answer goes the way Needs you sends it (needsYou/).
-import type { NeedsYouAnswer, NeedsYouItem } from "../needsYou/model";
+import { questionAnswers, type NeedsYouAnswer, type NeedsYouItem } from "../needsYou/model";
 import { questionFromPermission, type AgentQuestion } from "../question/model";
 
 export const QUEUE_METHOD = "_acpmux/review_queue";
@@ -50,6 +50,16 @@ const text = (value: unknown) => (typeof value === "string" && value ? value : u
 const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
 const record = (value: unknown) =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+
+/// A new read's items, each one the previous read's object when nothing in it changed, so a read
+/// that changes one item draws that row alone (acpmux sends every item on each read).
+export function keptItems(previous: readonly QueueItem[], next: readonly QueueItem[]): QueueItem[] {
+  const byId = new Map(previous.map((item) => [item.id, item]));
+  return next.map((item) => {
+    const old = byId.get(item.id);
+    return old && JSON.stringify(old) === JSON.stringify(item) ? old : item;
+  });
+}
 
 /// Reads acpmux's answer; an item missing what it needs to be shown is dropped, never drawn half.
 export function readQueue(value: unknown, fallbackNow = Date.now()): QueueReply {
@@ -172,11 +182,15 @@ export function itemQuestion(item: QueueItem): AgentQuestion | undefined {
 /// show (`chat.asks.answer`). Never a lasting grant in their place: an `allow_always` or a
 /// `reject_always` is answered in the chat, where the person sees what it keeps deciding, so an
 /// item with neither once option shows none here and opens its chat. A pull request takes its
-/// verdict instead. A question is answered in its chat, where its card shows the whole question:
-/// no chat shows here for `chat.permission` to answer, and the host's one-click answer takes tool
-/// permissions only. An ask on another machine is answered there.
+/// verdict instead. A one-pick question takes its choices, which the host sends as its card would
+/// (homeInboxModel.ts `replyElsewhere`); a longer one is answered in its chat, where its card shows
+/// the whole question. An ask on another machine is answered there.
 export function queueAnswers(item: QueueItem): NeedsYouAnswer[] {
-  if (item.kind === "pr" || item.kind === "question" || item.host) return [];
+  if (item.kind === "pr" || item.host) return [];
+  if (item.kind === "question") {
+    const question = itemQuestion(item);
+    return question ? questionAnswers(question) : [];
+  }
   const allow = item.options.find((option) => option.kind === "allow_once");
   const deny = item.options.find((option) => option.kind === "reject_once");
   return [

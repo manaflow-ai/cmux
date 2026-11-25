@@ -59,7 +59,7 @@ impl Wire {
     fn root_split(&self) -> (SplitDir, f32, Option<String>, PaneId, PaneId) {
         self.mux.with_state(|state| {
             let screen = &state.workspaces[0].screens[0];
-            let Node::Split { id, dir, ratio, a, b } = &screen.root else {
+            let Node::Split { id, dir, ratio, a, b, .. } = &screen.root else {
                 panic!("the screen is not split: {:?}", screen.root);
             };
             let (Node::Leaf(a), Node::Leaf(b)) = (&**a, &**b) else {

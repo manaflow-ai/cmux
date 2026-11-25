@@ -73,11 +73,64 @@ public struct WorkspaceCloseFlow {
     }
 }
 
+extension WorkspaceCloseFlow {
+    /// Starts the close of `id` (`start(_:asks:)`) and says what the press's turn showed, as the action's effect
+    /// (plans/cmux-next/zero-latency.md, "Native actions: the budget contract"):
+    /// - the row left and the selection moved in the turn: `.applied`. The registry follows the close and, when the
+    ///   daemon refuses it, runs `takeBack` (the row lists again and its window says why) and reports it. The failure
+    ///   is marked shown: `takeBack` says why, so no reporter says it a second time.
+    /// - a terminal may run a program, so the row stays for the question: `.waiting(.externalProcess)`.
+    /// - the last row of its window's room, which cannot leave alone: `.waiting(.daemonEcho)`.
+    /// The registry counts the two waits; `takeBack` runs for them too when their row left later (after the answer).
+    ///
+    /// The close is queued in the window's lane in this turn (`send`), not by the registry a hop later: it must keep
+    /// its place among the creates and closes pressed before it (`WorkspaceLanes`, cx-7cit9). The registry awaits
+    /// that queued work. Nil from `start` (a close of `id` runs already) is `.done`.
+    ///
+    /// - Parameters:
+    ///   - id: The workspace, fixed at the press.
+    ///   - asks: A person's unconfirmed run.
+    ///   - takeBack: Lists the row again and says why; called only for a refused close whose row left.
+    public func effect(_ id: String, asks: Bool, takeBack: @escaping @MainActor (ActionWorkFailure) -> Void) -> ActionEffect {
+        let press = WorkspaceCloseSelection()
+        var flow = self
+        flow.hide = { [hide] in
+            let hidden = hide()
+            press.hidden = hidden
+            return hidden
+        }
+        guard let work = flow.start(id, asks: asks) else { return .done }
+        let closed: @MainActor () async -> ActionWorkFailure? = {
+            guard var failure = await work.value else { return nil }
+            if press.hidden == true { failure.shown = true }
+            return failure
+        }
+        let rollback: @MainActor (ActionWorkFailure) -> Void = { failure in
+            if press.hidden == true { takeBack(failure) }
+        }
+        if press.hidden == true { return .applied(ActionConfirmation(send: closed, rollback: rollback)) }
+        let waited: @MainActor () async -> ActionWorkFailure? = {
+            guard let failure = await closed() else { return nil }
+            rollback(failure)
+            return failure
+        }
+        if press.hidden == nil {
+            // action-wait-allow: a terminal may run a program: the row must stay until its terminals answer process-info and the person answers the question (the row never leaves before its question)
+            return .waiting(.externalProcess, waited)
+        }
+        // action-wait-allow: the last row of its window's room cannot leave alone (a window is never empty, ClosingWorkspaces.begin): its window closes at the daemon's echo. Debt: close that window at the press.
+        return .waiting(.daemonEcho, waited)
+    }
+}
+
 /// The workspace a window selected when a close's row left (`WorkspaceCloseFlow.hide`), so a
 /// cancelled close gives the selection back only while the person has not moved on.
 @MainActor
 public final class WorkspaceCloseSelection {
     public var afterPress: String?
+    /// Whether the row left when `hide` ran (false: the last row of its window's room stayed). Nil until `hide` runs:
+    /// a question that may show keeps the row until its answer.
+    public var hidden: Bool?
 
     public init() {}
 }

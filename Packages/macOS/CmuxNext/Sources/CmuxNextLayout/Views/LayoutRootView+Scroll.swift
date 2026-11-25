@@ -77,6 +77,10 @@ extension LayoutRootView: ScrollGestureOwning {
             handleMonitoredKey(event.keyCode, from: event.window)
             return event
         }
+        if event.type == .mouseMoved {
+            handleMonitoredPointerMove(abs(event.deltaX) + abs(event.deltaY), from: event.window)
+            return event
+        }
         if [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(event.type), handleMonitoredChildPress(from: event.window) {
             return event
         }
@@ -98,6 +102,24 @@ extension LayoutRootView: ScrollGestureOwning {
     func handleMonitoredKey(_ keyCode: UInt16, from source: NSWindow?) {
         guard keyCode == 53, let window, let source, source === window || source.parent === window else { return }
         model.dismissFocusRing()
+    }
+
+    /// The pointer moved `distance` points: past a few points (a hand resting on the trackpad stays
+    /// under it) the focus ring goes, as on every web surface (FOCUS-RING, webviews/src/ui/focusModality.ts).
+    func handlePointerTravel(_ distance: CGFloat) {
+        guard model.focusRingEarned else { pointerTravelSinceRing = 0; return }
+        pointerTravelSinceRing += distance
+        guard pointerTravelSinceRing > 6 else { return }
+        pointerTravelSinceRing = 0
+        model.dismissFocusRing()
+    }
+
+    /// A pointer move in a page window of this one (a Chromium page): the layout's tracking area never
+    /// sees those, so the monitor counts them toward the ring's pointer travel. This window's own moves
+    /// come through ``mouseMoved(with:)``.
+    func handleMonitoredPointerMove(_ distance: CGFloat, from source: NSWindow?) {
+        guard model.focusRingEarned, let window, let source, source.parent === window else { return }
+        handlePointerTravel(distance)
     }
 
     /// A press in a page window of this one (a Chromium page) is a click in that pane: its ring

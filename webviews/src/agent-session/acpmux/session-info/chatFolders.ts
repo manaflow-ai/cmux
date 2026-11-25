@@ -11,11 +11,10 @@
 // a lane's scratch) is internal too, unless acpmux reports it in git: a worktree under
 // ~/.cmux/worktrees or <repo>/.claude/worktrees is the project the chat works on.
 import type { AcpmuxSnapshot } from "../model";
-import { isAgentHome, projectLabel } from "../sessionList";
+import { isAgentHome, isTemporaryFolder, projectLabel } from "../sessionList";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 
-const TEMPORARY = /^\/(?:tmp|var\/tmp|var\/folders|private\/tmp|private\/var)(?:\/|$)/;
 const HOME_OR_ROOT = /^\/(?:(?:Users|home)(?:\/[^/]+)?)?$/;
 
 const trim = (path: string) => (path.length > 1 ? path.replace(/\/+$/, "") : path);
@@ -24,7 +23,7 @@ const trim = (path: string) => (path.length > 1 ? path.replace(/\/+$/, "") : pat
 /// `/`, or (unless `inGit`) a hidden or `.noindex` folder.
 export function internalFolder(path: string, inGit = false): boolean {
   const clean = trim(path);
-  if (!clean.startsWith("/") || TEMPORARY.test(clean) || HOME_OR_ROOT.test(clean) || isAgentHome(clean)) return true;
+  if (!clean.startsWith("/") || isTemporaryFolder(clean) || HOME_OR_ROOT.test(clean) || isAgentHome(clean)) return true;
   return !inGit && clean.split("/").some((segment) => segment.startsWith(".") || segment.endsWith(".noindex"));
 }
 

@@ -57,6 +57,10 @@ import Foundation
             guard let screen = store.screensByHandle[handle], screen.pinned != pinned else { return nil }
             screen.pinned = pinned
             return .screenPinned(screen: handle, pinned: !pinned)
+        case .setDividerVisible(let handle, let split, let visible):
+            guard let screen = store.screensByHandle[handle], screen.hiddenDividers.contains(split) == visible else { return nil }
+            screen.setDivider(split, visible: visible)
+            return .dividerVisible(screen: handle, split: split, visible: !visible)
         case .renameWorkspace(let key, let name):
             guard let workspace = store.workspacesByKey[key], workspace.name != name else { return nil }
             let previous = workspace.name
@@ -92,7 +96,8 @@ import Foundation
             ProvisionalSplit.rememberStandInTarget(paneHandle, in: store)
             guard let shown = ProvisionalSplit.shownPane(paneHandle, in: store), let pane = store.panesByHandle[shown],
                   store.tabsBySurface[provisional.surface] == nil else { return nil }
-            let tab = TabModel(provisional)
+            // The restore of a lift puts back the record that the lift took out: the stand-in keeps its one record.
+            let tab = pane.takeLiftedTab(provisional.surface) ?? TabModel(provisional)
             pane.insertTab(tab, at: pane.tabs.count)
             store.index.insert(tab, in: pane)
             return .createdTab(surface: provisional.surface, pane: shown)
@@ -108,6 +113,10 @@ import Foundation
         case .splitPane(let target, let direction, let ratio, let provisional):
             return ProvisionalSplit.apply(target: target, direction: direction, ratio: ratio,
                                           provisional: provisional, to: store)
+        case .zoomPane(let pane, let zoomed):
+            return zoom(pane, zoomed: zoomed, in: store)
+        case .swapPanes(let leading, let trailing):
+            return swap(leading: leading, trailing: trailing, in: store)
         case .bindAgentSession(let surface, let session, let harness):
             guard let tab = store.tabsBySurface[surface], var record = tab.agentSession,
                   record.session != session || (harness != nil && record.harness != harness) else { return nil }
@@ -167,7 +176,22 @@ import Foundation
         // (ProvisionalSplit.apply places it until the daemon's layout does). Once that pane is
         // gone again, a split not yet due shows nothing until it settles (never its stand-in).
         if ProvisionalSplit.paneGone(pending, in: store) { return nil }
-        return apply(pending.kind, to: store)
+        // A tab move goes to the place of its first apply, not to its index on a list that changed (``TabMovePlace``).
+        return apply(pending.movePlace?.resolved(pending.kind, in: store) ?? pending.kind, to: store)
+    }
+
+    /// A new intent's first apply: its inverse, and for a tab move the place that the apply gives the tab (read
+    /// before the apply, in the daemon's order).
+    static func show(_ intent: Intent, in store: DaemonStore) -> (undo: IntentUndo?, place: TabMovePlace?) {
+        let place = TabMovePlace(of: intent, in: store)
+        return (apply(intent, to: store), place)
+    }
+
+    /// ``restore(_:to:)`` for the log: its inverse, and a tab move's place (the one of its first apply; read now when
+    /// this is its first apply: the intent was made while the overlay was lifted, or a stage held it).
+    static func showAgain(_ pending: PendingIntent, in store: DaemonStore) -> (undo: IntentUndo?, place: TabMovePlace?) {
+        let place = pending.movePlace ?? TabMovePlace(of: pending.kind, in: store)
+        return (restore(pending, to: store), place)
     }
 
     static func undo(_ undo: IntentUndo, in store: DaemonStore) {
@@ -194,6 +218,12 @@ import Foundation
             store.screensByHandle[screen]?.icon = icon
         case .screenPinned(let screen, let pinned):
             store.screensByHandle[screen]?.pinned = pinned
+        case .screenZoom(let screen, let pane):
+            store.screensByHandle[screen]?.zoomedPane = pane
+        case .swappedPanes(let screen, let first, let second):
+            if let screen = store.screensByHandle[screen] { exchange(first, second, in: screen) }
+        case .dividerVisible(let screen, let split, let visible):
+            store.screensByHandle[screen]?.setDivider(split, visible: visible)
         case .workspaceName(let key, let name):
             store.workspacesByKey[key]?.setName(name)
         case .workspaceColor(let key, let color):
@@ -230,10 +260,10 @@ import Foundation
             // Applied overlay first, then the hide: undone in reverse.
             if let hidden { CancelledCreation.unhide(.hiddenTab(hidden), in: store) }
             if let overlay { self.undo(overlay, in: store) }
-        case .createdWorkspace(let key, let inserted):
-            ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, in: store)
+        case .createdWorkspace(let key, let inserted, let hidden):
+            ProvisionalWorkspaceOverlay.undo(key: key, inserted: inserted, hidden: hidden, in: store)
         case .createdTab(let surface, let pane):
-            guard let tab = store.panesByHandle[pane]?.removeTab(surface: surface) else {
+            guard let tab = store.panesByHandle[pane]?.liftTab(surface: surface) else {
                 if let stray = store.tabsBySurface[surface] { store.index.remove(stray) }
                 return store.reportMirrorViolation("intent overlay undo found provisional surface \(surface) missing from pane \(pane)")
             }

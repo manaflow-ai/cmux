@@ -74,6 +74,11 @@ struct TerminalCommandSuggestionTests {
         "mysql -pSECRET -u root", "mysql -u root -pSECRET", "mariadb -h db -pSECRET",
         "/usr/bin/mysql -pSECRET", "/opt/homebrew/bin/mariadb -u root -pSECRET", "mysqldump -pSECRET db",
         "mariadb-dump -u root -pSECRET db",
+        // CMUX-278: an empty user still carries the password.
+        "curl -u :pw https://example.com", "curl --user=:pw https://example.com", "curl -u ':pw' https://example.com",
+        // CMUX-279: a quoted flag or client name, or a client inside `sh -c`.
+        "mysql '-psecret' -u root", "mysql -u root \"-psecret\"", "\"/usr/bin/mysql\" -psecret",
+        "'mysqldump' -u root -psecret db", "sh -c 'mysql -psecret'", "bash -c \"mariadb -u root -psecret\"",
     ])
     func refusesCredentialArguments(_ text: String) {
         var store = TerminalCommandSuggestionStore()
@@ -83,7 +88,7 @@ struct TerminalCommandSuggestionTests {
 
     @Test("still suggests commands with a bare -p or a plain -u", arguments: [
         "mkdir -p x", "mysql -p -u root", "mysql -u root --skip-pager", "git push -u origin main",
-        "pnpm --filter web test",
+        "pnpm --filter web test", "sh -c 'mysql -p -u root'", "\"/usr/bin/mysql\" -u root",
     ])
     func allowsOrdinaryFlags(_ text: String) {
         var store = TerminalCommandSuggestionStore()

@@ -59,3 +59,33 @@ extension ControlRouter {
         ]
     }
 }
+
+/// `debug.health` (the app health snapshot, plus whether the model is linked, its one timer is armed
+/// and the launcher is told to hold a replace) and `debug.health.inject {id, fault}` (`hang`, or
+/// `resume` for the session daemon): the fault is made for real by the part's owner
+/// (``AppHealth/setInjector(_:_:)``). Debug methods: a release build registers neither.
+extension ControlRouter {
+    /// Serves `health` on the socket. The App attaches it at launch.
+    public func attach(health: AppHealth) {
+        register(Self.healthMethods(health))
+    }
+
+    static func healthMethods(_ health: AppHealth) -> [ControlMethod] {
+        [
+            .snapshot("debug.health") { _ in
+                var report = health.snapshot.objectValue ?? [:]
+                report["model_linked"] = .bool(health.isModelLinked)
+                report["timer_armed"] = .bool(health.isTimerArmed)
+                report["holds_replace"] = .bool(health.holdsReplace)
+                return .object(report)
+            },
+            .async("debug.health.inject") { call in
+                guard let id = call.params["id"]?.stringValue, !id.isEmpty else { throw ControlError.invalidParams("id is required") }
+                guard let fault = call.params["fault"]?.stringValue, ["hang", "resume"].contains(fault) else {
+                    throw ControlError.invalidParams("fault must be hang or resume")
+                }
+                return ["ok": .bool(await health.inject(id: id, fault: fault))]
+            },
+        ]
+    }
+}

@@ -20,8 +20,7 @@ extension JoinConsentServices {
     static let askShownKey = "cmux.join.consentAskShown"
 
     static func app(_ services: AppServices) -> JoinConsentServices {
-        let cli = (try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment))
-            .map { HostCLI(binary: $0, environment: SSHService.environment) }
+        let cli = SSHService.bundledCLI?.onPlatform(of: services.environment.terminalEnvironment)
         #if DEBUG
         let fixtures = services.debugFixtures
         #endif
@@ -30,17 +29,7 @@ extension JoinConsentServices {
                 #if DEBUG
                 if let fixture = fixtures.joinStatus { return fixture }
                 #endif
-                guard let data = await cli?.json(["acp", "host", "join", "--status", "--json"], deadline: .seconds(10), label: "join status")
-                else { return nil }
-                return JoinStatus.parse(data)
-            },
-            openLine: { [weak services] in
-                #if DEBUG
-                if fixtures.joinStatus != nil { return fixtures.joinLine }
-                #endif
-                guard let services, let environment = QuitAgents.environment(services),
-                      let line = await AcpmuxPersonLine.open(environment) else { return nil }
-                return JoinConsentPersonLine(line)
+                return (await cli?.json(["acp", "host", "join", "--status", "--json"], deadline: .seconds(10), label: "join status")).flatMap(JoinStatus.parse)
             },
             enabled: { [weak services] in services?.settings?.snapshot.machineJoin == true },
             settingsEpoch: { [weak services] in services?.settings?.loadCount ?? -1 },
@@ -52,7 +41,13 @@ extension JoinConsentServices {
                 return await LocalDeviceOwnerAuthenticator().authenticate(reason: JoinConsentStrings.confirmReason(surface)) ? .confirmed : .cancelled
             },
             askShown: { UserDefaults.standard.bool(forKey: askShownKey) },
-            markAskShown: { UserDefaults.standard.set(true, forKey: askShownKey) })
+            markAskShown: { UserDefaults.standard.set(true, forKey: askShownKey) },
+            open: { [weak services] in
+                #if DEBUG
+                if fixtures.joinStatus != nil { return .line(fixtures.joinLine) }
+                #endif
+                return await JoinConsentPersonLine.open(services.flatMap(QuitAgents.environment))
+            })
     }
 }
 
@@ -66,8 +61,20 @@ final class JoinConsentPersonLine: JoinConsentLine {
         self.line = line
     }
 
+    static func open(_ environment: AcpmuxEnvironment?) async -> JoinConsentOpen {
+        guard let environment else { return .failed(.notRunning(path: nil)) }
+        return switch await AcpmuxPersonLine.connectEnrolling(environment) {
+        case .success(let line): .line(JoinConsentPersonLine(line))
+        case .failure(.noSocket(let path)): .failed(.notRunning(path: path))
+        case .failure(.refused(let why)): .failed(.refused(why))
+        case .failure(.noAnswer): .failed(.noAnswer)
+        case .failure(.olderDaemon(let path)): .failed(.olderDaemon(path: path))
+        }
+    }
     var isPerson: Bool { line.isPerson }
     var supportsConsent: Bool { line.capabilities.contains(Self.capability) }
+    var notProven: JoinConsentUnread? { line.notPersonReason.map { .notProven(foreignPath: line.foreignPeerPath, why: $0.description) } }
+    var readError: String? { line.lastError }
 
     func read() async -> JoinConsentRecord? {
         (await line.call("_acpmux/machine_consent_get", [:])).flatMap(JoinConsentRecord.parse)
@@ -175,68 +182,10 @@ extension JoinConsentModel {
     }
 }
 
-/// acpmux's machine consent, one per OS user and shared by every app build:
-/// `<the user's home>/.acpmux/machine-consent/{enrolled.json,consent.json,refusal.json}`. A change there
-/// (the folder made at the first join, a file made, replaced, rewritten or removed) is one element, so the
-/// app asks acpmux again (`machine_consent_get`); the files are never read for a decision. Event-driven:
-/// the folder through ``FolderChanges`` (through a parent until it exists) and each file through its own
-/// vnode watch, armed again after each folder change. Both are armed in ``events(armed:)`` itself, before
-/// it returns and before its watch loop starts (``FolderChanges/events()`` returns once it is registered, on the folder or
-/// its nearest existing parent): the folder's first, then the files', then `armed` runs, then the stream
-/// yields once. So a change made from then on (the folder made, a file written) is seen by a watch, and
-/// one made while they armed is read by that first ask. Ends when the consumer stops iterating.
-nonisolated struct MachineConsentChanges: Sendable {
-    static let files = ["enrolled.json", "consent.json", "refusal.json"]
-
-    /// The folder, from the user's own password entry (`getpwuid(geteuid())`), never `HOME` or
-    /// `ACPMUX_HOME`, which a launch can set to anything.
+extension MachineConsentChanges {
+    /// acpmux's consent folder, from the user's password entry (`getpwuid`), never `HOME` or `ACPMUX_HOME`.
     static var folder: URL? {
-        guard let entry = getpwuid(geteuid()), let home = entry.pointee.pw_dir else { return nil }
-        return URL(fileURLWithPath: String(cString: home), isDirectory: true)
-            .appending(path: ".acpmux/machine-consent", directoryHint: .isDirectory)
-    }
-
-    let folder: URL
-
-    /// - Parameter armed: Runs once both watches are armed, before the first element and before the watch
-    ///   loop starts (the handshake a caller can make a change in).
-    func events(armed: () -> Void = {}) async -> AsyncStream<Void> {
-        let (stream, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
-        let folder = folder
-        // Armed here, in this order: the folder (FolderChanges arms in events(), not in its loop), then the
-        // files, then one element, so nothing made or replaced while they armed is missed.
-        let folderChanges = await FolderChanges(folders: [folder]).events()
-        let first = Self.watchFiles(in: folder, continuation)
-        armed()
-        continuation.yield()
-        // task-owner: the stream's watch loop; cancelled when the consumer stops iterating
-        let loop = Task.detached(priority: .utility) {
-            var watches = first
-            // wakeup-allow: each pass waits for one file-system event in the consent folder, never polls
-            for await _ in folderChanges {
-                watches.forEach { $0.cancel() }
-                watches = Self.watchFiles(in: folder, continuation)
-                continuation.yield()
-            }
-            watches.forEach { $0.cancel() }
-            continuation.finish()
-        }
-        continuation.onTermination = { _ in loop.cancel() }
-        return stream
-    }
-
-    /// A watch on each consent file that exists now: a write in place, a replace or a removal yields.
-    private static func watchFiles(in folder: URL, _ continuation: AsyncStream<Void>.Continuation) -> [any DispatchSourceFileSystemObject] {
-        files.compactMap { name in
-            let fd = open(folder.appending(path: name).path, O_EVTONLY)
-            guard fd >= 0 else { return nil }
-            // DispatchSource for file watching: no Foundation async equivalent (idle-wakeups.md).
-            let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .extend, .rename, .delete, .attrib],
-                                                                   queue: .global(qos: .utility))
-            source.setEventHandler { continuation.yield() }
-            source.setCancelHandler { close(fd) }
-            source.resume()
-            return source
-        }
+        guard let home = getpwuid(geteuid())?.pointee.pw_dir else { return nil }
+        return URL(fileURLWithPath: String(cString: home), isDirectory: true).appending(path: ".acpmux/machine-consent", directoryHint: .isDirectory)
     }
 }

@@ -5,9 +5,11 @@
 // dialog"), so a new person had no way to learn a chat can be shared.
 //
 // Once per install is the app's to keep, like a feature tip's (design feature-tips.md): the page
-// writes the nudge's record (`tips.state {id: "share-nudge", state}`, the app's defaults) before the
-// line draws, and an app that keeps no records shows none, since a line that could not stay gone
-// must not show at all. No timer, no observer: it reacts to the turn's end and to the person.
+// claims the nudge (`tips.state {claim: "share-nudge"}`, the app's defaults) before the line draws,
+// which the app grants only with no other tip in the last 14 days. The app checks the record and
+// keeps it in one step, so two panes ending a turn at once never both show it. An app that keeps no records
+// shows none, since a line that could not stay gone must not show at all. No timer, no observer:
+// it reacts to the turn's end and to the person.
 import { useEffect, useRef, useState } from "react";
 import type { TipHost } from "../../../ui/featureTips/store";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -17,22 +19,30 @@ import { turnEndedBetween } from "../snapshotCache";
 /** The nudge's record id in the app's tip records (lower-case, digits and dashes). */
 export const SHARE_NUDGE_ID = "share-nudge";
 
-/** The person's own chats: not a side chat, nor one an agent or a Chief started. Archived chats
- *  count: a person who archived chats is not new here. */
+/** The person's own chats: not a side chat, nor one an agent or a Chief started, nor a lane
+ *  another chat started (`reportsTo`, as leads.ts reads it). Archived chats count: a person who archived chats is not
+ *  new here. */
 export function ownChats(sessions: readonly AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return sessions.filter(
-    (entry) => !entry.side && !entry.spawnedBy && !entry.startedBy && !entry.chiefChild && !entry.chiefTurn,
+    (entry) =>
+      !entry.side &&
+      !entry.spawnedBy &&
+      !entry.startedBy &&
+      !(entry.reportsTo && entry.reportsTo !== entry.sessionId) &&
+      !entry.chiefChild &&
+      !entry.chiefTurn,
   );
 }
 
-/** The chat's ended turns (their footers), oldest first. */
-const turnSummaries = (rows: readonly AcpmuxRow[]) => rows.filter((row) => row.kind === "turnSummary");
-
-/** The chat's first reply has just ended well: one ended turn, completed, with no error. */
+/** The chat's first reply has just ended well: one ended turn, completed, with no error. Read up
+ * to the second ended turn at most: a long chat's every row was filtered on each event. */
 export function firstReplyCompleted(rows: readonly AcpmuxRow[]): boolean {
-  const ended = turnSummaries(rows);
-  if (ended.length !== 1) return false;
-  const [only] = ended;
+  let only: AcpmuxRow | undefined;
+  for (const row of rows) {
+    if (row.kind !== "turnSummary") continue;
+    if (only) return false;
+    only = row;
+  }
   return only !== undefined && (only.status ?? "completed") === "completed" && !only.error && !only.failed;
 }
 
@@ -130,9 +140,10 @@ export function useShareNudge(
       .read()
       .then(async (state) => {
         if (state.records[SHARE_NUDGE_ID] !== undefined) return false;
-        // Kept before it draws: a page that reloads, or another window, never shows it again.
-        await host.write(SHARE_NUDGE_ID, "closed");
-        return true;
+        // The app's claim keeps it before it draws (a page that reloads, or another window, never
+        // shows it again) and says no within 14 days of any other tip: it spends the one budget
+        // the feature tips, the Cloud hint and the sidebar's card share.
+        return host.claim(SHARE_NUDGE_ID, undefined);
       })
       .then(
         (show) => {

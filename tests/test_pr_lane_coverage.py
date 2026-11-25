@@ -6,8 +6,10 @@ tests/test_webviews_tests_per_file.py was named only by web-validation.yml's
 main-push job and the nightly car guards, so a2d6b35 broke it on feat-cmux-next
 and every pull request stayed green until #23430. `--pr-lanes BRANCH` reads the
 workflows as a pull request into BRANCH runs them (scripts/ci/pr_test_lanes.py)
-and fails on a test none of its jobs executes, unless tests/pr-lane-exemptions.json
-lists it with a reason.
+and warns on a test none of its jobs executes, unless tests/pr-lane-exemptions.json
+lists it with a reason. It warns rather than fails: an unrun test breaks nothing
+(Leo, 2026-11-05: "the notion of not adding tests should block CI ... they
+should just warn").
 
     python3 tests/test_pr_lane_coverage.py
 
@@ -18,6 +20,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,15 +28,20 @@ import textwrap
 import unittest
 from pathlib import Path
 
-import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
-spec = importlib.util.spec_from_file_location(
-    "validate_test_execution_registry", ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
-)
-validator = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(validator)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import validate_test_execution_registry as validator  # noqa: E402
 
 BRANCH = "feat-cmux-next"
 FEAT_PULL_REQUEST = "on:\n  pull_request:\n    branches: [feat-cmux-next]\n"
@@ -104,7 +112,7 @@ class PullRequestLanes(unittest.TestCase):
     def test_a_job_that_skips_feat_pull_requests_does_not_count(self):
         workflow = "on:\n  pull_request:\njobs:\n" + job(
             "python3 tests/test_a.py",
-            "${{ github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' }}",
+            "${{ github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') }}",
         )
         self.check({"ci.yml": workflow}, ["tests/test_a.py"])
 
@@ -172,6 +180,33 @@ class PullRequestLanes(unittest.TestCase):
             """)
         self.check({"next-guards.yml": caller, "guards.yml": callee}, ["tests/test_b.py", "tests/test_c.py"],
                    tests=["tests/test_a.py", "tests/test_b.py", "tests/test_c.py"])
+
+    def test_a_step_of_the_step_table_counts_when_a_pull_request_job_runs_its_job(self):
+        # pr-pipeline.yml runs `ci/run run --job linux`: the linux steps of ci/steps.toml run, whatever
+        # their inputs; a job nothing runs (mac) and a test named only in `inputs` do not count.
+        table = textwrap.dedent("""\
+            [jobs]
+            linux = "l"
+            mac = "m"
+            [setup]
+            linux = "python3 tests/test_setup.py"
+            [step.a]
+            job = "linux"
+            inputs = ["tests/test_named.py"]
+            run = "python3 tests/test_a.py"
+            [step.b]
+            job = "mac"
+            run = "python3 tests/test_mac.py"
+        """)
+        tests = ["tests/test_a.py", "tests/test_setup.py", "tests/test_mac.py", "tests/test_named.py"]
+        for command in ("ci/run run --job linux", "python3 scripts/ci/ci_steps.py run --label x --job=linux"):
+            with self.subTest(command=command):
+                tree = Tree(tests, {"pipeline.yml": FEAT_PULL_REQUEST + "jobs:\n" + job(command)})
+                self.addCleanup(tree.close)
+                (tree.root / "ci").mkdir()
+                (tree.root / "ci" / "steps.toml").write_text(table, encoding="utf-8")
+                flagged = sorted(error.split(":", 1)[0] for error in tree.errors())
+                self.assertEqual(flagged, ["tests/test_mac.py", "tests/test_named.py"])
 
     def test_a_runner_lane_counts_where_a_pull_request_job_invokes_it(self):
         workflow = FEAT_PULL_REQUEST + "jobs:\n" + job("python3 scripts/ci/run_python_test_lane.py --lane macos-shell")
@@ -241,8 +276,10 @@ class PullRequestLanes(unittest.TestCase):
 
 
 class OnlyWhatThePullRequestAdds(unittest.TestCase):
-    """feat-cmux-next takes direct-pushed main syncs (18, 10 and 2 new tests in the last three) that skip pull
-    request checks. A test the base already leaves unrun is a warning; only one this change leaves unrun fails."""
+    """A test no pull request runs only warns, whoever added it (Leo, 2026-11-05: "There is no way that, like,
+    the notion of not adding tests should block CI."). feat-cmux-next takes direct-pushed main syncs that skip
+    pull request checks, so a broken exemption list the base already has warns; only one this change breaks
+    fails."""
 
     def git(self, root: Path, *args: str) -> str:
         return subprocess.run(
@@ -250,7 +287,7 @@ class OnlyWhatThePullRequestAdds(unittest.TestCase):
             cwd=root, check=True, text=True, capture_output=True,
         ).stdout.strip()
 
-    def test_a_base_gap_warns_and_a_new_one_fails(self):
+    def test_a_base_gap_and_a_new_one_both_warn(self):
         tree = Tree(["tests/test_old.py"], {"next.yml": FEAT_PULL_REQUEST + "jobs:\n" + job("true")})
         self.addCleanup(tree.close)
         root = tree.root
@@ -265,9 +302,27 @@ class OnlyWhatThePullRequestAdds(unittest.TestCase):
         self.git(root, "commit", "--quiet", "-m", "head")
 
         errors, warnings = validator.pr_lane_findings(root, BRANCH, base)
-        self.assertEqual([error.split(":", 1)[0] for error in errors], ["tests/test_new.py"], errors)
+        self.assertEqual(errors, [])
         self.assertTrue(any(warning.startswith("tests/test_old.py:") for warning in warnings), warnings)
-        self.assertFalse(any(warning.startswith("tests/test_new.py:") for warning in warnings), warnings)
+        self.assertTrue(any(warning.startswith("tests/test_new.py:") for warning in warnings), warnings)
+
+    def test_a_stale_exemption_this_change_adds_fails(self):
+        tree = Tree(["tests/test_old.py"], {"next.yml": FEAT_PULL_REQUEST + "jobs:\n" + job("python3 tests/test_old.py")})
+        self.addCleanup(tree.close)
+        root = tree.root
+        self.git(root, "init", "--quiet", "-b", "feat-cmux-next")
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "base")
+        base = self.git(root, "rev-parse", "HEAD")
+        (root / "tests" / "pr-lane-exemptions.json").write_text(
+            json.dumps({"exemptions": [{"reason": "gone", "tests": ["tests/test_gone.py"]}]}), encoding="utf-8")
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "head")
+
+        errors, warnings = validator.pr_lane_findings(root, BRANCH, base)
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("tests/test_gone.py does not exist", errors[0])
+        self.assertEqual(warnings, [])
 
     def test_a_base_workflow_that_does_not_parse_only_warns(self):
         # feat-cmux-next dd8b867f7 left nightly.yml with a colon-space in a plain scalar; the
@@ -282,19 +337,25 @@ class OnlyWhatThePullRequestAdds(unittest.TestCase):
         base = self.git(root, "rev-parse", "HEAD")
         (root / ".github" / "workflows" / "next.yml").write_text(
             FEAT_PULL_REQUEST + "jobs:\n" + job("true"), encoding="utf-8")
+        # A finding that is judged against the base, so the base is read.
+        (root / "tests" / "pr-lane-exemptions.json").write_text(
+            json.dumps({"exemptions": [{"reason": "gone", "tests": ["tests/test_gone.py"]}]}), encoding="utf-8")
         self.git(root, "add", "-A")
         self.git(root, "commit", "--quiet", "-m", "head")
 
         errors, warnings = validator.pr_lane_findings(root, BRANCH, base)
         self.assertEqual(errors, [])
-        self.assertTrue(warnings and warnings[0].startswith("could not judge the pull request lanes"), warnings)
+        self.assertTrue(any(warning.startswith("could not judge the pull request lanes") for warning in warnings),
+                        warnings)
 
-    def test_without_a_base_every_gap_fails(self):
-        tree = Tree(["tests/test_old.py"], {})
+    def test_without_a_base_a_gap_warns_and_a_broken_exemption_fails(self):
+        tree = Tree(["tests/test_old.py"], {},
+                    exemptions=[{"reason": "gone", "tests": ["tests/test_gone.py"]}])
         self.addCleanup(tree.close)
         errors, warnings = validator.pr_lane_findings(tree.root, BRANCH, "")
-        self.assertEqual([error.split(":", 1)[0] for error in errors], ["tests/test_old.py"], errors)
-        self.assertEqual(warnings, [])
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("tests/test_gone.py does not exist", errors[0])
+        self.assertEqual([warning.split(":", 1)[0] for warning in warnings], ["tests/test_old.py"], warnings)
 
 
 class ThisTree(unittest.TestCase):
@@ -312,7 +373,9 @@ class ThisTree(unittest.TestCase):
         for test in ("tests/test_webviews_tests_per_file.py", "tests/test_web_lint_prepush.py"):
             with self.subTest(test=test):
                 self.assertIn(test, text)
-                self.assertIn(f"python3 {test}", runs)
+                # A step runs the file itself: `python3 FILE` or `python3 -m pytest ... FILE`
+                # (pytest-xdist, the job's two slowest steps), never a mere mention.
+                self.assertRegex(runs, rf"(?m)^python3 (?:-m pytest [^\n]*?)?{re.escape(test)}(?:\s|$)")
 
     def test_tests_of_feat_files_run_on_feat_pull_requests(self):
         """Tests whose code feat-cmux-next pull requests edit ran only on main, a push, a schedule, or nowhere.
@@ -346,7 +409,6 @@ class ThisTree(unittest.TestCase):
         in_area_jobs = (
             "tests/test_cmux_bug_triage.py",
             "tests/test_cmux_code_mode_mcp.py",
-            "tests/test_cmux_cua_dev_helper_identity.py",
             "tests/test_remote_daemon_notices.py",
             "tests/test_remote_daemon_release_assets.py",
             "tests/test_remote_daemon_release_verification.py",
@@ -367,16 +429,19 @@ class ThisTree(unittest.TestCase):
         workflow = yaml.safe_load((ROOT / ".github" / "workflows" / "cmux-next-guards.yml").read_text(encoding="utf-8"))
         steps = workflow["jobs"]["ci-guard-group"]["steps"]
         runs = [str(step.get("run", "")) for step in steps]
-        calls = [line for run in runs for line in run.splitlines() if "scripts/ci/guards-local.sh" in line]
-        # A pull request's head call (ci and the routed groups, release-notary among them), a push's head call
-        # (release-notary left to nightly-guards), then the base.
-        self.assertEqual(len(calls), 3, calls)
+        # A `--list` call only prints the plan (the cut head pass names its unfinished steps with it, #46862); it
+        # runs no guard, so it is not one of the passes counted here.
+        calls = [line for run in runs for line in run.splitlines()
+                 if "scripts/ci/guards-local.sh" in line and "guards-local.sh --list" not in line]
+        # The head call (ci and the routed groups, release-notary among them, on a pull request and a push alike),
+        # then the base.
+        self.assertEqual(len(calls), 2, calls)
         for call in calls:
             with self.subTest(call=call):
                 self.assertIn("--feat-routes", call)
+                self.assertNotIn("--skip-group", call)
         self.assertNotIn("--group", calls[0])
-        self.assertIn("--skip-group release-notary", calls[1])
-        self.assertIn("--root .guard-base", calls[2])
+        self.assertIn("--root .guard-base", calls[1])
 
 
 if __name__ == "__main__":

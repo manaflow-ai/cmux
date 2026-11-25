@@ -18,6 +18,7 @@ import {
 import { pageError, type PageClient } from "../src/pages/shared/pageClient";
 import { mockSummary } from "../src/pages/stats/mockProvider";
 import type { StatsSummary } from "../src/pages/stats/types";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -37,12 +38,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 /** 2026-10-12T12:00Z, a Monday. */

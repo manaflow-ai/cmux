@@ -988,6 +988,7 @@ fn dogfood_png_snapshot_events_match_the_golden_fixture() {
 
     let actual = lines.join("\n") + "\n";
     let path =
+        // affected-reads: cmux-tui/spec/fixtures/terminal-snapshot-dogfood-png.jsonl
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").join(DOGFOOD_PNG_FIXTURE);
     if std::env::var_os("CMUX_UPDATE_SNAPSHOT_FIXTURE").is_some() {
         std::fs::write(&path, &actual).expect("write the fixture");
@@ -1416,3 +1417,6 @@ fn latest_screen_first_bench() {
         .unwrap();
     }
 }
+
+#[path = "history_window_socket_tests.rs"]
+mod history_window;

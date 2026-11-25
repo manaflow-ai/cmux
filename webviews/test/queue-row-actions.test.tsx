@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translatorFor } from "../src/agent-session/acpmux/i18n";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "ResizeObserver", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -40,12 +41,9 @@ beforeAll(() => {
   main = window.document.querySelector<HTMLElement>(".acpmux-main")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("a queued row shows Steer, Delete and More in both arms, and keeps its keys", async () => {

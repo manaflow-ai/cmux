@@ -212,7 +212,11 @@ pub(super) fn parse_terminal(
             if flags.boolean("unwrap") {
                 params.insert("unwrap".into(), Value::Bool(true));
             }
+            // Plain text, as `screen read` prints it, unless --details asks
+            // for the record's fields (W5-R, bench round 4 item 10).
+            let details = flags.boolean("details");
             request(ResourceOperation::TerminalCopy, selectors, flags, params)
+                .map(|plan| if details { plan } else { plan.screen_text() })
         }
         [selector, "process", "show"] => {
             selectors.insert("terminal", "term", selector)?;
@@ -257,7 +261,12 @@ pub(super) fn parse_terminal(
         }
         [selector, "close"] => {
             selectors.insert("terminal", "term", selector)?;
-            request(ResourceOperation::TerminalClose, selectors, flags, Map::new())
+            let mut params = Map::new();
+            // Ends it only when nothing shows it (no tab, no keep mark, no attach stream).
+            if flags.boolean("if-unplaced") {
+                params.insert("if_unplaced".into(), Value::Bool(true));
+            }
+            request(ResourceOperation::TerminalClose, selectors, flags, params)
         }
         [selector, "keep", state] => {
             // `set-terminal-keep` resolves only exact terminal identities, so
@@ -277,6 +286,41 @@ pub(super) fn parse_terminal(
                     "cmd": "set-terminal-keep",
                     "terminal_id": selector,
                     "keep": keep,
+                }),
+                stream: false,
+            }))
+        }
+        [selector, "pin-tail", state] => {
+            // `current` is the terminal the command runs in.
+            let caller = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty());
+            let selector = match (*selector, caller) {
+                ("current", Some(caller)) => caller,
+                ("current", None) => {
+                    return Err(UsageError::new(
+                        "terminal current pin-tail needs a caller terminal (CMUX_TUI_TERMINAL_ID is not set); pass a term_ ID",
+                    ));
+                }
+                (selector, _) if matches!(Selector::parse(selector), Ok(Selector::Id(_))) => {
+                    selector.to_owned()
+                }
+                _ => {
+                    return Err(UsageError::new(
+                        "terminal pin-tail needs a term_ terminal ID or current",
+                    ));
+                }
+            };
+            validate_prefixed_id("terminal", "term", &selector)?;
+            let pinned = match *state {
+                "on" => true,
+                "off" => false,
+                _ => return Err(UsageError::new("terminal pin-tail must be on or off")),
+            };
+            Ok(CommandPlan::RawCommand(super::super::raw::RawCommandPlan {
+                request: json!({
+                    "id": 1,
+                    "cmd": "set-terminal-tail-pin",
+                    "terminal": selector,
+                    "pinned": pinned,
                 }),
                 stream: false,
             }))

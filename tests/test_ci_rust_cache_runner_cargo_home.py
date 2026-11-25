@@ -26,6 +26,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 RUST_CACHE = "swatinem/rust-cache@"
 OWN_HOME_ACTION = "./.github/actions/runner-cargo-home"
@@ -39,38 +42,16 @@ EPHEMERAL_LABEL = re.compile(
     r"^(ubuntu-(\d{2}\.\d{2}|latest)(-arm)?|windows-(\d{4}|latest)"
     r"|blacksmith-\d+vcpu-(ubuntu-\d{4}(-arm)?|windows-\d{4}))$"
 )
-MATRIX_REF = re.compile(r"^\$\{\{\s*matrix\.([A-Za-z0-9_-]+)\s*\}\}$")
 
 
 def is_rust_cache(step: object) -> bool:
     return isinstance(step, dict) and str(step.get("uses", "")).lower().startswith(RUST_CACHE)
 
 
-def runner_labels(job: dict) -> list[object] | None:
-    """Every label the job's runs-on can be, or None when that is not static."""
-    runs_on = job.get("runs-on")
-    if isinstance(runs_on, dict):
-        return None
-    labels = runs_on if isinstance(runs_on, list) else [runs_on]
-    resolved: list[object] = []
-    for label in labels:
-        match = MATRIX_REF.match(str(label).strip())
-        if not match:
-            resolved.append(label)
-            continue
-        matrix = (job.get("strategy") or {}).get("matrix")
-        if not isinstance(matrix, dict):
-            return None
-        key = match.group(1)
-        values = matrix.get(key, [])
-        include = matrix.get("include", [])
-        if not isinstance(values, list) or not isinstance(include, list):
-            return None
-        values = list(values) + [entry[key] for entry in include if isinstance(entry, dict) and key in entry]
-        if not values:
-            return None
-        resolved.extend(values)
-    return resolved
+def runner_labels(job: dict) -> list[str] | None:
+    """The job's runs-on as each matrix cell writes it (a label list joined by ", "), or None when a matrix value
+    is not static (a guard counts that job as able to take a persistent runner)."""
+    return workflow_jobs.runs_on_cells(job)
 
 
 def ephemeral_only(job: dict) -> bool:
@@ -130,7 +111,7 @@ def workflow_failures(path: Path, document: dict) -> tuple[int, list[str]]:
     for job_name, job in (document.get("jobs") or {}).items():
         if not isinstance(job, dict) or not isinstance(job.get("steps"), list):
             continue
-        covered = ephemeral_only(job) or sets_cargo_home(job.get("env")) or sets_cargo_home(document.get("env"))
+        covered = ephemeral_only(job) or sets_cargo_home(workflow_jobs.effective_env(document, job))
         n, errors = steps_failures(f"{path} {job_name}", job["steps"], covered)
         found += n
         failures += errors
@@ -170,7 +151,7 @@ def self_test() -> list[str]:
           "strategy": {"matrix": {"include": [{"runner": "ubuntu-24.04"}, {"runner": "macos-26"}]}}}, False),
     ]:
         if ephemeral_only(job) is not expected:
-            errors.append(f"self-test: ephemeral_only({job['runs-on']!r}) should be {expected}")
+            errors.append(f"self-test: ephemeral_only({workflow_jobs.runs_on_cells(job)!r}) should be {expected}")
     cache = {"uses": "Swatinem/rust-cache@abc"}
     cases = [
         ("bare rust-cache on a mini", [{"uses": "x/rust-toolchain@1"}, cache], 1),

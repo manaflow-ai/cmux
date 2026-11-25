@@ -9,12 +9,12 @@ import Testing
 /// `size.disk_mb`), alone or with `--size` in the same call; the args carry only the dimensions given.
 @Suite
 struct CloudResizeDiskTests {
-    private func request(_ arguments: [String: ActionValue]) throws -> CloudResizeRequest {
-        try CloudResizeRequest(ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-1"), arguments: arguments, origin: .cli))
+    private func request(_ arguments: [String: ActionValue]) throws -> CloudHandlers.Resize {
+        try CloudHandlers.resizeRequest(ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-1"), arguments: arguments, origin: .cli))
     }
 
-    private func size(_ request: CloudResizeRequest) throws -> [String: JSONValue] {
-        let args = request.appServerArgs(machine: "vm-1")
+    private func size(_ request: CloudHandlers.Resize) throws -> [String: JSONValue] {
+        let args = CloudHandlers.resizeArgs(request, machine: "vm-1")
         #expect(args["machine"]?.stringValue == "vm-1")
         guard case .object(let size)? = args["size"] else { Issue.record("no size in \(args)"); return [:] }
         return size

@@ -123,12 +123,13 @@ final class PageInfoWindows {
 /// own goes back to its default. The bubble's model can be empty (Site settings opened from a
 /// notice before the bubble), so the engine's decisions are read, not taken from the model.
 enum SitePermissionEngineReset {
-    /// Resets the kinds and answers the engine's decisions after it.
+    /// Resets the kinds and answers the engine's decisions after it. `resets` is asked before each
+    /// engine write: a kind chosen again while the reset runs keeps that choice, not a stale default.
     @discardableResult
-    static func run(origin: String, stored: Set<SitePermissionKind>,
-                    provider: any PageInfoProviding) async -> [SitePermissionKind: SitePermissionSetting] {
+    static func run(origin: String, stored: Set<SitePermissionKind>, provider: any PageInfoProviding,
+                    resets: (SitePermissionKind) -> Bool = { _ in true }) async -> [SitePermissionKind: SitePermissionSetting] {
         let live = await provider.pageInfoLivePermissions(origin: origin)
-        for kind in stored.union(live.keys) {
+        for kind in stored.union(live.keys) where resets(kind) {
             await provider.pageInfoDidChange(kind, to: kind.defaultSetting, origin: origin)
         }
         return await provider.pageInfoLivePermissions(origin: origin)
@@ -155,6 +156,8 @@ private final class SiteSettingsSource {
     /// The store's entry for the origin as last seen: another surface changing it (the bubble's
     /// reset, another window) re-reads the engine's decisions.
     private var seenStored: [SitePermissionKind: SitePermissionSetting]?
+    /// Kinds chosen since the last Reset permissions: that reset's engine writes skip them.
+    private var chosenSinceReset: Set<SitePermissionKind> = []
 
     init(window: PageInfoWebWindow, origin: String, site: PageInfoSite, store: SitePermissionStore,
          provider: any PageInfoProviding, send: @escaping (PageInfoCommand) -> Void) {
@@ -219,6 +222,7 @@ private final class SiteSettingsSource {
             // The engine takes the choice too: its own decision for the kind is this one now.
             liveGeneration += 1
             live[kind] = setting
+            chosenSinceReset.insert(kind)
             if isCurrentOrigin { return send(.setPermission(kind, setting)) }
             seenStored = (store.decisions[origin] ?? [:]).merging([kind: setting]) { $1 }
             store.set(setting, kind, for: origin)
@@ -228,6 +232,7 @@ private final class SiteSettingsSource {
             liveGeneration += 1
             let generation = liveGeneration
             live = [:]
+            chosenSinceReset = []
             // The engine keeps its own decisions (Chromium persists content settings), and the
             // bubble knows only the kinds its model holds: on either path, reset each kind the
             // store or the engine had.
@@ -237,7 +242,9 @@ private final class SiteSettingsSource {
             seenStored = [:]
             store.reset(origin: origin)
             Task { [weak self, provider, origin] in
-                let after = await SitePermissionEngineReset.run(origin: origin, stored: stored, provider: provider)
+                let after = await SitePermissionEngineReset.run(origin: origin, stored: stored, provider: provider) { kind in
+                    !(self?.chosenSinceReset.contains(kind) ?? false)
+                }
                 guard let self, self.liveGeneration == generation else { return }
                 self.live = after
             }

@@ -3,6 +3,7 @@ import CmuxAgentQuestion
 import CmuxConversationCore
 import CmuxMobileAgentChat
 import CmuxMobileChief
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
@@ -17,8 +18,18 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "push")
 /// prompt it answers is read again, and the reply goes out through the same
 /// hub calls the chat and the Feed use.
 extension LiveCoordinator {
-    /// How long a reply waits for its Mac's link before it fails.
+    /// How long a reply waits for its Mac's link with no progress on it (nothing heard, no step
+    /// reached) before it fails over to the mailbox: a stall bound, not a fixed time from the tap
+    /// (Leo, 2026-11-24: "if it's making good progress, it shiukd be allowed to keep going?").
     public static let pushReplyBudget: Duration = .seconds(4)
+
+    /// A wait on `mac`'s link begun now: once `budget` passed, how much longer it may go (Rust's
+    /// verdict on that Mac's ``MacSession/progress``), nil to give up. Read again each time, so a
+    /// Mac whose session appears during the wait (a cold launch) counts from then.
+    func linkStall(_ mac: String, after budget: Duration) -> @MainActor () -> Duration? {
+        let started = ChatPromptClock.milliseconds(ContinuousClock.now)
+        return { [weak self] in self?.sessions[mac]?.progress.stallLeft(startedMs: started, stall: budget) }
+    }
 
     public struct PushReplyFailure: Error, Equatable, Sendable {
         public enum Reason: Equatable, Sendable {
@@ -36,6 +47,12 @@ extension LiveCoordinator {
     /// Delivers `reply` to its Mac. Throws `PushReplyFailure`.
     public func deliver(_ reply: PushReply, budget: Duration = LiveCoordinator.pushReplyBudget) async throws {
         touch(reply.mac)
+        // A button tapped in the background: the Mac holds a parked link's
+        // answers until the phone wakes it, so it resumes for this reply.
+        try await withLinkAwake(reply.mac) { try await deliverAwake(reply, budget: budget) }
+    }
+
+    private func deliverAwake(_ reply: PushReply, budget: Duration) async throws {
         if reply.kind == .chief {
             try await deliverToChief(reply, budget: budget)
             return
@@ -53,7 +70,7 @@ extension LiveCoordinator {
         // The Mac's session appears once the account's team and Macs are known (a
         // cold launch learns them first), and its chats once the link is served.
         let mac = reply.mac
-        guard await waitUntil(within: budget, { [weak self] in self?.sessions[mac]?.acpmux.isReady == true }),
+        guard await waitUntil(within: budget, extend: linkStall(mac, after: budget), { [weak self] in self?.sessions[mac]?.acpmux.isReady == true }),
               let hub = sessions[mac]?.acpmux else {
             log.error("push reply: no link to that Mac within the budget")
             throw PushReplyFailure(reason: .unreachable)
@@ -77,7 +94,7 @@ extension LiveCoordinator {
                 let blocks = AcpmuxSessionSource.promptBlocks(text: text, attachments: await Self.attachments(attachments))
                 _ = try await hub.request("session/prompt", .object([
                     "sessionId": .string(sessionID), "prompt": .array(blocks),
-                    "_meta": .object(["acpmux": .object(["promptId": .string(promptID), "steer": .bool(false), "resend": .bool(true)])]),
+                    "_meta": PushReplyPlan.promptMeta(promptID: promptID),
                 ]))
             case .chief, .terminal:
                 break
@@ -119,27 +136,29 @@ extension LiveCoordinator {
         if focusedMacID != reply.mac { select(macID: reply.mac) }
         let chief = ChiefSession.shared
         let mac = reply.mac
-        guard await waitUntil(within: budget, { [weak self] in self?.chiefMacID == mac && chief.isConnected }) else {
+        guard await waitUntil(within: budget, extend: linkStall(mac, after: budget), { [weak self] in self?.chiefMacID == mac && chief.isConnected }) else {
             throw PushReplyFailure(reason: .unreachable)
         }
         let images = await Self.attachments(names).compactMap { attachment -> ConversationComposeImage? in
             guard let data = attachment.data, let mime = attachment.imageMIMEType, let size = UIImage(data: data)?.size else { return nil }
             return ConversationComposeImage(data: data, width: Int(size.width), height: Int(size.height), mimeType: mime)
         }
-        chief.send(ConversationComposeMessage(text: text, images: images))
+        guard chief.send(ConversationComposeMessage(text: text, images: images)) else {
+            throw PushReplyFailure(reason: .unreachable)
+        }
     }
 
     /// Send Message… to the Chief about a workspace or a tab of `macID`: Chief runs on the
     /// focused Mac's link, so that Mac becomes the focus first, and the message goes only once
     /// its Chief is connected (never to the Chief of the Mac that was focused). False when the
-    /// Mac can't be reached within `budget`; nothing was sent then.
+    /// Mac's link makes no progress for `budget` before then; nothing was sent then.
     public func sendToChief(_ text: String, on macID: String, budget: Duration = .seconds(20)) async -> Bool {
         guard canLink(macID: macID) else { return false }
         if focusedMacID != macID { select(macID: macID) }
         let chief = ChiefSession.shared
-        guard await waitUntil(within: budget, { [weak self] in self?.chiefMacID == macID && chief.isConnected }) else { return false }
-        chief.send(text: text)
-        return true
+        guard await waitUntil(within: budget, extend: linkStall(macID, after: budget),
+                              { [weak self] in self?.chiefMacID == macID && chief.isConnected }) else { return false }
+        return chief.send(text: text)
     }
 
     /// Text into the terminal that posted the notification, over the Mac's
@@ -154,7 +173,7 @@ extension LiveCoordinator {
         }
         guard case .terminal(let notification, let text) = plan else { throw PushReplyFailure(reason: .refused("")) }
         let mac = reply.mac
-        guard await waitUntil(within: budget, { [weak self] in self?.sessions[mac]?.workspaces.daemon != nil }),
+        guard await waitUntil(within: budget, extend: linkStall(mac, after: budget), { [weak self] in self?.sessions[mac]?.workspaces.daemon != nil }),
               let daemon = sessions[mac]?.workspaces.daemon else {
             throw PushReplyFailure(reason: .unreachable)
         }
@@ -215,7 +234,8 @@ extension LiveCoordinator {
                 let sign = try pairing.keys.approvalSigner()
                 approval = Self.pushJSON(payload.meta(signature: try sign(payload.message)))
             } catch {
-                throw PushReplyFailure(reason: .refused((error as? PhoneKeys.Failure)?.message ?? String(describing: error)))
+                throw PushReplyFailure(reason: .refused((error as? PhoneKeys.Failure)?.message
+                    ?? UserFacingError.message(error, fallback: "This reply couldn't be signed. Open the chat to answer.")))
             }
         }
         guard let lifetime = Self.mailboxLifetime(reply, now: now) else {
@@ -301,27 +321,33 @@ extension LiveCoordinator {
     }
 
     /// Waits until `condition` holds (re-read whenever what it reads changes),
-    /// at most `budget`. No polling: Observation wakes it.
-    public func waitUntil(within budget: Duration, _ condition: @escaping @MainActor () -> Bool) async -> Bool {
+    /// at most `budget`, then as long as `extend` allows (``linkStall(_:after:)``: `budget` of
+    /// silence on the link). No polling: Observation wakes it.
+    public func waitUntil(within budget: Duration, extend: (@MainActor () -> Duration?)? = nil,
+                          _ condition: @escaping @MainActor () -> Bool) async -> Bool {
         if condition() { return true }
-        return await ObservationWait(condition, clock: clock, budget: budget).value
+        return await ObservationWait(condition, clock: clock, budget: budget, extend: extend).value
     }
 }
 
 /// Resolves true once `condition` reads true (Observation re-arms after each
-/// change), or false when `budget` ends or the task is cancelled.
+/// change), or false when `budget` ends (and then `extend`, asked each time it passes, says
+/// stop) or the task is cancelled.
 @MainActor
 public final class ObservationWait {
     private let condition: @MainActor () -> Bool
     private let clock: any Clock<Duration>
     private let budget: Duration
+    private let extend: (@MainActor () -> Duration?)?
     private var continuation: CheckedContinuation<Bool, Never>?
     private var timer: Task<Void, Never>?
 
-    public init(_ condition: @escaping @MainActor () -> Bool, clock: any Clock<Duration> = ContinuousClock(), budget: Duration) {
+    public init(_ condition: @escaping @MainActor () -> Bool, clock: any Clock<Duration> = ContinuousClock(), budget: Duration,
+                extend: (@MainActor () -> Duration?)? = nil) {
         self.condition = condition
         self.clock = clock
         self.budget = budget
+        self.extend = extend
     }
 
     public var value: Bool {
@@ -329,9 +355,12 @@ public final class ObservationWait {
             await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
                     self.continuation = continuation
-                    let clock = self.clock, budget = self.budget
+                    let clock = self.clock, budget = self.budget, extend = self.extend
                     self.timer = Task { [weak self] in
-                        do { try await clock.sleep(for: budget) } catch { return }
+                        do {
+                            try await clock.sleep(for: budget)
+                            while let left = extend?(), left > .zero { try await clock.sleep(for: left) }
+                        } catch { return }
                         self?.finish(false)
                     }
                     self.arm()

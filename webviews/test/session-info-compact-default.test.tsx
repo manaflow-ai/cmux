@@ -12,6 +12,7 @@
 // - A reveal (a running line's count, the header's chip) of a held section opens Show more.
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
   url: "http://localhost/",
@@ -62,13 +63,9 @@ const { MORE_LINE, ORDER_KEY, resetSectionOrderForTests, tuckedSections, DEFAULT
 const gallery = (await import("../src/agent-session/acpmux/session-info/SessionInfo.gallery")).default;
 type SessionInfoProps = import("react").ComponentProps<typeof SessionInfo>;
 
-afterAll(() => {
+afterAll(async () => {
   setPaneLanguage("en");
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 
@@ -167,7 +164,7 @@ test("a less-used section dragged above the line stays in view", async () => {
 });
 
 test("tuckedSections: what the order puts under the line", () => {
-  expect(tuckedSections(DEFAULT_ORDER)).toEqual(["changes", "usage", "connectors"]);
+  expect(tuckedSections(DEFAULT_ORDER)).toEqual(["changes", "usage", "connectors", "carried"]);
   // Usage moved above the line: placed by the person; Sources moved under it: tucked.
   const moved = [
     "environment",

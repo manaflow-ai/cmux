@@ -18,7 +18,6 @@ extension WindowRootView {
         NSLayoutConstraint.activate((sidePins[sidebarSide] ?? []).filter { !presentsPage || $0.firstItem !== contentHost })
         applySidebarRail()
         sidebar.side = sidebarSide
-        // The right sidebar's inset moves to the other edge with it.
         applyMainPane()
         layoutSubtreeIfNeeded()
         content?.needsLayout = true
@@ -41,19 +40,5 @@ extension WindowRootView {
                 self?.sidebar.sidebarView.spacesVisibility = visibility
             }
         }
-    }
-
-    /// The right sidebar fills the window's height on the edge opposite the
-    /// sidebar; its bar starts under the top row (`rowHeight`).
-    func layoutRightPanel(rowHeight: CGFloat) {
-        guard let rightPanel else { return }
-        let width = rightPanelWidth
-        rightPanel.isHidden = width <= 0 || presentsPage
-        guard width > 0, !presentsPage else { return }
-        let x = sidebarSide == .left ? bounds.width - width : 0
-        rightPanel.topInset = rowHeight
-        rightPanel.innerEdge = sidebarSide == .left ? .minX : .maxX
-        let frame = CGRect(x: x, y: 0, width: width, height: bounds.height)
-        if rightPanel.frame != frame { rightPanel.frame = frame }
     }
 }

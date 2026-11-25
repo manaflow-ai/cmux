@@ -23,14 +23,14 @@ public nonisolated enum ActionFeature: String, CaseIterable, Sendable, Hashable 
         // Apps: the App Store catalog's own actions, by membership, not by an
         // "app." prefix (Share cmux is `app.shareCmux` and is not an Apps action).
         if appsActionIDs.contains(descriptor.id) { return .apps }
-        if lowered.contains("cloud") || id == "switchRightSidebarToMachines" { return .cloud }
+        if lowered.contains("cloud") { return .cloud }
         return nil
     }
 }
 
 extension ActionFeature {
-    /// The actions of the Apps feature: every action `AppStoreActionCatalog` declares.
-    nonisolated static let appsActionIDs: Set<ActionID> = Set(AppStoreActionCatalog.descriptors().map(\.id))
+    /// The actions of the Apps feature: every action of the catalog's `AppStoreActionCatalog` group.
+    nonisolated static let appsActionIDs: Set<ActionID> = Set(ActionCatalog.descriptors(inGroup: "AppStoreActionCatalog").map(\.id))
 
     /// The feature in `disabled` that `descriptor` belongs to, or nil.
     public static func turnedOff(_ descriptor: ActionDescriptor, in disabled: Set<ActionFeature>) -> ActionFeature? {
@@ -39,7 +39,9 @@ extension ActionFeature {
     }
 }
 
+#if canImport(AppKit)
 extension ActionRegistry {
     /// The turned-off feature of the action `id`, or nil (DisabledFeatures).
     public func disabledFeature(for id: ActionID) -> ActionFeature? { descriptor(for: id).flatMap { ActionFeature.turnedOff($0, in: disabledFeatures) } }
 }
+#endif

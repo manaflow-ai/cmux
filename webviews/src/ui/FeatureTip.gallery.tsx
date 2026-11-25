@@ -20,7 +20,7 @@ const PLACEMENTS: Record<Target, { selector: string; side: "top" | "bottom"; tit
     selector: '[data-quick-action="browser"]',
     side: "bottom",
     title: "Agents drive the browser tabs you can see",
-    body: "Agents that use the browser now open and drive real Chromium or WebKit tabs in your window.",
+    body: "Agents open and drive real Chromium or WebKit tabs in your window.",
   },
   inspector: {
     selector: ".acpmux-header-panel-toggle",

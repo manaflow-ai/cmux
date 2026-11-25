@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -77,14 +78,11 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-cols")) popup.remove();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 /// Leo's chat: a claude-sr2 chat 704 turns in, its turn running, a long transcript and a queued prompt.
@@ -167,7 +165,8 @@ async function mountLongChat() {
 }
 
 const modelButton = () => host.querySelector<HTMLButtonElement>('.acpmux-model button[data-menu="Model"]')!;
-const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+// A started chat's model button opens the shared columns picker, as a New Tab's does (cmux#55750).
+const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
 /// The next painted frame: Base UI's mousedown toggle lands in one.
 const nextFrame = () =>
   act(async () => {
@@ -200,7 +199,8 @@ test("the model button opens its menu in a long running chat, and the menu stays
   expect(modelButton().textContent).toContain("Opus 5.5");
   await click(modelButton());
   expect(modelButton().getAttribute("aria-expanded")).toBe("true");
-  expect(menu()?.querySelector(".ui-menu-group-label")).toBeNull();
+  expect(menu()).not.toBeNull();
+  expect(menu()!.querySelector(".ui-menu-group-label")).toBeNull();
   // Still open a frame later: nothing closes it behind the press.
   await nextFrame();
   expect(modelButton().getAttribute("aria-expanded")).toBe("true");

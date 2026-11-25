@@ -81,7 +81,7 @@ extension ShellModel {
         // settle for the Feed. Wait instead; ShellView tries again once the link is
         // attached (and on each tree change), and the
         // route's budget still ends the wait.
-        if route.mac != nil, live == nil, !mockMode, auth.isSignedIn, !NotificationRouter.shared.isExpired() {
+        if route.mac != nil, live == nil, !mockMode, !reviewDemo, auth.isSignedIn, !NotificationRouter.shared.isExpired() {
             tab = .feed
             return false
         }
@@ -131,7 +131,7 @@ extension ShellModel {
             feedPath = [destination]
         case .workspace(let id, let tabID):
             guard let workspace = store.workspace(id: id) else { return }
-            if let tabID { store.noteOpened(tabID: tabID, in: workspace.id) }
+            if let tabID { store.requestOpen(tabID: tabID, in: workspace.id) }
             store.markSeen(workspace.id)
             tab = .workspaces
             if !workspacesPath.isEmpty {

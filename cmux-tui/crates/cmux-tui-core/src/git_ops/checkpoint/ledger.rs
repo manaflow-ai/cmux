@@ -13,7 +13,7 @@ use super::scan::refused;
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::resource_router::{mutation_result, resource_operation_error};
-use crate::workspace_registry::{ResourcePatch, WorkspaceMutation};
+use crate::workspace_registry::{ResourcePatch, StoredIds, WorkspaceMutation};
 
 const ORIGIN: &str = "resource-api";
 
@@ -64,6 +64,10 @@ fn committed(mux: &Mux, key: &str, operation: &str) -> Result<Option<Committed>,
         .optional()
         .map_err(|error| store_failed(operation, &error.to_string()))?;
     let Some((stored_operation, fingerprint, result)) = row else { return Ok(None) };
+    // Stored before a move to another machine: served with the new registry id.
+    let ids = StoredIds::load(&registry.connection.get())
+        .map_err(|error| store_failed(operation, &error.to_string()))?;
+    let (fingerprint, result) = (ids.text(fingerprint), ids.text(result));
     Ok(Some(Committed {
         operation: stored_operation,
         fingerprint: serde_json::from_str(&fingerprint).unwrap_or(Value::Null),

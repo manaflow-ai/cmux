@@ -14,17 +14,17 @@ struct WindowCloseNeighborTests {
     private let rows = ["a", "b", "c"]
 
     @Test func closingTheBottomRowSelectsTheRowAboveIt() {
-        let pick = WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], orders: [rows])
+        let pick = WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], orders: [rows], rule: WindowCloseSelection())
         #expect(pick == "b")
     }
 
     @Test func closingAMiddleRowSelectsTheRowBelowIt() {
-        let pick = WindowRegistry.repairedSelection(current: "b", previous: joined, members: ["c", "a"], orders: [rows])
+        let pick = WindowRegistry.repairedSelection(current: "b", previous: joined, members: ["c", "a"], orders: [rows], rule: WindowCloseSelection())
         #expect(pick == "c")
     }
 
     @Test func aSelectionTheSidebarNoLongerListsKeepsTheRegistryOrder() {
-        let pick = WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], orders: [["a", "b"]])
+        let pick = WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], orders: [["a", "b"]], rule: WindowCloseSelection())
         #expect(pick == "a")
     }
 
@@ -33,22 +33,22 @@ struct WindowCloseNeighborTests {
     @Test func aSelectionThatStaysNeverReadsTheRows() {
         var reads = 0
         func orders() -> [[String]] { reads += 1; return [rows] }
-        #expect(WindowRegistry.repairedSelection(current: "a", previous: joined, members: ["a", "b"], orders: orders()) == "a")
-        #expect(WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], preferred: ["a"], orders: orders()) == "a")
+        #expect(WindowRegistry.repairedSelection(current: "a", previous: joined, members: ["a", "b"], orders: orders(), rule: WindowCloseSelection()) == "a")
+        #expect(WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], preferred: ["a"], orders: orders(), rule: WindowCloseSelection()) == "a")
         #expect(reads == 0)
-        #expect(WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], orders: orders()) == "b")
+        #expect(WindowRegistry.repairedSelection(current: "c", previous: joined, members: ["a", "b"], orders: orders(), rule: WindowCloseSelection()) == "b")
         #expect(reads == 1)
     }
 
     /// Pinned layout tiles leave the list (SidebarTopProjection): "p" is a member no row lists.
     /// It joined last, so the join order alone would hand the bottom row's close to it.
     @Test func closingTheBottomRowNeverJumpsToAPinnedTile() {
-        let pick = WindowRegistry.repairedSelection(current: "c", previous: ["a", "b", "c", "p"], members: ["a", "b", "p"], orders: [rows, rows])
+        let pick = WindowRegistry.repairedSelection(current: "c", previous: ["a", "b", "c", "p"], members: ["a", "b", "p"], orders: [rows, rows], rule: WindowCloseSelection())
         #expect(pick == "b")
     }
 
     @Test func aPinnedTileTakesOverWhenNoRowIsLeft() {
-        let pick = WindowRegistry.repairedSelection(current: "c", previous: ["p", "c"], members: ["p"], orders: [["c"], ["c"]])
+        let pick = WindowRegistry.repairedSelection(current: "c", previous: ["p", "c"], members: ["p"], orders: [["c"], ["c"]], rule: WindowCloseSelection())
         #expect(pick == "p")
     }
 
@@ -56,14 +56,14 @@ struct WindowCloseNeighborTests {
     /// both put "c" below "b", the drawn rows put "a" there.
     @Test func folderGroupingTakesTheRowBelowAsDrawn() {
         let pick = WindowRegistry.repairedSelection(current: "b", previous: ["a", "b", "c", "d"], members: ["a", "c", "d"],
-                                                    orders: [["c", "d", "b", "a"], ["a", "b", "c", "d"]])
+                                                    orders: [["c", "d", "b", "a"], ["a", "b", "c", "d"]], rule: WindowCloseSelection())
         #expect(pick == "a")
     }
 
     /// A filtered sidebar draws only the rows that match; a hidden row is not the next row.
     @Test func aFilteredSidebarSelectsTheNextShownRow() {
         let pick = WindowRegistry.repairedSelection(current: "a", previous: joined, members: ["b", "c"],
-                                                    orders: [["a", "c"], ["a", "b", "c"]])
+                                                    orders: [["a", "c"], ["a", "b", "c"]], rule: WindowCloseSelection())
         #expect(pick == "c")
     }
 

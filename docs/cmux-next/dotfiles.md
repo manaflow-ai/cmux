@@ -33,6 +33,67 @@ so the link stays a link.
 - Comments, trailing commas and keys cmux doesn't know about are kept. When
   you change something in Settings, only that value is rewritten.
 
+## When a setting is renamed or removed
+
+A file written for an older cmux keeps working. This covers your own
+`cmux-next.json`, a theme file, a saved profile, a library collection and a
+setup you install from a repo.
+
+- A **renamed** key applies under its new name. The first time cmux opens your
+  `cmux-next.json` after the release that renamed it, the key moves to its new
+  name in the file (comments and the rest stay), once. cmux records each rename
+  it has run in `settings/migrations.json` in its state folder, so it never
+  moves that key twice: an old spelling you paste in later is still read as the
+  new name, and the file is left as you wrote it. A file that does not parse,
+  a classic `cmux.json` cmux has not yet copied into `cmux-next.json`, and a
+  value the new setting refuses are left alone (the old key is still read through the
+  table). `cmux settings validate` prints the new name for an old key still in
+  a file, for example
+  `sidebar.showCounts is now sidebar.workspaceRow.tabCount (until 2026-12-05)`.
+- A **renamed choice** (for example `updates.notify` `card`, now `badge`) reads
+  as the new value. A setup that sets the old value installs the new one.
+- A **removed** key is ignored. A setup that sets one installs without it, and
+  its consent card lists it under "left out".
+- A setup made for a **newer** cmux can set keys this cmux doesn't have yet.
+  Those keys are left out and listed with the rest. If one of its values is
+  wrong for a setting this cmux does have, nothing installs.
+
+### Declaring a rename (for cmux contributors)
+
+Every key cmux has published is listed in `schemas/settings/published-keys.txt`.
+When you remove a key, add an entry to `schemas/settings/retired-keys.json`. If
+you don't, the `cmux-config` tests fail and name the key.
+
+```json
+{
+  "key": "sidebar.showCounts",
+  "reason": "every workspace row element is its own setting: sidebar.workspaceRow.tabCount",
+  "replaced_by": "sidebar.workspaceRow.tabCount",
+  "since": "2026-10-06",
+  "until": "2026-12-05"
+}
+```
+
+- `replaced_by` is the row that took its place. Leave it out for a plain
+  removal.
+- `values` maps old values to new ones (`[{"from": true, "to": "always"}]`).
+  When it is present, an old value it doesn't list reads as the new row's
+  default. Without it, a value carries over as it is.
+- `since` is when the old name stopped being the setting. `until` ends the
+  deprecation window. Each is a date (`YYYY-MM-DD`) or a cmux version.
+- The window is two NEXT releases or 60 days after `since`, whichever is
+  longer. Installs keep migrating the old name after `until` too. Past `until`,
+  `cmux setup check` reports the old name as an error for the setup's author
+  instead of a warning.
+- Never delete an entry, and never reuse a retired key for something new.
+
+Run `python3 scripts/cmux-next/gen-settings-sources.py` after you edit the file.
+It checks the entry and writes the app's copy.
+
+To rename a choice value, give the row `"aliases": {"old": "new"}` in
+`schemas/settings/source`. The script writes it for the app; the daemon
+compiles the source in (cmux-config `schema/aliases.rs`).
+
 ## Editor completion
 
 Write the JSON Schema next to your settings and point the file at it:
@@ -100,7 +161,7 @@ and `validate` still work offline.
 ```jsonc
 [
   { "key": "cmd+k cmd+p", "command": "palette.open" },
-  { "key": "cmd+alt+right", "command": "toggleRightSidebar" },
+  { "key": "cmd+alt+right", "command": "toggleSplitZoom" },
   // A leading "-" removes a default binding.
   { "key": "cmd+shift+p", "command": "-palette.open" },
 ]

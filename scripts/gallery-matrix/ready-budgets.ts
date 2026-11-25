@@ -1,20 +1,39 @@
 #!/usr/bin/env bun
-// Ready-time budgets: how long each gallery state may take, from navigation start, to say it is ready
-// (mount, play and settle; runner.ts records `readyMs`). Gallery health fails a state that takes more
+// Ready-time budgets: how much each gallery state may spend, from navigation start, to say it is ready
+// (mount, play and settle). The time is the renderer main thread's CPU time (runner.ts `readyCpuMs`;
+// Chromium), not wall time (`readyMs`, used only for an engine with no CPU reading): a play's own
+// waits and a runner busy with other shards stretch wall time without the state doing more work, and
+// states whose plays wait on purpose sat near their limit and went red on loaded runners. A hang is
+// still caught: a stage that never says it is ready within the runner's 20 s fails as never ready, and
+// one that spins fails here. Gallery health fails a state that takes more
 // than its budget by the margin on every run, so a state that gets slower is caught in the PR that
 // slowed it. ready-budgets.json holds a default and a row for each state slower than the default.
 // Rows only go down: a run that finds a state well under its row prints the lower value, and
 //
 //   bun ready-budgets.ts --from <downloaded gallery-health-* artifacts>
 //
-// lowers every row the run beat (and drops rows that fall to the default). It never raises a row;
+// lowers every row the run beat (and drops rows that fall to the default; a row already under the
+// default holds a fast state tighter than the default and stays). It never raises a row;
 // `--add` adds rows for states over the default that have none, a raise the PR diff shows.
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 
 export type Budgets = { default: number; states: Record<string, number> };
-export type ReadyResult = { params?: Record<string, unknown>; ready?: string | null; readyMs?: number | null };
+export type ReadyResult = {
+  params?: Record<string, unknown>;
+  ready?: string | null;
+  readyMs?: number | null;
+  readyCpuMs?: number | null;
+};
+
+/**
+ * The time a case is held to: the CPU its stage spent until ready (`readyCpuMs`, Chromium), else its
+ * wall time (`readyMs`, an engine with no CPU reading). Wall time also counts a play's own waits and
+ * however long a busy runner kept the stage off the CPU, so it judged the runner, not the state.
+ */
+export const readyTime = (result: ReadyResult): number | null =>
+  typeof result.readyCpuMs === "number" ? result.readyCpuMs : typeof result.readyMs === "number" ? result.readyMs : null;
 
 export const BUDGETS_PATH = join(import.meta.dir, "ready-budgets.json");
 
@@ -38,8 +57,9 @@ export function readyTimes(results: ReadyResult[]): Map<string, number> {
   const unready = new Set<string>();
   for (const result of results) {
     const state = stateOf(result);
-    if (result.ready !== "1" || typeof result.readyMs !== "number") unready.add(state);
-    else times.set(state, Math.max(times.get(state) ?? 0, result.readyMs));
+    const ms = readyTime(result);
+    if (result.ready !== "1" || ms === null) unready.add(state);
+    else times.set(state, Math.max(times.get(state) ?? 0, ms));
   }
   for (const state of unready) times.delete(state);
   return times;
@@ -72,13 +92,17 @@ export function lowerable(times: Map<string, number>, budgets: Budgets): Timing[
     .sort((a, b) => a.state.localeCompare(b.state));
 }
 
-/** Budgets lowered to what the run measured; rows never rise, and a row at or under the default goes. */
+/**
+ * Budgets lowered to what the run measured; rows never rise. A row over the default that falls to it
+ * or under goes (the default holds the state). A row already under the default holds a fast state
+ * tighter than the default, so it stays and only goes further down: dropping it would raise it.
+ */
 export function lowered(budgets: Budgets, times: Map<string, number>, add = false): Budgets {
   const states: Record<string, number> = {};
   for (const [state, budget] of Object.entries(budgets.states)) {
     const ms = times.get(state);
     const next = ms === undefined ? budget : Math.min(budget, roundUp(ms));
-    if (next > budgets.default) states[state] = next;
+    if (next > budgets.default || budget < budgets.default) states[state] = next;
   }
   if (add)
     for (const [state, ms] of times) if (!(state in states) && roundUp(ms) > budgets.default) states[state] = roundUp(ms);

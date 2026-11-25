@@ -6,7 +6,19 @@ the base build; it must launch it with the setting off (--wake-on-hover=0), or "
 base that has the setting. The script ran every arm with wake=1 and set 0 only when there was no base build.
 No app, no build: the script runs in a temporary git repository with reload.sh and the bench replaced by stubs that
 record their arguments, and `git submodule` stubbed out. Run: python3 -I scripts/measure/tests/hover-preload-arms.test.py"""
+# tests/git_fixture_env.py, loaded by path (`python3 -I` puts no script folder on sys.path): it drops inherited
+# GIT_DIR / GIT_INDEX_FILE / GIT_CONFIG redirects and turns off git's background maintenance in temp repos.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), '..', '..', '..', 'tests', "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 import json, os, shutil, stat, subprocess, sys, tempfile, unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tests"))
+from real_git import real_git, run_bounded  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.normpath(os.path.join(HERE, "..", "hover-preload.sh"))
@@ -50,7 +62,7 @@ class Arms(unittest.TestCase):
         bin_dir = os.path.join(self.root, "bin")
         write(os.path.join(bin_dir, "git"), GIT, 0o755)
         self.env = {**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"], "HOVER_TEST_APPS": self.apps,
-                    "HOVER_TEST_LOG": self.log, "HOVER_TEST_REAL_GIT": shutil.which("git"),
+                    "HOVER_TEST_LOG": self.log, "HOVER_TEST_REAL_GIT": real_git(),
                     "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                     "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
                     # The person's git config (commit signing, a hooks path) must not break the setup commits.
@@ -74,16 +86,16 @@ class Arms(unittest.TestCase):
         shutil.rmtree(self.root, ignore_errors=True)
 
     def git(self, *args):
-        return subprocess.run(["git", *args], cwd=self.repo, env=self.env, check=True, capture_output=True,
-                              text=True).stdout.strip()
+        return run_bounded(["git", *args], cwd=self.repo, env=self.env, check=True, capture_output=True,
+                           text=True, timeout=60).stdout.strip()
 
     def commit(self, message):
         self.git("add", "-A")
         self.git("commit", "-q", "-m", message)
 
     def run_script(self, *args):
-        return subprocess.run(["bash", "scripts/measure/hover-preload.sh", *args], cwd=self.repo, env=self.env,
-                              capture_output=True, text=True, timeout=120)
+        return run_bounded(["bash", "scripts/measure/hover-preload.sh", *args], cwd=self.repo, env=self.env,
+                           capture_output=True, text=True, timeout=120)
 
     def arms(self, *args):
         result = self.run_script(*args)

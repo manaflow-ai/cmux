@@ -6,7 +6,7 @@
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
-use acpmux::server::{Origin, serve_connection_with};
+use acpmux::server::{ConnAuth, Origin, serve_connection_authed, serve_connection_with};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
@@ -39,6 +39,13 @@ impl Client {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
         tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
+        Self(in_tx, out_rx, 0)
+    }
+
+    fn open_authed(hub: &Arc<Hub>, origin: Origin, auth: ConnAuth) -> Self {
+        let (in_tx, in_rx) = mpsc::channel(64);
+        let (out_tx, out_rx) = mpsc::channel(4096);
+        tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
         Self(in_tx, out_rx, 0)
     }
 
@@ -169,4 +176,179 @@ async fn a_context_that_is_not_text_or_comes_from_a_web_client_is_refused() {
         .await;
     assert!(value.get("error").is_some(), "a web client's context was taken: {value}");
     assert!(client.user_messages(session).await.is_empty(), "a refused prompt was recorded");
+}
+
+/// A Claude Code chat gets cmux's rules in its system prompt (`--append-system-prompt`), at
+/// every start of its harness, and never as a hidden block after the person's first prompt.
+#[tokio::test]
+async fn a_claude_chat_gets_the_rules_in_its_system_prompt() {
+    const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"}},
+        "defaultHarness": "fakeclaude",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut client = Client::open(&hub);
+    let (created, _) = client
+        .call("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeclaude"}}}))
+        .await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    for _ in 0..2 {
+        let (_, reply) = client
+            .call(
+                "session/prompt",
+                json!({"sessionId": session, "prompt": [{"type": "text", "text": "settings-probe"}]}),
+            )
+            .await;
+        let probe: Value = serde_json::from_str(&reply).unwrap();
+        let argv: Vec<String> = serde_json::from_value(probe["argv"].clone()).unwrap();
+        let at = argv.iter().position(|a| a == "--append-system-prompt").expect("no system prompt");
+        assert!(argv[at + 1].starts_with(acpmux::agent_tools::CONCURRENT_WORK_RULE), "{argv:?}");
+        assert_eq!(argv.iter().filter(|a| *a == "--append-system-prompt").count(), 1, "{argv:?}");
+        assert_eq!(probe["said"], "settings-probe", "{probe}");
+        // In the system prompt, so never in a message too.
+        assert_eq!(probe["guidance"], 0, "{probe}");
+    }
+    // The Context viewer still lists the rule, editable and switchable, on its new channel.
+    let (inventory, _) = client.call("_acpmux/context", json!({"sessionId": session})).await;
+    let rule = inventory["parts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["source"] == "cmux-default")
+        .unwrap_or_else(|| panic!("no rule part: {inventory}"));
+    assert_eq!(rule["channel"], "append-system-prompt", "{rule}");
+    assert_eq!(rule["label"], "cmux guidance (system prompt)", "{rule}");
+    assert_eq!(rule["editable"], true, "{rule}");
+    assert_eq!(rule["included"], true, "{rule}");
+}
+
+/// A Claude profile with its own `--append-system-prompt` keeps it: cmux's rules go in the
+/// first message, once.
+#[tokio::test]
+async fn a_claude_chat_with_its_own_appended_prompt_gets_the_rules_in_its_first_message_once() {
+    const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fakeclaude": {
+            "argv": ["python3", FAKE_CLAUDE, "--append-system-prompt", "mine"],
+            "kind": "claude-stdio"}},
+        "defaultHarness": "fakeclaude",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut client = Client::open(&hub);
+    let (created, _) = client
+        .call("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeclaude"}}}))
+        .await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    let mut guidance = Vec::new();
+    for _ in 0..2 {
+        let (_, reply) = client
+            .call(
+                "session/prompt",
+                json!({"sessionId": session, "prompt": [{"type": "text", "text": "settings-probe"}]}),
+            )
+            .await;
+        let probe: Value = serde_json::from_str(&reply).unwrap();
+        let argv: Vec<String> = serde_json::from_value(probe["argv"].clone()).unwrap();
+        assert_eq!(argv.iter().filter(|a| *a == "--append-system-prompt").count(), 1, "{argv:?}");
+        // Theirs, first; acpmux's own MCP servers' instructions may follow it
+        // (`agent_tools::append_system_prompt`).
+        assert!(argv.iter().any(|a| a == "mine" || a.starts_with("mine\n\n")), "{argv:?}");
+        guidance.push(probe["guidance"].as_u64().unwrap());
+    }
+    assert!(guidance[0] >= 1, "{guidance:?}");
+    assert_eq!(guidance[1], 0, "{guidance:?}");
+}
+
+/// The `user_message` records of `session`, whole.
+async fn user_message_records(client: &mut Client, session: &str) -> Vec<Value> {
+    let (page, _) = client
+        .call("_acpmux/events", json!({"sessionId": session, "kinds": ["user_message"]}))
+        .await;
+    page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
+}
+
+/// An `@browser-use` the person wrote gets acpmux's tools note, once: the agent
+/// reads it, the transcript does not, and the prompt still counts as rebuildable from its words.
+/// A client that already sent the note in its context (after its workspace note) gets no second.
+#[tokio::test]
+async fn tool_mention_note_reaches_the_agent_once_and_stays_out_of_the_transcript() {
+    let hub = hub();
+    let mut client = Client::open(&hub);
+    let (created, _) = client
+        .call("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}}))
+        .await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    let note = acpmux::tool_mentions::note(&["browser-use"]).unwrap();
+
+    let (_, echoed) = client
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "open it with @browser-use"}]}),
+        )
+        .await;
+    assert_eq!(echoed.matches("<cmux-tools-context>").count(), 1, "{echoed}");
+    assert!(echoed.contains(&note), "{echoed}");
+
+    // The client's own context holds the note already: a workspace note, then the tools note.
+    let combined = format!("{CONTEXT}\n\n{note}");
+    let (_, echoed) = client
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "again @browser-use"}],
+                   "_meta": {"acpmux": {"context": combined}}}),
+        )
+        .await;
+    assert_eq!(echoed.matches("<cmux-tools-context>").count(), 1, "{echoed}");
+    assert!(echoed.contains("CTX-MARK"), "{echoed}");
+
+    let records = user_message_records(&mut client, &session).await;
+    let texts: Vec<&str> = records.iter().map(|m| m["text"].as_str().unwrap_or_default()).collect();
+    assert_eq!(texts, ["open it with @browser-use", "again @browser-use"]);
+    // Only the note its words make: a Retry rebuilds it (`hiddenContext` stops one).
+    assert!(records[0].get("hiddenContext").is_none(), "{:#}", records[0]);
+    // The workspace note is no part of the words.
+    assert_eq!(records[1]["hiddenContext"], true, "{:#}", records[1]);
+    let shown = records.iter().map(Value::to_string).collect::<String>();
+    assert!(!shown.contains("cmux-tools-context"), "{shown}");
+}
+
+/// A paired device (a remote web client) may send no context, but its `@computer-use` gets
+/// acpmux's note: the note's text is acpmux's, not the client's.
+#[tokio::test]
+async fn tool_mention_note_reaches_the_agent_from_a_paired_device() {
+    // A paired device prompts only a session that asks before it acts (`hub/web_control.rs`).
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "ask",
+        "webAskingModes": {"fake": ["normal"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut local = Client::open(&hub);
+    let (created, _) = local
+        .call("session/new", json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}}))
+        .await;
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+    let mut web = Client::open_authed(&hub, Origin::Web, ConnAuth::Device);
+    let (_, echoed) = web
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "click it with @computer-use"}]}),
+        )
+        .await;
+    assert_eq!(echoed.matches("<cmux-tools-context>").count(), 1, "{echoed}");
+    assert!(echoed.contains(&acpmux::tool_mentions::note(&["computer-use"]).unwrap()), "{echoed}");
+    assert_eq!(local.user_messages(&session).await, ["click it with @computer-use"]);
 }

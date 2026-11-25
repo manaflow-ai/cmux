@@ -15,6 +15,12 @@
 //! ships (`catalog/models-v1.json`) for the others. A model no source prices is left out. A
 //! missing cache read price bills cache reads as input; a missing cache write price bills them
 //! nothing (those vendors do not charge for writes).
+//!
+//! A cache write is billed by its tier. `cacheWrite` is the 5-minute rate; the hour-long writes a
+//! turn reports (`TurnUsage::cache_write_1h_tokens`, the tier cmux asks Claude Code for by
+//! default, `prompt_cache_env.rs`) bill at an entry's `cacheWrite1h`, else at twice its input
+//! price (Anthropic's rule), or nothing where the vendor charges no writes at all (no `cacheWrite`,
+//! or `"cacheWrite": 0`).
 
 use std::sync::LazyLock;
 
@@ -32,6 +38,19 @@ pub struct Price {
     pub cache_read: Option<f64>,
     #[serde(default)]
     pub cache_write: Option<f64>,
+    /// The hour-long cache write rate, when it is not twice the input price.
+    #[serde(default, rename = "cacheWrite1h")]
+    pub cache_write_1h: Option<f64>,
+}
+
+impl Price {
+    /// The hour-long cache write rate: the entry's own, else twice the input price for a vendor
+    /// that charges writes. A vendor that charges none, by a missing or an explicit zero
+    /// `cacheWrite` (`"cacheWrite": 0`), bills neither tier.
+    pub fn cache_write_1h_rate(&self) -> f64 {
+        let charged = self.cache_write.is_some_and(|rate| rate > 0.0);
+        self.cache_write_1h.unwrap_or(if charged { self.input * 2.0 } else { 0.0 })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,23 +136,40 @@ impl PriceTable {
     }
 
     /// What `usage` costs at `model`'s price; None when the table does not list it, or when the
-    /// harness reported no token counts at all (absent is not zero: such a turn is unpriced).
+    /// harness reported no token counts at all (absent is not zero: such a turn is unpriced). An
+    /// hour-long write count alone is a report: with no aggregate writes it bills as 0 writes,
+    /// as `hub/turn_usage.rs` records it.
     pub fn cost(&self, model: &str, usage: &crate::store::TurnUsage) -> Option<f64> {
         if usage.input_tokens.is_none()
             && usage.output_tokens.is_none()
             && usage.cache_read_tokens.is_none()
             && usage.cache_write_tokens.is_none()
+            && usage.cache_write_1h_tokens.is_none()
         {
             return None;
         }
         let (_, p) = self.lookup(model)?;
         let per = |tokens: Option<u64>, price: f64| tokens.unwrap_or(0) as f64 * price / 1e6;
+        // The writes' hour-long part at its tier, the rest at the 5-minute rate.
+        let write = usage.cache_write_tokens.unwrap_or(0);
+        let write_1h = usage.cache_write_1h_tokens.unwrap_or(0).min(write);
         Some(
             per(usage.input_tokens, p.input)
                 + per(usage.output_tokens, p.output)
                 + per(usage.cache_read_tokens, p.cache_read.unwrap_or(p.input))
-                + per(usage.cache_write_tokens, p.cache_write.unwrap_or(0.0)),
+                + per(Some(write - write_1h), p.cache_write.unwrap_or(0.0))
+                + per(Some(write_1h), p.cache_write_1h_rate()),
         )
+    }
+
+    /// What `usage`'s cache reads saved at `model`'s price: the same tokens at the input price,
+    /// less what they cost as cache reads. None when the table does not list the model or the
+    /// turn read nothing from cache.
+    pub fn cache_savings(&self, model: &str, usage: &crate::store::TurnUsage) -> Option<f64> {
+        let tokens = usage.cache_read_tokens.filter(|n| *n > 0)?;
+        let (_, p) = self.lookup(model)?;
+        let saved = tokens as f64 * (p.input - p.cache_read.unwrap_or(p.input)) / 1e6;
+        Some(saved.max(0.0))
     }
 }
 
@@ -150,67 +186,5 @@ fn matches_id(model: &str, id: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::store::TurnUsage;
-
-    #[test]
-    fn bundled_table_parses_with_a_version() {
-        let t = PriceTable::parse(BUNDLED).expect("bundled prices.json");
-        assert!(!t.version.is_empty());
-        assert_eq!(t.currency, "USD");
-        assert!(t.entries.len() > 50);
-    }
-
-    #[test]
-    fn matches_the_longest_id_with_tags_and_snapshots() {
-        let t = table();
-        let (vendor, opus) = t.lookup("claude-opus-5-5[1m]").unwrap();
-        assert_eq!(vendor, "anthropic");
-        assert_eq!(opus.input, 4.0);
-        assert_eq!(t.lookup("opus").unwrap().1, opus);
-        assert_eq!(t.lookup("anthropic/claude-opus-5-5").unwrap().1, opus);
-        assert_eq!(t.lookup("claude-opus-4-5-20251101").unwrap().1.input, 5.0);
-        assert_eq!(t.lookup("openai/gpt-5.5").unwrap().0, "openai");
-        // A sibling the table does not list is not priced like its neighbour.
-        assert!(t.lookup("claude-opus-5-9").is_none());
-        assert_eq!(t.lookup("gpt-5-2025-08-07").unwrap().1, t.lookup("gpt-5").unwrap().1);
-        assert!(t.lookup("gpt-5.5-turbo-x").is_none());
-        assert!(t.lookup("").is_none());
-    }
-
-    #[test]
-    fn cost_bills_each_token_kind() {
-        let usage = TurnUsage {
-            cost_usd: None,
-            input_tokens: Some(1_000_000),
-            output_tokens: Some(100_000),
-            cache_read_tokens: Some(1_000_000),
-            cache_write_tokens: Some(1_000_000),
-        };
-        // 4 + 2 + 0.2 + 5
-        let cost = table().cost("claude-opus-5-5", &usage).unwrap();
-        assert!((cost - 11.2).abs() < 1e-9, "{cost}");
-        assert!(table().cost("no-such-model", &usage).is_none());
-        // A model with no reported counts is unpriced, not free; an explicit zero is free.
-        let none = TurnUsage::default();
-        assert!(table().cost("claude-opus-5-5", &none).is_none());
-        let zero = TurnUsage { input_tokens: Some(0), ..TurnUsage::default() };
-        assert_eq!(table().cost("claude-opus-5-5", &zero), Some(0.0));
-    }
-
-    #[test]
-    fn a_provider_prefix_picks_its_own_vendor_for_a_shared_id() {
-        let t = table();
-        for (model, vendor) in [
-            ("moonshotai/kimi-k3", "moonshotai"),
-            ("alibaba/kimi-k3", "alibaba"),
-            ("zai/glm-5.2", "zai"),
-            ("alibaba/glm-5.2", "alibaba"),
-        ] {
-            assert_eq!(t.lookup(model).unwrap().0, vendor, "{model}");
-        }
-        // An unknown provider still finds the id.
-        assert!(t.lookup("router/kimi-k3").is_some());
-    }
-}
+#[path = "pricing_tests.rs"]
+mod tests;

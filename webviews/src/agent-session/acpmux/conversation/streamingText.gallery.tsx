@@ -11,6 +11,7 @@ import { VirtualTranscript } from "../App";
 import type { AcpmuxRow } from "../model";
 import { history, REPLY, schedule, type Cadence } from "./streamingTextFixture";
 import { turnView } from "./turns";
+import { JUMP_LATEST, JUMP_LATEST_SHOWN } from "../transcriptSelectors";
 
 const PROMPT: AcpmuxRow = {
   id: "live-user",
@@ -27,6 +28,7 @@ function StreamingTextGallery({ cadence }: { cadence: Cadence }) {
   const [dock, setDock] = useState<HTMLElement | null>(null);
   const timers = useRef<number[]>([]);
   useEffect(() => () => timers.current.forEach((timer) => window.clearTimeout(timer)), []);
+  // gallery-capture: runs only from the Stream button, which each arm's play clicks and then waits for "Stream settled".
   const start = () => {
     timers.current.forEach((timer) => window.clearTimeout(timer));
     timers.current = [];
@@ -114,8 +116,8 @@ const streamReply: Play = async (ctx) => {
 const jumpDuringStream: Play = async (ctx) => {
   await ctx.scroll({ selector: ".acpmux-scroll" }, "top");
   await ctx.click({ testId: "stream-text-start" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-jump-latest[data-shown]"));
-  await ctx.click({ selector: ".acpmux-jump-latest" });
+  await ctx.waitFor(() => ctx.document.querySelector(JUMP_LATEST_SHOWN));
+  await ctx.click({ selector: JUMP_LATEST });
   await ctx.waitFor(() => ctx.find({ testId: "stream-text-done" }).textContent === "Stream settled", { capMs: 30_000 });
   await ctx.waitFor(() => {
     const node = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;

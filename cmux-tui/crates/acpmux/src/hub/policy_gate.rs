@@ -16,7 +16,7 @@
 //!
 //! | policy | read, search, think | fetch | edit | read-only shell | anything else |
 //! | --- | --- | --- | --- | --- | --- |
-//! | deny-all | none | deny | deny | allow | deny |
+//! | deny-all | none | deny | deny | deny | deny |
 //! | review | none | none | deny | allow | deny |
 //! | approve-reads | none | none | ask | allow | ask |
 //! | approve-edits | none | none | none | ask | ask |
@@ -30,17 +30,18 @@
 //! `allow` and `deny` is logged as `permission_auto`, as the policy's answers to asks are.
 //!
 //! The policy the gate holds is the one the chat's mode follows (`policy_mode.rs`
-//! `narrow_policy`: its own, else a deny-all default), and also a review default: review, like
-//! deny-all, promises that nothing writes with no person to ask. A default of ask, approve-reads
-//! or approve-edits is not narrowing (chats start in full access by design).
+//! `narrow_policy`: its own, else a deny-all or review default, a lockdown). A default of ask,
+//! approve-reads or approve-edits is not narrowing (chats start in full access by design).
 //!
-//! Deny-all lets a read-only shell command run, as Codex's `read-only` mode does: the policy
-//! refuses every write, not every read (`shell_readonly.rs` decides what only reads).
+//! Deny-all denies every shell command, a read-only one too (lead, 2026-11-08: the name promises
+//! it). Review is the read-only preset: its read-only shell commands run (`shell_readonly.rs`
+//! decides what only reads).
 //!
-//! A deny-all or review chat whose harness has neither this gate nor a mode that keeps its
-//! policy does not start under it (`policy_mode.rs` `require_enforced`).
+//! A chat whose harness has neither this gate nor another way to keep its policy does not run
+//! under it (`policy_mode.rs` `require_enforced`).
 
 use super::*;
+use cmux_cloud_start_core::hybrid_tools;
 use cmux_json::JsonSet as _;
 
 /// What the PreToolUse gate tells Claude Code to do with one tool call (module docs).
@@ -102,11 +103,8 @@ pub(crate) fn gate_decision(
         return GateDecision::None;
     }
     // Approve-edits and ask never run a shell command unasked: under approve-edits its program
-    // could be one the agent wrote (`permissions.rs`).
-    let reads_shell = matches!(
-        policy,
-        PermissionPolicy::DenyAll | PermissionPolicy::Review | PermissionPolicy::ApproveReads
-    );
+    // could be one the agent wrote (`permissions.rs`). Deny-all runs none.
+    let reads_shell = matches!(policy, PermissionPolicy::Review | PermissionPolicy::ApproveReads);
     if kind == "execute" && shell_reads && reads_shell {
         return GateDecision::Allow;
     }
@@ -126,7 +124,9 @@ fn deny_reason(policy: PermissionPolicy, by_rule: bool) -> String {
         PermissionPolicy::Review => {
             "review allows reads, searches and read-only shell commands only"
         }
-        PermissionPolicy::DenyAll => "deny-all allows reads and read-only shell commands only",
+        PermissionPolicy::DenyAll => {
+            "deny-all allows the file read and search tools only (Read, Grep, Glob) and denies every shell command, a read-only one too"
+        }
         _ => "the policy refuses it",
     };
     format!(
@@ -146,20 +146,65 @@ pub(super) fn gate_policy(
     meta: &SessionMeta,
     default: PermissionPolicy,
 ) -> Option<PermissionPolicy> {
-    let review_default = meta.permission_policy.is_none() && default == PermissionPolicy::Review;
     super::policy_mode::narrow_policy(meta, default)
-        .or(review_default.then_some(PermissionPolicy::Review))
 }
 
 impl Hub {
     /// [`crate::claude_stdio::TOOL_GATE`]: the gate's answer for one tool call of `session`'s
     /// agent (module docs). `request` has the shape of a `session/request_permission`.
     pub(super) async fn answer_tool_gate(&self, session: &Arc<Session>, request: Value) -> Value {
+        // Claude Code's own SendMessage to another session, whatever the policy: it never
+        // reaches an acpmux session visibly (`native_messaging.rs`).
+        if let Some(reason) = self.native_message_refusal(session, &request) {
+            let record = json!({
+                "permissionId": uuid::Uuid::now_v7().to_string(),
+                "policy": Value::Null,
+                "optionId": "reject_once",
+                "request": request,
+                "gate": "preToolUse",
+                "reason": "native_message",
+            });
+            self.append(session, "mux", "permission_auto", record);
+            tracing::info!(session = %session.id, "the gate refused a native SendMessage");
+            return json!({"decision": GateDecision::Deny.as_str(), "reason": reason});
+        }
+        // The remote floor (`remote_floor.rs`): no tool of a Web turn runs once the turn may not
+        // go on, whatever the policy says, and the turn ends. A turn the owner's phone drove in a
+        // mode that does not ask is held here the moment the phone is removed or its Full access
+        // turned off (`Hub::owner_phone_full_access`), even with no policy that narrows it.
+        if Self::web_turn(session)
+            && let Some(reason) = self.remote_floor_breach(session)
+        {
+            let record = json!({
+                "permissionId": uuid::Uuid::now_v7().to_string(),
+                "policy": Value::Null,
+                "optionId": "reject_once",
+                "request": request,
+                "gate": "preToolUse",
+                "reason": reason,
+            });
+            self.append(session, "mux", "permission_auto", record);
+            // Read before the cancel: the reason names the switch that lifts it.
+            let text = self.floor_refusal_text(session, reason);
+            self.remote_floor_cancel(session, reason);
+            return json!({"decision": GateDecision::Deny.as_str(), "reason": text});
+        }
+        let kind = request.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("");
+        // A hybrid start's call waits here while its machine boots, then may run there
+        // (`hybrid_hold.rs`); any other chat's call goes straight on.
+        let on_machine = match self.hybrid_route(session, kind).await {
+            hybrid_tools::Route::OnMachine { machine } => {
+                super::hybrid_hold::on_machine_answer(&request, &machine)
+            }
+            hybrid_tools::Route::Hold | hybrid_tools::Route::Here { .. } => None,
+        };
         let default = self.config.read().await.permission_policy;
         let Some(policy) = gate_policy(&session.meta(), default) else {
-            return json!({"decision": GateDecision::None.as_str()});
+            return super::hybrid_hold::with_machine(
+                json!({"decision": GateDecision::None.as_str()}),
+                on_machine,
+            );
         };
-        let kind = request.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("");
         let rule = session
             .meta()
             .permission_rules
@@ -167,12 +212,7 @@ impl Hub {
             .and_then(|r| super::rules::decide(r, &request));
         let needs_person = super::questions::needs_person(&request);
         let shell_reads = kind == "execute"
-            && matches!(
-                policy,
-                PermissionPolicy::DenyAll
-                    | PermissionPolicy::Review
-                    | PermissionPolicy::ApproveReads
-            )
+            && matches!(policy, PermissionPolicy::Review | PermissionPolicy::ApproveReads)
             && self.probe_shell_reads(session, &request).await;
         let mut decision = gate_decision(policy, rule, kind, needs_person, shell_reads);
         if decision == GateDecision::Allow && Self::web_turn(session) {
@@ -199,8 +239,9 @@ impl Hub {
         if decision == GateDecision::Deny {
             answer.set("reason", json!(deny_reason(policy, by_rule)));
             tracing::info!(session = %session.id, %policy, "the policy gate denied a tool call");
+            return answer;
         }
-        answer
+        super::hybrid_hold::with_machine(answer, on_machine)
     }
 }
 
@@ -228,7 +269,7 @@ mod tests {
         use PermissionPolicy as P;
         // read, fetch, edit, read-only shell, other shell, other tool
         let rows = [
-            (P::DenyAll, [G::None, G::Deny, G::Deny, G::Allow, G::Deny, G::Deny]),
+            (P::DenyAll, [G::None, G::Deny, G::Deny, G::Deny, G::Deny, G::Deny]),
             (P::Review, [G::None, G::None, G::Deny, G::Allow, G::Deny, G::Deny]),
             (P::ApproveReads, [G::None, G::None, G::Ask, G::Allow, G::Ask, G::Ask]),
             (P::ApproveEdits, [G::None, G::None, G::None, G::Ask, G::Ask, G::Ask]),
@@ -325,5 +366,8 @@ mod tests {
         let reason = deny_reason(PermissionPolicy::Review, false);
         assert!(reason.contains("review") && reason.contains("Do not retry"), "{reason}");
         assert!(deny_reason(PermissionPolicy::DenyAll, true).contains("rule"));
+        // The real build's agent read "searches" as `rg` in a shell: deny-all names its tools.
+        let reason = deny_reason(PermissionPolicy::DenyAll, false);
+        assert!(reason.contains("Read, Grep, Glob") && reason.contains("every shell"), "{reason}");
     }
 }

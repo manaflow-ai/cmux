@@ -49,6 +49,7 @@ const TERM_GRACE: Duration = Duration::from_secs(5);
 const KILL_SETTLE: Duration = Duration::from_secs(2);
 /// How long sudo may take to print its prompt before stdin closes with no password: past it,
 /// sudo asked for none (or is stuck), and an empty stdin is what the command gets.
+// timeout: sudo prints its prompt at once; past this it asked for none, so stdin closes empty.
 const PROMPT_WAIT: Duration = Duration::from_secs(if cfg!(test) { 10 } else { 20 });
 const MAX_ARGS: usize = 256;
 const MAX_ARG_BYTES: usize = 4096;
@@ -64,6 +65,7 @@ pub(super) const CARD: CardKind = CardKind {
     declined: "denied",
     signed: true,
     one_line: Some(1024),
+    wait: crate::store::WaitReason::Elevation,
 };
 
 /// The sudo this daemon runs: [`SUDO`], or in a debug build `ACPMUX_ELEVATION_SUDO`, the tests'
@@ -216,7 +218,7 @@ impl Hub {
             "host": super::start_gate::host_label(),
             "timeoutSecs": ask.timeout.as_secs(),
         });
-        let (outcome, password) = self.ask_person(session, CARD, card, ASK_TTL).await;
+        let (outcome, password, _) = self.ask_person(session, CARD, card, ASK_TTL).await;
         let Some(password) = password else {
             return Ok(json!({"outcome": outcome}));
         };

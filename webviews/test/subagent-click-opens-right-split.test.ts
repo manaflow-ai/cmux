@@ -79,3 +79,21 @@ test("background discovery with panes on hands over the tail before opening its 
     here: [],
   });
 });
+
+/// #36650: the chat's tail rides on the pane's own request (`handOver`), so the host holds it before it
+/// decides how the pane opens. A `chat.tail` of its own was never awaited and could land after the
+/// open had looked for it, and the pane then opened cold.
+test("a subagent's pane request carries the chat's tail the hand-over returned", async () => {
+  const handOver = { sessionId: "chat", tail: { events: [{ seq: 1 }], historyExhausted: true } };
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  await showSubagent(
+    async (method, params) => {
+      calls.push({ method, params });
+      return { opened: true };
+    },
+    "reviewer",
+    true,
+    { panes: false, inSubagentPane: false, here: () => {}, beforeOpen: () => handOver },
+  );
+  expect(calls).toEqual([{ method: "chat.subagentPane", params: { subagent: "reviewer", focus: true, handOver } }]);
+});

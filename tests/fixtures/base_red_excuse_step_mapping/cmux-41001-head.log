@@ -1,0 +1,111 @@
+2026-11-11T06:48:20.1563130Z Current runner version: '2.338.2'
+2026-11-11T06:48:20.1571400Z ##[endgroup]
+2026-11-11T06:48:24.2076740Z ##[group]Run '/Users/cmux/actions-runner-glaeda-8/glaeda-hooks/job-started.sh'
+2026-11-11T06:48:24.2081720Z ##[endgroup]
+2026-11-11T06:48:25.5898040Z ##[group]Run home="$RUNNER_TEMP/acpmux-home"
+2026-11-11T06:48:25.5911460Z ##[endgroup]
+2026-11-11T06:48:25.6311270Z ##[group]Run ws="${GITHUB_WORKSPACE:-$PWD}"
+2026-11-11T06:48:25.6318660Z ##[endgroup]
+2026-11-11T06:48:25.6684320Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-11T06:48:25.6691470Z ##[endgroup]
+2026-11-11T06:48:25.8579240Z ##[endgroup]
+2026-11-11T06:48:25.8820100Z ##[endgroup]
+2026-11-11T06:48:26.7344880Z ##[endgroup]
+2026-11-11T06:48:26.7404840Z ##[endgroup]
+2026-11-11T06:48:27.0232540Z ##[endgroup]
+2026-11-11T06:48:31.4556760Z ##[endgroup]
+2026-11-11T06:48:31.4557420Z ##[endgroup]
+2026-11-11T06:48:31.7326700Z ##[endgroup]
+2026-11-11T06:48:32.0559360Z ##[endgroup]
+2026-11-11T06:48:32.0648580Z ##[group]Run scripts/ci/reset-stale-submodules.sh
+2026-11-11T06:48:32.0661260Z ##[endgroup]
+2026-11-11T06:48:32.2554560Z ##[group]Run ./scripts/select-ci-xcode.sh
+2026-11-11T06:48:32.2561350Z ##[endgroup]
+2026-11-11T06:48:32.5715280Z ##[group]Run python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
+2026-11-11T06:48:32.5723400Z ##[endgroup]
+2026-11-11T06:48:34.4695290Z ##[group]Run ./.github/actions/setup-cmux-tui-rust
+2026-11-11T06:48:34.4699000Z ##[endgroup]
+2026-11-11T06:48:34.4748420Z ##[group]Run set -euo pipefail
+2026-11-11T06:48:34.4757310Z ##[endgroup]
+2026-11-11T06:48:34.6501780Z ##[group]Run if [[ -n "$REQUESTED_PYTHON_COMMAND" ]]; then
+2026-11-11T06:48:34.6540180Z ##[endgroup]
+2026-11-11T06:48:36.7486290Z ##[group]Run bash "$GITHUB_ACTION_PATH/../runner-cargo-home/runner-cargo-home.sh"
+2026-11-11T06:48:36.7498670Z ##[endgroup]
+2026-11-11T06:48:36.8004480Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+2026-11-11T06:48:36.8010730Z ##[endgroup]
+2026-11-11T06:48:37.0423280Z ##[group]Run scripts/cmux-next/private-bun.sh
+2026-11-11T06:48:37.0432210Z ##[endgroup]
+2026-11-11T06:48:38.1132570Z ##[group]Run actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+2026-11-11T06:48:38.1138980Z ##[endgroup]
+2026-11-11T06:48:38.4254670Z ##[endgroup]
+2026-11-11T06:48:38.4335530Z ##[group]Run echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+2026-11-11T06:48:38.4347040Z ##[endgroup]
+2026-11-11T06:48:41.6957760Z ##[group]Run ./.github/actions/cache-restore
+2026-11-11T06:48:41.6983620Z ##[endgroup]
+2026-11-11T06:48:41.7002040Z ##[group]Run echo "started_ns=$(python3 -c 'import time; print(time.monotonic_ns())')" >> "$GITHUB_OUTPUT"
+2026-11-11T06:48:41.7013170Z ##[endgroup]
+2026-11-11T06:48:41.7545290Z ##[group]Run prefixes=()
+2026-11-11T06:48:41.7557990Z ##[endgroup]
+2026-11-11T06:48:42.7225230Z ##[group]Run python3 "$GITHUB_ACTION_PATH/../../../scripts/ci/cache_restore_receipt.py"
+2026-11-11T06:48:42.7239670Z ##[endgroup]
+2026-11-11T06:48:42.7823080Z ##[group]Run actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+2026-11-11T06:48:42.7828740Z ##[endgroup]
+2026-11-11T06:48:43.1419810Z ##[group]Run actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+2026-11-11T06:48:43.1424880Z ##[endgroup]
+2026-11-11T06:48:46.0328220Z ##[group]Run scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
+2026-11-11T06:48:46.0339390Z ##[endgroup]
+2026-11-11T06:48:47.9409620Z ##[group]Run python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+2026-11-11T06:48:47.9422080Z ##[endgroup]
+2026-11-11T06:51:25.2314010Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2026-11-11T06:51:25.2356780Z ##[endgroup]
+2026-11-11T06:51:27.1870350Z ##[group]Run ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
+2026-11-11T06:51:27.1924740Z ##[endgroup]
+2026-11-11T06:51:48.3004470Z ✘ Test everyMenuKeepsAShortTopLevel() recorded an issue at ActionSurfaceParityTests.swift:107:13: Expectation failed: (rows.count → 14) <= (cap → 13)
+2026-11-11T06:51:48.3020700Z ✘ Test everyMenuKeepsAShortTopLevel() failed after 0.753 seconds with 1 issue.
+2026-11-11T06:51:48.3031290Z ✘ Test run with 53 tests in 9 suites failed after 0.879 seconds with 1 issue.
+2026-11-11T06:52:08.3537140Z ✘ Test everyMenuKeepsAShortTopLevel() recorded an issue at ActionSurfaceParityTests.swift:107:13: Expectation failed: (rows.count → 14) <= (cap → 13)
+2026-11-11T06:52:08.3539150Z ✘ Test everyMenuKeepsAShortTopLevel() failed after 0.506 seconds with 1 issue.
+2026-11-11T06:52:08.3545210Z ✘ Test run with 11 tests in 1 suite failed after 0.507 seconds with 1 issue.
+2026-11-11T06:52:08.3563210Z ##[error]the action exports could not be regenerated
+2026-11-11T06:52:08.3567430Z ##[error]Process completed with exit code 1.
+2026-11-11T06:52:08.3609690Z ##[group]Run scripts/cmux-next/check-settings-exports.sh
+2026-11-11T06:52:08.3674680Z ##[endgroup]
+2026-11-11T06:52:08.7757140Z ##[group]Run ../../../scripts/cmux-next/compile-string-catalogs.sh
+2026-11-11T06:52:08.7768480Z ##[endgroup]
+2026-11-11T06:52:11.4832070Z ##[group]Run lock=cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
+2026-11-11T06:52:11.4852030Z ##[endgroup]
+2026-11-11T06:52:11.5630550Z ##[group]Run scripts/cmux-next/pin-cmux-tui.sh fetch
+2026-11-11T06:52:11.5643350Z ##[endgroup]
+2026-11-11T06:52:43.6504890Z ##[group]Run scripts/cmux-next/check-daemon-capabilities.sh
+2026-11-11T06:52:43.6524020Z ##[endgroup]
+2026-11-11T06:52:49.1016890Z ##[group]Run ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --filter '^(CmuxNextDaemonTests|CmuxNextMobileTests)\.|FirstLaunchTests|MarkdownPageFindTests|FileSourceSwitchTests|ClassicImportTests|ClassicMigrationTests|ClassicUpgradeSimulationTests' --skip BranchStateResourcesTests
+2026-11-11T06:52:49.1030240Z ##[endgroup]
+2026-11-11T06:56:46.8366950Z ✘ Test endTerminalsShutdownRepliesOnTheSubscribedSocket() recorded an issue at BranchTeardownTests.swift:59:9: Expectation failed: (hosts.count → 4) == 3
+2026-11-11T06:56:46.8367840Z ✘ Test endTerminalsShutdownRepliesOnTheSubscribedSocket() failed after 209.707 seconds with 1 issue.
+2026-11-11T06:56:46.8387830Z ✘ Test keepLeavesTheDaemonAndTerminalsForTheNextLaunch() recorded an issue at QuitSessionsTests.swift:18:13: Expectation failed: (hosts.count → 2) == 1
+2026-11-11T06:56:46.8389320Z ✘ Test keepLeavesTheDaemonAndTerminalsForTheNextLaunch() failed after 214.674 seconds with 1 issue.
+2026-11-11T06:56:46.8396180Z ✘ Test endEndsEveryTerminalAndStopsTheDaemon(deletingWorkspaces:) recorded an issue with 1 argument deletingWorkspaces → false at QuitSessionsTests.swift:48:13: Expectation failed: (hosts.count → 4) == 3
+2026-11-11T06:56:46.8398570Z ✘ Test endEndsEveryTerminalAndStopsTheDaemon(deletingWorkspaces:) recorded an issue with 1 argument deletingWorkspaces → true at QuitSessionsTests.swift:48:13: Expectation failed: (hosts.count → 4) == 3
+2026-11-11T06:56:46.8401800Z ✘ Test endEndsEveryTerminalAndStopsTheDaemon(deletingWorkspaces:) with 2 test cases failed after 215.827 seconds with 2 issues.
+2026-11-11T06:56:46.8405210Z ✘ Test endEverythingWithHomeEndsTheRestAndKeepsHome() recorded an issue at QuitSessionsTests.swift:94:13: Expectation failed: (hosts.count → 3) == 2
+2026-11-11T06:56:46.8406450Z ✘ Test endEverythingWithHomeEndsTheRestAndKeepsHome() failed after 216.505 seconds with 1 issue.
+2026-11-11T06:58:57.3503640Z ✘ Test run with 797 tests in 197 suites failed after 346.956 seconds with 8 issues (including 3 known issues).
+2026-11-11T06:58:57.3668620Z ##[error]3 red tests: endTerminalsShutdownRepliesOnTheSubscribedSocket() BranchTeardownTests.swift:59; keepLeavesTheDaemonAndTerminalsForTheNextLaunch() QuitSessionsTests.swift:18; endEverythingWithHomeEndsTheRestAndKeepsHome() QuitSessionsTests.swift:94
+2026-11-11T06:58:57.3851320Z ##[error]Process completed with exit code 1.
+2026-11-11T06:58:57.3900040Z ##[group]Run ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter BranchStateResourcesTests
+2026-11-11T06:58:57.3926880Z ##[endgroup]
+2026-11-11T06:59:13.1530010Z ##[group]Run set -euo pipefail
+2026-11-11T06:59:13.1545400Z ##[endgroup]
+2026-11-11T06:59:24.9737200Z ✘ Test everyMenuKeepsAShortTopLevel() recorded an issue at ActionSurfaceParityTests.swift:107:13: Expectation failed: (rows.count → 14) <= (cap → 13)
+2026-11-11T06:59:24.9740330Z ✘ Test everyMenuKeepsAShortTopLevel() failed after 0.514 seconds with 1 issue.
+2026-11-11T06:59:24.9745630Z ✘ Test run with 11 tests in 1 suite failed after 0.515 seconds with 1 issue.
+2026-11-11T06:59:24.9764240Z ##[error]Process completed with exit code 1.
+2026-11-11T06:59:24.9804840Z ##[group]Run if [[ "$ACTIONS" == failure && "$CATALOG" == failure ]]; then
+2026-11-11T06:59:24.9822780Z ##[endgroup]
+2026-11-11T06:59:25.0154540Z ##[group]Run home="$RUNNER_TEMP/acpmux-home"
+2026-11-11T06:59:25.0166020Z ##[endgroup]
+2026-11-11T06:59:25.0624770Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2026-11-11T06:59:25.0656400Z ##[endgroup]
+2026-11-11T06:59:25.2976250Z Post job cleanup.
+2026-11-11T06:59:25.6444110Z ##[group]Run '/Users/cmux/actions-runner-glaeda-8/glaeda-hooks/job-completed.sh'
+2026-11-11T06:59:25.6447580Z ##[endgroup]

@@ -8,6 +8,7 @@ import {
 import { openSubagentPane, revealedSubagent } from "../src/agent-session/acpmux/subagents/subagentPanes";
 import { SubagentFold } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { createWorkflowAdapter } from "../src/agent-session/acpmux/summary/foldWorkflows";
+import { settleReact } from "./support/domTeardown";
 
 const request = { sessionId: "chat", runId: "wf_demo", agentId: "review" };
 const text = (text: string) => ({
@@ -189,7 +190,6 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
       "chat",
       true,
       { id: "ui-key", name: "Review", state: "running", lastProgressAt: progress },
-      "Parent",
       read,
       "connected",
     );
@@ -222,6 +222,7 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
     expect(dom.window.document.body.textContent).not.toContain("wrong chat");
   } finally {
     await act(async () => root.unmount());
+    await settleReact();
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];
       else scope[key] = value;
@@ -267,7 +268,7 @@ test("usage-only workflow progress refreshes once and coalesces events during a 
   let calls = 0;
   const read = async () => (++calls === 3 ? pending.promise : page(0, 1, 1, [text(`read ${calls}`)]));
   function Probe() {
-    useWorkflowTranscript(workflowPaneId(request), request.sessionId, true, agent, "Parent", read, "connected");
+    useWorkflowTranscript(workflowPaneId(request), request.sessionId, true, agent, read, "connected");
     return null;
   }
   const show = () => {
@@ -299,6 +300,7 @@ test("usage-only workflow progress refreshes once and coalesces events during a 
     expect(calls).toBe(4);
   } finally {
     await act(async () => root.unmount());
+    await settleReact();
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];
       else scope[key] = value;

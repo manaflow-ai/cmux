@@ -14,6 +14,20 @@ Bead: cx-y79zh (P1). Base read: origin/feat-cmux-next at bc24e6885fff.
   billed at the reserved amount and a late settle writes a correction fact.
 - Order: S1 (metering fixes, feat-cmux-next) and S0 (plan item, web on main, PR with the chief's go
   before merge) first; Stripe test mode only after both; no live objects, prices or keys.
+- 2026-11-09, Leo: Team is the existing 60 USD per seat plan with 25 USD per seat of included usage,
+  pooled across the team; overage is at cost. Leo approved only Team, so Go, Pro and Max stay as they
+  are. This is price set `v2` (`cmux-ai-usage-team-seat25-v2`); v1 is not edited. Under v2 a Team
+  team with no operator setting is per seat. Only development and staging use v2, and only with
+  `BILLING_USAGE_PRICE_SET=v2`. Production stays on v1 until Leo gives a separate go.
+- 2026-11-09, Leo: Cloud machine time joins the pool as `cloud.machine_usd` facts (source `cloud`) that
+  CloudDO records at list price, naming the machine's creator; the level, the team spend, the included
+  stop read every money meter (`BILLABLE_METERS`) only under price set v2 (`poolsMachineTime`); v1, the
+  production set, bills model spend only. The member limit and billable retention count the facts under
+  either set. Production billing still waits for Leo's go.
+- 2026-11-09 22:35Z, Leo (cmuxterm-hq plans/team-plan/margins.md "Decided"): "[taste] Model overage at the
+  provider's list price plus 10%, instead of at cost." -> "sure"; "[taste] What happens at the team's spending
+  cap. The lane suggests refusing new starts for members, and pausing machines after a 15-minute warning, with
+  nothing lost." -> "ok". Built in test mode and the cap logic only (section 18); production waits for his go.
 
 S1 landed on feat-cmux-next: `UsageMeterDO.settleCall` (`backend/apps/api/src/usage-user.ts`) writes
 the call's fact and every counter in one transaction, on the charged path too; the proof is
@@ -298,6 +312,12 @@ allowlist change was needed). Script: `backend/scripts/stripe-usage-e2e.ts`.
   an hour after the period ends, and the sync runs every 15 minutes, so only usage in the last minute
   or so before finalization can slip; a finalization grace period (live step) covers it. The webhook
   would not fix an aggregation delay, so it stays a live step.
+- The operator check after a run (since 2026-11-09, model overage at list + 10% under v2): `POST
+  /v1/internal/billing/levels` answers `micros`, the billed level the sync sends (billing-catalog.ts
+  `billedLevelMicros`; at cost under v1 and e2e, so the runs above read the same), `cost_micros` (the facts at
+  cost), `included_micros` (the pool the sync used for the period starting at `from`; null for a period it
+  never saw, which reads at cost) and `meter_micros`, what the Stripe meter summary must equal: per seat the
+  billed level above the pool, per team the billed level. Compare the meter summary with `meter_micros`.
 - Cleanup: both subscriptions canceled, both test clocks deleted by exact id, Freestyle VMs deleted.
   The development `BILLING_USAGE_PRICE_SET=e2e` stays as the standing billing-e2e configuration
   (test mode only; staging and production ignore it). Staging must never get STRIPE_USAGE_KEY while it
@@ -519,3 +539,59 @@ Development Worker at 55c505de22e6 (backend.yml 38524457745 green). One test clo
   back to per team (actor e2e-hq-84), VM secrets shredded, Freestyle VM
   vm-0ac15ef11f3c4a91be39d4b92bbfd50e deleted by exact id. The shared e2e team stays as the standing
   e2e team on the development sign-in project. Real provider spend about 2 USD.
+
+## 18. Model overage at list + 10%, and the team spending cap (built, v2 only)
+
+Overage markup (`billing-catalog.ts` `overageModelMarkup`: 1.10 under v2; 1.0 under v1, production, and e2e,
+whose end-to-end check compares the meter summary with the level at cost). The billed level of a period, in
+integer micros (`billedLevelMicros`), from its facts split by `UsageMeterDO.level` into models and machine time:
+
+- overage = max(0, models + machines - included), included = the pool (included x seats per seat, the included
+  amount per team);
+- the overage splits pro rata to the period's shares: overage_models = floor(overage x models / total),
+  overage_machines = the rest;
+- billed = min(total, included) + round(overage_models x markup) + overage_machines.
+
+The markup is pinned to the billing period like its included amount (`usage-billing-store.ts` `periodMarkupBp`,
+column `markup_bp` in basis points on `usage_push` and `usage_billable`): the sync's first mark or push of a period
+stores the markup of the set then in force, and the sync, the levels read, the console and the team cap all use it
+until the period closes. A period that started under v1 stays at 1.0 after the set flips to v2; a v2 period keeps 1.1
+after a flip back to v1, so a running period's level is never lowered. Rows from before pinning have none and read
+as pass-through (they were all sent at cost), so an unchanged v1 level keeps its identifier and is not sent again.
+
+The sync sends the billed level: per seat it subtracts included x seats as before, per team the graduated
+price's free first tier does, so Stripe bills exactly the billed overage. The Stripe catalog needs no new
+object (still 1.00 USD per unit); a v2 price the script makes names the markup in its nickname and
+`price_version` metadata (`ai-overage-models110-v2`). `teamUsage` (the console line) shows the billed level for
+a billable team. `POST /v1/internal/billing/levels` answers the billed level too (`UsageMeterDO.billedLevel`),
+with the at-cost figure as `cost_micros`, the pinned `markup_bp` and the meter's expected value as `meter_micros`
+(section 9).
+
+Team spending cap (`team-cap.ts`; `UsageMeterDO.teamCap(team, machineTime, set?)` for cmux-platform):
+`{ state: "under" | "near" | "at_cap", spent_usd, cap_usd, period_end }`. Spent: the billing period's model
+spend, settled plus open calls at their reserved maximum (calls reserved in the period), at billed prices with the
+period's pinned markup, plus machine time when `machineTime`; without a fresh billable mark, the UTC month at cost.
+Cap: the admin's `usage.cap.set`, else under v2 twice the pool (50 USD x seats) for a per-seat team the sync
+marked, else none (`under`). `near` at 80%.
+
+- Refusal: under v2 the model router checks the cap inside `reserveUser`'s transaction, like the included stop: a
+  call whose maximum would take the period's billed spend past the cap is refused for every member (402
+  `team.cap_reached` with spent, cap and period end). Open calls count at their maximum, so concurrent calls cannot
+  all pass just under the cap; the overshoot is bounded by what the calls actually cost against their maxima.
+- Two caps refuse model calls and the stricter wins: this cap (billing period, billed prices) and the existing hard
+  cap (A18, `summarize`: the UTC month at cost over every meter, machine time included, against min(admin cap,
+  AUTOMATION_CAP_CEILING_USD)). The deployment ceiling is an operator brake on model calls only; it pauses no
+  machine.
+- Cost per call: constant in the number of facts. `usage_period_spend` keeps one row per billing period with its
+  model and machine micros; every billable fact adds to the row whose period holds its recorded time, in the fact's
+  own transaction (`record`, `settleCall`, expired reservations, late corrections). The row is seeded once by a range
+  sum when the sync first marks the period (or, failing that, on the first cap read). Running totals were chosen
+  over a cached state because the reservation needs the exact spend plus its own maximum in one transaction, which a
+  cache refreshed on writes would have to recompute anyway. Without a mark the cap reads `usage_month`, already a
+  running total.
+- cmux-platform refuses new machine starts at `at_cap` and pauses running machines after a 15-minute warning. The
+  member budget refuses new calls only (unchanged).
+
+Question for Leo (not built, nothing changes until he answers): with the default cap (2x the pool), an admin can
+raise or lower the cap but cannot remove it (setting none falls back to the default). Is that what he wants, or
+should an admin be able to turn the cap off?

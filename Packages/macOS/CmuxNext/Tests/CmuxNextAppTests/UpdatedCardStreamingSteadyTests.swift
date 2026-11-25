@@ -130,6 +130,9 @@ struct UpdatedCardStreamingSteadyTests {
         host.onHeightChange = { heights += 1; report?() }
         let page = island.page
         let start = (page.frames, page.hides, page.moves, page.paints, page.displays)
+        // The pages made before the turn: the card's, and in the shipped look its changes' popover page
+        // (af041242c9c), made when the card shows. The turn must open none.
+        let islandsBefore = surfaces.islands.count
         let cardFrame = host.frame, cardHidden = host.isHidden
         var lastFrame = cardFrame, lastHidden = cardHidden
         var renders = 0
@@ -155,7 +158,7 @@ struct UpdatedCardStreamingSteadyTests {
         counts.pageMoves = page.moves - start.2
         counts.pagePaints = page.paints - start.3
         counts.pageDisplays = page.displays - start.4
-        counts.islandsOpened = surfaces.islands.count - 1
+        counts.islandsOpened = surfaces.islands.count - islandsBefore
         counts.islandsClosed = surfaces.islands.reduce(0) { $0 + $1.closes }
         counts.heightReports = heights
         return (counts, renders)

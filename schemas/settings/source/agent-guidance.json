@@ -13,14 +13,14 @@
         {
           "key": "agents.guidance.claude",
           "name": "guidanceClaude",
-          "note": "On: a new Claude Code chat gets the cmux:cmux-chat skill's first-turn pointer (agent_guidance.rs CLAUDE_GUIDANCE). The skill itself stays listed either way.",
+          "note": "On: a new Claude Code chat gets cmux's chat guidance (agent_guidance.rs CLAUDE_GUIDANCE) in its system prompt (--append-system-prompt). The cmux:cmux-chat skill stays listed either way.",
           "title": {
             "key": "settings.agents.guidance.claude",
             "text": "cmux Guidance for Claude Code"
           },
           "help": {
             "key": "settings.agents.guidance.claude.help",
-            "text": "New Claude Code chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap."
+            "text": "Tells new Claude Code chats how cmux shows plans, side sessions and recaps."
           },
           "kind": "toggle",
           "default": true,
@@ -36,14 +36,14 @@
         {
           "key": "agents.guidance.codex",
           "name": "guidanceCodex",
-          "note": "On: a new Codex chat gets cmux's chat guidance as first-turn context (agent_guidance.rs AGENT_GUIDANCE), the channel Codex uses for AGENTS.md.",
+          "note": "On: a new Codex chat gets cmux's chat guidance (agent_guidance.rs AGENT_GUIDANCE) as its developer instructions, or as first-turn context when its Codex config sets developer_instructions itself.",
           "title": {
             "key": "settings.agents.guidance.codex",
             "text": "cmux Guidance for Codex"
           },
           "help": {
             "key": "settings.agents.guidance.codex.help",
-            "text": "New Codex chats are told how cmux shows their work: the plan checklist, side sessions, session links and the closing recap."
+            "text": "Tells new Codex chats how cmux shows plans, side sessions and recaps."
           },
           "kind": "toggle",
           "default": true,
@@ -66,7 +66,7 @@
           },
           "help": {
             "key": "settings.agents.guidance.otherAgents.help",
-            "text": "Other agents (Gemini, OpenCode and the ones you added) get the same guidance about how cmux shows their work."
+            "text": "Gemini, OpenCode and agents you added get the same guidance."
           },
           "kind": "toggle",
           "default": true,
@@ -88,7 +88,7 @@
           },
           "help": {
             "key": "settings.agents.guidance.userSkills.help",
-            "text": "Skills you put in ~/.config/cmux/skills, one folder each with a SKILL.md, reach every new agent chat."
+            "text": "Skills in ~/.config/cmux/skills (a folder with a SKILL.md each) reach every new chat."
           },
           "kind": "toggle",
           "default": true,

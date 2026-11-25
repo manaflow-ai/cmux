@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCloudUI
 import CmuxNextSettings
 @testable import CmuxNextApp
 import Foundation

@@ -30,13 +30,20 @@ extension ChatController {
             return nil
         }
         let items = pictures.enumerated().map { i, a in
-            HomePictureGallery.Item(source: HomeMapping.tableAttachmentScheme + a.id, url: URL(fileURLWithPath: a.fileName),
-                                    title: a.fileName.isEmpty ? CmuxStrings.pictureUntitled : a.fileName, row: 0, column: i)
+            let title = a.fileName.isEmpty ? CmuxStrings.pictureUntitled : a.fileName
+            // A picture the Markdown names (the Chief's screenshot): its own file or web address, its thumbnail.
+            if let source = HomeMapping.pictureSource(a.id), let url = HomeTablePictures.original(source) {
+                return HomePictureGallery.Item(source: source, url: url, title: title, row: 0, column: i,
+                                               thumbnail: a.asset.flatMap(URL.init(string:)))
+            }
+            return HomePictureGallery.Item(source: HomeMapping.tableAttachmentScheme + a.id, url: URL(fileURLWithPath: a.fileName),
+                                           title: title, row: 0, column: i)
         }
         let at = pictures.firstIndex { $0.id == attachment } ?? 0
         guard !items.isEmpty else { intents?.openAttachment(message, attachment); return }
         let intents = intents
         presentPictures(HomePictureGallery(items: items, index: at)) { item in
+            guard item.source.hasPrefix(HomeMapping.tableAttachmentScheme) else { return await Self.decode(item) }
             let id = String(item.source.dropFirst(HomeMapping.tableAttachmentScheme.count))
             guard let file = await intents?.attachmentFile(message, id) else { return nil }
             var local = item
@@ -45,10 +52,13 @@ extension ChatController {
         }
     }
 
-    /// Opens `gallery` over this pane through the main-actor seam (``HomePictureViewerMount``).
-    private func presentPictures(_ gallery: HomePictureGallery, from thumbnail: (rect: CGRect, image: CGImage)? = nil,
+    /// Opens `gallery` over this pane through the main-actor seam (``HomePictureViewerMount``); the viewer has the
+    /// pane's keyboard until it closes.
+    func presentPictures(_ gallery: HomePictureGallery, from thumbnail: (rect: CGRect, image: CGImage)? = nil,
                                  load: @escaping HomePictureViewer.Load) {
-        _ = HomePictureViewerMount(host: host).open(gallery, from: thumbnail, load: load, onClose: { [weak self] in
+        let opened = HomePictureViewerMount(host: host).open(gallery, from: thumbnail, load: load, onClose: { [weak self] in
+            // The viewer has the pane's keyboard until it closes (``keyboardTarget``); then the box has it again.
+            self?.shownPictureViewer = nil
             self?.focusCompose()
         }, onReply: { [weak self] url in
             guard let self else { return }
@@ -57,6 +67,7 @@ extension ChatController {
             if self.intents?.takeAttachments(from: board) != true { NSSound.beep() }
             board.releaseGlobally()
         })
+        if opened { shownPictureViewer = host.subviews.last }
     }
 
     /// The full picture of `item`, decoded off the main thread: the local file, else the web picture (downloaded

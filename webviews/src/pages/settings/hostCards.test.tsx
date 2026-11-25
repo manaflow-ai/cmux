@@ -24,7 +24,11 @@ async function elapse(ms: number, run: () => void) {
 }
 
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
-  page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
+  page.provider.log
+    .filter((entry) => entry.op === op)
+    .map((entry) => entry.params)
+    // What a background mode last showed is kept beside each change (wallpaperSwitch.test.tsx covers it).
+    .filter((params) => (params as { key?: string }).key !== "appearance.backgroundMemory");
 
 test("Change Background… shows the picker on Appearance: resting previews, leaving restores, a click keeps", async () => {
   const page = await renderPage({
@@ -252,8 +256,9 @@ test("the wallpaper card holds Opacity and Material once each, and nothing repea
   }
   expect(page.container.querySelector('[data-row-key="appearance.backdropArt"]')).toBeNull();
   page.unmount();
+  // Hue is a hidden row (rowLevelsData.ts): a link to it shows it on Labs, behind More Options.
   const labs = await renderPage({
-    path: "/settings/experimental",
+    path: "/settings/experimental?focus=appearance.hue",
     mock: { values: { "appearance.experimentalControls": true } },
   });
   expect(labs.container.querySelector('[data-row-key="appearance.glassTransparency"]')).toBeNull();

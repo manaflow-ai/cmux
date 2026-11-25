@@ -1,6 +1,11 @@
 import CoreGraphics
 import CmuxNextDesign
 
+/// NO CALLER: a close is one commit now (`ScreenContentView.reconcile`, `ScreenContentView+SnapFrame`) and no pane
+/// springs closed, so nothing makes one of these. This type and ``ClosingPanesRules`` stay for one more change only:
+/// the rules are Rust's (`cmux_closing_panes_*`), their header is an input of the app FFI, and a change that edits Swift
+/// cannot edit an FFI input. They go with the Rust rules, in the change that follows the Rust removal.
+///
 /// FRAME OWNER REFACTOR S3c: the panes a springing close took out
 /// of one screen, each still shown with only its own ground (`PaneHostView.showClosingGround`) on the space its
 /// neighbours, or its row column's scroll, have not covered yet.
@@ -23,9 +28,12 @@ import CmuxNextDesign
 /// moves. Chrome's tab close does the same: the closing tab shrinks to zero width on the strip's own animation.
 /// The host goes when the motion lands (`ScreenContentView.releaseClosing`); a close taken back starts the pane's live
 /// frame from where it shows, with its neighbours' velocities.
+///
+/// The rules are Rust's (``ClosingPanesRules`` owns one `cmux_closing_panes_*` handle): copies of this value share that
+/// state, so a screen keeps one and never copies it (a new value starts with none closing).
 struct ClosingPanes {
     /// A closing pane as the screen reads it: the space it showed in and its stacking rank. Its sides and their travel are
-    /// the rules' (``ClosingPanesRules``).
+    /// the rules' (``ClosingPanesRules``, Rust's `cmux_closing_panes_*`).
     struct Entry {
         /// It scrolls with the strip (not a docked pane), and the row column and scroll area it showed in.
         let scrolls: Bool
@@ -180,11 +188,48 @@ struct ClosingPanes {
     private func frameFacts(_ frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>) -> [ClosingPanesRules.FrameFact] {
         frames.compactMap { pane, frame in
             guard let number = paneNumbers[pane] else { return nil }
-            let moving = frame.rect != frame.targetRect || [frame.x, frame.y, frame.width, frame.height].contains { $0.velocity != 0 }
-            return ClosingPanesRules.FrameFact(id: number, now: Self.edges(frame.rect), target: Self.edges(frame.targetRect), moving: moving,
+            return ClosingPanesRules.FrameFact(id: number, now: Self.edges(frame.rect), target: Self.edges(frame.targetRect),
+                                               moving: Self.hasTravel(frame),
                                                vx: frame.x.velocity, vy: frame.y.velocity, vw: frame.width.velocity, vh: frame.height.velocity,
                                                scrolls: !fixed.contains(pane))
         }
+    }
+
+    /// The least way to go the rules count as a travel (`ClosingPanesRules.collapse`, `settle`): half a point.
+    private static let leastTravel: CGFloat = 0.5
+
+    /// Whether a live pane moves over a closing pane beside it: a side of it has half a point or more to go. Less is no
+    /// travel for the rules (the last part of a point of an earlier motion, as when two last columns close in a row): a
+    /// closing pane a pane like that "moves over" got no travel and kept its whole place until the landing took it away in
+    /// one frame (352 pt, `PaneCloseCameraGroundTests`), so it goes at once, as a pane beside panes at rest does. A
+    /// velocity alone is no travel: a spring on its target does not leave it (`SpringParameters.admitted`).
+    private static func hasTravel(_ frame: AnimatedFrame) -> Bool {
+        let now = frame.rect, rest = frame.targetRect
+        return abs(rest.minX - now.minX) >= leastTravel || abs(rest.maxX - now.maxX) >= leastTravel
+            || abs(rest.minY - now.minY) >= leastTravel || abs(rest.maxY - now.maxY) >= leastTravel
+    }
+
+    /// The land rule's question for the closing panes (`ScreenContentView.advancePaneAndDividerSprings`): would a landing
+    /// now, which puts every live frame on its target, move a side of a closing pane more than `snap`? A closing pane's
+    /// free side follows its rider's share of the rider's travel (`ClosingPanesRules.collapse`), so the part of a point a
+    /// live pane has left when it lands is, on the closing pane, that part times the pane's size over the rider's travel:
+    /// 22 pt of a 352 pt pane on a rider with 4 pt to go, ground the landing took away in one frame. The rules (Rust,
+    /// `cmux_closing_panes_landing_moves`) place the closing panes two times on copies, from the live frames where this
+    /// frame's step put them (`frames`, not shown yet) and from the same frames on their targets, and the answer is
+    /// whether a side differs by more than `snap`. It falls with the
+    /// live frames' way left, so the motion lands a few frames later, never not at all: a side the frames do not move is
+    /// the same in both. The cameras are taken at rest (the strip's view shift `restStrip`, no row travel): they land on
+    /// their own springs, and a side they move does not hold the panes' landing.
+    ///
+    /// What it bounds is the way from this frame's step, which is not shown, to the landing. The frame shown before is
+    /// one step further away: with `snap` a quarter point, a side moves up to about 0.44 pt on the screen in the
+    /// landing's frame at 120 Hz (about 0.8 pt at 60 Hz), under the one point the ground rule allows. It does not see a
+    /// side the rules gave no travel (a pane like that keeps its place; `hasTravel` and
+    /// `ScreenContentView.settleClosing` are what keep one from being made). The two placements run on copies inside
+    /// Rust: the state is not changed.
+    func landingMovesAClosingPane(frames: [PaneID: AnimatedFrame], fixed: Set<PaneID>, restStrip: CGFloat, snap: CGFloat) -> Bool { // perf-hot: 4ms motion-frame
+        guard !entries.isEmpty else { return false }
+        return rules.landingMoves(frames: frameFacts(frames, fixed: fixed), restStrip: restStrip, snap: snap)
     }
 
     /// Where the closing panes' row columns' scrolls are and rest.

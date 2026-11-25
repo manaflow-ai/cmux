@@ -2,7 +2,7 @@
 import CmuxNextCompat
 @testable import CmuxNextDaemon
 @testable import CmuxNextDaemonService
-import CmuxNextRemote
+@testable import CmuxNextRemote
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -96,8 +96,13 @@ import Testing
         print(json.dumps({'event': 'connection-snapshot', 'local_socket': local, 'connection': {
             'session_id': 's', 'generation': 1, 'state': name, 'lane_bindings': [], 'physical_link_count': 1,
             'transport': {'provider': 'ssh', 'route': 'ssh://drill'}}}), flush=True)
+    open(p('local'), 'w').write(local)
+    while os.path.exists(p('hold-admin')) and not os.path.exists(p('bind')):
+        time.sleep(0.02)
     serve(local + '.admin', admin)
-    if not reachable():
+    print('remote connect: link socket ready', file=sys.stderr, flush=True)
+    open(p('ready-printed'), 'w').close()
+    if not reachable() and not os.path.exists(p('stall')):
         with lock:
             state.update(state='disconnected', reason=REFUSED)
         print('remote connect: ' + REFUSED + '; redialing', file=sys.stderr, flush=True)
@@ -177,6 +182,13 @@ import Testing
         try #require(condition(), "\(what)")
     }
 
+    /// Whether a second link process started within `window`. The app has no timer here to fake (that is
+    /// what these tests check), so a restart it should not make shows only as a spawn: this polls for
+    /// that spawn and ends the instant one comes; only a pass waits out the whole window.
+    private static func respawns(_ fixture: Fixture, within window: Duration) async -> Bool {
+        await RapidWorkspaceCreateTests.wait(within: window) { fixture.spawns > 1 }
+    }
+
     /// Cold open with the machine unreachable, then reachable: the link starts at once, the machine says
     /// why it is not up from the link's own state, the app makes no timed attempt, and the link alone
     /// brings it up when the network comes back.
@@ -188,8 +200,8 @@ import Testing
             if case .unreachable(let text) = fixture.session.linkStatus { text.contains("Connection refused") } else { false }
         }
         #expect(fixture.lines("admin.log").contains(#"{"method": "link-state"}"#), "the status came from the link's state")
-        try await Task.sleep(for: .milliseconds(1500))
-        #expect(fixture.spawns == 1, "the app restarted a link that redials by itself (\(fixture.spawns) spawns)")
+        let restarted = await Self.respawns(fixture, within: .milliseconds(1500))
+        #expect(!restarted, "the app restarted a link that redials by itself (\(fixture.spawns) spawns)")
         #expect(!fixture.connected)
         fixture.mark("reachable")
         try await Self.waitUntil("the link brought the machine up") { fixture.connected }
@@ -209,6 +221,78 @@ import Testing
         try await Self.waitUntil("Reconnect brought the machine up") { fixture.connected }
         #expect(fixture.lines("admin.log").contains(#"{"method": "await-ready", "within_ms": 3000}"#), "\(fixture.lines("admin.log"))")
         #expect(fixture.spawns == 1, "Reconnect restarted the link (\(fixture.spawns) spawns)")
+    }
+
+    /// Review of #39103, F1: a cold open sends its `await-ready` before the link process exists, so the
+    /// request was dropped and the person's deadline never reached the link. It is now kept with its
+    /// original deadline until the link answers, and goes to it with what is left.
+    @Test func aColdOpenKeepsThePersonsDeadlineUntilTheLinkAnswers() async throws {
+        let fixture = try Fixture(["up-on-wake"])
+        defer { fixture.close() }
+        fixture.session.connect(deadline: .seconds(4))
+        try await Self.waitUntil("the person's wait reached the link and brought it up") { fixture.session.linkStatus == .connected }
+        let waits = fixture.lines("admin.log").compactMap { line -> Int? in
+            guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+                  object["method"] as? String == "await-ready" else { return nil }
+            return object["within_ms"] as? Int
+        }
+        #expect(waits.count == 1, "\(fixture.lines("admin.log"))")
+        #expect(waits.allSatisfy { $0 > 0 && $0 <= 4000 }, "the original deadline, less the time before the link answered: \(waits)")
+        #expect(fixture.spawns == 1)
+    }
+
+    /// Review of #39200, F2: a first dial that stalls says nothing on stderr, so a cold open's wait that
+    /// was forwarded only on a failed-dial line never reached the link within its deadline. The link
+    /// writes a line once its socket answers, and the wait goes to it then.
+    @Test func aColdOpenReachesAStalledFirstDialBeforeItsDeadline() async throws {
+        let fixture = try Fixture(["up-on-wake", "stall"])
+        defer { fixture.close() }
+        let opened = ContinuousClock.now
+        fixture.session.connect(deadline: .seconds(3))
+        try await Self.waitUntil("the person's wait reached the stalled link") {
+            fixture.lines("admin.log").contains { $0.contains("await-ready") }
+        }
+        #expect(ContinuousClock.now - opened < .seconds(3), "the wait reached the link only after its deadline")
+        try await Self.waitUntil("the wait brought the machine up") { fixture.session.linkStatus == .connected }
+        #expect(fixture.spawns == 1)
+    }
+
+    /// Review of #39200, F1: a person's wait sent while the link's socket is not bound yet fails, and
+    /// the ready line can come before that failure is seen. The pending wait was recorded only after
+    /// the failure, so the ready line found nothing to forward and the deadline was lost. This forces
+    /// that order: the first `await-ready` fails, and before its caller resumes the link binds its
+    /// socket, prints the ready line, and the app has time to read it.
+    @Test func aWaitThatFailsBeforeTheSocketIsBoundStillReachesTheLink() async throws {
+        let fixture = try Fixture(["up-on-wake", "stall", "hold-admin"])
+        defer { fixture.close() }
+        let root = fixture.root
+        let bind = root.appendingPathComponent("bind").path
+        let printed = root.appendingPathComponent("ready-printed").path
+        // Only the first failed wait: the observer alone makes `bind`.
+        await fixture.session.link.observeAdminExchanges { line, answered in
+            guard !answered, line.contains("await-ready"), !FileManager.default.fileExists(atPath: bind) else { return }
+            FileManager.default.createFile(atPath: bind, contents: nil)
+            let until = Date().addingTimeInterval(5)
+            while !FileManager.default.fileExists(atPath: printed), Date() < until { Thread.sleep(forTimeInterval: 0.02) }
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        await fixture.open()
+        try await Self.waitUntil("the link started and waits to bind its socket") { !fixture.lines("local").isEmpty }
+        let link = fixture.session.link
+        var running = false
+        for _ in 0..<100 where !running {
+            running = await link.pid != nil
+            if !running { try await Task.sleep(for: .milliseconds(20)) }
+        }
+        try #require(running)
+        let wait = Task { await link.awaitReady(within: .seconds(4)) }
+        defer { wait.cancel() }
+        try await Self.waitUntil("the first wait failed, and the ready line came before it was seen") {
+            FileManager.default.fileExists(atPath: bind) && FileManager.default.fileExists(atPath: printed)
+        }
+        try await Self.waitUntil("the person's wait reached the link and brought it up") { fixture.connected }
+        #expect(fixture.lines("admin.log").contains { $0.contains("await-ready") }, "\(fixture.lines("admin.log"))")
+        #expect(fixture.spawns == 1)
     }
 
     /// The network drops and returns under a running link: the machine reads reconnecting, then the
@@ -232,8 +316,8 @@ import Testing
         defer { fixture.close() }
         await fixture.open()
         try await Self.waitUntil("the refusal shows") { fixture.session.linkStatus == .needsInstall(.refused(.protocolOlder)) }
-        try await Task.sleep(for: .milliseconds(1500))
-        #expect(fixture.spawns == 1, "the app retried a refused link (\(fixture.spawns) spawns)")
+        let retried = await Self.respawns(fixture, within: .milliseconds(1500))
+        #expect(!retried, "the app retried a refused link (\(fixture.spawns) spawns)")
         #expect(fixture.session.linkStatus == .needsInstall(.refused(.protocolOlder)))
     }
 

@@ -6,13 +6,17 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
+import { GuestActionsBoundary } from "../src/agent-session/acpmux/conversation/GuestActionsBoundary";
 import { SubagentDoneLine } from "../src/agent-session/acpmux/subagents/SubagentDoneLine";
-import { doneReport } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
+import { doneReport, DoneReportLookContext } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
+import { doneReportLook, type DoneReportLook } from "../src/agent-session/acpmux/subagents/doneReport.experiment";
+import { experimentArm } from "../src/experiments/experiment";
 import { SubagentNavContext } from "../src/agent-session/acpmux/subagents/subagentGroupModel";
 import { TurnActionsContext } from "../src/agent-session/acpmux/conversation/turnActions";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -31,7 +35,12 @@ const agent = (id: string, fields: Partial<Subagent> = {}): Subagent => ({
   ...fields,
 });
 
-function render(agents: Subagent[], opened: string[] = []): HTMLElement {
+function render(
+  agents: Subagent[],
+  opened: string[] = [],
+  arm: DoneReportLook | null = "disclosure",
+  guest = false,
+): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
   for (const key of [
     "window",
@@ -62,14 +71,15 @@ function render(agents: Subagent[], opened: string[] = []): HTMLElement {
     kind: SUBAGENT_DONE,
     subagents: [one],
   }));
+  const lines = rows.map((row) => <SubagentDoneLine key={row.id} row={row} />);
   act(() => {
     root = createRoot(host);
     root.render(
       <SubagentNavContext.Provider value={(id) => void opened.push(id ?? "")}>
         <TurnActionsContext.Provider value={{ retryAgent: async () => undefined }}>
-          {rows.map((row) => (
-            <SubagentDoneLine key={row.id} row={row} />
-          ))}
+          <DoneReportLookContext.Provider value={arm ?? undefined}>
+            {guest ? <GuestActionsBoundary>{lines}</GuestActionsBoundary> : lines}
+          </DoneReportLookContext.Provider>
         </TurnActionsContext.Provider>
       </SubagentNavContext.Provider>,
     );
@@ -82,9 +92,10 @@ const click = (element: Element) =>
     element.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true }));
   });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -147,11 +158,19 @@ test("a click on a line with a report toggles it; only the name opens the view",
   expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
 });
 
-test("a line with no report stays one button that opens the view", () => {
+// Leo, 2026-11-05: "subagents need to have their clickable bit be highlighted instead of the whole
+// line click sending me to the subagent righ split".
+test("a line with no report opens the view from its name chip alone", () => {
   const opened: string[] = [];
   const host = render([agent("a")], opened);
-  expect(host.querySelector("button.cv-agent-tag")).toBeNull();
-  click(host.querySelector("button.cv-subagent-done")!);
+  expect(host.querySelector("button.cv-subagent-done")).toBeNull();
+  for (const part of [".cv-tool__icon", ".cv-subagent-done__time"]) {
+    click(host.querySelector(`.cv-subagent-done-row ${part}`)!);
+    expect(opened).toEqual([]);
+  }
+  const name = host.querySelector<HTMLButtonElement>(".cv-subagent-done button.cv-agent-tag.is-open");
+  expect(name?.textContent).toBe("Task a");
+  click(name!);
   expect(opened).toEqual(["a"]);
 });
 
@@ -169,10 +188,11 @@ test("failed lines get no disclosure, even with a message", () => {
   expect(host.querySelector(".cv-subagent-done__chevron")?.getAttribute("aria-hidden")).toBe("true");
 });
 
-test("a finished agent with no report shows no chevron control", () => {
+test("a finished agent with no report shows no chevron", () => {
   const host = render([agent("a"), agent("b", { result: "   " })]);
   expect(host.querySelectorAll(".cv-subagent-done-row")).toHaveLength(2);
   expect(host.querySelector(".cv-subagent-done__disclose")).toBeNull();
+  expect(host.querySelector(".cv-subagent-done__chevron")).toBeNull();
   expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
 });
 
@@ -182,4 +202,64 @@ test("only a completed line has a report", () => {
   expect(doneReport({ state: "completed" })).toBeUndefined();
   for (const state of ["failed", "cancelled", "disconnected", "running"])
     expect(doneReport({ state, result: "r" })).toBeUndefined();
+});
+
+test("the compact default has no chevron and opens the agent report from its name", () => {
+  expect(experimentArm(doneReportLook, { overrides: {}, stored: {} })).toBe("compact");
+  const opened: string[] = [];
+  const host = render([agent("a", { task: "Settings corner review", result: REPORT })], opened, null);
+  const line = host.querySelector('[data-report-look="compact"]');
+  expect(line).not.toBeNull();
+  expect(line?.querySelector(".cv-agent-activity__sentence")?.textContent).toBe("Settings corner review finished");
+  expect(line?.textContent).not.toContain("Fixed the read order");
+  expect(host.querySelector(".cv-agentmsg__preview")).toBeNull();
+  expect(line?.querySelector(".cv-tool__icon svg")).not.toBeNull();
+  expect(line?.querySelector(".cv-subagent-done__chevron")).toBeNull();
+  expect(line?.querySelector("button[aria-expanded]")).toBeNull();
+  expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
+  const name = line?.querySelector<HTMLButtonElement>("button.cv-agent-tag");
+  expect(name?.disabled).toBe(false);
+  expect(name?.getAttribute("aria-label")).toBe("Open Settings corner review");
+  click(name!);
+  expect(opened).toEqual(["a"]);
+});
+
+test("explicit saved report looks remain valid when the default changes", () => {
+  for (const look of ["disclosure", "preview", "view"] as const)
+    expect(experimentArm(doneReportLook, { overrides: {}, stored: { "subagent-done-report": look } })).toBe(look);
+});
+
+test("the compact completion look does not replace failed retry rows", () => {
+  const host = render(
+    [agent("failed", { state: "failed", error: "Capacity unavailable", retryable: true })],
+    [],
+    "compact",
+  );
+  expect(host.querySelector('[data-report-look="compact"]')).toBeNull();
+  expect(host.querySelector(".cv-subagent-done")?.textContent).toContain("Capacity unavailable");
+  expect(host.querySelector(".cv-subagent-retry")).not.toBeNull();
+});
+
+test("a guest completion opens and closes its recorded report from the visible name without a chevron", () => {
+  const opened: string[] = [];
+  const host = render([agent("a", { task: "Settings corner review", result: REPORT })], opened, null, true);
+  const name = host.querySelector<HTMLButtonElement>("button.cv-agent-tag")!;
+  expect(name.textContent).toBe("Settings corner review");
+  expect(name.getAttribute("aria-label")).toBe("Settings corner review");
+  expect(name.getAttribute("aria-expanded")).toBe("false");
+  expect(name.hasAttribute("aria-controls")).toBe(false);
+  expect(host.querySelector(".cv-subagent-done__chevron")).toBeNull();
+  expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
+  click(name);
+  expect(name.getAttribute("aria-expanded")).toBe("true");
+  const report = host.querySelector(".cv-subagent-done__report")!;
+  expect(report.id).toBe(name.getAttribute("aria-controls")!);
+  expect(report.textContent).toContain("Fixed the read order.");
+  expect(report.querySelector("strong")?.textContent).toBe("golden files");
+  expect(opened).toEqual([]);
+  click(name);
+  expect(name.getAttribute("aria-expanded")).toBe("false");
+  expect(name.hasAttribute("aria-controls")).toBe(false);
+  expect(host.querySelector(".cv-subagent-done__report")).toBeNull();
+  expect(opened).toEqual([]);
 });

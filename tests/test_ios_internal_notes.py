@@ -14,8 +14,18 @@ import subprocess
 import sys
 import tempfile
 import unittest
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 SPEC = importlib.util.spec_from_file_location("ios_internal_notes", ROOT / "scripts/ci/ios_internal_notes.py")
 notes = importlib.util.module_from_spec(SPEC)
 sys.modules["ios_internal_notes"] = notes
@@ -225,6 +235,24 @@ class BuildNoteTests(unittest.TestCase):
         self.assertIsNone(notes.recorded_sha("Uploaded by hand"))
 
 
+class YoloNoteTests(unittest.TestCase):
+    def test_reads_the_stacked_prs_from_merge_subjects(self):
+        self.assertEqual(notes.yolo_prs(["ios-yolo: merge #12", "Merge branch x", "ios-yolo: merge #40"]), [12, 40])
+        self.assertEqual(notes.yolo_prs(["Merge pull request #5"]), [])
+
+    def test_lead_line_names_the_prs_and_records_the_base(self):
+        text = notes.build_note(sha=SHA, version="1.2.1", base=BASE, base_source="",
+                                commits=[commit("1" * 40, "s")], prs={"1" * 40: pr(12, "Fixed: Chat scrolls")},
+                                yolo=[12, 40])
+        lines = text.splitlines()
+        self.assertEqual(lines[0], f"cmux-next iPhone 1.2.1 YOLO, feat-cmux-next {BASE[:12]} + #12 #40 ({SHA[:12]}). "
+                                   "Internal testers only.")
+        self.assertIn("the next nightly replaces it", lines[2])
+        self.assertIn("- Chat scrolls", lines)
+        # The next nightly's base from App Store Connect is the feat-cmux-next commit, not the stack.
+        self.assertEqual(notes.recorded_sha(text), BASE[:12])
+
+
 class TruncationTests(unittest.TestCase):
     def test_stays_under_the_limit_and_counts_what_it_left_out(self):
         groups = {"Fixed": [f"Fixed thing number {i} " + "x" * 80 for i in range(100)]}
@@ -401,14 +429,14 @@ class WorkflowTests(unittest.TestCase):
 
     def test_notes_job_has_no_secret_and_a_read_only_token(self):
         notes_job = self.jobs()["notes"]
-        self.assertNotIn("secrets.", notes_job)
+        self.assertEqual(workflow_jobs.secret_names(notes_job), set())
         self.assertNotIn("environment:", notes_job)
         self.assertNotIn("write", notes_job.split("permissions:", 1)[1].split("env:", 1)[0])
         self.assertIn("ios_internal_notes.py notes", notes_job)
 
     def test_previous_build_holds_only_the_app_store_connect_key(self):
         job = self.jobs()["previous-build"]
-        self.assertEqual(set(re.findall(r"secrets\.(\w+)", job)), {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"})
+        self.assertEqual(workflow_jobs.secret_names(job), {"ASC_API_KEY_ID", "ASC_API_ISSUER_ID", "ASC_API_KEY_P8_BASE64"})
         self.assertIn("inputs.base == ''", job)
         self.assertIn("continue-on-error: true", job)
 

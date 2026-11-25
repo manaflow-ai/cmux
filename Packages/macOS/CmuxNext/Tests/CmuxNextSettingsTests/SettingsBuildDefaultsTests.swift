@@ -4,7 +4,7 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// `updates.downloadAutomatically` is opt-in on stable and on by default in NIGHTLY and DEV. The
+/// `updates.downloadAutomatically` is on by default on every channel (Leo 2026-11-07). The
 /// channel default fills the effective settings only: cmux-next.json is shared by every channel,
 /// so nothing is written there, and a value someone wrote always wins.
 @MainActor @Suite(.serialized) struct SettingsBuildDefaultsTests {
@@ -13,7 +13,7 @@ import Testing
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         let url = home.appending(path: "cmux-next.json")
         try Data(json.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [],
                                           buildDefaults: defaults)
         await settings.reload()
@@ -39,14 +39,19 @@ import Testing
         }
     }
 
-    @Test func stableStaysOptIn() async throws {
+    /// Automatic download is the schema's default (Leo 2026-11-07: "Yeah, let's do that, man"), so a
+    /// build with no channel default downloads by itself too.
+    @Test func theSchemaDefaultDownloadsAutomatically() async throws {
         let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: false))
         defer { try? FileManager.default.removeItem(at: home) }
-        #expect(!settings.snapshot.updates.downloadAutomatically)
+        #expect(settings.snapshot.updates.downloadAutomatically)
     }
 
+    /// A value someone wrote is never filled by the build default; one that does not decode reads as
+    /// the schema's default.
     @Test func aValueSomeoneWroteWins() async throws {
-        for (json, expected) in [(#"{"updates": {"downloadAutomatically": false}}"#, false), (#"{"updates": {"downloadAutomatically": "yes"}}"#, false)] {
+        for (json, expected) in [(#"{"updates": {"downloadAutomatically": false}}"#, false),
+                                 (#"{"updates": {"downloadAutomatically": "yes"}}"#, UpdatesSettings.downloadAutomaticallyDefault)] {
             let (settings, home) = try await Self.settings(json, .channel(downloadsAutomatically: true))
             defer { try? FileManager.default.removeItem(at: home) }
             #expect(settings.snapshot.updates.downloadAutomatically == expected, "\(json) lost to the channel default")
@@ -54,5 +59,25 @@ import Testing
         let (settings, home) = try await Self.settings(#"{"updates": {"downloadAutomatically": true}}"#, .channel(downloadsAutomatically: false))
         defer { try? FileManager.default.removeItem(at: home) }
         #expect(settings.snapshot.updates.downloadAutomatically, "an opt-in on stable was lost")
+    }
+
+    /// Update When Idle is on by default in cmux NEXT NIGHTLY and off in release (Leo, 2026-11-22: "auto be de
+    /// facto able to click the restart button"); an explicit off in NIGHTLY wins and is never written for him.
+    @Test func updateWhenIdleFollowsTheBuild() async throws {
+        let nightly = SettingsBuildDefaults.channel(downloadsAutomatically: true, installsWhenIdle: true)
+        do {
+            let (settings, home) = try await Self.settings("{}", nightly)
+            defer { try? FileManager.default.removeItem(at: home) }
+            #expect(settings.snapshot.updates.installWhenIdle, "NIGHTLY restarts when away by default")
+            #expect(try await settings.file.value(at: UpdatesSettings.installWhenIdlePath) == nil, "the build default was written")
+        }
+        do {
+            let (settings, home) = try await Self.settings(#"{"updates": {"installWhenIdle": false}}"#, nightly)
+            defer { try? FileManager.default.removeItem(at: home) }
+            #expect(!settings.snapshot.updates.installWhenIdle, "an explicit off lost to the build default")
+        }
+        let (settings, home) = try await Self.settings("{}", .channel(downloadsAutomatically: false))
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(!settings.snapshot.updates.installWhenIdle, "release stays off")
     }
 }

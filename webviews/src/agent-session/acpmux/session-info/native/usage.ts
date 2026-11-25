@@ -3,7 +3,8 @@
 import type { Translate } from "../../i18n";
 import type { AcpmuxSessionEntry } from "../../sessionList";
 import { byUsage, cacheUsageRows, type SessionUsageStats, UNKNOWN, usageCost, usageTokens } from "../../usageStats";
-import type { AcpmuxUsageLimits } from "../../model";
+import type { AcpmuxTimeBreakdown, AcpmuxUsageLimits } from "../../model";
+import { hasUnknownCategoryTokens, normalizedTimeBreakdown } from "../timeBreakdownModel";
 import { planLimitRows } from "../../usageLimits";
 import type { NativeInfoActions, NativeInfoRow, NativeInfoSection } from "./model";
 
@@ -14,6 +15,21 @@ type OwnAction = "compact" | "subagents" | "cap";
 
 const known = <T>(value: T | undefined, format: (value: T) => string) =>
   value === undefined ? UNKNOWN : format(value);
+
+const elapsed = (ms: number) => {
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.floor((ms % 60_000) / 1_000);
+  return minutes ? `${minutes}m ${seconds}s` : `${seconds}s`;
+};
+const timeLabel = (id: string, t: Translate) =>
+  ({
+    read: t("timeBreakdown.read"),
+    edit: t("timeBreakdown.edit"),
+    run: t("timeBreakdown.run"),
+    think: t("timeBreakdown.think"),
+    person: t("timeBreakdown.person"),
+    model: t("timeBreakdown.model"),
+  })[id] ?? id;
 
 function ownRows(
   stats: SessionUsageStats,
@@ -127,6 +143,7 @@ function ownRows(
 
 export type UsageInput = {
   own?: SessionUsageStats;
+  timeBreakdown?: AcpmuxTimeBreakdown;
   /// The account's plan usage limits this chat's harness reported (acpmux `usageLimits`).
   planLimits?: AcpmuxUsageLimits;
   sessions: readonly AcpmuxSessionEntry[];
@@ -138,6 +155,7 @@ export type UsageInput = {
   onOpen?: (sessionId: string) => void;
   onCompact?: () => void;
   onShowSubagents?: () => void;
+  onShowTurn?: (turnId: string) => void;
   locale?: string;
   sort?: "cost" | "context";
   onSortChange?: (sort: "cost" | "context") => void;
@@ -153,7 +171,9 @@ export function usageSection(
 ): NativeInfoSection | undefined {
   const hasSessionUsage = input.hasSessionUsage ?? input.sessions.some((entry) => Boolean(entry.usageStats));
   const planRows = planLimitRows(input.planLimits, t, Date.now(), input.locale);
-  if (!input.own && !hasSessionUsage && !planRows.length) return undefined;
+  const time = normalizedTimeBreakdown(input.timeBreakdown);
+  const hasTime = time.totalMs > 0 || time.spans.length > 0;
+  if (!input.own && !hasTime && !hasSessionUsage && !planRows.length) return undefined;
   const ranked = input.ranked ?? (input.open ? byUsage(input.sessions, input.sort ?? "cost") : []);
   const expanded = input.expanded === true;
   const sort = input.sort ?? "cost";
@@ -161,6 +181,33 @@ export function usageSection(
   const shown = folds && !expanded ? ranked.slice(0, USAGE_SHOWN) : ranked;
   const rows: NativeInfoRow[] = [];
   if (input.own) rows.push(...ownRows(input.own, t, input.locale, actions, input.onCompact, input.onShowSubagents));
+  if (hasTime) {
+    rows.push({
+      id: "time:head",
+      title: t("timeBreakdown.title"),
+      trailing:
+        elapsed(time.totalMs) +
+        (time.totalTokens === undefined
+          ? ""
+          : ` · ${t(time.tokensComplete ? "timeBreakdown.totalTokens" : "timeBreakdown.partialTokens", { tokens: usageTokens(time.totalTokens, input.locale) })}`),
+    });
+    for (const category of time.categories) {
+      const turnId = time.spans.find((span) => span.category === category.id)?.turnId;
+      rows.push({
+        id: `time:${category.id}`,
+        title: timeLabel(category.id, t),
+        // Category attribution is intentionally omitted: the journal measures the turn's tokens,
+        // but cannot prove which phase consumed them. The web chart shows the same explicit note.
+        trailing: elapsed(category.wallMs),
+        ...(turnId && input.onShowTurn
+          ? { action: actions.add(`time.show:${category.id}`, () => input.onShowTurn!(turnId)) }
+          : {}),
+      });
+    }
+    if (hasUnknownCategoryTokens(time)) {
+      rows.push({ id: "time:tokens-unknown", title: t("timeBreakdown.tokensUnavailable") });
+    }
+  }
   // The plan's limits, as the composer ring's plan usage popover shows them (PlanUsageCard.tsx).
   if (planRows.length) {
     rows.push({ id: "plan", title: t("sessionInfo.usage.planLimits") });

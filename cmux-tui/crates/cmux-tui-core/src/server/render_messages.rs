@@ -5,7 +5,6 @@
 //! (`MessageWriter`, `OutboundStream`) and the graphics cache
 //! (`RenderService`) stay in the parent module.
 
-use crate::panic_free::JsonFields;
 use std::collections::HashSet;
 use std::io::Write;
 use std::sync::Arc;
@@ -18,6 +17,7 @@ use super::{
     BudgetedJsonWriter, MessageWriter, OutboundStream, RenderService, write_base64_json_string,
 };
 use crate::browser::{BrowserAttachUpdate, BrowserFrameUpdate};
+use crate::surface::resume_ring::StreamStamp;
 use crate::{BrowserAttachState, Rgb, SurfaceId, SurfaceRenderFrame};
 
 pub(super) struct VtStateMessage {
@@ -32,6 +32,13 @@ pub(super) struct VtStateMessage {
     /// A tail replay's count of older history rows left out
     /// (`attach-replay-history-rows-v1`); `None`: the field is omitted.
     pub(super) history_rows_omitted: Option<u64>,
+    /// A window replay's count of history rows between its window and the
+    /// screen, left out (`attach-replay-history-window-v1`); `None`: omitted.
+    pub(super) history_rows_skipped: Option<u64>,
+    /// `terminal-resume-v1`: the stream position this replay stands at, and
+    /// how a resume attach was answered (`"gap"`); `None`: omitted.
+    pub(super) stamp: Option<StreamStamp>,
+    pub(super) resume: Option<&'static str>,
 }
 
 /// Additive attach-event fields captured from the client's advertised
@@ -40,6 +47,20 @@ pub(super) struct VtStateMessage {
 pub(super) struct AttachWireShape {
     pub(super) color_overrides: bool,
     pub(super) pending_sequence: bool,
+    /// `terminal-resume-v1`: the position the frame leaves the stream at.
+    pub(super) stamp: Option<StreamStamp>,
+}
+
+/// The `offset` and `generation` fields of a `terminal-resume-v1` event, and
+/// the closing brace.
+pub(super) fn close_with_stamp(
+    writer: &mut BudgetedJsonWriter,
+    stamp: Option<StreamStamp>,
+) -> std::io::Result<()> {
+    if let Some(stamp) = stamp {
+        write!(writer, ",\"offset\":{},\"generation\":\"{}\"", stamp.offset, stamp.generation())?;
+    }
+    writer.write_all(b"}")
 }
 
 /// Appends the optional `pending` field: the incomplete sequence a replay's
@@ -59,46 +80,109 @@ pub(super) fn write_pending_sequence_json(
 }
 
 fn rgb_hex(color: Rgb) -> String {
-    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
+    RgbHex(color).text()
 }
 
-pub(super) fn styled_run_json(run: &StyledRun) -> Value {
-    let underline = run.underline.map(|style| match style {
+/// A color as its `#rrggbb` JSON string, formatted on the stack.
+#[derive(Clone, Copy)]
+pub(super) struct RgbHex(pub(super) Rgb);
+
+impl RgbHex {
+    fn bytes(self) -> [u8; 7] {
+        const DIGITS: &[u8; 16] = b"0123456789abcdef";
+        let Rgb { r, g, b } = self.0;
+        let digit = |value: u8| DIGITS[usize::from(value & 0x0f)];
+        [b'#', digit(r >> 4), digit(r), digit(g >> 4), digit(g), digit(b >> 4), digit(b)]
+    }
+
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.bytes()).into_owned()
+    }
+}
+
+impl Serialize for RgbHex {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let bytes = self.bytes();
+        // Seven ASCII bytes: always UTF-8.
+        serializer.serialize_str(std::str::from_utf8(&bytes).unwrap_or("#000000"))
+    }
+}
+
+fn underline_name(style: UnderlineStyle) -> &'static str {
+    match style {
         UnderlineStyle::Single => "single",
         UnderlineStyle::Double => "double",
         UnderlineStyle::Curly => "curly",
         UnderlineStyle::Dotted => "dotted",
         UnderlineStyle::Dashed => "dashed",
-    });
-    let mut value = json!({
-        "text": run.text,
-        "fg": run.fg.map(rgb_hex),
-        "bg": run.bg.map(rgb_hex),
-        "attrs": run.attrs,
-    });
-    if let Some(underline) = underline {
-        value.insert("underline", json!(underline));
     }
-    if let Some(width_hint) = run.width_hint {
-        value.insert("width_hint", json!(width_hint));
-    }
-    value
 }
 
-fn render_rows_json(frame: &SurfaceRenderFrame, rows: impl IntoIterator<Item = u16>) -> Vec<Value> {
+/// One styled run on the render wire. Its fields are declared in key order:
+/// the run was a `serde_json::Value` object, whose keys serialize sorted, and
+/// clients get the same bytes (`render_wire_tests`).
+#[derive(Serialize)]
+pub(super) struct RenderRunMessage {
+    attrs: u16,
+    bg: Option<RgbHex>,
+    fg: Option<RgbHex>,
+    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    underline: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    width_hint: Option<u16>,
+}
+
+impl From<StyledRun> for RenderRunMessage {
+    fn from(run: StyledRun) -> Self {
+        Self {
+            attrs: run.attrs,
+            bg: run.bg.map(RgbHex),
+            fg: run.fg.map(RgbHex),
+            text: run.text,
+            underline: run.underline.map(underline_name),
+            width_hint: run.width_hint,
+        }
+    }
+}
+
+pub(super) fn styled_run_json(run: &StyledRun) -> Value {
+    serde_json::to_value(RenderRunMessage::from(run.clone())).unwrap_or_default()
+}
+
+/// One row of a render message, keys in order (see [`RenderRunMessage`]).
+#[derive(Serialize)]
+pub(super) struct RenderRowMessage {
+    row: u16,
+    runs: Vec<RenderRunMessage>,
+}
+
+fn render_rows_json(
+    frame: &SurfaceRenderFrame,
+    rows: impl IntoIterator<Item = u16>,
+) -> Vec<RenderRowMessage> {
     rows.into_iter()
         .filter_map(|row| {
-            frame.frame.row_runs(row).map(|runs| {
-                json!({
-                    "row": row,
-                    "runs": runs.iter().map(styled_run_json).collect::<Vec<_>>(),
-                })
+            frame.frame.row_runs(row).map(|runs| RenderRowMessage {
+                row,
+                runs: runs.into_iter().map(RenderRunMessage::from).collect(),
             })
         })
         .collect()
 }
 
-fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
+/// The cursor of a render message, keys in order (see [`RenderRunMessage`]).
+#[derive(Serialize)]
+pub(super) struct RenderCursorMessage {
+    blink: bool,
+    color: Option<RgbHex>,
+    style: &'static str,
+    visible: bool,
+    x: u16,
+    y: u16,
+}
+
+fn render_cursor_json(frame: &SurfaceRenderFrame) -> RenderCursorMessage {
     let (style, blink) = frame.frame.cursor_visual;
     let style = match style {
         ghostty_vt::CursorShape::Bar => "bar",
@@ -107,14 +191,7 @@ fn render_cursor_json(frame: &SurfaceRenderFrame) -> Value {
     };
     let (x, y, visible) =
         frame.frame.cursor.map(|cursor| (cursor.x, cursor.y, true)).unwrap_or((0, 0, false));
-    json!({
-        "x": x,
-        "y": y,
-        "style": style,
-        "blink": blink,
-        "visible": visible,
-        "color": frame.frame.cursor_color.map(rgb_hex),
-    })
+    RenderCursorMessage { blink, color: frame.frame.cursor_color.map(RgbHex), style, visible, x, y }
 }
 
 fn serialize_arc_str<S>(value: &Arc<str>, serializer: S) -> Result<S::Ok, S::Error>
@@ -247,12 +324,12 @@ pub(super) struct RenderStateMessage {
     pub(super) event: &'static str,
     pub(super) surface: SurfaceId,
     pub(super) size: RenderSizeMessage,
-    pub(super) cursor: Value,
+    pub(super) cursor: RenderCursorMessage,
     pub(super) default_fg: String,
     pub(super) default_bg: String,
     pub(super) scrollback_rows: u32,
     pub(super) history_epoch: u64,
-    pub(super) rows: Vec<Value>,
+    pub(super) rows: Vec<RenderRowMessage>,
     pub(super) graphics: RenderGraphicsMessage,
 }
 
@@ -286,9 +363,9 @@ pub(super) fn render_state_message(
 pub(super) struct RenderDeltaMessage {
     pub(super) event: &'static str,
     pub(super) surface: SurfaceId,
-    pub(super) cursor: Value,
+    pub(super) cursor: RenderCursorMessage,
     pub(super) full: bool,
-    pub(super) rows: Vec<Value>,
+    pub(super) rows: Vec<RenderRowMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) size: Option<RenderSizeMessage>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -573,3 +650,7 @@ fn browser_frame_payload(frame: &crate::BrowserFrame) -> BrowserFramePayload<'_>
         data: &frame.data_b64,
     }
 }
+
+#[cfg(test)]
+#[path = "render_wire_tests.rs"]
+mod render_wire_tests;

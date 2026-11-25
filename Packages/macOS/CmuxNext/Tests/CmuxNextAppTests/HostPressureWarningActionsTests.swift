@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextHostPressure
 import CmuxNextSettingsWindow
 import CmuxNextTestSupport
 import Testing
@@ -18,6 +19,8 @@ import Testing
         // A forced level, so the gauge shows once it samples (a forced level counts as seen in a window).
         _ = store.set(HostPressureTunables.force.key, HostPressureForce.warning.tunableValue)
         let registry = ActionRegistry(catalog: ActionCatalog.all)
+        // Debug-only rows: offered to the person only with Internal Developer Mode on.
+        registry.debugActions = DebugActionGate(devTools: true, isOn: { true })
         DebugTunableSwitchActions(show: "hostPressure.showWarning", hide: "hostPressure.hideWarning",
                                   tunable: HostPressureTunables.enabled, store: store).bind(into: registry)
         var service: HostPressureService?

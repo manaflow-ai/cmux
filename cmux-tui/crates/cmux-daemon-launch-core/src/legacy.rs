@@ -3,7 +3,8 @@
 //! a daemon state directory.
 //!
 //! Before cx-6so.41 these builds ran `cmux-app` in cmux-tui's default root;
-//! since then each runs `cmux-app-<channel>` in `cmux/tags/<channel>/tui`,
+//! since then each runs `cmux-app-<channel>` in `cmux-next/tags/<channel>/tui`
+//! (classic's `cmux/tags/<channel>/tui` before CmuxNext `StateFolderMove`),
 //! and nothing moved the old state. A channel build adopts `cmux-app` in
 //! place, once, when this bundle itself ran the old session (its own
 //! defaults name the old snapshot), that snapshot lists workspaces, and its

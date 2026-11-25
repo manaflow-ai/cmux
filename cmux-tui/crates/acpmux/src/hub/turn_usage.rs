@@ -39,6 +39,29 @@ use serde_json::{Map, Value, json};
 /// reads and writes (what every turn this acpmux records does).
 pub(super) const INPUT_EXCLUDES_CACHE: &str = "inputExcludesCache";
 
+/// A Claude result's token counts (`_meta.claude.usage`), with no cost. The hour-long part of
+/// the writes (`cache_creation.ephemeral_1h_input_tokens`, as each call's usage names it) is
+/// what prices them at their own tier in the ledger (`crate::pricing`). It is part of
+/// `cache_creation_input_tokens`, so it never exceeds it; a payload with the tier but no
+/// aggregate counts the aggregate as 0 and records an hour-long count of 0, which is also what
+/// `PriceTable::cost` bills for it (#39324 review F2).
+fn claude_tokens(claude: &Value) -> TurnUsage {
+    let tokens = |key: &str| claude.get("usage")?.get(key)?.as_u64();
+    let write = tokens("cache_creation_input_tokens");
+    let write_1h = claude
+        .pointer("/usage/cache_creation/ephemeral_1h_input_tokens")
+        .and_then(Value::as_u64)
+        .map(|n| n.min(write.unwrap_or(0)));
+    TurnUsage {
+        cost_usd: None,
+        input_tokens: tokens("input_tokens"),
+        output_tokens: tokens("output_tokens"),
+        cache_read_tokens: tokens("cache_read_input_tokens"),
+        cache_write_tokens: write,
+        cache_write_1h_tokens: write_1h,
+    }
+}
+
 /// The turn's `turn_result` fields for a prompt `result` (`model`, then any
 /// of `costUsd`, `inputTokens`, `outputTokens`, `cacheReadTokens` and
 /// `cacheWriteTokens`, added to the session's totals as the harness reported
@@ -56,14 +79,7 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> (Map<String, Valu
     let turn = if let Some(claude) = result.pointer("/_meta/claude") {
         context = claude.get("contextTokens").and_then(Value::as_u64);
         calls = claude.get("modelCalls").and_then(Value::as_u64);
-        let tokens = |key: &str| claude.get("usage")?.get(key)?.as_u64();
-        let mut turn = TurnUsage {
-            cost_usd: None,
-            input_tokens: tokens("input_tokens"),
-            output_tokens: tokens("output_tokens"),
-            cache_read_tokens: tokens("cache_read_input_tokens"),
-            cache_write_tokens: tokens("cache_creation_input_tokens"),
-        };
+        let mut turn = claude_tokens(claude);
         let running = claude.get("cost_usd").and_then(Value::as_f64);
         if let Some(running) = running.filter(|c| c.is_finite() && *c >= 0.0) {
             match meta.harness_cost_usd {
@@ -97,6 +113,19 @@ pub(super) fn turn_usage(session: &Session, result: &Value) -> (Map<String, Valu
         return (fields, budget);
     }
     meta.totals.get_or_insert_with(TurnUsage::default).add(&reported);
+    // Opt-in usage patterns: the turn's token counts as its harness reported them.
+    if let Some(recorder) = cmux_usage_patterns::global().filter(|r| r.enabled()) {
+        for (kind, n) in [
+            ("input", reported.input_tokens),
+            ("output", reported.output_tokens),
+            ("cache-read", reported.cache_read_tokens),
+            ("cache-write", reported.cache_write_tokens),
+        ] {
+            if let Some(n) = n {
+                recorder.count_n("tokens", kind, n);
+            }
+        }
+    }
     if let Ok(Value::Object(spent)) = serde_json::to_value(&turn) {
         fields.extend(spent);
     }
@@ -186,88 +215,10 @@ fn generic_usage(usage: Option<&Value>, fresh_harness: bool) -> TurnUsage {
         output_tokens: output,
         cache_read_tokens: cache_read,
         cache_write_tokens: cache_write,
+        cache_write_1h_tokens: None,
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::generic_usage;
-    use serde_json::json;
-
-    #[test]
-    fn maps_gemini_usage() {
-        let usage = generic_usage(
-            Some(
-                &json!({"inputTokens": 12, "outputTokens": 8, "thoughtsTokens": 3, "cachedTokens": 4}),
-            ),
-            false,
-        );
-        // Its 12 input count the 4 read from the cache: 8 were fresh.
-        assert_eq!(usage.input_tokens, Some(8));
-        assert_eq!(usage.output_tokens, Some(8));
-        assert_eq!(usage.cache_read_tokens, Some(4));
-    }
-
-    #[test]
-    fn maps_codex_usage_with_its_cached_input_apart() {
-        // A Codex turn of 22 calls (a real rollout's token_count events, added up): its input
-        // counts the 3,021,696 read from the cache, so 314,899 were fresh.
-        let usage = generic_usage(
-            Some(&json!({"inputTokens": 3_336_595, "cachedReadTokens": 3_021_696,
-            "outputTokens": 4_017, "thoughtTokens": 1_182, "totalTokens": 3_340_612})),
-            false,
-        );
-        assert_eq!(usage.input_tokens, Some(314_899));
-        assert_eq!(usage.cache_read_tokens, Some(3_021_696));
-        assert_eq!(usage.cache_write_tokens, None);
-        assert_eq!(usage.output_tokens, Some(4_017));
-    }
-
-    #[test]
-    fn maps_muse_usage_and_derives_output_when_needed() {
-        let usage = generic_usage(
-            Some(
-                &json!({"promptTokens": 20, "totalTokens": 31, "cost": {"amount": 0.25, "currency": "USD"}}),
-            ),
-            false,
-        );
-        assert_eq!(usage.input_tokens, Some(20));
-        assert_eq!(usage.output_tokens, Some(11));
-        assert_eq!(usage.cost_usd, Some(0.25));
-    }
-
-    // A Claude ACP adapter turn (`@agentclientprotocol/claude-agent-acp` `sessionUsage`): its
-    // `inputTokens` is Anthropic's `input_tokens`, the fresh part alone, and its `totalTokens`
-    // adds the cache's reads and writes on.
-    const CLAUDE_ACP: &str = r#"{"inputTokens": 112, "outputTokens": 23702,
-        "cachedReadTokens": 4530027, "cachedWriteTokens": 124616, "totalTokens": 4678457}"#;
-
-    #[test]
-    fn maps_claude_acp_usage_without_taking_its_cache_out_twice() {
-        let usage: serde_json::Value = serde_json::from_str(CLAUDE_ACP).unwrap();
-        // Its total says the input left the cache out, whatever the harness is named.
-        for fresh_harness in [true, false] {
-            let usage = generic_usage(Some(&usage), fresh_harness);
-            assert_eq!(usage.input_tokens, Some(112));
-            assert_eq!(usage.cache_read_tokens, Some(4_530_027));
-            assert_eq!(usage.cache_write_tokens, Some(124_616));
-            assert_eq!(usage.output_tokens, Some(23_702));
-        }
-        // With no total, its harness says it.
-        let mut bare = usage.clone();
-        bare.as_object_mut().unwrap().remove("totalTokens");
-        assert_eq!(generic_usage(Some(&bare), true).input_tokens, Some(112));
-        assert_eq!(generic_usage(Some(&bare), false).input_tokens, Some(0));
-    }
-
-    #[test]
-    fn a_codex_total_takes_its_cache_out_even_under_a_claude_name() {
-        // opencode or a renamed profile: its total (input plus output) says the cache is in.
-        let usage = generic_usage(
-            Some(&json!({"inputTokens": 3_336_595, "cachedReadTokens": 3_021_696,
-                "outputTokens": 4_017, "totalTokens": 3_340_612})),
-            true,
-        );
-        assert_eq!(usage.input_tokens, Some(314_899));
-    }
-}
+#[path = "turn_usage_tests.rs"]
+mod tests;

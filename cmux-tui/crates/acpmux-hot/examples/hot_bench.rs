@@ -13,9 +13,12 @@ use std::time::{Duration, Instant};
 
 /// The `Agent` that acpmux's `parse.rs` names as `super::Agent`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // Gemini and Grok: parse.rs names them; the WIT world reads only the first two.
 pub enum Agent {
     Claude,
     Codex,
+    Gemini,
+    Grok,
 }
 
 #[allow(dead_code)]
@@ -198,6 +201,7 @@ fn cases() -> Vec<Case> {
         let hot_agent = match agent {
             Agent::Claude => acpmux_hot::Agent::Claude,
             Agent::Codex => acpmux_hot::Agent::Codex,
+            Agent::Gemini | Agent::Grok => continue,
         };
         let text = Arc::new(text);
         let t2 = text.clone();

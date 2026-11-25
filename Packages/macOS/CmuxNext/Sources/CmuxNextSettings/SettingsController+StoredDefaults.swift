@@ -45,6 +45,7 @@ extension SettingsController {
         _ = try? await migrateLegacyQuitBehavior()
         _ = try? await migrateLegacyWorkspaceRowKeys() // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`
         _ = try? await migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
+        _ = try? await migrateComputerUseDeniedApps() // a copy of the earlier default deny list drops the terminals and cmux
         // Classic cmux keys next reads under another name (`ClassicSettingRename`).
         _ = try? await migrateClassicSettings()
         // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).
@@ -52,7 +53,48 @@ extension SettingsController {
         _ = try? await importClassicPreferences(marker: marker)
         // Last, so a value the steps above moved counts too.
         _ = try? await forgetStoredDefaults(marker: marker)
+        _ = try? await restoreWronglyForgottenDefaults()
         _ = try? await dropStrayNulls(marker: marker)
+    }
+
+    /// The record `restoreWronglyForgottenDefaults` keeps beside the file; it also marks that it ran.
+    static let storedDefaultsRestoredRecordSuffix = "defaults-restored.json"
+
+    /// Puts back, once per file, each value the stored-defaults pass dropped that this build would
+    /// keep: a value no longer listed as a former default and not this build's default. The pass
+    /// dropped `updates.downloadAutomatically: true` as a former default although it had been an
+    /// opt-in since 2026-10-27, so Automatic Updates stayed off for anyone who had turned it on
+    /// (Lawrence 2026-11-08: "i keep enabling auto updates but it keeps getting toggled off"; Leo
+    /// 2026-11-09: "that update, it wasn't just the one-click automatic thing"). A key set since
+    /// keeps its value. Returns the keys put back, or nil when it already ran for this file or the
+    /// pass left no record.
+    @discardableResult
+    public func restoreWronglyForgottenDefaults() async throws -> [String]? {
+        try await restoreWronglyForgottenDefaults(formerDefaults: SettingsSchema.formerDefaults)
+    }
+
+    /// `restoreWronglyForgottenDefaults()` with the former defaults given (tests).
+    @discardableResult
+    func restoreWronglyForgottenDefaults(formerDefaults: [String: [JSONValue]]) async throws -> [String]? {
+        guard !(await file.hasRecordBeside(suffix: Self.storedDefaultsRestoredRecordSuffix)),
+              let text = await file.readBeside(suffix: Self.storedDefaultsForgottenRecordSuffix),
+              case .object(let dropped)? = (try? JSONC.parse(text))?.value(at: ["dropped"]) else { return nil }
+        let restorable = SettingsSchema.all.compactMap { descriptor -> (path: [String], value: JSONValue)? in
+            guard let value = dropped[descriptor.id], formerDefaults[descriptor.id]?.contains(value) != true,
+                  !isUnsetValue(value, of: descriptor), managedKeys[descriptor.id] == nil else { return nil }
+            return (descriptor.path, value)
+        }
+        let restored = restorable.isEmpty ? [] : try await file.setUnset(restorable)
+        if !restored.isEmpty { await reloadAfterWrite() }
+        let keys = restored.map { $0.joined(separator: ".") }
+        let record: JSONValue = .object([
+            "note": .string("cmux put back these values the stored-defaults pass had dropped as copies of defaults."),
+            "restored": .array(keys.map(JSONValue.string)),
+        ])
+        try await file.writeBeside(suffix: Self.storedDefaultsRestoredRecordSuffix, text: record.prettyText() + "\n")
+        Logger(subsystem: "com.cmuxterm.app.next", category: "settings").info(
+            "stored defaults: restored [\(keys.joined(separator: ", "), privacy: .public)]")
+        return keys
     }
 
     /// The UserDefaults key that records the pass ran on this channel (a later pass with other
@@ -90,9 +132,11 @@ extension SettingsController {
         var report = StoredDefaultsReport()
         for descriptor in SettingsSchema.all {
             guard let stored = root.value(at: descriptor.path) else { continue }
+            // Older files stored Automatic as an explicit, non-default group choice.
+            let pinnedGroup = descriptor.path == SidebarSectionsSetting.groupHeaderBackgroundPath && stored == .string("auto")
             let copiesDefault = isUnsetValue(stored, of: descriptor)
                 || (formerDefaults[descriptor.id]?.contains(stored) == true && !layerBelowFileSets(descriptor.id))
-            if copiesDefault, managedKeys[descriptor.id] == nil, !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
+            if copiesDefault, !pinnedGroup, managedKeys[descriptor.id] == nil, !SettingsSchema.keptOnResetAll.contains(descriptor.path) {
                 report.dropped[descriptor.id] = stored
             } else {
                 report.kept[descriptor.id] = stored

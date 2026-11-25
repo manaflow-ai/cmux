@@ -191,7 +191,7 @@ fn empty_workspace_registry_has_stable_keys_revisions_and_close() {
 }
 
 #[test]
-fn empty_workspace_registry_enforces_count_and_string_limits() {
+fn empty_workspace_registry_enforces_string_limits_and_no_count_cap() {
     let mux = test_mux();
     let boundary_key = "k".repeat(WORKSPACE_KEY_MAX_BYTES);
     Mux::validate_workspace_key(&boundary_key).expect("boundary-sized workspace key");
@@ -231,12 +231,16 @@ fn empty_workspace_registry_enforces_count_and_string_limits() {
         assert_eq!(state.workspace_by_id(placement.workspace).unwrap().name, name);
     });
 
+    // No count cap: a workspace costs its entry and index rows, so a registry
+    // past the 4096 the daemon once refused at still takes another.
     let full_mux = test_mux();
+    let past_old_cap = 4_097;
     {
         let mut state = full_mux.state.lock().unwrap();
-        for index in 0..WORKSPACE_REGISTRY_LIMIT {
+        for index in 0..past_old_cap {
             state.push_workspace(Workspace {
-                id: index as u64 + 1,
+                // From the mux's own counter, as a real workspace's id is.
+                id: full_mux.next_id(),
                 public_id: WorkspacePublicId::random().unwrap(),
                 key: format!("key-{index}"),
                 name: format!("workspace-{index}"),
@@ -247,16 +251,11 @@ fn empty_workspace_registry_enforces_count_and_string_limits() {
             });
         }
     }
-    assert_eq!(
-        full_mux
-            .create_empty_workspace(None, None, None)
-            .expect_err("full registry must reject another workspace")
-            .to_string(),
-        format!("workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})")
-    );
+    full_mux
+        .create_empty_workspace(None, None, None)
+        .expect("a large registry takes another workspace");
     full_mux.with_state(|state| {
-        assert_eq!(state.workspaces.len(), WORKSPACE_REGISTRY_LIMIT);
-        assert_eq!(state.workspace_revision, 0);
+        assert_eq!(state.workspaces.len(), past_old_cap + 1);
     });
 }
 
@@ -545,7 +544,7 @@ fn workspace_changes_after(mux: &Mux, revision: u64) -> (Vec<String>, Vec<String
 }
 
 /// The workspace values the journal states, folded from revision 0 over every page, by workspace public id.
-fn journal_workspaces(mux: &Mux) -> std::collections::BTreeMap<String, Value> {
+pub(super) fn journal_workspaces(mux: &Mux) -> std::collections::BTreeMap<String, Value> {
     let mut stated = std::collections::BTreeMap::<String, Value>::new();
     let mut revision = 0;
     loop {
@@ -572,7 +571,7 @@ fn journal_workspaces(mux: &Mux) -> std::collections::BTreeMap<String, Value> {
 
 /// The journal, folded from revision 0, states each live workspace's whole value as its rows give it now
 /// (`workspace_value`: name, index, focus, session, name provenance, decorations and key), and no other.
-fn assert_journal_states_the_rows(mux: &Mux) {
+pub(super) fn assert_journal_states_the_rows(mux: &Mux) {
     let stated = journal_workspaces(mux);
     let registry = mux.workspace_registry.lock().unwrap();
     let db = registry.connection.get();
@@ -608,7 +607,7 @@ fn assert_journal_states_the_rows(mux: &Mux) {
 
 /// The journal, folded from revision 0, states every live workspace as the session snapshot shows it (name, index,
 /// focus, and the decorations: title, color, icon), and no other; and each whole value as its rows give it.
-fn assert_journal_states_the_session(mux: &Mux) {
+pub(super) fn assert_journal_states_the_session(mux: &Mux) {
     let stated = journal_workspaces(mux);
     let snapshot = crate::resource_api::public_session_snapshot(mux).unwrap();
     let live = snapshot["workspaces"].as_array().unwrap();
@@ -640,8 +639,8 @@ fn assert_journal_states_the_session(mux: &Mux) {
     assert_journal_states_the_rows(mux);
 }
 
-/// `count` workspaces, then one full resource effect projection (as a session's first terminal create runs when the
-/// fold is empty), which restates every resource and seeds the journal's public fold, as in a live session.
+/// `count` workspaces, then one full resource effect projection (as a terminal close runs), which restates every
+/// resource and makes the journal's public fold complete, as in a live session.
 fn mux_with_workspaces(count: usize) -> Arc<Mux> {
     let mux = test_mux();
     for index in 0..count {
@@ -664,8 +663,8 @@ fn mux_with_workspaces(count: usize) -> Arc<Mux> {
     mux.commit_full_resource_effect_projection(key, operation, &fingerprint, serde_json::json!({}))
         .unwrap();
     assert!(
-        mux.workspace_registry.lock().unwrap().public_fold_seeded(),
-        "the full projection did not seed the fold"
+        mux.workspace_registry.lock().unwrap().public_fold_complete_for_test(),
+        "the full projection did not make the fold complete"
     );
     mux
 }
@@ -875,7 +874,9 @@ fn a_workspace_commit_prepared_before_another_lands_states_every_workspace() {
     let early = prepare(&moved, &base[30].key, "workspace-moved");
     for intent in [early, late] {
         registry
-            .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(intent))
+            .commit_registry_intent(crate::workspace_registry::RegistryIntent::Workspace(Box::new(
+                intent,
+            )))
             .unwrap();
     }
     drop(registry);

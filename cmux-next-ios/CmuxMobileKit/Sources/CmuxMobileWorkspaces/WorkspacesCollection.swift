@@ -13,6 +13,8 @@ enum WorkspacesListItem: Equatable {
     case title(String)
     /// Every Mac is asleep (All Macs, no search).
     case asleep
+    /// The filtered Mac can't be used: what is wrong and Retry, above its last-known rows (cmux#52200).
+    case recovery(String)
     /// A Mac workspace group's header.
     case group(WorkspaceGroupHeaderModel)
     /// Group by Folder: a folder's header over its loose rows.
@@ -49,7 +51,13 @@ struct WorkspaceFoldLineModel: Equatable {
     var typeSize: DynamicTypeSize
     var canReconnect: Bool
     var sameNames: MacNameDisambiguation
-    var now: Date
+}
+
+/// A view that reads the minute clock in its own body, so a tick redraws it and not the list
+/// that holds it (a Mac line's "Last seen 4m ago").
+struct OnMinute<Content: View>: View {
+    let content: (Date) -> Content
+    var body: some View { content(MinuteClock.shared.now) }
 }
 
 /// The Workspaces list's sections and items, as the collection shows them.
@@ -125,6 +133,12 @@ struct WorkspacesCollection: UIViewRepresentable {
         // A person's change (pin, group, filter) comes in an animated transaction.
         let animated = context.transaction.animation != nil && !context.transaction.disablesAnimations
         context.coordinator.update(model: model, actions: actions, animated: animated, membershipKey: membershipKey)
+        // Room under the last row for the New Task button that floats over the list's bottom.
+        let bottomRoom = context.environment.cmuxMobileFloatingBottomRoom
+        if view.contentInset.bottom != bottomRoom {
+            view.contentInset.bottom = bottomRoom
+            view.verticalScrollIndicatorInsets.bottom = bottomRoom
+        }
     }
 }
 
@@ -132,9 +146,15 @@ struct WorkspacesCollection: UIViewRepresentable {
 /// navigation bar's scroll edge, the search drawer and the tab bar's
 /// minimize on scroll follow it.
 final class WorkspacesCollectionView: UICollectionView {
+    /// VoiceOver's three-finger scroll down at the top refreshes, as it does with `UIRefreshControl`.
+    var accessibilityRefresh: (() -> Bool)?
+    /// The list came back on screen (its controller applies what it held).
+    var onWindow: (() -> Void)?
+
     override func didMoveToWindow() {
         super.didMoveToWindow()
         guard window != nil else { return }
+        onWindow?()
         var responder: UIResponder? = self
         while let next = responder?.next {
             if let controller = next as? UIViewController {
@@ -144,6 +164,11 @@ final class WorkspacesCollectionView: UICollectionView {
             }
             responder = next
         }
+    }
+
+    override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        if direction == .up, accessibilityRefresh?() == true { return true }
+        return super.accessibilityScroll(direction)
     }
 }
 
@@ -178,6 +203,9 @@ final class WorkspacesHeightCache {
     private(set) var hits = 0
 
     func height(_ key: Key, width: CGFloat) -> CGFloat? {
+        // A Mac line's "Last seen 4m ago" moves on in its own view (`OnMinute`) with no new
+        // value, so its height is measured each time, never cached (a few lines, one per Mac).
+        if case .fold = key.item { return nil }
         if let shape = shape(key.item), let known = shapes[shape], known.width == width {
             hits += 1
             return known.height
@@ -188,6 +216,7 @@ final class WorkspacesHeightCache {
     }
 
     func store(_ key: Key, width: CGFloat, height: CGFloat) {
+        if case .fold = key.item { return }
         if let shape = shape(key.item) {
             shapes[shape] = (width, height)
         } else {
@@ -217,7 +246,7 @@ final class WorkspacesListCell: UICollectionViewCell {
     var heights: WorkspacesHeightCache?
     var key: WorkspacesHeightCache.Key?
     /// The plain list's separator end, from the trailing edge.
-    static let separatorTrailing: CGFloat = 16
+    static let separatorTrailing = CmuxMobileListRowMetrics.separatorTrailing
     /// A hairline under a row, from the rows' text column to 16 pt from the trailing edge.
     var showsSeparator = false {
         didSet { hairline.isHidden = !showsSeparator }
@@ -274,7 +303,8 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     private var pendingAnimated = false
     private var applyScheduled = false
     private var membershipKey: Int?
-    private var refreshControl: UIRefreshControl?
+    /// Pull to refresh under the search field (`ListPullToRefresh` says why not `UIRefreshControl`).
+    private var pullToRefresh: ListPullToRefresh?
     /// Snapshots and reconfigures applied (tests and the rig read them).
     private(set) var applyCount = 0
     private(set) var reconfigureCount = 0
@@ -307,6 +337,11 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
             return section
         }
         let view = WorkspacesCollectionView(frame: .zero, collectionViewLayout: layout)
+        view.onWindow = { [weak self] in
+            // Before the frame that shows it again (a back swipe draws the list at once).
+            guard let self, self.pending != nil, !self.applyScheduled else { return }
+            self.applyPending()
+        }
         view.backgroundColor = .clear
         view.alwaysBounceVertical = true
         view.keyboardDismissMode = .onDrag
@@ -368,12 +403,12 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     /// Each item's insets in its cell, as the SwiftUI list's row insets were.
     static func margins(_ item: WorkspacesListItem) -> EdgeInsets {
         switch item {
-        case .row: EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20)
+        case .row: CmuxMobileListRowMetrics.insets
         case .title: EdgeInsets(top: 14, leading: 0, bottom: 2, trailing: 20)
         case .group: EdgeInsets(top: 4, leading: 0, bottom: 0, trailing: 20)
         case .folder: EdgeInsets(top: 10, leading: 0, bottom: 2, trailing: 20)
         case .fold: EdgeInsets(top: 10, leading: 0, bottom: 4, trailing: 20)
-        case .asleep: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
+        case .asleep, .recovery: EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20)
         case .loading: EdgeInsets()
         }
     }
@@ -400,6 +435,10 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
         applyScheduled = false
         heights.textSize = collectionView?.traitCollection.preferredContentSizeCategory ?? .large
         guard let next = pending, let dataSource else { return }
+        // Off screen (a workspace is open over the list), the latest model waits
+        // for the list to come back: a busy Mac's pushes would otherwise diff and
+        // lay out the hidden list on main while the person types in a composer.
+        guard collectionView?.window != nil || dataSource.snapshot().numberOfSections == 0 else { return }
         pending = nil
         let animated = pendingAnimated && !UIAccessibility.isReduceMotionEnabled && collectionView?.window != nil
         pendingAnimated = false
@@ -503,21 +542,34 @@ final class WorkspacesListController: NSObject, UICollectionViewDelegate {
     }
 
     private func configureRefresh(_ wanted: Bool) {
-        guard let collectionView, wanted != (refreshControl != nil) else { return }
+        guard let collectionView, wanted != (pullToRefresh != nil) else { return }
         if wanted {
-            let refresh = UIRefreshControl()
-            refresh.addAction(UIAction { [weak self, weak refresh] _ in
-                Task { @MainActor in
-                    await self?.actions?.refresh?()
-                    refresh?.endRefreshing()
-                }
-            }, for: .valueChanged)
-            collectionView.refreshControl = refresh
-            refreshControl = refresh
+            pullToRefresh = ListPullToRefresh(scrollView: collectionView) { [weak self] in
+                await self?.actions?.refresh?()
+            }
+            collectionView.accessibilityRefresh = { [weak self] in self?.pullToRefresh?.accessibilityRefresh() ?? false }
         } else {
-            collectionView.refreshControl = nil
-            refreshControl = nil
+            pullToRefresh?.detach()
+            pullToRefresh = nil
+            collectionView.accessibilityRefresh = nil
         }
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        pullToRefresh?.scrolled()
+    }
+
+    func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
+        pullToRefresh?.scrolled()
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        pullToRefresh?.endedDecelerating()
+    }
+
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
+                                   targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        pullToRefresh?.willEndDragging(targetContentOffset: targetContentOffset)
     }
 
     // MARK: Rows

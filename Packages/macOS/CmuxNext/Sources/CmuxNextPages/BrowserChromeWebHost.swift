@@ -7,9 +7,8 @@ import CmuxNextSettings
 /// page's `cmux.<page>.command` and `cmux.<page>.size` calls go back to the owner.
 @MainActor
 public final class BrowserChromeWebHost: BrowserChromeWebContent {
-    /// The bubble's page floats in a glass panel that closes when it loses the keys, and the Page
-    /// Info windows' pages draw over their window's surface; a Chromium page is an opaque child
-    /// window that takes the keys.
+    /// The Page Info windows' pages draw over their window's surface and the Import Cookies card
+    /// over its native glass; a Chromium page is an opaque child window that takes the keys.
     static let engineOptions = PageEngineOptions(requiresWebKit: .transparentOverlay)
 
     let page: PageWebView
@@ -24,7 +23,6 @@ public final class BrowserChromeWebHost: BrowserChromeWebContent {
     public init?(_ surface: BrowserChromeWebPage) {
         let descriptor: PageDescriptor
         switch surface {
-        case .pageInfo: descriptor = .pageInfo
         case .siteSettings: descriptor = .siteSettings
         case .siteData: descriptor = .siteData
         case .certificate: descriptor = .certificate

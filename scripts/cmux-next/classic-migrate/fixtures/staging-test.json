@@ -1,0 +1,176 @@
+{
+  "stack_project_id": "00000000-0000-4000-8000-0000000057a6",
+  "tables": {
+    "hexclave_users": [
+      {
+        "id": "11111111-1111-4111-8111-111111111111",
+        "primary_email": "alice@example.com",
+        "display_name": "Alice",
+        "client_read_only_metadata": { "cmuxPlan": "pro" }
+      },
+      {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "primary_email": "bob@example.com",
+        "display_name": "Bob",
+        "client_read_only_metadata": null
+      }
+    ],
+    "hexclave_teams": [
+      {
+        "id": "aaaaaaaa-0000-4000-8000-00000000a11c",
+        "display_name": "Alice's Team",
+        "client_read_only_metadata": { "cmuxPlan": "pro" }
+      },
+      {
+        "id": "bbbbbbbb-0000-4000-8000-000000000ac3",
+        "display_name": "Acme",
+        "client_read_only_metadata": { "cmuxPlan": "team", "cmuxSeats": 2 }
+      }
+    ],
+    "hexclave_team_memberships": [
+      { "team_id": "aaaaaaaa-0000-4000-8000-00000000a11c", "user_id": "11111111-1111-4111-8111-111111111111" },
+      { "team_id": "bbbbbbbb-0000-4000-8000-000000000ac3", "user_id": "11111111-1111-4111-8111-111111111111" },
+      { "team_id": "bbbbbbbb-0000-4000-8000-000000000ac3", "user_id": "22222222-2222-4222-8222-222222222222" }
+    ],
+    "cloud_vms": [
+      {
+        "id": "c0000001-0000-4000-8000-000000000001",
+        "user_id": "11111111-1111-4111-8111-111111111111",
+        "owner_team_id": "aaaaaaaa-0000-4000-8000-00000000a11c",
+        "billing_team_id": "aaaaaaaa-0000-4000-8000-00000000a11c",
+        "provider": "freestyle",
+        "provider_vm_id": "fs-alice-dev",
+        "display_name": "alice-dev",
+        "slug": "sleepy-teal-otter",
+        "image_id": "cmux-cloud",
+        "image_version": "2026-10-30",
+        "status": "running",
+        "destroyed_at": null,
+        "provider_metadata": { "cmuxResourceReservation": { "vcpus": 4, "memoryMb": 8192, "diskMb": 32768 } }
+      },
+      {
+        "id": "c0000002-0000-4000-8000-000000000002",
+        "user_id": "11111111-1111-4111-8111-111111111111",
+        "owner_team_id": "11111111-1111-4111-8111-111111111111",
+        "billing_team_id": null,
+        "provider": "freestyle",
+        "provider_vm_id": "fs-alice-old",
+        "display_name": null,
+        "slug": "brave-red-fox",
+        "image_id": "cmux-cloud",
+        "image_version": "2026-09-01",
+        "status": "destroyed",
+        "destroyed_at": "2026-10-01T00:00:00.000Z",
+        "provider_metadata": {}
+      },
+      {
+        "id": "c0000003-0000-4000-8000-000000000003",
+        "user_id": "22222222-2222-4222-8222-222222222222",
+        "owner_team_id": "bbbbbbbb-0000-4000-8000-000000000ac3",
+        "billing_team_id": "bbbbbbbb-0000-4000-8000-000000000ac3",
+        "provider": "freestyle",
+        "provider_vm_id": "fs-acme-ci",
+        "display_name": "acme-ci",
+        "slug": "quiet-blue-heron",
+        "image_id": "cmux-cloud",
+        "image_version": "2026-10-30",
+        "status": "paused",
+        "destroyed_at": null,
+        "provider_metadata": {}
+      }
+    ],
+    "cloud_vm_snapshot_requests": [
+      {
+        "vm_id": "c0000001-0000-4000-8000-000000000001",
+        "idempotency_key": "before-upgrade",
+        "status": "succeeded",
+        "provider_snapshot_id": "fs-snap-alice-1",
+        "snapshot_name": "before upgrade"
+      }
+    ],
+    "cloud_vm_publications": [
+      {
+        "id": "d0000001-0000-4000-8000-000000000001",
+        "owner_user_id": "11111111-1111-4111-8111-111111111111",
+        "vm_id": "c0000001-0000-4000-8000-000000000001",
+        "domain_id": "e0000001-0000-4000-8000-000000000001",
+        "hostname": "alice-dev.example.app",
+        "access_mode": "public",
+        "state": "active"
+      }
+    ],
+    "cloud_vm_domains": [
+      {
+        "id": "e0000001-0000-4000-8000-000000000001",
+        "owner_user_id": "11111111-1111-4111-8111-111111111111",
+        "hostname": "alice-dev.example.app",
+        "kind": "generated"
+      }
+    ],
+    "cloud_vm_tunnels": [
+      {
+        "id": "f0000001-0000-4000-8000-000000000001",
+        "user_id": "11111111-1111-4111-8111-111111111111",
+        "provider_tunnel_id": "tun-alice-mac",
+        "device_name": "Alice's MacBook",
+        "tunnel_purpose": "private_network",
+        "revoked_at": null
+      }
+    ],
+    "stripe_customers": [
+      {
+        "id": "cus_alice",
+        "stack_user_id": "11111111-1111-4111-8111-111111111111",
+        "stack_team_id": null,
+        "email": "alice@example.com"
+      },
+      {
+        "id": "cus_acme",
+        "stack_user_id": "22222222-2222-4222-8222-222222222222",
+        "stack_team_id": "bbbbbbbb-0000-4000-8000-000000000ac3",
+        "email": "billing@acme.example"
+      }
+    ],
+    "stripe_subscriptions": [
+      {
+        "id": "sub_alice",
+        "customer_id": "cus_alice",
+        "stack_user_id": "11111111-1111-4111-8111-111111111111",
+        "stack_team_id": null,
+        "status": "active",
+        "plan": "pro",
+        "scope": "user",
+        "seats": null
+      },
+      {
+        "id": "sub_acme",
+        "customer_id": "cus_acme",
+        "stack_user_id": "22222222-2222-4222-8222-222222222222",
+        "stack_team_id": "bbbbbbbb-0000-4000-8000-000000000ac3",
+        "status": "active",
+        "plan": "team",
+        "scope": "team",
+        "seats": 2
+      }
+    ],
+    "coderouter_api_keys": [
+      {
+        "id": "a0000001-0000-4000-8000-000000000001",
+        "team_id": "11111111-1111-4111-8111-111111111111",
+        "stack_user_id": "11111111-1111-4111-8111-111111111111",
+        "key_prefix": "crk_ab12",
+        "label": "laptop",
+        "revoked_at": null
+      }
+    ],
+    "coderouter_route_tokens": [],
+    "apple_subscriptions": [],
+    "admin_plan_grants": [],
+    "runs": [
+      { "id": "r1", "user_id": "11111111-1111-4111-8111-111111111111", "owner_team_id": null },
+      { "id": "r2", "user_id": "11111111-1111-4111-8111-111111111111", "owner_team_id": null },
+      { "id": "r3", "user_id": "22222222-2222-4222-8222-222222222222", "owner_team_id": "bbbbbbbb-0000-4000-8000-000000000ac3" }
+    ],
+    "vault_sessions": [{ "id": "v1", "user_id": "11111111-1111-4111-8111-111111111111" }]
+  }
+}

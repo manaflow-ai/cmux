@@ -1,6 +1,6 @@
 // Settings on TanStack Router (Lawrence 2026-10-21, msg 8948): a section link preloads its section
 // on hover (the router's intent preload runs the section route's loader), the click then reads
-// nothing again, and the sidebar search lives in the route (`?q=`, `?changed=1`).
+// nothing again, and the sidebar search lives in the route (`?q=`).
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { installDom } from "./testDom";
 import type { Rendered } from "./testing";
@@ -67,13 +67,11 @@ test("a section opened by its route draws its buttons from the route's loader", 
   expect(actionReads(page, "advanced")).toBe(1);
 });
 
-test("the search text and the Changed filter are the route's search", async () => {
+test("the search text is the route's search", async () => {
   page = await renderPage({ path: "/settings/general" });
   const field = page.container.querySelector<HTMLInputElement>("input[data-settings-search]")!;
   await changeValue(field, "font");
   expect(new URLSearchParams(page.history.location.search).get("q")).toBe("font");
-  await click(page.container.querySelector("[data-changed-only]")!);
-  expect(new URLSearchParams(page.history.location.search).get("changed")).toBe("1");
   // Typing adds no history entries: Back leaves the search for the page before it.
   await click(link(page, "appearance"));
   expect(shown(page)).toBe("appearance");

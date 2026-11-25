@@ -10,11 +10,10 @@
 // as Esc does, and draws the lit mic as Stop (DictationButton).
 import React, { useSyncExternalStore } from "react";
 import { usePresence } from "../../ui/presence";
-import { useComposerLook } from "./composerLook";
+import { lookRowInBox, useComposerLook } from "./composerLook";
 import { readLevel, subscribeLevel, type Dictation } from "./dictation";
 import "./dictation.css";
 import { useT } from "./i18n";
-import { readOutsideLevel, subscribeOutsideLevel } from "./outsideDictation";
 import { tooltipProps } from "./shortcuts";
 
 /// Resting dots at each end of the waveform.
@@ -58,23 +57,6 @@ export function DictationWave({ state }: { state: Dictation["state"] }) {
   );
 }
 
-/// Another app's measured input level in the mic's place (outsideDictation.ts), drawn as the
-/// waveform's bars so it reads as cmux's own: newest on the right, each bar's `--level` its height.
-export function OutsideLevelBars() {
-  const samples = useSyncExternalStore(subscribeOutsideLevel, readOutsideLevel);
-  return (
-    <span className="acpmux-mic-level" aria-hidden="true">
-      {samples.map((sample, index) => (
-        <span
-          key={index}
-          data-bar=""
-          style={{ "--level": barLevel(sample, index, samples.length) } as React.CSSProperties}
-        />
-      ))}
-    </span>
-  );
-}
-
 /// The running session's part of the row: Codex's ✕, then the waveform in its pill. `shown` is
 /// whether a session runs; the strip stays while its exit plays, then leaves the row.
 export function DictationStrip({ dictation, shown }: { dictation: Dictation; shown: boolean }) {
@@ -83,7 +65,7 @@ export function DictationStrip({ dictation, shown }: { dictation: Dictation; sho
   if (!presence.present) return null;
   return (
     <>
-      {look === "codex" && <DictationCancelButton dictation={dictation} leaving={presence.leaving} />}
+      {lookRowInBox(look) && <DictationCancelButton dictation={dictation} leaving={presence.leaving} />}
       <span className="acpmux-dictation-pill" {...presence.props}>
         <DictationWave state={dictation.state} />
       </span>

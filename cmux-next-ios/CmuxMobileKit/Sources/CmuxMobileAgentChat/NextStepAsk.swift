@@ -39,6 +39,37 @@ public struct NextStepAsk: Equatable, Sendable {
     public var options: [Option]
     /// The answer's text without the ask's lines, which the card draws instead.
     public var rest: String
+    /// A finished wrap-up's Try, Verify steps and report (WrapUp.swift `tryIt`).
+    public var tryIt: Try?
+
+    /// How to try what a finished wrap-up made (acpmux `wrap_up`'s `try`, `verify`, `report`; the
+    /// Mac's `wrapUp.ts` `tryOf`). Aziz, 2026-11-09: "theres a direct way for me to try out and
+    /// verify its work in addition to the artifact."
+    public struct Try: Equatable, Sendable {
+        /// The button's words; nil when the wrap-up gave only steps or a report.
+        public var label: String?
+        public var url: URL?
+        public var command: String?
+        public var verify: [String]
+        public var report: String?
+
+        /// Whether the phone can open `url` itself: a page on the internet. A loopback address (a
+        /// Tag Opener build, `http://127.0.0.1:17320/<tag>`) is the Mac's own and opens there.
+        public var opensOnPhone: Bool {
+            guard let host = url?.host?.lowercased() else { return false }
+            return !(host == "localhost" || host.hasPrefix("127.") || host == "::1" || host == "[::1]" || host == "0.0.0.0")
+        }
+    }
+
+    public init(tag: String, recap: String? = nil, question: String, detail: String?, options: [Option], rest: String, tryIt: Try? = nil) {
+        self.tag = tag
+        self.recap = recap
+        self.question = question
+        self.detail = detail
+        self.options = options
+        self.rest = rest
+        self.tryIt = tryIt
+    }
 
     static let tags = ["taste", "outward", "irreversible", "physical", "for you"]
     static let maxLabel = 80

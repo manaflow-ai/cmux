@@ -44,7 +44,8 @@ struct WorkspaceHoverCardUnifiedStyleTests {
         card.configureTabs(title: "neko", tabs: Self.tabs, now: Self.now)
         card.applyColors()
         #expect(card.layer?.backgroundColor == nil, "the card paints a veil over the hover card glass")
-        #expect(card.layer?.cornerRadius == HoverCardPanel.cornerRadius)
+        // Concentric around its tab rows, which round like a sidebar row (Lawrence 2026-11-09, `WorkspaceHoverCardEvenInsetTests`).
+        #expect(card.layer?.cornerRadius == WorkspaceHoverCardView.cardCornerRadius)
     }
 
     /// Every hover card's title-to-row and row-to-row gaps are the shared style's (`HoverCardStyle`): `space2`,

@@ -44,7 +44,8 @@ import argparse, csv, importlib.util, json, os, pathlib, random, statistics, sub
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import BenchApp, LaunchError, close_all_workspaces, named_terminal, shown_in_window, wait_for_count  # noqa: E402
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 
 def load(name, file):
@@ -143,17 +144,39 @@ def topology():
     return snap.get("topology") or {}
 
 
+# The workspaces no close path closes (the app's home workspace), found by reset_workspaces: never the bench's own.
+KEPT_WORKSPACES = frozenset()
+
+
+def workspace_ids():
+    return [w.get("id") for w in topology().get("workspaces") or [] if isinstance(w, dict)]
+
+
+def workspace_count():
+    """The workspaces of the measured topology: every listed one but those reset_workspaces could not close."""
+    return len([ws for ws in workspace_ids() if ws not in KEPT_WORKSPACES])
+
+
 def terminal_of(workspace_name):
-    for ws in topology().get("workspaces") or []:
-        if (ws.get("name") or ws.get("title")) != workspace_name:
-            continue
-        for screen in ws.get("screens") or []:
-            for pane in screen.get("panes") or []:
-                for tab in pane.get("tabs") or []:
-                    if tab.get("kind") == "terminal":
-                        # The CLI's terminal selector is the daemon's terminal id (`term_...`), not the tab id.
-                        return tab.get("terminal") or tab.get("id")
-    return None
+    # The CLI's terminal selector is the daemon's terminal id (`term_...`), not the tab id.
+    return (named_terminal(topology(), workspace_name) or {}).get("terminal")
+
+
+def show_typing():
+    """The typing terminal ({workspace, pane, terminal}, bench_launch.named_terminal) and whether a window shows it.
+
+    `workspace create` returns on the daemon's reply, before the published topology lists the workspace's terminal,
+    and nothing checked that a window showed it: workspace-scaling's typing probe read no terminal (setup typing
+    null) and no key of any phase closed a frame record at 1, 100 and 1000 workspaces (cmux#24569). As
+    typing-frame-bench's focus_terminal and sidebar-churn-typing do after their own `create --focus`, wait for the
+    terminal, then show its workspace and focus its pane; the shown check reads the topology's windows."""
+    target = wait(lambda: named_terminal(topology(), "typing"), 30)
+    if not target:
+        return None, False
+    rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": target["workspace"]}, "focus": True, "origin": "script"})
+    if target.get("pane"):
+        rpc("action.run", {"action": "pane.focus", "target": f"pane:{target['pane']}", "focus": True, "origin": "script"})
+    return target, bool(wait(lambda: shown_in_window(topology(), target["workspace"]), 10))
 
 
 def seed_empty_workspaces(count):
@@ -163,7 +186,7 @@ def seed_empty_workspaces(count):
     # The probe adds one focused typing workspace, optional browser workspace and agent
     # workspaces. Account for any row the app restored before seeding so the final topology
     # remains exactly the requested size instead of silently becoming count+1.
-    existing = len(topology().get("workspaces") or [])
+    existing = workspace_count()
     fixed = opts.agents + 1 + (0 if opts.no_browser else 1)
     empty = max(0, count - existing - fixed)
     failures = []
@@ -179,15 +202,23 @@ def seed_empty_workspaces(count):
 
 
 def reset_restored_workspaces():
-    """Keep a restored row from making the requested topology count+1."""
-    existing = len(topology().get("workspaces") or [])
+    """Keep a restored row from making the requested topology count+1. The home workspace stays (home_not_closable):
+    the topology counts without what close-all leaves (bench_launch.close_all_workspaces)."""
+    global KEPT_WORKSPACES
+    existing = workspace_count()
     if not existing:
-        return {"existing": 0, "closed": 0, "failures": []}
-    done = cli("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
-    if done.returncode != 0 or not wait(lambda: len(topology().get("workspaces") or []) == 0, 30):
-        return {"existing": existing, "closed": 0,
-                "failures": [{"returncode": done.returncode, "stderr": (done.stderr or "")[-300:]}]}
-    return {"existing": existing, "closed": existing, "failures": []}
+        return {"existing": 0, "closed": 0, "kept": 0, "failures": []}
+    done = {}
+
+    def close_all():
+        done["run"] = cli("workspace", "close-all-in-all-windows", "--confirm", timeout=120)
+        return done["run"].returncode
+
+    KEPT_WORKSPACES, closed = close_all_workspaces(workspace_ids, close_all)
+    if not closed:
+        return {"existing": existing, "closed": 0, "kept": len(KEPT_WORKSPACES),
+                "failures": [{"returncode": done["run"].returncode, "stderr": (done["run"].stderr or "")[-300:]}]}
+    return {"existing": existing, "closed": existing - len(KEPT_WORKSPACES), "kept": len(KEPT_WORKSPACES), "failures": []}
 
 
 # ---------------------------------------------------------------- load
@@ -301,7 +332,9 @@ def type_keys(count, label):
         rest = opts.interval - (time.perf_counter() - t0)
         if rest > 0:
             time.sleep(rest)  # one key in flight at a time
-    time.sleep(0.5)  # the last echo lands
+    # The last echoes land: the typing probe's row count stops growing.
+    wait_stable(lambda: len(probe_rows()), f"{label}: the typing probe's rows", timeout=10, interval=0.1, reads=4,
+                raise_on_timeout=False)
     return trips, stalls
 
 
@@ -316,8 +349,9 @@ def phase(name, loads, pid, ax=False):
         ax_proc, ax_note = ax_client(pid, opts.samples * opts.interval + 5)
         if ax_note:
             note(ax_note)
-    if loads:
-        time.sleep(1.0)  # the load runs before the first key
+    if loads and wait_until(lambda: all(load.ops >= 1 for load in loads), f"{name}: every load's first op",
+                            timeout=30, interval=0.05, raise_on_timeout=False) is None:
+        note(f"{name}: a load never finished its first op in 30 s: {[(l.name_, l.ops) for l in loads]}")
     t0 = time.monotonic()
     trips, stalls = type_keys(opts.samples, name)
     wall = time.monotonic() - t0
@@ -368,7 +402,9 @@ def chromium_problems(cef):
 def run_layout(layout, tabs, browser_tab, pid):
     """The idle and automation phases of `layout` (--rounds each), typed into the focused terminal."""
     rpc("debug.mouse", {"x": 900, "y": 450, "action": "hover"})  # the pointer rests over the terminal
-    time.sleep(4)
+    # The layout just built settles: its topology holds still for about a second.
+    wait_stable(topology, f"{layout}: the layout's topology", timeout=20, interval=0.2, reads=5,
+                raise_on_timeout=False)
     type_keys(10, f"{layout}-warmup")
     for r in range(opts.rounds):
         phase(f"{layout}-idle-{r}", [], pid)
@@ -424,10 +460,17 @@ def main():
                 results["invalid"] = not_chromium
                 note(f"not measured: the browser agent's page is not Chromium: {not_chromium}")
                 return 2
-        cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
-        typing = terminal_of("typing")
-        results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing}
-        actual_workspaces = len(topology().get("workspaces") or [])
+        created = cli("workspace", "create", "--name", "typing", "--focus", "--shell", "exec cat")
+        target, shown = show_typing()
+        typing = (target or {}).get("terminal")
+        results["setup"] = {"agent_terminals": len(tabs), "browser_tab": browser_tab, "typing": typing, "typing_shown": shown}
+        if not shown:
+            # No key reaches a terminal no window shows: the phases would record zero frames and exit 0.
+            results["invalid"] = {"typing_terminal": target, "typing_shown": shown, "create_exit": created.returncode,
+                                  "create_stderr": (created.stderr or "")[-300:]}
+            return 2
+        # The creates return before the published topology lists them (bench_launch.wait_for_count).
+        actual_workspaces = wait_for_count(workspace_count, opts.workspace_count) if opts.workspace_count else workspace_count()
         results["setup"]["workspace_count"] = actual_workspaces
         if seeded["failures"] or (opts.workspace_count and actual_workspaces != opts.workspace_count):
             results["invalid"] = {

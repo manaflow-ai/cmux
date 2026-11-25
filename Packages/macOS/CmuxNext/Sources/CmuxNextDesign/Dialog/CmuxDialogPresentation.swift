@@ -2,9 +2,9 @@ public import AppKit
 public import CmuxNextDesignTokens
 
 /// One shown dialog, as its host and its drawing see it: the spec, every field's current value, and
-/// the keyboard (`CmuxDialogKeys`). It draws nothing. The drawing is the overlay page's React dialog
-/// (webviews/src/pages/overlay/dialog), which a ``CmuxDialogRendering`` connects: the page sends the
-/// person's edits and presses here, and gets the values automation sets and the focus moves keys ask.
+/// the keyboard (`CmuxDialogKeys`). It draws nothing. The drawing is ``CmuxDialogView`` (a
+/// ``CmuxDialogRendering``): the card sends the person's edits and presses here, and gets the values
+/// automation sets and the focus moves keys ask.
 /// `CmuxDialogCenter` owns the answer.
 @MainActor
 public final class CmuxDialogPresentation {
@@ -18,9 +18,9 @@ public final class CmuxDialogPresentation {
     var onPress: ((String) -> Void)?
     /// The drawing of this dialog, while one shows it.
     public weak var renderer: (any CmuxDialogRendering)?
-    /// The view the host shows (the overlay page), while it is on screen.
+    /// The view the host shows (the card's region), while it is on screen.
     public internal(set) weak var view: NSView?
-    /// The card's rect in ``view``'s coordinates, as the page last laid it out; nil before.
+    /// The card's rect in ``view``'s coordinates, as it last laid out; nil before.
     public var cardRect: CGRect? {
         didSet {
             guard cardRect != nil else { return }
@@ -46,6 +46,26 @@ public final class CmuxDialogPresentation {
         values = Self.initialValues(spec)
     }
 
+    /// The card floats over other apps (``CmuxFloatingDialogPanel``), not over a cmux window: it draws the transient
+    /// glass, whose veil is the theme's glass tint, whatever its spec asks. The sheet glass's gray veil is dropped by
+    /// the shipped Liquid Glass variant, so over another app it drew bare, untinted glass in every theme (Leo,
+    /// 2026-11-22: "im not sure what was up with the glass on it, and the lack of theming on it too").
+    public private(set) var floatsOverApps = false
+
+    /// A dialog shown outside ``CmuxDialogCenter``, by a host of its own (``CmuxFloatingDialogPanel``: a
+    /// prompt over every app). `onPress` gets each press with the button's id, by click or key. `floatsOverApps`:
+    /// see ``floatsOverApps``.
+    public static func standalone(_ spec: CmuxDialogSpec, activeLook: ActiveLookScope? = nil, floatsOverApps: Bool = false,
+                                  onPress: @escaping (String) -> Void) -> CmuxDialogPresentation {
+        let dialog = CmuxDialogPresentation(id: 0, spec: spec, activeLook: activeLook)
+        dialog.floatsOverApps = floatsOverApps
+        dialog.onPress = onPress
+        return dialog
+    }
+
+    /// Whether the card draws the transient (theme-tinted) glass: its spec asks for it, or it floats over other apps.
+    public var usesTransientMaterial: Bool { spec.usesTransientMaterial || floatsOverApps }
+
     /// The window the dialog shows in (its overlay panel), while it shows.
     public var window: NSWindow? { view?.window }
     /// The host presented ``view`` in its overlay (it may wait in its source window before, while its
@@ -68,15 +88,21 @@ public final class CmuxDialogPresentation {
 
     // MARK: From the drawing
 
-    /// The person changed fields: values for ids the spec has, of the kind the field takes.
+    /// The person changed fields: values for ids the spec has, of the kind the field takes. ``onEdit`` hears each
+    /// change (a host that follows the fields: a pick that fills another field, Add enabled once the host parses).
     public func edited(_ edits: [String: CmuxDialogValue]) {
+        let before = values
         for (id, value) in edits where accepts(value, for: id) { values[id] = value }
+        if values != before { onEdit?(values) }
     }
+
+    /// Told the fields' values after each change the person made.
+    public var onEdit: (([String: CmuxDialogValue]) -> Void)?
 
     /// The person pressed button `id` with these field values; false when the dialog has no such button.
     @discardableResult
     public func press(_ id: String, values edits: [String: CmuxDialogValue] = [:]) -> Bool {
-        guard spec.buttons.contains(where: { $0.id == id }) else { return false }
+        guard spec.buttons.contains(where: { $0.id == id }) || spec.fields.contains(where: { $0.actionIDs.contains(id) }) else { return false }
         edited(edits)
         onPress?(id)
         return true
@@ -154,14 +180,14 @@ public final class CmuxDialogPresentation {
                 let enabled = options.filter(\.isEnabled)
                 values[id] = .text(selected.flatMap { s in enabled.first { $0.value == s }?.value } ?? enabled.first?.value ?? "")
             case .check(let id, _, let on): values[id] = .bool(on)
-            case .preview: break
+            case .preview, .code, .copyLine, .pairingCode, .progress, .note, .steps: break
             }
         }
         return values
     }
 }
 
-/// What draws a shown dialog (the overlay page): told when automation changes a value and when a
+/// What draws a shown dialog (``CmuxDialogView``): told when automation changes a value and when a
 /// key moves the focus, so the card shows the same state the center reports.
 @MainActor
 public protocol CmuxDialogRendering: AnyObject {

@@ -7,6 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { recoverStrings, useT } from "../src/agent-session/acpmux/i18n";
 import { useNt } from "../src/agent-session/acpmux/newtab/strings";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -43,6 +44,7 @@ function installDom(head: string): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

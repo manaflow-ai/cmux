@@ -3,6 +3,15 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
+/// Polls `condition` on the wall clock until it holds or `limit` passes; true when it held. It ends the
+/// instant the condition holds: for an attempt that must come, `limit` bounds only the failure; for one
+/// that must not come (nothing signals that no attempt was made), it is the window that attempt had.
+private func comes(within limit: Duration, _ condition: () -> Bool) async -> Bool {
+    let deadline = ContinuousClock.now + limit
+    while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(20)) }
+    return condition()
+}
+
 /// cmuxterm-hq#7766 review F2: a connection over a link that redials by itself has no timer left
 /// after its one attempt (``RetryPolicy/linkReconnect``). When the link reported connected
 /// (``RetryWake/fire()``) while that attempt was still failing, the rebaseline after the failure
@@ -53,9 +62,9 @@ import Testing
             }
         }
         try await connection.start()
-        try await Task.sleep(for: .seconds(3))
+        let woke = await comes(within: .seconds(10)) { calls.value >= 3 }
         await connection.close()
-        #expect(calls.value == 3, "the connected edge during the failing attempt was lost (\(calls.value) endpoint calls)")
+        #expect(woke && calls.value == 3, "the connected edge during the failing attempt was lost (\(calls.value) endpoint calls)")
     }
 
     /// Review F1 (fc883e4): the pacer reset only after ten healthy seconds, so a second drop soon after a
@@ -74,10 +83,10 @@ import Testing
         }
         try await connection.start()
         // Each connection drops 0.3 s after its handshake: the first drop's attempt connects, and so
-        // must the second drop's, well within ten seconds.
-        try await Task.sleep(for: .seconds(4))
+        // must the second drop's, well within ten seconds (before a spent budget's first token is back).
+        let attempted = await comes(within: .seconds(8)) { calls.value >= 3 }
         await connection.close()
-        #expect(calls.value >= 3, "a second drop within 10 s got no attempt (\(calls.value) endpoint calls)")
+        #expect(attempted, "a second drop within 10 s got no attempt (\(calls.value) endpoint calls)")
     }
 
     /// Review of 5d8ee21, F2: every handshake reset the spacing, so a peer that accepts and closes at once
@@ -96,11 +105,13 @@ import Testing
             return DaemonEndpoint(socketPath: socket, bridge: bridge)
         }
         try await connection.start()
-        try await Task.sleep(for: .seconds(3))
+        // The first connection, then one per token, all before the first token is back 10 s on: the
+        // three tokens' attempts come, and then no more.
+        let spent = await comes(within: .seconds(8)) { calls.value >= 4 }
+        let beyond = await comes(within: .seconds(1)) { calls.value > 4 }
         await connection.close()
-        // The first connection, then one per token.
-        #expect(calls.value <= 4, "a peer that closes after each handshake got \(calls.value - 1) reconnects in 3 s")
-        #expect(calls.value >= 4, "each of the three tokens gets its attempt (\(calls.value) endpoint calls)")
+        #expect(!beyond, "a peer that closes after each handshake got \(calls.value - 1) reconnects")
+        #expect(spent, "each of the three tokens gets its attempt (\(calls.value) endpoint calls)")
     }
 
     @Test func theLinkReportingConnectedDuringAFailingFirstConnectWakesTheNextAttempt() async throws {
@@ -116,10 +127,10 @@ import Testing
                 }
             }, onFailure: { _ in })
         }
-        try await Task.sleep(for: .seconds(2))
+        let woke = await comes(within: .seconds(10)) { calls.value >= 2 }
         task.cancel()
         _ = await task.value
-        #expect(calls.value == 2, "the connected edge during the failing first attempt was lost (\(calls.value) endpoint calls)")
+        #expect(woke && calls.value == 2, "the connected edge during the failing first attempt was lost (\(calls.value) endpoint calls)")
     }
 
     /// Without an event during the attempt the wait stays event-only (no timer, no extra attempt).
@@ -136,10 +147,12 @@ import Testing
                 }
             }, onFailure: { _ in })
         }
-        try await Task.sleep(for: .seconds(2))
+        let attempted = await comes(within: .seconds(10)) { calls.value >= 1 }
+        let extra = await comes(within: .seconds(2)) { calls.value > 1 }
         task.cancel()
         _ = await task.value
-        #expect(calls.value == 1)
+        #expect(attempted, "no first attempt")
+        #expect(!extra, "an attempt with no event (\(calls.value) endpoint calls)")
     }
 
     @Test func anEventBeforeTheMarkIsStillDropped() async {

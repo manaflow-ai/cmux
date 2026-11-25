@@ -4,6 +4,7 @@
 // budget the largest of them upload at the Send, under the Send's ticket (the host's
 // chat.upload.begin holds it instead of spending the gesture), and go as links.
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { settleReact } from "../../../test/support/domTeardown";
 import { JSDOM } from "jsdom";
 import { promptBlocks, type ComposerAttachment, type PromptBlock } from "./attachments";
 import { PROMPT_INLINE_BUDGET, inlineBytes, uploadsToFit } from "./promptBudget";
@@ -68,6 +69,33 @@ test("a send's upload begins every file under the Send's ticket, one by one with
   });
 });
 
+test("a text file or a large paste past the budget is picked to upload, and goes up as its UTF-8 text", async () => {
+  const pasted: ComposerAttachment = {
+    id: "paste-1",
+    kind: "pasted",
+    name: "Pasted text",
+    mimeType: "text/plain",
+    size: 30 * MIB,
+    text: "é".repeat(15 * MIB),
+  };
+  expect(uploadsToFit("read this", [pasted, pdf(1, 2 * MIB)]).map((chip) => chip.id)).toEqual(["paste-1"]);
+  const chunks: string[] = [];
+  const call = async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+    if (method === "chat.upload.begin") return { token: "t-1", size: params.size, chunkSize: 64 * MIB };
+    if (method === "chat.upload.chunk") {
+      chunks.push(params.data as string);
+      return { offset: (params.offset as number) + atob(params.data as string).length };
+    }
+    if (method === "chat.upload.finish") return { path: "/Users/me/.cmux/uploads/Pasted text" };
+    return {};
+  };
+  const small = { ...pasted, text: "héllo", size: 6 };
+  const sent = await uploadForSend([small], { sessionId: "s-1", promptId: "p-1", ticket: "k-1" }, call);
+  expect(sent).toMatchObject({ ticket: "k-1", attachments: [{ id: "paste-1", kind: "link", saved: true }] });
+  const bytes = Uint8Array.from(atob(chunks.join("")), (char) => char.charCodeAt(0));
+  expect(new TextDecoder().decode(bytes)).toBe("héllo");
+});
+
 test("an upload that fails fails the send with its words", async () => {
   const failing = async (method: string): Promise<unknown> => {
     if (method === "chat.upload.begin") throw new Error("The disk is full.");
@@ -86,9 +114,12 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
-  scope.window = saved.window;
-  scope.document = saved.document;
+afterAll(async () => {
+  await settleReact();
+  for (const [key, value] of Object.entries(saved)) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
   setNativeHost(undefined);
 });
 

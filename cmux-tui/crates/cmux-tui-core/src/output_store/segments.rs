@@ -69,6 +69,21 @@ impl Segments {
     pub(crate) fn set_enabled(&self, enabled: bool) {
         self.enabled.store(enabled, Ordering::Relaxed);
     }
+
+    /// Forgets what this daemon knows of a terminal's segment files; call
+    /// when they are removed.
+    pub(crate) fn forget(&self, directory: &Path, terminal_id: &TerminalPublicId) {
+        let terminal_directory = terminal_directory(directory, terminal_id);
+        self.verified
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|path, _| path.parent() != Some(terminal_directory.as_path()));
+    }
+
+    /// Forgets every terminal's segment files (all were removed).
+    pub(crate) fn forget_all(&self) {
+        self.verified.lock().unwrap_or_else(PoisonError::into_inner).clear();
+    }
 }
 
 fn generation_key(generation: &str) -> String {
@@ -557,17 +572,16 @@ pub(super) fn keys_of(generation: &str) -> [String; 2] {
 
 /// Raw bytes a rebuild replays at most (the newest frames).
 const REBUILD_MAX_RAW_BYTES: usize = 64 * 1024 * 1024;
-/// Scrollback of the rebuild terminal (Ghostty's default limit).
-const REBUILD_SCROLLBACK_BYTES: usize = 10_000_000;
-
 /// The terminal of `generation` rebuilt from its stored frames (the newest
-/// [`REBUILD_MAX_RAW_BYTES`]) as a VT replay that fits a respawn seed.
+/// [`REBUILD_MAX_RAW_BYTES`]) as a VT replay that fits a respawn seed, in a
+/// scratch terminal with the respawned terminal's own `scrollback` limit.
 pub(super) fn rebuild(
     directory: &Path,
     terminal_id: &TerminalPublicId,
     generation: &str,
     cols: u16,
     rows: u16,
+    scrollback: usize,
 ) -> Option<crate::workspace_registry::terminal_respawn_store::TerminalReplay> {
     let files = generation_files(&terminal_directory(directory, terminal_id), generation);
     let mut newest = Vec::new();
@@ -587,15 +601,14 @@ pub(super) fn rebuild(
     let mut terminal = ghostty_vt::Terminal::new(
         cols.max(1),
         rows.max(1),
-        REBUILD_SCROLLBACK_BYTES,
+        scrollback,
         ghostty_vt::Callbacks::default(),
     )
     .ok()?;
     for bytes in newest.iter().rev() {
         terminal.vt_write(bytes);
     }
-    // Room for the respawn's marker line and mode reset.
-    let budget = crate::surface::VT_REPLAY_MAX_BYTES.saturating_sub(64 * 1024);
+    let budget = crate::surface::SEED_REPLAY_MAX_BYTES;
     let bytes = terminal.vt_replay_bounded(budget).ok()?.into_self_contained_bytes();
     Some(crate::workspace_registry::terminal_respawn_store::TerminalReplay { cols, rows, bytes })
 }

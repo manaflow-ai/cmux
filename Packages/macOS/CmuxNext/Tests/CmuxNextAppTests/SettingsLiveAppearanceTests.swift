@@ -33,7 +33,7 @@ import Testing
             StatusIndicatorAppearance.shared.refresh()
             try? FileManager.default.removeItem(at: directory)
         }
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), fileURL: url,
+        let settings = SettingsController(writer: TestSettingsWriter(), registry: ActionRegistry(catalog: []), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         try await body(SettingsPageProvider(settings: settings), settings)
@@ -148,7 +148,7 @@ import Testing
     @Test func workingIndicatorToggleAlsoControlsTerminalTitleActivity() async throws {
         try await withPage { page, _ in
             let store = DaemonStore()
-            let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "⠐ Working")])
+            let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Working", titleActivity: .working)])
             let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
             store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "test", screens: [screen])]))
             let tab = try #require(store.tab(surface: 1))

@@ -1,17 +1,19 @@
 import AppKit
 import CCmuxMotionFFI
 import CmuxNextDesign
-import CmuxNextWakeups
 
 /// Selecting text while a program has the mouse (design/terminal.md, "Selecting text while a program
 /// has the mouse"): Option-drag goes to Ghostty as its Shift override, and the first plain drag a
 /// program takes in this terminal shows a hint once. The rule and its state are cmux-motion's
-/// (`terminal_selection`, over the app FFI); this keeps the state, converts the event's keys, shows the
-/// hint on the shared modifier-hint glass chip and hides it after ``visibleFor``.
+/// (`terminal_selection`, over the app FFI); this keeps the state, converts the event's keys and shows
+/// the hint as a toast at the bottom of the window, like every other hint (``toastID``). As a toast it
+/// offers Don't Show Again (Lawrence 2026-11-12: "for option/shift space dialog when im trying to drag over
+/// terminals need a button for it to never show again"), shows for the toasts' time and holds under the
+/// pointer.
 @MainActor
 final class TerminalSelectionHint {
-    static let visibleFor: Duration = .seconds(4)
-    static let bottomInset: CGFloat = 12
+    /// The hint toast's id and kind: Don't Show Again hides it in every terminal.
+    static let toastID = "terminal.selectionHint"
 
     static var text: String {
         ModuleResourceBundle.terminal.text("terminal.selectionHint", defaultValue: "Option or Shift + drag selects text")
@@ -19,19 +21,13 @@ final class TerminalSelectionHint {
 
     weak var view: NSView?
     private var state = CmuxTerminalSelection()
-    private var chip: ShortcutHintChipView?
-    /// The chip's size for ``text``, measured once, at the first drag that may show it.
-    private lazy var chipSize: NSSize = {
-        let chip = ShortcutHintChipView()
-        chip.text = Self.text
-        return chip.fittingSize
-    }()
-    private let hideTimer: DemandTimer
+    private let toasts: CmuxToastCenter
+    private var toast: CmuxToastHandle?
 
-    /// - Parameter clock: The hide deadline's clock; tests pass a manual clock.
-    init(view: NSView?, clock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameter toasts: Shows the hint (the shared center in the app; tests pass their own).
+    init(view: NSView?, toasts: CmuxToastCenter = .shared) {
         self.view = view
-        hideTimer = DemandTimer(owner: "TerminalSelectionHint.hide", clock: clock)
+        self.toasts = toasts
     }
 
     /// Whether the left press held now goes as an Option selection.
@@ -53,14 +49,15 @@ final class TerminalSelectionHint {
     }
 
     /// A drag of the left press; the first one after a plain press the program took shows the hint,
-    /// in a terminal wide enough for it. A narrower one never clips it: a later drag shows it.
+    /// in a terminal that is in a window.
     func dragged() {
-        guard state.hint_armed, let view, chipSize.width + Self.bottomInset * 2 <= view.bounds.width,
-              cmux_terminal_selection_dragged(&state) else { return }
-        show(in: view)
+        guard state.hint_armed, let window = view?.window, cmux_terminal_selection_dragged(&state) else { return }
+        let handle = toasts.show(CmuxToast(id: Self.toastID, message: Self.text), in: window)
+        toast = handle.isDismissed ? nil : handle
     }
 
-    /// The left button's release, after its keys went out.
+    /// The left button's release, after its keys went out. The hint stays for its time, so the
+    /// person can reach Don't Show Again.
     func released() {
         cmux_terminal_selection_released(&state)
     }
@@ -71,36 +68,13 @@ final class TerminalSelectionHint {
         hide()
     }
 
-    /// The terminal's new size: a hint it no longer fits goes, rather than clip or spill.
-    func resized() {
-        guard chip != nil, let view, chipSize.width + Self.bottomInset * 2 > view.bounds.width else { return }
-        hide()
-    }
-
-    private func show(in view: NSView) {
-        let chip = ShortcutHintChipView()
-        chip.text = Self.text
-        chip.alphaValue = 0
-        let size = chipSize
-        chip.frame = NSRect(x: ((view.bounds.width - size.width) / 2).rounded(), y: Self.bottomInset, width: size.width, height: size.height)
-        chip.autoresizingMask = [.minXMargin, .maxXMargin, .maxYMargin]
-        view.addSubview(chip)
-        self.chip = chip
-        Motion.overlays.animate(.fadeIn, in: chip) { chip.animator().alphaValue = 1 }
-        hideTimer.schedule(after: Self.visibleFor) { @MainActor [weak self] in self?.hide() }
-    }
-
     func hide() {
-        hideTimer.cancel()
-        guard let chip else { return }
-        self.chip = nil
-        Motion.overlays.animate(.fadeOut, in: chip, { chip.animator().alphaValue = 0 }, completion: {
-            chip.removeFromSuperview()
-        })
+        toast?.dismiss()
+        toast = nil
     }
 
     /// The hint on screen (tests, diagnostics).
-    var shownText: String? { chip?.text }
+    var shownText: String? { toast.flatMap { $0.isDismissed ? nil : $0.toast.message } }
 
     // MARK: Keys
 

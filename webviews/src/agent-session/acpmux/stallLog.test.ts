@@ -5,6 +5,9 @@
 // says so in the log (console.error reaches the error journal and the unified log in every build).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../test/support/domTeardown";
+// Loaded before the file starts, as the app loads it (selfHeal.test.tsx): its global hook is no leak.
+import "./computerUse/computerUseState";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -14,7 +17,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document"] as const)
     if (had[key]) scope[key] = before[key];
     else delete scope[key];
@@ -108,6 +112,8 @@ async function stalledStream(options: {
   deafOn: "cancel" | "prompt" | "never";
   rawOnly?: boolean;
   liveBeforeRead?: boolean;
+  /// The first `session/cancel` never reaches acpmux (a notification nothing answers, lost).
+  dropFirstCancel?: boolean;
 }) {
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
@@ -123,6 +129,7 @@ async function stalledStream(options: {
   console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
   const eventReads: any[] = [];
   let sockets = 0;
+  let cancels = 0;
   class Stalled extends MockAcpmuxSocket {
     deaf = false;
     stop = () => undefined as void;
@@ -205,6 +212,8 @@ async function stalledStream(options: {
     }
     override send(raw: string): void {
       if (JSON.parse(raw).method === "session/cancel") {
+        cancels += 1;
+        if (options.dropFirstCancel && cancels === 1) return;
         if (options.deafOn === "cancel") this.deaf = true;
         // A turn that runs on past Stop (it ends after the check).
         if (!options.liveBeforeRead) this.stop();
@@ -232,6 +241,7 @@ async function stalledStream(options: {
     errors,
     eventReads,
     sockets: () => sockets,
+    cancels: () => cancels,
     snapshot: () => snapshot,
     done() {
       console.error = error;
@@ -259,6 +269,25 @@ test("Stop in a chat whose events stopped reaching the pane connects again, and 
     expect(run.eventReads.every((read) => Array.isArray(read.kinds) && read.kinds.includes("transcript"))).toBe(true);
     // One reconnect: the new connection carries the events, so nothing checks or drops it again.
     expect(run.sockets()).toBe(2);
+  } finally {
+    run.done();
+  }
+});
+
+test("a Stop whose cancel never reached acpmux is sent again, and the chat stops stopping on its connection", async () => {
+  // Before: the stall check found nothing missed, so "Stopping" stayed for good, and a second Stop
+  // click did nothing (deduplicated against the first). After: the pane cancels once more.
+  const run = await stalledStream({ deafOn: "never", dropFirstCancel: true });
+  try {
+    void run.client.send("long job").catch(() => undefined);
+    expect(await settle(() => run.snapshot()?.isWorking === true, 10_000)).toBe(true);
+    await run.client.cancel();
+    expect(run.snapshot()?.stopping).toBe(true);
+    expect(await settle(() => run.snapshot()?.stopping !== true && run.snapshot()?.isWorking === false, 5_000)).toBe(
+      true,
+    );
+    expect(run.cancels()).toBe(2);
+    expect(run.sockets()).toBe(1);
   } finally {
     run.done();
   }

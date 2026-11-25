@@ -33,24 +33,64 @@
     { "name": "2xl", "px": 16, "for": "code blocks (named exception)" }
   ],
   "namedRadii": [
-    { "name": "control", "px": 6 },
+    { "name": "control", "var": "var(--cmux-button-radius, 8px)", "for": "every button: the tab's corner (Metrics.buttonCornerRadius; Lawrence 2026-11-12, buttons round as tabs)" },
     { "name": "popup", "px": 8 },
     { "name": "card", "px": 14, "for": "today's card radius; grid.md moves it to 12 after a gallery comparison" },
     { "name": "composer", "px": 18, "for": "today's composer radius; grid.md moves it to 12 after a gallery comparison" },
     { "name": "menu", "var": "var(--cmux-menu-highlight-radius)", "for": "AppKit's menu highlight (menu-metrics)" }
   ],
   "glass": [
-    { "name": "chrome", "kind": "level", "tint": 60, "blur": "blur(20px) saturate(1.4)", "for": "chrome docked on the window: panes, the sidebar, bars, rails, side tabs, sticky headers and the minimap" },
-    { "name": "popover", "kind": "level", "tint": 70, "artTint": 50, "blur": "blur(24px) saturate(1.25)", "for": "floating surfaces over dense text: popovers, hover cards and link cards, the composer, Session Info, the running tray, viewers and sheets (artTint over art or a see-through window)" },
-    { "name": "menu", "kind": "level", "tint": 78, "blur": "blur(32px) saturate(1.6)", "for": "menus, context menus, pickers and a select's menu over a dense settings row (design/settings.md, Glass)" },
-    { "name": "chip", "kind": "level", "tint": 60, "blur": "blur(24px) saturate(1.6)", "for": "small glass on one line: tooltips, the find pill and chips; the tint is the host's --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks" },
+    { "name": "chrome", "kind": "level", "tint": 62, "darkTint": 62, "blur": "blur(20px) saturate(1.6)", "for": "chrome docked on the window where no native glass is under the page: panes, bars, rails, side tabs, sticky headers and the minimap; over the App's own window glass the page draws text only (design/glass-system.md, rule 1)" },
+    { "name": "popover", "kind": "level", "tint": 72, "darkTint": 72, "artTint": 50, "blur": "blur(24px) saturate(1.6)", "for": "glass in the page that floats but is not a popup: the composer, Session Info, the running tray, side tabs and viewers (artTint over art or a see-through window)" },
+    { "name": "menu", "kind": "level", "tint": 80, "darkTint": 72, "veil": 40, "blur": "blur(32px) saturate(1.6)", "for": "every floating popup, menu, picker and card, web and native (design/surface-materials.md, One floating material); veil is the theme surface the page or the App lays on the App's own glass under it (Swift GlassMenuMaterial reads the same numbers)" },
+    { "name": "chip", "kind": "level", "tint": 60, "blur": "blur(24px) saturate(1.6)", "for": "small glass on one line: tooltips, the find pill and chips; the tint is the host's contrast-fitted --cmux-tooltip-tint (TooltipSurface.swift), this percentage of the popup surface before the host speaks; the blur and the floor are the native tooltip's (TooltipSurface.blurRadius, minimumTintAlpha)" },
     { "name": "lens", "kind": "mode", "tint": 40, "blur": "blur(6px) saturate(1.3)", "for": "a mode, not a level: while the lens draws the wallpaper behind the glass, every level takes this tint and frost" },
     { "name": "fisheye", "kind": "mode", "tint": 50, "blur": "blur(2.5px) saturate(1.15)", "blurName": "frost", "for": "a mode, not a level: the Jump to latest fisheye (design/glass.md): the bend stays, the frost runs after it" }
   ],
+  "glassSaturation": { "value": 1.6, "for": "the one saturation every glass level frosts with (design/glass-system.md, rule 3); the lens and fisheye modes keep their own" },
+  "glassEdge": {
+    "for": "the one edge of plain glass (design/glass-system.md, rule 4): the host's hairline ring (--glass-edge, the card rim) plus a lit top hairline, the light's share of --cmux-tone-light on each side",
+    "topLight": 60,
+    "topDark": 24
+  },
+  "glassContent": { "tint": 88, "darkTint": 86, "for": "a card in the content layer (.ui-glass-content: a permission ask, a turn error, a Settings card): the theme surface at this share with no backdrop-filter, since it scrolls with the content; near-solid, under the glass rule's 90% cap, so a wallpaper behind a see-through page shows only faintly (design/glass-system.md, rule 2)" },
+  "glassInk": { "secondary": 68, "darkSecondary": 68, "status": 65, "darkStatus": 55, "chipStatus": 35, "keycap": 84, "for": "the secondary ink on glass (design/glass-system.md, rule 5): the theme's text at this share over the glass, so a hint, a placeholder or a detail line keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper at every floating level, without raising the tint; every glass surface's secondary tokens (--cmux-text-secondary, --agent-muted, the composer placeholder) read it while glass draws; status is the share of a status hue (red, amber, green) in a status word on glass, the rest the theme's text, so the word keeps 3:1 under dark glass on a white page (the page's hues are fitted to the opaque page); chipStatus is that hue share inside a tooltip (a link, a diff count), whose tint the host fits so the text sits at 4.5:1, which leaves a status word no room for more hue; keycap is the ink share of a tooltip's shortcut hint (the keycap on its 10% plate), a step under the text and above the secondary ink so it keeps 3:1 on the fitted tint" },
+  "glassUnderlay": { "value": 40, "darkValue": 57, "for": "the theme surface a floating glass lays under its tint in a see-through Chromium page where the page cannot blur itself: the menu's 80% over 40% covers 88%, not 93%; in dark the menu's 72% over 57% covers the same 88%, since at 40% it covered 83% and the chat's text read through the Model menu (design/glass-system.md, rule 6)" },
+  "glassMaterial": {
+    "for": "the neutral glass every neutral overlay role is one of (FloatingGlassStyle.look; schemas/surface-roles): the gray its veil mixes at the role's opacity on each side, and the lit and shaded rims, so the sidebar's cards, group headers and sheets are one material with only their opacities apart",
+    "neutralLight": 0.99,
+    "neutralDark": 0.11,
+    "rimLit": 1,
+    "rimShade": 0
+  },
+  "transientMaterial": {
+    "for": "One regular translucent material for non-chat popovers, menus, tooltips, palettes, toasts and sheets; native system menus retain their system material",
+    "darkVeilAlpha": 0.42,
+    "lightVeilAlpha": 0.55,
+    "darkRimTop": 0.3,
+    "darkRimBottom": 0.06,
+    "lightRimTop": 0.85,
+    "lightRimBottom": 0.1,
+    "hostVeil": 0.4,
+    "nativeTintStrength": 1.25,
+    "webTint": 80,
+    "webTintDark": 72,
+    "webBlur": 32,
+    "webSaturation": 1.6
+  },
   "elevation": [
     { "name": "1", "geometry": "0 1px 2px", "light": 7, "dark": 12, "for": "rows, cards and inline surfaces" },
     { "name": "2", "geometry": "0 2px 6px", "light": 11, "dark": 16, "for": "popovers, menus, the palette, hover cards, the composer, sheets and find bars" }
   ],
+  "surfaces": {
+    "for": "The content surface levels of a page (design/chat-surfaces.md; Lawrence 2026-11-19: \"bgs are different, we need to make all bgs consistent, from first principles\"). A content surface sits on the page, which is opaque in an opaque window and clear over the window's glass, wallpaper or custom background, so a level is never the page colour, black, white or a glass veil: it is the page's ink (the text colour, --ds-surface-ink) laid over clear at a fixed share. Ink over clear keeps the same step against whatever is under it, flips with light and dark on its own, and lets the art show through. A level nested in another adds its step again, so its step to its parent never changes. Floating surfaces are glass (the glass levels), never these; states are the colour roles hover, pressed and selection.",
+    "levels": [
+      { "name": "card", "fill": 4, "line": 10, "for": "a container of content in the page: the transcript's tool, edit, error and permission cards, plans, code blocks, tool output, the subagent card" },
+      { "name": "inset", "fill": 8, "for": "a piece inside a card or inline in text: an icon tile, inline code, a chip, a key cap, a filled secondary control" },
+      { "name": "hover", "fill": 6, "for": "a control in the page under the pointer: half way from clear to pressed, so it shows over glass and a picture as over an opaque page (the host's chrome hover, ink 4% in light, read ΔL* 2 over a wallpaper)" },
+      { "name": "control", "line": 16, "for": "the outline of a secondary button at rest; its hover and press take the hover and pressed roles" }
+    ]
+  },
   "colors": [
     { "name": "surface", "var": "--cmux-surface-solid", "app": "--cmux-app-content", "fallback": "Canvas", "for": "the page and pane surface, opaque" },
     { "name": "elevated", "var": "--cmux-elevated-background", "app": "--cmux-app-elevated", "fallback": "Canvas", "for": "menus, popovers and sheets under Reduce Transparency" },
@@ -58,9 +98,10 @@
     { "name": "muted", "var": "--cmux-text-secondary", "app": "--cmux-app-text-secondary", "fallback": "color-mix(in srgb, CanvasText 62%, transparent)", "for": "secondary text" },
     { "name": "faint", "var": "--cmux-text-tertiary", "app": "--cmux-app-icon", "fallback": "color-mix(in srgb, CanvasText 45%, transparent)", "for": "tertiary text, placeholders and quiet glyphs" },
     { "name": "hover", "var": "--cmux-hover", "app": "--cmux-app-hover", "fallback": "color-mix(in srgb, CanvasText 6%, transparent)", "for": "a control under the pointer" },
-    { "name": "pressed", "var": "--cmux-app-pressed", "fallback": "color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent)", "for": "a control while pressed" },
+    { "name": "pressed", "var": "--cmux-pressed", "fallback": "light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 11%, transparent), color-mix(in srgb, var(--cmux-text, CanvasText) 14%, transparent))", "for": "a control while pressed: the text over clear (pressedFill 11% light, 14% dark), never the app theme's opaque pressed surface, so a press stays a wash on glass and over a picture" },
     { "name": "selection", "var": "--cmux-selection", "app": "--cmux-app-selection", "fallback": "color-mix(in srgb, CanvasText 10%, transparent)", "for": "a selected row or the checked segment" },
-    { "name": "separator", "var": "--cmux-separator", "app": "--cmux-app-separator", "fallback": "color-mix(in srgb, CanvasText 8%, transparent)", "for": "hairlines and dividers" },
+    { "name": "separator", "var": "--cmux-separator", "app": "--cmux-app-separator", "fallback": "color-mix(in srgb, CanvasText 8%, transparent)", "for": "hairlines inside a page: list rows, cards and fields" },
+    { "name": "divider", "var": "--cmux-chrome-divider", "app": "--cmux-sidebar-line", "fallback": "var(--ds-color-separator)", "for": "a page's chrome line against the window chrome (WebTheme: the separator x the divider strength, the window's sidebar line and split lines); an older app's sidebar line, else the separator" },
     { "name": "focus", "var": "--cmux-focus-ring-color", "fallback": "currentColor", "for": "the keyboard focus ring (desktop.css: the host's ring at 48%)" },
     { "name": "accent", "var": "--cmux-accent", "app": "--cmux-app-accent", "fallback": "CanvasText", "for": "the theme accent: the text colour unless the theme names a hue" },
     { "name": "on-accent", "var": "--cmux-on-accent", "app": "--cmux-app-on-accent", "fallback": "Canvas", "for": "text and glyphs on the accent" },

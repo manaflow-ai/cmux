@@ -200,6 +200,64 @@ fn persistent_reader_observes_commits_on_an_independent_connection() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Registry connections keep their statements compiled
+/// (`REGISTRY_STATEMENT_CACHE_CAPACITY`). A reused statement must read the
+/// latest commit, never the snapshot of its previous run: a long-lived
+/// reader (the fanout's, the roster's) and the writer each run the same
+/// statements again after every commit here.
+#[test]
+fn reused_statements_read_every_later_commit() {
+    let root = std::env::temp_dir().join(format!("cmux-journal-cached-{}", new_uuid_v4()));
+    let registry = WorkspaceRegistry::open(&root, "cached").unwrap();
+    let database_path = registry.session_journal_database_path().unwrap();
+    let reader = SessionJournalReader::open(&database_path).unwrap();
+    let workspace_id = format!("ws_{}", "2".repeat(32));
+    let result = serde_json::json!({"workspace_id":workspace_id});
+    for revision in 1..=6_u64 {
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        append_resource_journal_record(
+            &tx,
+            revision,
+            revision - 1,
+            "cached-test",
+            &format!("cached-commit-{revision}"),
+            if revision % 2 == 0 { "workspace.focus" } else { "workspace.rename" },
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        drop(db);
+
+        assert_eq!(registry.session_journal_head().unwrap(), revision);
+        assert_eq!(reader.head().unwrap(), revision);
+        let page = reader.after(revision - 1, 10).unwrap();
+        assert_eq!(page.head_sequence, revision);
+        assert_eq!(
+            page.records.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+            [revision]
+        );
+        let (focused, reached) =
+            reader.kinds_after(0, revision, |kind| kind == "workspace.focus", 100).unwrap();
+        assert_eq!(reached, revision);
+        assert_eq!(
+            focused.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+            (1..=revision).filter(|sequence| sequence % 2 == 0).collect::<Vec<_>>(),
+            "the kind read after commit {revision}"
+        );
+    }
+    drop(reader);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn archived_segment_metadata_is_verified_before_replay() {
     let registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
@@ -405,79 +463,707 @@ fn restore_cursor_decodes_a_multi_page_segment_once() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// The non-output read returns every other kind in sequence order, skips
-/// terminal output, pages by `limit`, and crosses windows longer than one
-/// page's span ([`JOURNAL_KIND_SEEK_WINDOW`]) without losing a record. It
-/// seeks per kind, so a page costs the records it covers, not every
-/// non-output entry the journal kept (5.6M on a nightly registry made each
-/// roster catch-up 5-8 s, and the app's requests timed out behind it).
-#[test]
-fn non_output_read_pages_every_other_kind_across_seek_windows() {
-    let registry = WorkspaceRegistry::in_memory("journal-non-output").unwrap();
-    let producer = JournalProducer { kind: "test".into(), id: "test".into() };
-    let subjects: Vec<JournalSubject> = Vec::new();
-    let payload = serde_json::json!({});
-    let kinds = ["agent.hook", "workspace.rename", "terminal.output", "zeta.kind"];
-    let total = JOURNAL_KIND_SEEK_WINDOW as usize * 2 + 300;
+/// A registry whose whole journal is `segments` sealed segments of
+/// `JOURNAL_SEGMENT_RECORD_LIMIT` records, the shape of a nightly registry
+/// that ran for weeks: two of every three records are terminal output of
+/// `output_bytes` each, the rest an agent kind the roster folds (of a test
+/// producer, so its fold changes nothing), so a roster replay inflates every
+/// segment. Returns the registry and the non-output sequences.
+pub(crate) fn output_heavy_sealed_registry(
+    segments: u64,
+    output_bytes: usize,
+) -> (WorkspaceRegistry, Vec<u64>) {
+    let per_segment = u64::try_from(journal_extensions::JOURNAL_SEGMENT_RECORD_LIMIT).unwrap();
+    sealed_registry_of(segments, per_segment, output_bytes)
+}
+
+/// [`output_heavy_sealed_registry`] with `per_segment` records a segment:
+/// a few makes the sparse segments output cleanup leaves behind.
+pub(crate) fn sealed_registry_of(
+    segments: u64,
+    per_segment: u64,
+    output_bytes: usize,
+) -> (WorkspaceRegistry, Vec<u64>) {
+    let registry = WorkspaceRegistry::in_memory("journal-output-heavy").unwrap();
+    let expected = fill_sealed_registry(&registry, segments, per_segment, output_bytes);
+    (registry, expected)
+}
+
+/// Replaces `registry`'s journal with [`sealed_registry_of`]'s segments;
+/// returns the non-output sequences.
+pub(crate) fn fill_sealed_registry(
+    registry: &WorkspaceRegistry,
+    segments: u64,
+    per_segment: u64,
+    output_bytes: usize,
+) -> Vec<u64> {
+    use std::io::Write as _;
+    registry
+        .connection
+        .get()
+        .execute_batch(
+            "DROP TRIGGER session_journal_reject_delete;
+             DELETE FROM session_journal;
+             CREATE TRIGGER session_journal_reject_delete
+               BEFORE DELETE ON session_journal
+             BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+        )
+        .unwrap();
+    let mut state = 0x2545_f491_u64;
     let mut expected = Vec::new();
-    {
-        let db = registry.connection.get();
-        let tx = db.unchecked_transaction().unwrap();
-        for index in 0..total {
-            // A long run of output in the middle: a whole window holds no other kind.
-            let kind = if (4_000..4_000 + JOURNAL_KIND_SEEK_WINDOW as usize + 500).contains(&index)
-            {
-                "terminal.output"
+    for segment in 0..segments {
+        let start = segment * per_segment + 1;
+        let end = start + per_segment - 1;
+        let mut records = Vec::new();
+        let mut kinds = BTreeSet::new();
+        for sequence in start..=end {
+            let output = sequence % 3 != 0;
+            let kind = if output { "terminal.output" } else { "agent.test.noop" };
+            let payload = if output {
+                // Printable pseudo-random bytes, so gzip works about as hard
+                // as it does on real terminal output.
+                let bytes = (0..output_bytes)
+                    .map(|_| {
+                        state ^= state << 13;
+                        state ^= state >> 7;
+                        state ^= state << 17;
+                        b' ' + u8::try_from(state % 95).unwrap()
+                    })
+                    .collect::<Vec<_>>();
+                let offset = (sequence - 1) * u64::try_from(output_bytes).unwrap();
+                serde_json::json!({
+                    "format": "cmux.terminal-output.v1",
+                    "encoding": "base64",
+                    "data": base64::engine::general_purpose::STANDARD.encode(&bytes),
+                    "byte_count": bytes.len().to_string(),
+                    "stream_offset_start": offset.to_string(),
+                    "stream_offset_end": (offset + u64::try_from(bytes.len()).unwrap()).to_string(),
+                    "sha256": encode_bytes_hex(Sha256::digest(&bytes).as_slice()),
+                })
             } else {
-                kinds[index % kinds.len()]
+                expected.push(sequence);
+                serde_json::json!({"workspace_id": format!("ws_{sequence:032x}")})
             };
-            let content = (kind == "terminal.output").then_some(&b"x"[..]);
-            let event_id = format!("event_{index}");
-            let sequence = append_journal_record(
-                &tx,
-                &JournalAppend {
-                    event_id: &event_id,
-                    schema_version: 1,
-                    kind,
-                    class: JournalClass::Observation,
-                    replay: JournalReplayPolicy::Advisory,
-                    occurred_at_ms: 1,
-                    producer: &producer,
-                    authority: None,
-                    causation_id: None,
-                    correlation_id: None,
-                    causation_depth: 0,
-                    subjects: &subjects,
-                    sensitivity: JournalSensitivity::Metadata,
-                    payload: &payload,
-                    content,
-                    resource_revision: None,
-                    previous_resource_revision: None,
-                    actor: None,
-                },
+            kinds.insert(kind);
+            records.push(SessionJournalRecord {
+                sequence,
+                event_id: format!("event_{sequence}"),
+                schema_version: 1,
+                kind: kind.into(),
+                class: JournalClass::Observation,
+                replay: JournalReplayPolicy::Advisory,
+                occurred_at_ms: sequence,
+                committed_at_ms: sequence,
+                producer: JournalProducer { kind: "test".into(), id: "test".into() },
+                authority: None,
+                causation_id: None,
+                correlation_id: None,
+                causation_depth: 0,
+                subjects: Vec::new(),
+                sensitivity: JournalSensitivity::Metadata,
+                payload,
+                resource_revision: None,
+                previous_resource_revision: None,
+                terminal_output: None,
+            });
+        }
+        let uncompressed = serde_json::to_vec(&records).unwrap();
+        let digest = Sha256::digest(&uncompressed);
+        let mut encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(&uncompressed).unwrap();
+        let compressed = encoder.finish().unwrap();
+        let segment_id = format!("segment_{start}_{end}");
+        let db = registry.connection.get();
+        db.execute(
+            "INSERT INTO journal_segments(
+               segment_id, start_sequence, end_sequence, record_count, codec, content,
+               uncompressed_bytes, sha256, sealed_at_ms
+             ) VALUES(?1, ?2, ?3, ?4, 'gzip-json-v1', ?5, ?6, ?7, 1)",
+            params![
+                segment_id,
+                i64::try_from(start).unwrap(),
+                i64::try_from(end).unwrap(),
+                i64::try_from(per_segment).unwrap(),
+                compressed,
+                i64::try_from(uncompressed.len()).unwrap(),
+                digest.as_slice()
+            ],
+        )
+        .unwrap();
+        for kind in kinds {
+            db.execute(
+                "INSERT INTO journal_segment_kinds(segment_id, kind) VALUES(?1, ?2)",
+                params![segment_id, kind],
             )
             .unwrap();
-            if kind != "terminal.output" {
-                expected.push(sequence);
-            }
         }
-        tx.commit().unwrap();
     }
+    expected
+}
+
+/// A kind backfill an older build stopped partway (marker `0`) resumes after
+/// the last segment it finished: segments at or before that progress are not
+/// decoded again, a partly mapped one gets its missing kinds, and the run
+/// ends with the marker at `1` and no progress row.
+#[test]
+fn a_stopped_kind_backfill_resumes_after_its_last_finished_segment() {
+    let (registry, _) = output_heavy_sealed_registry(4, 64);
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds
+         WHERE segment_id IN ('segment_2049_3072', 'segment_3073_4096');
+         INSERT INTO journal_segment_kinds VALUES('segment_2049_3072', 'agent.test.noop');
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '0')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_through', '1025')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         DROP TRIGGER IF EXISTS journal_segments_reject_update;
+         UPDATE journal_segments SET content = x'00112233'
+         WHERE segment_id IN ('segment_1_1024', 'segment_1025_2048');",
+    )
+    .unwrap();
+    // The two finished segments no longer decode: a backfill that decoded
+    // them again would fail here.
+    backfill_legacy_journal_segment_kinds(&db).unwrap();
+    for segment_id in ["segment_2049_3072", "segment_3073_4096"] {
+        let kinds = db
+            .prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1 ORDER BY kind")
+            .unwrap()
+            .query_map([segment_id], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(kinds, ["agent.test.noop", "terminal.output"], "{segment_id}");
+    }
+    let marker: String = db
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(marker, "1");
+    let progress: Option<String> = db
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill_through'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()
+        .unwrap();
+    assert_eq!(progress, None);
+}
+
+/// #39096 review F2: this build's backfill (marker `2`) stopped, an older
+/// build ran next (a downgrade), kept the marker and stopped partway through
+/// a segment, mapping only some of its kinds. Back on this build, the
+/// partly mapped segment is decoded again and gets its missing kinds; the
+/// segments this build finished before the downgrade, and one sealed with its
+/// map after the backfill began, are not decoded again.
+#[test]
+fn a_kind_backfill_after_a_downgrade_maps_the_segment_an_older_build_left_partly_mapped() {
+    let (registry, _) = output_heavy_sealed_registry(5, 64);
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds
+         WHERE segment_id IN ('segment_2049_3072', 'segment_3073_4096');
+         INSERT INTO journal_segment_kinds VALUES('segment_2049_3072', 'agent.test.noop');
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '2')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_through', '1025')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_end', '3073')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         DROP TRIGGER IF EXISTS journal_segments_reject_update;
+         UPDATE journal_segments SET content = x'00112233'
+         WHERE segment_id IN ('segment_1_1024', 'segment_1025_2048', 'segment_4097_5120');",
+    )
+    .unwrap();
+    // The finished segments and the one sealed later no longer decode: a
+    // backfill that decoded them again would fail here.
+    backfill_legacy_journal_segment_kinds(&db).unwrap();
+    for segment_id in ["segment_2049_3072", "segment_3073_4096"] {
+        let kinds = db
+            .prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1 ORDER BY kind")
+            .unwrap()
+            .query_map([segment_id], |row| row.get::<_, String>(0))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        assert_eq!(kinds, ["agent.test.noop", "terminal.output"], "{segment_id}");
+    }
+    let marker: String = db
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'journal_segment_kinds_backfill'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(marker, "1");
+    let left: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM meta WHERE key IN (
+               'journal_segment_kinds_backfill_through', 'journal_segment_kinds_backfill_end'
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
+}
+
+/// #39096 router review F2: this build's backfill (marker `2`) stopped, an
+/// older build ran next and stopped partway through a segment, and an older
+/// build's next start mapped only the unmapped segments and set the marker
+/// to `1`. The progress rows this build left show its run never finished, so
+/// back on this build the `1` is not trusted: the segment left partly mapped
+/// is decoded again, the finished ones and one sealed later are not.
+#[test]
+fn a_kind_backfill_an_older_build_marked_done_over_a_partly_mapped_segment_is_redone() {
+    let (registry, _) = output_heavy_sealed_registry(5, 64);
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds WHERE segment_id = 'segment_2049_3072';
+         INSERT INTO journal_segment_kinds VALUES('segment_2049_3072', 'agent.test.noop');
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill', '1')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_through', '1025')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         INSERT INTO meta(key, value) VALUES('journal_segment_kinds_backfill_end', '3073')
+           ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+         DROP TRIGGER IF EXISTS journal_segments_reject_update;
+         UPDATE journal_segments SET content = x'00112233'
+         WHERE segment_id IN ('segment_1_1024', 'segment_1025_2048', 'segment_4097_5120');",
+    )
+    .unwrap();
+    backfill_legacy_journal_segment_kinds(&db).unwrap();
+    let kinds = db
+        .prepare("SELECT kind FROM journal_segment_kinds WHERE segment_id = ?1 ORDER BY kind")
+        .unwrap()
+        .query_map(["segment_2049_3072"], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(kinds, ["agent.test.noop", "terminal.output"]);
+    let left: i64 = db
+        .query_row(
+            "SELECT COUNT(*) FROM meta WHERE key IN (
+               'journal_segment_kinds_backfill_through', 'journal_segment_kinds_backfill_end'
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(left, 0);
+    // A finished backfill is trusted again: nothing is decoded.
+    backfill_legacy_journal_segment_kinds(&db).unwrap();
+}
+
+/// #39096 review (start budget): the first kind-scoped read of a registry whose
+/// legacy kind backfill has not finished ran the whole backfill before it
+/// returned, decoding every unmapped segment: on a large registry, minutes
+/// inside the start's 1 s roster budget. One call now decodes for a bounded
+/// slice; the read takes the full-decode path for segments still unmapped,
+/// returns the same records, and the backfill finishes across later reads.
+#[test]
+fn a_kind_read_runs_a_bounded_slice_of_an_unfinished_kind_backfill() {
+    let segments = 8;
+    let (registry, expected) = output_heavy_sealed_registry(segments, 64);
     let head = registry.session_journal_head().unwrap();
-    // The first appended record is not output; anything the registry wrote before it is not ours.
-    let start = expected[0] - 1;
-    let (mut cursor, mut seen) = (start, Vec::new());
+    let db = registry.connection.get();
+    db.execute_batch(
+        "DELETE FROM journal_segment_kinds;
+         DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
+    )
+    .unwrap();
+    drop(db);
+    let mapped = |registry: &WorkspaceRegistry| -> i64 {
+        registry
+            .connection
+            .get()
+            .query_row("SELECT COUNT(DISTINCT segment_id) FROM journal_segment_kinds", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
+    let kinds: kind_read::JournalKinds = |kind| kind == "agent.test.noop";
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
+    let started = std::time::Instant::now();
+    let (first, mut cursor) = registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
+    let first_call = started.elapsed();
+    assert_eq!(mapped(&registry), 1, "one call maps one segment with a zero slice");
+    let mut seen = first.iter().map(|record| record.sequence).collect::<Vec<_>>();
+    let mut calls = 1;
     while cursor < head {
         let (records, reached) =
-            registry.session_journal_without_output_after(cursor, head, 512).unwrap();
+            registry.session_journal_kinds_after(cursor, head, kinds, 512).unwrap();
         assert!(reached > cursor, "each page makes progress");
-        assert!(records.len() <= 512);
-        assert!(records.iter().all(|record| record.kind != "terminal.output"));
+        seen.extend(records.iter().map(|record| record.sequence));
+        cursor = reached;
+        calls += 1;
+    }
+    let total = started.elapsed();
+    eprintln!(
+        "bounded kind backfill: {segments} unmapped segments; first read {} ms, \
+         all {calls} reads {} ms",
+        first_call.as_millis(),
+        total.as_millis()
+    );
+    assert_eq!(seen, expected, "the full-decode path returns the same records");
+    // A read can pass a segment the backfill has not mapped yet (it decodes
+    // that one whole); each later call maps one more.
+    for _ in 0..segments {
+        registry.session_journal_kinds_after(0, head, kinds, 1).unwrap();
+    }
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+    assert_eq!(mapped(&registry), i64::try_from(segments).unwrap(), "the backfill finished");
+}
+
+/// router-review on #39096 at 498cf0f: while the kind backfill was
+/// unfinished, a kind read met an unmapped segment and fell back to the
+/// legacy read of up to `limit` records of every kind, terminal output
+/// included. Over sparse segments (output cleanup leaves a few records in
+/// each) that decoded up to `limit` whole segments in one call, and a kind
+/// read over mapped segments decoded every segment holding a match until it
+/// had `limit` records, all before the replay's next deadline check.
+/// A read now decodes the segments of one slice (one batch at least, one
+/// unmapped segment at most) and returns the cursor it reached; later reads
+/// return the rest.
+#[test]
+fn a_kind_read_over_many_sparse_sealed_segments_decodes_one_slice() {
+    let (segments, per_segment) = (64_u64, 12_u64);
+    let (registry, expected) = sealed_registry_of(segments, per_segment, 64);
+    let head = registry.session_journal_head().unwrap();
+    registry
+        .connection
+        .get()
+        .execute_batch(
+            "DELETE FROM journal_segment_kinds;
+             DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
+        )
+        .unwrap();
+    let kinds: kind_read::JournalKinds = |kind| kind == "agent.test.noop";
+    let read_all = |registry: &WorkspaceRegistry, first_bound: u64| {
+        let (first, mut cursor) =
+            registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
         assert!(
-            records.iter().all(|record| record.sequence > cursor && record.sequence <= reached)
+            cursor <= first_bound,
+            "the first read decodes one slice: it reached {cursor}, past {first_bound}"
         );
+        let mut seen = first.iter().map(|record| record.sequence).collect::<Vec<_>>();
+        while cursor < head {
+            let (records, reached) =
+                registry.session_journal_kinds_after(cursor, head, kinds, 512).unwrap();
+            assert!(reached > cursor, "each read makes progress");
+            seen.extend(records.iter().map(|record| record.sequence));
+            cursor = reached;
+        }
+        assert_eq!(seen, expected, "the reads return every record of the kinds, once");
+    };
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
+    kind_read::SEGMENT_DECODE_WORKERS.with(|workers| workers.set(Some(2)));
+    // Unmapped: each call's backfill maps one segment, and the read decodes
+    // at most that one and the first unmapped segment after it.
+    read_all(&registry, 2 * per_segment);
+    // A full slice maps the rest (64 small segments).
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+    registry.session_journal_kinds_after(0, head, kinds, 1).unwrap();
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
+    let unmapped: i64 = registry
+        .connection
+        .get()
+        .query_row(
+            "SELECT COUNT(*) FROM journal_segments WHERE segment_id NOT IN
+               (SELECT segment_id FROM journal_segment_kinds)",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(unmapped, 0, "the backfill finished");
+    // Mapped: one batch of two segments.
+    read_all(&registry, 2 * per_segment);
+    kind_read::SEGMENT_DECODE_WORKERS.with(|workers| workers.set(None));
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+}
+
+/// router-review on #39096 at b9e8947 (F1): the roster's background replay
+/// reads through the read-only reader, where the kind backfill cannot run.
+/// After a downgrade (this build's run recorded its progress, then an older
+/// build mapped the rest one kind at a time and stopped), a segment past
+/// that progress can have a kind map without its agent kind. The read
+/// trusted the map, skipped the segment, and the replay saved its cursor
+/// past those records for good. A map the backfill has not proven whole is
+/// not trusted: the segment is decoded, one per page.
+#[test]
+fn a_read_only_kind_read_decodes_a_segment_whose_map_is_not_proven_whole() {
+    let root = std::env::temp_dir().join(format!("cmux-kind-untrusted-{}", new_uuid_v4()));
+    let registry = WorkspaceRegistry::open(&root, "untrusted").unwrap();
+    let per_segment = 12_u64;
+    let expected = fill_sealed_registry(&registry, 4, per_segment, 64);
+    let head = registry.session_journal_head().unwrap();
+    // This build's run finished the first segment; an older build then
+    // mapped the second without its agent kind and stopped.
+    registry
+        .connection
+        .get()
+        .execute_batch(&format!(
+            "DELETE FROM journal_segment_kinds
+               WHERE segment_id = 'segment_13_24' AND kind = 'agent.test.noop';
+             DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';
+             INSERT INTO meta(key, value) VALUES
+               ('journal_segment_kinds_backfill', '2'),
+               ('journal_segment_kinds_backfill_through', '1'),
+               ('journal_segment_kinds_backfill_end', '{}');",
+            3 * per_segment + 1
+        ))
+        .unwrap();
+    let reader =
+        SessionJournalReader::open(&registry.session_journal_database_path().unwrap()).unwrap();
+    let kinds: kind_read::JournalKinds = |kind| kind == "agent.test.noop";
+    let mut cursor = 0;
+    let mut seen = Vec::new();
+    while cursor < head {
+        let (records, reached) = reader.kinds_after(cursor, head, kinds, 512).unwrap();
+        assert!(reached > cursor, "each read makes progress");
         seen.extend(records.iter().map(|record| record.sequence));
         cursor = reached;
     }
-    assert_eq!(seen, expected);
+    drop(reader);
+    drop(registry);
+    let _ = fs::remove_dir_all(&root);
+    assert_eq!(seen, expected, "the read-only read returns the partly mapped segment's records");
+}
+
+/// The same on a synthetic registry of a long-lived owner's shape
+/// (`synth_registry`: `personal.session.put` churn, agent events, sealed
+/// segments) whose kind map is gone, as an older build's segments have none:
+/// the first kind read the roster replay makes maps one segment of the
+/// backfill, not all of them, and stops short of the head.
+///
+/// The bound is a count of segments, with the slice at zero so that it does
+/// not depend on the host: one call of the backfill then maps exactly one
+/// segment. A first read that waits for the whole backfill maps every
+/// segment and fails here. It was a ratio of two wall times before (the
+/// first read under a third of all reads): with the 100 ms slice the first
+/// read is 100 ms and one segment whatever the host, and all the reads took
+/// about three times that on the Linux CI host (121 ms of 338 ms in one red
+/// run), so the ratio stood at its limit by design and failed on correct
+/// code.
+///
+/// Both times with the real slice still go to
+/// `.build/kind-backfill-slice.json` for a PR; nothing asserts them.
+#[test]
+fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished() {
+    use crate::synth_registry::{SynthOptions, generate};
+    let root = std::env::temp_dir().join(format!("cmux-kind-backfill-slice-{}", new_uuid_v4()));
+    let options = SynthOptions {
+        session: "slice".into(),
+        session_puts: 60_000,
+        agent_events: 2_500,
+        payload_bytes: 2 * 1024,
+        seal: true,
+        ..SynthOptions::default()
+    };
+    let report = generate(&root, &options).unwrap();
+    let registry = WorkspaceRegistry::open(&root, &options.session).unwrap();
+    let forget_kind_maps = |registry: &WorkspaceRegistry| {
+        registry
+            .connection
+            .get()
+            .execute_batch(
+                "DELETE FROM journal_segment_kinds;
+                 DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
+            )
+            .unwrap();
+    };
+    let mapped = |registry: &WorkspaceRegistry| -> i64 {
+        registry
+            .connection
+            .get()
+            .query_row("SELECT COUNT(DISTINCT segment_id) FROM journal_segment_kinds", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
+    let head = registry.session_journal_head().unwrap();
+    let kinds = crate::journal_reducers::AgentRoster::folds_kind;
+
+    // The bound, in segments: a zero slice is one segment a call.
+    forget_kind_maps(&registry);
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
+    let (_, first_cursor) = registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+    let first_mapped = mapped(&registry);
+
+    // The times with the real slice, for the report only.
+    forget_kind_maps(&registry);
+    let started = std::time::Instant::now();
+    let (_, mut cursor) = registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
+    let first = started.elapsed();
+    let sliced_mapped = mapped(&registry);
+    let mut reads = 1;
+    while cursor < head {
+        let (_, reached) = registry.session_journal_kinds_after(cursor, head, kinds, 512).unwrap();
+        assert!(reached > cursor, "each read makes progress");
+        cursor = reached;
+        reads += 1;
+    }
+    let total = started.elapsed();
+    let numbers = serde_json::json!({
+        "segments": report.segments,
+        "journal_head": head,
+        "registry_bytes": report.registry_bytes,
+        "zero_slice_first_read_mapped_segments": first_mapped,
+        "zero_slice_first_read_cursor": first_cursor,
+        "first_read_mapped_segments": sliced_mapped,
+        "first_read_ms": first.as_millis().to_string(),
+        "all_reads_ms": total.as_millis().to_string(),
+        "reads": reads,
+    });
+    eprintln!("kind backfill slice: {numbers}");
+    let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.build");
+    let _ = fs::create_dir_all(&out);
+    let _ = fs::write(out.join("kind-backfill-slice.json"), numbers.to_string());
+    drop(registry);
+    let _ = fs::remove_dir_all(&root);
+    assert!(report.segments > 8, "{numbers}");
+    assert_eq!(first_mapped, 1, "the first read maps one segment of the backfill: {numbers}");
+    assert!(first_cursor < head, "the first read stops short of the head: {numbers}");
+}
+
+/// The page reader's cursor rules (`query_resource_events_after`): a cursor at the head reads an empty page
+/// whatever history is retained; a cursor behind the head with no retained resource history, or behind the
+/// oldest retained revision, is a gap; a cursor past the head is invalid.
+#[test]
+fn resource_event_pages_keep_their_head_gap_and_ahead_rules() {
+    let registry = WorkspaceRegistry::in_memory("page-cursor-rules").unwrap();
+    {
+        let db = registry.connection.get();
+        db.execute("UPDATE meta SET value = '5' WHERE key = 'resource_revision'", []).unwrap();
+    }
+    // No retained resource history at all.
+    let at_head = registry.resource_events_after(5).unwrap();
+    assert_eq!(at_head.head_revision, 5);
+    assert!(at_head.batches.is_empty());
+    let behind = registry.resource_events_after(4).unwrap_err().to_string();
+    assert!(behind.starts_with("cursor.gap:"), "{behind}");
+    let ahead = registry.resource_events_after(6).unwrap_err().to_string();
+    assert!(ahead.starts_with("cursor.invalid:"), "{ahead}");
+
+    // History retained from revision 6 on: 5 reads it, 4 is a gap, the head reads nothing.
+    for revision in 6..=7 {
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        append_resource_journal_record(
+            &tx,
+            revision,
+            revision - 1,
+            "test",
+            &format!("page-{revision}"),
+            "pane.focus",
+            None,
+            &serde_json::json!({}),
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(registry.resource_events_after(7).unwrap().batches.len(), 0);
+    let page = registry.resource_events_after(5).unwrap();
+    assert_eq!(page.batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(), vec![6, 7]);
+    let gap = registry.resource_events_after(4).unwrap_err().to_string();
+    assert!(gap.starts_with("cursor.gap:"), "{gap}");
+}
+
+/// Probe (ignored): the cost of one agent roster snapshot save for a roster
+/// of N agent terminals (hook rows plus screen evidence), as the fold writes
+/// it after each pass that moves its cursor. Prints the snapshot size, the
+/// time per save and the WAL bytes each save appends.
+#[test]
+#[ignore = "probe: prints roster snapshot save cost"]
+fn agent_roster_snapshot_save_cost_probe() {
+    use crate::journal_reducers::{AGENT_PLUGIN_FORMAT, AgentRoster, RosterEvent};
+    for terminals in [10_usize, 170, 800] {
+        let mut roster = AgentRoster::default();
+        let mut sequence = 0_u64;
+        for index in 0..terminals {
+            let terminal = format!("term_{index:032x}");
+            for native_event in ["SessionStart", "UserPromptSubmit", "PreToolUse"] {
+                sequence += 1;
+                let ingress = crate::agent_hook_journal_ingress(
+                    "claude",
+                    native_event,
+                    Some(&terminal),
+                    serde_json::json!({"tool_name":"Bash","session_id":format!("session-{index}")}),
+                )
+                .unwrap();
+                roster.apply(&RosterEvent {
+                    producer_id: &ingress.producer_id,
+                    kind: &ingress.kind,
+                    subjects: &ingress.subjects,
+                    payload: &ingress.payload,
+                    sequence,
+                    committed_at_ms: 1_000_000 + sequence,
+                });
+            }
+            sequence += 1;
+            let payload = serde_json::json!({
+                "format": AGENT_PLUGIN_FORMAT,
+                "plugin": {"id": "agent-screen-detection", "version": 1},
+                "adapter": {"id": "claude", "version": 1},
+                "event": "state.changed",
+                "normalized": {
+                    "state": "working",
+                    "source_session": format!("pid:{}", 4000 + index),
+                    "observed_at_ms": (1_000_000 + sequence).to_string(),
+                    "plugin_generation": "1",
+                },
+                "native": {"visible": {"idle": false, "blocker": false, "working": true}},
+            });
+            let subjects = vec![JournalSubject { kind: "terminal".into(), id: terminal.clone() }];
+            roster.apply(&RosterEvent {
+                producer_id: "agent-screen-detection",
+                kind: "plugin.agent-screen-detection.agent.state.changed",
+                subjects: &subjects,
+                payload: &payload,
+                sequence,
+                committed_at_ms: 1_000_000 + sequence,
+            });
+        }
+        let root = std::env::temp_dir().join(format!("cmux-roster-save-{}", new_uuid_v4()));
+        let registry = WorkspaceRegistry::open(&root, "roster-save").unwrap();
+        let database_path = registry.session_journal_database_path().unwrap();
+        let wal_path = database_path.with_extension("sqlite3-wal");
+        let wal_len = || fs::metadata(&wal_path).map(|meta| meta.len()).unwrap_or(0);
+        const SAVES: u64 = 200;
+        let serialize_started = std::time::Instant::now();
+        let mut snapshot = String::new();
+        for _ in 0..SAVES {
+            snapshot = roster.snapshot().to_string();
+        }
+        let serialize = serialize_started.elapsed() / SAVES as u32;
+        // One save first, so the probe measures replacing a snapshot.
+        registry.put_journal_reducer_state("agent_roster", 1, 0, &snapshot).unwrap();
+        let wal_before = wal_len();
+        let started = std::time::Instant::now();
+        for cursor in 1..=SAVES {
+            registry.put_journal_reducer_state("agent_roster", 1, cursor, &snapshot).unwrap();
+        }
+        let per_save = started.elapsed() / SAVES as u32;
+        let wal_after = wal_len();
+        eprintln!(
+            "roster save: {terminals} agent terminals, snapshot {} bytes, serialize {serialize:?}, \
+             save {per_save:?}, WAL {} bytes per save (wal {wal_before} -> {wal_after})",
+            snapshot.len(),
+            wal_after.saturating_sub(wal_before) / SAVES,
+        );
+        drop(registry);
+        let _ = fs::remove_dir_all(root);
+    }
 }

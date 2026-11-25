@@ -1,5 +1,5 @@
-//! `diff.comments.list|save|delete`: the diff page's review comments, kept
-//! by the session host until they are sent to the agent.
+//! `diff.comments.list|save|delete|send|thread`: the diff page's review comments,
+//! kept by the session host until they are sent to the agent.
 //!
 //! Comments are keyed by a worktree root, an absolute path used only as a
 //! key: nothing reads the folder it names. Each root's comments are one
@@ -11,6 +11,12 @@
 //! Saves and deletes are keyed mutations in the session's
 //! `resource_mutations` ledger, serialized per root, so a retry replays the
 //! first result and concurrent writes never lose one another.
+//!
+//! A send (`send`) hands the caller's prompt to an acpmux session of this
+//! machine as one queued prompt; once acpmux takes it, the sent comments
+//! still at the caller's versions are removed, as a delete removes them.
+//! A threaded send (`threads: true`) keeps them as review threads instead,
+//! and `diff.comments.thread` adds replies and resolves (`thread.rs`).
 
 use std::collections::HashMap;
 use std::io;
@@ -28,8 +34,19 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 use crate::{Mux, ResourceTarget};
 
+mod send;
+#[cfg(test)]
+#[path = "diff_comments/send_tests.rs"]
+mod send_tests;
+mod thread;
+
 /// Advertised in identify: the session host owns `diff.comments.*`.
 pub(crate) const CAPABILITY: &str = "diff-comments-v1";
+/// Advertised in identify: the session host answers `diff.comments.send`.
+pub(crate) const SEND_CAPABILITY: &str = "diff-comments-send-v1";
+/// Advertised in identify: the session host keeps review threads
+/// (`diff.comments.thread`, and `diff.comments.send` with `threads: true`).
+pub(crate) const THREADS_CAPABILITY: &str = "diff-comments-threads-v1";
 
 const DIRECTORY: &str = "diff-comments";
 /// The longest root, in bytes.
@@ -37,11 +54,17 @@ pub(super) const MAX_ROOT_BYTES: usize = 4096;
 /// The largest stored comment, serialized.
 pub(super) const MAX_COMMENT_BYTES: usize = 64 * 1024;
 /// The most comments one root keeps.
+/// Measured: the bytes of one save; a root's comments are one JSON file rewritten whole on each
+/// change, so 500 × MAX_COMMENT_BYTES (64 KiB) bounds that write at 32 MiB.
 pub(super) const MAX_COMMENTS: usize = 500;
 /// The most ids one delete names.
 pub(super) const MAX_DELETE_IDS: usize = 500;
 /// The longest caller-chosen id.
 const MAX_ID_LENGTH: usize = 128;
+/// The longest prompt a send hands over, in bytes.
+pub(super) const MAX_PROMPT_BYTES: usize = 256 * 1024;
+/// The longest acpmux session id a send names.
+const MAX_SESSION_LENGTH: usize = 128;
 
 pub(super) fn handles(operation: ResourceOperation) -> bool {
     matches!(
@@ -49,6 +72,8 @@ pub(super) fn handles(operation: ResourceOperation) -> bool {
         ResourceOperation::DiffCommentsList
             | ResourceOperation::DiffCommentsSave
             | ResourceOperation::DiffCommentsDelete
+            | ResourceOperation::DiffCommentsSend
+            | ResourceOperation::DiffCommentsThread
     )
 }
 
@@ -63,7 +88,13 @@ pub(super) fn dispatch(
     match request.envelope.operation {
         ResourceOperation::DiffCommentsList => {
             let file = store.read(root).map_err(|error| io_failed(operation, &error))?;
-            Ok(json!({"root": root, "comments": file.sorted()}))
+            let mut listed = json!({"root": root, "comments": file.sorted()});
+            // A pull request review's worktree (`git.review.start`) says which
+            // pull request its comments go to.
+            if let (Some(review), Some(fields)) = (&file.review, listed.as_object_mut()) {
+                fields.insert("review".into(), review.clone());
+            }
+            Ok(listed)
         }
         ResourceOperation::DiffCommentsSave => {
             let comment = comment(&request.fields)?;
@@ -71,8 +102,15 @@ pub(super) fn dispatch(
         }
         ResourceOperation::DiffCommentsDelete => {
             let ids = ids(&request.fields)?;
-            let versions = versions(&request.fields)?;
+            let versions = versions(&request.fields, false)?;
             mutate(mux, &store, request, root, |file, _| Ok(delete(file, &ids, &versions)))
+        }
+        ResourceOperation::DiffCommentsSend => send::send(mux, &store, request, root),
+        ResourceOperation::DiffCommentsThread => {
+            let change = thread::change(&request.fields)?;
+            mutate(mux, &store, request, root, |file, key| {
+                thread::apply(file, root, key, change, &rfc3339(now_ms()))
+            })
         }
         // Dispatched only for the operations `handles` names; any other is refused, never a panic.
         _ => Err(ResourceError::operation_failed(
@@ -86,7 +124,7 @@ pub(super) fn dispatch(
 /// Runs one keyed mutation of `root`'s file under its lock: a replayed key
 /// returns its first result; otherwise `change` edits the file, which is
 /// written when it changed, and its value is committed to the ledger.
-fn mutate(
+pub(super) fn mutate(
     mux: &Arc<Mux>,
     store: &Store,
     request: &ParsedResourceRequest,
@@ -95,12 +133,7 @@ fn mutate(
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation.wire_name();
     let key = super::checkpoint::mutation_key(request);
-    // Every diff comment mutation shares one identity: the root is in the
-    // fields, so a key reused for another root is idempotency.conflict.
-    let identity = Identity { repository_id: DIRECTORY, worktree_id: "" };
-    let selectors = serde_json::to_value(&request.selectors).unwrap_or(Value::Null);
-    let fields = Value::Object(request.fields.clone());
-    let fingerprint = ledger::fingerprint(operation, &selectors, &fields, &identity);
+    let fingerprint = fingerprint(request);
     store.exclusive(root, || {
         if let Some(replayed) = ledger::prior(mux, &key, operation, &fingerprint)? {
             return Ok(replayed);
@@ -114,9 +147,31 @@ fn mutate(
     })
 }
 
+/// The fingerprint of a diff comment mutation. Every one shares one
+/// identity: the root is in the fields, so a key reused for another root is
+/// idempotency.conflict.
+fn fingerprint(request: &ParsedResourceRequest) -> Value {
+    let identity = Identity { repository_id: DIRECTORY, worktree_id: "" };
+    let selectors = serde_json::to_value(&request.selectors).unwrap_or(Value::Null);
+    let fields = Value::Object(request.fields.clone());
+    ledger::fingerprint(request.envelope.operation.wire_name(), &selectors, &fields, &identity)
+}
+
+/// A delivered send's clear: [`delete`]'s removal, answered as `{sent, cleared}`.
+fn cleared(
+    file: &mut File,
+    ids: &[String],
+    versions: &Map<String, Value>,
+    sent: usize,
+) -> (Value, bool) {
+    let (deleted, changed) = delete(file, ids, versions);
+    let cleared = deleted.get("ids").cloned().unwrap_or_else(|| json!([]));
+    (json!({"sent": sent, "cleared": cleared}), changed)
+}
+
 /// Stamps and stores `comment`: an edit of the comment its `id` names, or a
 /// new one. Returns `{comment}`.
-fn save(
+pub(super) fn save(
     file: &mut File,
     root: &str,
     key: &str,
@@ -134,6 +189,8 @@ fn save(
         _ => new_id(root, key),
     };
     let existing = existing.or_else(|| file.position(&id));
+    // The thread (replies, resolved, what the agent read) is the daemon's.
+    thread::keep_thread(existing.and_then(|index| file.comments.get(index)), &mut comment);
     let created = existing
         .and_then(|index| file.comments.get(index)?.get("createdAt").cloned())
         .filter(Value::is_string)
@@ -168,7 +225,11 @@ fn save(
 /// `versions` names stays unless its `updatedAt` is still that version, so
 /// an edit saved after the caller read it is never removed. Returns
 /// `{deleted, ids}`: the count and the ids removed.
-fn delete(file: &mut File, ids: &[String], versions: &Map<String, Value>) -> (Value, bool) {
+pub(super) fn delete(
+    file: &mut File,
+    ids: &[String],
+    versions: &Map<String, Value>,
+) -> (Value, bool) {
     let mut removed = Vec::new();
     file.comments.retain(|comment| {
         let Some(id) = comment.get("id").and_then(Value::as_str) else { return true };
@@ -185,7 +246,7 @@ fn delete(file: &mut File, ids: &[String], versions: &Map<String, Value>) -> (Va
 }
 
 /// `root`: an absolute path, at most 4096 bytes, without NUL.
-fn root(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
+pub(super) fn root(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
     let root = fields.get("root").and_then(Value::as_str).unwrap_or_default();
     if !root.starts_with('/') || root.len() > MAX_ROOT_BYTES || root.contains('\0') {
         return Err(ResourceError::validation_invalid(
@@ -202,7 +263,7 @@ fn comment(fields: &Map<String, Value>) -> Result<Map<String, Value>, ResourceEr
     })
 }
 
-fn ids(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> {
+pub(super) fn ids(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> {
     let ids = fields
         .get("ids")
         .and_then(Value::as_array)
@@ -213,22 +274,52 @@ fn ids(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> {
     if ids.len() > MAX_DELETE_IDS {
         return Err(ResourceError::validation_invalid(
             Some("ids"),
-            format!("a delete names at most {MAX_DELETE_IDS} ids"),
+            format!("a delete or send names at most {MAX_DELETE_IDS} ids"),
         ));
     }
     Ok(ids)
 }
 
-/// `versions`: optional, each id's `updatedAt` as the caller last read it.
-fn versions(fields: &Map<String, Value>) -> Result<Map<String, Value>, ResourceError> {
+/// `acp_session`: the acpmux session id, 1 to 128 visible ASCII characters.
+fn acp_session(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
+    let session = fields.get("acp_session").and_then(Value::as_str).unwrap_or_default();
+    if !(1..=MAX_SESSION_LENGTH).contains(&session.len())
+        || !session.bytes().all(|byte| byte.is_ascii_graphic())
+    {
+        return Err(ResourceError::validation_invalid(
+            Some("acp_session"),
+            format!("acp_session must be 1 to {MAX_SESSION_LENGTH} visible ASCII characters"),
+        ));
+    }
+    Ok(session)
+}
+
+/// `text`: the prompt, not blank, at most 256 KiB.
+fn prompt(fields: &Map<String, Value>) -> Result<&str, ResourceError> {
+    let text = fields.get("text").and_then(Value::as_str).unwrap_or_default();
+    if text.trim().is_empty() || text.len() > MAX_PROMPT_BYTES {
+        return Err(ResourceError::validation_invalid(
+            Some("text"),
+            format!("text must be a prompt of 1 to {MAX_PROMPT_BYTES} bytes"),
+        ));
+    }
+    Ok(text)
+}
+
+/// `versions`: each id's `updatedAt` as the caller last read it. Delete may
+/// omit it; send must provide an object, including an empty one.
+pub(super) fn versions(
+    fields: &Map<String, Value>,
+    required: bool,
+) -> Result<Map<String, Value>, ResourceError> {
     match fields.get("versions") {
-        None | Some(Value::Null) => Ok(Map::new()),
+        None | Some(Value::Null) if !required => Ok(Map::new()),
         Some(Value::Object(versions))
             if versions.len() <= MAX_DELETE_IDS && versions.values().all(Value::is_string) =>
         {
             Ok(versions.clone())
         }
-        Some(_) => Err(ResourceError::validation_invalid(
+        None | Some(_) => Err(ResourceError::validation_invalid(
             Some("versions"),
             format!("versions maps at most {MAX_DELETE_IDS} ids to updatedAt strings"),
         )),
@@ -245,7 +336,7 @@ fn new_id(root: &str, key: &str) -> String {
     format!("dc_{}", hex(digest.get(..16).unwrap_or_default()))
 }
 
-fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
+pub(super) fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
     let message = format!("the diff comment store could not be read or written: {error}");
     ResourceError::operation_failed(operation, "store_failed", json!({"message": message}))
 }
@@ -254,7 +345,12 @@ fn io_failed(operation: &str, error: &io::Error) -> ResourceError {
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub(super) struct File {
     root: String,
-    comments: Vec<Map<String, Value>>,
+    pub(super) comments: Vec<Map<String, Value>>,
+    /// The pull request a review worktree's comments go to, when
+    /// `git.review.start` made the worktree: `{url, repo, number, title,
+    /// head, base}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) review: Option<Value>,
 }
 
 impl File {
@@ -266,7 +362,7 @@ impl File {
 
     /// Oldest first: by `createdAt` (RFC 3339 UTC, which sorts as text),
     /// then insertion order.
-    fn sorted(&self) -> Vec<&Map<String, Value>> {
+    pub(super) fn sorted(&self) -> Vec<&Map<String, Value>> {
         let mut comments: Vec<_> = self.comments.iter().collect();
         comments.sort_by(|left, right| {
             let created = |comment: &Map<String, Value>| {
@@ -285,7 +381,7 @@ pub(super) struct Store {
 
 impl Store {
     /// The session's store, or `no_state_directory` for an in-memory session.
-    fn open(mux: &Mux, operation: &str) -> Result<Self, ResourceError> {
+    pub(super) fn open(mux: &Mux, operation: &str) -> Result<Self, ResourceError> {
         let Some(session) = mux.session_state_directory() else {
             let message = "this session keeps no durable state, so it cannot hold diff comments";
             return Err(ResourceError::operation_failed(
@@ -310,12 +406,30 @@ impl Store {
         let file: Option<File> = read_json(&self.path(root))?;
         Ok(file
             .filter(|file| file.root == root)
-            .unwrap_or_else(|| File { root: root.to_string(), comments: Vec::new() }))
+            .unwrap_or_else(|| File { root: root.to_string(), ..File::default() }))
     }
 
     pub(super) fn write(&self, root: &str, file: &File) -> io::Result<()> {
         private_directory(&self.directory)?;
         write_json(&self.path(root), file)
+    }
+
+    /// Records the pull request `root`'s comments go to (`git.review.start`).
+    /// A review of the same pull request and head keeps its drafts; any
+    /// other comments under the root (a removed worktree's path made again,
+    /// another head) are dropped, so they never go to this review.
+    pub(super) fn set_review(&self, root: &str, review: Value) -> io::Result<()> {
+        self.exclusive(root, || {
+            let mut file = self.read(root)?;
+            let same = |name: &str| {
+                file.review.as_ref().and_then(|prior| prior.get(name)) == review.get(name)
+            };
+            if !(same("url") && same("head")) {
+                file.comments.clear();
+            }
+            file.review = Some(review);
+            self.write(root, &file)
+        })
     }
 
     /// Runs `body` holding `root`'s lock, shared by every connection.
@@ -334,70 +448,5 @@ impl Store {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn comment(value: Value) -> Map<String, Value> {
-        value.as_object().unwrap().clone()
-    }
-
-    #[test]
-    fn save_stamps_edits_and_deletes() {
-        let mut file = File::default();
-        let (first, _) = save(&mut file, "/r", "k1", comment(json!({"message": "a"}))).unwrap();
-        let id = first["comment"]["id"].as_str().unwrap().to_string();
-        assert!(id.starts_with("dc_") && id.len() == 35, "{first}");
-        let created = first["comment"]["createdAt"].clone();
-        assert_eq!(first["comment"]["updatedAt"], created);
-        let edit = comment(json!({"id": id, "message": "b", "createdAt": "1999"}));
-        let (edited, _) = save(&mut file, "/r", "k2", edit).unwrap();
-        assert_eq!(edited["comment"]["createdAt"], created, "createdAt is the daemon's");
-        assert_eq!(edited["comment"]["message"], "b");
-        assert_eq!(file.comments.len(), 1);
-        let (chosen, _) = save(&mut file, "/r", "k3", comment(json!({"id": "mine"}))).unwrap();
-        assert_eq!(chosen["comment"]["id"], "mine");
-        let (bad, _) = save(&mut file, "/r", "k4", comment(json!({"id": "has space"}))).unwrap();
-        assert!(bad["comment"]["id"].as_str().unwrap().starts_with("dc_"));
-        let stale = Map::from_iter([("mine".to_string(), json!("1999"))]);
-        let (kept, changed) = delete(&mut file, &["mine".into()], &stale);
-        assert_eq!(
-            kept,
-            json!({"deleted": 0, "ids": []}),
-            "an edit since the caller read it stays"
-        );
-        assert!(!changed);
-        let (deleted, changed) = delete(&mut file, &[id.clone(), "unknown".into()], &Map::new());
-        assert_eq!(deleted, json!({"deleted": 1, "ids": [id]}));
-        assert!(changed);
-        assert_eq!(file.comments.len(), 2);
-    }
-
-    #[test]
-    fn save_refuses_large_comments_and_full_roots() {
-        let mut file = File::default();
-        let large = comment(json!({"message": "x".repeat(MAX_COMMENT_BYTES)}));
-        assert_eq!(save(&mut file, "/r", "k", large).unwrap_err().code, "validation.invalid");
-        for index in 0..MAX_COMMENTS {
-            save(&mut file, "/r", &format!("k{index}"), comment(json!({}))).unwrap();
-        }
-        let error = save(&mut file, "/r", "full", comment(json!({}))).unwrap_err();
-        assert_eq!(error.details["reason"], "too_many_comments", "{error:?}");
-    }
-
-    #[test]
-    fn store_round_trips_and_lists_oldest_first() {
-        let directory =
-            std::env::temp_dir().join(format!("diff-comments-{}-{}", std::process::id(), now_ms()));
-        let store = Store::at(directory.clone());
-        assert!(store.read("/repo").unwrap().comments.is_empty());
-        let mut file = store.read("/repo").unwrap();
-        file.comments.push(comment(json!({"id": "b", "createdAt": "2026-11-07T12:00:01.000Z"})));
-        file.comments.push(comment(json!({"id": "a", "createdAt": "2026-11-07T12:00:00.000Z"})));
-        store.write("/repo", &file).unwrap();
-        let read = store.read("/repo").unwrap();
-        let ids: Vec<_> = read.sorted().iter().map(|c| c["id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["a", "b"]);
-        assert!(store.read("/other").unwrap().comments.is_empty());
-        let _ = std::fs::remove_dir_all(directory);
-    }
-}
+#[path = "diff_comments_tests.rs"]
+mod tests;

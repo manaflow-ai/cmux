@@ -18,6 +18,7 @@ import { afterAll, expect, setSystemTime, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
   url: "http://localhost/",
@@ -73,14 +74,10 @@ type TrayItem = import("../src/agent-session/acpmux/subagents/runningTray").Tray
 type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
 type AcpmuxRow = import("../src/agent-session/acpmux/model").AcpmuxRow;
 
-afterAll(() => {
+afterAll(async () => {
   setSystemTime();
   setPaneLanguage("en");
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
 

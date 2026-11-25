@@ -167,7 +167,15 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         "agents.max_depth=2",
         "app-server"
     ]);
-    assert!(starts.contains(&lifted), "{starts:?}");
+    assert!(starts.iter().map(without_rules).any(|s| s == lifted), "{starts:?}");
+    // The chat's own start carries cmux's rules as Codex's developer instructions.
+    assert!(
+        starts.iter().any(|s| s.to_string().contains(acpmux::agent_tools::CONCURRENT_WORK_RULE)),
+        "{starts:?}"
+    );
+    // Every override, the rules included, before the subcommand: none after it, or a codex that
+    // drops the root ones then would lose the limits and a launcher's own (cmux#48354).
+    assert!(!starts.iter().any(config_after_subcommand), "{starts:?}");
 
     // A key the project's codex config sets wins too.
     let project = d.join("project");
@@ -200,8 +208,140 @@ async fn a_chat_starts_codex_with_its_agent_limits_lifted_unless_the_profile_set
         .collect();
     let lifted =
         json!(["-c", "agents.max_depth=16", "-c", "tools.update_plan.enabled=true", "app-server"]);
-    assert!(starts.contains(&lifted), "{starts:?}");
+    assert!(starts.iter().map(without_rules).any(|s| s == lifted), "{starts:?}");
     let _ = std::fs::remove_dir_all(&d);
+}
+
+/// Every `app-server` start recorded in `recorded` once a chat answered a prompt (other codex
+/// runs the fake records, such as an `mcp get` check, are left out).
+async fn starts_of_a_chat(hub: &Arc<Hub>, d: &Path, recorded: &Path) -> Vec<Value> {
+    let mut c = Client::local(hub);
+    let (s, _) = harness_of_new(&mut c, d, "codex").await;
+    let r = c
+        .call(
+            "session/prompt",
+            json!({"sessionId": s, "prompt": [{"type": "text", "text": "1+1"}]}),
+        )
+        .await;
+    assert_eq!(r["result"]["stopReason"], "end_turn", "{r}");
+    std::fs::read_to_string(recorded)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .map(|s| without_rules(&s))
+        .filter(|s| s.as_array().is_some_and(|w| w.iter().any(|a| a == "app-server")))
+        .collect()
+}
+
+/// A GUI chat's Codex starts with the model codex's config.toml names on its command line
+/// (cmux#48354), as `codex` in a terminal does: a launcher that routes by `-m` (a subrouter
+/// wrapper installed as `codex`) otherwise sent the model, which the chat only names later over
+/// the protocol, to the plain provider, and the turn failed with 400 `model_not_found`. The active
+/// codex profile's model wins over the top-level one; a model the profile's command line names
+/// is kept and never doubled.
+#[tokio::test]
+async fn a_chat_starts_codex_with_the_configured_model_on_its_command_line() {
+    let d = dir("model-argv");
+    let codex = shim(&d, "codex", FAKE_APP_SERVER);
+    let home = d.join("codex-home");
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        home.join("config.toml"),
+        "model = \"gpt-6.2-sol\"\nmodel_reasoning_effort = \"high\"\n",
+    )
+    .unwrap();
+    let hub_on = |argv: Vec<Value>, recorded: &Path| {
+        hub_with(json!({
+            "harnesses": {"codex": {
+                "argv": argv,
+                "env": {"FAKE_CODEX_ARGS": recorded, "CODEX_HOME": home},
+            }},
+            "defaultHarness": "codex",
+            "permissionPolicy": "ask",
+        }))
+    };
+    let first_model = |start: &Value| -> Option<String> {
+        let words = start.as_array()?;
+        (words.first()? == "-m").then(|| words.get(1)?.as_str().map(str::to_owned)).flatten()
+    };
+
+    // The config's model, first, before acpmux's overrides and the subcommand.
+    let recorded = d.join("config-args.json");
+    let hub = hub_on(vec![json!(codex), json!("app-server")], &recorded);
+    let starts = starts_of_a_chat(&hub, &d, &recorded).await;
+    // Each start of the app-server, the chat's among them (a model probe, which has no chat,
+    // may start one too, without acpmux's launch arguments).
+    let chat = starts
+        .iter()
+        .find(|s| first_model(s).is_some())
+        .unwrap_or_else(|| panic!("no start named a model: {starts:?}"));
+    assert_eq!(first_model(chat).as_deref(), Some("gpt-6.2-sol"), "{starts:?}");
+    assert_eq!(chat.as_array().unwrap().last().unwrap(), "app-server", "{chat}");
+    assert!(starts.iter().filter_map(first_model).all(|m| m == "gpt-6.2-sol"), "{starts:?}");
+
+    // The active profile's model.
+    std::fs::write(
+        home.join("config.toml"),
+        "model = \"gpt-6.2-sol\"\nprofile = \"astra\"\n[profiles.astra]\nmodel = \"gpt-6-astra\"\n",
+    )
+    .unwrap();
+    let recorded = d.join("profile-args.json");
+    let hub = hub_on(vec![json!(codex), json!("app-server")], &recorded);
+    let starts = starts_of_a_chat(&hub, &d, &recorded).await;
+    let models: Vec<String> = starts.iter().filter_map(first_model).collect();
+    assert!(!models.is_empty() && models.iter().all(|m| m == "gpt-6-astra"), "{starts:?}");
+
+    // A model the harness's own command line names stays the only one.
+    let recorded = d.join("own-args.json");
+    let hub = hub_on(
+        vec![json!(codex), json!("--model"), json!("gpt-6.1-sol"), json!("app-server")],
+        &recorded,
+    );
+    let starts = starts_of_a_chat(&hub, &d, &recorded).await;
+    for s in &starts {
+        let words: Vec<&str> = s.as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        assert!(!words.contains(&"-m"), "{s}");
+        assert_eq!(words.iter().filter(|w| **w == "gpt-6.1-sol").count(), 1, "{s}");
+    }
+
+    // No model configured: the launch is as before.
+    std::fs::write(home.join("config.toml"), "").unwrap();
+    let recorded = d.join("none-args.json");
+    let hub = hub_on(vec![json!(codex), json!("app-server")], &recorded);
+    let starts = starts_of_a_chat(&hub, &d, &recorded).await;
+    assert!(starts.iter().all(|s| first_model(s).is_none()), "{starts:?}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A start's arguments without the `-c developer_instructions=...` a chat's start carries
+/// (`context_inventory::launch_args`): cmux's rules, which the limits leave alone.
+fn without_rules(start: &Value) -> Value {
+    let words = start.as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < words.len() {
+        let rules = words[i] == "-c"
+            && words
+                .get(i + 1)
+                .and_then(Value::as_str)
+                .is_some_and(|w| w.starts_with("developer_instructions="));
+        if rules {
+            i += 2;
+        } else {
+            out.push(words[i].clone());
+            i += 1;
+        }
+    }
+    Value::Array(out)
+}
+
+/// Whether `start` has a config override after its `app-server` word, which some codex builds
+/// (0.160, the cmux fork) answer by dropping every override before the subcommand (cmux#48354).
+fn config_after_subcommand(start: &Value) -> bool {
+    let words: Vec<&str> = start.as_array().unwrap().iter().filter_map(Value::as_str).collect();
+    words.iter().position(|w| *w == "app-server").is_some_and(|at| {
+        words[at + 1..].iter().any(|w| w.starts_with("-c") || w.starts_with("--config"))
+    })
 }
 
 #[tokio::test]

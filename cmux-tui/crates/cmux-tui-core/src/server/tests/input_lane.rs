@@ -24,6 +24,7 @@ fn key(surface: SurfaceId, byte: u8) -> Command {
         expect_agent: None,
         submit: false,
         flow: None,
+        key: None,
     })
 }
 
@@ -211,6 +212,42 @@ fn a_tab_created_or_closed_elsewhere_keeps_the_key_off_the_session_lock() {
         locks, 0,
         "a tab created and closed in another workspace sent the person's next key to the session lock"
     );
+    mux.shutdown();
+}
+
+/// The route generations belong to one session: `cargo test` runs every test of the crate in one process, each with
+/// its own mux whose surface ids start at 1, so another mux's terminal with the same id is routed and closed while
+/// this client types. Before, the generations were one process-wide array keyed by surface id, and that write sent
+/// the person's next key back to this session's lock (the full --lib run's flake of the test above, 2026-11-11).
+#[cfg(unix)]
+#[test]
+fn another_sessions_terminal_with_the_same_id_keeps_the_key_off_the_session_lock() {
+    let mux = old_path_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    handle_command(&mux, client, key(typing.id, b'a'), &writer).unwrap();
+
+    // Another session routes a terminal with the typing terminal's id, then closes it.
+    let other = old_path_mux();
+    let first = other.new_workspace(Some("other".into()), Some((80, 24))).unwrap();
+    let pane = other.with_state(|state| state.pane_of(first.id).unwrap());
+    let mut twin = first;
+    while twin.id < typing.id {
+        twin = other.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+    }
+    assert_eq!(
+        twin.id, typing.id,
+        "the other session made no terminal with the typing terminal's id"
+    );
+    assert!(other.close_surface(twin.id).unwrap(), "the other session's terminal did not close");
+
+    let (sent, locks) =
+        session_locks_of(|| handle_command(&mux, client, key(typing.id, b'b'), &writer));
+    sent.unwrap();
+    assert_eq!(
+        locks, 0,
+        "another session's terminal with the same id sent the person's next key to the session lock"
+    );
+    other.shutdown();
     mux.shutdown();
 }
 
@@ -425,5 +462,51 @@ fn a_read_only_viewers_keys_do_not_get_the_persons_priority() {
         writer.input_lane.carries_person_input(),
         "the typing client's keys did not mark its connection as the person's input"
     );
+    mux.shutdown();
+}
+
+/// `send-key-v1` (Leo, 2026-11-21: "there's like a sort of like double send type thing"): a phone
+/// whose `send` was written but whose reply was lost sends it again with the same key, and the
+/// terminal gets it once. Another key writes again; no key is today's path, every send written.
+#[cfg(unix)]
+#[test]
+fn a_send_with_an_applied_key_writes_nothing_again() {
+    fn keyed(surface: SurfaceId, text: &str, key: Option<String>) -> Command {
+        Command::Send(cmd_terminal_io::SendParams {
+            surface: Some(surface),
+            terminal_id: None,
+            text: None,
+            bytes: Some(base64::engine::general_purpose::STANDARD.encode(text)),
+            paste: false,
+            expect_foreground: None,
+            expect_agent: None,
+            submit: false,
+            flow: None,
+            key,
+        })
+    }
+    let mux = old_path_mux();
+    let (typing, client, writer) = attached_terminal(&mux);
+    let (sent, input) = mpsc::channel();
+    typing.replace_input_writer_for_test(Box::new(InputRecorder(sent)));
+    let written =
+        |input: &mpsc::Receiver<Vec<u8>>| -> Vec<u8> { input.try_iter().flatten().collect() };
+    let first = format!("send-once-{}", crate::workspace_registry::new_uuid_v4());
+    let second = format!("send-once-{}", crate::workspace_registry::new_uuid_v4());
+
+    let reply =
+        handle_command(&mux, client, keyed(typing.id, "ls\r", Some(first.clone())), &writer)
+            .unwrap();
+    let again =
+        handle_command(&mux, client, keyed(typing.id, "ls\r", Some(first)), &writer).unwrap();
+    assert_eq!(reply, again, "a repeat gets the same success reply");
+    assert_eq!(written(&input), b"ls\r".to_vec(), "the same key twice writes once");
+
+    handle_command(&mux, client, keyed(typing.id, "pwd\r", Some(second)), &writer).unwrap();
+    assert_eq!(written(&input), b"pwd\r".to_vec(), "another key writes again");
+
+    handle_command(&mux, client, keyed(typing.id, "a", None), &writer).unwrap();
+    handle_command(&mux, client, keyed(typing.id, "a", None), &writer).unwrap();
+    assert_eq!(written(&input), b"aa".to_vec(), "with no key every send is written, as before");
     mux.shutdown();
 }

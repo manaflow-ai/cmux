@@ -33,6 +33,8 @@ public final class TerminalSession {
     public let view: TerminalHostView
     /// The find bar over this terminal and the search it drives.
     public let find = TerminalFindController()
+    /// The daemon's whole-history search for this terminal (set by its owner); nil searches only the screen.
+    public var historyFind: (any TerminalFindHistory)?
     public weak var delegate: (any TerminalSessionDelegate)? {
         didSet { linkCheck = delegate?.terminalSessionLinkCheck(self) }
     }
@@ -89,7 +91,7 @@ public final class TerminalSession {
         }
     }
     /// This terminal's content changes, for the launch frame keeper (``TerminalLaunchFrameKeeper``).
-    nonisolated let frameChanges = TerminalFrameChanges()
+    public nonisolated let frameChanges = TerminalFrameChanges()
     /// ``close()`` ran: the launch frame keeper forgets this terminal.
     private(set) var isClosed = false
 
@@ -179,10 +181,25 @@ public final class TerminalSession {
 
     /// Reports a pane that still shows nothing after a reveal (``TerminalBlankWatch``).
     let blankWatch: TerminalBlankWatch
+    /// Predictive local echo, for an IO whose keys make a network round trip (``TerminalIO/predictsEcho``); nil
+    /// otherwise, so a local terminal pays nothing per key or chunk.
+    let echo: TerminalEchoPredictor?
+    /// `terminal.predictiveLocalEcho`: whether this terminal predicts, when its IO can (``TerminalIO/predictsEcho``).
+    /// Off keeps the engine, so turning it back on needs no new surface, but nothing is drawn and what was drawn goes.
+    public var predictsLocalEcho: Bool {
+        didSet { if predictsLocalEcho != oldValue { echo?.setEnabled(predictsLocalEcho) } }
+    }
 
+    /// - Parameter localEcho: The app's `terminal.predictiveLocalEcho`, which ``predictsLocalEcho`` starts from and
+    ///   follows; nil predicts.
     /// - Parameter blankClock: The clock of the blank-pane check after a reveal; tests pass a manual clock.
-    public init(io: any TerminalIO, ownsGeometry: Bool = true, blankClock: any Clock<Duration> = ContinuousClock()) {
+    /// - Parameter historyFind: The daemon's whole-history search that Cmd-F uses; nil searches the screen only.
+    public init(io: any TerminalIO, ownsGeometry: Bool = true, localEcho: TerminalLocalEchoPreference? = nil,
+                blankClock: any Clock<Duration> = ContinuousClock(), historyFind: (any TerminalFindHistory)? = nil) {
         self.io = io
+        predictsLocalEcho = localEcho?.predicts ?? true
+        // Settings > Experiments > Terminal History Find, off by default (Leo's UI hold, 2026-11-24): off keeps Ghostty's screen search.
+        self.historyFind = DesignSettings.shared.experiment("terminalHistoryFind") ? historyFind : nil
         blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
@@ -192,14 +209,18 @@ public final class TerminalSession {
         input = TerminalInputSink(continuation: continuation)
 
         view = TerminalHostView()
-        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil)
+        echo = io.predictsEcho
+            ? TerminalEchoPredictor(engine: TerminalEchoPrediction(enabled: predictsLocalEcho, remote: true)) : nil
+        surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, prediction: echo?.engine)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
         view.onVeil = { [weak self] veil in self?.setVeil(veil) }
         view.install(surfaceView)
         find.target = self
-        view.attachFind(find)
+        echo?.colors = { [weak self] in self?.theme?.colors ?? GhosttyRuntime.shared.themeColors }
+        echo?.attach(to: surfaceView)
+        localEcho?.adopt(self)
 
         writerTask = Task.detached(priority: .userInitiated) { [io, weak self] in
             for await item in outgoing {
@@ -310,6 +331,9 @@ public final class TerminalSession {
     public var linkPointerStateForTesting: (wrapped: String?, pointingHand: Bool) {
         (surfaceView.linkPointer.wrapped?.text, surfaceView.cursor == .pointingHand)
     }
+
+    /// The viewport rows a wrapped link's underlines are drawn on.
+    public var linkUnderlineRowsForTesting: [Int] { surfaceView.linkPointer.underlinedRowsForTesting }
     #endif
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
@@ -419,7 +443,11 @@ public final class TerminalSession {
     public func shownFrameInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         switch frameHold.heldFrame {
         case nil:
-            return await snapshotInBackground(maxPixelSize: maxPixelSize)
+            if let image = await snapshotInBackground(maxPixelSize: maxPixelSize) { return image }
+            // Its frame was purged while it was hidden: the picture taken as it paused.
+            guard let picture = surfaceView.pausedPicture else { return nil }
+            guard CGFloat(max(picture.width, picture.height)) > maxPixelSize else { return picture }
+            return await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(picture, maxPixelSize: maxPixelSize) }.value
         case .image(let image)?:
             guard CGFloat(max(image.width, image.height)) > maxPixelSize else { return image }
             return await Task.detached(priority: .utility) {
@@ -450,6 +478,7 @@ public final class TerminalSession {
         input.finish()
         frameHold.end() // a held frame has no time limit: it goes with the session, not with the object
         blankWatch.cancel()
+        echo?.close()
         surfaceView.removeFromSuperview()
     }
 
@@ -496,7 +525,7 @@ public final class TerminalSession {
         switch event {
         case .replay(let data):
             if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(data)
+            surfaceView.lane?.processOutput(data, replacesScreen: true)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
@@ -507,7 +536,7 @@ public final class TerminalSession {
             // replayed and on-screen Kitty images come back only when the
             // program draws them again.
             if surfaceHasContent { swapSurface() }
-            surfaceView.lane?.processOutput(replay.vt)
+            surfaceView.lane?.processOutput(replay.vt, replacesScreen: true)
             surfaceHasContent = true
             frameHold.contentQueued()
             TerminalTimings.contentApplied()
@@ -571,6 +600,7 @@ public final class TerminalSession {
     /// `.resize` applies; the event is the PTY's size at this point in the
     /// stream.
     private func applyCanonicalGrid(_ grid: TerminalGridSize) async {
+        if canonicalGrid != grid { echo?.gridChanged() }
         canonicalGrid = grid
         surfaceView.applyAnnouncedGrid(grid)
     }
@@ -582,7 +612,7 @@ public final class TerminalSession {
         old.clipboardRequests.cancelPendingWrite()
         old.cancelGridReport() // detached: its waiting grid is not this session's any more
         let wasFirstResponder = old.isFirstResponder
-        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self)
+        let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, prediction: echo?.engine)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
@@ -594,12 +624,13 @@ public final class TerminalSession {
         fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
         fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
+        echo?.attach(to: fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false, animated: false)
         TerminalFontScale(old).carry(to: fresh) // after the theme: its config update can reset the size
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }
-        if wasFirstResponder { fresh.window?.makeFirstResponder(fresh) }
+        if wasFirstResponder { FocusRoute(.system, "a terminal surface swapped").moveKeyboard(in: fresh.window, to: fresh) }
         surfaceHasContent = false
         // The fresh surface has no search; an open find bar searches it again.
         find.surfaceReplaced()

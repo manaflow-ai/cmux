@@ -6,7 +6,7 @@ it) stay in its own folder, never in another build's tag folder.
 App B is a copy of the tagged DEV app A (bundle com.cmuxterm.app.debug.<tag>)
 whose bundle ships another tag (LSEnvironment CMUX_TAG=<tag>b). Its bundle id
 names A's tag, but it is another build: its daemon and sockets are of its build
-key (S3), so its files belong in cmux/builds/<key>/, not in A's cmux/tags/<tag>/.
+key (S3), so its files belong in cmux-next/builds/<key>/, not in A's cmux-next/tags/<tag>/.
 A is never started. B runs once and quits (the quit writes the sidebar snapshot).
 
 Checks: B's sidebar-snapshot-v1.json is in builds/<key>/ and A's tags/<tag>/
@@ -33,7 +33,7 @@ if not re.fullmatch(r"[a-z0-9]+", TAG):
     # The bundle id suffix, the tag folder and the key take the tag as is only then.
     sys.exit(f"refusing to run: tag {TAG!r} is not [a-z0-9]+")
 TAG_B = f"{TAG}b"
-SUPPORT = os.path.expanduser("~/Library/Application Support/cmux")
+SUPPORT = os.path.expanduser("~/Library/Application Support/cmux-next")
 SNAPSHOT = "sidebar-snapshot-v1.json"
 
 

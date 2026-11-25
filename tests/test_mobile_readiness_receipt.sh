@@ -28,12 +28,13 @@ metadata="$(CMUX_INSTALLED_APP_PATH="$app" \
   simulator_injection SIM-RECEIPT-TEST dev.cmux.ios.receipt-test)"
 export CMUX_DEV_AUTH_PROFILE=agent
 export CMUX_DEV_AUTH_ACCOUNT=receipt-test@example.com
-event='{"name":"mobile.rpc.ready","payload":{"connection_id":"c","client_id":"i","stream_id":"s","transport":"iroh","workspace_count":1}}'
+# The app's own sanitized receipt; it carries no git_sha so the test proves
+# which source wins.
+app_receipt='{"schema":1,"client_id":"i","bundle_id":"dev.cmux.ios.receipt-test","account_email":"receipt-test@example.com","session_source":"auto_login","written_at":"2026-10-02T00:00:00Z"}'
 receipt="$tmp/receipt.json"
-cmux_attach_write_readiness_receipt \
+cmux_attach_write_app_readiness_receipt \
   "$receipt" tooling-checkout-sha receipt-test dev.cmux.ios.receipt-test \
-  simulator_injection SIM-RECEIPT-TEST receipt-test /tmp/cmux-receipt-test.sock \
-  12 1 "$event" "$metadata"
+  simulator_injection SIM-RECEIPT-TEST 12 1 "$app_receipt" "$metadata"
 
 /usr/bin/python3 - "$receipt" "$app/cmux" <<'PY'
 import hashlib
@@ -41,6 +42,8 @@ import json
 import sys
 
 receipt = json.load(open(sys.argv[1], encoding="utf-8"))
+assert receipt["readiness"] == "app-receipt"
+assert receipt["auth_proof"] == "stack_same_account_app_receipt"
 expected_hash = hashlib.sha256(open(sys.argv[2], "rb").read()).hexdigest()
 assert receipt["git_sha"] == "installed-source-sha"
 assert receipt["tooling_checkout_sha"] == "tooling-checkout-sha"
@@ -51,10 +54,9 @@ PY
 # Existing callers that have not added the metadata argument remain valid and
 # receive an explicit legacy marker instead of silently claiming a source SHA.
 legacy="$tmp/legacy.json"
-cmux_attach_write_readiness_receipt \
+cmux_attach_write_app_readiness_receipt \
   "$legacy" tooling-sha receipt-test dev.cmux.ios.receipt-test \
-  simulator_injection SIM-RECEIPT-TEST receipt-test /tmp/cmux-receipt-test.sock \
-  12 1 "$event"
+  simulator_injection SIM-RECEIPT-TEST 12 1 "$app_receipt"
 /usr/bin/python3 - "$legacy" <<'PY'
 import json
 import sys

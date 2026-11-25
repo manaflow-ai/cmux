@@ -1,6 +1,7 @@
 import type { ChatMenuItem } from "./chatHeaderToolsModel";
 import type { Translate } from "../i18n";
 import { openForkMenu } from "../conversation/messageMenu";
+import { FORK_ICON } from "../icons/forkIcon";
 
 /** Primary Fork is a leaf action; destination choices never interpose on the ordinary click. */
 export function forkMenuRows(
@@ -13,7 +14,7 @@ export function forkMenuRows(
     {
       key: "fork",
       label: t("chatMenu.fork"),
-      icon: "agent.fork",
+      icon: FORK_ICON,
       onSelect: (event) => {
         if (event?.altKey && choose(throughSeq, event.currentTarget)) return;
         fork();
@@ -22,7 +23,7 @@ export function forkMenuRows(
     {
       key: "forkTo",
       label: t("chatMenu.forkTo"),
-      icon: "agent.fork",
+      icon: FORK_ICON,
       onSelect: (event) => {
         choose(throughSeq, event?.currentTarget);
       },

@@ -112,7 +112,7 @@ import Testing
         store.setMode("bypassPermissions")
         for _ in 0..<500 where store.clientError == nil { await Task.yield() }
         #expect(mac.modeSets == ["bypassPermissions"])
-        #expect(store.clientError == "Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac.")
+        #expect(store.clientError == AgentChatStore.fullAccessOffNotice)
         for _ in 0..<500 where store.modes.count != 2 { await Task.yield() }
         #expect(store.modes.map(\.id) == ["default", "plan"])
 

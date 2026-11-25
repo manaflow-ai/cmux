@@ -21,7 +21,19 @@ import subprocess
 import tempfile
 import unittest
 
+import sys
+
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = yaml.safe_load((ROOT / ".github/workflows/cmux-next-base-autofix.yml").read_text())
@@ -30,10 +42,16 @@ SETTINGS = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift"
 EXPORT = "schemas/settings/settings-schema.json"
 SNAPSHOT = "schemas/defaults/cmux-next.json"
 SHORTCUTS = "web/data/cmux-shortcuts.generated.json"
+SETTINGS_REF = "web/data/next-docs/settings-reference.generated.json"
+CLI_REF = "web/data/next-docs/cli-reference.generated.json"
+DOCS_GENERATOR = "web/scripts/export-next-docs.ts"
 SURFACES = "plans/cmux-next/action-surfaces.json"
 WEBVIEWS = "webviews/src/generated.ts"
 APP = "first-party-apps/app/fragment.json"
 ACTION_TESTS = "Packages/macOS/CmuxNext/Tests/CmuxNextActionsTests/ActionTests.swift"
+# A file the namespace rewrite changes (base-autofix.sh 1f'), which the compile gate judges.
+NAMESPACE_SWIFT = "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Policy.swift"
+FFI_PIN = "Packages/macOS/CmuxNext/app-ffi-pin.json"
 
 
 def git(cwd, *args):
@@ -62,8 +80,12 @@ class BaseAutofixFinishes(unittest.TestCase):
     def test_a_deferred_run_is_not_red(self):
         # While the Mac runners are saturated most runs defer, and base-red-watch would blame each red one
         # on whoever pushed. A deferred run ends green and names the run that carries its exports.
-        self.assertNotIn("action-areas", DOC["jobs"]["autofix"]["needs"])
+        # autofix reads mac_busy only for the own-exports marker (base-autofix-since.sh), whose upload cannot fail
+        # the job; every repair runs whether or not the run deferred.
         for step in DOC["jobs"]["autofix"]["steps"]:
+            if "own-exports marker" in str(step.get("name", "")):
+                self.assertTrue(step.get("run") or step.get("continue-on-error") is True, step)
+                continue
             self.assertNotIn("mac_busy", str(step.get("if", "")))
         job = DOC["jobs"]["mac-exports-deferred"]
         self.assertEqual(job["name"], "Mac exports deferred")
@@ -99,19 +121,20 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("github.ref_name", group)
 
     def push(self, moved: dict[str, str] | None, *, repair: dict[str, str] | None = None,
-             reject_without_moving=False, move_again: dict[str, str] | None = None):
+             reject_without_moving=False, move_again: dict[str, str] | None = None,
+             env: dict[str, str] | None = None):
         """Run the push loop: a repair (default: the settings export) made at HEAD_SHA, while feat-cmux-next
         gained `moved`; with `move_again`, the first push is rejected after the branch moves once more."""
         repair = repair or {EXPORT: "new"}
         work = Path(tempfile.mkdtemp())
         os.environ.update({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
                            "GIT_COMMITTER_EMAIL": "t@t"})
-        git(work, "init", "-q", "--bare", "remote.git")
+        git_fixture_env.init_repo("remote.git", "--bare", cwd=work)
         seed = work / "seed"
         git(work, "clone", "-q", "remote.git", "seed")
         git(seed, "checkout", "-q", "-b", "feat-cmux-next")
-        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
-                 "README.md": "r", "unlisted/output.txt": "old",
+        files = {SETTINGS: "k1", EXPORT: "old", SNAPSHOT: "old", SHORTCUTS: "old", SETTINGS_REF: "old", CLI_REF: "old", DOCS_GENERATOR: "g1", SURFACES: "old", WEBVIEWS: "old", APP: "a1", ACTION_TESTS: "t1",
+                 "README.md": "r", "unlisted/output.txt": "old", NAMESPACE_SWIFT: "public enum Policy {}\n", FFI_PIN: "p1",
                  "scripts/cmux-next/autofix-areas.sh": (ROOT / "scripts/cmux-next/autofix-areas.sh").read_text()}
         for path, text in files.items():
             (seed / path).parent.mkdir(parents=True, exist_ok=True)
@@ -144,8 +167,11 @@ class BaseAutofixFinishes(unittest.TestCase):
             hook = work / "remote.git" / "hooks" / "pre-receive"
             hook.write_text("#!/bin/sh\nexit 1\n")
             hook.chmod(0o755)
-        done = subprocess.run(["bash", str(PUSH_SCRIPT), f"file://{work}/remote.git", "feat-cmux-next", head],
-                              cwd=runner, capture_output=True, text=True)
+        done = subprocess.run(["bash", "-c", 'tmp=$1; source "$2"; shift 2; exec bash "$@"',
+                               "publication-fixture", str(work),
+                               str(ROOT / "scripts/cmux-next/tests/lib/action-parity-stub.sh"),
+                               str(PUSH_SCRIPT), f"file://{work}/remote.git", "feat-cmux-next", head],
+                              cwd=runner, capture_output=True, text=True, env={**os.environ, **(env or {})})
         tip = git(work / "remote.git", "rev-parse", "refs/heads/feat-cmux-next")
         landed = {path: git(work / "remote.git", "show", f"{tip}:{path}") for path in repair}
         return done, landed, done.stdout + done.stderr
@@ -237,6 +263,27 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(done.returncode, 0, out)
         self.assertEqual(landed[SHORTCUTS], "new")
 
+    def test_the_docs_settings_reference_lands_with_the_settings_export(self):
+        # dee3e635 (2026-11-09): the schema landed on a moved tip, its docs reference was "unknown" and
+        # held "to the next run", and web/tests/next-docs.test.ts stayed red on feat-cmux-next (#39914).
+        done, landed, out = self.push({"README.md": "r2"}, repair={EXPORT: "new", SETTINGS_REF: "new", CLI_REF: "new"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual((landed[EXPORT], landed[SETTINGS_REF], landed[CLI_REF]), ("new", "new", "new"))
+
+    def test_the_docs_settings_reference_waits_with_a_held_settings_export(self):
+        # Held together, the schema and its reference stay as each other's: the docs test stays green.
+        done, landed, out = self.push({SETTINGS: "k0"}, repair={EXPORT: "new", SETTINGS_REF: "new", CLI_REF: "new"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual((landed[EXPORT], landed[SETTINGS_REF]), ("old", "old"))
+        self.assertEqual(landed[CLI_REF], "new")
+
+    def test_the_docs_references_wait_when_their_generator_moved(self):
+        # Codex review of #39919: a new export-next-docs.ts on the tip moved only the shortcuts area, so
+        # references the old generator wrote still landed over it.
+        done, landed, out = self.push({DOCS_GENERATOR: "g2"}, repair={SETTINGS_REF: "new", CLI_REF: "new"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual((landed[SETTINGS_REF], landed[CLI_REF]), ("old", "old"))
+
     def test_an_output_no_area_claims_is_never_reapplied(self):
         done, landed, out = self.push({"README.md": "r2"}, repair={"unlisted/output.txt": "new"})
         self.assertEqual(done.returncode, 1, out)
@@ -257,11 +304,96 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertIn("rejected", out)
         self.assertNotIn("kept moving", out)
 
+    def gated_push(self, verdict: int, repair: dict[str, str], moved: dict[str, str] | None = None,
+                   move_again: dict[str, str] | None = None):
+        """push() with a fake compile gate that exits `verdict` and logs each candidate it is asked about."""
+        gate_dir = Path(tempfile.mkdtemp())
+        log = gate_dir / "calls"
+        gate = gate_dir / "gate.sh"
+        gate.write_text(f'#!/bin/sh\necho "$2" >> "{log}"\nexit {verdict}\n')
+        gate.chmod(0o755)
+        done, landed, out = self.push(moved, repair=repair, move_again=move_again,
+                                      env={"CMUX_BASE_AUTOFIX_COMPILE_GATE": str(gate)})
+        calls = log.read_text().split() if log.exists() else []
+        return done, landed, out, calls
+
+    def test_a_swift_repair_lands_after_the_compile_gate_passes(self):
+        # 8f33d7030 (2026-11-17): a namespace rewrite that did not compile went straight to the base.
+        done, landed, out, calls = self.gated_push(0, {NAMESPACE_SWIFT: "public struct Policy {}\n"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public struct Policy {}")
+        self.assertEqual(len(calls), 1, out)
+
+    def test_a_swift_repair_the_gate_does_not_pass_is_never_pushed(self):
+        done, landed, out, calls = self.gated_push(1, {NAMESPACE_SWIFT: "public struct Policy {}\n"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public enum Policy {}")
+        self.assertIn("did not pass", out)
+        self.assertEqual(len(calls), 1, out)
+
+    def test_without_a_gate_verdict_the_rest_of_the_repair_still_lands(self):
+        done, landed, out, calls = self.gated_push(
+            2, {NAMESPACE_SWIFT: "public struct Policy {}\n", SHORTCUTS: "new"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public enum Policy {}")
+        self.assertIn("without its Swift changes", out)
+
+    def test_a_repair_without_swift_never_asks_the_gate(self):
+        done, landed, out, calls = self.gated_push(1, {SHORTCUTS: "new"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[SHORTCUTS], "new")
+        self.assertEqual(calls, [])
+
+    def test_a_retry_onto_a_moved_tip_does_not_compile_the_same_change_again(self):
+        done, landed, out, calls = self.gated_push(
+            0, {NAMESPACE_SWIFT: "public struct Policy {}\n"}, moved={"README.md": "r2"}, move_again={"README.md": "r3"})
+        self.assertEqual(done.returncode, 0, out)
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public struct Policy {}")
+        self.assertIn("attempt 2 of", out)
+        self.assertEqual(len(calls), 1, out)
+
+    def test_a_swift_repair_compiled_on_one_tree_never_lands_on_a_tip_that_moved_a_package(self):
+        # Review F1 of #45139: the same Swift patch on a tip whose package inputs moved is a different program.
+        # The push holds it (base-autofix-land.sh remakes it on the tip, where the gate compiles that tree).
+        done, landed, out, calls = self.gated_push(
+            0, {NAMESPACE_SWIFT: "public struct Policy {}\n"}, moved={"README.md": "r2"}, move_again={FFI_PIN: "p2"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertEqual(landed[NAMESPACE_SWIFT], "public enum Policy {}")
+        self.assertEqual(len(calls), 1, out)
+
+    def test_the_verdict_is_kept_per_packages_and_ios_tree(self):
+        push = PUSH_SCRIPT.read_text()
+        self.assertIn("HEAD:Packages", push)
+        self.assertIn("HEAD:ios", push)
+        self.assertNotIn("patch-id", push)
+
+    def test_the_workflow_gives_the_push_its_compile_gate(self):
+        job = DOC["jobs"]["autofix"]
+        self.assertEqual(job["permissions"].get("statuses"), "read")
+        push = next(step for step in job["steps"] if step.get("name") == "Push the repairs")
+        self.assertIn("COMPILE_GATE_TOKEN", push["env"])
+        land = (ROOT / "scripts/cmux-next/base-autofix-land.sh").read_text()
+        self.assertIn("base-autofix-compile-gate.sh", land)
+        gate = (ROOT / "scripts/cmux-next/base-autofix-compile-gate.sh").read_text()
+        self.assertIn("fleet-compile-check.yml", gate)
+
     def test_the_workflow_pushes_through_the_script(self):
         # base-autofix-land.sh pushes with base-autofix-push.sh, and makes a held repair again on the tip.
         push = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")["run"]
         self.assertIn("scripts/cmux-next/base-autofix-land.sh", push)
         self.assertIn("base-autofix-push.sh", (ROOT / "scripts/cmux-next/base-autofix-land.sh").read_text())
+
+    def test_each_publishing_job_installs_pinned_rust_before_publication(self):
+        for name in ("autofix", "target-graph"):
+            with self.subTest(job=name):
+                steps = DOC["jobs"][name]["steps"]
+                setup = next(i for i, step in enumerate(steps)
+                             if step.get("uses") == "./.github/actions/setup-cmux-tui-rust")
+                publish = next(i for i, step in enumerate(steps)
+                               if "base-autofix-land.sh" in step.get("run", ""))
+                self.assertLess(setup, publish)
+                self.assertNotIn("if", steps[setup])
 
     def test_the_mac_job_regenerates_the_settings_exports_on_the_newest_tip(self):
         # 2026-10-21: a run takes ~28 minutes and feat-cmux-next takes a push a minute, so some push
@@ -323,11 +455,16 @@ class BaseAutofixFinishes(unittest.TestCase):
         # 2026-10-21: a push to feat-cmux-next added a test target without the graph (Tier routing red on
         # every PR) and the graph landed 90 minutes later: autofix, which made it, needed the Mac exports
         # job, 12-15 minutes in the owned queue and 15-26 running, and two of those runs' repairs were
-        # held. The graph is made on Linux from the manifest alone, so its own job needs nothing.
+        # held. The graph is made on Linux from the manifest alone, so its own job needs only the batch
+        # window (one Linux read, cmux#49308), never the Mac exports.
         job = DOC["jobs"]["target-graph"]
-        self.assertNotIn("needs", job)
-        self.assertIn("ubuntu", job["runs-on"])
-        self.assertNotIn("macos", job["runs-on"])
+        self.assertIn(job.get("needs", "window"), ("window", ["window"]))
+        cells = workflow_jobs.runs_on_cells(job)
+        self.assertIsNotNone(cells, "target-graph runs-on reads a matrix value nothing resolves")
+        self.assertTrue(cells)
+        for runner in cells:
+            self.assertIn("ubuntu", runner)
+            self.assertNotIn("macos", runner)
         self.assertFalse(job["concurrency"]["cancel-in-progress"])
         self.assertNotEqual(job["concurrency"]["group"], DOC["jobs"]["autofix"]["concurrency"]["group"])
         push = next(step for step in job["steps"] if step.get("name") == "Push the graph")
@@ -354,7 +491,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         dump.chmod(0o755)
         clean = {key: value for key, value in os.environ.items()
                  if key not in ("GRAPH", "STRINGS", "SDK", "SHORTCUTS", "APPHOST", "ACTIONS", "SETTINGS", "RATCHETS",
-                                "CLOUD", "FMT", "EXPORTS_DIR", "WEBVIEWS_PATCH", "CMUX_BASE_AUTOFIX_AGAIN")}
+                                "CLOUD", "LOCKS", "FMT", "EXPORTS_DIR", "WEBVIEWS_PATCH", "CMUX_BASE_AUTOFIX_AGAIN")}
         done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-repair.sh"), str(work)],
                               env={**clean, **env, "CMUX_BASE_AUTOFIX_SCRIPT": str(stub),
                                    "CMUX_BASE_AUTOFIX_DUMP": str(dump), "ARGS_OUT": str(work / "args")},
@@ -365,7 +502,7 @@ class BaseAutofixFinishes(unittest.TestCase):
         for flag in ("--unverified-exports", "--unverified-settings-exports", "--no-fmt"):
             self.assertIn(flag, args)
         for flag in ("--generated", "--strings", "--sdk", "--docs-shortcuts", "--app-host", "--ratchets",
-                     "--cloud-clients", "--webviews-fmt-patch"):
+                     "--cloud-clients", "--webviews-fmt-patch", "--locks"):
             self.assertNotIn(flag, args)
 
     def mac_busy(self, runs: dict[int, list[tuple[str, str]]], self_run: int = 1, fail: bool = False,
@@ -434,65 +571,88 @@ sys.exit(subprocess.run(["jq", "-r", jq], input=json.dumps(body), text=True).ret
         self.assertEqual(self.mac_busy({7: [("action exports (Mac)", "completed")]},
                                        self_run=9, older_only=True), "mac_busy=false\n")
 
-    def since(self, runs: list[tuple[int, str, list[tuple[str, str]] | None]], fail: bool = False) -> str:
-        """Runs base-autofix-since.sh with a gh stand-in: `runs` lists successful runs, newest first, as
-        (id, head sha, its (job, conclusion) list, or None when its jobs cannot be read)."""
+    def since(self, runs: list[tuple[int, str, bool]], fail: str = "", markers: list[int] | None = None
+              ) -> tuple[str, list[str]]:
+        """Runs base-autofix-since.sh with a gh stand-in. `runs` lists successful push runs, newest first, as (id,
+        head sha, whether its autofix job uploaded the own-exports marker); `markers` overrides the marker listing;
+        `fail` names a listing ("runs", "artifacts" or "all") that fails. Returns its output and the calls made."""
         work = Path(tempfile.mkdtemp())
         self.addCleanup(subprocess.run, ["rm", "-rf", str(work)])
         (work / "bin").mkdir()
         data = work / "runs.json"
-        data.write_text(json.dumps(runs))
+        data.write_text(json.dumps({"runs": runs, "markers": markers}))
+        log = work / "calls.log"
         gh = work / "bin/gh"
         gh.write_text(f"""#!/usr/bin/env python3
-import json, re, sys
-if {fail!r}:
-    sys.exit(1)
-runs = json.load(open({str(data)!r}))
+import json, sys
+data = json.load(open({str(data)!r}))
 path = sys.argv[2]
-m = re.search(r"/runs/(\\d+)/jobs", path)
-if m:
-    jobs = next(j for i, _, j in runs if str(i) == m.group(1))
-    if jobs is None:
+open({str(log)!r}, "a").write(path + "\\n")
+fail = {fail!r}
+if "/artifacts?" in path:
+    if fail in ("artifacts", "all"):
         sys.exit(1)
-    assert 'all(.jobs[]; .conclusion == "skipped")' in sys.argv[sys.argv.index("--jq") + 1], sys.argv
-    print(sum(1 for name, c in jobs if name == "Mac exports deferred" and c == "success")
-          + (1 if jobs and all(c == "skipped" for _, c in jobs) else 0))
-else:
+    assert "name=base-autofix-own-exports" in path, path
+    ids = data["markers"] if data["markers"] is not None else [i for i, _, own in data["runs"] if own]
+    for i in ids:
+        print(i)
+elif "/workflows/cmux-next-base-autofix.yml/runs?" in path:
+    if fail in ("runs", "all"):
+        sys.exit(1)
     assert "status=success" in path and "event=push" in path, path
-    for i, sha, _ in runs:
+    for i, sha, _ in data["runs"]:
         print(i, sha)
+else:
+    sys.exit(1)  # nothing else is a listing this script needs
 """)
         gh.chmod(0o755)
         done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-since.sh")], capture_output=True,
                               text=True, env={**os.environ, "PATH": f"{work / 'bin'}:{os.environ['PATH']}"})
         self.assertEqual(done.returncode, 0, done.stderr)
-        return done.stdout
+        return done.stdout, (log.read_text().splitlines() if log.exists() else [])
 
     def test_since_is_the_newest_successful_run_that_made_its_own_exports(self):
-        deferred = [("action export areas", "success"), ("Mac exports deferred", "success")]
-        made = [("action exports (Mac)", "success"), ("Mac exports deferred", "skipped")]
-        self.assertEqual(self.since([(9, "c" * 40, deferred), (8, "b" * 40, deferred), (7, "a" * 40, made)]),
+        # A run that made its own exports (or had none to make) uploads the marker from its autofix job; a run that
+        # deferred them, and the run of the bot's own repair push (every job skipped), upload none.
+        self.assertEqual(self.since([(9, "c" * 40, False), (8, "b" * 40, False), (7, "a" * 40, True)])[0],
                          "a" * 40 + "\n")
-        self.assertEqual(self.since([(9, "c" * 40, made), (8, "b" * 40, deferred)]), "c" * 40 + "\n")
-        # A run with no Mac areas at all made nothing to defer.
-        self.assertEqual(self.since([(9, "c" * 40, [("action export areas", "success")])]), "c" * 40 + "\n")
+        self.assertEqual(self.since([(9, "c" * 40, True), (8, "b" * 40, False)])[0], "c" * 40 + "\n")
 
-    def test_since_passes_the_run_of_its_own_repair_push(self):
-        # An App-token repair push starts this workflow again; every job skips it (No loop), and that
-        # run must not move "since" past a human push whose run failed or still runs.
-        skipped = [("action export areas", "skipped"), ("CI target graph", "skipped"),
-                   ("autofix feat-cmux-next", "skipped")]
-        made = [("action exports (Mac)", "success"), ("Mac exports deferred", "skipped")]
-        self.assertEqual(self.since([(9, "c" * 40, skipped), (7, "a" * 40, made)]), "a" * 40 + "\n")
+    def test_since_reads_two_listings_however_many_runs_deferred(self):
+        # 2026-11-22 01:14Z: all 30 listed runs had deferred, and each lookup read every run's jobs (31 GITHUB_TOKEN
+        # calls, twice a run) to print nothing. The marker listing names the runs that made their own exports.
+        runs = [(100 - n, f"{n:040x}", False) for n in range(30)]
+        out, calls = self.since(runs)
+        self.assertEqual(out, "")
+        self.assertEqual(len(calls), 2, calls)
+        out, calls = self.since(runs[:-1] + [(70, "f" * 40, True)])
+        self.assertEqual((out, len(calls)), ("f" * 40 + "\n", 2), calls)
 
-    def test_since_passes_a_run_whose_jobs_cannot_be_read(self):
-        self.assertEqual(self.since([(9, "c" * 40, None), (7, "a" * 40, [])]), "a" * 40 + "\n")
+    def test_since_ignores_a_marker_of_a_run_that_did_not_succeed(self):
+        # The marker is uploaded before the run ends: a run that failed after it is not in the success listing.
+        self.assertEqual(self.since([(9, "c" * 40, False), (7, "a" * 40, True)], markers=[11, 10, 7])[0],
+                         "a" * 40 + "\n")
 
     def test_since_is_empty_when_no_run_qualifies_or_github_cannot_be_read(self):
-        # The caller then runs every repair.
-        self.assertEqual(self.since([(9, "c" * 40, [("Mac exports deferred", "success")])]), "")
-        self.assertEqual(self.since([]), "")
-        self.assertEqual(self.since([(7, "a" * 40, [])], fail=True), "")
+        # The caller then runs every repair: a missing marker or an unread listing only widens the range.
+        self.assertEqual(self.since([(9, "c" * 40, False)])[0], "")
+        self.assertEqual(self.since([])[0], "")
+        for fail in ("runs", "artifacts", "all"):
+            with self.subTest(fail=fail):
+                self.assertEqual(self.since([(7, "a" * 40, True)], fail=fail)[0], "")
+
+    def test_only_a_run_that_kept_its_exports_uploads_the_marker(self):
+        # The marker's condition is the deferred job's, negated (mac-exports-deferred): autofix already skips the
+        # bot's own repair push and a cancelled run.
+        autofix = DOC["jobs"]["autofix"]
+        self.assertIn("action-areas", autofix["needs"])
+        (step,) = [s for s in autofix["steps"] if (s.get("with") or {}).get("name") == "base-autofix-own-exports"]
+        condition = re.sub(r"\s+", " ", str(step.get("if")))
+        self.assertIn("needs.action-areas.outputs.mac_busy != 'true'", condition)
+        self.assertIn("needs.pushed-exports.outputs.deferred != 'true'", condition)
+        # A run its batch window held (cmux#49308) skips autofix, so it uploads no marker and "since" passes it.
+        self.assertIn("window", autofix["needs"])
+        self.assertIn("needs.window.outputs.run == 'true'", re.sub(r"\s+", " ", str(autofix["if"])))
 
     def test_ci_runs_this_test(self):
         steps = DOC_NEXT["jobs"]
@@ -501,8 +661,65 @@ else:
 
 
 
+class CompileGate(unittest.TestCase):
+    """scripts/cmux-next/base-autofix-compile-gate.sh against a local remote and a fake gh."""
+
+    def gate(self, status: str, token: str = "t"):
+        work = Path(tempfile.mkdtemp())
+        os.environ.update({"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                           "GIT_COMMITTER_EMAIL": "t@t"})
+        git_fixture_env.init_repo("remote.git", "--bare", cwd=work)
+        git(work, "clone", "-q", "remote.git", "repo")
+        repo = work / "repo"
+        (repo / "a.swift").write_text("struct A {}\n")
+        git(repo, "add", "-A")
+        git(repo, "commit", "-qm", "candidate")
+        sha = git(repo, "rev-parse", "HEAD")
+        bin_dir = work / "bin"
+        bin_dir.mkdir()
+        calls = work / "gh-calls"
+        # `gh workflow run` records the dispatch; `gh api .../statuses` answers the --jq result: the status.
+        (bin_dir / "gh").write_text(
+            f'#!/bin/sh\necho "$*" >> "{calls}"\n'
+            f'case "$1" in workflow) exit 0 ;; api) echo "{status}" ;; esac\n')
+        (bin_dir / "gh").chmod(0o755)
+        seen = {}
+
+        done = subprocess.run(
+            ["bash", str(ROOT / "scripts/cmux-next/base-autofix-compile-gate.sh"), f"file://{work}/remote.git", sha],
+            cwd=repo, capture_output=True, text=True,
+            env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "COMPILE_GATE_TOKEN": token,
+                 "GITHUB_REPOSITORY": "o/r", "CMUX_BASE_AUTOFIX_COMPILE_WAIT": "3",
+                 "CMUX_BASE_AUTOFIX_COMPILE_POLL": "1"})
+        seen["calls"] = calls.read_text() if calls.exists() else ""
+        seen["branches"] = git(work / "remote.git", "for-each-ref", "--format=%(refname)", "refs/heads/")
+        return done, seen, sha
+
+    def test_a_pass_is_exit_zero_and_the_staging_branch_is_gone(self):
+        done, seen, sha = self.gate("success")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"workflow run fleet-compile-check.yml -R o/r --ref feat-cmux-next -f sha={sha}", seen["calls"])
+        self.assertEqual(seen["branches"], "")
+
+    def test_a_compile_failure_is_exit_one(self):
+        done, seen, _ = self.gate("failure")
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(seen["branches"], "")
+
+    def test_no_verdict_is_exit_two(self):
+        for status in ("error", "pending"):
+            done, _, _ = self.gate(status)
+            self.assertEqual(done.returncode, 2, status + done.stdout + done.stderr)
+
+    def test_without_a_token_nothing_is_pushed_or_dispatched(self):
+        done, seen, _ = self.gate("success", token="")
+        self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+        self.assertEqual(seen["calls"], "")
+        self.assertEqual(seen["branches"], "")
+
+
 BRANCH = "feat-cmux-next"
-SELF_COMMIT_PREFIXES = ("chore(next): base autofix at ", "chore(next): pin GhosttyKit for ghostty ")
+SELF_COMMIT_PREFIXES =("chore(next): base autofix at ", "chore(next): pin GhosttyKit for ghostty ")
 
 
 def workflow_docs():

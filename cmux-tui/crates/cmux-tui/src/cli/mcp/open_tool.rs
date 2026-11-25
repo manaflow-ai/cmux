@@ -4,20 +4,17 @@
 //!
 //! Before it, "open notes.md on my left" took an agent a split, the app's `file.open`
 //! with that split's pane as `target`, and often a docs search and a layout read; a
-//! sticky column also needed a viewport column (only `pane_split` with `viewport_width`
-//! makes one) and `column_update`. Agents found that path in 0 of 4 samples
+//! sticky column also needed a viewport column (only `pane_split` with `fit` or
+//! `viewport_width` makes one) and `column_update`. Agents found that path in 0 of 4 samples
 //! (tests/tool-evals open-r16b), and every open cost 2 to 4 steps (about 20k tokens a
 //! step). This tool runs the same calls inside the server.
 
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
-use super::{Backend, Server, envelope, tool_error, v2_tools};
+use super::{Backend, Server, envelope, live_file, md_deck, pptx_view, tool_error, v2_tools};
 
 pub(super) const NAME: &str = "open";
-
-/// The width a new right column takes (`crate::cli::beside::NEW_COLUMN_WIDTH`).
-const COLUMN_WIDTH: f64 = 0.5;
 
 fn stage_key(open_id: &str, phase: &str) -> String {
     let mut hash = Sha256::new();
@@ -32,7 +29,7 @@ pub(super) fn descriptor() -> Value {
     json!({
         "name": NAME,
         "title": "Open a file, diff or page",
-        "description": "Open a file, a diff or a web page in a cmux viewer tab, where the person asked, in one call. kind: file (path), diff (path: a file or folder; none for the working tree's changes) or page (url). where: right (the column right of this chat, made when there is none), left, below, above (a new pane on that side of this chat's pane, or of pane), here (this chat's own pane), sticky (a column docked to edge, default right; an existing docked column takes it), pane (a tab in pane), workspace (a tab in that workspace, which stays in the background). The person's view stays unless focus is true.",
+        "description": "Open a file, a diff or a web page in a cmux viewer tab, where the person asked, in one call. kind: file (path), diff (path: a file or folder; none for the working tree's changes) or page (url). where: right (the column right of this chat, made when there is none), left, below, above (a new pane on that side of this chat's pane, or of pane), here (this chat's own pane), sticky (a column docked to edge, default right; an existing docked column takes it), pane (a tab in pane), workspace (a tab in that workspace, which stays in the background). The person's view stays unless focus is true. A .md file shows rendered in cmux's Markdown page (tables, Mermaid diagrams), which follows the file as it changes: open a plan or report you wrote there. A .pptx file previews as its slides (a strip and the current slide); a Markdown deck (a .slides.md file, or front matter slides: true) shows as slides with Present and Export PDF / .pptx (see the slides tool). A shown page, SVG, PDF, image or .pptx file reloads in its tab when the file changes (live, default true for those).",
         "inputSchema": {
             "type": "object",
             "additionalProperties": false,
@@ -46,6 +43,7 @@ pub(super) fn descriptor() -> Value {
                 "workspace": {"type": "string", "description": "With workspace: the workspace that gets the tab."},
                 "edge": {"type": "string", "enum": ["right", "left", "top", "bottom"], "description": "With sticky: the edge the column docks to. Default right."},
                 "focus": {"type": "boolean", "description": "true moves the person's view to the new tab. Default false."},
+                "live": {"type": "boolean", "description": "With file: reload the tab when the file changes. Default true for .html, .svg, .pdf, .pptx and images."},
                 "idempotency_key": {"type": "string", "minLength": 1, "maxLength": 128,
                                     "description": "Stable identity for the whole split/open call. Reuse on retry."}
             }
@@ -66,6 +64,15 @@ impl<B: Backend> Server<B> {
     /// Runs `open`: the target pane first (a split, a column or a named pane), then the
     /// app's open action into it.
     pub(super) fn call_open(&self, arguments: &Map<String, Value>) -> Value {
+        self.open_as(arguments, None)
+    }
+
+    /// `open`, with the file shown as a deck of `deck` kind whatever its name (`slides`).
+    pub(super) fn open_as(
+        &self,
+        arguments: &Map<String, Value>,
+        deck: Option<pptx_view::Kind>,
+    ) -> Value {
         let known = [
             "kind",
             "path",
@@ -75,6 +82,7 @@ impl<B: Backend> Server<B> {
             "workspace",
             "edge",
             "focus",
+            "live",
             "idempotency_key",
         ];
         if let Some(name) = arguments.keys().find(|name| !known.contains(&name.as_str())) {
@@ -113,6 +121,11 @@ impl<B: Backend> Server<B> {
         let arguments = &arguments;
         let place = place.as_str();
         let focus = arguments.get("focus").and_then(Value::as_bool).unwrap_or(false);
+        let live = match arguments.get("live") {
+            None => None,
+            Some(Value::Bool(live)) => Some(*live),
+            Some(_) => return invalid("open live must be true or false"),
+        };
         let open_id = match arguments.get("idempotency_key") {
             Some(Value::String(key)) => {
                 if let Err(error) = cmux_tui_core::resource::validate_idempotency_key(key) {
@@ -126,6 +139,32 @@ impl<B: Backend> Server<B> {
                 Err(error) => return invalid(error.0),
             },
         };
+        // The app reads a path in its own process: a relative one is made absolute here,
+        // against the chat's folder (`file open` and the diff viewer refuse anything else).
+        let value = match value {
+            Some(value) if kind != "page" => Some(self.chat_path(value)),
+            value => value.map(str::to_owned),
+        };
+        // A .pptx or a Markdown deck shows as a page: the deck viewer this server serves on
+        // loopback.
+        let deck_kind = match (kind, value.as_deref()) {
+            ("file", Some(path)) => deck.or_else(|| {
+                if pptx_view::is_deck(path) {
+                    Some(pptx_view::Kind::Pptx)
+                } else {
+                    md_deck::is_deck(path).then_some(pptx_view::Kind::Markdown)
+                }
+            }),
+            _ => None,
+        };
+        let deck = deck_kind.is_some();
+        let live = live.unwrap_or_else(|| {
+            value.as_deref().is_some_and(|value| deck || live_file::renders_in_browser(value))
+        }) && kind == "file";
+        // The file `live` watches: the one opened, or the deck behind the viewer page.
+        let watched = if kind == "file" { value.clone() } else { None };
+        let (kind, action, value_key) =
+            if deck { ("page", "tab new-browser", "url") } else { (kind, action, value_key) };
         // The app first: with no app to show the viewer, no split is left behind.
         let Some(tool) = self.actions.iter().find(|tool| tool.cli_name == action) else {
             return invalid(
@@ -133,24 +172,25 @@ impl<B: Backend> Server<B> {
                  the person, or show the text in a terminal",
             );
         };
-        // The app reads a path in its own process: a relative one is made absolute here,
-        // against the chat's folder (`file open` and the diff viewer refuse anything else).
-        let value = match value {
-            Some(value) if kind != "page" => Some(self.chat_path(value)),
-            value => value.map(str::to_owned),
+        let value = match (value, deck_kind) {
+            (Some(path), Some(deck_kind)) => match self.deck_url(&path, deck_kind) {
+                Ok(url) => Some(url),
+                Err(message) => return invalid(message),
+            },
+            (value, _) => value,
         };
-        let (target, made) = match self.open_target(place, arguments, &open_id) {
+        let (pane, made) = match self.open_target(place, arguments, &open_id) {
             Ok(target) => target,
             Err(answer) => return self.failed_open(None, answer, &open_id),
         };
         // A page opens as a tab beside a tab (`tab new-browser` takes a tab target, not a
         // pane): the pane's shown tab.
-        let target = match (kind, target) {
-            ("page", Some(pane)) => match self.shown_tab(&pane) {
+        let target = match (kind, &pane) {
+            ("page", Some(pane)) => match self.shown_tab(pane) {
                 Ok(tab) => Some(tab),
                 Err(answer) => return self.failed_open(made, answer, &open_id),
             },
-            (_, target) => target,
+            (_, pane) => pane.clone(),
         };
         let mut run = Map::new();
         if let Some(value) = value {
@@ -163,17 +203,82 @@ impl<B: Backend> Server<B> {
             run.insert("focus".into(), json!(true));
         }
         run.insert("idempotency_key".into(), json!(stage_key(&open_id, "app")));
+        // The tab the open makes is the browser tab the pane did not have before.
+        let before = match (live, &pane) {
+            (true, Some(pane)) => self.browser_tabs(pane),
+            _ => None,
+        };
         let answer = self.call_action(tool, &run);
         if answer.get("isError").and_then(Value::as_bool) == Some(true) {
             return self.failed_open(made, answer, &open_id);
         }
+        let watching = match (before, &pane, &watched) {
+            (Some(before), Some(pane), Some(path)) => self.watch_new_tab(pane, &before, path),
+            _ => None,
+        };
         if let Some(mut receipt) = answer.get("structuredContent").cloned()
             && let Some(object) = receipt.as_object_mut()
         {
             object.insert("open_idempotency_key".into(), json!(open_id));
+            if deck {
+                object.insert("deck_viewer".into(), json!(run.get("url")));
+            }
+            if live {
+                object.insert("live".into(), json!(watching.is_some()));
+                if let Some(browser) = watching {
+                    object.insert("live_browser".into(), json!(browser));
+                }
+            }
             return super::success(receipt, true);
         }
         answer
+    }
+
+    /// The loopback address of the viewer page for the deck at `path` (absolute), starting
+    /// the deck server with the first deck.
+    fn deck_url(&self, path: &str, kind: pptx_view::Kind) -> Result<String, String> {
+        let path = std::path::Path::new(path);
+        if !path.is_file() {
+            return Err(format!("open: there is no file at {}", path.display()));
+        }
+        let mut decks = self.decks.borrow_mut();
+        if decks.is_none() {
+            *decks = Some(pptx_view::Decks::start()?);
+        }
+        decks.as_ref().ok_or_else(|| "open: no deck viewer".to_owned())?.url(path, kind)
+    }
+
+    /// A pane's browser tabs as `(tab, browser)`; `None` when the list fails.
+    fn browser_tabs(&self, pane: &str) -> Option<Vec<(String, String)>> {
+        let list = Map::from_iter([("pane".into(), json!(pane)), ("limit".into(), json!(500))]);
+        let tabs = self.read(v2_tools::find("tab_list"), &list).ok()?;
+        let items = tabs.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+        Some(
+            items
+                .iter()
+                .filter(|tab| tab.get("content_kind").and_then(Value::as_str) == Some("browser"))
+                .filter_map(|tab| {
+                    let id = tab.get("id")?.as_str()?;
+                    let browser = tab.get("content_id")?.as_str()?;
+                    Some((id.to_owned(), browser.to_owned()))
+                })
+                .collect(),
+        )
+    }
+
+    /// Watches `path` for the browser tab the open added to `pane`: its browser id, or
+    /// `None` when the open made no browser tab (a viewer that is not a page) or the
+    /// watch cannot start.
+    fn watch_new_tab(&self, pane: &str, before: &[(String, String)], path: &str) -> Option<String> {
+        let sender = self.backend.resource_sender()?;
+        let after = self.browser_tabs(pane)?;
+        let (_, browser) = after.into_iter().find(|tab| !before.contains(tab))?;
+        let mut live = self.live_files.borrow_mut();
+        if live.is_none() {
+            *live = Some(live_file::Watches::start(sender).ok()?);
+        }
+        live.as_mut()?.add(path, &browser).ok()?;
+        Some(browser)
     }
 
     /// Only a confirmed refusal may undo an owned split. An app action can
@@ -326,7 +431,7 @@ impl<B: Backend> Server<B> {
                 let mut split = Map::new();
                 split.insert("pane".into(), json!(pane.unwrap_or("current")));
                 split.insert("direction".into(), json!("right"));
-                split.insert("viewport_width".into(), json!(COLUMN_WIDTH));
+                split.insert("fit".into(), json!(true));
                 self.split_pane(&split, open_id).map(made)
             }
             "sticky" => self.sticky_pane(arguments, open_id),
@@ -357,7 +462,7 @@ impl<B: Backend> Server<B> {
         let mut split = Map::new();
         split.insert("pane".into(), json!("current"));
         split.insert("direction".into(), json!("right"));
-        split.insert("viewport_width".into(), json!(COLUMN_WIDTH));
+        split.insert("fit".into(), json!(true));
         let pane = self.split_pane(&split, open_id)?;
         let docked = (|| {
             let screen = self.read(

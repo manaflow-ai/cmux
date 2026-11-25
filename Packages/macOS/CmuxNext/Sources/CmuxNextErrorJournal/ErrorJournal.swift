@@ -5,6 +5,9 @@ import CmuxNextWakeups
 /// the app's own log, its pages' consoles, acpmux, the Chief and crash reports, deduplicated
 /// by fingerprint with a count, first and last seen, and one redacted sample.
 ///
+/// The logs are read on a demand only (``harvest(_:)``: `errors.list`, Copy Logs); nothing reads
+/// them at rest.
+///
 /// Writes are batched off the main actor (``ErrorJournalLimits/flushDelaySeconds``); storms
 /// only bump counters; disk use stays below about twice ``ErrorJournalLimits/segmentBytes``.
 ///
@@ -29,6 +32,10 @@ public actor ErrorJournal {
     private let flushTimer: DemandTimer
     private var newFingerprints: [String: (minute: Int64, count: Int)] = [:]
     private var lastWriteError: String?
+    /// The newest demand read (``harvest(_:)``): the running one, or the one that waits for it.
+    private var lastRead: Task<[String: Int], Never>?
+    /// Demand reads that have not ended: 0, 1 (one runs) or 2 (one runs, one waits).
+    private var unfinishedReads = 0
 
     /// Opens (or creates) the journal in `directory`. Cheap: what earlier launches kept is read on
     /// the first call on the actor, never on the caller's thread.
@@ -205,9 +212,31 @@ public actor ErrorJournal {
 
     /// Reads every source after its saved cursor, folds what it found, saves the cursors and
     /// writes. A failing source becomes one `journal` warning; the others still run.
+    ///
+    /// Call it on a demand only (`errors.list`, Copy Logs): a read of the unified log costs seconds
+    /// of CPU in the log service, so nothing reads at rest. One read runs at a time. A demand that
+    /// comes while one runs waits for one more read, which starts when the running one ends and
+    /// serves every demand that came before it started (with the sources of the first of them; the
+    /// app has one list); so each demand gets a read that started after it, and at most one read waits.
     /// - Returns: New occurrences per source id.
     @discardableResult
     public func harvest(_ sources: [any ErrorHarvestSource]) async -> [String: Int] {
+        if unfinishedReads == 2, let lastRead { return await lastRead.value }
+        let running = unfinishedReads == 1 ? lastRead : nil
+        unfinishedReads += 1
+        // A task of its own: a demand that gives up (the 12 s deadline of `errors.list`) does not
+        // cancel the read, so the cursors it moved are saved. It inherits this actor.
+        let read = Task { () -> [String: Int] in
+            _ = await running?.value
+            let found = await self.readSources(sources)
+            self.unfinishedReads -= 1
+            return found
+        }
+        lastRead = read
+        return await read.value
+    }
+
+    private func readSources(_ sources: [any ErrorHarvestSource]) async -> [String: Int] {
         openIfNeeded()
         var cursors = loadCursors()
         var found: [String: Int] = [:]

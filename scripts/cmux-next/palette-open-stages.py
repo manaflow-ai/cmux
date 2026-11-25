@@ -42,6 +42,8 @@ import argparse, glob, importlib.util, json, os, re, signal, socket, statistics,
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable, wait_until  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -129,6 +131,24 @@ def row(check, expected, observed, ok):
     print(f"{'PASS' if ok else 'FAIL'} | {check} | {expected} | {observed}", flush=True)
 
 
+def palette_open():
+    return (rpc("debug.focus") or {}).get("context", {}).get("palette_open")
+
+
+def palette_closed(what):
+    """Until the palette is closed and the app's visible windows hold still (its close animation ended)."""
+    if not wait_until(lambda: palette_open() is False, f"{what}: the palette to close", timeout=5, interval=0.02,
+                      raise_on_timeout=False):
+        print(f"note: {what}: the palette still reads open 5 s after Escape", flush=True)
+    wait_stable(lambda: json.dumps([w for w in (rpc("debug.window_list") or {}).get("windows") or [] if w.get("visible")],
+                                   sort_keys=True), f"{what}: the windows after the close", timeout=5, interval=0.03,
+                reads=3, raise_on_timeout=False)
+
+
+def palette_rows():
+    return (rpc("debug.palette.capture", {"path": os.path.join(SCRATCH, "key.png")}) or {}).get("rows") or []
+
+
 def strip_tabs(minimum):
     """The focused strip's tabs as (id-or-label, center point in window coordinates)."""
     for strip in (rpc("debug.tab_drag") or {}).get("strips") or []:
@@ -155,13 +175,14 @@ def one_open(params):
     started = time.monotonic()
     reply = rpc("debug.key", params)
     rpc_ms = (time.monotonic() - started) * 1000
-    time.sleep(opts.interval)  # test harness: the open's commit lands
-    opens = (rpc("debug.timings") or {}).get("palette_opens") or []
+    # Until the open's timing row (its commit) is in debug.timings.
+    opens = wait_until(lambda: (rpc("debug.timings") or {}).get("palette_opens"), "the open's timing row",
+                       timeout=max(5.0, opts.interval * 10), interval=0.02, raise_on_timeout=False) or []
     hangs = rpc("debug.hangs") or {}
     closed = rpc("debug.key", {"key": "escape", "target": "palette"})
     if isinstance(closed, dict) and closed.get("error"):
         rpc("debug.key", {"key": "escape"})
-    time.sleep(0.25)  # test harness: the close animation ends before the next open
+    palette_closed("the open")
     if not opens:
         return None, reply
     o = opens[-1]
@@ -180,7 +201,11 @@ def search_typing(word):
     """Opens Search and types WORD a key at a time: each key's debug.key round trip (ms), the query frames
     (the signposts are recorded around all rounds) and the typing's longest stall."""
     rpc("debug.key", {"key": "a", "modifiers": ["command", "shift"]})
-    time.sleep(opts.interval)  # test harness: Search opens and its first rows land
+    # Until Search is open and its first rows hold still.
+    if not wait_until(lambda: palette_open() is True, "Search to open", timeout=max(5.0, opts.interval * 10),
+                      interval=0.02, raise_on_timeout=False):
+        print("note: Search never read open", flush=True)
+    wait_stable(palette_rows, "Search's first rows", timeout=5, interval=0.05, reads=3, raise_on_timeout=False)
     rpc("debug.hangs", {"clear": True})
     keys = []
     for char in word:
@@ -189,15 +214,16 @@ def search_typing(word):
         keys.append(round((time.monotonic() - started) * 1000, 3))
         time.sleep(0.12)  # test harness: a typing pace; the key's rank and answers land between keys
         # The chat rows on screen for this key (Search's Agent Chats section; at the base, ranked chat rows).
-        shown = (rpc("debug.palette.capture", {"path": os.path.join(SCRATCH, "key.png")}) or {}).get("rows") or []
+        shown = palette_rows()
         CHAT_ROWS.append(sum(1 for row in shown if str(row).startswith("chat:")))
-    time.sleep(0.4)  # test harness: the last key's answer lands
+    # Until the last key's rows (its answer) hold still.
+    wait_stable(palette_rows, "the last key's rows", timeout=5, interval=0.05, reads=4, raise_on_timeout=False)
     hangs = rpc("debug.hangs") or {}
     closed = rpc("debug.key", {"key": "escape", "target": "palette"})
     if isinstance(closed, dict) and closed.get("error"):
         rpc("debug.key", {"key": "escape"})
     rpc("debug.key", {"key": "escape", "target": "palette"})
-    time.sleep(0.25)  # test harness: the close animation ends before the next open
+    palette_closed("Search")
     return keys, hangs.get("max_ms")
 
 
@@ -361,7 +387,7 @@ def summarize(label, samples):
 
 
 def cleanup():
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     if VDISPLAY is not None and VDISPLAY.poll() is None:
         VDISPLAY.terminate()  # the helper this script started; its display arrangement goes with it
     if os.environ.get("PALETTEOPEN_KEEP") or not LAUNCHED:
@@ -379,7 +405,7 @@ def cleanup():
         for line in ps.splitlines():
             parts = line.split(None, 2)
             if len(parts) == 3 and parts[2].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:
@@ -420,7 +446,16 @@ def start_vdisplay(hz):
     if not line.startswith("ready"):
         raise SystemExit(f"palette-open: no virtual display ({line or 'no line'})")
     print(f"vdisplay: {line}", flush=True)
-    time.sleep(2)  # test harness: WindowServer settles the new main display before the app opens on it
+    # Until a new process sees the virtual display as its main display (what the app opens on), as split-spring.sh.
+    made = re.match(r"ready (\d+) [\d.]+ main=(\d+)", line)
+    if made and made.group(1) == made.group(2):
+        def main_display():
+            probe = subprocess.run([binary, "probe"], capture_output=True, text=True, timeout=10).stdout
+            return next((l.split()[1] for l in probe.splitlines() if l.startswith("main ")), None)
+        if not wait_until(lambda: main_display() == made.group(1), "the virtual display as the main display",
+                          timeout=15, interval=0.2, raise_on_timeout=False):
+            print(f"warning: a new process still sees display {main_display()} as main, not the virtual display "
+                  f"{made.group(1)}, after 15 s", flush=True)
 
 
 def main():
@@ -456,7 +491,9 @@ def main():
     if not wait(lambda: (focused_pane() or {}).get("kind") == "terminal", 30):
         row("setup", "a focused terminal", json.dumps(panes())[:400], False)
         return
-    time.sleep(2)  # test harness: shell prompt
+    # Until the terminal's text (the shell prompt) stops changing.
+    wait_stable(lambda: json.dumps((rpc("debug.surfaces", {"text": True}) or {}).get("windows"), sort_keys=True),
+                "the shell prompt", timeout=15, interval=0.1, reads=5, raise_on_timeout=False)
     if opts.search_keys:
         if opts.stress:
             path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perf-stress-session.py")

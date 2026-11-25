@@ -10,6 +10,20 @@ public import CmuxNextDesignTokens
 public protocol ToolbarEdgeHosting: AnyObject {
     /// The edge the row sits on; setting it moves the row.
     var toolbarPosition: ToolbarPosition { get set }
+    /// Whether the omnibar row shows now: false while the person hid it (Toggle Omnibar), in pane fullscreen, or for
+    /// a page with no bar. The pane leaves the tab row's divider out over a shown row at its top
+    /// (`TabStripView.meetsToolbar`).
+    var showsToolbarRow: Bool { get }
+    /// Whether the pane shows its tab strip right above this view's omnibar row (where it leaves the tab row's divider
+    /// out, `TabStripView.meetsToolbar`); the pane sets it at each layout. The row then takes the density's own room
+    /// above and below its bar (Default's Chrome 6 pt, `omnibarRowGap`); with no strip right above it keeps the strip's gap.
+    var meetsTabStrip: Bool { get set }
+}
+
+extension ToolbarEdgeHosting {
+    /// The omnibar row shows at the top, right under a tab strip on top: the pane leaves the tab row's divider out
+    /// there (`TabStripView.meetsToolbar`), so the tabs and the omnibar read as one surface.
+    public var showsToolbarRowAtTop: Bool { toolbarPosition == .top && showsToolbarRow }
 }
 
 extension NSView {

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextCompat
+import CmuxNextPages
 import Foundation
 import Testing
 import CmuxNextFilesUI

@@ -13,6 +13,9 @@ Usage: agent-stream-e2e.py --tag <tag> --variant before=/dir/with/index.html --v
     [--rows 2000] [--seconds 6] [--chunk-chars 24] [--chunk-ms 12] [--runs 3]
 """
 import argparse, glob, json, os, socket, statistics, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -92,17 +95,24 @@ def run_variant(name, directory):
     try:
         if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.surfaces") or {}).get("windows"), 120, 0.5):
             sys.exit(f"{name}: the tagged app did not come up")
-        time.sleep(2)
+        # The launch window settled (its surfaces stop changing) before the shortcut is pressed.
+        wait_stable(lambda: (rpc("debug.surfaces") or {}).get("windows"), f"{name}: the launch window", timeout=15,
+                    interval=0.2, raise_on_timeout=False)
         rpc("debug.key", {"key": "i", "modifiers": ["cmd", "shift"]})
         if not wait(lambda: "error" not in (rpc("debug.agent_pane", {"action": "pid"}) or {"error": 1}), 60, 0.5):
             sys.exit(f"{name}: no agent tab")
-        time.sleep(3)
-        print(f"{name}: full rate {rpc('debug.agent_pane', {'action': 'full_rate', 'enabled': True})}", flush=True)
+        # The chat page loaded (document ready) and its readiness report holding still before the streams.
+        readiness = lambda: rpc("debug.agent_pane", {"action": "readiness"}, timeout=5) or {}
+        if not wait(lambda: readiness().get("document_ready"), 30, 0.25):
+            safe_print(f"{name}: the agent page never reported document_ready in 30 s", flush=True)
+        wait_stable(readiness, f"{name}: the agent page's readiness", timeout=15, interval=0.2,
+                    raise_on_timeout=False)
+        safe_print(f"{name}: full rate {rpc('debug.agent_pane', {'action': 'full_rate', 'enabled': True})}", flush=True)
         for run in range(opts.runs):
             result = rpc("debug.agent_pane", {"action": "stream", "rows": opts.rows, "seconds": opts.seconds,
                                               "chunk_chars": opts.chunk_chars, "chunk_ms": opts.chunk_ms},
                          timeout=opts.seconds + 120)
-            print(f"{name} run {run + 1}: {json.dumps(result)}", flush=True)
+            safe_print(f"{name} run {run + 1}: {json.dumps(result)}", flush=True)
             results.append(result)
     finally:
         app.terminate()

@@ -99,3 +99,107 @@ fn a_small_synthetic_registry_opens_and_refolds_to_the_same_roster() {
     assert_eq!(refolded["hook_fences"], generated["hook_fences"]);
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// Bumping an existing registry sets only the roster version one behind,
+/// as the generator's own bump writes it; a registry without a roster
+/// snapshot is left alone.
+#[test]
+fn bumping_an_existing_registry_keeps_its_roster_cursor_and_snapshot() {
+    let root = temp_root("bump");
+    let options = SynthOptions {
+        session: "synth-bump".into(),
+        session_puts: 40,
+        agent_events: 20,
+        workspaces: 1,
+        batch_rows: 16,
+        ..SynthOptions::default()
+    };
+    let report = generate(&root, &options).unwrap();
+    let (version, cursor, snapshot) = roster_meta(&report.registry_path);
+    assert_eq!(version, AGENT_ROSTER_REDUCER_VERSION);
+
+    assert_eq!(bump_roster_version(&report.registry_path).unwrap(), Some(version));
+    let (bumped, bumped_cursor, bumped_snapshot) = roster_meta(&report.registry_path);
+    assert_eq!(bumped, AGENT_ROSTER_REDUCER_VERSION - 1);
+    assert_eq!((bumped_cursor, bumped_snapshot), (cursor, snapshot));
+
+    Connection::open(&report.registry_path)
+        .unwrap()
+        .execute(
+            "DELETE FROM meta WHERE key = ?1",
+            [format!("journal_reducer.{AGENT_ROSTER_REDUCER_ID}")],
+        )
+        .unwrap();
+    assert_eq!(bump_roster_version(&report.registry_path).unwrap(), None);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// A registry copied without its state root's pepper does not open in a new
+/// root; bound to a new pepper there, it opens with its workspaces.
+#[test]
+fn a_registry_copied_without_its_pepper_opens_once_rebound() {
+    let root = temp_root("pepper-source");
+    let options = SynthOptions {
+        session: "synth-source".into(),
+        session_puts: 20,
+        agent_events: 10,
+        workspaces: 2,
+        batch_rows: 16,
+        ..SynthOptions::default()
+    };
+    let report = generate(&root, &options).unwrap();
+    let copy_root = temp_root("pepper-copy");
+    let copy = registry_path(&copy_root, "synth-source");
+    std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    std::fs::copy(&report.registry_path, &copy).unwrap();
+    let open = || {
+        crate::Mux::open_persistent("synth-source", crate::SurfaceOptions::default(), &copy_root)
+    };
+
+    let refused = format!("{:#}", open().err().expect("a registry without its pepper opens"));
+    assert!(refused.contains("pepper"), "{refused}");
+    rebind_resource_pepper(&copy_root, &copy).unwrap();
+    let mux = open().unwrap();
+    let names = mux
+        .workspace_registry
+        .lock()
+        .unwrap()
+        .snapshot()
+        .unwrap()
+        .workspaces
+        .into_iter()
+        .filter(|workspace| workspace.name.starts_with("synth "))
+        .count();
+    mux.shutdown();
+    drop(mux);
+    assert_eq!(names, 2);
+    let _ = std::fs::remove_dir_all(root);
+    let _ = std::fs::remove_dir_all(copy_root);
+}
+
+/// A chosen number of sealed segments, as a long-lived registry has (about
+/// 7,000 at 58.7 GB on 2026-11-09, where half of a synthetic journal of that
+/// size seals into about 4,700): the generator seals that many full segments
+/// and leaves the rest live.
+#[test]
+fn the_generator_seals_the_segments_asked_for() {
+    let root = temp_root("seal-segments");
+    let options = SynthOptions {
+        session: "synth-segments".into(),
+        session_puts: 4_000,
+        agent_events: 100,
+        workspaces: 1,
+        payload_bytes: 256,
+        batch_rows: 1_000,
+        seal_segments: Some(3),
+        ..SynthOptions::default()
+    };
+    let report = generate(&root, &options).unwrap();
+    assert!((3..=4).contains(&report.segments), "sealed {} segments", report.segments);
+    let live = Connection::open(&report.registry_path)
+        .unwrap()
+        .query_row("SELECT COUNT(*) FROM session_journal", [], |row| row.get::<_, i64>(0))
+        .unwrap();
+    assert!(live > 0, "the rest of the journal stays live");
+    let _ = std::fs::remove_dir_all(root);
+}

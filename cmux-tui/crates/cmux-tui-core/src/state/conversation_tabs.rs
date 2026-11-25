@@ -207,12 +207,20 @@ impl Mux {
                 let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 Ok(serde_json::json!({"pane": id.as_str()}))
             }
-            ConversationTabTarget::Split(TabSplit { pane, direction, pane_id, split_id, .. }) => {
+            ConversationTabTarget::Split(TabSplit {
+                pane, direction, pane_id, split_id, around, ..
+            }) => {
                 let id = state.resource_indexes.pane_ids.get(pane).context("unknown pane")?;
                 let mut ids =
                     serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});
                 if let Some(split_id) = split_id {
                     ids.set("split_id", Value::String(split_id.clone()));
+                }
+                // `split-around-v1`: by its public id, which survives a restart.
+                if let Some(around) = around {
+                    let around =
+                        state.resource_indexes.split_ids.get(around).context("unknown split")?;
+                    ids.set("around_split", Value::String(around.to_string()));
                 }
                 Ok(ids)
             }

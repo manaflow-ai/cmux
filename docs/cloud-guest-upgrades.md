@@ -15,6 +15,23 @@ runbook for doing it, and the plan for machines it cannot reach.
 
 ## Self-update
 
+The first status report also carries `updater.first_ready`, the image's
+pre-ready update observation saved across the exec into the channel build.
+It records `image_behind`, content-addressed binary versions (`from_version`
+and `to_version`, SHA256), the full `channel_commit`, Unix-ms `started_at`
+and `finished_at`, monotonic `check_ms`, and `update_ms`. Durations round up
+to milliseconds. An already-current image has `image_behind=false` and
+`update_ms=0`; a channel that could not be read has null comparison and
+update duration. `outcome` is `updated`, `current`, or `on_image`, so a failed
+attempt is never presented as a successful update. Later updater checks and
+the post-update process retain this first observation. Older machines have
+no observation; consumers must report unavailable, never infer zero.
+
+The `first_ready` and `a_machine_made_on_an_old_image` tests in
+`cmux-host/src/updater/tests.rs` exercise the report from fake behind/current
+images, persistence across exec, and an unreadable channel. The existing
+Cloud status sender carries this updater block without a second route.
+
 `cmux host run`'s `updater` role (`cmux-tui/crates/cmux-host/src/updater`)
 reads the signed channel `https://files.cmux.com/cmux-tui/channels/cloud-machine.json`
 30 s after it starts, on every resume and every minute. CI moves the
@@ -65,6 +82,7 @@ missing, and an in-place upgrade plus a one-row backfill restored them
 | `cmux-tui` binary and `cmux-tui-hook` on a store image (`cmux host run`) | Yes, by itself | The `updater` role (Self-update, above) |
 | `cmux-tui` binary, `cmux-tui-hook`, and the state-mount helper on a devbox image | Yes | `web/scripts/upgrade-fleet-cmux-tui.ts` (below) |
 | Coding-agent hook entries | Yes | Same run: the pinned install command re-runs `cmux-tui agent hook install` |
+| Guest `cmux` adapter, browser opener and Cloud CLI (`/usr/local/libexec/cmux-cloud-*`) | Yes | Same run: the install script puts this web build's guest integration in with the binary, so the adapter always reads the binary's exits (a timed-out `process wait` exits 124). An update that replaces only the binary (the app's machine update) leaves the old adapter, and a shell running the old adapter keeps its code after the file is replaced, so on a Cloud machine the binary exits 124 for that wait only to a caller that sets `CMUX_CALLER_READS_WAIT_124=1`, as the current adapter does on each call; a machine whose binary is already current still gets the integration |
 | `cmux-devbox-boot`, systemd units, the daemon's argv and environment | No | Bake only. The supervisor that is running keeps its own copy |
 | Baked packages, agent pins, desktop, `/etc/cmux/*` | No (agent pins: only on machines opted into `agentUpdates: "latest"`) | Bake only; opted-in machines update their coding agents on attach (`web/services/vms/guestAgentUpdates.ts`) |
 | Create-time provider config: inline TLS rules (coderouter), VPC, firewall | No | Fixed at `vms.create`; the platform ignores later rules |

@@ -28,15 +28,9 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/macos-cross-runtime.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 status=0
 
-# smoke-remote-release.sh needs timeout(1), which macOS lacks.
+# smoke-remote-release.sh needs timeout(1), which macOS lacks: scripts/ci/timeout.sh stands in for it.
 mkdir -p "$WORK/bin"
-cat > "$WORK/bin/timeout" <<'EOF'
-#!/usr/bin/env bash
-# timeout [--kill-after=D] DURATION CMD...: GNU timeout subset for the smoke.
-[[ "$1" == --kill-after=* ]] && shift
-seconds="${1%s}"; shift
-exec perl -e 'alarm shift; exec @ARGV or die "exec: $!"' "$seconds" "$@"
-EOF
+printf '#!/usr/bin/env bash\nexec bash %q "$@"\n' "$ROOT/scripts/ci/timeout.sh" > "$WORK/bin/timeout"
 chmod +x "$WORK/bin/timeout"
 export PATH="$WORK/bin:$PATH"
 

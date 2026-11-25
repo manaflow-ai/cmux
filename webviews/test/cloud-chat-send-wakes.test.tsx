@@ -5,6 +5,7 @@
 // replaces), goes exactly once when the chat is back, and a failed wake gives it back.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -31,13 +32,9 @@ type Held = ReturnType<typeof useTrustHeldPrompts>;
 type Entry = Parameters<Parameters<typeof useTrustHeldPrompts>[0]["send"]>[0];
 
 const root = createRoot(dom.window.document.getElementById("root")!);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) globals[key] = value;
-    else delete globals[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope: globals });
 });
 
 const live = { cloud: true, chat: "chat-1", linkUp: true, paused: false, unavailable: false };

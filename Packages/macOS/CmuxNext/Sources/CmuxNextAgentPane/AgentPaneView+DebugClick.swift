@@ -10,6 +10,8 @@ public import WebKit
 extension AgentPaneView {
     /// Finds the element, scrolls it into view and returns its center in CSS pixels.
     private static let locateScript = """
+        // A control the last lookup revealed inline (below) goes back to its own style.
+        window.__cmuxDebugReveal?.();
         const visible = (el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
         let target = null;
         if (selector) {
@@ -39,8 +41,36 @@ extension AgentPaneView {
             }, true);
         }
         target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        // A control shown only while its block is hovered (a reply table's Open and Copy) takes no
+        // pointer until then, and a capture slot's window is never key, so WebKit gives the page no
+        // hover there: the native click would fall through to what lies under it. Focusing it first
+        // reveals it the way a keyboard user's Tab does (`:focus-within`), so the click lands on it.
+        // WebKit matches `:focus-within` only in a focused, active frame, which a capture slot's never-key
+        // window is not: there the control still takes no pointer, so it takes it inline until the next
+        // click or lookup.
+        let focused = false;
+        if (getComputedStyle(target).pointerEvents === 'none') {
+            const control = target.closest('button, a[href], input, select, textarea, [tabindex]');
+            if (control instanceof HTMLElement) {
+                control.focus({ preventScroll: true });
+                focused = document.activeElement === control;
+                if (getComputedStyle(control).pointerEvents === 'none') {
+                    const value = control.style.getPropertyValue('pointer-events');
+                    const priority = control.style.getPropertyPriority('pointer-events');
+                    control.style.setProperty('pointer-events', 'auto', 'important');
+                    const restore = () => {
+                        if (window.__cmuxDebugReveal !== restore) return;
+                        window.__cmuxDebugReveal = null;
+                        if (value) control.style.setProperty('pointer-events', value, priority);
+                        else control.style.removeProperty('pointer-events');
+                    };
+                    window.__cmuxDebugReveal = restore;
+                    window.addEventListener('click', restore, { capture: true, once: true });
+                }
+            }
+        }
         const r = target.getBoundingClientRect();
-        return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2, tag: target.tagName.toLowerCase() });
+        return JSON.stringify({ x: r.left + r.width / 2, y: r.top + r.height / 2, tag: target.tagName.toLowerCase(), focused });
         """
 
     /// The element of the chat's page matching `selector` (CSS), or by `text` (its visible text or
@@ -74,6 +104,16 @@ extension AgentPaneView {
     /// Whether the document has painted, independently of the loading cover's give-up deadline.
     public var debugPageHasPainted: Bool { model.hasPainted && (page?.hasPainted ?? true) }
 
+    /// Whether the page's own pixels are on screen: it painted, it is in a window, no view over it keeps it hidden or
+    /// clear (the loading state, a move cover), and a Chromium page lies in its window's content (not held away until
+    /// it drew there). A Chromium page's own alpha does not hide its window (``PageWebView/setChromiumVisibility(_:)``).
+    public var debugPageOnScreen: Bool {
+        guard debugPageHasPainted, let content = window?.contentView, !pageContent.isHiddenOrHasHiddenAncestor,
+              !sequence(first: pageContent, next: \.superview).dropFirst(pageDrawsOverCovers ? 1 : 0).contains(where: { $0.alphaValue < 0.01 })
+        else { return false }
+        return !pageDrawsOverCovers || debugShowsChromium && pageContent.convert(pageContent.bounds, to: nil).intersects(content.convert(content.bounds, to: nil))
+    }
+
     /// Whether the chat's Chromium page is one a window snapshot draws: in this window, not parked,
     /// hidden or under a clear (alpha 0) ancestor, and with a size.
     public var debugChromiumPageShown: Bool {
@@ -105,6 +145,12 @@ extension AgentPaneView {
     /// otherwise (``PageWebView/debugPress(x:y:)``).
     public func debugPress(x: Double, y: Double, beforeRelease: (() -> Void)? = nil) async -> Bool {
         await page?.debugPress(x: x, y: y, beforeRelease: beforeRelease) ?? false
+    }
+
+    /// Trusted DevTools key events into the chat shown in Chromium (``PageWebView/debugDevToolsKeys(_:)``); false otherwise.
+    /// - Parameter events: Each `Input.dispatchKeyEvent` call's parameters, in order.
+    public func debugDevToolsKeys(_ events: [[String: any Sendable]]) async -> Bool {
+        await page?.debugDevToolsKeys(events) ?? false
     }
 
     /// The chat's file input `selector` takes the files at `paths`, as a pick in Chromium's open panel

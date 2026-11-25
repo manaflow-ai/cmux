@@ -10,6 +10,7 @@ page's focused element (chat_state.focus) after the menu opens. On exit the tag'
 
 Usage: model-picker-focus-live.py --job <cmux-ci job id> --tag <the build's tag>"""
 import argparse, glob, json, os, plistlib, re, socket, subprocess, sys, time
+import tempfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--job", required=True)
@@ -39,11 +40,12 @@ with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
     BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from state_wait import wait_stable  # noqa: E402
 
 TAG = opts.tag
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
 HOME_ACP = os.path.join(OUT, "acpmux-home")
-ACP_SOCKET = f"/tmp/mpf-acp-{os.getpid()}.sock"
+ACP_SOCKET = os.path.join(tempfile.mkdtemp(prefix="mpf-", dir="/tmp"), "acp.sock")  # a mkdtemp dir: a guessable /tmp name could be planted by another account
 
 
 def rpc(method, params=None, timeout=60):
@@ -97,9 +99,11 @@ def focus():
     return state["focus"] if state else None
 
 
-state_dir = os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")
-if os.path.isdir(state_dir) and not os.path.islink(state_dir):
-    os.rename(state_dir, state_dir + ".old-" + str(int(time.time())))
+# NEXT's own folder and the one in classic's that a build from before it used (a new build adopts that at launch).
+for state_dir in (os.path.expanduser(f"~/Library/Application Support/cmux-next/tags/{TAG}"),
+                  os.path.expanduser(f"~/Library/Application Support/cmux/tags/{TAG}")):
+    if os.path.isdir(state_dir) and not os.path.islink(state_dir):
+        os.rename(state_dir, state_dir + ".old-" + str(int(time.time())))
 if os.path.exists(SOCKET):
     os.unlink(SOCKET)
 os.makedirs(HOME_ACP, exist_ok=True)
@@ -127,7 +131,8 @@ try:
     opened = rpc("action.run", {"action": "palette.newAgentChat", "focus": True})
     if isinstance(opened, dict) and "error" in opened:
         # The focused pane's controller key (snapshot ids are not always the controller's key).
-        time.sleep(1.5)
+        # Until debug.focus names the new workspace's focused pane.
+        wait(lambda: re.findall(r'"pane": "([^"]+)"', json.dumps(rpc("debug.focus"))), 10)
         focused = rpc("debug.focus")
         say("debug.focus", json.dumps(focused)[:400])
         keys = re.findall(r'"pane": "([^"]+)"', json.dumps(focused))
@@ -142,25 +147,30 @@ try:
     def closed():
         rpc("debug.key", {"key": "Escape", "modifiers": []})
         rpc("debug.key", {"key": "Escape", "modifiers": []})
-        time.sleep(0.4)
+        # The menu closed: the keyboard is back in the prompt (best effort; "focus after closing" reports it).
+        wait(lambda: focus() == "composer", 5, 0.05)
+
+    def opened_focus():
+        """The page's focus once the opener had its effect: it left the prompt, then held still (an opener that
+        does nothing leaves it in the prompt, which the report then shows)."""
+        wait(lambda: focus() not in (None, "composer"), 5, 0.05)
+        return wait_stable(focus, "the page's focus after the opener", timeout=5, interval=0.1, reads=3,
+                           raise_on_timeout=False)
 
     # 1. Cmd-Ctrl-M with the prompt focused, through the app's real key path.
     key = rpc("debug.key", {"key": "m", "modifiers": ["cmd", "control"]})
     say("debug.key cmd+ctrl+m:", json.dumps(key)[:400])
-    time.sleep(0.8)
-    report["cmd_ctrl_m"] = {"key": key, "focus": focus()}
+    report["cmd_ctrl_m"] = {"key": key, "focus": opened_focus()}
     say("after Cmd-Ctrl-M focus:", report["cmd_ctrl_m"]["focus"])
     closed()
     # 2. The palette's Switch Model… (agentPane.switchModel; absent on builds without it).
     ran = rpc("action.run", {"action": "agentPane.switchModel", "focus": True})
-    time.sleep(0.8)
-    report["palette_switch_model"] = {"result": ran, "focus": focus()}
+    report["palette_switch_model"] = {"result": ran, "focus": opened_focus()}
     say("after action.run agentPane.switchModel:", json.dumps(ran)[:160], "focus:", report["palette_switch_model"]["focus"])
     closed()
     # 2. Automation opens the menu by its label, as a click does.
     menu = pane("open_menu", label="Model")
-    time.sleep(0.8)
-    report["open_menu"] = {"result": menu, "focus": focus()}
+    report["open_menu"] = {"result": menu, "focus": opened_focus()}
     say("after open_menu Model focus:", report["open_menu"]["focus"])
     closed()
     say("focus after closing:", focus())

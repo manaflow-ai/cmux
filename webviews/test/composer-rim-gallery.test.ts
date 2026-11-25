@@ -6,19 +6,22 @@
 // - each level's --acpmux-composer-glint reaches the card (1 for `before`, 0.5 for the quiet levels);
 // - a resting stage has no focused field in the card, a focused one matches :has(:focus-visible);
 // - the focused card's hairline ring is a different color from the resting one's, in a dark and a
-//   light theme.
+//   light theme, once a key earned the focus: the stage's own code focus draws no lift (FOCUS-RING,
+//   src/ui/focusModality.ts), so the test focuses the prompt with a real Tab.
 //
 // Real Chromium from Playwright on the real gallery frame; CI fails the file when it cannot launch
 // (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/composer-rim-gallery.test.ts
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-rim-gallery.test.ts", async () => {
   setDefaultTimeout(840_000);
   const ENTRY = "agent-pane.composer-rim";
+  const PROMPT = ".acpmux-composer > .acpmux-composer-box [contenteditable='true']";
   const LEVELS: Record<string, number> = { before: 1, "quiet-16-22": 0.5, "quiet-14-20": 0.5, "quiet-18-22": 0.5 };
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -49,6 +52,8 @@ await requireBrowserLane("composer-rim-gallery.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });
+    // The stage focuses the prompt from code, which earns no ring; a key's focus lifts the rim.
+    if (variant.endsWith("-focused")) await focusByKey(page, PROMPT);
     const state = await page.evaluate(() => {
       const box = document.querySelector<HTMLElement>(".acpmux-composer > .acpmux-composer-box")!;
       const style = getComputedStyle(box);

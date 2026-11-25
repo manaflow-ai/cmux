@@ -25,8 +25,10 @@
 //! verdicts as `shadowAdmission` and `acpmux ls` prints a line for each one
 //! that would defer.
 
-use crate::host_pressure::{ShadowInputs, ShadowState, ShadowVerdict, shadow_verdict};
+use crate::host_pressure::{ShadowInputs, ShadowVerdict, shadow_verdict};
 use crate::placement::Candidate;
+// Not through host_pressure, whose glob re-export the test-hooks check cannot follow.
+use cmux_host_budget::ShadowState;
 use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -221,7 +223,7 @@ pub fn status_candidate(name: &str, host_pressure: &Value, at_ms: u64) -> Candid
     if host_pressure.get("ok").is_some_and(|ok| !ok.is_null()) {
         health.set("pressure", host_pressure.clone());
     }
-    Candidate { name: name.to_owned(), local: true, health, health_at: Some(at_ms) }
+    Candidate { name: name.to_owned(), local: true, health, health_at: Some(at_ms), via_hub: false }
 }
 
 /// This machine as a candidate from readings that never wait: the meter's last
@@ -235,6 +237,7 @@ pub fn local_candidate() -> Candidate {
         local: true,
         health: local_health(&local_readings(), pressure),
         health_at: Some(crate::store::now_ms()),
+        via_hub: false,
     }
 }
 

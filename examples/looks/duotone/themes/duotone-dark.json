@@ -1,0 +1,127 @@
+// Duotone Dark. Two tones of one neutral gray: the work (OKLCH L 0.245, #202020) and the chrome
+// (L 0.215, #191919). The work is the lit one. Ink #e8e8e8 (13.3:1 on the work), secondary ink
+// #ababab (7.1:1), marks #929292 (5.2:1); every figure is measured on the lighter tone, the worse
+// one for light ink.
+{
+  "name": "Duotone Dark",
+  "description": "Two tones of one gray, Dark: the work #202020, the chrome #191919, one lightness step apart; the selected row is neutral.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  // background: the work tone. foreground: the ink. selection: the terminal's text selection, the
+  // one blue (with the cursor below). There is no accent colour: the accent is neutral, so the
+  // selected row, focus and Send draw in the ink, never in a hue.
+  "colors": { "background": "#202020", "foreground": "#e8e8e8", "selection": "#657694" },
+  "appearance.accent": "neutral",
+  "ghostty": [
+    "background = #202020",
+    "foreground = #e8e8e8",
+    "cursor-color = #7aa7f7",
+    "cursor-text = #202020",
+    "selection-background = #2b3a55",
+    "selection-foreground = #e8e8e8",
+    "palette = 0=#43474d",
+    "palette = 1=#d36e60",
+    "palette = 2=#3d9d5e",
+    "palette = 3=#a78801",
+    "palette = 4=#608adb",
+    "palette = 5=#be70b3",
+    "palette = 6=#039aa5",
+    "palette = 7=#eae8e6",
+    "palette = 8=#65696f",
+    "palette = 9=#ff9075",
+    "palette = 10=#3ec584",
+    "palette = 11=#d1ab17",
+    "palette = 12=#8eadff",
+    "palette = 13=#f18dd5",
+    "palette = 14=#03c0d7",
+    "palette = 15=#e4e6e8"
+  ],
+  "terminal.fontSize": 13,
+
+  // Material: opaque. The chrome tone is a shade over the window's ground, so its step is only a
+  // fixed number when the ground is fixed. Over glass the same shade drew a step that changed with
+  // the wallpaper; pinning the ground is what makes this one constant.
+  "appearance.background": "none",
+  "appearance.backgroundBlur": "none",
+  "appearance.backgroundOpacity": 1,
+  "appearance.wallpaperTint": false,
+
+  // The two tones. The work is #202020; the chrome around it (sidebar, toolbar, tab strip) is
+  // #191919: 0.03 lower in OKLCH lightness, same hue, no chroma. Title area contrast 1.55 is
+  // the value that draws exactly that step over this ground. The selected tab takes the work tone
+  // and runs into the pane through filleted corners (flush-goo).
+  "appearance.cornerFlush": "flush-goo",
+  "appearance.titleAreaTone": "subtleTone",
+  "appearance.titleAreaContrast": 1.55,
+  "appearance.twoTone": "off",
+  "appearance.focusIndicator": "tabs",
+  "appearance.density": "cozy",
+
+  // A line separates neighbours of the same tone (two panes side by side); the tone step separates
+  // chrome from work. Never both: no line where the sidebar meets the pane.
+  "sidebar.border": false,
+  "appearance.surfaces.splitDivider.color": "#333333",
+  "appearance.surfaces.splitDivider.opacity": 1,
+
+  // Every work surface on the work tone, opaque: the chat, terminal, files, diffs, pages.
+  "appearance.surfaces.agentPane.color": "#202020",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.terminal.color": "#202020",
+  "appearance.surfaces.terminal.opacity": 1,
+  "appearance.surfaces.editor.color": "#202020",
+  "appearance.surfaces.editor.opacity": 1,
+  "appearance.surfaces.diff.color": "#202020",
+  "appearance.surfaces.diff.opacity": 1,
+  "appearance.surfaces.markdown.color": "#202020",
+  "appearance.surfaces.markdown.opacity": 1,
+  "appearance.surfaces.settings.color": "#202020",
+  "appearance.surfaces.settings.opacity": 1,
+  "appearance.surfaces.internalPage.color": "#202020",
+  "appearance.surfaces.internalPage.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#202020",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.home.color": "#202020",
+  "appearance.surfaces.home.opacity": 1,
+  // Docks are chrome: they hold tools, not the work.
+  "appearance.surfaces.docks.color": "#191919",
+  "appearance.surfaces.docks.opacity": 1,
+  // The sidebar and the tab bar are chrome too. Naming the tone outright, as well as shading the
+  // title area above, is what makes a preview that does not draw the shade still show the step.
+  "appearance.surfaces.sidebar.color": "#191919",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#191919",
+  "appearance.surfaces.tabBar.opacity": 1,
+
+  // The proportion ladder, at a row height H of 28: strip and toolbar H + 2 x 6 = 40, the sidebar
+  // 9 H = 252, type 13, a 6 gutter (the row's own inset), a 1 divider.
+  "appearance.metrics.titlebarHeight": 40,
+  "appearance.metrics.tabStripHeight": 40,
+  "appearance.metrics.tabFontSize": 13,
+  "appearance.metrics.sidebarWidth": 252,
+  "appearance.metrics.sidebarRowHeight": 28,
+  "appearance.metrics.chromeFontSize": 13,
+  "appearance.metrics.columnGap": 6,
+  "appearance.metrics.dividerThickness": 1,
+
+  "browser.omnibar.glass": "off",
+
+  // Motion: a tone change blends in lightness only, quickly.
+  "appearance.colorTransition.enabled": true,
+  "appearance.colorTransition.duration": 120,
+  "appearance.colorTransition.curve": "easeOut",
+  "appearance.colorTransition.colorSpace": "oklab",
+  "appearance.colorTransition.reduceMotion": "crossfade"
+
+  // Pending cmux#46861 (row proportions): the row's inset is (H - icon) / 2 = 6 on the leading,
+  // top and bottom sides, the icon to label gap is the same 6, and a toolbar button is one row
+  // height square with the control corner. Uncomment once your build has it.
+  // "appearance.metrics.sidebarRowInset": 6,
+  // "appearance.metrics.sidebarRowPadding": 6,
+  // "appearance.metrics.sidebarRowGap": 0,
+  // "appearance.metrics.toolbarButtonSize": 28,
+  // "appearance.metrics.toolbarButtonGap": 6,
+  // "appearance.metrics.toolbarButtonCornerRadius": 8,
+  // "appearance.metrics.composerPadding": 12,
+  // "appearance.metrics.composerMinHeight": 40
+}

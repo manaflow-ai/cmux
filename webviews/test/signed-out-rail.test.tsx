@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { act, useState } from "react";
 import type { Root } from "react-dom/client";
 import { until } from "./support/until";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -75,12 +76,8 @@ afterEach(() => {
   dom.window.localStorage.clear();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 type Sent = { method: "model" | "harness" | "effort"; value: string };
@@ -284,10 +281,9 @@ test("a search lists a signed-out harness's models after the ready ones, and a p
     setValue.call(input, "gpt");
     input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   });
-  // A searched row's title is its name, its harness, then its provider ("GPT 5.3 Codex" is a model).
-  const codexRows = modelRows().filter((row) => row.title.split(" · ")[1] === "Codex");
+  // A signed-out row says so in its description (its tooltip is the name alone); only Codex is signed out here.
+  const codexRows = modelRows().filter((row) => row.getAttribute("aria-description") === "Signed out");
   expect(codexRows.length).toBeGreaterThan(0);
-  expect(codexRows.every((row) => row.title.includes("Signed out"))).toBe(true);
   const headings = [...dom.window.document.querySelectorAll(".acpmux-cols .acpmux-cols-group")].map(
     (heading) => heading.textContent,
   );
@@ -317,10 +313,13 @@ test("the running chat's own harness keeps its models", async () => {
   await act(async () => {
     openQuickPicker();
   });
-  // A started chat's harness is fixed: its menu has no rail, only that harness's models.
-  expect(dom.window.document.querySelector(".acpmux-quick-rail")).toBeNull();
+  // A started chat opens the shared picker, rail and all (cmux#55750); its own harness's tab still
+  // lists its models, never Log In in their place.
+  const codex = tabFor("Codex");
+  expect(codex, "the running harness's rail tab").toBeDefined();
+  expect(codex!.getAttribute("aria-selected")).toBe("true");
   expect(modelRows().length).toBeGreaterThan(0);
-  expect(dom.window.document.querySelector(".acpmux-quick-menu")?.textContent).not.toContain("Log In");
+  expect(columnRows().map((row) => row.textContent)).not.toContain("Log In");
 });
 
 test("Starred lists no model of a signed-out harness", async () => {

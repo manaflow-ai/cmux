@@ -2,8 +2,8 @@
 // APPEARANCE OF THIS FOCUS RING, THE STYLE IS SHIT"; a thick light or blue ring on the composer, a
 // white rounded ring round the queued prompt being edited, and a blue ring that kept appearing).
 //
-// - The composer box and the New Tab box: at rest one device pixel in the composer edge (18% text);
-//   focused, the same one device pixel a step brighter (22% text). No wider line, no extra shadow,
+// - The composer box and the New Tab box: at rest one device pixel in the composer edge (22% text);
+//   focused, the same one device pixel a step brighter (26% text). No wider line, no extra shadow,
 //   no outline. A page that is not the key one keeps the resting edge.
 // - The queued prompt's editor: no outline, the same focused hairline.
 // - A button reached from the keyboard: no outline (neither the shared accent ring nor WebKit's
@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { focusByKey } from "./support/focusByKey";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -23,8 +24,8 @@ type Inset = { spread: number; alpha: number };
 
 await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
   /** The composer edge's alpha over the harness's transparent page, at rest and focused. */
-  const REST = 0.18;
-  const FOCUSED = 0.22;
+  const REST = 0.22;
+  const FOCUSED = 0.26;
   setDefaultTimeout(120_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -61,6 +62,13 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/composer-rim.html`);
     await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+    // The card's ring eases on box-shadow (composerStates.css, HOVER GLASS RING): these reads judge
+    // the looks a state comes to rest in, so the eases run in no time, as the host's zero motion
+    // tokens run them.
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty("--agent-motion-in", "0ms");
+      document.documentElement.style.setProperty("--agent-motion-out", "0ms");
+    });
     return page;
   }
 
@@ -116,7 +124,7 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         expect(restRims[0].spread * scale, `${box} rim in device px`).toBe(1);
         expect(restRims[0].alpha, `${box} rim at rest`).toBeCloseTo(REST, 2);
 
-        await page.focus(`#${field}`);
+        await focusByKey(page, `#${field}`);
         const focused = await shadows(page, box);
         // The same layers: no ring or glow added, the drop shadow unchanged.
         expect(focused.length, `${box} focused adds no shadow`).toBe(rest.length);

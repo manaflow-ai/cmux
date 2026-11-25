@@ -3,12 +3,17 @@
 # its size budget (tests/test_workflow_file_size.py); the step's env: still sets every input.
 set -euo pipefail
 APP="build-universal/Build/Products/Release/cmux.app"
+# cmux NEXT's code is CmuxNextApp.framework behind the stub Contents/MacOS/cmux (CMUX-629): its slices
+# are the app's. Classic and a static build have no such framework.
+app_code=()
+[ -f "$APP/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp" ] &&
+  app_code=("$APP/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp")
 for binary in \
   "$APP/Contents/MacOS/cmux" \
+  ${app_code[@]+"${app_code[@]}"} \
   "$APP/Contents/Resources/bin/cmux" \
   "$APP/Contents/Resources/bin/ghostty" \
-  "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
-  "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
+  "$APP/Contents/Resources/bin/cmux-diff-sidecar"
 do
   archs="$(lipo -archs "$binary")"
   echo "$binary: $archs"
@@ -22,7 +27,25 @@ done
 if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
   for helper in optchat-chief cmux-mobile-host; do
     binary="$APP/Contents/Resources/bin/$helper"
+    # The iPhone host is a stale part, not a hold (app-bundle-chief-and-mobile-host.sh noted it), unless
+    # vars.NIGHTLY_COMPONENT_GATES is block.
+    if [ ! -e "$binary" ] && [ "$helper" = cmux-mobile-host ] && [ "${NIGHTLY_COMPONENT_GATES:-}" != block ]; then
+      echo "::warning title=Nightly stale part::cmux-mobile-host: this nightly carries no iPhone host"
+      continue
+    fi
     [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
+    archs="$(lipo -archs "$binary")"
+    echo "$binary: $archs"
+    if [ "$NIGHTLY_VARIANT" = "universal" ]; then
+      [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+    else
+      [ "$archs" = "$NIGHTLY_VARIANT" ]
+    fi
+  done
+  # And the Screen Sharing helper (plans/cmux-next/screen-sharing-helper.md), named per channel.
+  helpers=("$APP/Contents/Library/"*" Helper.app/Contents/MacOS/cmux-screen-sharing")
+  [ -x "${helpers[0]}" ] || { echo "nightly-next is missing Contents/Library/<app> Helper.app" >&2; exit 1; }
+  for binary in "${helpers[@]}"; do
     archs="$(lipo -archs "$binary")"
     echo "$binary: $archs"
     if [ "$NIGHTLY_VARIANT" = "universal" ]; then

@@ -5,7 +5,8 @@ import Foundation
 /// the transcript as an ordinary tool call, and this reads it back out so the turn draws it as the
 /// next-step card under its answer and drops the call's own row. A port of the Mac's
 /// `webviews/src/agent-session/acpmux/conversation/wrapUp.ts`. Leo, 2026-11-05: "I don't see the
-/// box in iOS, in the app."
+/// box in iOS, in the app." A finished task's wrap-up also gives how to try it (`try`, `verify`,
+/// `report`), drawn as the card's Try button, Verify checklist and Report link.
 extension NextStepAsk {
     /// The tool's name on acpmux's own server; behind the folding `cmux` server it is
     /// `acpmux_wrap_up`, which a code-mode chat calls from a `cmux_exec` script.
@@ -91,7 +92,8 @@ extension NextStepAsk {
     static func wrapUp(arguments args: [String: JSONValue]) -> NextStepAsk? {
         let recap = words(args["recap"])
         let question = words(args["ask"])
-        guard recap != nil || question != nil else { return nil }
+        let tryIt = tryIt(args)
+        guard recap != nil || question != nil || tryIt != nil else { return nil }
         var options: [Option] = []
         if question != nil {
             var labels: [String] = []
@@ -103,7 +105,27 @@ extension NextStepAsk {
                 ? [Option(label: "Yes", kind: .yes), Option(label: "Not now", kind: .notNow)]
                 : labels.prefix(maxWrapUpActions).map { Option(label: $0, kind: .listed) }
         }
-        return NextStepAsk(tag: wrapUpTag, recap: recap, question: question ?? "", detail: nil, options: options, rest: "")
+        return NextStepAsk(tag: wrapUpTag, recap: recap, question: question ?? "", detail: nil, options: options, rest: "", tryIt: tryIt)
+    }
+
+    /// The wrap-up's Try: one http(s) page or one shell line, the steps to check and the report, as
+    /// the tool checks them (acpmux `acpmux_mcp_wrap_up.rs`). A target it would refuse draws no
+    /// button; the steps and report still draw. Nil when it gave none of them.
+    static func tryIt(_ args: [String: JSONValue]) -> Try? {
+        let target = args["try"]
+        let url = words(target?["url"])
+        let command = words(target?["command"])
+        let page = url.flatMap { text -> URL? in
+            guard command == nil, text.count <= 2000, !text.contains(where: \.isWhitespace), let found = URL(string: text),
+                  ["http", "https"].contains(found.scheme?.lowercased() ?? "") else { return nil }
+            return found
+        }
+        let line = command.flatMap { url == nil && $0.count <= 500 && !$0.contains("\n") ? $0 : nil }
+        let label = page != nil || line != nil ? String((words(target?["label"]) ?? String(localized: "mobile.agentChat.try.default", defaultValue: "Try it", bundle: .module)).prefix(60)) : nil
+        let verify = (args["verify"]?.arrayValue ?? []).compactMap { words($0) }.filter { $0.count <= 200 && !$0.contains("\n") }.prefix(5)
+        let report = words(args["report"]).flatMap { $0.count <= 2000 && !$0.contains("\n") ? $0 : nil }
+        guard label != nil || !verify.isEmpty || report != nil else { return nil }
+        return Try(label: label, url: page, command: line, verify: Array(verify), report: report)
     }
 
     /// Whether a call is one the card stands in for, so its row goes: a finished wrap-up call that

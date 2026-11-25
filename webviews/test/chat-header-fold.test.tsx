@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 // Base UI's menus read these window globals.
@@ -41,12 +42,9 @@ beforeAll(() => {
   doc = window.document;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const labels = () =>
@@ -58,7 +56,7 @@ const shown = () =>
     button.getAttribute("data-quick-action"),
   );
 
-test("the header shows Changes, Terminal and Browser; New tab, Files and Split Down fold into the chat menu", async () => {
+test("the header shows Changes, Terminal and Browser; Preview, New tab, Files and Split Down fold into the chat menu", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
@@ -90,20 +88,24 @@ test("the header shows Changes, Terminal and Browser; New tab, Files and Split D
   render();
   expect(shown()).toEqual(["changes", "terminal", "browser"]);
   await act(async () => void openPicker("Chat actions"));
-  expect(labels()).toEqual(["Changes", "New tab", "Files", "Split Down", "Rename"]);
+  // The chat's page is Preview's row, never the globe's (https://github.com/manaflow-ai/cmux/issues/49623).
+  expect(labels()).toEqual(["Changes", "Preview", "New tab", "Files", "Split Down", "Rename"]);
   const rows = () => [...doc.querySelectorAll<HTMLElement>(".acpmux-chat-menu-popover .acpmux-chat-menu-item")];
-  await act(async () => rows()[3].click());
+  await act(async () => rows()[4].click());
   expect(runs).toEqual(["splitDown:toggle"]);
   await act(async () => void openPicker("Chat actions"));
+  await act(async () => rows()[1].click());
+  expect(runs).toEqual(["splitDown:toggle", "preview:http://localhost:5173/:toggle"]);
+  await act(async () => void openPicker("Chat actions"));
   await act(async () => rows()[0].click());
-  expect(runs).toEqual(["splitDown:toggle", "changes:toggle"]);
+  expect(runs).toEqual(["splitDown:toggle", "preview:http://localhost:5173/:toggle", "changes:toggle"]);
 
   // Shown in the header again: its button is back and "..." no longer lists it.
   act(() => configureQuickActions({ quickActions: ["changes", "terminal", "browser", "splitDown"] }));
   render();
   expect(shown()).toEqual(["changes", "terminal", "browser", "splitDown"]);
   await act(async () => void openPicker("Chat actions"));
-  expect(labels()).toEqual(["Changes", "New tab", "Files", "Rename"]);
+  expect(labels()).toEqual(["Changes", "Preview", "New tab", "Files", "Rename"]);
   act(() => root?.unmount());
   root = undefined;
   configureQuickActions({});
@@ -153,11 +155,12 @@ test("a hidden Changes or Preview folds into the chat menu while it applies; the
   expect(await open()).toEqual(["Changes", "Hide tabs", "Rename"]);
   await act(async () => (doc.querySelector(".acpmux-chat-menu-popover .acpmux-chat-menu-item") as HTMLElement).click());
   expect(runs).toEqual(["changes:toggle"]);
-  // The diff and the preview opened since this render: the refresh as "..." opens lists the diff;
-  // the preview is Browser's, lit on its button.
+  // The diff and the preview opened since this render: the refresh as "..." opens lists both. Browser
+  // never stands in for Preview, so the preview folds beside a Browser button too
+  // (https://github.com/manaflow-ai/cmux/issues/49623).
   render({ refresh: [HEADER_ACTIONS.changes, HEADER_ACTIONS.preview] });
-  expect(await open()).toEqual(["Changes", "New tab", "Rename"]);
-  // Without a Browser button, the open preview folds into "..." as before.
+  expect(await open()).toEqual(["Changes", "Preview", "New tab", "Rename"]);
+  // Without a Browser button, the same.
   act(() => configureQuickActions({ quickActions: ["terminal"] }));
   render({ refresh: [HEADER_ACTIONS.changes, HEADER_ACTIONS.preview] });
   expect(await open()).toEqual(["Changes", "Preview", "New tab", "Rename"]);

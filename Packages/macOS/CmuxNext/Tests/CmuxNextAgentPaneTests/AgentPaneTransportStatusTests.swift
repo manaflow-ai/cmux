@@ -31,6 +31,7 @@ struct AgentPaneTransportStatusTests {
     @Test func localStatusRepliesRespectTheInboundByteLimit() throws {
         var limits = AgentPaneTransport.Limits()
         limits.maximumQueuedBytes = 8
+        limits.ceilingQueuedBytes = 8
         let url = try #require(URL(string: "ws://127.0.0.1"))
         let socket = AcpmuxPaneSocket(request: URLRequest(url: url), limits: limits,
                                      options: AcpmuxPermissionOptions(), sessions: AcpmuxPaneSessions(),
@@ -78,13 +79,13 @@ struct AgentPaneTransportStatusTests {
         }
     }
 
-    @Test func statusWithUnknownParamsIsRefused() throws {
+    /// A param status does not take is dropped (P0), not refused: the status answer is the same.
+    @Test func statusWithUnknownParamsDropsThem() throws {
         let ids = AcpmuxRequestIds()
         let socket = try Self.socket()
         let frame = #"{"jsonrpc":"2.0","id":7,"method":"_acpmux/status","params":{"secret":"no"}}"#
-        guard case .refuse = AgentPaneTransport.analyzeOne(frame, Self.snapshot(), socket: socket, ids: ids) else {
-            Issue.record("status accepted unknown params")
-            return
+        if case .refuse = AgentPaneTransport.analyzeOne(frame, Self.snapshot(), socket: socket, ids: ids) {
+            Issue.record("status was refused over a param it does not take")
         }
     }
 

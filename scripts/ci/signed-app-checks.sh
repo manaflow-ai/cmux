@@ -89,7 +89,7 @@ case "${1:-}" in
       fi
     fi
     if [ "${#failed[@]}" -gt 0 ]; then
-      printf 'failed: %s\n' "${failed[@]}"
+      printf 'failed: %s\n' ${failed[@]+"${failed[@]}"}
       exit 1
     fi
     ;;

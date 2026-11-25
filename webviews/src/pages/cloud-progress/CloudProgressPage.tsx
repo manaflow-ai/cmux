@@ -1,6 +1,7 @@
 // The Cloud progress page (cx-lu8f): a window's content while its Cloud machine is on its way to an
 // open terminal (New Cloud Workspace, or a window on a paused machine's workspace). It shows the
-// stage, the time so far and what happens next; a failure shows its reason with Retry, Copy Error and
+// stage, the time so far and what happens next; past CLOUD_PROGRESS_SLOW_MS it says so and offers
+// Retry and Dismiss while the machine keeps coming up; a failure shows its reason with Retry, Copy Error and
 // Dismiss, a paused machine Resume. The layout is the `cloud-progress-look` arm. Every element keeps
 // its place across stages: the buttons and the typing note reserve their room while hidden, and only
 // the marks and words change, so a failure or a pause moves nothing (Leo, 2026-11-04: "we move all
@@ -23,6 +24,21 @@ import {
   type StepMark,
 } from "./store";
 import type { CloudProgressState } from "./types";
+
+/**
+ * How long a machine may be on its way before the page says it is taking longer than usual and
+ * offers Retry (a fresh attempt) and Dismiss (stop waiting). The creation goes on meanwhile; the
+ * buttons only give the person a way out. A new machine usually takes under a minute
+ * (`cloudProgress.next.creating`), so three minutes is well past a normal start.
+ */
+export const CLOUD_PROGRESS_SLOW_MS = 3 * 60_000;
+
+/** A machine still on its way (not paused, pausing, deleting, ready or failed) past `CLOUD_PROGRESS_SLOW_MS`, with no question open. */
+export function cloudProgressSlow(state: CloudProgressState, elapsedMs: number): boolean {
+  if (state.finished || state.ask) return false;
+  if (!["requesting", "creating", "booting", "connecting", "resuming"].includes(state.stage)) return false;
+  return elapsedMs >= CLOUD_PROGRESS_SLOW_MS;
+}
 
 export function CloudProgressPage({ store, strings }: { store: CloudProgressStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -72,6 +88,7 @@ export function CloudProgressView({
   const { t, format } = strings;
   const failed = state.stage === "failed";
   const paused = state.stage === "paused";
+  const slow = cloudProgressSlow(state, elapsed);
   const marks = stepMarks(state);
   const title = state.machine ? format("cloudProgress.title.machine", state.machine) : t("cloudProgress.title.new");
   const stageWord = t(`cloudProgress.stage.${stageKey(state)}`);
@@ -85,6 +102,12 @@ export function CloudProgressView({
     </>
   ) : state.failure ? (
     format("cloudProgress.failed", state.failure)
+  ) : slow ? (
+    <>
+      {t(`cloudProgress.next.${stageKey(state)}`)}
+      {"\n"}
+      {t("cloudProgress.slow")}
+    </>
   ) : (
     t(`cloudProgress.next.${state.stage === "ready" ? "ready" : stageKey(state)}`)
   );
@@ -109,7 +132,10 @@ export function CloudProgressView({
       <span className="cloud-progress__elapsed">{elapsedText}</span>
     </span>
   );
-  const shown = !!ask || failed || paused;
+  // Past the slow bound the machine is still on its way: Retry and Dismiss show, Copy Error does not
+  // (there is no error), and the typing note stays, since keys still go nowhere.
+  const stopped = !!ask || failed || paused;
+  const shown = stopped || slow;
   const actions = (
     // Always laid out, hidden while there is nothing to do, so a failure or a question shifts nothing.
     <div
@@ -131,14 +157,16 @@ export function CloudProgressView({
           <Button variant="solid" onClick={() => onAction("retry")}>
             {t(paused ? "cloudProgress.button.resume" : "cloudProgress.button.retry")}
           </Button>
-          {!paused && <Button onClick={() => onAction("copyError")}>{t("cloudProgress.button.copyError")}</Button>}
+          {!paused && !slow && (
+            <Button onClick={() => onAction("copyError")}>{t("cloudProgress.button.copyError")}</Button>
+          )}
           <Button onClick={() => onAction("dismiss")}>{t("cloudProgress.button.dismiss")}</Button>
         </>
       )}
     </div>
   );
   const note = (
-    <p className="cloud-progress__note" data-hidden={shown || undefined} data-typed={typed || undefined}>
+    <p className="cloud-progress__note" data-hidden={stopped || undefined} data-typed={typed || undefined}>
       {t("cloudProgress.typing")}
     </p>
   );
@@ -147,7 +175,7 @@ export function CloudProgressView({
     // The status line opens the steps; a failure opens them, and what is under them moves down with
     // the panel's own height change.
     return (
-      <div className="cloud-progress" data-look="line" data-stage={state.stage}>
+      <div className="cloud-progress" data-look="line" data-stage={state.stage} data-slow={slow || undefined}>
         <h1 className="cloud-progress__title">{title}</h1>
         <LineSteps failed={failed} status={status}>
           {steps}
@@ -162,8 +190,8 @@ export function CloudProgressView({
   }
   if (arm === "card") {
     return (
-      <div className="cloud-progress" data-look="card" data-stage={state.stage}>
-        <div className="cloud-progress__card ui-card ui-glass">
+      <div className="cloud-progress" data-look="card" data-stage={state.stage} data-slow={slow || undefined}>
+        <div className="cloud-progress__card ui-card ui-glass ui-glass-content">
           <h1 className="cloud-progress__title">{title}</h1>
           {status}
           <div className="cloud-progress__bar" role="presentation">
@@ -181,7 +209,7 @@ export function CloudProgressView({
     );
   }
   return (
-    <div className="cloud-progress" data-look="steps" data-stage={state.stage}>
+    <div className="cloud-progress" data-look="steps" data-stage={state.stage} data-slow={slow || undefined}>
       <h1 className="cloud-progress__title">{title}</h1>
       <p className="cloud-progress__elapsed">{elapsedText}</p>
       {steps}

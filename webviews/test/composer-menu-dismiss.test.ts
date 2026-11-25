@@ -9,7 +9,8 @@
 // - With one menu open, a press on another chip opens that one at once: no press to dismiss first.
 // - A press anywhere else only closes the menu: nothing under it is clicked (the mic does not start
 //   dictation, the field takes no click), as a macOS menu swallows the click that dismisses it.
-// - Escape closes the menu and puts the keyboard back on its chip, with the chip's focus ring.
+// - Escape closes the menu and puts the keyboard back on its chip, with no ring or pill: Escape
+//   cancels the ring (FOCUS-RING, src/ui/focusModality.ts; Leo 2026-11-06: "BE ABLE TO CANCEL IT").
 // - Picking a permission mode hands the keyboard back to the prompt. A level in columns applies
 //   while the menu stays open; Return closes it and returns to the prompt.
 //
@@ -422,12 +423,27 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
               (selector) => ({
                 open: document.querySelectorAll(".ui-popup").length,
                 onChip: document.activeElement === document.querySelector(selector),
-                ring: document.activeElement?.matches(":focus-visible") ?? false,
+                // What draws (focusRingShown): keyboard focus the keyboard earned. Escape earns none.
+                ring:
+                  (document.activeElement?.matches(":focus-visible") ?? false) &&
+                  document.documentElement.dataset.focusModality !== "pointer",
+                modality: document.documentElement.dataset.focusModality,
               }),
               chip(name),
             );
+            // The pointer leaves the chip so its hover pill is not read as focus's (the root already
+            // reads `pointer` from the Escape, above, so the move changes nothing else).
+            await page.mouse.move(1, 1);
+            const pill = await page
+              .locator(chip(name))
+              .first()
+              .evaluate((element) => getComputedStyle(element).backgroundImage.includes("gradient"));
             await page.close();
-            expect({ name, focus }).toEqual({ name, focus: { open: 0, onChip: true, ring: true } });
+            expect({ name, focus, pill }).toEqual({
+              name,
+              focus: { open: 0, onChip: true, ring: false, modality: "pointer" },
+              pill: false,
+            });
           }
         });
 
@@ -447,19 +463,10 @@ await requireBrowserLane("composer-menu-dismiss.test.ts", async () => {
                 .first()
                 .waitFor();
             if (name === "Model" && (await page.locator(".acpmux-cols").count()) > 0) {
-              const level = page.locator(columnsLevel).first();
-              const label = await level.locator(".acpmux-cols-name").textContent();
+              // A level pick applies and closes the menu (David Beyer, Nov 20), as a model pick does.
               await menusAtRest(page);
-              await level.scrollIntoViewIfNeeded();
+              await page.locator(columnsLevel).first().scrollIntoViewIfNeeded();
               await pressAt(page, columnsLevel);
-              expect(await page.locator('.acpmux-cols-tune [role="radio"][aria-checked="true"]').textContent()).toBe(
-                label,
-              );
-              expect(await settle(page, stage.chips, [name])).toEqual([name]);
-              expect(
-                await page.evaluate(() => document.activeElement?.matches('.acpmux-cols-search input[type="search"]')),
-              ).toBe(true);
-              await page.keyboard.press("Enter");
             } else if (name === "Model" && (await page.locator(sideEffort).count()) > 0) {
               // A submenu trigger opens on hover or from the keyboard (Base UI ignores a press while it
               // opens on hover): hover it, then press a level in its dropdown.

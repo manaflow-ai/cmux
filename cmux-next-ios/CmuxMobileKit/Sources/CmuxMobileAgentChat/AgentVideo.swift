@@ -89,3 +89,98 @@ public struct AgentVideo: Hashable, Sendable, Codable {
             .trimmingCharacters(in: .newlines)
     }
 }
+
+/// The videos a recorded prompt sent, read back from what it sent the agent (Leo, 2026-10-25:
+/// "also why dont we have previews of videos we should"; 2026-11-04: "i can neither preview a vid
+/// in place nor have it pop up anymore :("), as the Mac's bubble does (webviews
+/// conversation/sentVideos.ts): each video's frames note gives its name, length and size, its link
+/// its path on the Mac, and its first frame image its poster. acpmux keeps all three through a
+/// reload, so a video this phone sent before a relaunch, or the Mac sent, comes back as its tile.
+///
+/// Swift, not the Rust mobile core: no crate on the phone parses acpmux records (the phone reads
+/// them in `AcpmuxRecords`), and this sits beside the note's writer (`framesNote`).
+extension AgentVideo {
+    /// A file link a recorded prompt sent: its name and its path on the Mac.
+    public struct SentLink: Hashable, Sendable {
+        public var name: String
+        public var path: String
+
+        public init(name: String, path: String) {
+            self.name = name
+            self.path = path
+        }
+    }
+
+    /// An image a recorded prompt sent, by acpmux's id.
+    public struct SentImage: Hashable, Sendable {
+        public var id: String
+        public var name: String?
+
+        public init(id: String, name: String?) {
+            self.id = id
+            self.name = name
+        }
+    }
+
+    /// The id prefix of a video a recorded prompt links (its path follows).
+    public static let recordedVideoPrefix = "acpmux-video:"
+
+    /// The videos a prompt sent, in the order their notes come; then a video linked with no note
+    /// (its frames were never read, or the agent takes no images) as a file chip, as on the Mac.
+    /// `lines`: the prompt's text lines, notes included; `links`: its file links; `images`: its
+    /// recorded images.
+    public static func sentVideos(lines: [String], links: [SentLink], images: [SentImage]) -> [AgentAttachment] {
+        var seen = Set<String>()
+        var videos: [AgentAttachment] = []
+        for line in lines {
+            guard let note = line.prefixMatch(of: #/Frames from the video (.+) \((\d+(?::\d{2}){1,2}), (\d+)×(\d+)\), in order, at: /#)
+            else { continue }
+            let name = String(note.output.1)
+            // A length or size no video has (a person's own text that reads like a note) leaves the
+            // link to the chip below, never a trap in the arithmetic.
+            guard !seen.contains(name), let link = links.first(where: { $0.name == name }),
+                  let width = Int(note.output.3), let height = Int(note.output.4),
+                  let durationMs = lengthMs(String(note.output.2)) else { continue }
+            seen.insert(name)
+            let poster = images.first { $0.name?.hasPrefix("\(name) frame at ") == true }
+            videos.append(AgentAttachment(
+                id: recordedVideoPrefix + link.path, kind: .file, name: name,
+                video: AgentVideo(durationMs: durationMs, width: width, height: height, frames: []),
+                macPath: link.path, posterID: poster?.id))
+        }
+        for link in links where isVideoName(link.name) && !seen.contains(link.name) {
+            seen.insert(link.name)
+            videos.append(AgentAttachment(id: recordedVideoPrefix + link.path, kind: .file, name: link.name, macPath: link.path))
+        }
+        return videos
+    }
+
+    /// The longest length a note may say: past it the note is not one this app wrote.
+    static let maxLengthMs = 10_000 * 3_600_000
+
+    /// Milliseconds of a length as the note says it (`m:ss` or `h:mm:ss`); nil for a part that is
+    /// not a number or a length past ``maxLengthMs``, so no arithmetic here can overflow.
+    static func lengthMs(_ text: String) -> Int? {
+        var seconds = 0
+        for part in text.split(separator: ":") {
+            guard let value = Int(part), value >= 0, seconds <= maxLengthMs / 60_000 else { return nil }
+            seconds = seconds * 60 + min(value, maxLengthMs)
+            guard seconds <= maxLengthMs / 1000 else { return nil }
+        }
+        return seconds * 1000
+    }
+}
+
+extension AgentAttachment {
+    /// The picture a sent bubble draws for this attachment: an image itself; a video its first
+    /// frame (this phone's own bytes, else the recorded poster the Mac reads); nil otherwise.
+    public var picture: AgentAttachment? {
+        if kind == .image { return self }
+        guard let video else { return nil }
+        if let frame = video.frames.first {
+            return AgentAttachment(id: id + ":poster", kind: .image, name: name, data: frame.jpeg)
+        }
+        guard let posterID else { return nil }
+        return .recordedImage(id: posterID, name: name)
+    }
+}

@@ -1347,3 +1347,33 @@ test("late root seeding promotes children of a root that never drew as an agent"
   // A root no record named changes nothing.
   expect(fold.setRoot("root-other")).toBe(false);
 });
+
+test("a completed subagent's whole reply on its end is its result; its lastMessage stays the preview", () => {
+  // Leo, 2026-11-09: the report card showed acpmux's 240-character `lastMessage` cut inside a bold
+  // span. acpmux now puts the whole last reply on a completed subagent's end (subagents.rs).
+  const whole = `${"Freed space. ".repeat(20)}**24 clean, finished worktrees** deleted.`;
+  const preview = `${Array.from(whole).slice(0, 239).join("")}…`;
+  const fold = new SubagentFold();
+  const update = { sessionUpdate: "subagent_state_update" };
+  const end = (state: string, extra: Record<string, unknown>) =>
+    feed(fold, update, { subagents: [{ id: "clean", parent: null, state, lastMessage: preview, ...extra }] });
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "clean", parent: null, state: "running" }] });
+  end("completed", { result: whole });
+  const agent = fold.all().find((one) => one.id === "clean")!;
+  expect(agent.result).toBe(whole);
+  expect(agent.lastMessage).toBe(preview);
+  // A failed end's text is never a result.
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "broke", parent: null, state: "running" }] });
+  feed(fold, update, { subagents: [{ id: "broke", parent: null, state: "failed", result: "partial" }] });
+  expect(fold.all().find((one) => one.id === "broke")?.result).toBeUndefined();
+});
+
+test("a resumed subagent drops its last run's result", () => {
+  const fold = new SubagentFold();
+  const update = { sessionUpdate: "subagent_state_update" };
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "r", parent: null, state: "running" }] });
+  feed(fold, update, { subagents: [{ id: "r", parent: null, state: "completed", result: "First run." }] });
+  expect(fold.all().find((one) => one.id === "r")?.result).toBe("First run.");
+  feed(fold, update, { subagents: [{ id: "r", parent: null, state: "running" }] });
+  expect(fold.all().find((one) => one.id === "r")?.result).toBeUndefined();
+});

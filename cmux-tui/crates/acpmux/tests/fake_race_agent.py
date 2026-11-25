@@ -57,8 +57,9 @@ for line in sys.stdin:
     request = json.loads(line)
     method, params, rid = request.get("method"), request.get("params", {}), request.get("id")
     if method == "initialize":
+        # It runs no tool, so it asks before every one it runs: any acpmux policy holds.
         send({"id": rid, "result": {"protocolVersion": 1,
-              "agentCapabilities": {"loadSession": True}, "authMethods": []}})
+              "agentCapabilities": {"loadSession": True, "_meta": {"acpmux": {"asksBeforeTools": True}}}, "authMethods": []}})
     elif method in ("session/new", "session/load"):
         cwd = params["cwd"]
         send({"id": rid, "result": {"sessionId": "race-fixture",

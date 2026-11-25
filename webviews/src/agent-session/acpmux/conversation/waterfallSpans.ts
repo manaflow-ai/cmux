@@ -27,7 +27,29 @@ export type Waterfall = {
   /// The call that took longest, called out on its row (never a thought: the tag says which call
   /// to look at); undefined with fewer than two calls.
   slowest?: number;
+  /// The stretches of the axis no span covers, as offsets in ms: the model reading, deciding and
+  /// writing its reply with no tool or thought running. Without them a turn of one 2.7s call on a
+  /// 14.1s axis drew most of its time as nothing (Leo, 2026-11-05: "im not sure what the total thing
+  /// is meant to represent").
+  gaps: { from: number; to: number }[];
+  /// The gaps' sum: the spans' union and this make the whole axis.
+  gapTotal: number;
 };
+
+/// The stretches of [0, total] that no span covers, in order.
+export function waterfallGaps(
+  spans: readonly Pick<WaterfallSpan, "from" | "to">[],
+  total: number,
+): { from: number; to: number }[] {
+  const gaps: { from: number; to: number }[] = [];
+  let covered = 0;
+  for (const span of [...spans].sort((a, b) => a.from - b.from)) {
+    if (span.from > covered) gaps.push({ from: covered, to: span.from });
+    covered = Math.max(covered, span.to);
+  }
+  if (covered < total) gaps.push({ from: covered, to: total });
+  return gaps;
+}
 
 /// How many spans an opened waterfall draws before its "Show N more": a turn of hundreds of calls
 /// opens in constant time, and the rest draw only when asked.
@@ -140,5 +162,39 @@ export function waterfall(
       if (!span.item.tool) return;
       if (slowest === undefined || span.to - span.from > spans[slowest]!.to - spans[slowest]!.from) slowest = at;
     });
-  return { start, total: Math.max(1, end - start), spans, ...(slowest !== undefined && { slowest }) };
+  const total = Math.max(1, end - start);
+  const gaps = waterfallGaps(spans, total);
+  const gapTotal = gaps.reduce((sum, gap) => sum + gap.to - gap.from, 0);
+  return { start, total, spans, ...(slowest !== undefined && { slowest }), gaps, gapTotal };
+}
+
+/// A bar under this share of the axis is a tick, not a bar: it shows a call happened, not how long.
+export const WATERFALL_VISIBLE_BAR = 0.02;
+
+/// Whether a turn's Timeline is worth a chart (Leo, 2026-11-22, on "1 call · 1m 40s" drawn as a
+/// 551ms tick, one 24.5s bar and 1m 15s of stripes: "IF THIS IS THE CASE, THEN DON'T FUCKING DISPLAY
+/// THIS BULLSHIT LIKE THIS"). A chart compares bars on one axis, so it needs two or more tool calls
+/// whose bars are visible (each at least 2% of the axis), and the model's time outside every call
+/// and thought under half the turn. Anything else (a lone call, a turn that only thought, a turn
+/// that was mostly the model) reads as plain lines instead (`waterfallLines`).
+export function waterfallCharts(chart: Pick<Waterfall, "spans" | "total" | "gapTotal">): boolean {
+  if (chart.gapTotal * 2 >= chart.total) return false;
+  let visible = 0;
+  for (const span of chart.spans)
+    if (span.item.tool && span.to - span.from >= chart.total * WATERFALL_VISIBLE_BAR && ++visible >= 2) return true;
+  return false;
+}
+
+/// One line of the plain form: a call with its own time, or (no span) the turn's thinking.
+export type WaterfallLine = { span?: WaterfallSpan; ms: number };
+
+/// The plain form's lines: one "Thinking" line for all of the turn's time with no tool running
+/// (its thoughts and the model's time around them, which the chart split into a tick and a striped
+/// row), then each call with its own time, in the order they ran. Under 1ms of thinking is no line.
+export function waterfallLines(chart: Pick<Waterfall, "spans" | "total">): WaterfallLine[] {
+  const calls = chart.spans.filter((span) => span.item.tool);
+  const thinking = waterfallGaps(calls, chart.total).reduce((sum, gap) => sum + gap.to - gap.from, 0);
+  const lines: WaterfallLine[] = thinking >= 1 ? [{ ms: thinking }] : [];
+  for (const span of calls) lines.push({ span, ms: span.to - span.from });
+  return lines;
 }

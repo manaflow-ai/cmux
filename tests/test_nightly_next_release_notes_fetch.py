@@ -15,6 +15,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
@@ -102,6 +109,66 @@ class FetchSpanTests(unittest.TestCase):
         self.fetch(depth=5)
         self.assertEqual(git(str(self.work), "tag", "--list"), "")
         git(str(self.work), "cat-file", "-e", self.head)
+
+
+class MergedBranchCutShortTests(unittest.TestCase):
+    """Build 4485813982701: the span's merge base was fetched, but a branch merged into the span was cut by the
+    depth, and its cut commit read as a root that added every highlight file in the tree (425 shipped, 2 real)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.remote = self.tmp / "remote"
+        self.remote.mkdir()
+        r = str(self.remote)
+        git(r, "init", "-q", "-b", "main")
+        git(r, "config", "user.email", "t@example.com")
+        git(r, "config", "user.name", "t")
+        git(r, "config", "uploadpack.allowFilter", "true")
+        git(r, "config", "uploadpack.allowAnySHA1InWant", "true")
+        os.makedirs(self.remote / "release-notes/next/highlights")
+        for i in range(5):
+            (self.remote / f"release-notes/next/highlights/old-{i}.md").write_text(f"title: Old {i}\n\nBody.\n")
+        git(r, "add", ".")
+        git(r, "commit", "-q", "-m", "old highlights")
+        git(r, "checkout", "-q", "-b", "side")
+        for i in range(12):
+            git(r, "commit", "-q", "--allow-empty", "-m", f"side {i}")
+        (self.remote / "release-notes/next/highlights/fresh.md").write_text("title: Fresh\n\nBody.\n")
+        git(r, "add", ".")
+        git(r, "commit", "-q", "-m", "a fresh highlight")
+        git(r, "checkout", "-q", "main")
+        git(r, "commit", "-q", "--allow-empty", "-m", "published")
+        self.since = git(r, "rev-parse", "HEAD")
+        git(r, "merge", "-q", "--no-ff", "-m", "merge side", "side")
+        self.head = git(r, "rev-parse", "HEAD")
+        self.work = self.tmp / "work"
+        subprocess.run(["git", "clone", "-q", "--no-local", "--depth", "1", "--no-tags",
+                        "--branch", "main", self.remote.as_uri(), str(self.work)], check=True)
+
+    def notes(self):
+        out = self.tmp / "notes"
+        return subprocess.run([sys.executable, str(NOTES), "build", "--build", "1", "--short", "1.0.0-nightly.1",
+                               "--date", "2026-11-21", "--head", self.head, "--since", self.since, "--out", str(out)],
+                              cwd=self.work, capture_output=True, text=True), out / "1.json"
+
+    def test_the_fetch_deepens_past_a_cut_merged_branch(self):
+        env = {**os.environ, "RELEASE_NOTES_FETCH_DEPTH": "4", "RELEASE_NOTES_DEEPEN_STEP": "4"}
+        subprocess.run(["bash", str(FETCH), "origin", self.head, "nightly-next", self.since], cwd=self.work,
+                       env=env, check=True, capture_output=True, text=True)
+        result, path = self.notes()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        notes = path.read_text()
+        self.assertIn("Fresh", notes)
+        self.assertNotIn("Old 0", notes)
+
+    def test_build_refuses_a_span_cut_short(self):
+        w = str(self.work)
+        git(w, "fetch", "-q", "--no-tags", "--filter=blob:none", "--depth=4", "origin", self.head, self.since)
+        git(w, "merge-base", self.since, self.head)  # the old check passed here
+        result, path = self.notes()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cut short", result.stderr)
+        self.assertFalse(path.exists())
 
 
 if __name__ == "__main__":

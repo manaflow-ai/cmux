@@ -16,6 +16,8 @@ with no decode errors. While it streams it saves the main window
 (quitEndSessions) and stops the host.
 """
 import argparse, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -113,7 +115,7 @@ def launch():
 
 
 def quit_app(app):
-    print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
+    safe_print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
     try:
         app.wait(30)
     except subprocess.TimeoutExpired:

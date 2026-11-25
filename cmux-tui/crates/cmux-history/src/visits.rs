@@ -14,6 +14,7 @@ use url::Url;
 use crate::entry::{HistoryEntry, HistoryKind};
 use crate::error::HistoryError;
 use crate::fold::{fold, tokens};
+use crate::search_syntax::SearchFilter;
 
 /// Visits older than 90 days are pruned.
 pub const RETENTION_MS: i64 = 90 * 86_400_000;
@@ -101,11 +102,21 @@ pub struct VisitStore {
 
 impl VisitStore {
     /// Opens (creating the file and its directory) the log at `path`.
+    ///
+    /// A file SQLite cannot read (not a database, or corrupt) is moved aside with its WAL and
+    /// shared-memory files, never deleted (`<name>.corrupt-<ms>`), and a new log opens in its
+    /// place: one bad file must not keep the profile's history off until someone deletes it.
     pub fn open(path: &Path) -> Result<Self, HistoryError> {
         if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)?;
         }
-        Self::prepare(Connection::open(path)?)
+        match Self::prepare(Connection::open(path)?) {
+            Err(HistoryError::Sqlite(error)) if is_unreadable_database(&error) => {
+                move_aside(path)?;
+                Self::prepare(Connection::open(path)?)
+            }
+            other => other,
+        }
     }
 
     /// A log that lives in memory only (tests, demos).
@@ -199,13 +210,35 @@ impl VisitStore {
         since_ms: Option<i64>,
         limit: usize,
     ) -> Result<Vec<Visit>, HistoryError> {
+        let filter =
+            SearchFilter::<HistoryKind> { after_ms: since_ms, ..SearchFilter::words(tokens(text)) };
+        self.visits_matching(&filter, limit)
+    }
+
+    /// Visits newest first that `filter`'s words, exclusions and time window
+    /// pass, all in SQL so the limit applies after the filter. Its kinds are
+    /// the caller's to check.
+    pub fn visits_matching(
+        &self,
+        filter: &SearchFilter<HistoryKind>,
+        limit: usize,
+    ) -> Result<Vec<Visit>, HistoryError> {
         let mut sql = String::from(
             "SELECT id, url, title, visit_time_ms, tab FROM visits WHERE visit_time_ms >= ?",
         );
-        let mut bindings = vec![Sql::Integer(since_ms.unwrap_or(0))];
-        for token in tokens(text) {
+        let mut bindings = vec![Sql::Integer(filter.after_ms.unwrap_or(0))];
+        if let Some(before) = filter.before_ms {
+            sql.push_str(" AND visit_time_ms < ?");
+            bindings.push(Sql::Integer(before));
+        }
+        // The `search` column is folded, so the words are too.
+        for word in &filter.words {
             sql.push_str(" AND search LIKE ? ESCAPE '\\'");
-            bindings.push(Sql::Text(format!("%{}%", escape_like(&token))));
+            bindings.push(Sql::Text(format!("%{}%", escape_like(&fold(word)))));
+        }
+        for word in &filter.excluded {
+            sql.push_str(" AND search NOT LIKE ? ESCAPE '\\'");
+            bindings.push(Sql::Text(format!("%{}%", escape_like(&fold(word)))));
         }
         sql.push_str(" ORDER BY visit_time_ms DESC, id DESC LIMIT ?");
         bindings.push(Sql::Integer(i64::try_from(limit).unwrap_or(i64::MAX)));
@@ -222,15 +255,14 @@ impl VisitStore {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    /// [`VisitStore::visits`] as wire entries of `profile`.
+    /// [`VisitStore::visits_matching`] as wire entries of `profile`.
     pub fn entries(
         &self,
         profile: &str,
-        text: &str,
-        since_ms: Option<i64>,
+        filter: &SearchFilter<HistoryKind>,
         limit: usize,
     ) -> Result<Vec<HistoryEntry>, HistoryError> {
-        Ok(self.visits(text, since_ms, limit)?.iter().map(|visit| visit.entry(profile)).collect())
+        Ok(self.visits_matching(filter, limit)?.iter().map(|visit| visit.entry(profile)).collect())
     }
 
     /// One row per URL, most recent first.
@@ -400,8 +432,23 @@ impl VisitStore {
     /// Removes visits at or after `since_ms` (`None`: every visit), into
     /// `backup`.
     pub fn remove_since(&self, since_ms: Option<i64>, backup: &str) -> Result<usize, HistoryError> {
+        self.remove_between(since_ms, i64::MAX, backup)
+    }
+
+    /// Removes visits at or after `since_ms` (`None`: from the first) and at
+    /// or before `until_ms`, into `backup`.
+    pub fn remove_between(
+        &self,
+        since_ms: Option<i64>,
+        until_ms: i64,
+        backup: &str,
+    ) -> Result<usize, HistoryError> {
         let since = since_ms.unwrap_or(i64::MIN);
-        self.remove_where("visit_time_ms >= ?2", &[&since], backup)
+        self.remove_where(
+            "visit_time_ms >= ?2 AND visit_time_ms <= ?3",
+            &[&since, &until_ms],
+            backup,
+        )
     }
 
     /// Drops visits older than the retention before `now_ms` and the oldest
@@ -644,4 +691,46 @@ fn search_text(url: &str, title: Option<&str>) -> String {
 /// Escapes `LIKE` wildcards with backslash.
 fn escape_like(text: &str) -> String {
     text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+/// SQLite said the file is not a database, or is corrupt. Any other failure (busy, locked, out of
+/// space, permission) leaves the file where it is: it may be fine on the next open.
+fn is_unreadable_database(error: &rusqlite::Error) -> bool {
+    matches!(
+        error.sqlite_error_code(),
+        Some(rusqlite::ErrorCode::NotADatabase | rusqlite::ErrorCode::DatabaseCorrupt)
+    )
+}
+
+/// Renames `path` and its `-wal` and `-shm` files to `<name>.corrupt-<ms>[-<n>]` beside it, a
+/// name no earlier one has, so a second bad file never replaces the first kept. Nothing is
+/// deleted. The new names do not end in `.sqlite`, so they are never read as a profile's log.
+fn move_aside(path: &Path) -> Result<(), HistoryError> {
+    let name = path.file_name().and_then(|name| name.to_str()).unwrap_or("visits.sqlite");
+    let millis = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
+    let taken = |stem: &str| {
+        ["", "-wal", "-shm"]
+            .iter()
+            .any(|suffix| path.with_file_name(format!("{stem}{suffix}")).exists())
+    };
+    let mut stem = format!("{name}.corrupt-{millis}");
+    let mut n = 1;
+    while taken(&stem) {
+        stem = format!("{name}.corrupt-{millis}-{n}");
+        n += 1;
+    }
+    for suffix in ["", "-wal", "-shm"] {
+        let from = path.with_file_name(format!("{name}{suffix}"));
+        match std::fs::rename(&from, path.with_file_name(format!("{stem}{suffix}"))) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    // The renames last past a crash (docs/handbook rename-without-directory-sync); best effort:
+    // the kept file is there either way.
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        let _ = std::fs::File::open(parent).and_then(|dir| dir.sync_all());
+    }
+    Ok(())
 }

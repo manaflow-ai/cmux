@@ -4,7 +4,9 @@ The old pull_request_target workflow used a workflows-write App token to put
 an untrusted pull-request merge commit on a real cmux-tui-pin-* branch. The
 push then loaded the untrusted commit's workflows with OIDC and artifact
 publication authority. Until a credential-free build plus trusted
-default-branch publisher replaces it, both the workflow and helper refuse.
+default-branch publisher replaces it, the helper refuses. The disabled
+dispatch-only workflow stub (cmux-next-pr-merge-tree.yml) that only failed is
+gone (ci-v2 step 11): with no workflow, nothing can grant it a trigger.
 """
 
 import os
@@ -13,11 +15,8 @@ import subprocess
 import sys
 import unittest
 
-import yaml
-
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/ci/publish_pr_merge_tree.py"
-WORKFLOW = ROOT / ".github/workflows/cmux-next-pr-merge-tree.yml"
 HEAD = "a" * 40
 
 
@@ -50,23 +49,6 @@ class PublisherTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 2)
         self.assertIn("usage:", result.stderr)
-
-
-class WorkflowTests(unittest.TestCase):
-    def setUp(self):
-        self.text = WORKFLOW.read_text()
-        self.workflow = yaml.safe_load(self.text)
-        self.on = self.workflow.get("on", self.workflow.get(True))
-
-    def test_has_no_automatic_untrusted_trigger_or_privilege(self):
-        self.assertEqual(list(self.on), ["workflow_dispatch"])
-        self.assertEqual(self.workflow.get("permissions"), {})
-        (job,) = self.workflow["jobs"].values()
-        self.assertEqual(job.get("permissions"), {})
-        self.assertNotIn("environment", job)
-        self.assertNotIn("create-github-app-token", self.text)
-        self.assertNotIn("secrets.", self.text)
-        self.assertNotIn("actions/checkout", self.text)
 
 
 if __name__ == "__main__":

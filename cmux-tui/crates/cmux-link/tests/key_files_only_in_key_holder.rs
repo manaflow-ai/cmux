@@ -9,7 +9,7 @@
 
 use std::path::{Path, PathBuf};
 
-const KEY_FILE_LITERALS: [&str; 2] = ["\"private.key\"", "\"node.wg.key\""];
+const KEY_FILE_LITERALS: [&str; 3] = ["\"private.key\"", "\"node.wg.key\"", "\"node.wg.pending\""];
 
 #[test]
 fn only_key_holder_names_a_key_file() {

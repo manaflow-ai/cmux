@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ChatUnavailableState } from "./ChatUnavailableState";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -31,6 +32,7 @@ afterEach(async () => {
   jest.useRealTimers();
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -53,12 +55,62 @@ test("an offline chat uses a neutral status spinner", async () => {
         onReconnect={() => undefined}
         onResume={() => undefined}
         onClose={() => undefined}
+        noteDelayMs={0}
       />,
     );
   });
   expect(container.querySelector('[role="status"]')).not.toBeNull();
   expect(container.querySelector('[role="alert"]')).toBeNull();
   expect(container.querySelector(".cv-spinner")).not.toBeNull();
+  expect(container.textContent).toContain("Reconnecting…");
+});
+
+test("an offline chat shows nothing until the drop has lasted past the threshold, then Reconnecting…", async () => {
+  jest.useFakeTimers();
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "offline", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+        offlineDelayMs={40}
+      />,
+    );
+  });
+  expect(container.querySelector('[data-unavailable="connecting"]')).not.toBeNull();
+  expect(container.textContent).toBe("");
+  await act(async () => void jest.advanceTimersByTime(39));
+  expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
+  await act(async () => void jest.advanceTimersByTime(1));
+  expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
+  expect(container.textContent).toContain("Reconnecting…");
+});
+
+test("a machine whose link dropped says nothing for 10 s, acpmux's own redial, then Reconnecting… once", async () => {
+  // Leo, 2026-11-14: "i also want all our connectivity stuff to shut the fuck up". Before, the state
+  // showed 1.5 s into any drop, which a redial after a dead ssh link (6 s to notice, then a login)
+  // always outlasts.
+  jest.useFakeTimers();
+  const container = installDom();
+  root = createRoot(container);
+  await act(async () => {
+    root!.render(
+      <ChatUnavailableState
+        unavailable={{ reason: "offline", machine: "remote" }}
+        machine="remote"
+        onRemove={() => undefined}
+        onReconnect={() => undefined}
+      />,
+    );
+  });
+  await act(async () => void jest.advanceTimersByTime(9_999));
+  expect(container.querySelector('[data-unavailable="offline"]')).toBeNull();
+  expect(container.textContent).toBe("");
+  await act(async () => void jest.advanceTimersByTime(1));
+  expect(container.querySelector('[data-unavailable="offline"]')).not.toBeNull();
   expect(container.textContent).toContain("Reconnecting…");
 });
 
@@ -160,4 +212,38 @@ test("a resume keeps its spinner's slot from the first frame and fills it only p
   });
   expect(container.querySelector(".acpmux-unavailable-progress")).toBe(slot);
   expect(slot!.querySelector(".cv-spinner")).not.toBeNull();
+});
+
+test("a resume past the slow bound says it is taking longer and enables Resume machine again", async () => {
+  const container = installDom();
+  let clicks = 0;
+  const render = (resumeLong: boolean) =>
+    act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <ChatUnavailableState
+          unavailable={{ reason: "paused", machine: "remote" }}
+          machine="remote"
+          onRemove={() => undefined}
+          onReconnect={() => undefined}
+          onResumeMachine={() => void clicks++}
+          onResume={() => undefined}
+          resuming
+          resumeLong={resumeLong}
+          noteDelayMs={0}
+        />,
+      );
+    });
+  await render(false);
+  const button = () => container.querySelector<HTMLButtonElement>('[data-action="resumeMachine"]')!;
+  expect(button().disabled).toBe(true);
+  expect(container.textContent).not.toContain("taking longer than usual");
+  await render(true);
+  expect(button().disabled).toBe(false);
+  expect(container.textContent).toContain("This is taking longer than usual.");
+  expect(container.querySelector('[data-action="resume"]')).not.toBeNull();
+  // Still resuming: the spinner stays.
+  expect(container.querySelector(".acpmux-unavailable-progress .cv-spinner")).not.toBeNull();
+  await act(async () => button().click());
+  expect(clicks).toBe(1);
 });

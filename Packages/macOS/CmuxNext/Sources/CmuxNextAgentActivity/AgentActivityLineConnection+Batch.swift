@@ -9,10 +9,12 @@ extension AgentActivityLineConnection {
     /// Starts the connection and delivers its lines to the main actor in
     /// batches (``MainActorLineBatch``): `decode` runs on the connection's
     /// queue, `onDrain` on the main actor with at most one drain pending.
-    /// Use this for every long-lived watch; never start a `Task` per line.
-    public func start<Value: Sendable>(send: Data, limit: Int = 4096, decode: @escaping @Sendable (Data) -> Value?,
+    /// Use this for every long-lived watch; never start a `Task` per line. `key`: a pending
+    /// value is replaced by a later one with the same key (``MainActorLineBatch``).
+    public func start<Value: Sendable>(send: Data, limit: Int = 4096, key: (@Sendable (Value) -> String?)? = nil,
+                                       decode: @escaping @Sendable (Data) -> Value?,
                                        onDrain: @escaping @MainActor @Sendable (MainActorLineDrain<Value>) -> Void) {
-        let batch = MainActorLineBatch(limit: limit, drain: onDrain)
+        let batch = MainActorLineBatch(limit: limit, key: key, drain: onDrain)
         start(send: send, onLine: { line in
             if let value = decode(line) { batch.submit(value) }
         }, onClose: { batch.close() })

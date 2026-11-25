@@ -11,8 +11,12 @@ use crate::resource::{
 };
 use crate::{PaneId, ScreenId, SplitDir, SplitId, Surface, SurfaceId, WorkspaceId};
 
+mod floating_panes;
 mod layout_columns;
+mod layout_fit;
 mod layout_rows;
+mod layout_snapshot;
+mod one_pane_screen;
 mod split_around;
 
 pub use layout_columns::{ColumnDock, DockEdge, DockMode, DockRole, ViewportColumn};
@@ -24,17 +28,7 @@ pub(crate) use layout_columns::{
 #[cfg(test)]
 pub(crate) use layout_columns::{LONE_DOCK_WIDTH, normalize_dock_columns};
 pub(crate) use layout_rows::{LayoutRow, ROW_HEIGHT_PERMILLE};
-
-#[derive(Debug, Clone)]
-pub(crate) struct ScreenLayoutSnapshot {
-    pub root: Node,
-    pub active_pane: PaneId,
-    pub zoomed_pane: Option<PaneId>,
-    pub creation_order_auto_layout: Option<Vec<PaneId>>,
-    pub viewport_splits: BTreeMap<SplitId, f32>,
-    pub viewport_base_width: Option<f32>,
-    pub layout_columns: Vec<LayoutColumn>,
-}
+pub(crate) use layout_snapshot::ScreenLayoutSnapshot;
 
 #[derive(Debug, Clone)]
 pub(crate) struct LayoutUndoEntry {
@@ -100,6 +94,9 @@ pub enum Node {
         ratio: f32,
         a: Box<Node>,
         b: Box<Node>,
+        /// The divider between `a` and `b` is drawn as hidden. Only the look
+        /// changes: the split, its ratio and its panes stay as they are.
+        divider_hidden: bool,
     },
     /// Zellij-style stacked panes. `expanded` preserves the selected member
     /// while focus is elsewhere in the split tree.
@@ -281,6 +278,7 @@ impl Node {
                     ratio: 0.5,
                     a: Box::new(old),
                     b: Box::new(Node::Leaf(new_pane)),
+                    divider_hidden: false,
                 };
                 true
             }
@@ -298,6 +296,7 @@ impl Node {
                     ratio: 0.5,
                     a: Box::new(old),
                     b: Box::new(Node::Leaf(new_pane)),
+                    divider_hidden: false,
                 };
                 true
             }
@@ -328,11 +327,16 @@ impl Node {
         match self {
             Node::Leaf(id) if id == target => None,
             leaf @ Node::Leaf(_) => Some(leaf),
-            Node::Split { id, dir, ratio, a, b } => {
+            Node::Split { id, dir, ratio, a, b, divider_hidden } => {
                 match (a.remove_leaf(target), b.remove_leaf(target)) {
-                    (Some(a), Some(b)) => {
-                        Some(Node::Split { id, dir, ratio, a: Box::new(a), b: Box::new(b) })
-                    }
+                    (Some(a), Some(b)) => Some(Node::Split {
+                        id,
+                        dir,
+                        ratio,
+                        a: Box::new(a),
+                        b: Box::new(b),
+                        divider_hidden,
+                    }),
                     (Some(a), None) => Some(a),
                     (None, Some(b)) => Some(b),
                     (None, None) => None,
@@ -397,6 +401,51 @@ impl Node {
         }
     }
 
+    /// Set whether split `target`'s divider is hidden. `Some(true)` when the
+    /// value changed, `Some(false)` when it already had that value, `None`
+    /// when `target` is not in this tree.
+    pub(crate) fn set_divider_hidden(&mut self, target: SplitId, hidden: bool) -> Option<bool> {
+        match self {
+            Node::Leaf(_) | Node::Stack { .. } => None,
+            Node::Split { id, divider_hidden, a, b, .. } => {
+                if *id == target {
+                    let changed = *divider_hidden != hidden;
+                    *divider_hidden = hidden;
+                    Some(changed)
+                } else {
+                    a.set_divider_hidden(target, hidden)
+                        .or_else(|| b.set_divider_hidden(target, hidden))
+                }
+            }
+        }
+    }
+
+    /// Whether split `target`'s divider is hidden, or `None` when `target`
+    /// is not in this tree.
+    pub(crate) fn divider_hidden(&self, target: SplitId) -> Option<bool> {
+        match self {
+            Node::Leaf(_) | Node::Stack { .. } => None,
+            Node::Split { id, divider_hidden, a, b, .. } => {
+                if *id == target {
+                    Some(*divider_hidden)
+                } else {
+                    a.divider_hidden(target).or_else(|| b.divider_hidden(target))
+                }
+            }
+        }
+    }
+
+    /// Append the id of every split in this tree whose divider is hidden.
+    pub fn hidden_dividers(&self, out: &mut Vec<SplitId>) {
+        if let Node::Split { id, a, b, divider_hidden, .. } = self {
+            if *divider_hidden {
+                out.push(*id);
+            }
+            a.hidden_dividers(out);
+            b.hidden_dividers(out);
+        }
+    }
+
     pub(crate) fn split_ratio(&self, target: SplitId) -> Option<f32> {
         match self {
             Node::Leaf(_) | Node::Stack { .. } => None,
@@ -456,6 +505,8 @@ pub struct Screen {
     /// `viewport_base_width` are derived compatibility projections while
     /// this list is non-empty.
     pub(crate) layout_columns: Vec<LayoutColumn>,
+    /// `floating-panes-v1`: the panes shown above the tiled layout, back to front (model/floating_panes.rs).
+    pub(crate) floating: Vec<cmux_layout_reducer::floating_panes::Floating<PaneId>>,
     /// Monotonic structural revision used to fence layout undo.
     pub(crate) layout_revision: u64,
     /// In-memory only. Pane processes cannot be resurrected across daemon
@@ -464,18 +515,6 @@ pub struct Screen {
 }
 
 impl Screen {
-    pub(crate) fn layout_snapshot(&self) -> ScreenLayoutSnapshot {
-        ScreenLayoutSnapshot {
-            root: self.root.clone(),
-            active_pane: self.active_pane,
-            zoomed_pane: self.zoomed_pane,
-            creation_order_auto_layout: self.creation_order_auto_layout.clone(),
-            viewport_splits: self.viewport_splits.clone(),
-            viewport_base_width: self.viewport_base_width,
-            layout_columns: self.layout_columns.clone(),
-        }
-    }
-
     fn coalesces_layout_change(&self, key: LayoutMutationKey) -> bool {
         self.layout_undo.back().is_some_and(|entry| {
             entry.created_panes.is_empty()
@@ -589,6 +628,9 @@ impl Screen {
         self.viewport_splits = snapshot.viewport_splits;
         self.viewport_base_width = snapshot.viewport_base_width;
         self.layout_columns = snapshot.layout_columns;
+        self.restore_floating_panes(snapshot.floating);
+        // The pane that has the focus now is the front pane, also in a list from before it got the focus.
+        self.raise_floating_pane(self.active_pane);
     }
 }
 
@@ -615,6 +657,47 @@ impl Workspace {
     }
 }
 
+/// A count of the workspaces named `workspace-N` by `N`: the highest one is the last key.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WorkspaceNameNumbers(BTreeMap<usize, usize>);
+
+impl WorkspaceNameNumbers {
+    /// The `N` of a name `workspace-N`.
+    pub(crate) fn number(name: &str) -> Option<usize> {
+        name.strip_prefix("workspace-")?.parse::<usize>().ok()
+    }
+
+    /// The numbers of `workspaces` (a walk of the list: a restore or an index rebuild).
+    pub(crate) fn of(workspaces: &[Workspace]) -> Self {
+        let mut numbers = Self::default();
+        for workspace in workspaces {
+            numbers.add(&workspace.name);
+        }
+        numbers
+    }
+
+    pub(crate) fn add(&mut self, name: &str) {
+        if let Some(number) = Self::number(name) {
+            *self.0.entry(number).or_default() += 1;
+        }
+    }
+
+    pub(crate) fn remove(&mut self, name: &str) {
+        let Some(number) = Self::number(name) else { return };
+        if let std::collections::btree_map::Entry::Occupied(mut entry) = self.0.entry(number) {
+            *entry.get_mut() -= 1;
+            if *entry.get() == 0 {
+                entry.remove();
+            }
+        }
+    }
+
+    /// The highest `N`, or 0 when no workspace is named `workspace-N`.
+    pub(crate) fn highest(&self) -> usize {
+        self.0.last_key_value().map_or(0, |(number, _)| *number)
+    }
+}
+
 /// The full mutable session state, exposed to [`crate::Mux::with_state`]
 /// closures.
 #[derive(Clone)]
@@ -622,6 +705,9 @@ pub struct State {
     pub workspaces: Vec<Workspace>,
     pub(crate) workspace_index_by_id: HashMap<WorkspaceId, usize>,
     pub(crate) workspace_id_by_key: HashMap<String, WorkspaceId>,
+    /// The `N` of each workspace named `workspace-N`, so the next default name reads the
+    /// highest one without a walk of the list (`Mux::default_workspace_name`).
+    pub(crate) workspace_name_numbers: WorkspaceNameNumbers,
     /// Monotonic version of the ordered workspace registry. Pane, screen, and
     /// tab-only mutations do not advance this counter.
     pub workspace_revision: u64,
@@ -646,6 +732,8 @@ pub struct State {
     pub(crate) terminal_catalog_by_host: crate::route_table::RouteTable<String, TerminalPublicId>,
     pub(crate) split_screens: HashMap<SplitId, (usize, usize, ScreenId)>,
     pub(crate) resource_indexes: PublicSlotIndexes,
+    /// The tab creations that have a place (`tab-create-place-v1`): one value for each copy.
+    pub(crate) tab_places: crate::mux::tab_strip::tab_place::SharedPlaceLists,
 }
 
 impl State {
@@ -688,7 +776,17 @@ impl State {
         self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
         self.resource_indexes.workspaces.insert(workspace.public_id.clone(), workspace.id);
         self.resource_indexes.workspace_ids.insert(workspace.id, workspace.public_id.clone());
+        self.workspace_name_numbers.add(&workspace.name);
         self.workspaces.push(workspace);
+    }
+
+    /// Rename the workspace at `index` (the rename's only writer of a live workspace's name,
+    /// so [`Self::workspace_name_numbers`] follows it).
+    pub(crate) fn set_workspace_name(&mut self, index: usize, name: String) {
+        let Some(workspace) = self.workspaces.get_mut(index) else { return };
+        self.workspace_name_numbers.remove(&workspace.name);
+        self.workspace_name_numbers.add(&name);
+        workspace.name = name;
     }
 
     pub(crate) fn remove_workspace(&mut self, index: usize) -> Workspace {
@@ -702,12 +800,19 @@ impl State {
     pub(crate) fn move_workspace(&mut self, old_index: usize, new_index: usize) {
         let workspace = self.workspaces.remove(old_index);
         self.workspaces.insert(new_index, workspace);
-        self.rebuild_workspace_indexes();
+        // Only the workspaces between the two positions changed place; the keys did not change.
+        let (low, high) = (old_index.min(new_index), old_index.max(new_index));
+        for (index, workspace) in
+            self.workspaces.iter().enumerate().take(high.saturating_add(1)).skip(low)
+        {
+            self.workspace_index_by_id.insert(workspace.id, index);
+        }
     }
 
     pub(crate) fn rebuild_workspace_indexes(&mut self) {
         self.workspace_index_by_id.clear();
         self.workspace_id_by_key.clear();
+        self.workspace_name_numbers = WorkspaceNameNumbers::of(&self.workspaces);
         for (index, workspace) in self.workspaces.iter().enumerate() {
             self.workspace_index_by_id.insert(workspace.id, index);
             self.workspace_id_by_key.insert(workspace.key.clone(), workspace.id);
@@ -777,6 +882,8 @@ impl State {
     }
 
     pub(crate) fn rebuild_resource_indexes(&mut self) {
+        #[cfg(test)]
+        crate::walk_counters::index_rebuild_visited(self.workspaces.len());
         let mut indexes = PublicSlotIndexes::default();
         let mut live_split_slots = self.split_screens.keys().copied().collect::<HashSet<_>>();
         for workspace in &self.workspaces {

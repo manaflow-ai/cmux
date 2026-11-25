@@ -9,6 +9,7 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 fail() { printf '%s\n' "$@" >&2; exit 1; }
 
@@ -51,20 +52,24 @@ if run bash scripts/cmux-next/build-cmux-tui-client.sh 2>"$TMP/err"; then fail "
 grep -q "never runs Cargo" "$TMP/err" || fail "unexpected refusal: $(cat "$TMP/err")"
 
 path=$(run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>"$TMP/err") || fail "an nx-remote job did not build: $(cat "$TMP/err")"
-[[ -x "$path" && -x "$(dirname "$path")/cmux-tui-host" && -x "$(dirname "$path")/cmux-holder" && -x "$(dirname "$path")/cmux-app-host" && -x "$(dirname "$path")/cmux-agent-screen-detection" ]] || fail "missing client set at $path: $(ls "$(dirname "$path")" 2>&1)"
+[[ -x "$path" && -x "$(dirname "$path")/cmux-tui-host" && -x "$(dirname "$path")/cmux-holder" && -x "$(dirname "$path")/cmux-agent-screen-detection" ]] || fail "missing client set at $path: $(ls "$(dirname "$path")" 2>&1)"
 (cd "$src" && bash scripts/cmux-next/pin-cmux-tui.sh local-build "$path") || fail "pin-cmux-tui.sh local-build refused the build"
-[[ "$(builds)" == 4 ]] || fail "want cmux-tui, cmux-app-host, cmux-holder and the detector built once each: $(cat "$TMP/cargo.log")"
+[[ "$(builds)" == 3 ]] || fail "want cmux-tui, cmux-holder and the detector built once each: $(cat "$TMP/cargo.log")"
+# The app host runs from cmux-tui by argv[0] (link-folded-hosts.sh): never built on its own.
+if [[ -e "$(dirname "$path")/cmux-app-host" ]] || grep -q '^cmux-app-host ' "$TMP/cargo.log"; then
+  fail "cmux-app-host was built on its own: $(cat "$TMP/cargo.log")"
+fi
 # The detector is its own Cargo workspace: built from its own directory.
 grep -qx "cmux-agent-screen-detection $src/$detector" "$TMP/cargo.log" \
   || grep -q "^cmux-agent-screen-detection .*/rust-agent-screen-detection$" "$TMP/cargo.log" \
   || fail "the detector was not built from $detector: $(cat "$TMP/cargo.log")"
 
 again=$(run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path 2>/dev/null)
-[[ "$again" == "$path" && "$(builds)" == 4 ]] || fail "a clean tree rebuilt its set"
+[[ "$again" == "$path" && "$(builds)" == 3 ]] || fail "a clean tree rebuilt its set"
 
 echo edit >> "$src/cmux-tui/a"
 run NX_JOB_ID=job bash scripts/cmux-next/build-cmux-tui-client.sh --print-path >/dev/null 2>&1 || fail "a dirty tree did not build"
-[[ "$(builds)" == 8 ]] || fail "a tree with uncommitted cmux-tui edits reused the set"
+[[ "$(builds)" == 6 ]] || fail "a tree with uncommitted cmux-tui edits reused the set"
 
 # A cmux-ci fleet job or step (CMUX_CI_PHASE_FILE set; a scripts/measure/ bench runs reload.sh in
 # one, with no NX_JOB_ID or CI) builds too, in the host's shared cache (CI_SHARED_CACHE_DIR) so
@@ -73,6 +78,6 @@ git_q -C "$src" commit -am two
 rm -rf "$src/cmux-tui/target" # a step's checkout is fresh
 run CMUX_CI_PHASE_FILE="$TMP/phases.jsonl" CI_SHARED_CACHE_DIR="$TMP/shared" bash scripts/cmux-next/build-cmux-tui-client.sh --print-path >/dev/null 2>"$TMP/err" \
   || fail "a fleet step did not build: $(cat "$TMP/err")"
-[[ "$(builds)" == 12 ]] || fail "a fleet step did not build the set once: $(cat "$TMP/cargo.log")"
+[[ "$(builds)" == 9 ]] || fail "a fleet step did not build the set once: $(cat "$TMP/cargo.log")"
 [[ -x "$TMP/shared/cmux-tui-client-target/release/cmux-tui" ]] || fail "a fleet step did not build in the shared cache"
 echo "build-cmux-tui-client: ok"

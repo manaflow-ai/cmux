@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("secret-card.test.ts", async () => {
@@ -50,7 +51,6 @@ await requireBrowserLane("secret-card.test.ts", async () => {
     });
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
     const result = await page.evaluate(() => ({
-      play: document.documentElement.dataset.galleryPlay,
       report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
       answers: (
         window as unknown as { cmuxGalleryLog: { method: string; params?: Record<string, unknown> }[] }
@@ -66,9 +66,16 @@ await requireBrowserLane("secret-card.test.ts", async () => {
 
   test("the card takes the value privately and Provide sends it to acpmux only", async () => {
     const result = await play("secret-card");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
     expect(result.answers).toEqual([{ secretId: "gallery-secret", value: "sk-test-51Hx9" }]);
     expect(result.pageText).not.toContain("sk-test-51Hx9");
     expect(result.fields).not.toContain("sk-test-51Hx9");
+  });
+
+  test("Keep as key NAME sends keepAs with the value, so acpmux stores it as that key", async () => {
+    const result = await play("secret-card-keep");
+    expect(playFailures(result.report)).toEqual([]);
+    expect(result.answers).toEqual([{ secretId: "gallery-secret", value: "sk-test-51Hx9", keepAs: "STRIPE_API_KEY" }]);
+    expect(result.pageText).not.toContain("sk-test-51Hx9");
   });
 });

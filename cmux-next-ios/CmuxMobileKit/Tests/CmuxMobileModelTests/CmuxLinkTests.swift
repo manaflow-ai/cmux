@@ -21,6 +21,33 @@ import Testing
         #expect(link("cmux://conversation/c-release/message/c-release-m4")?.target == .conversation("c-release", message: "c-release-m4"))
     }
 
+    /// A Mac screen link (`acpmux share-host link`): one shape, native and web; View Only unless `control=1`.
+    @Test func readsAMacScreenLink() {
+        let device = "0f8e2c1a-3b4d-4e5f-8a9b-0c1d2e3f4a5b"
+        let expected = CmuxLink.Target.macScreen(.init(device: device, display: "69734272"))
+        for scheme in ["cmux", "cmux-nightly", "cmux-dev-my-tag"] {
+            #expect(link("\(scheme)://mac-screen?device=\(device)&display=69734272")?.target == expected, "\(scheme)")
+        }
+        for host in ["cmux.com", "www.cmux.com"] {
+            #expect(link("https://\(host)/deeplink/screen?device=\(device)&display=69734272")?.target == expected, "\(host)")
+        }
+        #expect(link("https://cmux.com/en/deeplink/screen?device=\(device)")?.target == .macScreen(.init(device: device)))
+        // Upper case ids read as the hub's lowercase one; control and the label ride along.
+        #expect(link("cmux://mac-screen?device=\(device.uppercased())&control=1&name=ui%20run%2042")?.target
+            == .macScreen(.init(device: device, control: true, name: "ui run 42")))
+        #expect(link("cmux://mac-screen?device=\(device)&control=0")?.target == .macScreen(.init(device: device)))
+        #expect(link("cmux://mac-screen?device=\(device)")?.kind == "mac-screen")
+        for text in [
+            "cmux://mac-screen", "cmux://mac-screen?device=not-a-uuid", "cmux://mac-screen?display=1",
+            "cmux://mac-screen?device=\(device)&display=-1", "cmux://mac-screen?device=\(device)&display=4294967296",
+            "cmux://mac-screen?device=\(device)&display=1&display=2", "cmux://mac-screen/x?device=\(device)",
+            "cmux://mac-screen?device=\(device)#x", "https://example.com/deeplink/screen?device=\(device)",
+            "cmux-next://mac-screen?device=\(device)",
+        ] {
+            #expect(link(text) == nil, "\(text)")
+        }
+    }
+
     @Test func readsEveryMacBuildsScheme() {
         for scheme in ["cmux", "CMUX", "cmux-nightly", "cmux-rc", "cmux-dev", "cmux-dev-my-tag"] {
             #expect(link("\(scheme)://tab/\(tab)")?.target == .tab(tab), "\(scheme)")

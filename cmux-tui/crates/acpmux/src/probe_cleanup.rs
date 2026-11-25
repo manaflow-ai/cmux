@@ -51,7 +51,7 @@ fn remove_claude(config: &Path, unattended: &Path) {
         .collect();
     let project = config.join("projects").join(name);
     if project.is_dir() {
-        let _ = fs::remove_dir_all(&project);
+        let _ = crate::home_fs::remove_dir_all(&project);
     }
 }
 
@@ -75,7 +75,7 @@ fn remove_codex(codex: &Path, unattended: &Path, window: Duration) {
                 && path.extension().is_some_and(|e| e == "jsonl")
                 && rollout_cwd(&path).is_some_and(|cwd| cwd == target)
             {
-                let _ = fs::remove_file(&path);
+                let _ = crate::home_fs::remove_file(&path);
             }
         }
     }

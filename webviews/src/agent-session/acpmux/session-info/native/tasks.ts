@@ -6,7 +6,7 @@
 // (session-info/scheduled.ts), latest first. The lists, their order and their words come from the page's
 // own helpers, so both panels say the same thing.
 import { useState } from "react";
-import { formatDuration } from "../../conversation/turns";
+import { formatDuration, spanDuration } from "../../conversation/turns";
 import type { StringKey, Translate } from "../../i18n";
 import { openCommand } from "../../processTerminal";
 import { modelName, phaseAgents, phaseState, tally, workflowDetailRequest } from "../../summary/foldWorkflows";
@@ -28,6 +28,7 @@ import { TASK_ICONS } from "../taskIcons";
 import { compactTokens } from "../../conversation/compactionNoteModel";
 import type { NativeInfoActions, NativeInfoButton, NativeInfoRow, NativeInfoSection, NativeInfoTone } from "./model";
 import { nativeExternalUrl } from "./links";
+import { AGENT_SIDE_ICONS, type AgentSideRow } from "../agentSide";
 
 export type TasksSectionInput = {
   /// The section is unfolded (Session Info's `state.tasks`).
@@ -36,6 +37,8 @@ export type TasksSectionInput = {
   /// chat: split into servers and commands as Session Info does (`sessionInfoLists`).
   processes: readonly SessionInfoProcess[];
   transcriptTasks: readonly SummaryBackgroundTask[];
+  /// What waits on the agent's side (agentSide.ts): plain rows at the section's foot, no action.
+  agentSide?: readonly AgentSideRow[];
   listed: boolean;
   /// The wakeups and cron jobs the agent scheduled (sessionSummary `scheduled`).
   scheduled: readonly SummaryWakeup[];
@@ -102,7 +105,8 @@ export function tasksSection(
 ): NativeInfoSection | undefined {
   const { servers, tasks: commands } = sessionInfoLists(input.processes, input.transcriptTasks, input.listed);
   const { workflows, scheduled, now } = input;
-  if (servers.length + commands.length + scheduled.length + workflows.length === 0) return undefined;
+  const agentSide = input.agentSide ?? [];
+  if (servers.length + commands.length + scheduled.length + workflows.length + agentSide.length === 0) return undefined;
   const stop = (id: string, name: string, run: (id: string) => Promise<unknown>, key: string): NativeInfoButton => {
     const operationKey = key.startsWith("tasks.stopWorkflow:") ? `workflow:${id}` : `process:${id}`;
     const state = input.operations?.[operationKey];
@@ -202,7 +206,7 @@ export function tasksSection(
   const finishedCommand = (item: BackgroundCommand): NativeInfoRow => {
     const time =
       item.endedAt !== undefined && item.startedAt !== undefined
-        ? formatDuration(Math.max(0, item.endedAt - item.startedAt))
+        ? spanDuration(t, item.endedAt - item.startedAt)
         : undefined;
     return command(item, [time, t(COMMAND_STATE[item.state])].filter(Boolean).join(" · "));
   };
@@ -223,6 +227,16 @@ export function tasksSection(
     });
     if (finishedOpen) for (const entry of finishedRows) rows.push(entry.row());
   }
+  for (const row of agentSide)
+    rows.push({
+      id: `agentSide:${row.id}`,
+      symbol: AGENT_SIDE_ICONS[row.kind].native,
+      title: row.title,
+      ...(row.detail !== undefined ? { detail: row.detail } : {}),
+      ...(row.trailing !== undefined ? { trailing: row.trailing } : {}),
+      ...(row.help !== undefined ? { help: row.help } : {}),
+      tone: "muted",
+    });
 
   const runningCount =
     running.length + servers.length + workflows.filter((workflow) => workflow.state === "running").length;
@@ -230,7 +244,8 @@ export function tasksSection(
     id: "tasks",
     group: "running",
     title: t("summary.backgroundTasks"),
-    ...(runningCount > 0 ? { meta: t("rail.running", { count: runningCount }), metaTone: "running" as const } : {}),
+    // The number of what runs, no word (as the page's head and Also here's count).
+    ...(runningCount > 0 ? { meta: String(runningCount), metaTone: "running" as const } : {}),
     open: input.open,
     foldable: true,
     rows,
@@ -428,12 +443,7 @@ function workflowRows(
       }
     }
   };
-  if (both)
-    rows.push({
-      id: "workflows.running",
-      title: t("rail.running", { count: running.length }),
-      tone: "muted",
-    });
+  // The running ones lead with no heading, as the page's WorkflowTasks.tsx: "running" needs no word.
   running.forEach(workflow);
   if (both)
     rows.push({

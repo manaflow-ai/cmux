@@ -4,8 +4,8 @@ import Foundation
 import Testing
 
 struct ChiefWelcomeShortcutTests {
-    @Test(arguments: [true, false]) func theStoredWelcomeKeepsTheShortcutsAndExamplesBeforeTheBackgroundOffer(showsTyping: Bool) async throws {
-        let text = ChiefWelcome.text(goTo: "⌘P", shortcuts: [.init(keys: "⇧⌘P", title: "Command Palette"), .init(keys: "⌘T", title: "New Tab")])
+    @Test(arguments: [true, false]) func theStoredWelcomeKeepsTheShortcutsBeforeTheBackgroundOffer(showsTyping: Bool) async throws {
+        let text = ChiefWelcome.text(shortcuts: [.init(keys: "⌘N", title: "New Workspace"), .init(keys: "⇧⌘P", title: "Command Palette")])
         let owner = WelcomeShortcutOwner()
         let keys = [ChiefWelcome.helloClientID, ChiefWelcome.aboutClientID, ChiefWelcome.backgroundClientID]
         let welcome = ChiefWelcome(conversation: "conv", owner: owner, showsTyping: showsTyping, text: text)
@@ -25,17 +25,9 @@ struct ChiefWelcomeShortcutTests {
             #expect(await owner.steps == [.imported(keys), .typing(false)])
         }
 
-        let goTo = try #require(text.range(of: HomeStrings.chiefWelcomeGoTo("⌘P")))
-        let palette = try #require(text.range(of: "- `⇧⌘P` Command Palette"))
-        let newTab = try #require(text.range(of: "- `⌘T` New Tab"))
-        let examples = try #require(text.range(of: HomeStrings.chiefWelcomeExamplesHeader))
-        let ask = try #require(text.range(of: HomeStrings.chiefWelcomeAsk))
-        #expect(text.hasPrefix(ChiefWelcome.aboutText))
-        #expect(text.components(separatedBy: ChiefWelcome.aboutText).count == 2)
+        // Short (cmux#48416): one line on what Chief does, then how to use cmux, and nothing else.
+        #expect(text == ChiefWelcome.aboutText + "\n\n" + HomeStrings.chiefWelcomeShortcuts + "\n- `⌘N` New Workspace\n- `⇧⌘P` Command Palette")
         #expect(!text.contains(ChiefWelcome.helloText))
-        #expect(goTo.lowerBound < palette.lowerBound && palette.lowerBound < newTab.lowerBound)
-        #expect(newTab.lowerBound < examples.lowerBound && examples.lowerBound < ask.lowerBound)
-        #expect(text.components(separatedBy: "\n").filter { $0.hasPrefix("- ") }.count == 6)
     }
 
 }

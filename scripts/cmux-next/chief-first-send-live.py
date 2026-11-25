@@ -20,6 +20,8 @@ Submit the nx-remote job with --allow-agents: gui and input jobs default to ACPM
 """
 import argparse, glob, json, os, shutil, signal, socket, sqlite3, subprocess, sys, tempfile, threading, time
 import re
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -139,7 +141,7 @@ def end_round(app, cache):
     try:
         app.wait(timeout=60)
     except subprocess.TimeoutExpired:
-        print(f"app {app.pid} did not quit; SIGKILL", flush=True)
+        safe_print(f"app {app.pid} did not quit; SIGKILL", flush=True)
         os.kill(app.pid, signal.SIGKILL)
         app.wait(timeout=10)
     env = {**os.environ, "ACPMUX_HOME": ACPMUX_HOME, "ACPMUX_SOCKET": os.path.join(ACPMUX_HOME, "acpmux.sock")}
@@ -173,7 +175,16 @@ def settle(n, stop):
     """What chief-subagents-live.py does before its first ask; returns the recorder thread."""
     wait(chief_listed, 180, step=1)
     wait(lambda: "daemon connected" in host_log_tail() and os.path.exists(os.path.join(OPTCHAT, "tools.sock")), 180, step=1)
-    time.sleep(10)  # test harness: the compactor start-up probe, as the subagent proof waits
+    # The compactor start-up probe, as the subagent proof waits: its line in host.log, then its node built (or its
+    # session name taken).
+    def probed():
+        try:
+            text = open(os.path.join(MUX_HOME, "host.log"), errors="replace").read()
+        except OSError:
+            return False
+        return "compactor probe (" in text and ("built a node" in text or "is taken" in text)
+    if not wait(probed, 60, step=0.5):
+        safe_print(f"round {n}: no compactor probe result in host.log after 60 s; going on", flush=True)
 
     def record():
         frames = os.path.join(opts.out, f"frames-{n:02d}")
@@ -247,16 +258,18 @@ def one_round(n, env):
             waited = f"waited for the owner ({'pressed Return again in ' + str(shown[0]) + ': ' + json.dumps(pressed[0])[:80] if pressed else 'sent by itself'}); "
             drive = {"ok": True}
         sent_at = time.time() - started
-        home = rpc("debug.home") or {}
+        home = rpc("debug.home", {"paths": True}) or {}  # paths: the owner's cache file
         cache = (home.get("chief_owner") or {}).get("cache")
         if not drive.get("ok"):
             return False, f"send refused at {sent_at:.1f}s: {json.dumps(drive)[:300]}; at the send {json.dumps(before)}; debug.home {json.dumps(home)[:1500]}", cache
         count = wait(lambda: logged(text), opts.deadline, step=0.5) or 0
         if count:
-            time.sleep(3)  # test harness: a duplicate would follow within the same catch-up
+            # sleep-ok: an observation window: a duplicate would follow within the same catch-up, and an absent
+            # duplicate has no event.
+            time.sleep(3)
             count = logged(text)
         reached_at = time.time() - started
-        home = rpc("debug.home") or {}
+        home = rpc("debug.home", {"paths": True}) or {}  # paths: the owner's cache file
         cache = (home.get("chief_owner") or {}).get("cache") or cache
         detail = (f"{waited}{'settled' if settled else 'immediate'}: composer {shown_at:.1f}s, send {sent_at:.1f}s, "
                   f"in the brain's log x{count} by {reached_at:.1f}s; at the send {json.dumps(before)}")

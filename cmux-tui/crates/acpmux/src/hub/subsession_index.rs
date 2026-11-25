@@ -20,6 +20,11 @@ pub struct Index {
 struct IndexState {
     /// Children not closed.
     open: HashMap<String, BTreeSet<String>>,
+    /// A number new with each change of a parent's open children, while it has any
+    /// ([`Index::generation`]).
+    open_changes: HashMap<String, u64>,
+    /// The last number given out in `open_changes`.
+    changes: u64,
     /// Children whose harness is alive: a subset of `open`.
     live: HashMap<String, BTreeSet<String>>,
     reserved: HashMap<String, u32>,
@@ -28,14 +33,18 @@ struct IndexState {
     names: HashMap<String, BTreeSet<String>>,
 }
 
-fn note(sets: &mut HashMap<String, BTreeSet<String>>, parent: &str, child: &str, on: bool) {
+/// Notes `child` of `parent` in or out of `sets`; whether that changed it.
+fn note(sets: &mut HashMap<String, BTreeSet<String>>, parent: &str, child: &str, on: bool) -> bool {
     if on {
-        sets.entry(parent.to_owned()).or_default().insert(child.to_owned());
+        sets.entry(parent.to_owned()).or_default().insert(child.to_owned())
     } else if let Some(set) = sets.get_mut(parent) {
-        set.remove(child);
+        let removed = set.remove(child);
         if set.is_empty() {
             sets.remove(parent);
         }
+        removed
+    } else {
+        false
     }
 }
 
@@ -47,8 +56,24 @@ impl Index {
     /// Notes `child` of `parent` as open or closed, live or not, from its status.
     pub(in crate::hub) fn note_status(&self, parent: &str, child: &str, status: SessionStatus) {
         let mut s = self.lock();
-        note(&mut s.open, parent, child, status != SessionStatus::Closed);
+        if note(&mut s.open, parent, child, status != SessionStatus::Closed) {
+            if s.open.contains_key(parent) {
+                s.changes += 1;
+                let changes = s.changes;
+                s.open_changes.insert(parent.to_owned(), changes);
+            } else {
+                s.open_changes.remove(parent);
+            }
+        }
         note(&mut s.live, parent, child, holds_width_slot(status));
+    }
+
+    /// A number that changes whenever `parent`'s open children do ([`Index::open_count`], a
+    /// summary's `children`), so its cached closed row is rebuilt then
+    /// (`Hub::cached_closed_summary`) and not on other chats' changes. 0 while it has none:
+    /// never given out while it has some.
+    pub(in crate::hub) fn generation(&self, parent: &str) -> u64 {
+        self.lock().open_changes.get(parent).copied().unwrap_or(0)
     }
 
     /// Notes a loaded child's short name as taken.

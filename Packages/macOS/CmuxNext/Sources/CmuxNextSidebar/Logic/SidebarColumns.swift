@@ -17,10 +17,21 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     /// clearance from the sidebar resize band (#27954). The grid's line already clears it at the default text
     /// size; a larger control slot moves the column in rather than over the resize edge.
     var minTrailingCenterInset: CGFloat = 0
+    /// The icon column's width when the Sidebar Row Tuner sets it (`sidebarRows.iconColumn`), over the rule below.
+    var iconBoxOverride: CGFloat?
+    /// The gap from the icon column to the text (`sidebarRows.glyphGap`): the grid's gap unless tuned.
+    var gap: CGFloat = LayoutGrid.gap
+    /// The control side plus its gap, supplied by the row's density.
+    var trailingPitch: CGFloat = LayoutGrid.sidebarSecondMarkPitch
 
-    var iconBox: CGFloat { max(comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox, minIconBox) }
+    var iconBox: CGFloat { Self.iconBox(comfortable: comfortable, minIconBox: minIconBox, override: iconBoxOverride) }
+    /// The icon column's width alone, for a reader that must not build the whole grid: its trailing insets read the
+    /// row inset, which centers Home's house by a glyph size that reads this width (`SidebarRowTuning.outerInset`).
+    static func iconBox(comfortable: Bool, minIconBox: CGFloat, override: CGFloat?) -> CGFloat {
+        override ?? max(comfortable ? LayoutGrid.iconBoxComfortable : LayoutGrid.iconBox, minIconBox)
+    }
     var lead: CGFloat { LayoutGrid.sidebarLead - leadingInset + CGFloat(max(0, depth)) * LayoutGrid.sidebarDepthIndent + leadingOffset }
-    var text: CGFloat { lead + iconBox + LayoutGrid.gap }
+    var text: CGFloat { lead + iconBox + gap }
     /// Only a visible leading icon or pin reserves the icon column. Text-only rows start
     /// at lead, including a group name aligned with its iconless members.
     func text(hasLeadingMark: Bool) -> CGFloat {
@@ -46,7 +57,7 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
 
     func trailingCenter(index: Int = 0) -> CGFloat {
         rowWidth - max(trailingCenterInset, minTrailingCenterInset)
-            - CGFloat(index) * LayoutGrid.sidebarSecondMarkPitch
+            - CGFloat(index) * trailingPitch
     }
 
     func trailingFrame(index: Int = 0, centerY: CGFloat, side: CGFloat) -> CGRect {
@@ -61,20 +72,26 @@ nonisolated struct SidebarColumns: Hashable, Sendable {
     /// The next mark's slot from a right-to-left cursor. Wider labels end on the slot's edge,
     /// growing inward; a small glyph centers in the slot regardless of its drawn size.
     func trailingFrame(before edge: CGFloat, centerY: CGFloat, size: CGSize) -> CGRect {
-        let index = max(0, Int(((trailingEdge - edge) / LayoutGrid.sidebarSecondMarkPitch).rounded(.up)))
+        let index = max(0, pitches(trailingEdge - edge))
         let center = trailingCenter(index: index)
-        let x = size.width > LayoutGrid.sidebarSecondMarkPitch ? center + LayoutGrid.iconBox / 2 - size.width : center - size.width / 2
+        let x = size.width > trailingPitch ? center + LayoutGrid.iconBox / 2 - size.width : center - size.width / 2
         return CGRect(x: x, y: centerY - size.height / 2, width: size.width, height: size.height)
     }
 
     /// Reserve whole pitches for a wide badge, so the next mark stays on a column and never overlaps it.
     func trailingEdge(before frame: CGRect) -> CGFloat {
-        // Adjacent 20-point hit boxes may touch; their 16-point glyphs still have a gap.
-        let gap = frame.width <= LayoutGrid.sidebarSecondMarkPitch
-            ? min(LayoutGrid.base, (LayoutGrid.sidebarSecondMarkPitch - frame.width) / 2) : LayoutGrid.base
+        let gap = frame.width <= trailingPitch
+            ? min(LayoutGrid.base, (trailingPitch - frame.width) / 2) : LayoutGrid.base
         let limit = frame.minX - gap
-        let slots = max(1, Int(((trailingEdge - limit) / LayoutGrid.sidebarSecondMarkPitch).rounded(.up)))
-        return trailingEdge - CGFloat(slots) * LayoutGrid.sidebarSecondMarkPitch
+        let slots = max(1, pitches(trailingEdge - limit))
+        return trailingEdge - CGFloat(slots) * trailingPitch
+    }
+
+    /// Whole pitches that cover `distance`, rounding up. The pitch need not be whole (the control plus a tenth of it,
+    /// #44449), so a distance of exactly n pitches can come out a hair over n in floating point (`17.6 / 17.6`):
+    /// a thousandth of a pitch counts as none, or the next mark would skip a column.
+    private func pitches(_ distance: CGFloat) -> Int {
+        Int((distance / trailingPitch - 0.001).rounded(.up))
     }
 
     func textOriginY(centerY: CGFloat, baseline: CGFloat, capHeight: CGFloat) -> CGFloat {

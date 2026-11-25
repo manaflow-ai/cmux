@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 public import Observation
 
 /// The signed-in user's devices as this app sees them: who is online, who
@@ -22,6 +25,11 @@ public final class DeviceHub {
     public private(set) var connection: DeviceHubSocket.State = .disconnected
     public private(set) var me: HubMe?
     public private(set) var devices: [HubDevice] = []
+    /// The device list was read since sign-in. `ready` only means this device is registered:
+    /// the list comes after the socket connects, so an empty `devices` before it says nothing.
+    public private(set) var devicesListed = false
+    /// Why the last device-list read failed; nil once a read succeeds.
+    public private(set) var devicesListError: DeviceHubError?
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
     public private(set) var permissions: [String: [HubPermission]] = [:]
     public private(set) var relays: [HubRelay] = []
@@ -73,16 +81,18 @@ public final class DeviceHub {
         self.now = now
     }
 
+    #if canImport(Security)
     /// The app's hub: its Secure Enclave identity under `<bundleIdentifier>.device-hub`
     /// (loaded off the main thread, renewed when the hub refuses it), relay secrets
-    /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token).
+    /// in the same Keychain service, and `tokens` for the account (CloudAuth's access token), in `buildSpace`.
     public static func forApp(baseURL: URL, bundleIdentifier: String, deviceName: String, platform: DevicePlatform = .macos,
-                              tokens: any DeviceHubAccountTokenProvider) async throws -> DeviceHub {
+                              tokens: any DeviceHubAccountTokenProvider, buildSpace: DeviceHubBuildSpace = .nightly) async throws -> DeviceHub {
         let identity = try await loadIdentity { try DeviceIdentity.forApp(bundleIdentifier: bundleIdentifier) }
-        return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens),
+        return DeviceHub(client: DeviceHubClient(baseURL: baseURL, identity: identity, tokens: tokens, buildSpace: buildSpace),
                          secrets: KeychainRelaySecretStore(bundleIdentifier: bundleIdentifier), deviceName: deviceName,
                          platform: platform, renewIdentity: { try DeviceIdentity.renew(bundleIdentifier: bundleIdentifier) })
     }
+    #endif
 
     /// Runs `load` off the main thread: the file Keychain and Secure Enclave
     /// calls behind an identity took 8-20 s on some Macs (H7).
@@ -95,9 +105,10 @@ public final class DeviceHub {
     /// The user's other devices.
     public var otherDevices: [HubDevice] { devices.filter { $0.id != identity.id } }
 
-    /// What `viewer` may do on `host`'s screen; `ask` when no permission is stored.
+    /// What `viewer` may do on `host`'s screen; `full` when no permission is stored (the hub's default
+    /// for the account's own devices, PROTOCOL.md).
     public func scope(host: String, viewer: String) -> DeviceScope {
-        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .ask
+        permissions[host]?.first { $0.viewerId == viewer }?.scope ?? .full
     }
 
     // MARK: Lifecycle
@@ -109,6 +120,7 @@ public final class DeviceHub {
         generation += 1
         let run = generation
         status = .starting
+        devicesListError = nil
         do {
             do {
                 _ = try await client.registerDevice(name: deviceName, platform: platform)
@@ -135,6 +147,9 @@ public final class DeviceHub {
                 await hub.hub?.handle(event)
             }
         }
+        // The list over HTTP now, not only once the socket connects: a socket that never
+        // connects would leave "is the list empty?" unanswered (CMUX-13).
+        await refreshDevices()
     }
 
     /// Signed out: closes the socket and forgets the account and every record.
@@ -145,6 +160,8 @@ public final class DeviceHub {
         connection = .disconnected
         me = nil
         devices = []
+        devicesListed = false
+        devicesListError = nil
         permissions = [:]
         relays = []
         openedSecrets = [:]
@@ -227,9 +244,18 @@ public final class DeviceHub {
     }
 
     public func refreshDevices() async {
-        await load { try await $0.devices() } into: { hub, value in
-            hub.devices = value
-            hub.forgetPermissions(notListedIn: Set(value.map(\.id)))
+        let run = generation
+        do {
+            let value = try await client.devices()
+            guard run == generation else { return }
+            devices = value
+            devicesListed = true
+            devicesListError = nil
+            forgetPermissions(notListedIn: Set(value.map(\.id)))
+        } catch {
+            guard run == generation else { return }
+            fail(error)
+            devicesListError = lastError
         }
     }
 
@@ -304,6 +330,11 @@ public final class DeviceHub {
         replace(device)
     }
 
+    /// Carries a signed share approval to `target` (``DeviceHubClient/sendShareApproval(target:approvalJSON:)``).
+    public func sendShareApproval(target: String, approvalJSON: String) async throws {
+        try await perform { try await $0.sendShareApproval(target: target, approvalJSON: approvalJSON) }
+    }
+
     public func setPermission(host: String, viewer: String, scope: DeviceScope) async throws {
         _ = try await perform { try await $0.setPermission(host: host, viewer: viewer, scope: scope) }
         await refreshPermissions(host: host)
@@ -312,6 +343,10 @@ public final class DeviceHub {
     /// From this device as viewer: asks `host` for a session.
     public func requestSession(host: String, scope: SessionScope) async throws -> HubSession {
         try await perform { try await $0.requestSession(host: host, scope: scope) }
+    }
+
+    public func reattachSession(_ id: String) async throws -> SessionTicket {
+        try await perform { try await $0.reattachSession(id) }
     }
 
     /// From this device as host: answers a request.

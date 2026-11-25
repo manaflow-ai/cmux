@@ -127,6 +127,33 @@ async fn turn_usage_of_a_multi_call_claude_turn_names_its_context_apart_from_the
 }
 
 #[tokio::test]
+async fn turn_usage_keeps_the_hour_long_part_of_the_cache_writes() {
+    let root = std::env::temp_dir().join(format!("acpmux-turn-usage-{}", uuid::Uuid::now_v7()));
+    let claude = root.join("claude");
+    std::fs::create_dir_all(&claude).unwrap();
+    let (hub, mut c) = claude_setup(&claude, &[]).await;
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+
+    // The result's usage names 800 of its 1,000 writes hour-long: the record, the session's
+    // totals and the ledger keep that, so the ledger prices them at their tier.
+    say(&mut c, &id, "cache-tier-probe").await;
+    let turn = turn_results(&hub, &id).pop().unwrap();
+    assert_eq!(turn["cacheWriteTokens"], 1000, "{turn}");
+    assert_eq!(turn["cacheWrite1hTokens"], 800, "{turn}");
+    assert_eq!(saved(&hub, &id)["totals"]["cacheWrite1hTokens"], 800);
+    let ledger = c.request(method::MUX_LEDGER, json!({"since": 0, "groupBy": []})).await.unwrap();
+    assert_eq!(ledger["totals"]["cacheWrite1hTokens"], 800, "{ledger}");
+
+    // A turn whose usage names no tier records none.
+    say(&mut c, &id, "cost-probe").await;
+    let next = turn_results(&hub, &id).pop().unwrap();
+    assert!(next.get("cacheWrite1hTokens").is_none(), "{next}");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[tokio::test]
 async fn turn_usage_of_a_fork_starts_its_own_totals() {
     let root = std::env::temp_dir().join(format!("acpmux-turn-usage-{}", uuid::Uuid::now_v7()));
     let claude = root.join("claude");

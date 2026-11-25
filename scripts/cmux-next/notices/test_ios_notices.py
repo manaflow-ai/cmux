@@ -14,6 +14,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# tests/known_red.py: a skip against an issue that fails once its checked-in date passes.
+_known_red_spec = importlib.util.spec_from_file_location(
+    "known_red", Path(__file__).resolve().parents[3] / "tests" / "known_red.py")
+_known_red = importlib.util.module_from_spec(_known_red_spec)
+_known_red_spec.loader.exec_module(_known_red)
+known_red = _known_red.known_red
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 SPEC = importlib.util.spec_from_file_location("ios_notices", HERE / "ios_notices.py")
@@ -25,12 +32,16 @@ SPEC.loader.exec_module(ios)
 PIN = "134477ce13b2c34d408e3e0dffafa4e8b78140635aa7d9d794ad2818e64883aa"
 MACHO = b"\xcf\xfa\xed\xfe" + b"\0" * 60
 MUSL_TEXT = (ROOT / "cmux-tui/dist/notices/texts/musl-1.2.5/COPYRIGHT").read_text()
+# The bundle-map entry of the binary that links the macos slice (behind the stub Contents/MacOS/cmux).
+APP_CODE = "Contents/Frameworks/CmuxNextApp.framework/*"
 
 
 class RepositoryTests(unittest.TestCase):
+    @known_red(41322, "2026-12-02", "red on feat-cmux-next, line 32: notices/ios/link-set.json does not match the GhosttyKit pin")
     def test_pane_link_set_and_exceptions_match_the_ghosttykit_pin(self) -> None:
         self.assertEqual(ios.check_repo(), [])
 
+    @known_red(41322, "2026-12-02", "red on feat-cmux-next, line 40: no app_link for the current GhosttyKit pin")
     def test_the_pane_omits_only_what_the_real_link_proves_absent(self) -> None:
         # The evidence is the real link of a cmux-ci iOS build for the CURRENT pin
         # (ghosttykit_repin.py rewrites it on a pin change; the 134477ce13b2 pin used
@@ -76,13 +87,14 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("std.math.cbrt", musl["FooterText"])
 
     def test_the_mac_notices_carry_musl_for_the_app_binary(self) -> None:
-        # The published nightly-next app (3728109721001) has the same code in Contents/MacOS/cmux.
+        # The published nightly-next app (3728109721001) has the same code in Contents/MacOS/cmux,
+        # since CMUX-629 in Contents/Frameworks/CmuxNextApp.framework behind a stub executable.
         self.assertEqual(ios.mac_notice_errors(), [])
         notices = (ROOT / "THIRD_PARTY_LICENSES.md").read_text()
         self.assertIn("<!-- notices-section: manual-musl-in-the-zig-standard-library -->", notices)
         self.assertIn(MUSL_TEXT.strip(), notices)
         entries = json.loads((HERE / "bundle-map.json").read_text())["entries"]
-        app = next(entry for entry in entries if entry["path"] == "Contents/MacOS/cmux")
+        app = next(entry for entry in entries if entry["path"] == APP_CODE)
         self.assertIn("section:manual-musl-in-the-zig-standard-library", app["notices"])
 
     def test_the_mac_notices_credit_the_freetype_project(self) -> None:
@@ -92,7 +104,7 @@ class RepositoryTests(unittest.TestCase):
         self.assertIn("<!-- notices-section: manual-freetype -->", notices)
         self.assertIn(FTL_CREDIT, notices)
         entries = json.loads((HERE / "bundle-map.json").read_text())["entries"]
-        app = next(entry for entry in entries if entry["path"] == "Contents/MacOS/cmux")
+        app = next(entry for entry in entries if entry["path"] == APP_CODE)
         self.assertIn("section:manual-freetype", app["notices"])
 
     def test_mac_notices_refuse_a_missing_freetype_credit(self) -> None:

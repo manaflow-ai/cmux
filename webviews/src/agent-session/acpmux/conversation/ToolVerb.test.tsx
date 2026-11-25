@@ -16,6 +16,7 @@ import { ToolRows } from "./TurnRows";
 import { ToolRow } from "./ToolRow";
 import { ToolVerbColumn } from "./ToolVerb";
 import { resetTranscriptDisclosure } from "./transcriptDisclosureModel";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -38,6 +39,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   resetTranscriptDisclosure();
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -49,7 +51,7 @@ afterEach(async () => {
 
 async function render(node: ReactNode): Promise<HTMLElement> {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { url: "http://localhost/" });
-  for (const key of GLOBALS) saved.set(key, scope[key]);
+  for (const key of GLOBALS) if (!saved.has(key)) saved.set(key, scope[key]);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -216,11 +218,11 @@ test("an MCP call's verb joins the column, on a group's line and on a lone row a
   expect(lone.querySelector(".cv-tool__verb")?.textContent).toBe("Used");
 });
 
-test("a call that finishes moves its row from Running to Ran in the column", async () => {
+test("a running call adds no Running verb; once it finishes its row joins the column as Ran", async () => {
   const running = call("bun test", "execute", { command: "bun test", status: "in_progress" });
   const container = await render(<ColumnRows row={turn([running])} />);
   const column = () => container.querySelector<HTMLElement>(".cv-tools")!.style.getPropertyValue("--cv-tool-verbs");
-  expect(column()).toBe('"Running"');
+  expect(column()).not.toContain("Running");
   const done = { ...running, tool: { ...running.tool!, status: "completed" } };
   await act(async () => root!.render(<ColumnRows row={{ ...turn([done]), version: 2 }} />));
   expect(column()).toBe('"Ran"');

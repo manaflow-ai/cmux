@@ -10,7 +10,7 @@ public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable
     /// is concentric with the window's (Lawrence 2026-11-07: "concentricity padding on top of tabbar
     /// is bad", "make it all concentric with macos windows by default"). The top row's pills sit in
     /// their strip as in every other row, and the toolbar band, the sidebar's + and the pane's
-    /// buttons center on the pills' line; only the traffic lights, which macOS draws, keep their own.
+    /// buttons center on the pills' line. The traffic lights move onto it too (``TrafficLightsLine``).
     case concentric
     /// Everything centers on the traffic lights' line, the one line the window cannot
     /// move; the main pane's card moves down to bring the top row's pills to it, and the pills keep
@@ -18,10 +18,10 @@ public nonisolated enum TopRowLineLook: String, Sendable, CaseIterable, Hashable
     case lights
     /// The controls follow the tabs: the band and the + center on the line the top-row pills keep on
     /// their own padding (the pane padding above the strip plus the pill's inset, `PaneChromeMetrics`;
-    /// the lights stay where macOS draws them).
+    /// the traffic lights move onto it, ``TrafficLightsLine``).
     case tabs
     /// One titlebar height: the band, the + and the pills center on the middle of the
-    /// `titlebarHeight` row (the lights stay where macOS draws them).
+    /// `titlebarHeight` row (the traffic lights move onto it, ``TrafficLightsLine``).
     case titlebar
     /// The look before 2026-11-07: the band and the + on the lights' line, the pills where their
     /// strip's own padding puts them.
@@ -76,9 +76,16 @@ public nonisolated struct TopRowLine: Equatable, Sendable {
     /// card moves to reach a line (#38054), so a line the card cannot reach (Comfortable and
     /// Spacious, whose pills center below the lights' line with the card at the window's top) gives
     /// way to the pills': the toolbar band, the sidebar's + and the pane's buttons stay on the tabs'
-    /// line, and only the traffic lights, which macOS draws, keep their own.
-    public func reached(by metrics: PaneChromeMetrics, cardTop: CGFloat, scale: CGFloat) -> TopRowLine {
-        TopRowLine(centerY: metrics.topRowPillCenter(cardTop: cardTop, scale: scale))
+    /// line, and the traffic lights move onto it (``TrafficLightsLine``).
+    public func reached(by metrics: PaneChromeMetrics, cardTop: CGFloat, rim: CGFloat = 0, scale: CGFloat) -> TopRowLine {
+        TopRowLine(centerY: metrics.topRowPillCenter(cardTop: cardTop, rim: rim, scale: scale))
+    }
+
+    /// The default (``TopRowLineLook/concentric``) line of a window whose top row's strip starts under a `rim` pt lit
+    /// rim: the pills' center with the one strip padding above them (``WindowTitlebar/topRowStripCardTop(in:)``). The
+    /// window's line is this one (``WindowTitlebar/topRowLine(in:look:)``); pure, so a test holds it at 2x on a 1x Mac.
+    public static func concentric(_ metrics: PaneChromeMetrics, rim: CGFloat, scale: CGFloat) -> TopRowLine {
+        TopRowLine(centerY: metrics.topRowPillCenter(cardTop: rim, rim: rim, scale: scale))
     }
 
     /// A control `side` tall centered on the line, its top from the window's top, on the pixel grid.
@@ -98,15 +105,21 @@ extension WindowTitlebar {
     /// own cards, which sit the gutter and a pane padding down.
     public static func topRowLine(in window: NSWindow, look: TopRowLineLook = TopRowLineLook.tunable.value) -> TopRowLine? {
         guard let target = targetTopRowLine(in: window, look: look) else { return nil }
-        guard look != .off, look != .concentric else { return target }
+        guard look != .off else { return target }
         let scale = window.backingScaleFactor
         let row = topRowMetrics(scale: scale)
         if Metrics.floatingPanes {
+            guard look != .concentric else { return target }
             let stripTop = Metrics.mainPaneGutter + PaneChromeMetrics.snap(Metrics.panePadding, scale)
             return TopRowLine(centerY: stripTop + row.pillTop(scale: scale) + row.tabHeight / 2)
         }
+        if look == .concentric {
+            // The top row's strip starts under the window's rim (``topRowStripCardTop(in:)``), so its pills keep the one
+            // strip padding above them as below them and beside the first: the line is theirs.
+            return TopRowLine.concentric(row, rim: topRowStripCardTop(in: window), scale: scale)
+        }
         let card = topRowCardTop(centeringPillOn: target.centerY, gutter: Metrics.mainPaneGutter, in: window, look: look)
-        return target.reached(by: row, cardTop: card, scale: scale)
+        return target.reached(by: row, cardTop: card, rim: topRowRim(in: window), scale: scale)
     }
 
     /// Whether the top row's strips center their pills between the window's top edge and the divider
@@ -114,7 +127,7 @@ extension WindowTitlebar {
     /// line variant other than `off`, and no floating panes (each of those pills centers in its own card).
     public static func topRowEvensPillGaps(in window: NSWindow) -> Bool {
         let look = TopRowLineLook.tunable.value
-        return look != .off && look != .concentric && !Metrics.floatingPanes && targetTopRowLine(in: window, look: look) != nil
+        return look != .off && !Metrics.floatingPanes && targetTopRowLine(in: window, look: look) != nil
     }
 
     /// The variant's line before the card's limits (``topRowLine(in:look:)``): what the card's top aims for.
@@ -126,7 +139,17 @@ extension WindowTitlebar {
         return TopRowLine.resolve(look, lightsCenterY: lightsCenter,
                                   tabsCenterY: TopRowLine.tabsCenterY(.current, scale: window.backingScaleFactor),
                                   titlebarHeight: Metrics.titlebarHeight,
-                                  concentricCardTop: Metrics.floatingPanes ? Metrics.mainPaneGutter : Metrics.windowEdgeInset(Metrics.mainPaneGutter, in: window))
+                                  concentricCardTop: Metrics.floatingPanes ? Metrics.mainPaneGutter : topRowStripCardTop(in: window))
+    }
+
+    /// The main pane card's top under a minimal titlebar with the tab bars on top: the window's lit rim (``topRowRim(in:)``),
+    /// so the top row's strip, and the one strip padding inside it, start at the window's visible top edge. The user,
+    /// 2026-11-19: "top padding is not equal to left padding for the tab" and "space between omnibar/content is same as
+    /// space between omnibar and tab, (which is coincidentally same as space between tabs and top)". The card's 6 pt gutter
+    /// above the strip had added to the gap above the tabs alone (6.5 pt over Compact's tabs against 2.5 beside them).
+    /// The gutter stays at the card's sides and bottom; the flush corner's card (``CornerFlushChrome``) starts here too.
+    public static func topRowStripCardTop(in window: NSWindow) -> CGFloat {
+        topRowRim(in: window)
     }
 
     /// The live pane chrome with the strip as tall as panes lay it out (`resolvedStripHeight`, a device
@@ -144,15 +167,21 @@ extension WindowTitlebar {
     public static func topRowCardTop(centeringPillOn centerY: CGFloat, gutter: CGFloat, in window: NSWindow,
                                      look: TopRowLineLook = TopRowLineLook.tunable.value) -> CGFloat {
         guard !Metrics.floatingPanes else { return gutter }
-        // Concentric: the gutter on top as at the sides, so the card's corner shares the window's center.
-        guard look != .concentric else { return Metrics.windowEdgeInset(gutter, in: window) }
+        // Concentric: the top row's strip starts under the window's rim (``topRowStripCardTop(in:)``).
+        guard look != .concentric else { return topRowStripCardTop(in: window) }
         let scale = window.backingScaleFactor
         guard look != .off else {
             return Metrics.windowEdgeInset(min(gutter, PaneChromeMetrics.current.cardTopKeepingStripCentering(centeringPillOn: centerY, scale: scale)), in: window)
         }
-        let row = topRowMetrics(scale: scale), floor = Metrics.windowEdgeInset(0, in: window)
-        let card = max(min(gutter, row.cardTop(centeringPillOn: centerY, scale: scale)), floor)
-        return row.evenSplitCardTop(card, within: floor...max(gutter, floor), scale: scale)
+        let row = topRowMetrics(scale: scale), floor = topRowRim(in: window)
+        let card = max(min(gutter, row.cardTop(centeringPillOn: centerY, rim: floor, scale: scale)), floor)
+        return row.evenSplitCardTop(card, within: floor...max(gutter, floor), rim: floor, scale: scale)
+    }
+
+    /// The lit rim along `window`'s top edge (``PaneTabRowRim``), 0 for a fullscreen or borderless window:
+    /// the top row's gap above its pills starts under it (``PaneChromeMetrics/pillTop(stripTop:rim:scale:)``).
+    public static func topRowRim(in window: NSWindow) -> CGFloat {
+        Metrics.windowEdgeInset(0, in: window)
     }
 
     /// Lays out every view of `window` again: the sidebar (every window has one) calls it when Debug Settings picks

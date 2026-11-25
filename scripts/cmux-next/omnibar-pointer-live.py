@@ -36,6 +36,7 @@ import argparse, glob, json, os, plistlib, socket, subprocess, sys, tempfile, ti
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag")
@@ -184,10 +185,10 @@ try:
     if not windows():
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     WINDOW = (wait_for(lambda: windows(), "a window", 60) or [{}])[0].get("id")
-    print(f"open a {opts.engine} tab", rpc("action.run", {"action": f"openBrowser.{opts.engine}", "args": {"url": URL}, "focus": True}), flush=True)
+    safe_print(f"open a {opts.engine} tab", rpc("action.run", {"action": f"openBrowser.{opts.engine}", "args": {"url": URL}, "focus": True}), flush=True)
     frames = (wait_for(lambda: (pointer().get("frames") or {}).get("text") and pointer()["frames"], "an omnibar with frames", 90)
               or {})
-    print("frames", json.dumps(frames), flush=True)
+    safe_print("frames", json.dumps(frames), flush=True)
     wait_for(lambda: omnibar().get("text"), "the omnibar shows the page address", 30)
     blur()
     bar, text, toolbar = frames.get("bar"), frames.get("text"), frames.get("toolbar")
@@ -217,7 +218,7 @@ try:
         check(probe(above_text) == ("bar", "iBeam"), f"rest: I-beam over the bar above the text {probe(above_text)}")
     if past_text:
         check(probe(past_text)[1] == "iBeam", f"rest: I-beam past the end of the text {probe(past_text)}")
-    print(f"note installed_text_cursor at rest: {pointer().get('installed_text_cursor')}", flush=True)
+    safe_print(f"note installed_text_cursor at rest: {pointer().get('installed_text_cursor')}", flush=True)
     if chip:
         check(probe(center(chip))[1] == "arrow" and probe(center(chip))[0] == "control", f"arrow over the chip {probe(center(chip))}")
     if reload:
@@ -251,7 +252,7 @@ try:
     if bar and page:
         mouse("move", center(bar))
         wait_for(lambda: pointer().get("bar_hovering"), "bar hover before the switch", 5)
-        print("second tab", rpc("action.run", {"action": f"openBrowser.{opts.engine}", "args": {"url": URL2}, "focus": True}), flush=True)
+        safe_print("second tab", rpc("action.run", {"action": f"openBrowser.{opts.engine}", "args": {"url": URL2}, "focus": True}), flush=True)
         wait_for(lambda: "example.org" in (omnibar().get("text") or ""), "the second tab shows", 30)
         mouse("move", page)
         rpc("action.run", {"action": "prevSurface", "focus": True})
@@ -266,7 +267,7 @@ try:
         first = wait_for(lambda: selection_all(omnibar()) and omnibar(), "first click focuses and selects all", 5) or omnibar()
         check(selection_all(first), f"first click selects the whole address: {first.get('selection')} of {len(first.get('text') or '')}")
         check(probe(center(text)) == ("text", "iBeam"), f"I-beam over the text while editing {probe(center(text))}")
-        print(f"note installed_text_cursor while editing: {pointer().get('installed_text_cursor')}", flush=True)
+        safe_print(f"note installed_text_cursor while editing: {pointer().get('installed_text_cursor')}", flush=True)
         for point in (center(text), above_text):
             if point:
                 mouse("move", point)
@@ -277,7 +278,7 @@ try:
         # The test window is never key, so AppKit drops a raw click on the field editor (it takes no
         # first mouse); debug.omnibar_mouse presses over the text as AppKit does for a key window.
         rpc("debug.omnibar_mouse", {"window": WINDOW, "character": 3})
-        print("after second click", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
+        safe_print("after second click", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
         second = wait_for(lambda: (omnibar().get("selection") or [0, 1])[1] == 0 and omnibar(), "second click places the caret", 5) or omnibar()
         check(second.get("has_focus") and (second.get("selection") or [0, 1])[1] == 0, f"second click places the caret: {second.get('selection')}")
         # cx-d0d.87: the second click shows the full address with the caret at the click; it is
@@ -288,9 +289,9 @@ try:
                        f"{after.get('phase')} {after.get('text')!r} {after.get('selection')}")
         if not focused:  # the state machine's last inputs (DEBUG builds), to name the input that edited
             for line in (after.get("pointer") or {}).get("omnibar_trace") or []:
-                print("   trace", line, flush=True)
+                safe_print("   trace", line, flush=True)
         key("escape")
-        print("after Escape", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
+        safe_print("after Escape", {k: omnibar().get(k) for k in ("phase", "text", "selection")}, flush=True)
         check(bool(wait_for(lambda: not omnibar().get("has_focus"), "one Escape blurs", 3)), "one Escape after the clicks returns to the page")
         blur()
         check(probe(center(text)) == ("text", "iBeam"), f"I-beam over the text after the omnibar blurs {probe(center(text))}")
@@ -308,9 +309,9 @@ try:
             check(bar_click, f"a click on the bar {name} focuses and selects all ({attempt + 1}/3): {after.get('phase')} "
                              f"{after.get('text')!r} {after.get('selection')}")
             if not bar_click:  # what the field held before the click, and the state machine's last inputs
-                print("   before the click", {k: before.get(k) for k in ("phase", "field_editor_active", "field_text", "field_selection")}, flush=True)
+                safe_print("   before the click", {k: before.get(k) for k in ("phase", "field_editor_active", "field_text", "field_selection")}, flush=True)
                 for line in (after.get("pointer") or {}).get("omnibar_trace") or []:
-                    print("   trace", line, flush=True)
+                    safe_print("   trace", line, flush=True)
         blur()
 
     # 6. Cmd-L, typed text, Escape twice.
@@ -347,7 +348,7 @@ try:
     rpc("debug.appearance", {"mode": "system"})
 
     # 8. Pointer moves over a New Tab page and back over a browser toolbar keep the app alive.
-    print("new tab page", rpc("action.run", {"action": "newTab.page", "focus": True}), flush=True)
+    safe_print("new tab page", rpc("action.run", {"action": "newTab.page", "focus": True}), flush=True)
     for point in ((600, 20), (600, 44), (300, 44), (600, 300), (40, 400)):
         mouse("move", point)
     check("error" not in (rpc("debug.focus") or {"error": 1}), "the app answers after moves over a New Tab page")

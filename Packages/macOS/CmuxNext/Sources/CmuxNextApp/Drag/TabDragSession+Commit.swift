@@ -182,7 +182,7 @@ extension TabDragSession {
     func openTornOff(workspace key: WorkspaceKey, frame: CGRect, drag: Drag) -> WindowController? {
         let incognito = drag.source.window.map { services.windows.isIncognito(window: $0.state.id) } ?? false
         // Option files it away: the new window opens behind, never key.
-        return services.windows.openWindow(workspaces: [key.rawValue], frame: frame, incognito: incognito, behind: drag.filesAway)
+        return services.windows.openWindow(workspaces: [key.rawValue], frame: frame, incognito: incognito, behind: drag.filesAway).map { WindowOwnSpace.give($0.state.id, in: services.windows); return $0 }
     }
 
     // MARK: Lookup
@@ -220,8 +220,8 @@ extension TabDragSession {
         // client's layout: no view change (product decision 2026-10-01).
         if let landed = drag.landedWorkspaceID, let source = drag.source.pane,
            services.machines.daemon(forWorkspace: landed) !== services.machines.daemon(forPane: source.pane) { return }
-        let landing = drag.landedWorkspaceID.flatMap { services.windows.registry.value.owner(of: $0) }
-            .flatMap(services.windows.controller(for:)) ?? dropWindow
+        // The window of the drop when it lists the workspace (its own or a guest: two windows on one space), else the owner.
+        let landing = drag.landedWorkspaceID.flatMap { services.landingWindow(tabWorkspace: nil, workspaceID: $0, preferring: dropWindow) } ?? dropWindow
         let facts = DropRevealPolicy.Facts(outcome: outcome, landed: true, userInitiated: true, filesAway: drag.filesAway,
                                            crossesWindows: landing !== drag.source.window, appActive: NSApp.isActive,
                                            noActivate: WindowPlacement.noActivate,

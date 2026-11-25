@@ -28,7 +28,7 @@ struct SidebarSpacePagingTests {
         // The settle's completion (the swipe's own switch) waits on Core Animation, so the
         // direct selection lands first, as a click on a dot mid-settle does in the app.
         model.apply(.switchProfile(ProfileKey("space2")))
-        #expect(!sidebar.spacePaging.modelDidSwitch(to: ProfileKey("space2")))
+        sidebar.spacePaging.modelDidSwitch()
         #expect(sidebar.spacePaging.pendingTarget == nil)
 
         // The lock is gone: the wheel pages again, from the space the selection chose.

@@ -163,21 +163,18 @@ pub fn executable_candidates(
         .collect()
 }
 
-/// The longest Unix socket path every host can bind: macOS's `sun_path` less
-/// its NUL (Linux allows 107). One limit, so every platform resolves alike.
-pub const MAX_SOCKET_PATH_BYTES: usize = 103;
-
 /// The acpmux daemon socket every host and client resolves (acpmux
 /// `config::socket_path()`, cmux-tui `acp.rs`, AcpmuxEnvironment.swift, the
 /// brain host's `acpmuxSocketPath`, the Chief's `socket_path`; the shared
 /// cases are tests/cases/environment.json). `configured` (`ACPMUX_SOCKET`)
-/// when set, except an absolute path past [`MAX_SOCKET_PATH_BYTES`] (a long
+/// when set, except an absolute path past [`cmux_unix_socket::PORTABLE_MAX_PATH_BYTES`] (a long
 /// TMPDIR), which maps to `/tmp/acpmux-<uid>/<fnv1a64(path)>.sock`; else
 /// [`default_socket_path`] for `home`.
 pub fn socket_path(configured: Option<&str>, home: &Path, uid: u32) -> String {
     match configured {
         Some(configured)
-            if configured.starts_with('/') && configured.len() > MAX_SOCKET_PATH_BYTES =>
+            if configured.starts_with('/')
+                && configured.len() > cmux_unix_socket::PORTABLE_MAX_PATH_BYTES =>
         {
             short_alias(configured, uid)
         }

@@ -125,7 +125,7 @@ pub(crate) fn created_workspaces(
 
 /// Give each created workspace its personal row, unless it already has one
 /// (a reopened workspace keeps its old place), at the place cmux.json
-/// `workspaces.newPlacement` names (`NewWorkspacePlacement`; default afterCurrent),
+/// `workspaces.newPlacement` names (`NewWorkspacePlacement`; default top),
 /// so a workspace made by any client (the app, iOS, the TUI, the CLI, an
 /// agent) lands in the same place. A caller that wants another place moves
 /// it after the creation (`workspace.place`, `set-personal-workspace`);
@@ -178,6 +178,13 @@ fn place_created_rows(
             .optional()?
             .is_some())
     };
+    // sidebar-doc-v1: the document decides a new workspace's place and its
+    // personal row follows (`sidebar_doc_create`). Old writes still pending
+    // are followed first, so only the new rows are dirty afterwards.
+    let in_document = super::sidebar_doc_store::is_migrated(transaction)?;
+    if in_document {
+        super::sidebar_doc_sync::sync_from_legacy(transaction)?;
+    }
     let mut placed = Vec::new();
     for key in &created.keys {
         if has_row(key)? {
@@ -203,20 +210,53 @@ fn place_created_rows(
     }
     bump_personal_revision(transaction)?;
     // The slot of the first new row; the others follow it in creation order.
-    // An agent or script workspace goes below its creator and the creator's
-    // earlier children, never next to the person's selection; with no live
-    // creator, last (ask-48544d7525).
+    // Every creator follows the setting (Lawrence 2026-11-12: "by default all
+    // new workspaces should go to the top"): `top` first, `bottom` last. Under
+    // `afterCurrent` an agent or script workspace goes below its creator and
+    // the creator's earlier children, never next to the person's selection;
+    // with no live creator, first, never the sidebar's end (ask-48544d7525).
     let by_creator = created.created_by.as_ref().is_some_and(CreatedBy::places_by_creator);
+    if in_document {
+        let groups_before = read_groups(transaction)?;
+        let anchors = super::sidebar_doc_create::Anchors {
+            current: created.current.as_deref(),
+            creator: created.creator.as_deref(),
+            by_creator,
+        };
+        if super::sidebar_doc_create::place(transaction, &local, &placed, placement, &anchors)? {
+            for key in &placed {
+                queue_placement(transaction, &local, key)?;
+            }
+            return queue_moved_group_slots(transaction, &groups_before);
+        }
+        // The document refused the adopt (logged): the old-order placement
+        // below stands, and the sync that follows it places the rows.
+    }
     let slot = match placement {
-        _ if by_creator => match created.creator.as_deref() {
-            Some(creator) => match after_row_slot(transaction, &local, &placed, creator, true)? {
+        NewWorkspacePlacement::Bottom => None,
+        // A person's new workspace made while they are in a group stays in that
+        // group, first in it (the app's `top` slot, Lawrence 2026-10-28), never
+        // loose above every group (Leo 2026-11-16: "I make a new space. Getting
+        // sent out of the group that I'm"). An agent's or script's create still
+        // goes first in the section.
+        NewWorkspacePlacement::Top if !by_creator => {
+            match current_group_top_slot(transaction, &local, &placed, created.current.as_deref())?
+            {
                 Some(slot) => Some(slot),
                 None => Some(top_slot(transaction, &local, &placed)?),
-            },
-            None => None,
-        },
-        NewWorkspacePlacement::Bottom => None,
+            }
+        }
         NewWorkspacePlacement::Top => Some(top_slot(transaction, &local, &placed)?),
+        NewWorkspacePlacement::AfterCurrent if by_creator => {
+            let below = match created.creator.as_deref() {
+                Some(creator) => after_row_slot(transaction, &local, &placed, creator, true)?,
+                None => None,
+            };
+            match below {
+                Some(slot) => Some(slot),
+                None => Some(top_slot(transaction, &local, &placed)?),
+            }
+        }
         NewWorkspacePlacement::AfterCurrent => {
             match after_current_slot(transaction, &local, &placed, created.current.as_deref())? {
                 Some(slot) => Some(slot),
@@ -256,13 +296,22 @@ fn place_created_rows(
         queue_placement(transaction, &local, key)?;
     }
     super::placement_shift::queue(transaction, index + placed.len(), None)?;
+    queue_moved_group_slots(transaction, &groups_before)
+}
+
+/// Group slots after new rows moved too: clients that rebuild from events
+/// get each group whose `top_index` differs from `before`.
+fn queue_moved_group_slots(
+    transaction: &Transaction<'_>,
+    before: &[PersonalGroup],
+) -> anyhow::Result<()> {
     let slots = read_groups(transaction)?;
     for change in super::personal::all_groups(transaction)?.into_iter().filter(|change| {
         let id = change["id"].as_str();
         let slot = |groups: &[PersonalGroup]| {
             groups.iter().find(|group| Some(group.id.as_str()) == id).map(|group| group.top_index)
         };
-        slot(&groups_before) != slot(&slots)
+        slot(before) != slot(&slots)
     }) {
         super::closed_history_store::queue_change(transaction, &change)?;
     }
@@ -293,6 +342,27 @@ fn top_slot(
     // rows were appended last, so none of them is before it).
     let index = super::personal::row_index(transaction, local, &home)?.map_or(0, |home| home + 1);
     Ok((index, None))
+}
+
+/// `top` with the current workspace in a group: the group's first row slot,
+/// in that group. None when the current workspace is loose, has no row, is
+/// the home workspace, or the new workspace shows in another room than the
+/// group (the rules of [`after_row_slot`]).
+fn current_group_top_slot(
+    transaction: &Transaction<'_>,
+    local: &str,
+    placed: &[String],
+    current: Option<&str>,
+) -> anyhow::Result<Option<(usize, Option<String>)>> {
+    let Some(current) = current else { return Ok(None) };
+    let Some((_, Some(group))) = after_row_slot(transaction, local, placed, current, false)? else {
+        return Ok(None);
+    };
+    let first = read_workspaces(transaction)?
+        .into_iter()
+        .filter(|row| !(row.session_id == local && placed.contains(&row.workspace_key)))
+        .position(|row| row.group.as_deref() == Some(group.as_str()));
+    Ok(first.map(|index| (index, Some(group))))
 }
 
 /// `afterCurrent`: right after the current workspace's row, in its group.

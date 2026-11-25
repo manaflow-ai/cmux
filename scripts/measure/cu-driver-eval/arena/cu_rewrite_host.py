@@ -28,6 +28,15 @@ import socket
 import subprocess
 import sys
 import threading
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 
 def main():
@@ -56,7 +65,7 @@ def main():
             msg = json.loads(line)
         except ValueError:
             continue
-        print(f"cu_rewrite_host: worker said {line.strip()[:300]}", file=sys.stderr, flush=True)
+        safe_print(f"cu_rewrite_host: worker said {line.strip()[:300]}", file=sys.stderr, flush=True)
         if msg.get("type") == "ready":
             ready = msg
             break
@@ -79,7 +88,6 @@ def main():
     server.bind(a.socket)
     os.chmod(a.socket, 0o600)
     server.listen(16)
-    print(f"cu_rewrite_host: serving computer-use-endpoint on {a.socket}", file=sys.stderr, flush=True)
 
     def serve(conn):
         with conn, conn.makefile("rwb") as stream:
@@ -97,6 +105,8 @@ def main():
                 stream.flush()
 
     try:
+        # Inside the try: a stderr nobody reads makes this print raise, and the finally still stops the worker.
+        safe_print(f"cu_rewrite_host: serving computer-use-endpoint on {a.socket}", file=sys.stderr, flush=True)
         while worker.poll() is None:
             server.settimeout(1.0)
             try:

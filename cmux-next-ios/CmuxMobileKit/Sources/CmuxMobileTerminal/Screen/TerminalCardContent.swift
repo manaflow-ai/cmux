@@ -1,43 +1,51 @@
 import CoreGraphics
 import Foundation
 
-/// What a terminal tab's grid card shows.
+/// What a terminal tab's grid card shows: the Mac's screen, a picture of the page, or nothing.
+/// Never a waiting state or a stand-in (Leo, 2026-11-24, on a grid of black cards, skeletons
+/// and a fake prompt: "wer need to chase all these placeholders doen and prevent them").
 public enum TerminalCardContent: Equatable, Sendable {
-    /// The connecting placeholder over the last frame (the session started).
-    case connecting
-    /// The page's snapshot (the session started in this launch).
+    /// The page's snapshot (the session started in this launch), also while its link is down:
+    /// the last-known page stays, with nothing drawn over it.
     case snapshot
-    /// The Mac's screen as text, fetched for a tab not opened in this launch.
+    /// The Mac's screen as text: fetched for a tab not opened in this launch, or newer than
+    /// the page's snapshot.
     case screenText
     /// A frame saved in an earlier launch, for a tab not opened in this
-    /// launch, until the Mac's screen arrives: drawn dimmed, never as the
-    /// current screen (VERIFY-round8 Claim 8: old Codex output shown while
+    /// launch, until the Mac's screen arrives: drawn at full strength (never
+    /// greyed, Leo 2026-11-24), but not counted as the current screen (VERIFY-round8 Claim 8: old Codex output shown while
     /// the Mac had moved on).
     case savedFrame
-    /// The static labeled placeholder.
-    case placeholder
+    /// Nothing is known of the tab yet: the card is the terminal's background.
+    case nothing
 
     /// `screenTextIsNewer`: the Mac's screen text arrived after the page's
     /// last snapshot (a started tab whose page is off screen while the grid
     /// shows, D6): the text is the current screen then.
-    public static func choose(sessionStarted: Bool, connecting: Bool, hasSnapshot: Bool, screenText: String?,
+    public static func choose(sessionStarted: Bool, hasSnapshot: Bool, screenText: String?,
                               screenTextIsNewer: Bool = false) -> Self {
+        let text = screenText.map { $0.contains(where: { !$0.isWhitespace }) } ?? false
         if sessionStarted {
-            if connecting { return .connecting }
-            if screenTextIsNewer, let screenText, screenText.contains(where: { !$0.isWhitespace }) { return .screenText }
-            return hasSnapshot ? .snapshot : .placeholder
+            if screenTextIsNewer, text { return .screenText }
+            if hasSnapshot { return .snapshot }
+            return text ? .screenText : .nothing
         }
         // Not opened in this launch: a saved frame may be from long ago (or a
         // blank first frame); the Mac's screen now is the truth.
-        if let screenText, screenText.contains(where: { !$0.isWhitespace }) { return .screenText }
-        return hasSnapshot ? .savedFrame : .placeholder
+        if text { return .screenText }
+        return hasSnapshot ? .savedFrame : .nothing
     }
+
+    /// How strongly the card's picture is drawn: always full. A last-known frame is not greyed
+    /// while the Mac's screen is on its way (Leo, 2026-11-24: "all the connecting... indicators
+    /// and the graying out of workspaces, nah let's not do that").
+    public var drawnOpacity: Double { 1 }
 
     /// Whether the card stands for the terminal's screen now.
     public var isCurrent: Bool {
         switch self {
         case .snapshot, .screenText: true
-        case .connecting, .savedFrame, .placeholder: false
+        case .savedFrame, .nothing: false
         }
     }
 }
@@ -97,20 +105,28 @@ public struct TerminalCardScreenRefresh: Sendable {
 /// Which grid cards to refresh while the grid is visible (full verify
 /// 2026-10-19 D6, T-TABS-01: the active card was a snapshot taken once, when
 /// the grid opened, and stayed at row 78 while the Mac went to 201). Every
-/// `tick` while the grid shows and is not scrolling (a card that changes in
-/// a scroll frame makes that frame late):
+/// `tick` while the grid shows, the app is in the foreground and the grid is
+/// not scrolling (a card that changes in a scroll frame makes that frame late):
 /// - a page that can be captured (in a window: the active tab's) and drew
 ///   output since its card was taken is captured again, at most every
 ///   `snapshotInterval`;
 /// - any other terminal (a warm tab whose page is off screen, or one not
-///   opened in this launch) reads the Mac's screen, at most every
-///   `screenTextInterval`.
-/// So a streaming card is at most about a second old (T-TABS-01: ≤ 1 s).
+///   opened in this launch) that the Mac said drew output since its last read
+///   (`macOutput`, the daemon's `surface-output`) reads the Mac's screen, at
+///   most every `screenTextInterval`.
+/// So a streaming card is at most about a second old (T-TABS-01: ≤ 1 s), and
+/// a grid whose terminals are quiet asks the Mac nothing and does not tick
+/// (`wantsTicks`): ticks run only until the Mac's output has been quiet for
+/// `quietAfter` (Leo 2026-11-14: an idle grid of 8 terminals read 480 screens
+/// a minute, in the background too).
 public struct TerminalCardLiveRefresh: Sendable {
     public static let tick: Duration = .milliseconds(250)
     public static let tickSeconds: Double = 0.25
     public static let snapshotInterval: Double = 0.5
     public static let screenTextInterval: Double = 1
+    /// Ticks keep running this long after the Mac's last output: enough for
+    /// the page to draw it and for a throttled read to come due.
+    public static let quietAfter: Double = 1.5
 
     public enum Action: Equatable, Sendable {
         case snapshot(String)
@@ -136,8 +152,14 @@ public struct TerminalCardLiveRefresh: Sendable {
 
     public private(set) var isVisible = false
     public private(set) var isScrolling = false
+    /// The app is in the foreground (false: the scene went to the
+    /// background, while the grid's view still counts as visible).
+    public private(set) var isAppActive = true
     private var lastSnapshot: [String: Double] = [:]
     private var lastText: [String: Double] = [:]
+    /// Terminals the Mac said drew output since their last screen read.
+    private var changed: Set<String> = []
+    private var awakeUntil: Double = 0
 
     public init() {}
 
@@ -147,17 +169,51 @@ public struct TerminalCardLiveRefresh: Sendable {
         isVisible = visible
         lastSnapshot = [:]
         lastText = [:]
-        if visible { opened = now }
+        if visible { opened = now; wakeIfPending(now) }
     }
     private var opened: Double = 0
 
-    public mutating func setScrolling(_ scrolling: Bool) {
+    public mutating func setScrolling(_ scrolling: Bool, now: Double = 0) {
         isScrolling = scrolling
+        if !scrolling { wakeIfPending(now) }
+    }
+
+    public mutating func setAppActive(_ active: Bool, now: Double) {
+        isAppActive = active
+        if active { wakeIfPending(now) }
+    }
+
+    /// The Mac said terminal `id` drew output: its card is read again when
+    /// due, and the grid ticks until the output has been quiet for `quietAfter`.
+    public mutating func macOutput(_ id: String, now: Double) {
+        changed.insert(id)
+        awakeUntil = max(awakeUntil, now + Self.quietAfter)
+    }
+
+    /// A read of `id`'s screen was asked for (any path): output before it is in its reply.
+    public mutating func reading(_ id: String) {
+        changed.remove(id)
+    }
+
+    /// `id`'s read could not start (one is still out, the page is not
+    /// attached yet) or brought nothing: it is read again, and the grid keeps
+    /// ticking until it is.
+    public mutating func readAgain(_ id: String, now: Double) {
+        macOutput(id, now: now)
+    }
+
+    /// Whether the grid's tick should run (or keep running).
+    public func wantsTicks(now: Double) -> Bool {
+        isVisible && isAppActive && now < awakeUntil
+    }
+
+    private mutating func wakeIfPending(_ now: Double) {
+        if !changed.isEmpty { awakeUntil = max(awakeUntil, now + Self.quietAfter) }
     }
 
     /// The refreshes due now, in `tabs` order.
     public mutating func due(_ tabs: [Tab], now: Double) -> [Action] {
-        guard isVisible, !isScrolling else { return [] }
+        guard isVisible, isAppActive, !isScrolling else { return [] }
         var actions: [Action] = []
         for tab in tabs {
             if tab.pageStarted, tab.capturable {
@@ -165,7 +221,8 @@ public struct TerminalCardLiveRefresh: Sendable {
                 lastSnapshot[tab.id] = now
                 actions.append(.snapshot(tab.id))
             } else {
-                guard now - (lastText[tab.id] ?? opened) >= Self.screenTextInterval else { continue }
+                guard changed.contains(tab.id), now - (lastText[tab.id] ?? opened) >= Self.screenTextInterval else { continue }
+                changed.remove(tab.id)
                 lastText[tab.id] = now
                 actions.append(.screenText(tab.id))
             }

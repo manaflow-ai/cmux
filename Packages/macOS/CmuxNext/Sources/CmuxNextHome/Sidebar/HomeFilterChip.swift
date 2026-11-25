@@ -15,26 +15,52 @@ final class HomeFilterChip: ClickableButton {
         }
     }
 
+    /// The chip's words ("Unread"): the drawn title is them and the xmark.
+    let label: String
+
     init(title: String, metrics: HomeSidebarHeaderMetrics) {
         self.metrics = metrics
+        label = title
         super.init(frame: .zero)
         self.title = title
+        setAccessibilityLabel(title)
         isBordered = false
-        imagePosition = .imageTrailing
-        imageHugsTitle = true
+        imagePosition = .noImage
         setAccessibilityIdentifier("cmux.home.sidebar.filterChip")
         setAccessibilityHelp(HomeConversationStrings.filterChipHelp)
         wantsLayer = true
         applyMetrics()
     }
 
-    /// The text and the xmark at ``metrics``, then the tint over the new font.
+    /// The text at ``metrics``, then the tint (and the xmark) over the new font.
     private func applyMetrics() {
         font = Typography.system(size: metrics.chipFontSize, weight: TypeScale.emphasis)
-        image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: metrics.chipGlyphSize, weight: TypeScale.emphasis))
         invalidateIntrinsicContentSize()
         applyTint()
+    }
+
+    /// The kern after the text: the text's and the symbol's side bearings make it the 5 pt ink gap
+    /// AppKit's trailing image gave (measured at 2x).
+    static let xmarkKern: CGFloat = 3
+
+    /// The xmark after the text, in the text: centred on the capitals' height (the user,
+    /// 2026-11-23: "align this x"; as AppKit's trailing image it sat 1.25 pt low, on no line of
+    /// the text). Tinted in the accent, as the text.
+    private func xmark(_ accent: NSColor, font: NSFont) -> NSAttributedString {
+        let config = NSImage.SymbolConfiguration(pointSize: metrics.chipGlyphSize, weight: TypeScale.emphasis)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [accent]))
+        guard let image = NSImage(systemSymbolName: "xmark", accessibilityDescription: nil)?.withSymbolConfiguration(config) else {
+            return NSAttributedString()
+        }
+        let attachment = NSTextAttachment()
+        attachment.image = image
+        let size = image.size
+        // The symbol's ink is its alignment rect, not its whole image: that rect's middle on the
+        // capitals' middle, on the 2x pixel grid.
+        let ink = image.alignmentRect
+        let y = font.capHeight / 2 - ink.midY
+        attachment.bounds = CGRect(x: 0, y: (y * 2).rounded() / 2, width: size.width, height: size.height)
+        return NSAttributedString(attachment: attachment)
     }
 
     @available(*, unavailable)
@@ -49,14 +75,18 @@ final class HomeFilterChip: ClickableButton {
 
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.height / 2
+        layer?.cornerRadius = Metrics.buttonCornerRadius(fitting: bounds.size)
     }
 
     /// The accent text and fill in the view's theme scope (also on a theme or appearance change).
     func applyTint() {
         let accent = performWithTheme { Palette.litGlyph }
         contentTintColor = accent
-        attributedTitle = NSAttributedString(string: title, attributes: [.foregroundColor: accent, .font: font ?? Typography.system(size: metrics.chipFontSize, weight: TypeScale.emphasis)])
+        let font = font ?? Typography.system(size: metrics.chipFontSize, weight: TypeScale.emphasis)
+        let text = NSMutableAttributedString(string: label, attributes: [.foregroundColor: accent, .font: font])
+        if text.length > 0 { text.addAttribute(.kern, value: Self.xmarkKern, range: NSRange(location: text.length - 1, length: 1)) }
+        text.append(xmark(accent, font: font))
+        attributedTitle = text
         layer?.backgroundColor = accent.withAlphaComponent(0.16).cgColor
     }
 

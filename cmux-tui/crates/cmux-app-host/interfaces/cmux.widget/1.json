@@ -1,0 +1,57 @@
+{
+  "name": "cmux.widget/1",
+  "version": 1,
+  "docs": "A glanceable widget, as on an iPhone or a Mac desktop: a tile the person places on the New Tab page's widget grid or in the sidebar (Edit Widgets > Add Widget), in one of the sizes the widget offers. cmux ships no widgets of its own; every widget is an installed extension's, and an extension never places itself. Sizes are tiles of one grid: small is 1x1, medium 2x1, large 2x2; the sidebar takes small and medium at its width. The render export gets the mount context {surface: \"widget\", place: \"newtab\" | \"sidebar\", size, instance, settings, refresh: {everySeconds} | null, locale, timeZone, now()}: `instance` is stable for the placed tile (keep state that must outlive the app in cmux.storage under it), `settings` are the tile's own (an object, empty until set), `locale` (BCP 47) and `timeZone` (IANA) are the person's, from the page that shows the tile (the sandbox has no Intl: name the local zone with `timeZone`, and get its offset with cmux.time.zone), and `now()` is a reactive clock in milliseconds that the host ticks. The host owns the timer: `options.refresh.everySeconds` is raised to at least 60 and ticks on wall-clock boundaries (a 60 s clock ticks on the minute), only while the tile is shown; a hidden page or a scrolled-away tile gets no tick and catches up with one tick when it shows. Outside the few seconds after a mount, a tick or the person's tap, a widget's scene updates are coalesced to at most one every 15 s, and edit mode shows the count it held back. Read data through cmux.watch signals (cached and shared) in a render that reads now(), not with your own timers. A resize remounts the tile at its new size. Clicks run the node's onTap with the app's own scopes. Nodes outside `nodes` are refused and a scene over `maxNodes` stops drawing: the tile shows the widget's name and why.",
+  "props": {
+    "title": "string",
+    "symbol": "string?",
+    "description": "string?"
+  },
+  "methods": {
+    "render": "scene"
+  },
+  "events": [],
+  "nodes": ["VStack", "HStack", "ZStack", "Group", "ForEach", "Text", "Icon", "Image", "Spacer", "Divider", "Badge", "Row", "Button", "ProgressView", "EmptyState", "Toggle", "TextField", "Circle", "Capsule", "Rectangle", "RoundedRectangle", "Line", "Panel"],
+  "maxNodes": 256,
+  "options": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "sizes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 3,
+        "uniqueItems": true,
+        "items": { "enum": ["small", "medium", "large"] },
+        "description": "The sizes the widget draws, as Apple's widget families: small (1x1 tile), medium (2x1), large (2x2). Default: [\"small\"]."
+      },
+      "defaultSize": {
+        "enum": ["small", "medium", "large"],
+        "description": "The size Add Widget places first; one of `sizes`. Default: the first of `sizes`."
+      },
+      "refresh": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["everySeconds"],
+        "properties": {
+          "everySeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "description": "How often `now()` ticks. The host raises it to at least 60 and aligns ticks to the wall clock."
+          }
+        },
+        "description": "The host-owned tick. Without it the widget redraws only when its signals change."
+      },
+      "places": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 2,
+        "uniqueItems": true,
+        "items": { "enum": ["newtab", "sidebar"] },
+        "description": "Where the person can place the widget: the New Tab page's grid, the sidebar, or both. Default: both. The App Store shows it as \"Shows up in\"."
+      }
+    }
+  },
+  "status": "draft: shapes are refined with the first implementing app before the interface is public"
+}

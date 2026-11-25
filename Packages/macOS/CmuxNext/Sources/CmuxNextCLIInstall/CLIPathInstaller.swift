@@ -253,8 +253,17 @@ public nonisolated struct CLIPathInstaller: Sendable {
             exited.continuation.finish()
         }
         try process.run()
-        var message: [UInt8] = []
-        for try await byte in errors.fileHandleForReading.bytes { message.append(byte) }
+        // Not `bytes`: Foundation reads every `bytes` reader in the app one at a time, so one that
+        // waits on a quiet pipe elsewhere would hold this read, and the install with it
+        // (``FileHandle/readyChunks()``).
+        let reader = errors.fileHandleForReading
+        let (chunks, stopReading) = reader.readyChunks()
+        var message = Data()
+        for await chunk in chunks { message.append(chunk) }
+        // Also when the read ended early (a cancel): no reader and no open read end stay behind.
+        stopReading()
+        try? reader.close()
+        try Task.checkCancellation()
         var status: Int32 = -1
         for await code in exited.stream { status = code }
         guard status == 0 else {

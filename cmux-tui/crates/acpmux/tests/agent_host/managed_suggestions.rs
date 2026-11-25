@@ -20,6 +20,8 @@ fn claude_spec(dir: &Path, session: &str, managed: Option<bool>) -> SpawnSpec {
         prompt_suggestions: true,
         recap: None,
         claude_session_id: None,
+        stop_condition: false,
+        resumes_cut_turn: false,
     });
     spec.prompt_suggestions_managed = managed;
     spec

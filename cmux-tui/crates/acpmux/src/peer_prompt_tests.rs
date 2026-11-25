@@ -128,7 +128,11 @@ fn hidden_attach_uses_its_snapshot_without_overwriting_newer_live_events() {
 #[test]
 fn a_chat_without_a_baseline_is_not_replayed_from_its_first_record() {
     let cursors = HashMap::from([("fresh".to_owned(), 0), ("seen".to_owned(), 12)]);
-    assert_eq!(replayable(&cursors), vec![("seen".to_owned(), 12)]);
+    assert_eq!(replayable(&cursors, &HashSet::new()), vec![("seen".to_owned(), 12)]);
+    // A page settled `fresh` at 0: the chat held nothing then, and is replayed from its start.
+    let mut replayed = replayable(&cursors, &HashSet::from(["fresh".to_owned()]));
+    replayed.sort();
+    assert_eq!(replayed, vec![("fresh".to_owned(), 0), ("seen".to_owned(), 12)]);
 }
 
 #[test]

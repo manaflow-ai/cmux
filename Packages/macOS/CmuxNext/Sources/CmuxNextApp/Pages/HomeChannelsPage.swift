@@ -22,7 +22,7 @@ extension PageDescriptor {
     /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
         id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, ChiefBackendPageRoute.prefix, HomeSwitchPageRoute.prefix],
-        nativeOps: [PageNativeOp.edit, PageNativeOp.actionRun], actions: ["newCloudMachine"], gestureActions: ["newCloudMachine"], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
+        nativeOps: [PageNativeOp.edit, PageNativeOp.actionRun], actions: ["newCloudMachine", "palette.restartServer"], gestureActions: ["newCloudMachine"], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true) // Archive and message delete confirm in the page
 }
 
@@ -44,26 +44,7 @@ extension PageFactory {
         return page
     }
 
-    /// The React Messages page (``PageDescriptor/homeMessages``) and its route: the row and compose menus
-    /// (``HomeConversationMenu``, ``HomePageMenus``) and the unread colour. Not docked yet: the dock hosts it
-    /// in place of `TopHomePageView` and hands the route the traffic lights.
-    func homeMessagesWebPage(dock: HomeDockView? = nil) -> (page: PageWebView, route: HomeMessagesPageRoute)? {
-        let (home, registry, app) = (services.home, services.registry, services)
-        let route = HomeMessagesPageRoute(menu: { id in
-            let entries = id.map { id in home.homeStore.rows.first { $0.id.rawValue == id }.map(home.conversationMenu.entries) ?? [] }
-                ?? HomePageMenus.composeEntries(registry: registry)
-            return entries.map { .init(id: $0.action.rawValue, title: $0.title, action: $0.action.rawValue, arguments: $0.textArguments,
-                                       separatorBefore: $0.separatorBefore, checked: $0.checked) }
-        }, perform: { action, arguments in
-            guard home.conversationMenu.offered.contains(ActionID(rawValue: action)) else { return false }
-            HomeMenuEntry(action: action, textArguments: arguments).perform(in: registry, window: NSApp.keyWindow)
-            return true
-        }, unreadColor: { app.settings?.snapshot.attention.color?.nsColor ?? Palette.notificationBlue },
-           personOnlyMessage: RefusalStrings.personOnlyFromPage)
-        return homeWebPage(.homeMessages, dock: dock, extra: [PageRoute(prefix: HomeMessagesPageRoute.prefix, provider: route)]).map { ($0, route) }
-    }
-
-    /// A Home page on this instance's daemon (Channels, Messages): the credential verb, the Chief's
+    /// A Home page on this instance's daemon (Channels): the credential verb, the Chief's
     /// profile and engine routes, the composers' edits, the docked view switch (in the dock only),
     /// then `extra`, with the selected-text menu of the Channels page.
     func homeWebPage(_ descriptor: PageDescriptor, dock: HomeDockView?, extra: [PageRoute] = []) -> PageWebView? {
@@ -148,7 +129,7 @@ final class DaemonCredentialPageProvider: PageProvider {
 
     private func daemonCredential() async throws -> CmuxNextSettings.JSONValue {
         guard let daemon, let endpoint = try? await daemon.endpoint() else {
-            throw PageError.unavailable("the local cmux daemon is not running")
+            throw PageError.unavailable(Self.restarting)
         }
         let path = endpoint.socketPath + ".websocket.json"
         let file = try await fileCredential(daemon, path: path)
@@ -159,13 +140,13 @@ final class DaemonCredentialPageProvider: PageProvider {
         // A single-use credential for this connect (every reconnect asks again). A lost connection
         // retries. A refusal (a daemon this app did not start, so the app is not verified there)
         // keeps the file token: local conversations only, never a dead end.
-        guard let connection = daemon.connection else { throw PageError.unavailable("the local cmux daemon is restarting") }
+        guard let connection = daemon.connection else { throw PageError.unavailable(Self.restarting) }
         do {
             let page = try await connection.request(PageCredentialRequest())
             fields["token"] = .string(page.credential)
             return .object(fields)
         } catch let error as DaemonError where error.isLostConnection {
-            throw PageError.unavailable("the local cmux daemon is restarting")
+            throw PageError.unavailable(Self.restarting)
         } catch {
             return file
         }
@@ -183,15 +164,15 @@ final class DaemonCredentialPageProvider: PageProvider {
         do {
             outcome = try await daemon.ensurePageListener()
         } catch let error as DaemonError where error.isLostConnection {
-            throw PageError.unavailable("the local cmux daemon is restarting")
+            throw PageError.unavailable(Self.restarting)
         } catch DaemonError.command(_, let message, _, _, _) where message.contains("shutting down") {
-            throw PageError.unavailable("the local cmux daemon is restarting")
+            throw PageError.unavailable(Self.restarting)
         } catch DaemonError.command(_, let message, _, _, _) {
-            // The daemon refused (a configured credential, an origin its listener does not admit):
-            // final, the page says why.
-            throw PageError(code: "cmux.daemon.page_listener", message: message, retryable: false)
+            // The daemon refused (a configured credential, an origin its listener does not admit): final.
+            // The page says so in its own words, with Restart cmux-tui; the daemon's text is in details.
+            throw PageError(code: "cmux.daemon.page_listener", message: PageError.failedMessage, details: ["reason": .string(message)])
         } catch {
-            throw PageError.unavailable(String(describing: error))
+            throw PageError(code: "cmux.protocol.unavailable", message: Self.restarting, retryable: true, details: ["reason": .string(String(describing: error))])
         }
         switch outcome {
         case .ready:
@@ -206,17 +187,17 @@ final class DaemonCredentialPageProvider: PageProvider {
     }
 
     static var restarting: String {
-        String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module)
+        String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var chiefStarting: String {
-        String(localized: "homeChannels.chief.starting", defaultValue: "Starting this build's Chief…", table: "Handlers", bundle: .module)
+        String(localized: "homeChannels.chief.starting", defaultValue: "Starting this build's Chief…", table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     static var tooOld: String {
         String(localized: "homeChannels.daemon.tooOld",
                defaultValue: "This page needs a newer cmux background service, and cmux can't restart it. Update cmux, then open this tab again.",
-               table: "Handlers", bundle: .module)
+               table: "Handlers", bundle: .module.inAppLanguage)
     }
 
     /// The listener's credential file (`PageListenerCredentialFile`): this user's, 0600, a live daemon.
@@ -234,7 +215,6 @@ extension HomeService {
         let usage = services.registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
         return HomeConversationMenu(registry: services.registry, directory: directory, groupActions: groupActions,
                                     deletableChief: { [weak self] in self?.deletableChief(of: $0)?.id },
-                                    usage: usage ? (ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : nil,
-                                    importMemories: ChiefMemoryImportHandlers.actionID)
+                                    usage: usage ? (ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : nil)
     }
 }

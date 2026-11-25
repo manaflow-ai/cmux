@@ -2,8 +2,8 @@
 // Status, tool and message rows between prose (Leo, 2026-10-30: "see how claude code has those
 // centered tool calls / id like more alignment too", and "1 CODEX 2 US 3 US 4 CODEX 5 CLAUDDE WE
 // NEED TO LINE OUR SHIT UP LIKE THEIRS"). One live turn mixes the row kinds the way a long session
-// does: a reply, a tool call, a reply, a subagent that finished, a reply, a background command that
-// ended, a reply, another agent's message, a reply. The turns above it end with a "Worked for" line (a folded turn)
+// does: a reply, a tool call, a reply, a subagent that started, a reply, the subagent finished, a
+// reply, a background command that ended, a reply, another agent's message, a reply. The turns above it end with a "Worked for" line (a folded turn)
 // and a footer whose action row starts on the reply's left edge, its time and tokens in the time's
 // tooltip (Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons"). Every row's first ink
 // sits on the prose's left edge, an icon's text one icon column in, and each status row has one room
@@ -56,7 +56,10 @@ const rows = [
   assistant("First the release commit.", 9.95),
   activity([tool("git log --oneline -1", "execute", "completed", { command: "git log --oneline -1" })], 9.9),
   assistant("I started a reviewer on the docs and kept the build running in the background.", 9.8),
+  // Where the reviewer started, its start line (#42247); where it ended, its finished line: a reply
+  // between them, so each is a status row between two replies.
   row(SUBAGENTS, 9.7, { subagents: [reviewer] }),
+  assistant("While it reads, I'm checking the build output.", 9.5),
   assistant("The reviewer agrees with the docs except for the channel name.", 9.0),
   row("backgroundTask", 8.8, {
     backgroundTask: { toolCallId: "bg-build", command: "bun run build", state: "completed" },
@@ -136,7 +139,7 @@ export default agentPaneEntry({
   ],
   variants: {
     mix: {
-      note: "A reply, a tool call, a reply, a subagent that finished, a reply, a background command that ended, a reply, another agent's message, a reply; above them a folded turn's Worked for line and a footer with its time, tokens and actions. Every row's first ink is on the prose's left edge; the reply over each status row keeps its 2026-10-30 room (model.ts keepsReplyRoom), so the line has 26px more room above than below.",
+      note: "A reply, a tool call, a reply, a subagent that started, a reply, the subagent finished, a reply, a background command that ended, a reply, another agent's message, a reply; above them a folded turn's Worked for line and a footer with its time, tokens and actions. Every row's first ink is on the prose's left edge; the reply over each status row keeps its 2026-10-30 room (model.ts keepsReplyRoom), so the line has 26px more room above than below.",
       snapshot,
     },
     roomy: {

@@ -5,13 +5,12 @@ import {
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { Dialog } from "../../../ui/Dialog";
 
-import { useTabRow } from "../header/tabRow";
+import { belowTabRowStyle, useTabRow } from "../header/tabRow";
 import { useT } from "../i18n";
 import { postNative } from "../native";
 import type { ChatImage } from "./chatImages";
@@ -19,6 +18,7 @@ import { copyImage } from "./clipboard";
 import { Check, ChevronLeft, ChevronRight, Close, Copy, Folder, Globe } from "./icons";
 import { MIN_SCALE, type View, FIT, activeElementToRestore, zoomAbout, dataUrl } from "./imageViewerModel";
 import { keyedIconProps } from "../../../ui/DialogButton";
+import { useScrimClose } from "../../../ui/scrimClose";
 /// What a double click or the + key zooms to from the fitted image.
 const STEP = 2;
 
@@ -45,9 +45,7 @@ export function ImageViewer({
   onClose(): void;
 }) {
   const t = useT();
-  // The pane's native tab row draws over the page's top (header/tabRow.ts): the viewer starts below it,
-  // so its name never sits under the tabs (Leo, 2026-11-05: "the file nameis also way at the top").
-  const tabRowHeight = useTabRow().height;
+  const below = belowTabRowStyle(useTabRow());
   const image = images[index];
   const [view, setView] = useState<View>(FIT);
   // The view a pinch started from, read by the gesture listener (registered once).
@@ -68,10 +66,10 @@ export function ImageViewer({
   }, []);
   const close = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ id: number; x: number; y: number } | undefined>(undefined);
-  // Whether the stage has seen a fresh press (a click run's first, `detail` 1) since the viewer
-  // opened. A double click on a chat thumbnail opens the viewer on its first click; its second
-  // lands here as a double click and must not zoom (or close) the image that just opened (#27955).
-  const pressedHere = useRef(false);
+  // A click beside the fitted image closes the viewer (ui/scrimClose.ts, shared by every media
+  // viewer). Its `pressed` also keeps the second click of the double click that opened the viewer
+  // from zooming the image that just opened (#27955).
+  const scrim = useScrimClose(onClose, view.scale === MIN_SCALE);
   const count = images.length;
   const restoreFocus = useRef<HTMLElement | null>(activeElementToRestore());
 
@@ -204,7 +202,7 @@ export function ImageViewer({
       label={image.alt || t("image.viewer")}
       className="acpmux-image-viewer"
       backdropClassName="acpmux-image-viewer-backdrop"
-      style={tabRowHeight > 0 ? ({ "--acpmux-image-viewer-top": `${tabRowHeight}px` } as CSSProperties) : undefined}
+      style={below}
       initialFocus={close}
       // ui-allow: the viewer's own image keys (the arrows step, + - 0 zoom), as an image canvas has.
       onKeyDown={onKeyDown}
@@ -269,22 +267,16 @@ export function ImageViewer({
           ref={stageRef}
           className={`acpmux-image-viewer-stage${view.scale > MIN_SCALE ? " is-zoomed" : ""}`}
           onPointerDown={onPointerDown}
-          onMouseDown={(event) => {
-            if (event.detail <= 1) pressedHere.current = true;
-          }}
+          onMouseDown={scrim.props.onMouseDown}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onDoubleClick={(event) => {
-            if (!pressedHere.current) return;
+            if (!scrim.pressed.current) return;
             const point = fromCenter(event.clientX, event.clientY);
             setView((current) => (current.scale > MIN_SCALE ? FIT : zoomAbout(current, STEP, point)));
           }}
-          onClick={(event) => {
-            // A click beside the fitted image closes the viewer, as on the scrim of a sheet; not the
-            // second click of the double click that opened it.
-            if (event.target === event.currentTarget && view.scale === MIN_SCALE && pressedHere.current) onClose();
-          }}
+          onClick={scrim.props.onClick}
         >
           <img
             className="acpmux-image-viewer-image"

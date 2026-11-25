@@ -22,7 +22,7 @@ use super::{
 };
 use crate::browser::{BrowserSource, BrowserStatus};
 use crate::model::State;
-use crate::mux::ResourceEffectProjection;
+use crate::mux::{ResourceEffectProjection, TerminalCloseGuard, TerminalCloseGuardFailed};
 use crate::resource::{
     BrowserPublicId, ContentPublicId, ResourceError, ResourceOperation, TerminalPublicId,
     WireDecimal,
@@ -217,17 +217,19 @@ fn terminal_output_read(
     let after = optional_decimal(&request.fields, "after")?;
     // The catalog injects the default and enforces the 1..=4 MiB bounds.
     let max_bytes = required_u64(&request.fields, "max_bytes")?;
-    mux.terminal_output_read(&terminal_id, after, max_bytes).map_err(|error| {
-        // Journal failures can contain SQLite paths, trigger text, and other
-        // host diagnostics. Keep those details in daemon logs; this resource
-        // is user-facing and must return a stable, non-sensitive error.
-        eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
-        ResourceError::operation_failed(
-            "terminal.output_read",
-            "could not read terminal output",
-            json!({}),
-        )
-    })
+    let recovery = super::optional_string(&request.fields, "recovery")?;
+    mux.terminal_output_read_with_recovery(&terminal_id, after, max_bytes, recovery.as_deref())
+        .map_err(|error| {
+            // Journal failures can contain SQLite paths, trigger text, and other
+            // host diagnostics. Keep those details in daemon logs; this resource
+            // is user-facing and must return a stable, non-sensitive error.
+            eprintln!("cmux-tui: terminal output read failed for {terminal_id}: {error:#}");
+            ResourceError::operation_failed(
+                "terminal.output_read",
+                "could not read terminal output",
+                json!({}),
+            )
+        })
 }
 
 fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -419,15 +421,34 @@ fn execute_terminal_effect(
         Err(error) => return effects::commit_known_failure(mux, prepared, error),
     };
     if prepared.operation == "terminal.close" {
+        // `if_unplaced`: end the terminal only when nothing shows it (no tab,
+        // no `keep` mark, no attach stream), the reaper's rule without the
+        // grace. A retained terminal is a stored known failure, so a retry
+        // with the key answers the same.
+        let guard = if fields.get("if_unplaced").and_then(Value::as_bool) == Some(true) {
+            TerminalCloseGuard::UnplacedAndNotKept
+        } else {
+            TerminalCloseGuard::None
+        };
+        if guard == TerminalCloseGuard::UnplacedAndNotKept && mux.terminal_attached(&terminal_id) {
+            return effects::commit_known_failure(mux, prepared, terminal_retained(&terminal_id));
+        }
         let commit = mux.commit_resource_terminal_close_effect(
             &terminal_id,
             &prepared.idempotency_key,
             &prepared.operation,
             &prepared.fingerprint,
+            guard,
         );
+        if let Err(error) = &commit
+            && error.downcast_ref::<TerminalCloseGuardFailed>().is_some()
+        {
+            return effects::commit_known_failure(mux, prepared, terminal_retained(&terminal_id));
+        }
         return finish_projection_commit(mux, prepared, commit);
     }
 
+    mux.wake_lazy_terminal(&terminal_id);
     let Some(surface_id) = mux.resource_surface_for_terminal(&terminal_id) else {
         return effects::commit_known_failure(
             mux,
@@ -469,6 +490,10 @@ fn execute_terminal_effect(
     };
     if let Err(failure) = action {
         return finish_action_failure(mux, prepared, failure);
+    }
+    // The input's sequence point for `terminal wait --until idle`.
+    if matches!(prepared.operation.as_str(), "terminal.input.write" | "terminal.input.keys") {
+        surface.note_terminal_input();
     }
 
     debug_assert!(effects::receipt_only_operation(&prepared.operation));
@@ -649,6 +674,16 @@ fn commit_projected_browser_effect(
         },
     );
     finish_projection_commit(mux, prepared, commit)
+}
+
+/// The `if_unplaced` close of a terminal that has a tab, is kept or is
+/// attached: nothing changed.
+fn terminal_retained(terminal_id: &TerminalPublicId) -> ResourceError {
+    ResourceError::operation_failed(
+        "terminal.close",
+        "the terminal has a tab, is marked keep or is attached, so it was left running",
+        json!({"terminal_retained":true,"terminal_id":terminal_id}),
+    )
 }
 
 fn finish_projection_commit(
@@ -1071,6 +1106,8 @@ fn resolve_terminal_surface(
     let path = mux.resolve_resource_path(ResourceTarget::Terminal, selectors)?;
     let terminal_id =
         path.terminal.ok_or_else(|| ResourceError::not_found("terminal", "<resolved>"))?;
+    // A parked terminal starts on its first need (mux/terminal_respawn/lazy.rs).
+    mux.wake_lazy_terminal(&terminal_id);
     let surface_id = mux
         .resource_surface_for_terminal(&terminal_id)
         .ok_or_else(|| ResourceError::not_found("terminal", terminal_id.as_str()))?;

@@ -147,13 +147,14 @@ final class SentAttachmentThumbnails {
         order.removeAll { images[$0] == nil }
     }
 
-    /// The sent images of `turns` that have their bytes, at the size their bubbles draw them.
+    /// The sent pictures of `turns` (images, and videos' posters) that have their bytes, at the
+    /// size their bubbles draw them (`SentAttachments`).
     private func wanted(_ turns: [AgentTurn]) -> [(key: String, data: Data, side: CGFloat)] {
         var out: [(String, Data, CGFloat)] = []
         for turn in turns {
-            let images = turn.attachments.filter { $0.kind == .image }
+            let images = turn.attachments.filter(SentAttachments.isVisual)
             let side = Self.side(Self.size(images: images.count))
-            for attachment in images.prefix(3) {
+            for attachment in images.prefix(3).compactMap(\.picture) {
                 guard let data = attachment.data else { continue }
                 out.append((Self.key(attachment, data: data, side: side), data, side))
             }

@@ -10,6 +10,8 @@
 #     [--arg=scenarios=terminal,tab1] [--arg=settings={"browser":{...}}]
 #     [--arg=freeze=SECONDS] [--arg=neighbors=0..3]  (browser.freezeHiddenTabs and
 #     browser.keepNeighborTabsAwake without JSON, which the fleet's argument check refuses)
+#     [--arg=extension=mv3-all-sites]  (a minimal all-sites MV3 extension loaded: bench_power.py --extension)
+#     [--arg=pages=busy]  (the tabs open a page with a timer and an animation loop: bench_power.py --tab-page)
 # Each idle scenario settles 120 s first (Chromium's post-load work), so a
 # full run takes about 25 minutes.
 # The idle-CPU stop condition (40 open chats, 60 s settle, 120 s measured, every
@@ -18,6 +20,8 @@
 #     --script scripts/measure/perf-idle-power.sh --ref SHA --arg=scenarios=idle-chats \
 #     --arg=config=bench --artifact artifacts/perf-idle-power.json \
 #     [--arg=chats=40] [--arg=settle=60] [--arg=measure=120] [--arg=budget=5]
+#   relaunch-reconnect (scenarios=relaunch-reconnect) takes [--arg=chats=N] [--arg=rounds=N]: rounds per
+#   mode (3 by default; 5 gives 15 relaunches across warm, update and cold).
 #   The log prints the per-process table between PERF-IDLE-CHATS-TABLE-BEGIN and -END;
 #   the JSON keeps it as results[0].markdown.
 # Output: PERF-POWER lines; JSON at artifacts/perf-idle-power.json.
@@ -25,23 +29,29 @@ set -euo pipefail
 measure=""
 settle=""
 chats=""
+rounds=""
 budget=""
 config=Release
 scenarios=""
 settings="{}"
 freeze=""
 neighbors=""
+extension=""
+pages=""
 for arg in "$@"; do
   case "$arg" in
     measure=*) measure="${arg#measure=}"; [[ "$measure" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: measure=SECONDS" >&2; exit 2; } ;;
     settle=*) settle="${arg#settle=}"; [[ "$settle" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: settle=SECONDS" >&2; exit 2; } ;;
     chats=*) chats="${arg#chats=}"; [[ "$chats" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: chats=N" >&2; exit 2; } ;;
+    rounds=*) rounds="${arg#rounds=}"; [[ "$rounds" =~ ^[1-9][0-9]*$ ]] || { echo "perf-idle-power.sh: rounds=N" >&2; exit 2; } ;;
     budget=*) budget="${arg#budget=}"; [[ "$budget" =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo "perf-idle-power.sh: budget=PERCENT" >&2; exit 2; } ;;
     config=*) config="${arg#config=}" ;;
     scenarios=*) scenarios="${arg#scenarios=}" ;;
     settings=*) settings="${arg#settings=}" ;;
     freeze=*) freeze="${arg#freeze=}"; [[ "$freeze" =~ ^[0-9]+$ ]] || { echo "perf-idle-power.sh: freeze=SECONDS" >&2; exit 2; } ;;
     neighbors=*) neighbors="${arg#neighbors=}"; [[ "$neighbors" =~ ^[0-3]$ ]] || { echo "perf-idle-power.sh: neighbors=0..3" >&2; exit 2; } ;;
+    extension=*) extension="${arg#extension=}"; [[ "$extension" =~ ^[a-z0-9-]+$ ]] || { echo "perf-idle-power.sh: extension=NAME" >&2; exit 2; } ;;
+    pages=*) pages="${arg#pages=}"; [[ "$pages" =~ ^(static|busy)$ ]] || { echo "perf-idle-power.sh: pages=static|busy" >&2; exit 2; } ;;
     *) echo "perf-idle-power.sh: unknown argument $arg" >&2; exit 2 ;;
   esac
 done
@@ -70,7 +80,7 @@ fi
 release=()
 [ "$config" = "Release" ] && release=(--release)
 [ "$config" = "bench" ] && release=(--config bench)
-CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfpower "${release[@]}" 2>&1 | tee "$work/reload.log" || { tail -n 80 "$work/reload.log"; exit 1; }
+CMUX_DEV_BACKEND_MODE=local ./scripts/reload.sh --tag perfpower ${release[@]+"${release[@]}"} 2>&1 | tee "$work/reload.log" || { tail -n 80 "$work/reload.log"; exit 1; }
 app="$(sed -n '/^App path:/{n;s/^ *//;p;}' "$work/reload.log" | tail -n 1)"
 [[ -n "$app" && -d "$app" ]] || { echo "perf-idle-power: reload printed no app path" >&2; tail -n 40 "$work/reload.log"; exit 1; }
 extra=()
@@ -78,6 +88,9 @@ extra=()
 [ -n "$measure" ] && extra+=(--measure "$measure")
 [ -n "$settle" ] && extra+=(--settle "$settle")
 [ -n "$chats" ] && extra+=(--load-local "$chats")
+[ -n "$rounds" ] && extra+=(--relaunch-rounds "$rounds")
 [ -n "$budget" ] && extra+=(--process-budget "$budget")
+[ -n "$extension" ] && extra+=(--extension "$extension")
+[ -n "$pages" ] && extra+=(--tab-page "$pages")
 python3 scripts/cmux-next/bench_power.py --app "$app" --config "$settings" \
   --out artifacts/perf-idle-power.json --md artifacts/perf-idle-power.md ${extra[@]+"${extra[@]}"}

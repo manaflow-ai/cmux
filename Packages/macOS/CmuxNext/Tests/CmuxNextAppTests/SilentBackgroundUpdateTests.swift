@@ -145,6 +145,36 @@ import Testing
         #expect(accepted == 2, "the found update kept waiting after Low Data Mode ended")
     }
 
+    /// Before the network monitor's first path the link counts as metered: a launch check's update
+    /// waits instead of downloading on Low Data Mode, and downloads once the first path says the
+    /// link is free (#39680 review F1). An update the organization requires still downloads.
+    @Test func theLinkCountsAsMeteredUntilTheFirstPath() {
+        let updater = Self.updater()
+        var accepted = 0
+        updater.acceptAvailable = { accepted += 1 }
+        updater.downloadSetting = (true, .deferLowData)
+        updater.networkPending = true
+        updater.applyDownloadPolicy()
+        #expect(!updater.downloadsFoundUpdates && accepted == 0, "an update downloaded before the monitor said which link this is")
+        updater.networkChanged(constrained: true, expensive: false)
+        #expect(!updater.downloadsFoundUpdates && accepted == 0, "an update downloaded on Low Data Mode")
+        updater.networkChanged(constrained: false, expensive: false)
+        #expect(updater.downloadsFoundUpdates && accepted == 1, "the found update kept waiting on a free link")
+
+        let free = Self.updater()
+        free.downloadSetting = (true, .deferLowData)
+        free.networkPending = true
+        free.applyDownloadPolicy()
+        free.networkChanged(constrained: false, expensive: false)
+        #expect(free.downloadsFoundUpdates, "a first path equal to the starting state left downloads off")
+
+        let always = Self.updater()
+        always.downloadSetting = (true, .download)
+        always.networkPending = true
+        always.applyDownloadPolicy()
+        #expect(always.downloadsFoundUpdates, "meteredNetwork download waited for the first path")
+    }
+
     @Test func theUsersCheckShowsTheCardNotTheButton() {
         let updater = Self.updater()
         updater.configure(checkAutomatically: true, checkInterval: 3600, downloadAutomatically: false)
@@ -164,13 +194,13 @@ import Testing
         #expect(updater.availableButton == nil)
     }
 
-    /// Automatic download and install is opt-in on every channel (Leo 2026-10-27: "ask before the
-    /// download + install step, and likewise for the reboot"): the dogfood apps ask as stable does.
-    @Test func automaticDownloadsAreOptInOnEveryChannel() {
-        #expect(!UpdateTrack.stable.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.rc.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.nightly.downloadsAutomaticallyByDefault)
-        #expect(!UpdateTrack.development.downloadsAutomaticallyByDefault)
+    /// Automatic download is on by default on every channel; the relaunch still waits for Restart to
+    /// Update (Leo 2026-11-07: "Yeah, let's do that, man. Let's get it done.").
+    @Test func automaticDownloadsAreOnByDefaultOnEveryChannel() {
+        #expect(UpdateTrack.stable.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.rc.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.nightly.downloadsAutomaticallyByDefault)
+        #expect(UpdateTrack.development.downloadsAutomaticallyByDefault)
     }
 
     /// `updates.status` (and `cmux version`) report whether this app downloads by itself, from its

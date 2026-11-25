@@ -94,7 +94,7 @@ enum CLIInstallHandlers {
     }
 
     /// The `cmux` a new login shell runs, from the login `PATH` the app last captured.
-    private static func pathCheck(_ source: URL) async -> CLIPathCheck {
+    static func pathCheck(_ source: URL) async -> CLIPathCheck {
         await CLIPathCheck.current(path: LoginEnvironment.shared.rememberedPath(), source: source)
     }
 

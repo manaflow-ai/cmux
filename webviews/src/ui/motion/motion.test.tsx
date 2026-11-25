@@ -8,6 +8,7 @@ import { DepthLayer } from "./DepthLayer";
 import { motionMode } from "./motionMode";
 import { SlidingIndicator } from "./SlidingIndicator";
 import { swapFrames, ViewSwap } from "./ViewSwap";
+import { settleReact } from "../../../test/support/domTeardown";
 
 // The ui/motion primitives: the selection and the new view are there on the click, and the motion is
 // transform (or opacity, clip) only, finite, and off under Reduce Motion or motion off.
@@ -63,6 +64,7 @@ afterEach(async () => {
   root = undefined;
   played = [];
   animations = [];
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

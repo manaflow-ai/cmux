@@ -10,6 +10,21 @@ public protocol RemoteFileClient: AnyObject {
     func read(_ path: String, maxBytes: Int) async throws -> FileSystemReadRequest.Response
     /// `fs.replace` of `path` with `text`, only at revision `expected`.
     func replace(_ path: String, text: String, expected: String) async throws -> FileSystemReplaceRequest.Response
+    /// ``read(_:maxBytes:)`` that follows no symlink on the path (`fs-read-nofollow-v1`).
+    func readNoFollow(_ path: String, maxBytes: Int) async throws -> FileSystemReadRequest.Response
+    /// ``replace(_:text:expected:)`` that writes through no symlink (`fs-write-nofollow-v1`).
+    func replaceNoFollow(_ path: String, text: String, expected: String) async throws -> FileSystemReplaceRequest.Response
+}
+
+extension RemoteFileClient {
+    /// A client with no no-follow ops refuses the read rather than follow a link.
+    public func readNoFollow(_ path: String, maxBytes: Int) async throws -> FileSystemReadRequest.Response {
+        throw DaemonError.missingCapabilities([FileSystemReadNoFollowRequest.requiredCapability ?? ""])
+    }
+
+    public func replaceNoFollow(_ path: String, text: String, expected: String) async throws -> FileSystemReplaceRequest.Response {
+        throw DaemonError.missingCapabilities([FileSystemReplaceNoFollowRequest.requiredCapability ?? ""])
+    }
 }
 
 extension AgentPaneGitLink: RemoteFileClient {
@@ -28,6 +43,14 @@ extension AgentPaneGitLink: RemoteFileClient {
 
     public func replace(_ path: String, text: String, expected: String) async throws -> FileSystemReplaceRequest.Response {
         try await request(FileSystemReplaceRequest(path: path, text: text, expected: expected), timeout: Self.fileTransferTimeout)
+    }
+
+    public func readNoFollow(_ path: String, maxBytes: Int) async throws -> FileSystemReadRequest.Response {
+        try await request(FileSystemReadNoFollowRequest(path: path, maxBytes: maxBytes), timeout: Self.fileTransferTimeout)
+    }
+
+    public func replaceNoFollow(_ path: String, text: String, expected: String) async throws -> FileSystemReplaceRequest.Response {
+        try await request(FileSystemReplaceNoFollowRequest(path: path, text: text, expected: expected), timeout: Self.fileTransferTimeout)
     }
 }
 
@@ -79,11 +102,28 @@ public final class RemoteFilePageFiles: FilePageFiles {
     public let client: any RemoteFileClient
     /// The machine's name, for the page's messages.
     public let machine: String
+    /// Every read and save follows no symlink on the path (`fs-read-nofollow-v1`,
+    /// `fs-write-nofollow-v1`): a path a Cloud chat's reply named, which
+    /// ``RemoteFileClient/reachesThroughLink(_:)`` checked, so a link swapped in on the machine
+    /// after that check reads or writes nothing through it. A machine whose daemon lacks those ops
+    /// reads with the check alone, as before they existed; it never saves through a link.
+    public let noFollow: Bool
 
     /// The files of the machine named `machine`, through `client`.
-    public init(client: any RemoteFileClient, machine: String) {
+    public init(client: any RemoteFileClient, machine: String, noFollow: Bool = false) {
         self.client = client
         self.machine = machine
+        self.noFollow = noFollow
+    }
+
+    /// `fs.read` of `path`, with no symlink followed when ``noFollow`` says so and the machine can.
+    private func readBytes(_ path: String) async throws -> FileSystemReadRequest.Response {
+        guard noFollow else { return try await client.read(path, maxBytes: Self.maximumBytes) }
+        do {
+            return try await client.readNoFollow(path, maxBytes: Self.maximumBytes)
+        } catch DaemonError.missingCapabilities {
+            return try await client.read(path, maxBytes: Self.maximumBytes)
+        }
     }
 
     public var isLocal: Bool { false }
@@ -104,7 +144,7 @@ public final class RemoteFilePageFiles: FilePageFiles {
             let before = try await stat(path)
             let reply: FileSystemReadRequest.Response
             do {
-                reply = try await client.read(path, maxBytes: Self.maximumBytes)
+                reply = try await readBytes(path)
             } catch {
                 throw openFailure(error)
             }
@@ -127,8 +167,9 @@ public final class RemoteFilePageFiles: FilePageFiles {
         } catch {
             throw openFailure(error)
         }
-        // A symlink is followed by the read itself (inside the machine's roots).
-        guard stat.kind == "file" || stat.kind == "symlink" else { throw .notFile }
+        // A symlink is followed by the read itself (inside the machine's roots), unless the page
+        // follows none.
+        guard stat.kind == "file" || stat.kind == "symlink" && !noFollow else { throw .notFile }
         if stat.kind == "file", let size = stat.size, size > UInt64(Self.maximumBytes) { throw .tooLarge }
         return stat
     }
@@ -178,7 +219,11 @@ public final class RemoteFilePageFiles: FilePageFiles {
             expected = try await targetRevision(path, url: url, baseHash: baseHash, inWorkspace: inWorkspace)
         }
         do {
-            _ = try await client.replace(path, text: text, expected: expected)
+            if noFollow {
+                _ = try await client.replaceNoFollow(path, text: text, expected: expected)
+            } else {
+                _ = try await client.replace(path, text: text, expected: expected)
+            }
         } catch {
             guard Self.code(of: error) == "fs.revision_mismatch" else { throw saveFailure(error) }
             throw await conflict(url, inWorkspace: inWorkspace)
@@ -194,7 +239,9 @@ public final class RemoteFilePageFiles: FilePageFiles {
     private func targetRevision(_ path: String, url: URL, baseHash: String?, inWorkspace: Bool) async throws(FileSaveFailure) -> String {
         var revision: String?
         do {
-            _ = try await client.replace(path, text: "", expected: "")
+            _ = noFollow
+                ? try await client.replaceNoFollow(path, text: "", expected: "")
+                : try await client.replace(path, text: "", expected: "")
         } catch {
             guard Self.code(of: error) == "fs.revision_mismatch" else { throw saveFailure(error) }
             revision = Self.currentRevision(of: error)
@@ -252,7 +299,7 @@ public final class RemoteFilePageFiles: FilePageFiles {
         default:
             switch Self.code(of: error) {
             case "fs.not_found"?: return .notFound
-            case "fs.not_a_file"?, "fs.not_a_directory"?: return .notFile
+            case "fs.not_a_file"?, "fs.not_a_directory"?, "fs.symlink_in_path"?: return .notFile
             case "fs.too_large"?: return .tooLarge
             case "fs.permission_denied"?: return .unavailable(Self.remoteDenied(machine))
             case "fs.unavailable"?: return .unavailable(Self.remoteNoFiles(machine))

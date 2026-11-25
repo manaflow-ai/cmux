@@ -1,6 +1,8 @@
 import CmuxAgentQuestion
+import CmuxMobileAgentChat
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileTransport
 import Foundation
 import OSLog
 
@@ -45,6 +47,14 @@ public final class TerminalFeed {
         /// The push that names this question (`q-` and a hash of what it asks,
         /// cmux-mobile-host `question_event_id`): a notification answers only its own question.
         public var questionEventID: String?
+        /// What the row's agent said (its answer, error, approval command or plan; the
+        /// question's text), while the Mac's daemon keeps it in memory: a Feed that reads the
+        /// ledger after the live event (the phone connected later) still shows it.
+        public var texts: Texts?
+        /// The approval a terminal agent still waits on (a Claude Code permission prompt; the
+        /// daemon's `approval`, memory only, while the agent is blocked on it): the card answers
+        /// it with Allow once / Deny, typed on its approval screen (`TerminalApprovalKeys`).
+        public var approval: TerminalApproval?
 
         public init?(json: [String: Any]) {
             guard let id = json["id"] as? String, !id.isEmpty else { return nil }
@@ -62,6 +72,11 @@ public final class TerminalFeed {
                 surface.flatMap { AgentQuestion(terminalQuestion: question, ledgerID: id, surface: $0) }
             }
             questionEventID = raw.flatMap(Self.eventID(question:))
+            func text(_ key: String) -> String? { (json[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+            let message = text("message") ?? text("detail")
+            let prompt = text("prompt")
+            texts = message == nil && prompt == nil ? nil : Texts(prompt: prompt, message: message)
+            approval = (json["approval"] as? [String: Any]).flatMap(TerminalApproval.init(json:))
         }
 
         /// cmux-mobile-host `question_event_id`: `q-` and the 64-bit FNV-1a, in hex, of the
@@ -147,6 +162,10 @@ public final class TerminalFeed {
     private var macRead: Set<String> = []
     /// Tabs acknowledged from the phone, by the newest notification they covered.
     private var acked: [Int: Date] = [:]
+    /// The Feed items whose read is on its way to the Mac (`StickyRead`): kept across a new
+    /// connection to the same Mac, so the read goes on there and is never sent twice at once.
+    private var reading: Set<String> = []
+    var reads = StickyRead()
     /// Whether this connection's ledger has been read once (history merges, live inserts).
     private var hydrated = false
     /// The rows of this connection's first read: history, wherever they land.
@@ -164,6 +183,16 @@ public final class TerminalFeed {
     private var unclaimed: [Int: [Texts]] = [:]
     /// Whether this connection's daemon checks a reply's agent (nil: not asked yet).
     private var replySupported: Bool?
+    /// Answers and replies sent while the link was being redialed, waiting for
+    /// the next connection's ledger (``waitForLink(after:)``), by id.
+    private var linkWaiters: [Int: CheckedContinuation<Bool, Never>] = [:]
+    private var nextLinkWaiter = 0
+    /// How long an answer or a reply waits for a redialed link before it says
+    /// "not connected": the keyboard's hold (`DaemonTerminalSession.inputHoldLimit`, 10 s),
+    /// so a tap made while the app is coming back from the background goes
+    /// through instead of failing (Leo, 2026-11-22: "shit shouldnt somehow
+    /// instantly dissipate after i navigate away for like one second").
+    var linkWait: Duration = .seconds(10)
 
     public init(store: FeedStore) {
         self.store = store
@@ -268,7 +297,10 @@ public final class TerminalFeed {
                 apply(ledger: try WorkspaceSync.check(reply))
             } catch let error as DaemonReplyError {
                 // An older Mac without the ledger (`notification-ack-v1`): no terminal events.
-                if generation == self.generation { unsupported = true }
+                if generation == self.generation {
+                    unsupported = true
+                    resumeLinkWaiters(true)
+                }
                 log.error("list-notifications refused: \(error.message, privacy: .public)")
                 return
             } catch {
@@ -298,12 +330,56 @@ public final class TerminalFeed {
         // (a tree change between the event and this read must not drop them).
         if hydrated { unclaimed = [:] }
         hydrated = true
+        resumeLinkWaiters(true)
+    }
+
+    // MARK: Waiting for a redialed link
+
+    /// Whether `connection` is a bound one whose ledger was read (or that has none).
+    private func linkReady(after old: Int?) -> Bool {
+        guard request != nil, let connection, connection != old else { return false }
+        return hydrated || unsupported
+    }
+
+    /// Waits until a connection newer than `old` is bound and its ledger read,
+    /// at most `linkWait`. True when it is.
+    func waitForLink(after old: Int?) async -> Bool {
+        if linkReady(after: old) { return true }
+        let id = nextLinkWaiter
+        nextLinkWaiter += 1
+        let clock = clock
+        let limit = linkWait
+        let timer = Task { [weak self] in
+            try? await clock.sleep(for: limit)
+            self?.resumeLinkWaiter(id, false)
+        }
+        defer { timer.cancel() }
+        let ready = await withCheckedContinuation { linkWaiters[id] = $0 }
+        return ready && linkReady(after: old)
+    }
+
+    /// Some answer or reply waits for a redialed link (tests).
+    var waitsForLink: Bool { !linkWaiters.isEmpty }
+
+    private func resumeLinkWaiter(_ id: Int, _ ready: Bool) {
+        linkWaiters.removeValue(forKey: id)?.resume(returning: ready)
+    }
+
+    private func resumeLinkWaiters(_ ready: Bool) {
+        let waiters = linkWaiters
+        linkWaiters = [:]
+        for waiter in waiters.values { waiter.resume(returning: ready) }
+    }
+
+    /// Whether `error` says the link was down (the request never left the phone).
+    static func isNoLink(_ error: any Error) -> Bool {
+        (error as? LinkError)?.code == "no-link"
     }
 
     /// The phone read these items (opened, swiped, marked): the Mac marks
-    /// their tabs read too, as its own panel does.
+    /// their tabs read too, as its own panel does, once its daemon answers.
     public func itemsChanged(_ items: [FeedItem]) {
-        guard let request, let connection, !macID.isEmpty else { return }
+        guard request != nil, connection != nil, !macID.isEmpty else { return }
         let byID = Dictionary(entries.map { (Self.itemID(macID: macID, entry: $0.id), $0) }, uniquingKeysWith: { first, _ in first })
         // The Mac reads a whole tab at once, so only the read of a tab's newest
         // event marks it: reading an older one must not hide a newer one there.
@@ -311,23 +387,66 @@ public final class TerminalFeed {
         for entry in entries where !isEcho(entry) {
             if let surface = entry.surface { newest[surface] = max(newest[surface] ?? entry.createdAt, entry.createdAt) }
         }
-        var surfaces: [Int: Date] = [:]
-        for item in items where item.opensTerminal && item.isRead {
+        var surfaces: [Int: Entry] = [:]
+        for item in items where item.opensTerminal && item.isRead && !reading.contains(item.id) {
             guard let entry = byID[item.id], !entry.acknowledged, let surface = entry.surface,
                   newest[surface] == entry.createdAt,
                   (acked[surface] ?? .distantPast) < entry.createdAt else { continue }
-            surfaces[surface] = entry.createdAt
+            surfaces[surface] = entry
         }
-        for (surface, newest) in surfaces {
-            acked[surface] = newest
-            Task {
-                do {
-                    _ = try WorkspaceSync.check(try await request("ack-tab-notifications", ["surface": surface], connection))
-                } catch {
-                    log.error("ack-tab-notifications \(surface, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+        for (surface, entry) in surfaces {
+            acked[surface] = entry.createdAt
+            read(entry, surface: surface)
+        }
+    }
+
+    /// Sends the read of `entry` (its tab's newest event) until the Mac answers it
+    /// (`StickyRead`): while the Mac's daemon is down or restarting the read stays, and it goes
+    /// on the connection to this Mac bound at each try, to the tab's surface the ledger gives then.
+    private func read(_ entry: Entry, surface: Int) {
+        let macID = macID
+        let itemID = Self.itemID(macID: macID, entry: entry.id)
+        reading.insert(itemID)
+        let reads = reads
+        // task-owner: one read the person made, sent again while the Mac is unanswered; ends on its
+        // answer, a refusal or the read no longer standing (`readStands`, which ends with this feed)
+        Task { [weak self] in
+            do {
+                let answered = try await reads.send(stands: { self?.readStands(entry.id, macID: macID) == true }) {
+                    guard let self, let request = self.request, let connection = self.connection else {
+                        throw LinkError(code: "no-link", message: "Not connected to the Mac")
+                    }
+                    // A new connection's ledger says first whether this row is still its tab's newest:
+                    // a notification that came meanwhile must not be acknowledged unseen.
+                    guard self.hydrated else { throw LinkError(code: "not-read", message: "The Mac's notifications are not read yet") }
+                    let surface = self.entries.first { $0.id == entry.id }?.surface ?? surface
+                    return try WorkspaceSync.check(try await request("ack-tab-notifications", ["surface": surface], connection))
                 }
+                if let self, self.macID == macID {
+                    if answered != nil {
+                        // Answered on a newer connection, which starts with no acks: this one counts there.
+                        self.acked[surface] = max(self.acked[surface] ?? .distantPast, entry.createdAt)
+                    } else if self.acked[surface] == entry.createdAt {
+                        // It stopped unsent (marked unread meanwhile): a later read of it goes again.
+                        self.acked[surface] = nil
+                    }
+                }
+            } catch {
+                log.error("ack-tab-notifications \(surface, privacy: .public) refused: \(String(describing: error), privacy: .public)")
             }
+            self?.reading.remove(itemID)
         }
+    }
+
+    /// Whether the person's read of ledger row `id` on `macID` still stands: the same Mac, its
+    /// Feed event still read here, and the Mac's ledger (once read on this connection) still
+    /// shows the row unread and as its tab's newest: a newer one shows, the person has not seen it.
+    private func readStands(_ id: String, macID: String) -> Bool {
+        guard macID == self.macID, store.item(id: Self.itemID(macID: macID, entry: id))?.isRead == true else { return false }
+        // A new connection reads the ledger again before it says anything (the try waits for it).
+        guard hydrated else { return true }
+        guard let entry = entries.first(where: { $0.id == id }), !entry.acknowledged, let surface = entry.surface else { return false }
+        return !entries.contains { $0.surface == surface && $0.createdAt > entry.createdAt && !isEcho($0) }
     }
 
     // MARK: Mapping
@@ -358,9 +477,11 @@ public final class TerminalFeed {
                 unclaimed[surface]?.removeFirst()
                 if texts.updateValue(kept, forKey: entry.id) == nil { textOrder.append(entry.id) }
             }
+            // The live event's texts, else what the ledger read still carries.
+            let rowTexts = texts[entry.id] ?? entry.texts
             var item = Self.item(entry, id: id, harness: harness, workspace: place.workspace, tab: place.tab,
-                                 texts: texts[entry.id])
-            if texts[entry.id] == nil, let known, Self.isRicher(known, than: item) {
+                                 texts: rowTexts)
+            if rowTexts == nil, let known, Self.isRicher(known, than: item) {
                 // Shown with its texts before (this launch, or the archive): a later read of the
                 // thin ledger row keeps them.
                 item.kind = known.kind
@@ -375,6 +496,15 @@ public final class TerminalFeed {
                     if case .question = known.kind, item.kind == .needsInput {
                         store.resolveElsewhere(id, text: "Answered in the terminal")
                         continue
+                    }
+                    // An approval answered here keeps what the person did; one the agent left
+                    // (its card would lose its buttons) was answered in the terminal.
+                    if case .permission = known.kind {
+                        if known.resolution != nil || known.pending != nil { continue }
+                        if case .permission = item.kind {} else {
+                            store.resolveElsewhere(id, text: "Answered in the terminal")
+                            continue
+                        }
                     }
                     item.createdAt = known.createdAt
                     // Unchanged: no merge (each one rewrites and saves the Feed).
@@ -466,14 +596,33 @@ public final class TerminalFeed {
     static func item(_ entry: Entry, id: String, harness: String, workspace: Workspace, tab: WorkspaceTab,
                      texts: Texts? = nil) -> FeedItem {
         let agentName = harness == "terminal" ? "Terminal" : DaemonTree.agentName(harness)
-        var kind: FeedItem.Kind = entry.question.map { .question($0) } ?? kind(entry)
-        var markdown = entry.question?.items.first?.prompt ?? text(entry, agentName: agentName, kind: kind)
-        if entry.question == nil, let message = texts?.message {
+        var kind: FeedItem.Kind = entry.question.map { .question($0) }
+            ?? entry.approval.flatMap { approval in
+                // Only an approval its dialog can be told by gets buttons (`TerminalApprovalKeys.subject`).
+                TerminalApprovalKeys.subject(approval) == nil ? nil
+                    : entry.surface.map { .permission(approval.request(ledgerID: entry.id, surface: $0)) }
+            }
+            ?? kind(entry)
+        var markdown = entry.question?.items.first?.prompt
+            ?? (kind.isPermission ? entry.approval?.markdown : nil)
+            ?? text(entry, agentName: agentName, kind: kind)
+        if entry.question == nil, !kind.isPermission, let message = texts?.message {
             switch kind {
             // The answer itself, as a GUI chat's finished turn shows it.
             case .finished: kind = .response; markdown = message
             // What went wrong, under what failed ("Reported an error: Bash").
             case .failed: markdown += "\n\n" + fenced(message)
+            // What it waits on: an approval's command, a plan to review, or the question it
+            // asked (once answered, the question card is gone), under the headline.
+            // The detail's first paragraph is the tool the headline already names ("Bash"):
+            // it shows once.
+            case .needsInput where !markdown.contains(message):
+                let head = message.components(separatedBy: "\n\n").first ?? ""
+                let detail = !head.isEmpty && markdown.hasSuffix(head)
+                    ? String(message.dropFirst(head.count).drop(while: \.isNewline)) : message
+                if !detail.isEmpty {
+                    markdown = (markdown.hasPrefix("**") ? markdown : "**\(markdown)**") + "\n\n" + detail
+                }
             default: break
             }
         }
@@ -524,31 +673,50 @@ public final class TerminalFeed {
     /// foreground program must be the agent, not a shell
     /// (the daemon checks that again right before each write, so text never
     /// lands in a shell that took the terminal back).
+    ///
+    /// Sent while the link is being redialed (the app just came back from the
+    /// background), it waits for the new connection (`linkWait`) and goes
+    /// then, checked again there, instead of failing at once.
     public func reply(itemID: String, text: String) async -> String? {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return "Type a reply first." }
-        guard let request, let send, let connection, let tree, !macID.isEmpty else { return "Not connected to the Mac." }
+        let old = connection
+        if case .done(let message) = await replyOnce(itemID: itemID, text: text) { return message }
+        guard await waitForLink(after: old) else { return "Not connected to the Mac." }
+        if case .done(let message) = await replyOnce(itemID: itemID, text: text) { return message }
+        return "Couldn't reach the Mac. The reply was not sent."
+    }
+
+    /// One try of ``reply(itemID:text:)``: `.noLink` when nothing left the
+    /// phone because the link was down.
+    private enum ReplyTry {
+        case done(String?)
+        case noLink
+    }
+
+    private func replyOnce(itemID: String, text: String) async -> ReplyTry {
+        guard let request, let send, let connection, let tree, !macID.isEmpty else { return .noLink }
         guard let entry = entries.first(where: { Self.itemID(macID: macID, entry: $0.id) == itemID }), let surface = entry.surface else {
-            return "This event is no longer on the Mac. Open the terminal to reply."
+            return .done("This event is no longer on the Mac. Open the terminal to reply.")
         }
         let newest = entries.filter { $0.surface == surface && !isEcho($0) }.max { $0.createdAt < $1.createdAt }
-        guard newest?.id == entry.id else { return "The agent has posted since. Reply to its newest event, or open the terminal." }
+        guard newest?.id == entry.id else { return .done("The agent has posted since. Reply to its newest event, or open the terminal.") }
         guard let tab = Self.places(tree)[surface]?.tab, tab.kind == .terminal, let harness = tab.harness else {
-            return "The agent is no longer running in that terminal."
+            return .done("The agent is no longer running in that terminal.")
         }
-        guard let item = store.item(id: itemID), item.harness != "terminal" else { return "Open the terminal to reply." }
-        guard item.harness == harness else { return "Another agent runs in that terminal now. Open it to reply." }
+        guard let item = store.item(id: itemID), item.harness != "terminal" else { return .done("Open the terminal to reply.") }
+        guard item.harness == harness else { return .done("Another agent runs in that terminal now. Open it to reply.") }
         // Only at the agent's prompt: text typed while it works, or into an approval or a
         // question on its screen, would answer something else.
         switch tab.agentStatus {
-        case .working: return "The agent is still working. Reply when it finishes, or open the terminal."
-        case .waiting: return "The agent is waiting for an answer in the terminal. Open it to answer."
+        case .working: return .done("The agent is still working. Reply when it finishes, or open the terminal.")
+        case .waiting: return .done("The agent is waiting for an answer in the terminal. Open it to answer.")
         case nil: break
         }
         // The daemon checks the agent against the session that posted; without one (an older
         // Mac, or an event this launch did not see) nothing names that session.
         guard let session = texts[entry.id]?.session else {
-            return "This event's agent session isn't known here. Open the terminal to reply."
+            return .done("This event's agent session isn't known here. Open the terminal to reply.")
         }
         var sending = false
         do {
@@ -559,32 +727,34 @@ public final class TerminalFeed {
                 let data = identify["data"] as? [String: Any] ?? identify
                 replySupported = (data["capabilities"] as? [String] ?? []).contains(Self.replyCapability)
             }
-            guard replySupported == true else { return "Update cmux on the Mac to reply from here. Open the terminal to reply." }
+            guard replySupported == true else { return .done("Update cmux on the Mac to reply from here. Open the terminal to reply.") }
             let info = try WorkspaceSync.check(try await request("process-info", ["surface": surface], connection))
             let data = info["data"] as? [String: Any] ?? info
             guard let program = Self.runningProgram(foreground: data["foreground_executable"] as? String,
                                                     command: data["command"] as? String) else {
-                return "Only a shell runs in that terminal now, so the reply was not sent."
+                return .done("Only a shell runs in that terminal now, so the reply was not sent.")
             }
             sending = true
             _ = try WorkspaceSync.check(try await send(surface, Self.typable(text), program, session, connection))
         } catch let error as DaemonReplyError {
             log.error("terminal reply refused: \(error.message, privacy: .public)")
             if error.message.contains("after the text was written") {
-                return "The reply was typed but may not have been submitted. Open the terminal to check."
+                return .done("The reply was typed but may not have been submitted. Open the terminal to check.")
             }
-            if error.message.contains("foreground changed") { return "The agent left that terminal, so the reply was not sent." }
+            if error.message.contains("foreground changed") { return .done("The agent left that terminal, so the reply was not sent.") }
             if error.message.contains("agent not waiting") {
-                return "Open the terminal to answer the agent."
+                return .done("Open the terminal to answer the agent.")
             }
-            return "The Mac refused the reply: \(error.message)"
+            return .done("The Mac refused the reply: \(error.message)")
         } catch {
+            // The link was down: nothing left the phone, so it may go again on the next one.
+            if Self.isNoLink(error) { return .noLink }
             log.error("terminal reply failed: \(String(describing: error), privacy: .public)")
             // The send may have reached the Mac before the link dropped: say so, so it is not typed twice.
-            return sending ? "The link dropped while sending. Open the terminal to check whether the reply arrived."
-                : "Couldn't reach the Mac. The reply was not sent."
+            return .done(sending ? "The link dropped while sending. Open the terminal to check whether the reply arrived."
+                : "Couldn't reach the Mac. The reply was not sent.")
         }
-        return nil
+        return .done(nil)
     }
 
     /// The reply as the agent's input: line breaks and tabs kept, every other
@@ -665,12 +835,13 @@ public final class TerminalFeed {
 
 extension FeedItem {
     /// A terminal agent's ask still open on the phone: a needs-input card, or a
-    /// question card nobody answered yet.
+    /// question or approval card nobody answered yet.
     var waitsInTerminal: Bool {
         guard resolution == nil else { return false }
         switch kind {
         case .needsInput: return true
         case .question(let question): return opensTerminal && question.isPending
+        case .permission: return opensTerminal && pending == nil
         default: return false
         }
     }
@@ -709,6 +880,42 @@ extension TerminalFeed {
         try await typeOnQuestionScreen(item, question: question, answer: answer, keys: keys)
     }
 
+    /// Answers a terminal agent's approval (Allow once or Deny) by typing it on its approval
+    /// screen (`TerminalApprovalKeys`), only while that terminal shows this approval.
+    public func respond(_ item: FeedItem, request permission: ACPPermissionRequest, option: ACPPermissionOption) async throws {
+        try await onLink { request, type, connection in
+            try await self.respondOnce(item, permission: permission, option: option, request: request, type: type, connection: connection)
+        }
+    }
+
+    private func respondOnce(_ item: FeedItem, permission: ACPPermissionRequest, option: ACPPermissionOption,
+                             request: Request, type: TypeKeys, connection: Int) async throws {
+        // The Mac's ledger now, read for this answer alone (never this phone's last read, nor a
+        // coalesced read that may not run): the row must still carry this very approval (its
+        // agent still blocked on it), or a newer one may be on screen. A failed read types nothing.
+        let ledger: [String: Any]
+        do {
+            ledger = try WorkspaceSync.check(try await request("list-notifications", ["limit": Self.limit], connection))
+        } catch {
+            if Self.isNoLink(error) { throw error }
+            log.error("terminal approval \(item.id, privacy: .public): ledger read failed; nothing typed")
+            throw QuestionRefused(message: String(localized: "Couldn't check the approval on the Mac. Nothing was typed."))
+        }
+        let rows = ((ledger["data"] as? [String: Any])?["notifications"] as? [[String: Any]]) ?? []
+        guard let entry = rows.lazy.compactMap(Entry.init(json:)).first(where: { Self.itemID(macID: macID, entry: $0.id) == item.id }),
+              let approval = entry.approval, let surface = entry.surface, permission.id == entry.id,
+              approval.request(ledgerID: entry.id, surface: surface).toolCall.rawInput == permission.toolCall.rawInput else {
+            throw QuestionRefused(message: String(localized: "The agent isn't waiting on this anymore. Nothing was typed."))
+        }
+        let reply = try WorkspaceSync.check(try await request("read-screen", ["surface": surface], connection))
+        let screen = (reply["data"] as? [String: Any])?["text"] as? String ?? ""
+        guard TerminalApprovalKeys.screenShows(screen, approval: approval) else {
+            log.info("terminal approval \(item.id, privacy: .public): the terminal no longer shows it; nothing typed")
+            throw QuestionRefused(message: String(localized: "The terminal isn't showing this approval anymore. Nothing was typed."))
+        }
+        for key in TerminalApprovalKeys.keys(option) { try await type(surface, key, connection) }
+    }
+
     /// Declines it: Escape, on the question's screen only.
     public func decline(_ item: FeedItem, question: AgentQuestion) async throws {
         try await typeOnQuestionScreen(item, question: question, answer: AgentQuestionAnswer(selections: [:]),
@@ -716,10 +923,17 @@ extension TerminalFeed {
     }
 
     private func typeOnQuestionScreen(_ item: FeedItem, question: AgentQuestion, answer: AgentQuestionAnswer, keys: [Data]) async throws {
-        guard let request, let type, let connection, let surface = Int(question.source.session.dropFirst()),
-              question.source.session.hasPrefix("s") else {
+        guard let surface = Int(question.source.session.dropFirst()), question.source.session.hasPrefix("s") else {
             throw QuestionRefused(message: FeedStore.notConnectedMessage)
         }
+        try await onLink { request, type, connection in
+            try await self.typeOnQuestionScreenOnce(item, question: question, answer: answer, keys: keys, surface: surface,
+                                                    request: request, type: type, connection: connection)
+        }
+    }
+
+    private func typeOnQuestionScreenOnce(_ item: FeedItem, question: AgentQuestion, answer: AgentQuestionAnswer, keys: [Data],
+                                          surface: Int, request: Request, type: TypeKeys, connection: Int) async throws {
         let reply = try WorkspaceSync.check(try await request("read-screen", ["surface": surface], connection))
         let screen = (reply["data"] as? [String: Any])?["text"] as? String ?? ""
         guard TerminalQuestionKeys.screenShows(screen, question: question, answer: answer) else {
@@ -730,5 +944,54 @@ extension TerminalFeed {
             if index > 0 { try await clock.sleep(for: keyPause) }
             try await type(surface, key, connection)
         }
+    }
+}
+
+extension TerminalFeed {
+    typealias Request = @MainActor (_ command: String, _ params: [String: Int], _ connection: Int) async throws -> Data
+    typealias TypeKeys = @MainActor (_ surface: Int, _ bytes: Data, _ connection: Int) async throws -> Void
+
+    /// Counts the keys a try typed: one that typed any is never tried again.
+    private final class TypedKeys {
+        var any = false
+    }
+
+    /// Runs `body` (a screen check, then its keys) on the bound connection.
+    /// When the link is down before any key was typed (the app just came back
+    /// from the background and the link is being redialed), it waits for the
+    /// next connection (`linkWait`) and runs `body` once more there, the
+    /// screen checked again, instead of failing at once. A key that already
+    /// went is never typed twice: that try ends with what it did.
+    func onLink(_ body: @MainActor (_ request: Request, _ type: TypeKeys, _ connection: Int) async throws -> Void) async throws {
+        let old = connection
+        if let request, let type, let connection {
+            let typed = TypedKeys()
+            do {
+                return try await body(request, { surface, bytes, connection in
+                    try await type(surface, bytes, connection)
+                    typed.any = true
+                }, connection)
+            } catch let error where Self.isNoLink(error) {
+                guard !typed.any else {
+                    throw QuestionRefused(message: String(localized: "The link dropped while typing the answer. Open the terminal to check it."))
+                }
+                log.info("terminal answer: the link is down; waiting for the next one")
+            }
+        }
+        guard await waitForLink(after: old), let request, let type, let connection else {
+            throw QuestionRefused(message: FeedStore.notConnectedMessage)
+        }
+        do {
+            try await body(request, type, connection)
+        } catch let error where Self.isNoLink(error) {
+            throw QuestionRefused(message: FeedStore.notConnectedMessage)
+        }
+    }
+}
+
+private extension FeedItem.Kind {
+    var isPermission: Bool {
+        if case .permission = self { return true }
+        return false
     }
 }

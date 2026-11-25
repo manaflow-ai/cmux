@@ -12,6 +12,7 @@ import { diffSessionRequest, HIDE_WHITESPACE_CAPABILITY, hideWhitespaceAvailable
 import { NO_HOST_CAPABILITIES, overflowMenuItems } from "../src/toolbar-model";
 import { blobFingerprint, patchFingerprint, toggleViewedItem, viewedStateOfItem } from "../src/viewed-files";
 import { sanitizeViewerPrefs } from "../src/viewer-prefs";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -51,12 +52,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const transport = {} as DiffTransport;
@@ -101,7 +99,15 @@ test("the next session asks for ignoreWhitespace only when it is on and can appl
 test("the menu row is checked only where it applies", () => {
   const row = (hideWhitespace: boolean, available: boolean) =>
     overflowMenuItems(
-      { hideImports: false, hideWhitespace, loadFullFiles: false, richPreview: false, wordDiffs: true },
+      {
+        collapsed: false,
+        hideImports: false,
+        hideWhitespace,
+        loadFullFiles: false,
+        richPreview: false,
+        wordDiffs: true,
+        wordWrap: false,
+      },
       { ...NO_HOST_CAPABILITIES, hideWhitespace: available },
     ).find((item) => item.id === "hide-whitespace");
   expect(row(true, true)).toMatchObject({ available: true, checked: true });
@@ -176,7 +182,15 @@ test("an unavailable row does nothing and says why", async () => {
 test("the check mark follows what the shown session did, once it answered", () => {
   const row = (hideWhitespace: boolean, whitespaceHidden: boolean | null) =>
     overflowMenuItems(
-      { hideImports: false, hideWhitespace, loadFullFiles: false, richPreview: false, wordDiffs: true },
+      {
+        collapsed: false,
+        hideImports: false,
+        hideWhitespace,
+        loadFullFiles: false,
+        richPreview: false,
+        wordDiffs: true,
+        wordWrap: false,
+      },
       { ...NO_HOST_CAPABILITIES, hideWhitespace: true },
       whitespaceHidden,
     ).find((item) => item.id === "hide-whitespace");
@@ -190,7 +204,15 @@ test("the check mark follows what the shown session did, once it answered", () =
 test("a patch with white space hidden is never copied as a git apply command", () => {
   const copyRow = (whitespaceHidden: boolean | null) =>
     overflowMenuItems(
-      { hideImports: false, hideWhitespace: true, loadFullFiles: false, richPreview: false, wordDiffs: true },
+      {
+        collapsed: false,
+        hideImports: false,
+        hideWhitespace: true,
+        loadFullFiles: false,
+        richPreview: false,
+        wordDiffs: true,
+        wordWrap: false,
+      },
       { ...NO_HOST_CAPABILITIES, hideWhitespace: true },
       whitespaceHidden,
     ).find((item) => item.id === "copy-git-apply");

@@ -16,6 +16,7 @@ import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { CmuxCommand, CmuxCommandResult } from "../src/agent-session/acpmux/cmuxCommands";
 import { LONG_PRESS_MS } from "../src/agent-session/acpmux/composer/SendMenu";
 import { SEND_KEYS, sendChoiceForKey, type SendChoice } from "../src/agent-session/acpmux/composer/sendMenuModel";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -76,12 +77,8 @@ afterEach(() => {
   document.body.querySelectorAll(".ui-context-menu-backdrop").forEach((node) => node.remove());
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -216,12 +213,17 @@ test("Send steers the running turn, as the button does", async () => {
   expect(menu()).toBeNull();
 });
 
-// The slot's rules and the gallery read Send's place (`.acpmux-composer-actions > .acpmux-send +
-// .acpmux-fit-mic`): the menu adds nothing around Send or after it. (This test's chat has no mic.)
-test("the menu draws no element around Send or after it: Send stays the action slot's own child", async () => {
+// The slot's rules and the gallery read Send's place: the reserved send cell
+// (`.acpmux-composer-actions > .acpmux-send-slot > .acpmux-send`, composer/SendSlotGlyph.tsx SendSlot)
+// is the action slot's own child, and the menu adds nothing around Send or after it in that cell.
+// (This test's chat has no mic.)
+test("the menu draws no element around Send or after it: Send stays the send cell's only child", async () => {
   const { send } = await composer(working(), "Also cover the timeout path");
-  expect(send().parentElement?.classList.contains("acpmux-composer-actions")).toBe(true);
+  const cell = send().parentElement;
+  expect(cell?.classList.contains("acpmux-send-slot")).toBe(true);
+  expect(cell?.parentElement?.classList.contains("acpmux-composer-actions")).toBe(true);
   expect(send().nextElementSibling).toBeNull();
+  expect(cell?.nextElementSibling).toBeNull();
 });
 
 test("Queue for later queues the prompt behind the turn, as ⌘Return does", async () => {

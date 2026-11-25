@@ -32,7 +32,7 @@ import Testing
     }
 
     @Test func agentsComesAheadOfImportAndComputerUse() {
-        #expect(OnboardingModel.Step.allCases == [.agents, .importData, .computerUse])
+        #expect(OnboardingModel.Step.allCases == [.agents, .importData, .computerUse, .makeItYours])
     }
 
     /// `_acpmux/harnesses` rows joined with `_acpmux/harness/health`: a terminal profile, a
@@ -310,6 +310,25 @@ import Testing
         #expect(model.agents.signingIn == "claude")
     }
 
+    /// The cards share one agents model: a focus refresh from another card that supersedes the read after an
+    /// install still ends that install with its Sign In (manaflow-ai/cmux#39388 review F1).
+    @Test func anInstallsSignInSurvivesARefreshThatSupersedesItsRead() async {
+        let (model, services) = model([OnboardingAgent(id: "claude", name: "Claude Code", brand: "claude", auth: .unknown, installed: false)])
+        model.stepDidAppear()
+        await Self.until { model.agents.loaded }
+        #expect(model.agents.installable.map(\.id) == ["claude"])
+        services.holdNextRead = true
+        model.agents.install("claude")
+        await Self.until { services.heldRead != nil }
+        model.agents.refresh(recheck: true)
+        await Self.until { services.signIns == ["claude"] }
+        #expect(services.signIns == ["claude"], "the refresh's read ends the install with its Sign In")
+        #expect(model.agents.installs["claude"] == nil)
+        services.heldRead?.resume()
+        await Self.until { services.reads.count == 3 && !model.agents.loading }
+        #expect(services.signIns == ["claude"], "the superseded read starts no second Sign In")
+    }
+
     @Test func aFailedInstallStaysBesideItsButton() async {
         let (model, services) = model(Self.missingClaude)
         services.installFails = "Claude Code did not install: offline. Install it from https://docs.anthropic.com/en/docs/claude-code/setup"
@@ -401,7 +420,7 @@ import Testing
         #expect(noneShown().isEmpty, "no agent CLI found (only ones to install): nothing opens")
     }
 
-    /// One step at a time: the first-run step after Agents (Bring your history) waits until the
+    /// One step at a time: the first-run step after Agents (finishing the first launch) waits until the
     /// Agents window closed; with no tool window open it goes at once.
     @Test func theNextFirstRunStepWaitsForTheAgentsWindowToClose() async throws {
         @MainActor final class Order { var steps: [String] = [] }

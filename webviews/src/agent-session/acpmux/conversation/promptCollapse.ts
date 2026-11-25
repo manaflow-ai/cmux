@@ -9,6 +9,7 @@
 import { sliceWhole } from "../../../ui/wholeChars";
 import { agentText } from "../agentText";
 import type { PromptContentPart } from "../model";
+import { sentPromptFindText, sentUIPick } from "./sentUIPickModel";
 
 /// A prompt taller than this many lines opens collapsed to them: twenty, twice the ten it was (Leo,
 /// 2026-11-07: "I feel like we should show more than we are showing right now"). conversation.css
@@ -232,17 +233,18 @@ export function bodyText(body: readonly { kind: string; text?: string }[]): stri
 
 /// What Find reads of a body `drawnBody` gave: its `bodyText`, and each text file's body where its
 /// chip draws it, opened (InlinePromptContent.tsx PromptTextFile, which Find opens to a match, as
-/// it opened the paste card that drew it before). The fold measures `bodyText` alone: closed, a
-/// file's body takes no room.
+/// it opened the paste card that drew it before); for an inspector pick's file, the report its chip
+/// opens to, never the name and fence it went with (SentUIPick.tsx). The fold measures `bodyText`
+/// alone: closed, a file's body takes no room.
 export function findBodyText(body: readonly PromptContentPart[]): string {
   return body
-    .flatMap((part) =>
-      part.kind === "text" || part.kind === "pasted"
-        ? (part.text ?? [])
-        : part.kind === "file"
-          ? (blockText(part) ?? [])
-          : [],
-    )
+    .flatMap((part) => {
+      if (part.kind === "text") return sentPromptFindText(part.text);
+      if (part.kind === "pasted") return part.text ?? [];
+      if (part.kind !== "file") return [];
+      const stored = blockText(part);
+      return stored === undefined ? [] : (sentUIPick(stored)?.text ?? stored);
+    })
     .join("\n");
 }
 

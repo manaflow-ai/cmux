@@ -10,7 +10,7 @@ extension ScreenContentView {
         ColumnStrip(layout: layout, geometry: geometry, gap: context.style.stripGap)
     }
 
-    /// Feeds the layout, geometry and focus to the reducer and presents once (or a close's `leadIfPending` does).
+    /// Feeds the layout, geometry and focus to the reducer and presents once.
     /// Returns true if the spring needs frames. A reveal that snaps (animation off,
     /// Reduce Motion) shows the `auto` scrollbar like the spring frames it
     /// replaces, only when `showsScrollbarOnSnap`: the caller passes false
@@ -19,19 +19,17 @@ extension ScreenContentView {
     func syncScroll(focused: PaneID?, source: ColumnFocusSource, mode: CenterFocusedColumn, animated: Bool, reveals: Bool = true,
                     showsScrollbarOnSnap: Bool = false) -> Bool {
         lastFocused = focused
-        // The camera this change sets decides which of its closing panes show (FRAME OWNER S3d), before its first frame.
-        defer {
-            settleClosing()
-            leadIfPending()
-        }
+        // The first scroll sync after a structural change is that change's: its cameras take their places with it.
+        let structural = scrollSyncIsStructural
+        scrollSyncIsStructural = false
         let animate = animated && !context.reduceMotion && bounds.width > 0
         // Inner first (scroll-areas-DESIGN.md K2): areas, then rows, then the strip.
         let areasNeedFrames = syncAreas(focused: focused, source: source, animated: animate, reveals: reveals)
-        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals) || areasNeedFrames
+        let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, glides: !structural, reveals: reveals) || areasNeedFrames
         guard let strip else {
             scrollState = ColumnScrollState()
             settleCarried()
-            if !leadsFrame { applyPresentation() }
+            applyPresentation()
             // Resetting the camera can start a carried pane off screen. Keep its spring
             // ticking while this workspace stays visible (Lucas 2026-10-19).
             return hasMotion || rowsNeedFrames
@@ -41,7 +39,7 @@ extension ScreenContentView {
                                                anchor: ScreenDividers(screen: self).dragAnchorColumn))
         settleCarried()
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
-        let needsFrames = apply(effects, presents: !leadsFrame)
+        let needsFrames = apply(effects, presents: true)
         return needsFrames || hasMotion || rowsNeedFrames
     }
 
@@ -49,8 +47,41 @@ extension ScreenContentView {
     @discardableResult
     func center(_ pane: PaneID, animated: Bool, reveal: Bool = false) -> Bool {
         scrollbarFlash = true
-        scrollRidesFrames = false
         return apply(scrollState.reduce(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
+    }
+
+    /// Lands every camera of the screen (the strip's, each row column's, each scroll area's, the canvas's) at its
+    /// target now. A screen a switch hides gets no frames while hidden, and a switch shows a screen at rest: a camera
+    /// left mid-spring went on from the middle of its way after the screen showed again. Not ``settleMotion()``'s
+    /// job: a workspace that hides keeps its camera springs (Lucas 2026-10-19). A camera a gesture holds is the
+    /// person's and stays.
+    func settleCameras() {
+        settleCanvasCamera()
+        var landed = false
+        if !isUserScrolling, scroll.value != scroll.target || scroll.velocity != 0 {
+            scroll.snap()
+            landed = true
+        }
+        for id in Array(rowScrolls.keys) {
+            guard let state = rowScrolls[id]?.state, !state.isGestureActive,
+                  state.spring.value != state.spring.target || state.spring.velocity != 0 else { continue }
+            rowScrolls[id]?.state.spring.snap()
+            landed = true
+        }
+        for id in Array(areaScrolls.keys) {
+            guard let state = areaScrolls[id]?.state, !state.isGestureActive,
+                  state.spring.value != state.spring.target || state.spring.velocity != 0 else { continue }
+            areaScrolls[id]?.state.spring.snap()
+            landed = true
+        }
+        guard landed else { return }
+        if !rowScrolls.isEmpty || !areaScrolls.isEmpty { refreshRowShift() }
+        applyPresentation()
+        // A scroll that came to rest tells the model its leading column, as from the frame it lands in (`step`).
+        if reportScrollOnSettle, !isUserScrolling {
+            reportScrollOnSettle = false
+            reportLeadingColumn()
+        }
     }
 
     var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }
@@ -64,13 +95,10 @@ extension ScreenContentView {
     /// A scrollbar track click: rest on `offset` (ColumnScrollEvent.page).
     func page(to offset: CGFloat) {
         scrollbarFlash = true
-        scrollRidesFrames = false
         apply(scrollState.reduce(.page(to: offset, animated: !context.reduceMotion)))
     }
 
     func beginUserScroll() {
-        // The user takes the camera over from a close in flight: its snap springs on the scroll spring.
-        scrollRidesFrames = false
         scrollState.reduce(.gestureBegan)
     }
 
@@ -91,7 +119,6 @@ extension ScreenContentView {
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
         scrollbarFlash = true
-        scrollRidesFrames = false
         apply(scrollState.reduce(.wheel(direction: direction, animated: !context.reduceMotion)))
     }
 

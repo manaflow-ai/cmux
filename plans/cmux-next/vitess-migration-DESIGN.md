@@ -98,6 +98,10 @@ Each slice is test-first (red commit, then green) and lands on `feat-cmux-next`.
    `main`), `PROJECTION_SHADOW=mysql`, a one-time copy and verify, then the same shadow-read soak
    as staging.
 5. **Production cutover**: as step 3, only after staging has run on MySQL for 3 clean days.
+   **Config 2026-11-10** (Leo, 2026-10-30: "the cmux next postgres should jsut go to the cmux next
+   vitess"): staging had run on MySQL since 2026-11-02, and production had shadow-written and
+   shadow-read since step 4 (its `main` backfilled and 13/13 tables equal on 2026-10-29). Production
+   also gets the hourly full verify. It deploys with the next production promote.
 6. **Contract**: after 3 clean days on MySQL in production, remove `projection.ts` Postgres paths,
    `home-search.ts` Postgres query, `HYPERDRIVE`/`HYPERDRIVE_RO`, `db/migrate.ts`, `test-pg/`, the
    Postgres CI steps and `pg`. The Postgres `cmux-next` database is kept (read only) until Lawrence

@@ -1,20 +1,17 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useLayoutEffect, useRef, type RefObject } from "react";
 import { watchSideways } from "./sideways";
 import { SIDEWAYS_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 
-/// Lines a closed block shows; past them it fades out and offers Show all.
+/// Lines a block's box shows; a longer block scrolls inside it (Leo 2026-11-12: "this is a really
+/// useless show all 9 lines").
 export const PREVIEW_LINES = 8;
 
-/// A block's preview: whether it is long enough to cut (more than `PREVIEW_LINES` lines), and
-/// whether the reader opened it. `data-preview` on its body is "cut" or "all", absent when it fits.
-/// Each new `reveal` (Find in Chat revealed the block, and a match may be past the cut) opens it.
+/// A block's preview: whether it is long enough to scroll in its box (more than `PREVIEW_LINES`
+/// lines), and whether Find in Chat opened it whole. `data-preview` on its body is "cut" (the box
+/// scrolls) or "all", absent when it fits. Each new `reveal` (Find in Chat revealed the block, and a
+/// match may be in a long output's head, which is drawn only once opened) opens it.
 export function usePreview(lines: number, reveal = 0, overflows = false) {
-  const [all, setAll] = useState(reveal > 0);
-  const [revealed, setRevealed] = useState(reveal);
-  if (reveal !== revealed) {
-    setRevealed(reveal);
-    if (reveal > 0) setAll(true);
-  }
+  const all = reveal > 0;
   const long = lines > PREVIEW_LINES || overflows;
   return {
     long,
@@ -22,7 +19,6 @@ export function usePreview(lines: number, reveal = 0, overflows = false) {
     all,
     lines,
     attribute: long ? (all ? "all" : "cut") : undefined,
-    toggle: () => setAll((value) => !value),
   };
 }
 

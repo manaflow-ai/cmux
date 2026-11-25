@@ -2,9 +2,10 @@
 # Fails when the linked cmux app binary carries more than three personality
 # routines in its compact-unwind info: Apple's compact unwind encodes at most
 # three per image, and the link already fails above that ("Too many
-# personality routines for compact unwind to encode"). The app's budget is
-# C++, iroh-ffi and CCmuxAppFFI (2026-10-05 decision: every in-tree Rust C ABI
-# joins cmux-tui/crates/cmux-app-ffi; never another Rust static library).
+# personality routines for compact unwind to encode"). The app links C++ and
+# CCmuxAppFFI (2026-10-05 decision: every in-tree Rust C ABI joins
+# cmux-tui/crates/cmux-app-ffi; never another Rust static library; iroh-ffi,
+# the third, is no longer linked).
 #
 #   scripts/cmux-next/check-app-personalities.sh <path to .app or Mach-O>
 set -euo pipefail
@@ -16,6 +17,11 @@ if [[ -d "$target" ]]; then
   images+=("$target/Contents/MacOS/$name")
   # Debug builds keep the code in "<name>.debug.dylib" beside a stub executable.
   [[ -f "$target/Contents/MacOS/$name.debug.dylib" ]] && images+=("$target/Contents/MacOS/$name.debug.dylib")
+  # cmux NEXT's code is CmuxNextApp.framework behind a stub executable (CMUX-629): an image of its own.
+  [[ -f "$target/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp" ]] &&
+    images+=("$target/Contents/Frameworks/CmuxNextApp.framework/Versions/A/CmuxNextApp")
+  # The app FFI as a dynamic library (Xcode embeds the dynamic CCmuxAppFFI.xcframework) is an image of its own.
+  [[ -f "$target/Contents/Frameworks/libcmux_app_ffi.dylib" ]] && images+=("$target/Contents/Frameworks/libcmux_app_ffi.dylib")
 else
   images+=("$target")
 fi

@@ -18,6 +18,7 @@
 //! rebuilds its table from the session log) and output.
 
 use cmux_codex_acp::Out;
+use cmux_json::JsonGet as _;
 use serde_json::{Value, json};
 
 /// The app-server method that stops a background terminal, and the method
@@ -67,10 +68,6 @@ fn error(client: Value, message: &str) -> Out {
     Out::Client(json!({"jsonrpc": "2.0", "id": client, "error": error}))
 }
 
-fn text<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
-    v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty())
-}
-
 /// A `background_task_update` for `exec` in `state`, with `extra` fields.
 fn update(exec: &Exec, state: &str, extra: Value) -> Out {
     let mut u = json!({
@@ -101,8 +98,8 @@ impl Background {
         let params = msg.get("params").cloned().unwrap_or(Value::Null);
         self.next += 1;
         let id = format!("{ID_PREFIX}{}", self.next);
-        let thread = text(&params, "threadId").unwrap_or("").to_owned();
-        let process = text(&params, "processId").unwrap_or("").to_owned();
+        let thread = params.get_nonempty_str("threadId").unwrap_or("").to_owned();
+        let process = params.get_nonempty_str("processId").unwrap_or("").to_owned();
         self.asked.push(Asked { id: id.clone(), client, thread, process, ended: false });
         let line = json!({"jsonrpc": "2.0", "id": id, "method": TERMINATE, "params": params});
         Some(vec![Out::Server(line)])
@@ -147,7 +144,7 @@ impl Background {
     /// processes).
     pub(super) fn observe(&mut self, raw: &Value) -> Vec<Out> {
         let p = raw.get("params").unwrap_or(&Value::Null);
-        let thread = text(p, "threadId").unwrap_or("");
+        let thread = p.get_nonempty_str("threadId").unwrap_or("");
         match raw.get("method").and_then(Value::as_str) {
             Some("item/started") => {
                 if let Some(exec) = exec_of(thread, p.get("item")) {
@@ -173,11 +170,12 @@ impl Background {
     }
 
     fn completed(&mut self, thread: &str, item: Option<&Value>) -> Vec<Out> {
-        let Some(item) = item.filter(|i| text(i, "type") == Some("commandExecution")) else {
+        let Some(item) = item.filter(|i| i.get_nonempty_str("type") == Some("commandExecution"))
+        else {
             return Vec::new();
         };
-        let Some(id) = text(item, "id") else { return Vec::new() };
-        let still_running = text(item, "status") == Some("inProgress");
+        let Some(id) = item.get_nonempty_str("id") else { return Vec::new() };
+        let still_running = item.get_nonempty_str("status") == Some("inProgress");
         if let Some(i) = self.running.iter().position(|e| e.thread == thread && e.item == id) {
             if still_running {
                 return Vec::new();
@@ -192,8 +190,11 @@ impl Background {
                 asked.ended = true;
                 return vec![update(&exec, "stopped", json!({}))];
             }
-            let state =
-                if text(item, "status") == Some("completed") { "completed" } else { "failed" };
+            let state = if item.get_nonempty_str("status") == Some("completed") {
+                "completed"
+            } else {
+                "failed"
+            };
             return vec![update(&exec, state, json!({"exitCode": item.get("exitCode")}))];
         }
         let open = self.open.iter().position(|e| e.thread == thread && e.item == id);
@@ -226,11 +227,11 @@ impl Background {
 
 /// An exec item that names its process.
 fn exec_of(thread: &str, item: Option<&Value>) -> Option<Exec> {
-    let item = item.filter(|i| text(i, "type") == Some("commandExecution"))?;
+    let item = item.filter(|i| i.get_nonempty_str("type") == Some("commandExecution"))?;
     Some(Exec {
         thread: thread.to_owned(),
-        item: text(item, "id")?.to_owned(),
-        process: text(item, "processId")?.to_owned(),
-        command: text(item, "command").unwrap_or("").to_owned(),
+        item: item.get_nonempty_str("id")?.to_owned(),
+        process: item.get_nonempty_str("processId")?.to_owned(),
+        command: item.get_nonempty_str("command").unwrap_or("").to_owned(),
     })
 }

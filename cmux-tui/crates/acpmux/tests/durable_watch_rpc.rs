@@ -41,6 +41,11 @@ async fn watch_rpc_refuses_remote_origins_self_and_invalid_parameters() {
         (json!({"to": id, "sessions": []}), "at least one session"),
         (json!({"sessions": [id]}), "to is required"),
         (json!({"to": id, "sessions": [id], "until": ["oops"]}), "until accepts"),
+        // A watch on a peer chat keeps only this much of a long reply's ends (`hub::MAX_MATCH_BYTES`).
+        (
+            json!({"to": id, "sessions": ["other"], "match": "m".repeat(2 * 1024 + 1)}),
+            "match is at most 2048 bytes",
+        ),
     ] {
         let reply = local.call("_acpmux/watch_add", params).await;
         assert!(reply["error"]["message"].as_str().unwrap().contains(expected), "{reply}");

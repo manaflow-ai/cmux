@@ -22,13 +22,28 @@
 //! - `pattern`: the wait also ends as soon as output printed after the
 //!   message's echo matches a regex (the echo itself and older output never
 //!   match), and when the command finishes without a match.
-//! - The reply is the output after the message's echo; without the echo,
+//! - The output is the screen after the message's echo; without the echo,
 //!   the output after what the screen showed before the send (`idle`).
+//! - `reply` (W5-Q) is the agent's own last message, whole, when the wait
+//!   ended idle and the daemon kept a reply after the send (a Stop hook's
+//!   `last_reply_text` on the one-terminal `agent.list`; `reply_source`
+//!   `hook`); else the output (`reply_source` `screen`).
 //! - Reads join soft-wrapped rows into the lines the program printed
 //!   (`terminal-read-unwrap-v1`) when the daemon can; an older daemon gets
 //!   the plain row reads.
 //! - A terminal whose agent waits on a dialog is refused without `force`:
 //!   the typed text would answer the dialog.
+//! - `idle` checks that Enter submitted the message (W5-R, bench round 4
+//!   A6), and fails with `send.not_submitted` instead of an empty reply:
+//!   - `no_agent_report`: the terminal's agent reports through hooks (the
+//!     daemon keeps its harness session id on the terminal), and it wrote
+//!     no record within [`SendRequest::stall`] after Enter: its prompt
+//!     submit hook did not run, so no turn started (herdr's
+//!     `agent_prompt_stalled`). A message that starts with `/` is a local
+//!     command of the harness, which runs no hook, and is exempt.
+//!   - `input_box`: the screen is still, the agent reported nothing since
+//!     Enter (a screen-detection record is no report) and its input box
+//!     still holds the message.
 
 use std::cell::Cell;
 use std::time::{Duration, Instant};
@@ -39,6 +54,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use super::super::Surface;
+use super::super::agent_start::Clock;
 use super::super::command::{self, CommandPlan, RequestPlan};
 use super::super::mcp::{Backend, CallFailure, FailureKind};
 use super::reply::{self, Reply};
@@ -48,6 +64,11 @@ use cmux_json::JsonSet as _;
 pub(in crate::cli) const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 pub(in crate::cli) const DEFAULT_SETTLE: Duration = Duration::from_secs(3);
 const DEFAULT_ENTER_DELAY: Duration = Duration::from_millis(300);
+/// How long a hook agent may take to report a submitted prompt. Measured on
+/// `sr2 claude` under load 150 (W5-R real build): 116-897 ms from Enter to
+/// the `working` hook record. A false stall makes a caller send the prompt
+/// twice, so the limit is ten times the slowest seen, not herdr's 5 s.
+pub(in crate::cli) const DEFAULT_STALL: Duration = Duration::from_secs(10);
 const DEFAULT_POLL: Duration = Duration::from_millis(250);
 /// History rows one page reads while the message's echo is not found.
 const HISTORY_PAGE_ROWS: u32 = 200;
@@ -98,6 +119,8 @@ pub(in crate::cli) struct SendRequest {
     pub idempotency_key: Option<String>,
     pub enter_delay: Duration,
     pub poll: Duration,
+    /// How long a hook agent may stay silent after Enter ([`DEFAULT_STALL`]).
+    pub stall: Duration,
     /// End the wait once output after the message's echo matches this regex.
     pub pattern: Option<String>,
     /// The CLI exits with the command's `exit_status` (`--exit-with-status`,
@@ -117,6 +140,7 @@ impl SendRequest {
             idempotency_key: None,
             enter_delay: DEFAULT_ENTER_DELAY,
             poll: DEFAULT_POLL,
+            stall: DEFAULT_STALL,
             pattern: None,
             exit_with_status: false,
         }
@@ -320,6 +344,8 @@ pub(in crate::cli) struct Sample {
     /// The shell finished a command after the send (a new OSC 133 `D`, or a
     /// prompt that ended it).
     pub finished: bool,
+    /// The agent itself (hooks, socket) wrote a record after the send.
+    pub agent_reported: bool,
 }
 
 /// The wait's verdict on the samples so far.
@@ -328,6 +354,8 @@ pub(in crate::cli) enum Verdict {
     Pending,
     Done(AgentState),
     Exited,
+    /// A hook agent reported nothing within the stall limit after Enter.
+    Stalled,
 }
 
 /// The wait after Enter: [`Settle::observe`] each sample with its time.
@@ -338,14 +366,56 @@ pub(in crate::cli) struct Settle {
     sent_at: Instant,
     last_screen: Option<String>,
     changed_at: Instant,
+    /// The stall limit, for an agent that reports every prompt.
+    stall: Option<Duration>,
+    /// The agent reported since the send.
+    reported: bool,
 }
 
 impl Settle {
     pub(in crate::cli) fn new(wait: Wait, settle: Duration, sent_at: Instant) -> Self {
-        Self { wait, settle, sent_at, last_screen: None, changed_at: sent_at }
+        Self {
+            wait,
+            settle,
+            sent_at,
+            last_screen: None,
+            changed_at: sent_at,
+            stall: None,
+            reported: false,
+        }
     }
 
+    /// The wait of a send to an agent that reports every prompt it takes:
+    /// [`Verdict::Stalled`] when no report came within `stall`, and never
+    /// idle before a report came.
+    pub(in crate::cli) fn expecting_report(self, stall: Duration) -> Self {
+        Self { stall: Some(stall), ..self }
+    }
+
+    /// Whether the agent reported since the send.
+    pub(in crate::cli) fn reported(&self) -> bool {
+        self.reported
+    }
+
+    /// The verdict after `sample`, taken at `now` (the caller's clock).
     pub(in crate::cli) fn observe(&mut self, sample: &Sample, now: Instant) -> Verdict {
+        self.reported |= sample.agent_reported;
+        let verdict = self.observe_screen(sample, now);
+        let Some(stall) = self.stall.filter(|_| !self.reported) else { return verdict };
+        match verdict {
+            Verdict::Done(AgentState::Idle) | Verdict::Pending
+                if now.saturating_duration_since(self.sent_at) >= stall =>
+            {
+                Verdict::Stalled
+            }
+            // Before the limit an idle screen is no turn's end: the agent has
+            // not reported the prompt yet.
+            Verdict::Done(AgentState::Idle) => Verdict::Pending,
+            verdict => verdict,
+        }
+    }
+
+    fn observe_screen(&mut self, sample: &Sample, now: Instant) -> Verdict {
         if self.last_screen.as_deref() != Some(sample.screen.as_str()) {
             if self.last_screen.is_some() {
                 self.changed_at = now;
@@ -391,6 +461,10 @@ pub(in crate::cli) fn sample(
             .or_else(|| record["updated_at_ms"].as_str().and_then(|text| text.parse().ok()));
         updated.is_some_and(|updated| updated >= sent_ms)
     };
+    let agent_reported = agents
+        .iter()
+        .filter(|agent| agent["terminal_id"] == terminal["id"])
+        .any(|record| roster::reported_by_agent(record) && fresh(record));
     let states: Vec<AgentState> = agents
         .iter()
         .filter(|agent| agent["terminal_id"] == terminal["id"])
@@ -410,7 +484,57 @@ pub(in crate::cli) fn sample(
         prompt: extra["prompt"].is_object(),
         exited: terminal["lifecycle"] == "exited",
         finished: false,
+        agent_reported,
     }
+}
+
+/// Whether the agent in `terminal` reports the prompt `request` sends, so
+/// silence after Enter means the prompt was not taken (review B2/M2 on
+/// #39027):
+/// - its hooks reported a harness session there (the daemon keeps the id on
+///   the terminal);
+/// - the agent's own newest record for it is `idle` at send time: a working
+///   agent queues the message and reports nothing until its turn ends, and
+///   an agent that quit leaves the id but no record;
+/// - its harness has a hook that starts a turn (`UserPromptSubmit` and the
+///   like; Copilot, CodeBuddy, Factory and Qoder have none);
+/// - the send waits for the turn (`idle`, no `--pattern`);
+/// - the message is not a local `/` command, nor Claude Code's `!` shell or
+///   `#` memory input: none of them runs a prompt hook.
+fn reports_prompts(terminal: &Value, agents: &[Value], request: &SendRequest) -> bool {
+    let hooked = terminal
+        .pointer("/extra/agent_session_id")
+        .and_then(Value::as_str)
+        .is_some_and(|session| !session.is_empty());
+    let updated = |record: &Value| {
+        let value = record.get("updated_at_ms");
+        value
+            .and_then(Value::as_u64)
+            .or_else(|| value.and_then(Value::as_str).and_then(|text| text.parse().ok()))
+            .unwrap_or(0)
+    };
+    let own = agents
+        .iter()
+        .filter(|record| {
+            record.get("terminal_id") == terminal.get("id") && roster::reported_by_agent(record)
+        })
+        .max_by_key(|record| updated(record));
+    let idle =
+        own.is_some_and(|record| record.get("state").and_then(Value::as_str) == Some("idle"));
+    let starts_turns = own
+        .and_then(|record| {
+            record.pointer("/extra/agent").or_else(|| record.get("agent")).and_then(Value::as_str)
+        })
+        .is_some_and(|harness| {
+            roster::harness_hooks_report(harness, cmux_tui_core::agent_hook_event_starts_turn)
+        });
+    let local_input = request.text.trim_start().starts_with(['/', '!', '#']);
+    hooked
+        && idle
+        && starts_turns
+        && request.wait == Wait::Idle
+        && request.pattern.is_none()
+        && !local_input
 }
 
 /// The terminal record's last finished shell command (`extra.last_command`).
@@ -439,6 +563,19 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     backend: &B,
     session: Option<&str>,
     request: &SendRequest,
+) -> Result<Value, SendFailure> {
+    let mut sleep = std::thread::sleep;
+    let mut clock = Clock { now: &Instant::now, sleep: &mut sleep, now_ms: super::now_ms() };
+    run_on(backend, session, request, &mut clock)
+}
+
+/// [`run`] on `clock`: the Enter delay, the polls and the stall limit use it
+/// (tests pass a fake one). Agent record times still compare with unix ms.
+pub(in crate::cli) fn run_on<B: Daemon + ?Sized>(
+    backend: &B,
+    session: Option<&str>,
+    request: &SendRequest,
+    clock: &mut Clock<'_>,
 ) -> Result<Value, SendFailure> {
     if request.text.trim().is_empty() {
         return Err(SendFailure::local("usage.invalid", "send needs --text", json!({}), 2));
@@ -532,9 +669,9 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         .map(|screen| reply::lines(screen.get("text").and_then(Value::as_str).unwrap_or_default()));
     let sent_ms = super::now_ms();
     write(&typed, "paste")?;
-    std::thread::sleep(request.enter_delay);
+    (clock.sleep)(request.enter_delay);
     write(&engine.encode(b"\r"), "enter")?;
-    let sent_at = Instant::now();
+    let sent_at = (clock.now)();
     let mut receipt = json!({
         "terminal": id,
         "idempotency_key": send_id,
@@ -551,9 +688,44 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
         session,
         &id,
         request,
-        &Watch { sent_at, sent_ms, before: before.as_ref(), pattern: pattern.as_ref() },
+        &Watch {
+            sent_at,
+            sent_ms,
+            before: before.as_ref(),
+            pattern: pattern.as_ref(),
+            reports_prompts: reports_prompts(terminal, agents, request),
+        },
         &reads,
+        clock,
     )?;
+    let shown_text = waited.screen.get("text").and_then(Value::as_str).unwrap_or_default();
+    let unsubmitted = match waited.verdict {
+        Verdict::Stalled => Some("no_agent_report"),
+        Verdict::Done(AgentState::Idle)
+            if request.wait == Wait::Idle
+                && pattern.is_none()
+                && !waited.agent_reported
+                && reply::input_box_holds(shown_text, &request.text) =>
+        {
+            Some("input_box")
+        }
+        _ => None,
+    };
+    if let Some(reason) = unsubmitted {
+        let message = crate::localization::catalog().terminal_input.send_not_submitted;
+        return Err(SendFailure::local(
+            "send.not_submitted",
+            message.replace("{terminal}", &id),
+            json!({
+                "terminal": id,
+                "idempotency_key": send_id,
+                "typed": true,
+                "reason": reason,
+                "stall_ms": request.stall.as_millis().to_string(),
+            }),
+            1,
+        ));
+    }
     let lines = reply_lines(backend, session, &id, &waited.screen, &request.text, &reads);
     let screen =
         reply::lines(waited.screen.get("text").and_then(Value::as_str).unwrap_or_default());
@@ -562,20 +734,29 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     let (state, timed_out) = match waited.verdict {
         Verdict::Done(state) => (state.as_str(), false),
         Verdict::Exited => ("exited", false),
-        Verdict::Pending => (AgentState::Working.as_str(), true),
+        // A stalled send already failed with send.not_submitted above.
+        Verdict::Pending | Verdict::Stalled => (AgentState::Working.as_str(), true),
     };
     // `status` is the word `terminal list --agents` says for this turn: a
     // finished turn nobody viewed yet (an unread notification, read after
-    // the wait) is `done`; `state` keeps the wait's own word.
+    // the wait) is `done`; `state` keeps the wait's own word. The snapshot
+    // from before the send cannot tell (its unread notification is an older
+    // turn's), so a failed read is tried once more. When that fails too, a
+    // finished turn is `unknown`: `idle` would claim somebody viewed it.
     let status = match waited.verdict {
         Verdict::Done(state) => {
-            let after = self::snapshot(backend, session).ok();
-            let unseen = roster::unseen(after.as_ref().unwrap_or(&snapshot), &id);
-            roster::status_of(state.as_str(), unseen)
-                .map_or(state.as_str(), |status| status.as_str())
+            let after =
+                self::snapshot(backend, session).or_else(|_| self::snapshot(backend, session));
+            match after {
+                Ok(after) => roster::status_of(state.as_str(), roster::unseen(&after, &id))
+                    .map_or(state.as_str(), |status| status.as_str()),
+                Err(_) if state == AgentState::Idle => cmux_tui_core::AgentStatus::Unknown.as_str(),
+                Err(_) => roster::status_of(state.as_str(), false)
+                    .map_or(state.as_str(), |status| status.as_str()),
+            }
         }
         Verdict::Exited => AgentState::Ended.as_str(),
-        Verdict::Pending => AgentState::Working.as_str(),
+        Verdict::Pending | Verdict::Stalled => AgentState::Working.as_str(),
     };
     receipt.set("sent", Value::Bool(true));
     if let Some(code) = waited.finished.as_ref().and_then(exit_status) {
@@ -589,6 +770,15 @@ pub(in crate::cli) fn run<B: Daemon + ?Sized>(
     receipt.set("timed_out", Value::Bool(timed_out));
     receipt.set("waited_ms", json!(sent_at.elapsed().as_millis().to_string()));
     receipt.set("anchored", Value::Bool(anchored));
+    let hooked = (waited.verdict == Verdict::Done(AgentState::Idle))
+        .then(|| hook_reply(&waited.records, sent_ms))
+        .flatten();
+    let (reply, source) = match hooked {
+        Some(reply) => (reply, "hook"),
+        None => (text.clone(), "screen"),
+    };
+    receipt.set("reply", Value::String(reply));
+    receipt.set("reply_source", json!(source));
     receipt.set("output", Value::String(text));
     Ok(receipt)
 }
@@ -600,6 +790,8 @@ struct Watch<'a> {
     /// The terminal's last finished command before the message was typed.
     before: Option<&'a Value>,
     pattern: Option<&'a Regex>,
+    /// The terminal's agent reports every prompt it takes (its hooks).
+    reports_prompts: bool,
 }
 
 /// How the wait ended.
@@ -611,6 +803,10 @@ struct Waited {
     finished: Option<Value>,
     /// `--pattern` matched output after the echo.
     matched: bool,
+    /// The last agent records read (`agent list --terminal`).
+    records: Vec<Value>,
+    /// The agent itself (hooks, socket) wrote a record after the send.
+    agent_reported: bool,
 }
 
 /// Whether this daemon joins soft wraps on reads (`terminal-read-unwrap-v1`);
@@ -685,8 +881,12 @@ fn wait<B: Daemon + ?Sized>(
     request: &SendRequest,
     watch: &Watch<'_>,
     reads: &Reads,
+    clock: &mut Clock<'_>,
 ) -> Result<Waited, SendFailure> {
     let mut settle = Settle::new(request.wait, request.settle, watch.sent_at);
+    if watch.reports_prompts {
+        settle = settle.expecting_report(request.stall);
+    }
     let deadline = watch.sent_at + request.timeout;
     let show = plan(&["terminal", id, "show"])?;
     let agents = plan(&["agent", "list", "--terminal", id])?;
@@ -695,11 +895,11 @@ fn wait<B: Daemon + ?Sized>(
         // An agent list failure (an older daemon) leaves the screen and
         // the program status to decide.
         let records = backend.request(session, agents.clone()).unwrap_or(Value::Null);
-        let records = records.as_array().map(Vec::as_slice).unwrap_or_default();
+        let records = records.as_array().cloned().unwrap_or_default();
         let shown = reads.screen(backend, session, id, &[])?;
-        let now = Instant::now();
+        let now = (clock.now)();
         let finished = finished_since(&terminal, watch.before).cloned();
-        let mut sample = sample(&terminal, records, &shown, watch.sent_ms);
+        let mut sample = sample(&terminal, &records, &shown, watch.sent_ms);
         sample.finished = finished.is_some();
         let matched = watch
             .pattern
@@ -718,10 +918,32 @@ fn wait<B: Daemon + ?Sized>(
             settle.observe(&sample, now)
         };
         if verdict != Verdict::Pending || now >= deadline {
-            return Ok(Waited { verdict, screen: shown, finished, matched });
+            let agent_reported = settle.reported();
+            return Ok(Waited {
+                verdict,
+                screen: shown,
+                finished,
+                matched,
+                records,
+                agent_reported,
+            });
         }
-        std::thread::sleep(request.poll.min(deadline.saturating_duration_since(now)));
+        (clock.sleep)(request.poll.min(deadline.saturating_duration_since(now)));
     }
+}
+
+/// The whole last reply a record of `records` carries, when the daemon kept
+/// it at or after `since_ms` (the send): an older one is another turn's.
+fn hook_reply(records: &[Value], since_ms: u64) -> Option<String> {
+    let number = |value: &Value| {
+        value.as_u64().or_else(|| value.as_str().and_then(|text| text.parse().ok()))
+    };
+    records.iter().find_map(|record| {
+        let extra = record.get("extra")?;
+        let at = extra.get("last_reply_at_ms").and_then(number)?;
+        let text = extra.get("last_reply_text")?.as_str()?.trim();
+        (at >= since_ms && !text.is_empty()).then(|| text.to_owned())
+    })
 }
 
 /// The screen's lines, with history pages before them until the message's

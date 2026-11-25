@@ -303,3 +303,160 @@ fn an_address_change_between_requests_drops_the_pool() {
         "the change dropped the pooled connection"
     );
 }
+
+/// A listener whose accept queue is full: the kernel drops a new connect's
+/// SYN (`tcp_abort_on_overflow` off, Linux's default), so the connect hangs
+/// with nothing failing it, as one sent over a fresh Cloud machine's old
+/// addresses or routes before its late network attach does. At `attach` the
+/// queue is drained and every later connection gets a 200.
+#[cfg(target_os = "linux")]
+fn attaches_late(attach: Duration) -> (String, std::thread::JoinHandle<()>) {
+    use std::os::fd::AsRawFd;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    // SAFETY: listen(2) on a socket this test owns, to shrink its backlog.
+    assert_eq!(unsafe { libc::listen(listener.as_raw_fd(), 0) }, 0);
+    let address = listener.local_addr().unwrap();
+    let filler = std::net::TcpStream::connect(address).unwrap();
+    let task = std::thread::spawn(move || {
+        std::thread::sleep(attach);
+        drop(filler);
+        let _ = listener.accept();
+        listener.set_nonblocking(true).unwrap();
+        let until = Instant::now() + Duration::from_secs(15);
+        while Instant::now() < until {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                    let mut request = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while !request.ends_with(b"\r\n\r\n") && stream.read_exact(&mut byte).is_ok() {
+                        request.push(byte[0]);
+                    }
+                    let _ = stream.write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}",
+                    );
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+    });
+    (format!("http://{address}/bind"), task)
+}
+
+/// A request whose connect hangs until the network attaches answers about one
+/// connect timeout after the attach, not at the 10 s connect bound (an error
+/// then, so the caller's retry came after its backoff) or the 20 s request
+/// bound.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_connect_that_hangs_until_the_network_attaches_is_made_again() {
+    const ATTACH: Duration = Duration::from_millis(7_500);
+    let (url, task) = attaches_late(ATTACH);
+    let http = JsonPoster::allowing_http().unwrap();
+    let started = Instant::now();
+    let answer =
+        http.request_until(&url, Some(&json!({})), None, started + Duration::from_secs(15));
+    let took = started.elapsed();
+    eprintln!(
+        "connect-hang harness: attach {ATTACH:?}, answered {:?} in {took:?}",
+        answer.as_ref().map(|a| a.0)
+    );
+    assert_eq!(answer.unwrap().0, 200);
+    // One connect timeout (2 s) after the attach, plus slack for a loaded host.
+    assert!(took < ATTACH + Duration::from_millis(3_500), "{took:?}");
+    task.join().unwrap();
+}
+
+/// A connect refused at once is no hang: it fails at once, as before, and is
+/// not made again in a loop until the deadline.
+#[test]
+fn a_refused_connect_fails_at_once() {
+    let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let http = JsonPoster::allowing_http().unwrap();
+    let started = Instant::now();
+    let answer = http.request_until(
+        &format!("http://{closed}/bind"),
+        Some(&json!({})),
+        None,
+        started + Duration::from_secs(5),
+    );
+    assert!(answer.is_err());
+    assert!(started.elapsed() < Duration::from_secs(1), "{:?}", started.elapsed());
+}
+
+/// A raw request sends its bytes as they are and reads an answer past the JSON routes' 1 MiB,
+/// up to its own limit and no further.
+#[test]
+fn a_raw_request_carries_bytes_both_ways_within_its_own_limit() {
+    use super::{Payload, RawRequest};
+    let sent: Vec<u8> = (0..=255u8).cycle().take(3000).collect();
+    let answer = vec![0xA5u8; 1024 * 1024 + 7];
+    for limit in [answer.len(), answer.len() - 1] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/chunk", listener.local_addr().unwrap());
+        let (body, expect) = (answer.clone(), sent.len());
+        let task = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0u8; 1];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            let mut got = vec![0u8; expect];
+            stream.read_exact(&mut got).unwrap();
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(head.as_bytes());
+            let _ = stream.write_all(&body);
+            (String::from_utf8_lossy(&request).to_ascii_lowercase(), got)
+        });
+        let http = JsonPoster::allowing_http().unwrap();
+        let reply = http.request_raw(&RawRequest {
+            method: "PUT",
+            url: &url,
+            payload: Some(Payload::Bytes(&sent)),
+            bearer: Some("private-test-bearer"),
+            headers: &[("x-cmux-auto-epoch", "3")],
+            within: Duration::from_secs(5),
+            limit,
+        });
+        if limit == answer.len() {
+            let reply = reply.unwrap();
+            assert_eq!(reply.status, 200);
+            assert!(reply.bytes == answer, "the answer's bytes come back as sent");
+            let (head, got) = task.join().unwrap();
+            assert!(head.starts_with("put /chunk "));
+            assert!(head.contains("content-type: application/octet-stream"));
+            assert!(head.contains("x-cmux-auto-epoch: 3"));
+            assert!(head.contains("authorization: bearer private-test-bearer"));
+            assert!(got == sent, "the request's bytes arrive as sent");
+        } else {
+            assert_eq!(reply.unwrap_err(), "Cloud response too large");
+            let _ = task.join();
+        }
+    }
+}
+
+/// The delayed-attach harness (scripts in the PR that adds it): run inside a
+/// network namespace where `CMUX_ATTACH_URL`'s address is attached some
+/// seconds after this starts. Prints how long the request took.
+#[test]
+#[ignore = "needs a network namespace whose address attaches late"]
+fn attach_harness_request() {
+    let url = std::env::var("CMUX_ATTACH_URL").expect("CMUX_ATTACH_URL");
+    let http = JsonPoster::allowing_http().unwrap();
+    let started = Instant::now();
+    let answer =
+        http.request_until(&url, Some(&json!({})), None, started + Duration::from_secs(20));
+    let took = started.elapsed();
+    println!(
+        "attach-harness: answered {:?} in {:.2}s",
+        answer.as_ref().map(|a| a.0),
+        took.as_secs_f64()
+    );
+}

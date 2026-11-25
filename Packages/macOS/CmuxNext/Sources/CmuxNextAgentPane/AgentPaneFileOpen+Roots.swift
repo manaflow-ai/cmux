@@ -40,7 +40,7 @@ extension AgentPaneModel {
     /// gesture in the pane, spent by this open (page script cannot make one).
     func checkedFileOpen(_ path: String, target: AgentPaneFileTarget) -> Result<URL, AgentPaneTransportError> {
         AgentPaneFileOpen.resolve(path, roots: fileOpenRoots()).flatMap { url in
-            guard target == .editor || AgentPaneFileOpen.showsInTab(url) else { return .failure(.pathInvalid) }
+            guard target != .tab || AgentPaneFileOpen.showsInTab(url) else { return .failure(.pathInvalid) }
             return transport.gestures.consume() ? .success(url) : .failure(.gestureRequired)
         }
     }

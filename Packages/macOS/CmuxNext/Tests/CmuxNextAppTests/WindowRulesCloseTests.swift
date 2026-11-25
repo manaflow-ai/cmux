@@ -10,11 +10,22 @@ import Testing
         TabModel(TabSnapshot(surface: SurfaceID(rawValue: surface), kind: kind, title: "t", url: url))
     }
 
-    @Test func oneIdleTerminalBesideABlankPageAsksWhatTheTerminalRuns() throws {
+    @Test func oneIdleTerminalBesideABlankPageClosesWithNoToast() throws {
         let rules = WindowRules()
         let blank = tab(.browser, url: "about:blank", surface: 1), terminal = tab(.pty, surface: 2)
         let toast = try #require(rules.closeToast([blank, terminal].map { WindowRules.ClosingTab($0, agentAtWork: false) }), "the FFI did not answer")
-        #expect(toast == .askTerminals([1]))
+        #expect(toast == .skip)
+    }
+
+    /// Toasts v2 (Leo: "closing a tab or workspace, or archiving a session, shows a one-line toast with an inline Undo"):
+    /// off (the default), one idle terminal's close is the rule's answer, silent as before; on, it shows its Undo toast.
+    @Test func toastsV2ShowsTheUndoToastForOneIdleTabAndOffKeepsTheRule() throws {
+        let terminal = tab(.pty, surface: 1)
+        let rule = try #require(WindowRules().closeToast([CloseToastRule().facts(terminal)]), "the FFI did not answer")
+        #expect(rule == .skip)
+        let off = CloseToastRule().decide([terminal]), on = CloseToastRule(everyCloseShows: true).decide([terminal])
+        #expect(off == .skip, "v2 off changed the decision")
+        #expect(on == .show)
     }
 
     @Test func twoRealTabsShowTheToast() throws {

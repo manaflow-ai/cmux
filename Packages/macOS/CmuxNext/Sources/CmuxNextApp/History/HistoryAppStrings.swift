@@ -3,18 +3,20 @@ import Foundation
 /// App strings for history (table History.xcstrings).
 enum HistoryAppStrings {
     private static func t(_ key: StaticString, _ value: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: value, table: "History", bundle: .module)
+        String(localized: key, defaultValue: value, table: "History", bundle: .module.inAppLanguage)
     }
 
     static var nothingBack: String { t("history.refusal.nothingBack", "No earlier location to go back to") }
     static var nothingForward: String { t("history.refusal.nothingForward", "No later location to go forward to") }
     static var nothingLast: String { t("history.refusal.nothingLast", "No last location to go to") }
+    static var nothingSession: String { t("history.refusal.nothingSession", "No earlier agent session to go back to") }
     static var nothingClosed: String { t("history.refusal.nothingClosed", "No recently closed tab to reopen") }
     static var noSession: String { t("history.refusal.noSession", "No agent session with that ID") }
     static var noResume: String { t("history.refusal.noResume", "cmux does not know how to resume this agent") }
     static var machineOffline: String { t("history.refusal.machineOffline", "That machine is not connected") }
     static var noPane: String { t("history.refusal.noPane", "Open a window on that machine first") }
     static var entryGone: String { t("history.refusal.entryGone", "That history entry is gone") }
+    static var stillLoading: String { t("history.refusal.stillLoading", "History is still loading. Try again in a moment.") }
     static var nothingFromPreviousLaunch: String {
         t("history.refusal.nothingFromPreviousLaunch", "Nothing from the previous app launch to restore")
     }
@@ -25,10 +27,6 @@ enum HistoryAppStrings {
         String(format: t("history.commands.deleteBody",
                          "Recording is off. Each connected machine keeps the commands it already recorded until they are %lld days old."),
                days)
-    }
-
-    static func undoClosesPanes(_ count: Int) -> String {
-        String(format: t("history.refusal.undoClosesPanes", "Undo closes %lld pane(s). Run Undo Layout Change again to confirm."), count)
     }
 
     static func screenTitle(_ number: Int) -> String {

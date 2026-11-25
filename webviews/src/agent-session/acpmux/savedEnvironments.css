@@ -23,14 +23,14 @@
   letter-spacing: var(--text-body--letter-spacing);
 }
 
-.acpmux-env-panel button { font: inherit; color: inherit; border: 0; border-radius: 5px; background: transparent; }
+.acpmux-env-panel button { font: inherit; color: inherit; border: 0; border-radius: var(--ds-radius-control); background: transparent; }
 .acpmux-env-panel button:hover:not(:disabled) { background: var(--agent-control); }
 .acpmux-env-panel button:focus-visible { outline: 2px solid var(--agent-text); outline-offset: -2px; }
 .acpmux-env-panel button:disabled { opacity: .45; }
 
 .acpmux-env-heading { min-height: 22px; font-weight: 500; }
 
-.acpmux-env-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: color-mix(in srgb, var(--agent-text) 6%, transparent); width: fit-content; }
+.acpmux-env-tabs { display: flex; gap: 2px; padding: 2px; border-radius: 7px; background: var(--ds-surface-inset); width: fit-content; }
 .acpmux-env-panel .acpmux-env-tab { height: 24px; padding: 0 10px; color: var(--agent-muted); }
 .acpmux-env-panel .acpmux-env-tab[aria-pressed="true"] { background: var(--agent-control); color: var(--agent-text); }
 
@@ -49,7 +49,7 @@
   font: inherit;
   outline: none;
 }
-.acpmux-env-input:focus { border-color: var(--agent-muted); }
+.acpmux-env-input:focus-visible { border-color: var(--agent-muted); }
 
 .acpmux-env-panel .acpmux-env-select {
   display: flex;

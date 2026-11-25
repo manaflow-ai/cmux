@@ -16,7 +16,7 @@ import os
 ///   listed acpmux's phone records (``MobileHostPhoneCredentials``).
 /// - Each paired phone the account lists gets its own acpmux credential
 ///   (``MobileHostPhoneCredentials``), handed to hostd, so the phone's Full-access setting
-///   (Settings > Devices, off by default) can cover it.
+///   (Settings > Devices, on by default for a phone) can cover it.
 @MainActor
 final class MobileHostApproverSync {
     private let environment: AcpmuxEnvironment
@@ -30,6 +30,9 @@ final class MobileHostApproverSync {
     /// The folders of this Mac's workspaces a phone may start agent chats in
     /// (`_acpmux/workspace_roots_set`); nil until the first update.
     private var workspaceRoots: [String]?
+    /// The app's captured daemon endpoint; Rust reads only its remote-visible tree.
+    private var browserWorkspaceSource: [String: Any]?
+    private var browserSourceClearPending = false
     /// acpmux may still hold folders this sync sent: an empty list must reach it once,
     /// even with no approvers and no folders left (iPhone connections turned off).
     private var rootsClearPending = false
@@ -40,7 +43,7 @@ final class MobileHostApproverSync {
     private var picksClearPending = false
     private var needed: Bool {
         hasApprovers || workspaceRoots?.isEmpty == false || rootsClearPending || newChatPicks != nil || picksClearPending
-            || credentials.needsConnection
+            || credentials.needsConnection || browserWorkspaceSource != nil || browserSourceClearPending
     }
     /// Hands hostd every phone's credential, by phone device id, whenever the set changes.
     var phoneCredentialsChanged: (@MainActor ([String: String]) -> Void)?
@@ -183,7 +186,22 @@ final class MobileHostApproverSync {
         }
     }
 
+    func updateBrowserWorkspaceSource(socket: String?, host: String?) {
+        browserWorkspaceSource = if let socket, let host { ["socket": socket, "host": host] } else { nil }
+        browserSourceClearPending = browserWorkspaceSource == nil
+        if proven { sendBrowserWorkspaceSource() }
+        else if connection == nil, reconnect == nil, needed { connect() }
+    }
+
+    private func sendBrowserWorkspaceSource() {
+        guard let connection, proven, browserWorkspaceSource != nil || browserSourceClearPending else { return }
+        nextID += 1
+        connection.send(Self.frame(id: nextID, method: "_acpmux/browser_workspace_source_set", params: browserWorkspaceSource ?? [:]))
+        browserSourceClearPending = false
+    }
+
     private func send() {
+        sendBrowserWorkspaceSource()
         sendRoots()
         sendPicks()
         guard let connection, proven, let params else { return }

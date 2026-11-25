@@ -24,6 +24,13 @@ import unittest
 from pathlib import Path
 
 import yaml
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-tui-artifacts.yml"
@@ -309,6 +316,36 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         self.assertIn(f"mux/{self.box.sha}/cmux-mux-checksums.txt", reads)
         self.assertEqual(sorted(reads), sorted(set(reads)), "an object was read twice")
 
+    def adopted_from_a_tree(self) -> str:
+        """A push run of a commit whose tree another commit already published
+        builds nothing: adopt-commit-manifest writes cmux-tui/<sha>/ as the
+        binaries and manifest.json only, with no cmux-tui-checksums.txt. A
+        later include_windows dispatch of that commit then keeps it (run
+        43877937618)."""
+        self.box.build("1")
+        self.assertEqual(self.box.run(self.upload).returncode, 0)
+        key = f"cmux-tui/{self.box.sha}/cmux-tui-checksums.txt"
+        (self.box.r2 / key).unlink()
+        self.box.build("2")
+        return key
+
+    def test_a_dispatch_keeps_an_adopted_publication_without_a_checksums_file(self) -> None:
+        self.adopted_from_a_tree()
+        earlier = self.published()
+        result = self.box.run(self.upload)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.published(), earlier)
+        local = self.box.repo / "assets" / "cmux-tui"
+        served = {k.rsplit("/", 1)[1] for k in earlier if k.startswith(f"cmux-tui/{self.box.sha}/")}
+        self.assertEqual({p.name for p in local.iterdir()}, served)
+
+    def test_a_checksums_read_that_fails_is_not_taken_for_an_absent_file(self) -> None:
+        """Only R2's 404 leaves the checksums file out; a failed read still
+        goes to the CDN and fails the step when that fails too."""
+        key = self.adopted_from_a_tree()
+        result = self.box.run(self.upload, FAKE_DOWNLOAD_FAIL=f"{key}=1")
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_a_rebuild_with_other_optional_binaries_keeps_the_published_set(self) -> None:
         # The agent screen detector is optional: either build may lack it.
         detector = "cmux-tui-agent-screen-detection-aarch64-apple-darwin"
@@ -473,7 +510,7 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         self.assertFalse(published.exists())
 
     def publish_tree_with_acpmux(self) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
-        """The commit's earlier publication attests acpmux for the four Unix targets."""
+        """The commit's earlier publication attests acpmux for the four Unix targets and cmux-rd."""
         self.box.build("1")
         self.assertEqual(self.box.run(self.upload).returncode, 0)
         list_names = lambda flag: subprocess.check_output(
@@ -496,10 +533,11 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         return result, commit, self.box.r2 / "cmux-tui" / "tree" / ("a" * 40), acpmux
 
     def test_a_new_tree_carries_the_commit_acpmux_in_completion_json(self) -> None:
-        # hq-1f: acpmux for x86_64/aarch64 musl and aarch64/x86_64 darwin.
+        # hq-1f: acpmux for x86_64/aarch64 musl and aarch64/x86_64 darwin, and cmux-rd
+        # with its notices for x86_64/aarch64 glibc.
         result, commit, published, acpmux = self.publish_tree_with_acpmux()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(len(acpmux), 4)
+        self.assertEqual(len(acpmux), 8)
         gate = json.loads((published / "completion.json").read_text())["binaries"]
         for n in acpmux:
             self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)
@@ -575,6 +613,29 @@ class ParallelUploadsOfAClaimedPrefix(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         order = self.uploads("cmux-relay")
         self.assertEqual(order, sorted(order))
+
+    def test_the_tree_markers_the_download_merges_in_are_not_published(self) -> None:
+        # The download's `cmux-tui-*` also matches the tree markers (cmux-tui-tree-owner-<key>,
+        # -feat-builder-<key>, -deferred-<key>). The checksums never named their files, so every
+        # feat-cmux-next publish sent cmux-tui/<sha>/ one file at a time (33 files in 72 s at
+        # 9fd2f115) and wrote tree-owner.json after manifest.json.
+        assets = self.box.repo / "assets"
+        for prefix in ("cmux-tui", "cmux-relay", "chatmux-relay"):
+            (assets / prefix).mkdir(parents=True)
+            for target in ("aarch64-apple-darwin", "x86_64-apple-darwin",
+                           "x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"):
+                (assets / prefix / f"{prefix}-{target}").write_text(f"{prefix} {target}\n")
+        markers = {"tree-owner.json", "feat-builder-key", "deferred-key"}
+        for marker in markers:
+            (assets / "cmux-tui" / marker).write_text("marker\n")
+        result = self.box.run(step_script("publish", "Build manifest and checksums"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = self.box.run(self.upload, FAKE_UPLOAD_LOG=str(self.log))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        order = self.uploads("cmux-tui")
+        self.assertFalse(markers & set(order), order)
+        self.assertTrue(order[0].endswith("-checksums.txt"), order)
+        self.assertEqual(order[-1], "manifest.json", order)
 
     def test_a_failed_upload_writes_no_manifest(self) -> None:
         self.box.build("1", real_checksums=True)

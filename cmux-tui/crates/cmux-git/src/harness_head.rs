@@ -7,15 +7,28 @@
 use std::path::Path;
 
 /// The folders a harness reads at start, beside a folder's own files (the repo pick's
-/// `head_dirs` in cmux-cloud-start-core `machine_repo/step.sh`).
+/// `head_dirs` in cmux-cloud-start-core `machine_repo/step.sh`). `.agents`: Codex reads the
+/// project's `.agents/skills` as it starts.
 pub const HEAD_DIRS: &[&str] =
-    &[".claude", ".codex", ".cursor", ".gemini", ".github", ".vscode", ".devcontainer"];
+    &[".agents", ".claude", ".codex", ".cursor", ".gemini", ".github", ".vscode", ".devcontainer"];
 
-/// The head's harness settings that run a command when the harness starts (hooks, and the
-/// project's MCP servers, which start outside the tool gate): a start at the head would run
-/// them on a partial checkout, so such a head is never marked.
-pub const START_SETTINGS: &[&str] =
-    &[".claude/settings.json", ".claude/settings.local.json", ".mcp.json"];
+/// The head's harness settings that run a command when the harness starts (hooks): a start at
+/// the head would run them on a partial checkout, so such a head is never marked.
+///
+/// Codex's project `.codex/config.toml` and `.codex/hooks.json` are: their hooks and MCP servers
+/// run outside the PreToolUse gate acpmux gives a Codex start at the head
+/// (acpmux `codex_repo_gate.rs`).
+///
+/// A project `.mcp.json` is not one of them. Its stdio servers start outside the tool gate too,
+/// but acpmux's Claude Code replaces each one Claude would run with the same server under
+/// `cmux repo mcp-lazy`, which starts it once the whole checkout is in (acpmux
+/// `agent_tools::project_mcp`), and Codex does not read it.
+pub const START_SETTINGS: &[&str] = &[
+    ".claude/settings.json",
+    ".claude/settings.local.json",
+    ".codex/config.toml",
+    ".codex/hooks.json",
+];
 
 /// Whether the head of `root` may be marked ready. `folders`: the folders below `root`,
 /// relative, whose own files and harness folders the head holds too (a chat's subpath and
@@ -33,6 +46,30 @@ pub fn head_allowed(root: &Path, folders: &[&Path]) -> bool {
                 && !links_out_of_the_head(&dir, 0)
         },
     )
+}
+
+/// Whether the file at `relative` (to the root, `/`-separated) is in the head of a chat opened
+/// at `subpath` (`a/b`, empty for the root): a file of the root or of a folder on the subpath,
+/// or one anywhere in their [`HEAD_DIRS`]. The Mac's held copy (cmux-tui `link::seed_cli`)
+/// sends these first, for the machine to mark with [`head_allowed`].
+pub fn in_head(relative: &str, subpath: &str) -> bool {
+    let subpath = subpath.trim_matches('/');
+    let mut folders = vec![""];
+    if !subpath.is_empty() {
+        folders.extend(subpath.match_indices('/').filter_map(|(at, _)| subpath.get(..at)));
+        folders.push(subpath);
+    }
+    folders.iter().any(|folder| {
+        let rest = if folder.is_empty() {
+            Some(relative)
+        } else {
+            relative.strip_prefix(*folder).and_then(|rest| rest.strip_prefix('/'))
+        };
+        rest.is_some_and(|rest| match rest.split_once('/') {
+            None => true,
+            Some((first, _)) => HEAD_DIRS.contains(&first),
+        })
+    })
 }
 
 /// A symlink in `dir` (and, from a head folder, in [`HEAD_DIRS`]) whose target is not there
@@ -58,17 +95,74 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_head_is_the_root_and_subpath_folders_own_files_and_their_harness_folders() {
+        for (path, subpath, want) in [
+            ("README.md", "", true),
+            (".mcp.json", "", true),
+            (".claude/skills/a/SKILL.md", "", true),
+            ("src/main.rs", "", false),
+            (".git/HEAD", "", false),
+            ("app/CLAUDE.md", "app/web", true),
+            ("app/web/CLAUDE.md", "app/web", true),
+            ("app/web/.codex/config.toml", "app/web", true),
+            (".agents/skills/review/SKILL.md", "", true),
+            ("app/web/.agents/skills/a/SKILL.md", "app/web", true),
+            ("app/.claude/settings.json", "app/web", true),
+            ("app/web/src/index.ts", "app/web", false),
+            ("app/other/CLAUDE.md", "app/web", false),
+            ("application/x", "app", false),
+            ("README.md", "/app/", true),
+        ] {
+            assert_eq!(in_head(path, subpath), want, "{path} at {subpath:?}");
+        }
+    }
+
+    #[test]
     fn start_settings_in_the_root_or_a_subpath_folder_keep_the_head_unmarked() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
         std::fs::create_dir_all(root.join("app/web")).unwrap();
         let folders = [Path::new("app"), Path::new("app/web")];
         assert!(head_allowed(root, &folders));
-        std::fs::write(root.join("app/web/.mcp.json"), "{}").unwrap();
-        assert!(!head_allowed(root, &folders), "a subpath folder's MCP servers");
+        std::fs::create_dir_all(root.join("app/web/.claude")).unwrap();
+        std::fs::write(root.join("app/web/.claude/settings.json"), "{}").unwrap();
+        assert!(!head_allowed(root, &folders), "a subpath folder's hooks");
         assert!(head_allowed(root, &[]), "the root alone has none");
-        std::fs::write(root.join(".mcp.json"), "{}").unwrap();
-        assert!(!head_allowed(root, &[]), "the root's MCP servers");
+        std::fs::create_dir_all(root.join(".claude")).unwrap();
+        std::fs::write(root.join(".claude/settings.local.json"), "{}").unwrap();
+        assert!(!head_allowed(root, &[]), "the root's hooks");
+    }
+
+    /// Codex's project config and hooks run outside its tool gate, so either keeps the head
+    /// unmarked, at the root or in a subpath folder.
+    #[test]
+    fn codex_project_config_or_hooks_keep_the_head_unmarked() {
+        for settings in [".codex/config.toml", ".codex/hooks.json"] {
+            let dir = tempfile::tempdir().unwrap();
+            let root = dir.path();
+            std::fs::create_dir_all(root.join("app/.codex")).unwrap();
+            std::fs::create_dir_all(root.join(".codex")).unwrap();
+            std::fs::write(root.join(".codex/AGENTS.md"), "notes").unwrap();
+            assert!(head_allowed(root, &[Path::new("app")]), "{settings}: other files");
+            std::fs::write(root.join("app").join(settings), "").unwrap();
+            assert!(!head_allowed(root, &[Path::new("app")]), "{settings} in a subpath folder");
+            assert!(head_allowed(root, &[]), "{settings}: the root alone has none");
+            std::fs::write(root.join(settings), "").unwrap();
+            assert!(!head_allowed(root, &[]), "{settings} at the root");
+        }
+    }
+
+    /// A project's MCP servers no longer keep the head unmarked: acpmux starts each under
+    /// `cmux repo mcp-lazy`, which waits for the whole checkout.
+    #[test]
+    fn project_mcp_servers_leave_the_head_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("app")).unwrap();
+        let servers = r#"{"mcpServers":{"local":{"command":"node","args":["server.js"]}}}"#;
+        std::fs::write(root.join(".mcp.json"), servers).unwrap();
+        std::fs::write(root.join("app/.mcp.json"), servers).unwrap();
+        assert!(head_allowed(root, &[Path::new("app")]));
     }
 
     #[test]

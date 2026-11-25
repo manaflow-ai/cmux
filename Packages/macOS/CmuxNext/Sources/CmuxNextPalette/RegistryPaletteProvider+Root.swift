@@ -8,7 +8,7 @@ extension RegistryPaletteProvider {
         "closePane", "splitRight", "splitDown", "openBrowser", "palette.newAgentChat",
         "palette.quickAgentChat", "openSettings", "goToWorkspace", "tab.search", "search.chats",
         "globalSearch", "find", "findInDirectory", "renameWorkspace", "renameTab",
-        "toggleSidebar", "toggleRightSidebar", "toggleSplitZoom", "equalizeSplits", "openFolder",
+        "toggleSidebar", "toggleSplitZoom", "equalizeSplits", "openFolder",
         "file.open", "reopenClosedBrowserPanel", "reopenClosedWorkspace", "recentlyClosed", "jumpToUnread",
         "openDiffViewer", "terminal.setTheme", "appearance.customize", "appearance.changeBackground", "terminal.increaseFontSize",
         "terminal.decreaseFontSize", "remote.connect", "workspace.newOnMachine", "newCloudWorkspace", "keybindings.open",
@@ -29,7 +29,7 @@ extension RegistryPaletteProvider {
         "browserReload", "browserStop", "browserZoomIn", "browserZoomOut", "browserZoomReset",
         "browser.copyURL", "browser.downloads.show", "browserShowHistory", "agentPane.searchChats", "agentPane.searchFiles",
         "agentPane.switchModel", "agentPane.archiveChat", "agentPane.continueIn", "agentPane.createCheckpoint", "agentPane.git.commit",
-        "agentPane.git.push", "newCloudMachine", "cloudSSH", "remote.reconnect", "agent.harness.add",
+        "agentPane.git.push", "newCloudMachine", "cloudSSH", "remote.reconnect", "agent.harness.add", "macScreen.open",
     ]
 
     private static let rootFamilies: [(category: ActionCategory, members: Set<ActionCategory>, symbol: String)] = [
@@ -46,14 +46,23 @@ extension RegistryPaletteProvider {
     /// Changes empty-query visibility without rebuilding action rows, aliases, targets or effects. `eligible`: the
     /// listed actions the root may show (bound or served by the palette, not debug-only). A family's page lists its
     /// members when it opens, not on every open.
+    ///
+    /// A family's page is made from the root list itself (``rootFamilyMembers(_:sections:folded:)``), which the rows
+    /// keep (`RegistryPaletteRows.arranged`), not from `items`: each family row's command captured `items` whole, so
+    /// the idle app kept a second copy of every command row (1,162 rows, 2 MB) beside the root's (CMUX-571).
     func curatedRootItems(_ items: [PaletteItem], eligible: Set<ActionID>) -> [PaletteItem] {
-        var root = items.map { item in
-            var item = item
+        // The family rows are appended after the action rows: sized for them up front, the list is not copied into a
+        // buffer twice its size by the first append (a 4 MB buffer for 1,170 rows, CMUX-571).
+        var root: [PaletteItem] = []
+        root.reserveCapacity(items.count + Self.rootFamilies.count)
+        for var item in items {
             item.hidesWhenQueryEmpty = item.actionID.map {
                 !Self.rootIntentIDs.contains($0) || !eligible.contains($0)
             } ?? true
-            return item
+            root.append(item)
         }
+        // What `items` hid on the empty query (folded family members): a family's page shows them so again.
+        let folded = Set(items.lazy.filter(\.hidesWhenQueryEmpty).map(\.id))
         let section = PaletteSection(id: "rootFamilies", title: PaletteStrings.commandsTitle, order: -100)
         for family in Self.rootFamilies {
             let sections = Set(family.members.map(\.paletteSectionID))
@@ -73,11 +82,12 @@ extension RegistryPaletteProvider {
                 section: section,
                 isEnabled: anyEnabled,
                 primary: PaletteCommand(id: "open", title: PaletteStrings.open, symbol: "arrow.right",
-                                        effect: .deferred {
+                                        effect: .deferred { [weak rows = self.rows] in
                                             .push(PalettePageSpec(
                                                 id: id, title: family.category.title, placeholder: PaletteStrings.searchPlaceholder,
                                                 symbol: family.symbol,
-                                                providers: [StaticPaletteProvider(id: id, items: items.filter { sections.contains($0.section.id) })]
+                                                providers: [StaticPaletteProvider(id: id, items: Self.rootFamilyMembers(
+                                                    rows?.arranged[true]?.items ?? [], sections: sections, folded: folded))]
                                             ))
                                         })
             )
@@ -85,5 +95,17 @@ extension RegistryPaletteProvider {
             root.append(row)
         }
         return root
+    }
+
+    /// A root family's page rows: the root list's rows in the family's sections, in its order, each hidden on the empty
+    /// query as the arrangement hid it (`folded`: family members, shown folded into their family row). The root list
+    /// differs from the arrangement only in that flag, so these are the rows the arrangement listed for those sections.
+    static func rootFamilyMembers(_ root: [PaletteItem], sections: Set<String>, folded: Set<String>) -> [PaletteItem] {
+        root.compactMap { item in
+            guard sections.contains(item.section.id) else { return nil }
+            var item = item
+            item.hidesWhenQueryEmpty = folded.contains(item.id)
+            return item
+        }
     }
 }

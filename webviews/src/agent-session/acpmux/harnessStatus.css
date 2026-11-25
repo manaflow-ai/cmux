@@ -1,5 +1,6 @@
 .acpmux-harness-status {
   margin: 0 var(--cv-inset, max(18px, calc((100% - 760px) / 2))) 10px;
+  margin-right: var(--cv-inset-end, var(--cv-inset));
   padding: var(--grid-cards-padding);
   border-radius: var(--grid-cards-radius);
   background: var(--acpmux-composer-bg);

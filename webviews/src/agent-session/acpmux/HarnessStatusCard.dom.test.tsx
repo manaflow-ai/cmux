@@ -7,6 +7,7 @@ import { HarnessStatusCard } from "./HarnessStatusCard";
 import { SummaryCard } from "./summary/SummaryCard";
 import { PreviewCard } from "./threadMinimap/PreviewCard";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -81,6 +82,7 @@ afterEach(async () => {
       root!.unmount();
     });
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

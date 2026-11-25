@@ -41,6 +41,10 @@ pub(super) struct SplitParams {
     /// `split-client-split-id-v1`: caller-minted public id of the new split.
     #[serde(default)]
     split_id: Option<String>,
+    /// `split-around-v1`: the split (handle) the new split wraps whole,
+    /// instead of `pane` alone. `pane` must be that split's last leaf.
+    #[serde(default)]
+    around: Option<SplitId>,
     /// `split-before-v1`: the new pane goes before `pane` on the split axis
     /// (Split Left with `dir: "right"`, Split Up with `dir: "down"`).
     #[serde(default)]
@@ -48,6 +52,11 @@ pub(super) struct SplitParams {
     #[serde(flatten)]
     content: PaneContentParams,
 }
+
+/// `split` takes `around`, a split whose whole subtree the new split wraps
+/// (the new pane after it, as wide or tall as the whole subtree): inserting
+/// a pane at a divider. `pane` must be the split's last leaf.
+pub(super) const SPLIT_AROUND_CAPABILITY: &str = "split-around-v1";
 
 /// `split` takes `before: true`, which puts the new pane before the target on
 /// the split axis (left of it for `right`, above it for `down`) in the one
@@ -193,6 +202,11 @@ pub(super) fn new_pane_right(
 
 pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> anyhow::Result<Value> {
     let dir = parse_split_dir(&params.dir)?;
+    // Opt-in usage patterns: which way people split (a fixed word, never content).
+    if cmux_usage_patterns::enabled() {
+        let way = if params.dir == "right" { "split-right" } else { "split-down" };
+        cmux_usage_patterns::count("layout", way);
+    }
     let size = optional_surface_size(params.cols, params.rows);
     if let Some(split_id) = &params.split_id {
         crate::resource::SplitPublicId::parse(split_id.clone())
@@ -205,6 +219,9 @@ pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> any
         )]);
         if let Some(split_id) = params.split_id {
             fields.insert(crate::mux::CLIENT_SPLIT_ID_FIELD.into(), Value::String(split_id));
+        }
+        if let Some(around) = params.around {
+            fields.insert(crate::mux::AROUND_SPLIT_FIELD.into(), Value::from(around));
         }
         let direction = crate::mux::split_direction_field(dir, params.before);
         let surface = mux.split_browser_pane_with_fields_as(
@@ -220,6 +237,7 @@ pub(super) fn split(mux: &Arc<Mux>, client: u64, mut params: SplitParams) -> any
     let keep = params.content.keep;
     let mut spawn = params.content.spawn(mux, client)?;
     spawn.split_id = params.split_id;
+    spawn.around = params.around;
     let created = mux.split_placed_with_options_as(
         &origin_gate::connection_actor(mux, client),
         params.pane,

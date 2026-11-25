@@ -5,6 +5,8 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { settleReact } from "./support/domTeardown";
+import { installVirtualSizes } from "./support/virtualSizes";
 
 const scope = globalThis as Record<string, unknown>;
 const names = [
@@ -40,6 +42,10 @@ beforeAll(() => {
   scope.requestAnimationFrame = (callback: FrameRequestCallback) =>
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
+  // The list is windowed: give it a viewport and its rows a height, as a browser would.
+  installVirtualSizes(dom.window, (element) =>
+    element.classList.contains("stash-list") ? 600 : element.classList.contains("stash-group") ? 40 : 28,
+  );
 });
 
 afterEach(() => {
@@ -48,7 +54,8 @@ afterEach(() => {
   for (const menu of dom.window.document.querySelectorAll('[role="menu"]')) menu.remove();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [name, value] of saved) {
     if (value === undefined) delete scope[name];

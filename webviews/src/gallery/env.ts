@@ -3,7 +3,8 @@
 // matrix manifest (scripts/gallery-matrix) and the native gallery (CmuxNextGallery
 // GalleryEnvironment) read the same names: entry, variant, locale, theme, colorScheme, fontFamily,
 // fontSize, density, scale, width, height, reducedMotion, highContrast, dynamicSize, windowKey,
-// frame, window, zoom, layout, source. The web gallery alone also reads accent, background and load.
+// frame, window, zoom, layout, source. The web gallery alone also reads accent, background, load and
+// titleAreaTone.
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "./theme/ghostty";
@@ -55,12 +56,22 @@ export const SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const;
 
 /**
  * The window's background (`appearance.background`, "Set Background…"): `none` is an opaque window,
- * the app's default; the others are synthetic pictures behind the window's glass, as the app draws
- * a picture the user picked (frame/background.ts): a light photo-like gradient, a dark one, and a
- * busy high-contrast one, the worst case for text.
+ * the app's default; the others are pictures behind the window's glass, as the app draws a picture
+ * the user picked (frame/background.ts): `painting`, a bundled public-domain painting, then
+ * synthetic ones: a light photo-like gradient, a dark one, and a busy high-contrast one, the worst
+ * case for text.
  */
-export const BACKGROUNDS = ["none", "light", "dark", "busy"] as const;
+export const BACKGROUNDS = ["painting", "none", "light", "dark", "busy"] as const;
 export type GalleryBackground = (typeof BACKGROUNDS)[number];
+
+/**
+ * The background the gallery shell shows when its link names none: every preview opens over a
+ * painting, as most people's windows sit over a picture (Leo, 2026-10-20: "Give me like a good pretty
+ * painting to be putting as the placeholder"). `background=none` in the shell's link is the opaque
+ * window. A stage frame's own link (frame.html, the goldens and the browser tests) keeps absent as
+ * `none`; the shell always names its background in the frame's link (frameQuery).
+ */
+export const SHELL_DEFAULT_BACKGROUND: GalleryBackground = "painting";
 
 /**
  * The machine's load (frame/load.ts): `none` is an idle Mac, the app's best case; `busy` and
@@ -71,6 +82,15 @@ export type GalleryBackground = (typeof BACKGROUNDS)[number];
 export const LOADS = ["none", "busy", "saturated"] as const;
 export type GalleryLoad = (typeof LOADS)[number];
 
+/**
+ * `appearance.titleAreaTone` (TitleAreaTone.swift): `one-color`, the app's default, is the chrome in
+ * the content's colour, parted by the divider; `subtle-tone` shades the chrome a step apart and the
+ * selected tab or row joins the content as a folder tab. web.ts sends it as WebTheme does
+ * (--cmux-chrome-tone, --cmux-folder-fill, --cmux-sidebar-surface).
+ */
+export const TITLE_AREA_TONES = ["one-color", "subtle-tone"] as const;
+export type TitleAreaToneName = (typeof TITLE_AREA_TONES)[number];
+
 export type GalleryEnv = {
   locale: string;
   /** The Ghostty theme the window shows (a shipped theme's file name). */
@@ -78,11 +98,15 @@ export type GalleryEnv = {
   /** `appearance.accent`: where the chrome's accent comes from; absent is neutral. Web only for
    * now (outside the shared vectors: the native gallery has no accent control yet). */
   accent?: AppAccent;
-  /** The picture behind the window (BACKGROUNDS); absent is `none`, an opaque window. Web only for
-   * now (outside the shared vectors: the native gallery has no background control yet). */
+  /** The picture behind the window (BACKGROUNDS); absent is `none`, an opaque window, in a stage
+   * frame's link, and SHELL_DEFAULT_BACKGROUND in the shell's. Web only for now (outside the shared
+   * vectors: the native gallery has no background control yet). */
   background?: GalleryBackground;
   /** The machine's load (LOADS); absent is `none`, an idle machine. Web only. */
   load?: GalleryLoad;
+  /** The title area tone (TITLE_AREA_TONES); absent is `one-color`, the app's default. Web only for
+   * now (the native gallery draws the chrome itself). */
+  titleAreaTone?: TitleAreaToneName;
   /** The window appearance; `auto` is the theme's own (dark when its background is darker). */
   colorScheme: "auto" | "dark" | "light";
   /** Empty: the page's own font. */
@@ -140,7 +164,7 @@ export const DEFAULT_ENV: GalleryEnv = {
 
 export const ZOOMS = ["fit", 0.5, 0.75, 1] as const;
 
-const KEYS = [...Object.keys(DEFAULT_ENV), "accent", "background", "load"] as (keyof GalleryEnv)[];
+const KEYS = [...Object.keys(DEFAULT_ENV), "accent", "background", "load", "titleAreaTone"] as (keyof GalleryEnv)[];
 
 /**
  * The theme when the query names none: the app's default pair (Apple System Colors), on the side
@@ -180,10 +204,10 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   if (accent !== "neutral" && (APP_ACCENTS as readonly string[]).includes(accent ?? ""))
     env.accent = accent as AppAccent;
   const background = params.get("background");
-  if (background !== "none" && (BACKGROUNDS as readonly string[]).includes(background ?? ""))
-    env.background = background as GalleryBackground;
+  if ((BACKGROUNDS as readonly string[]).includes(background ?? "")) env.background = background as GalleryBackground;
   const load = params.get("load");
   if (load !== "none" && (LOADS as readonly string[]).includes(load ?? "")) env.load = load as GalleryLoad;
+  if (params.get("titleAreaTone") === "subtle-tone") env.titleAreaTone = "subtle-tone";
   const scheme = params.get("colorScheme");
   if (scheme === "dark" || scheme === "light") env.colorScheme = scheme;
   env.theme = params.get("theme") || defaultTheme(env.colorScheme);
@@ -213,8 +237,13 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   return env;
 }
 
-/** The query for `env`, without the defaults. */
-export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSearchParams {
+/** The query for `env`, without the defaults. `background` is the background the link's reader
+ * takes when it names none: `none` for a stage frame, SHELL_DEFAULT_BACKGROUND for the shell. */
+export function writeEnv(
+  env: GalleryEnv,
+  params = new URLSearchParams(),
+  background: GalleryBackground = "none",
+): URLSearchParams {
   for (const key of KEYS) {
     params.delete(key);
     const value = env[key];
@@ -223,14 +252,25 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
       value === fallback ||
       value === undefined ||
       (key === "accent" && value === "neutral") ||
-      (key === "background" && value === "none") ||
-      (key === "load" && value === "none")
+      (key === "background" && value === background) ||
+      (key === "load" && value === "none") ||
+      (key === "titleAreaTone" && value === "one-color")
     )
       continue;
     params.set(key, typeof value === "boolean" ? "1" : String(value));
   }
   return params;
 }
+
+/** The controls the shell's link names: as readEnv, and absent background is the painting. */
+export function readShellEnv(params: URLSearchParams): GalleryEnv {
+  const env = readEnv(params);
+  return { ...env, background: env.background ?? SHELL_DEFAULT_BACKGROUND };
+}
+
+/** The shell's link for `env`: as writeEnv, short over the painting and naming `background=none`. */
+export const writeShellEnv = (env: GalleryEnv, params?: URLSearchParams): URLSearchParams =>
+  writeEnv(env, params, SHELL_DEFAULT_BACKGROUND);
 
 /**
  * What a stage frame renders: one variant of one entry, under the controls. `tune` is the web

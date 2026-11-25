@@ -18,6 +18,9 @@ process left from the tag's bundle by exact PID.
 Usage: terminal-keys-e2e.py --tag <tag> --app PATH [--out DIR]
 """
 import argparse, glob, json, os, re, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -115,6 +118,12 @@ def numbers(text):
     return {int(n) for n in re.findall(r"(?m)^\s*(\d{1,3})\s*$", text)}
 
 
+def shell_prompts():
+    """Every terminal pane shows its shell prompt (some text)."""
+    if not wait(lambda: all(viewport(p["pane"]).strip() for p in panes() if p.get("kind") == "terminal"), 20, step=0.1):
+        print("a terminal shows no shell prompt", flush=True)
+
+
 def key(name, modifiers):
     return rpc("debug.key", {"key": name, "modifiers": modifiers})
 
@@ -139,7 +148,8 @@ def clear_check(label, ref):
     screen_before, history_before = daemon_text(ref) if ref else ("", "")
     before = numbers(viewport(key_))
     reply = key("k", ["cmd"])
-    time.sleep(1.5)  # test harness: let the clear render and reach the daemon
+    # The clear renders and reaches the daemon: no numbered lines left in the viewport or the daemon's text.
+    wait(lambda: not numbers(viewport(key_)) and not (ref and any(numbers(text) for text in daemon_text(ref))), 10, step=0.1)
     after_view = numbers(viewport(key_))
     screen_after, history_after = daemon_text(ref) if ref else ("", "")
     print(f"--- {label}: debug.key {json.dumps(reply)[:400]}", flush=True)
@@ -187,7 +197,7 @@ def shortcut_checks():
         reply = key(name, mods)
         row(f"terminal {label}", "the program gets it (no action, no Ghostty binding)", owner(reply),
             not reply.get("action") and "Ghostty binding no" in str(reply.get("trace")))
-    time.sleep(1)  # test harness: a close would land now
+    time.sleep(1)  # sleep-ok: an observation window for something that must not happen (a close would land now)
     row("nothing closed", f"{windows} windows, {tabs} panes",
         f"{len((rpc('debug.windows') or {}).get('windows') or [])} windows, {len(panes())} panes",
         len((rpc("debug.windows") or {}).get("windows") or []) == windows and len(panes()) == tabs)
@@ -231,7 +241,7 @@ app = None
 
 
 def cleanup():
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     if os.environ.get("KEYS_E2E_KEEP"):
         return
     # Scripts may not confirm quitEndSessions (user-only since cx-zk9t): try the DEBUG fixture first
@@ -251,7 +261,7 @@ def cleanup():
         for line in ps.splitlines():
             parts = line.split(None, 2)
             if len(parts) == 3 and parts[2].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:
@@ -298,7 +308,7 @@ def main():
             break
     if not wait(lambda: (focused_pane() or {}).get("kind") == "terminal", 30):
         print("panes:", json.dumps(panes())[:1500], flush=True)
-    time.sleep(2)  # test harness: shell prompt
+    shell_prompts()
     clear_check("single terminal", terminal.group(1) if terminal else "")
     before = terminal_ids()
     print("splitRight:", rpc("action.run", {"action": "splitRight"}), flush=True)
@@ -308,12 +318,14 @@ def main():
         print("newSurface in split:", rpc("action.run", {"action": "newSurface"}), flush=True)
         new = wait(lambda: terminal_ids() - before, 20)
     wait(lambda: (focused_pane() or {}).get("kind") == "terminal" and len(panes()) >= 2, 30)
-    time.sleep(2)  # test harness: shell prompt
+    shell_prompts()
     # Automation never moves focus: the original terminal keeps it, now inside a split.
     clear_check("split terminal (left, focused)", terminal.group(1) if terminal else "")
     # The user's Cmd-Option-Right moves focus to the new split; Cmd-K clears that one.
+    left = (focused_pane() or {}).get("pane")
     print("focus right:", key("right", ["cmd", "option"]).get("action"), flush=True)
-    time.sleep(1)  # test harness: focus settles
+    if not wait(lambda: (focused_pane() or {}).get("pane") not in (None, left), 10, step=0.1):
+        print("focus did not move off the left split", flush=True)
     clear_check("split terminal (right)", sorted(new)[0] if new else "")
     for name, mods, label in [("=", ["cmd"], "Cmd-="), ("0", ["cmd"], "Cmd-0"), ("up", ["cmd"], "Cmd-Up"),
                               ("g", ["cmd", "shift"], "Cmd-Shift-G"), ("left", ["option"], "Option-Left")]:
@@ -324,14 +336,17 @@ def main():
         row(f"terminal {label}", "the terminal (Ghostty, or terminal.*FontSize) gets it", owner, ok)
     shortcut_checks()
     print("newAgentChat:", rpc("action.run", {"action": "palette.newAgentChat"}), flush=True)
-    time.sleep(2)  # test harness: a new chat may open in a new workspace (L3)
+    # A new chat may open in a new workspace (L3): the loop below looks there when it is not focused here.
+    wait(lambda: (focused_pane() or {}).get("kind") == "agent", 5, step=0.1)
     for index in range(1, 10):
         if (focused_pane() or {}).get("kind") == "agent":
             break
         rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
         wait(lambda: (focused_pane() or {}).get("kind") == "agent", 3)
     wait(lambda: (focused_pane() or {}).get("kind") not in (None, "terminal"), 30)
-    time.sleep(3)  # test harness: the agent page loads
+    # The agent page loads: the focused pane stops changing.
+    wait_stable(lambda: json.dumps(focused_pane(), sort_keys=True), "the agent page", timeout=15, interval=0.25, reads=6,
+                raise_on_timeout=False)
     pane = focused_pane() or {}
     reply = key("k", ["cmd"])
     row("agent composer Cmd-K", "no cmux action", f"focused={pane.get('kind')} handled_by={reply.get('handled_by')} action={reply.get('action')}",

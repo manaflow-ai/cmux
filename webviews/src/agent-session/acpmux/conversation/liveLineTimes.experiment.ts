@@ -24,5 +24,6 @@ export const liveLineTimes = defineExperiment({
       description: "\"3s\": the step's own time; the turn's clock only in its tooltip, so nothing on the line ticks.",
     },
   },
-  defaultArm: "labelled",
+  // One clock, as the Codex app's live line has (Lucas, 2026-11-11, on "Thinking 372ms · turn 5s").
+  defaultArm: "turn",
 });

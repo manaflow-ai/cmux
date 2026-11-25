@@ -12,7 +12,8 @@ public nonisolated struct AppsWireDecoding {
         let date = json["ts_ms"]?.numberValue.map { Date(timeIntervalSince1970: $0 / 1000) }
         switch name {
         case "apps-changed":
-            return .changed(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) })
+            return .changed(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) },
+                            app: json["transaction"]?.stringValue == "local-reload" ? json["app"]?.stringValue : nil)
         case "apps-scene":
             guard let mount = json["mount_id"]?.stringValue else { return nil }
             return .scene(mountID: mount, ops: AppSceneOp.batch(json["ops"] ?? .array([])), reset: json["reset"]?.boolValue == true)
@@ -22,9 +23,18 @@ public nonisolated struct AppsWireDecoding {
         case "apps-host":
             guard let app = json["app"]?.stringValue, let state = json["state"]?.stringValue.flatMap(AppHostState.init(rawValue:)) else { return nil }
             return .host(app: app, state: state, reason: json["reason"]?.stringValue)
+        case "apps-reload-failed":
+            guard let app = json["app"]?.stringValue else { return nil }
+            return .reloadFailed(app: app, reason: json["reason"]?.stringValue ?? AppsStrings.mountFailed)
         case "apps-log":
             guard let app = json["app"]?.stringValue else { return nil }
             return .log(app: app, level: json["level"]?.stringValue ?? "info", message: json["message"]?.stringValue ?? "", date: date)
+        case "apps-widgets-changed":
+            return .widgetsChanged(revision: json["revision"]?.numberValue.flatMap { UInt64(exactly: $0) }, place: json["place"]?.stringValue)
+        case "apps-widget-health":
+            guard let mount = json["mount_id"]?.stringValue else { return nil }
+            return .widgetHealth(mountID: mount, stale: json["stale"]?.boolValue == true, reason: json["reason"]?.stringValue,
+                                 retryMilliseconds: json["retry_ms"]?.numberValue)
         default:
             return nil
         }

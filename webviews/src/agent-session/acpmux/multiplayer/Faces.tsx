@@ -10,6 +10,7 @@ import { machineColor } from "../machineColor";
 import { useAvatarPicture } from "../../../pages/home-channels/avatars";
 import { initials, isGuest, type Participant } from "./participants";
 import { PRESENCE_STACK } from "./facesModel";
+import { signed } from "../../../ui/Typography";
 
 /// An https picture the page could not load itself, as the host loaded it (`data:`), or null when the
 /// host would not: asked once per link for the page's life.
@@ -141,6 +142,7 @@ export function PresenceStack({ viewing, look = "stack" }: { viewing: Participan
     <div className="cv-presence" data-look={look}>
       <span className="cv-presence__label">{t("multiplayer.viewing", { names })}</span>
       {shown.map((person) => (
+        // tooltip-allow: a face, with a name beside it only in the names look.
         <span key={person.id} className="cv-presence__person" aria-hidden="true" title={person.name}>
           <Face person={person} size={20} />
           {look === "names" && <span className="cv-presence__name">{person.name.split(/\s+/)[0]}</span>}
@@ -148,7 +150,7 @@ export function PresenceStack({ viewing, look = "stack" }: { viewing: Participan
       ))}
       {viewing.length > shown.length && (
         <span className="cv-presence__more" aria-hidden="true">
-          {t("multiplayer.more", { count: viewing.length - shown.length })}
+          {signed(t("multiplayer.more", { count: viewing.length - shown.length }))}
         </span>
       )}
     </div>

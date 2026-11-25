@@ -66,13 +66,12 @@ function GalleryEmptyState({ state = "recents", direction = "ltr", many }: Props
     </>
   );
   return (
-    <div ref={setContainer} className="empty-state-gallery-host">
+    <div ref={setContainer} className="empty-state-gallery-host ve-root">
       {container ? (
         <UiProvider container={container} dir={direction}>
           <EmptyState
             kind="diff"
             title="Open a repository"
-            subtitle="Choose a folder, open a recent repository, or drop one here."
             dropText="Drop a repository to open it"
             onDrop={(item) => setReceipt(`Dropped ${item.name}`)}
             error={error}

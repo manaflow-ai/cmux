@@ -37,6 +37,21 @@ stack overflow, out of memory, a signal) never loses user state.
    from the journal and the output store (crash-only design, section 6).
 6. Every parser that sees outside bytes has a fuzz target (section 7).
 
+### Fixed-record codecs
+
+A fixed record size does not prove a slice passed to its encoder or decoder has
+that size. Consume fields with `Read::read_exact` / `Write::write_all` or checked
+chunks, propagate short-buffer errors through spill sorting and optional-index
+writers, and use `get_mut` for calculated page offsets. Constant ranges into
+fixed-size arrays are bounded by the array type. Do not silence the entire codec
+module's indexing lint.
+
+Detector: `scripts/cmux-next/rust_panic_ratchet.py` enables production-target
+`clippy::indexing_slicing`; ordinary `clippy --all-targets -- -D warnings` does not
+cover that lint by itself. Run both. The kin-table regression
+`fixed_records_reject_every_truncation_without_panicking` covers every cut of the
+entry, edge and level record encodings (cmux#44281).
+
 ## 2. Inventory (before, feat-cmux-next 7c48cdf2c40e, 2026-10-22)
 
 The baseline file is measured at the landing's merged head (65a4003019ad):
@@ -80,7 +95,6 @@ every call in `catch_unwind`).
 | cmux-rd-core | 0 | 0 | 0 | 34 | 0 | 34 | 51 | 17 | src/fec.rs 44, src/upstream.rs 12, src/packetize.rs 9 |
 | cmux-api-compat | 0 | 0 | 0 | 32 | 2 | 34 | 30 | 0 | src/stream.rs 35, src/change.rs 13, src/trie.rs 7 |
 | cmux-theme-tokens | 0 | 0 | 0 | 31 | 1 | 32 | 21 | 2 | src/app_theme.rs 28, src/spec.rs 18, src/colors.rs 3 |
-| cmux-mux2 | 0 | 11 | 0 | 18 | 0 | 29 | 25 | 3 | src/lib.rs 23, src/bin/mux2-verify.rs 15, src/bin/mux2-wrapcheck.rs 14 |
 | cmux-server-core | 0 | 0 | 0 | 26 | 0 | 26 | 29 | 5 | src/pairing/base32.rs 8, src/manifest/time.rs 7, src/pairing/enrollment.rs 7 |
 | cmux-tui-util | 12 | 1 | 0 | 7 | 5 | 25 | 21 | 4 | src/user_settings.rs 27, src/stream_interrupt.rs 13, src/short_id.rs 5 |
 | cmux-tui-image-paste | 22 | 0 | 0 | 0 | 0 | 22 | 11 | 1 | src/image_paste.rs 21, src/image_paste_file.rs 10, src/image_paste_ownership.rs 1 |

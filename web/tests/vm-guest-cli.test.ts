@@ -478,6 +478,17 @@ esac
       expect(run.stdout.trim().split("\n")).toEqual(["exec", "reply exactly pong"]);
     });
 
+    // cmux-tui on a Cloud machine exits 124 from a timed-out process wait only
+    // for a caller that says it reads 124; an older adapter, on disk or still
+    // running in a shell, does not, and keeps exit 0.
+    test("tells cmux-tui that it reads a timed-out wait's 124", async () => {
+      const run = await runShim(["agent", "list"], {}, (directory) => {
+        writeFileSync(join(directory, "cmux-tui"), '#!/bin/sh\nprintf \'%s\\n\' "${CMUX_CALLER_READS_WAIT_124:-unset}"\n');
+      });
+      expect(run.status).toBe(0);
+      expect(run.argv).toEqual(["1"]);
+    });
+
     test("keeps cmux-tui's local agent scope available", async () => {
       const run = await runShim(["agent", "list"]);
       expect(run.status).toBe(0);
@@ -689,7 +700,7 @@ if [ "$a" = terminal ] && [ "$c" = screen ] && [ "$d" = wait ]; then
 fi
 if [ "$a" = terminal ] && [ "$c" = screen ] && [ "$d" = read ]; then printf '{"cols":80,"rows":24,"text":"hello screen"}\\n'; exit 0; fi
 if [ "$a" = terminal ] && [ "$c" = process ] && [ "$d" = wait ]; then
-  if [ "\${FAKE_EXIT_PENDING:-0}" = 1 ] || [ "$n" -lt "\${FAKE_EXIT_PENDING_UNTIL:-0}" ]; then printf '{"value":{"terminal_id":"%s","state":"pending"},"generation":"g","revision":%s,"replayed":false}\\n' "$b" "$n"; exit 0; fi
+  if [ "\${FAKE_EXIT_PENDING:-0}" = 1 ] || [ "$n" -lt "\${FAKE_EXIT_PENDING_UNTIL:-0}" ]; then printf '{"value":{"terminal_id":"%s","state":"pending","timed_out":true},"generation":"g","revision":%s,"replayed":false}\\n' "$b" "$n"; exit "\${FAKE_EXIT_PENDING_STATUS:-0}"; fi
   case "\${FAKE_EXIT_KIND:-exit}" in
     signal) printf '{"value":{"terminal_id":"%s","state":"exited","outcome":{"kind":"signal","signal":9,"core_dumped":false}},"generation":"g","revision":%s,"replayed":false}\\n' "$b" "$n" ;;
     *) printf '{"value":{"terminal_id":"%s","state":"exited","outcome":{"kind":"exit","code":3}},"generation":"g","revision":%s,"replayed":false}\\n' "$b" "$n" ;;
@@ -2100,6 +2111,11 @@ describe("in-VM cmux shim: terminal exit and output", () => {
     const pendingJson = await runStateful(dir, ["terminal", "wait-exit", "term_x", "--json"], { FAKE_EXIT_PENDING: "1" });
     expect(pendingJson.status).toBe(1);
     expect(JSON.parse(pendingJson.stdout).value.state).toBe("pending");
+    // A cmux-tui that exits 124 on a timed-out process wait is still pending, not a failure.
+    const timedOut = await runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "0.5"], { FAKE_EXIT_PENDING: "1", FAKE_EXIT_PENDING_STATUS: "124" });
+    expect(timedOut.stderr).toBe("");
+    expect(timedOut.status).toBe(1);
+    expect(timedOut.stdout).toBe("pending\n");
     expect((await runStateful(dir, ["terminal", "wait-exit", "term_x", "--timeout", "nope"])).status).toBe(2);
     expect((await runStateful(dir, ["terminal", "wait-exit"])).status).toBe(2);
   });

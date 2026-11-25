@@ -24,7 +24,7 @@ import { startedNames, StartedNamesContext } from "../src/agent-session/acpmux/c
 const t = ((key: string) => (key === "tray.kind.subagent" ? "Subagent" : key)) as never;
 const CHILD = "optchat-5e2a91c4b7d0-3f";
 
-const subsessionDone = (reply?: string): AcpmuxRow => {
+const subsessionDone = (reacted = false): AcpmuxRow => {
   const agent: Subagent = {
     id: `${CHILD}/start-1`,
     parent: null,
@@ -33,7 +33,7 @@ const subsessionDone = (reply?: string): AcpmuxRow => {
     state: "completed",
     startedAt: 1_000,
     endedAt: 61_000,
-    ...(reply && { reaction: { turn: "turn-1", weight: "result" as const, text: reply } }),
+    ...(reacted && { reaction: { turn: "turn-1", weight: "result" as const, fresh: true as const } }),
   } as Subagent;
   return { id: "done-1", version: 1, kind: "subagentDone", at: 61_000, subagents: [agent] } as AcpmuxRow;
 };
@@ -112,15 +112,12 @@ test("a message to a sub-session that left the list names it from its start call
   expect(draw(new Map())).toContain("sub-perf…");
 });
 
-test("the reply under a finished subagent's line is in the row's estimate", () => {
+// Leo, 2026-11-09 20:33Z: "your response was weirdly folded into the rende?". The chat's reply to a
+// subagent's end is its own message, so the finished line is one row whatever its reaction.
+test("a finished subagent's line is one row in the estimate, its reaction included", () => {
   const height = (row: AcpmuxRow, width = 720) =>
     layoutConversation([row, { id: "next", version: 1, kind: "subagentDone", at: 2, subagents: [] } as never], width)
       .heights[0]!;
-  const bare = height(subsessionDone());
-  const short = height(subsessionDone("Found one race; fixing it next."));
-  const long = height(subsessionDone("The reviewer found one race in the banner's timer. ".repeat(12)), 360);
-  // One 20px line under the 22px line, no margin of its own; a long reply wraps onto more lines.
-  expect(short - bare).toBe(20);
-  expect(long - height(subsessionDone(), 360)).toBeGreaterThan(40);
-  expect((long - height(subsessionDone(), 360)) % 20).toBe(0);
+  expect(height(subsessionDone(true))).toBe(height(subsessionDone()));
+  expect(height(subsessionDone(true), 360)).toBe(height(subsessionDone(), 360));
 });

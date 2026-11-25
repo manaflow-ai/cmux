@@ -28,6 +28,15 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'cmux-next'))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script outside scripts/: the same helper (scripts/cmux-next/safe_log.py)
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 
 def paths(state: Path, name: str) -> dict[str, Path]:
@@ -118,9 +127,11 @@ def join(state: Path, name: str, timeout: int) -> int:
     return 1
 
 
-def stop(state: Path) -> int:
+def stop(state: Path, only: str | None = None) -> int:
     for pid_file in sorted(state.glob("*.pid")) if state.is_dir() else []:
         name = pid_file.name[: -len(".pid")]
+        if only and name != only:
+            continue
         if paths(state, name)["status"].exists():
             continue
         group = int(pid_file.read_text().strip())
@@ -129,7 +140,7 @@ def stop(state: Path) -> int:
                 os.killpg(group, sig)
             except (ProcessLookupError, PermissionError):
                 break
-            print(f"sent {signal.Signals(sig).name} to {name} (process group {group})")
+            safe_print(f"sent {signal.Signals(sig).name} to {name} (process group {group})")
             if sig == signal.SIGTERM:
                 time.sleep(2)
     return 0
@@ -143,6 +154,9 @@ def main(argv: list[str]) -> int:
         sub.add_argument("--state", required=True, type=Path)
         if command != "stop":
             sub.add_argument("name")
+        else:
+            # Optional: stop only this helper; without it every unfinished helper stops.
+            sub.add_argument("name", nargs="?")
         if command == "join":
             sub.add_argument("--timeout", type=int, default=1800)
         if command == "_supervise":
@@ -159,7 +173,7 @@ def main(argv: list[str]) -> int:
         return supervise(args.state, args.name, args.lock_fd, build)
     if args.command == "join":
         return join(args.state, args.name, args.timeout)
-    return stop(args.state)
+    return stop(args.state, args.name)
 
 
 if __name__ == "__main__":

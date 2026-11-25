@@ -59,7 +59,7 @@ pub fn parse(channel: Channel, body: &Value) -> Option<String> {
 pub async fn fetch_json(url: &str) -> Result<Value, String> {
     let loopback = cfg!(debug_assertions) && url.starts_with("http://127.0.0.1:");
     let _ = rustls::crypto::ring::default_provider().install_default();
-    let client = reqwest::Client::builder()
+    let client = crate::happy_dial::http_client()
         .https_only(!loopback)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(FETCH_TIMEOUT)

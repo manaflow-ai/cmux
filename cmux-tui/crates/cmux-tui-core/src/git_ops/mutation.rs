@@ -43,15 +43,15 @@ impl Target {
         let output = repository
             .run(&arguments, MAX_SMALL_OUTPUT_BYTES)
             .map_err(|failure| read_failed(operation, &failure))?;
-        let text = String::from_utf8_lossy(&output.stdout).into_owned();
-        let mut lines = text.lines();
-        let (Some(common_dir), Some(git_dir)) = (lines.next(), lines.next()) else {
+        // A folder's name can have a line break: the answer is read as bytes.
+        let Some((common_dir, git_dir)) = cmux_git::two_folders(&output.stdout) else {
             let message = "git did not name the repository's directories";
             return Err(refused(operation, "git_failed", message, Value::Null));
         };
-        let canonical = |path: &str| {
-            fs::canonicalize(path).map_err(|error| {
-                refused(operation, "git_failed", format!("{path}: {error}"), Value::Null)
+        let canonical = |path: PathBuf| {
+            fs::canonicalize(&path).map_err(|error| {
+                let message = format!("{}: {error}", path.display());
+                refused(operation, "git_failed", message, Value::Null)
             })
         };
         Ok(Self { common_dir: canonical(common_dir)?, git_dir: canonical(git_dir)?, repository })

@@ -284,6 +284,8 @@ public final class ControlRouter: Sendable {
             return .success(try await Self.run(method, call, queue: workQueue))
         } catch let error as ControlError {
             return .failure(error.annotated(progress: progress))
+        } catch is SettingsWriterDisconnected {
+            return .failure(.settingsDisconnected())
         } catch {
             return .failure(ControlError(code: "internal_error", message: String(describing: error)))
         }
@@ -303,7 +305,7 @@ public final class ControlRouter: Sendable {
         return ControlError(
             code: "method_not_found",
             message: ControlStrings.format("control.error.unknownMethodOlderCLI",
-                                           "Unknown method %1$@. A cmux CLI that is older than this app (or from another cmux app) sends methods this app does not have; this app's CLI is %2$@",
+                                           "Unknown method %1$@: this cmux CLI is older than this app. Use %2$@",
                                            method, cli),
             data: ["method": .string(method), "app_cli_path": .string(cli)])
     }

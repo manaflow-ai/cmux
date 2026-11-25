@@ -12,9 +12,10 @@
 import { useContext, useEffect, useState } from "react";
 import { SubagentClockContext } from "../subagents/subagentGroupModel";
 import type { SummaryWakeup } from "../summary/sessionSummary";
-import { formatDuration } from "../conversation/turns";
+import { spanDuration } from "../conversation/turns";
 import type { PaneLanguage, StringKey, Translate } from "../i18n";
 import { cronWords, nextCronFire } from "./cronWords";
+import { intl } from "../../../ui/intl";
 
 /// How long Claude Code keeps a recurring cron job before it expires on its own.
 export const RECURRING_CRON_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
@@ -117,7 +118,8 @@ export function scheduledTrailing(t: Translate, language: PaneLanguage, entry: S
   }
   const word = t(SCHEDULED_STATE[status.state]);
   if (status.state !== "done" || status.endedAt === undefined || item.startedAt === undefined) return word;
-  return `${word} · ${formatDuration(Math.max(0, status.endedAt - item.startedAt))}`;
+  const time = spanDuration(t, status.endedAt - item.startedAt);
+  return time === undefined ? word : `${word} · ${time}`;
 }
 
 const SCHEDULED_STATE: Record<Exclude<ScheduledState, "scheduled">, StringKey> = {
@@ -129,7 +131,7 @@ const SCHEDULED_STATE: Record<Exclude<ScheduledState, "scheduled">, StringKey> =
 
 function timeOfDayAt(at: number, language: PaneLanguage): string {
   try {
-    return new Intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
+    return intl.DateTimeFormat(language, { hour: "numeric", minute: "2-digit" }).format(new Date(at));
   } catch {
     const date = new Date(at);
     return `${date.getHours()}:${String(date.getMinutes()).padStart(2, "0")}`;

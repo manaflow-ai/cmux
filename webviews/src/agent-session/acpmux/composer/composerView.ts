@@ -17,6 +17,7 @@
 // (`TURN_LIVE`) and, in a chat that has started, holds its `sessions` while only another chat's live
 // fields moved (`sameSessions`).
 import { useRef } from "react";
+import { PrefixFilter } from "../conversation/prefixFlatMap";
 import { linkUp, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
@@ -58,22 +59,31 @@ const OTHER_CHAT_LIVE: ReadonlySet<string> = new Set<keyof AcpmuxSessionEntry>([
 /// row, and every failed turn's summary (queuePause.ts). In order, as `rows` has them.
 export function composerRows(rows: readonly AcpmuxRow[]): AcpmuxRow[] {
   const kept: AcpmuxRow[] = [];
-  let started = false;
-  for (let index = 0; index < rows.length; index++) {
-    const row = rows[index]!;
-    const firstStarted = !started && row.kind !== "sessionStart";
-    if (row.kind !== "sessionStart") started = true;
-    if (
-      index === 0 ||
-      firstStarted ||
-      row.kind === "user" ||
-      row.queued !== undefined ||
-      (row.kind === "turnSummary" && row.status === "failed")
-    )
-      kept.push(row);
+  if (!rows.length) return kept;
+  // The first row past the chat's start: a few rows in at most.
+  let started = 0;
+  while (started < rows.length && rows[started]!.kind === "sessionStart") started += 1;
+  kept.push(rows[0]!);
+  // The prompts, queued rows and failed summaries come from a pass that reads only the rows a
+  // snapshot changed (prefixFlatMap.ts): a chat of 7,000 turns no longer reads every row per event.
+  const { items, from } = composerReads.read(rows);
+  let head = started > 0 && started < rows.length;
+  for (let at = 0; at < items.length; at++) {
+    const index = from[at]!;
+    if (head && index >= started) {
+      kept.push(rows[started]!);
+      head = false;
+    }
+    if (index !== 0 && index !== started) kept.push(items[at]!);
   }
+  if (head) kept.push(rows[started]!);
   return kept;
 }
+
+/// A row the composer reads wherever it is (composerRows): a prompt, a queued row, a failed turn's summary.
+const composerReads = new PrefixFilter<AcpmuxRow>(
+  (row) => row.kind === "user" || row.queued !== undefined || (row.kind === "turnSummary" && row.status === "failed"),
+);
 
 /// The same members by identity, one level down: arrays element by element, anything else by `Object.is`.
 function sameMember(a: unknown, b: unknown): boolean {

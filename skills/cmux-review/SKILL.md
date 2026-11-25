@@ -17,16 +17,17 @@ suppress style, nits and speculative improvements unless requested.
    original discriminator after repair. A green test counts only if it exercises
    the asserted failure; prefer red-before/green-after evidence.
 3. If fixes were non-trivial, obtain a fresh subagent review of the repair delta.
-4. Merge when the review subagent passes the change and it causes no red of its own
-   (base reds, flakes and pending checks don't hold it). Into `main`, merge with
-   `gh-merge-green`; into `feat-cmux-next`, merge it yourself with a squash pinned to
-   the reviewed head (`gh pr merge N --squash --match-head-commit <full head sha>`).
+4. Merge when its checks pass and it causes no red of its own (base reds and flakes
+   don't hold it; for a stuck or irrelevant check see
+   [landing](../../docs/ci/landing.md#review-and-merge)). Into `feat-cmux-next` the review
+   runs beside CI and does not gate the merge; a BLOCK at the head holds it. Merge it
+   yourself with a squash pinned to the head
+   (`gh pr merge N --squash --match-head-commit <full head sha>`). Into `main`, it needs
+   a SHIP at the head and merges with `gh-merge-green`.
    Report findings with evidence, verification performed and coverage gaps.
 
-A small change (a removal, a copy, CSS or token tweak, a fix confined to one
-component) needs only a subagent review in the current runtime. A behavior change
-into `feat-cmux-next` that is not small is reviewed by a different model or a
-person. Keep review read-only until an authorized repair.
+A SHIP counts from any reviewer and any model family, the PR's own agent included
+(Leo, 2026-11-14). Keep review read-only until an authorized repair.
 Do not commit review receipts, scratch reproductions or generated logs.
 
 ## Dogfood and merge
@@ -34,8 +35,8 @@ Do not commit review receipts, scratch reproductions or generated logs.
 For implementation handoff or merge, read [dogfood and merge](references/dogfood-and-merge.md)
 for per-change verification, first-pass completion, re-dogfood and merge receipts.
 The main agent owns dogfood, mergeability, the merge and every pushed fix.
-On either branch, a PR merges when an independent review subagent passes it and
-it causes no red of its own; base reds, flakes and pending checks don't hold it.
+On either branch, a PR merges when its checks pass and it causes no red of its own;
+base reds and flakes don't hold it, and review findings fix forward.
 Don't wait for a person. Ship risky user-visible behavior behind a setting or
 Debug toggle and fix a bad default in the next nightly. `main` is nightly: stack
 fixes, do not revert.
@@ -45,13 +46,10 @@ fixes, do not revert.
 Post the verdict as a PR comment whose first line is the receipt, and put nothing
 before it: `Review (<reviewer>): SHIP at <full 40-character head sha>` (or `BLOCK`,
 `FIX`). Findings go below that line. A SHIP counts only for the exact head it
-names. Every agent posts as the PR author's GitHub account, so a receipt from that
-account must name the reviewer agent and the agent that started it:
-`Review (<reviewer agent id>, started by <agent id>): SHIP at <sha>`. The PR body
-names its author agent on one line, `Author-agent: <agent id>`. Such a SHIP does not
-count when either id is the author agent or the PR body has no `Author-agent:` line;
-a BLOCK always counts (`scripts/ci/risk_tier.py`). So the author agent never
-starts its own reviewer: the lead (or another agent) starts it. A receipt that carries an older head's SHIP to a new head across a base
+names. A SHIP counts from any reviewer, any model family, the PR's own agent
+included (Leo, 2026-11-14, on "need a review from a model family other than":
+"this is no longer a requirement"); a BLOCK at the head still refuses
+(`scripts/ci/risk_tier.py`). A receipt that carries an older head's SHIP to a new head across a base
 merge is not a review. Mark it in the reviewer label:
 `Review (<reviewer>; carried): SHIP at <new head sha>`. next-autoland and
 `scripts/ci/review_receipt.py` (on main) treat a first line as carried when the label says carried, or

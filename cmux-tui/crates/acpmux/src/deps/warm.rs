@@ -96,9 +96,9 @@ fn restore_into(plan: &Plan, archive_path: &Path, codec: Codec) -> std::io::Resu
         let from = stage.path().join(rel);
         let to = plan.root.join(rel);
         // An empty folder (left by a tool or a sync) is replaced; one with files is never touched.
-        let _ = std::fs::remove_dir(&to);
+        let _ = crate::home_fs::remove_dir(&to);
         if from.exists() && !to.exists() {
-            std::fs::rename(&from, &to)?;
+            crate::home_fs::rename(&from, &to)?;
         }
     }
     Ok(())
@@ -419,10 +419,13 @@ pub async fn upload(
     use std::io::Write as _;
     anyhow::ensure!(plain_key(key), "key is not plain");
     let dir = uploads_dir();
-    std::fs::create_dir_all(&dir)?;
+    crate::home_fs::create_dirs(&dir)?;
     let lock_path = dir.join(format!("{key}.lock"));
-    let file =
-        std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&lock_path)?;
+    let file = crate::home_fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)?;
     if lock(&file, false).is_err() {
         // Another upload of this key is running.
         let _ = std::io::stdout().write_all(b"1");
@@ -455,7 +458,7 @@ pub async fn upload(
         }
     }
     .await;
-    let _ = std::fs::remove_file(&lock_path);
+    let _ = crate::home_fs::remove_file(&lock_path);
     drop(file);
     result
 }

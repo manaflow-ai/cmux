@@ -4,6 +4,7 @@
 // call still names it, so the row never falls back to a bare id (Leo, 2026-11-03, on a "Sent to"
 // row that showed one). The pane works it out once per snapshot from the rows that changed, as
 // turnChanges/sessionRows.ts does for edits, and hands the same map on while no start was added.
+import { keptPrefix } from "./prefixFlatMap";
 import { createContext, createElement, useContext, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { SubsessionContext, type Subsessions } from "../subagents/subsessions";
@@ -16,9 +17,7 @@ const NONE: ReadonlyMap<string, string> = new Map();
 /// The names `rows`' start calls gave. Rows before the first that differs from `previous.rows` (by
 /// object) were read already; `names` stays `previous.names` when no new start names a session.
 export function startedNames(rows: readonly AcpmuxRow[], previous?: StartedNames): StartedNames {
-  let from = 0;
-  if (previous)
-    while (from < rows.length && from < previous.rows.length && rows[from] === previous.rows[from]) from += 1;
+  const from = previous ? keptPrefix(previous.rows, rows) : 0;
   // A row before `from` that changed would be a different object, so the prefix is what was read.
   // A row that went away (history trimmed) leaves its name: the session it named is the same.
   let names = previous?.names ?? NONE;

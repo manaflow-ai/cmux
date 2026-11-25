@@ -4,6 +4,7 @@
 // nothing and says why.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -38,12 +39,8 @@ const { createRoot } = await import("react-dom/client");
 const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
 const { newChatInWorktree, newWorktree } = await import("../src/agent-session/acpmux/startFolderModel");
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
@@ -73,17 +70,20 @@ const openFolderMenu = async () => {
 };
 
 const menuItem = (name: string) =>
-  // Project actions are pinned under search, before the scrolling folders.
   [
     ...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitem], [role=option], .ui-combobox-pinned button"),
   ].find((item) => item.textContent?.includes(name));
 
-test("a new chat's folder menu offers New Worktree for its folder", async () => {
+test("the selected folder can expand to offer New worktree even before it has any worktrees", async () => {
   const asked: string[] = [];
   const root = await renderTray({ onNewWorktree: (cwd: string) => asked.push(cwd) });
   try {
     await openFolderMenu();
-    const item = menuItem("New Worktree");
+    expect(menuItem("New worktree")).toBeUndefined();
+    const expand = dom.window.document.querySelector<HTMLElement>("[data-current] .acpmux-location-worktrees");
+    expect(expand).toBeTruthy();
+    await act(async () => expand!.click());
+    const item = menuItem("New worktree");
     expect(item).toBeDefined();
     await act(async () => item!.click());
     await settle();
@@ -97,7 +97,7 @@ test("a chat without a folder of its own offers no worktree", async () => {
   const root = await renderTray({ summary: { sessionId: "" }, projectChoices: [], onNewWorktree: () => {} });
   try {
     await openFolderMenu();
-    expect(menuItem("New Worktree")).toBeUndefined();
+    expect(menuItem("New worktree")).toBeUndefined();
   } finally {
     await act(async () => root.unmount());
   }
@@ -172,35 +172,24 @@ const anyButton = (name: string) =>
     item.textContent?.includes(name),
   );
 
-test("a new Cloud chat's folder menu offers New Worktree for its folder on that machine", async () => {
-  const asked: string[] = [];
+test("the Cloud source menu does not offer local worktree actions", async () => {
   const root = await renderTray({
     summary: cloudSummary,
     projectChoices: [],
     machineFolders: [{ cwd: VM_FOLDER, label: "app" }],
-    onNewWorktree: (cwd: string) => asked.push(cwd),
+    onNoProject: () => {},
+    onNewWorktree: () => {
+      throw new Error("Cloud sources must not create a worktree");
+    },
   });
   try {
     await openFolderMenu();
-    const item = anyButton("New Worktree");
-    expect(item).toBeDefined();
-    await act(async () => item!.click());
-    await settle();
-    expect(asked).toEqual([VM_FOLDER]);
-  } finally {
-    await act(async () => root.unmount());
-  }
-});
-
-test("a Cloud chat offers no worktree when the page gives none", async () => {
-  const root = await renderTray({
-    summary: cloudSummary,
-    projectChoices: [],
-    machineFolders: [{ cwd: VM_FOLDER, label: "app" }],
-  });
-  try {
-    await openFolderMenu();
-    expect(anyButton("New Worktree")).toBeUndefined();
+    const folder = dom.window.document.querySelector(`[role="option"] [title="${VM_FOLDER}"]`);
+    expect(folder?.hasAttribute("data-current")).toBe(true);
+    expect(anyButton("Add project")).toBeDefined();
+    expect(anyButton("No folder")).toBeDefined();
+    expect(anyButton("New worktree")).toBeUndefined();
+    expect(dom.window.document.querySelector(".acpmux-location-worktrees")).toBeNull();
   } finally {
     await act(async () => root.unmount());
   }

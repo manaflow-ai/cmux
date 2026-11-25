@@ -3,7 +3,17 @@
 import { expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
-import { overPicture, readEnv, withColorScheme, writeEnv, type GalleryEnv } from "../src/gallery/env";
+import {
+  frameQuery,
+  overPicture,
+  readEnv,
+  readShellEnv,
+  SHELL_DEFAULT_BACKGROUND,
+  withColorScheme,
+  writeEnv,
+  writeShellEnv,
+  type GalleryEnv,
+} from "../src/gallery/env";
 import { wallpaperTintOpacity } from "../src/gallery/theme/tokens";
 import { agentPaneTheme, themeTokens, webThemePayload } from "../src/gallery/theme/web";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME } from "../src/gallery/theme/ghostty";
@@ -42,22 +52,40 @@ test("switching the appearance moves the default pair to the matching side", () 
   expect(withColorScheme({ ...start, theme: "Dracula" }, "light").theme).toBe("Dracula");
 });
 
-// The background axis (frame/background.ts): web only, so absent from the shared vectors; absent and
-// `none` are the opaque window, and the link stays short.
-test("a background reads and writes as its picture, none as nothing", () => {
-  for (const picture of ["light", "dark", "busy"] as const) {
+// The background axis (frame/background.ts): web only, so absent from the shared vectors. In a stage
+// frame's link absent is the opaque window; the shell's link (router.tsx) takes absent as the painting.
+test("a background reads and writes as its picture, none as nothing in a frame's link", () => {
+  for (const picture of ["painting", "light", "dark", "busy"] as const) {
     const env = readEnv(new URLSearchParams(`background=${picture}`));
     expect(env.background).toBe(picture);
     expect(overPicture(env)).toBe(true);
     expect(writeEnv(env).toString()).toBe(`background=${picture}`);
   }
-  for (const query of ["", "background=none", "background=photo"]) {
+  for (const query of ["", "background=photo"]) {
     const env = readEnv(new URLSearchParams(query));
     expect(env.background).toBeUndefined();
     expect(overPicture(env)).toBe(false);
     expect(writeEnv(env).toString()).toBe("");
   }
-  expect(writeEnv({ ...readEnv(new URLSearchParams()), background: "none" }).toString()).toBe("");
+  const none = readEnv(new URLSearchParams("background=none"));
+  expect(overPicture(none)).toBe(false);
+  expect(writeEnv(none).toString()).toBe("");
+});
+
+test("the shell opens over the painting and names none to be opaque", () => {
+  const shell = readShellEnv(new URLSearchParams());
+  expect(shell.background).toBe(SHELL_DEFAULT_BACKGROUND);
+  expect(SHELL_DEFAULT_BACKGROUND).toBe("painting");
+  expect(overPicture(shell)).toBe(true);
+  // The frame's link names the painting, so the stage paints it.
+  expect(frameQuery({ entry: "e", variant: "v" }, shell)).toContain("background=painting");
+  // The shell's own link stays short over the painting and names `none`.
+  expect(writeShellEnv(shell).toString()).toBe("");
+  const opaque = readShellEnv(new URLSearchParams("background=none"));
+  expect(opaque.background).toBe("none");
+  expect(overPicture(opaque)).toBe(false);
+  expect(writeShellEnv(opaque).toString()).toBe("background=none");
+  expect(frameQuery({ entry: "e", variant: "v" }, opaque)).not.toContain("background");
 });
 
 test("over a picture the page background is clear and the solid surface stays", () => {
@@ -91,4 +119,38 @@ test("a load reads and writes as its name, none as nothing", () => {
     expect(writeEnv(env).toString()).toBe("");
   }
   expect(writeEnv({ ...readEnv(new URLSearchParams()), load: "none" }).toString()).toBe("");
+});
+
+// The title area tone axis (TitleAreaTone.swift, web only): absent and `one-color` are the app's
+// default; WebTheme's contract variables follow it, and One Color leaves the chrome as it was.
+test("a title area tone reads and writes as its name, one color as nothing", () => {
+  const env = readEnv(new URLSearchParams("titleAreaTone=subtle-tone"));
+  expect(env.titleAreaTone).toBe("subtle-tone");
+  expect(writeEnv(env).toString()).toBe("titleAreaTone=subtle-tone");
+  for (const query of ["", "titleAreaTone=one-color", "titleAreaTone=loud"]) {
+    const plain = readEnv(new URLSearchParams(query));
+    expect(plain.titleAreaTone).toBeUndefined();
+    expect(writeEnv(plain).toString()).toBe("");
+  }
+});
+
+test("the tone, the folder fill, the chrome shade and the divider follow WebTheme's contract", () => {
+  const tokens = themeTokens({ name: "test", background: "#1e1e1e", foreground: "#e6e6e6", palette: [] } as never);
+  const one = webThemePayload(tokens).variables;
+  expect(one["--cmux-chrome-tone"]).toBe("0");
+  expect(one["--cmux-folder-fill"]).toBe("transparent");
+  expect(one["--cmux-sidebar-surface"]).toBe("transparent");
+  // The separator (the text at 8% on a dark theme) times the divider strength, 1.75.
+  expect(one["--cmux-chrome-divider"]).toBe("rgba(230, 230, 230, 0.14)");
+  expect(one["--cmux-sidebar-line"]).toBe(one["--cmux-chrome-divider"]);
+  const subtle = webThemePayload(tokens, undefined, false, { titleAreaTone: "subtle-tone" }).variables;
+  expect(subtle["--cmux-chrome-tone"]).toBe("1");
+  expect(subtle["--cmux-folder-fill"]).toBe("rgba(30, 30, 30, 1.0)");
+  // Half the flush corner's dark shade (0.28).
+  expect(subtle["--cmux-sidebar-surface"]).toBe("rgba(0, 0, 0, 0.14)");
+  const picture = webThemePayload(tokens, undefined, true, { titleAreaTone: "subtle-tone" }).variables;
+  expect(picture["--cmux-folder-fill"]).toBe("rgba(30, 30, 30, 0.0)");
+  const none = webThemePayload(tokens, undefined, false, { borders: "none", titleAreaTone: "subtle-tone" }).variables;
+  expect(none["--cmux-chrome-divider"]).toBe("transparent");
+  expect(none["--cmux-sidebar-line"]).toBe("transparent");
 });

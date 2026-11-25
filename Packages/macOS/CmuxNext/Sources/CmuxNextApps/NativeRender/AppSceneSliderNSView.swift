@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// absent, so a drag sends at most about a hundred `change {value}` events), its track in the scope's
 /// primary ink. While a drag runs the app's echoes of earlier values do not move the thumb; the app's
 /// value shows when the drag ends. Without `onChange` it only shows the app's value, disabled. The
-/// range, step and snap are the SwiftUI renderer's (``AppSceneSlider``), so both send the same values.
+/// range, step and snap are ``AppSceneSlider``'s.
 final class AppSceneSliderNSView: AppSceneNodeNSView {
     private let slider = TrackingSlider()
     /// The last value sent or shown, so a drag sends each snapped value once.

@@ -341,11 +341,15 @@ pub(super) fn session_set(
 ) -> anyhow::Result<Value> {
     let SessionSetParams { api_base_url, auth, access_token, expires_at, client_version } = params;
     let lease = SessionParams { api_base_url, auth, access_token, expires_at, client_version };
-    Ok(lease_holder(mux, client)?.set_session_by(lease, is_app(mux, client))?)
+    let reply = lease_holder(mux, client)?.set_session_by(lease, is_app(mux, client))?;
+    mux.feed_lease_changed();
+    Ok(reply)
 }
 
 pub(super) fn session_clear(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    Ok(lease_holder(mux, client)?.clear_session_by(is_app(mux, client))?)
+    let reply = lease_holder(mux, client)?.clear_session_by(is_app(mux, client))?;
+    mux.feed_lease_changed();
+    Ok(reply)
 }
 
 /// `cloud-session-status`. For the person's own clients (the app, a page)

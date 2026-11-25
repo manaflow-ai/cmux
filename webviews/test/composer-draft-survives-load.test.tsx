@@ -11,6 +11,8 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { hydratedDraft, mergedDraft, notifyDraftActionsChanged } from "../src/agent-session/acpmux/composerDraft";
+import { resetRestoredDraftsForTests } from "../src/agent-session/acpmux/chatSnapshot/restoredDraft";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -70,14 +72,15 @@ afterEach(() => {
   host.replaceChildren();
   dom.window.localStorage.clear();
   delete page().cmuxAcpmuxActions;
+  const restored = dom.window as unknown as Record<string, unknown>;
+  delete restored.__cmuxRestoredChat;
+  delete restored.__cmuxChatSnapshot;
+  delete restored.__cmuxRestoredDraft;
+  resetRestoredDraftsForTests();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {
@@ -347,4 +350,78 @@ test("(f) an edit still on its way to acpmux survives leaving and coming back be
   expect(prompt()).toBe("buy bread");
   expect(acpmux.held.get("load-f")).toBe("buy bread");
   expect(acpmux.writes.some((entry) => entry.text.includes("buy milk\n\nbuy bread"))).toBe(false);
+});
+
+// Leo, 2026-11-22, after restarting to update: "composer dips down then goes back up". After a
+// relaunch the chat's drawn copy shows its composer with the draft in it, and acpmux's own read of
+// that draft answers only once the page's connection is up. The live composer holds the copy's
+// prompt from its first render (chatSnapshot/restoredDraft.ts) as acpmux's draft last seen.
+/// The app's `__snapshot/chat.js` for a restored tab: chat `chat`'s copy, which showed `draft`.
+function serveCopy(chat: string, draft: string) {
+  const restored = dom.window as unknown as Record<string, unknown>;
+  restored.__cmuxRestoredChat = chat;
+  restored.__cmuxChatSnapshot = { v: 1, html: "<main id=root></main>", draft };
+  restored.__cmuxRestoredDraft = draft;
+}
+
+test("(r1) a relaunched chat's composer holds its copy's prompt before acpmux answers, and its read moves nothing", async () => {
+  const acpmux = daemon({ "relaunch-1": "before the restart\n\nsecond paragraph" });
+  serveCopy("relaunch-1", "before the restart\n\nsecond paragraph");
+  // The connection is not up yet: no read can answer.
+  await render("relaunch-1");
+  expect(prompt()).toBe("before the restart\n\nsecond paragraph");
+  await acpmux.connect();
+  await settle();
+  await settle();
+  // Before, the copy's prompt counted as typed text: the read doubled it, or the composer opened empty.
+  expect(prompt()).toBe("before the restart\n\nsecond paragraph");
+  expect(acpmux.writes).toEqual([]);
+});
+
+test("(r2) acpmux's draft changed since the copy was drawn: its draft replaces the copy's, never merged", async () => {
+  const acpmux = daemon({ "relaunch-2": "edited in the CLI since" });
+  serveCopy("relaunch-2", "as the copy showed it");
+  await render("relaunch-2");
+  expect(prompt()).toBe("as the copy showed it");
+  await acpmux.connect();
+  await until(() => prompt() === "edited in the CLI since", "acpmux's draft");
+  expect(acpmux.writes).toEqual([]);
+});
+
+test("(r3) typing on the copy's prompt before acpmux answers keeps the typing once", async () => {
+  const acpmux = daemon({ "relaunch-3": "half a thought" });
+  serveCopy("relaunch-3", "half a thought");
+  await render("relaunch-3");
+  await type(", finished");
+  await until(() => prompt() === "half a thought, finished", "the typing");
+  await acpmux.connect();
+  await settle();
+  await settle();
+  expect(prompt()).toBe("half a thought, finished");
+  await until(() => acpmux.held.get("relaunch-3") === "half a thought, finished", "acpmux to keep the typing");
+  expect(acpmux.writes.some((write) => write.text.includes("half a thought\n\n"))).toBe(false);
+});
+
+test("(r4) a copy whose script lands after the composer mounted still fills the empty prompt", async () => {
+  const acpmux = daemon({ "relaunch-4": "late copy" });
+  await render("relaunch-4");
+  expect(prompt()).toBe("");
+  serveCopy("relaunch-4", "late copy");
+  await act(async () => dom.window.dispatchEvent(new dom.window.Event("cmux-restored-chat")));
+  await until(() => prompt() === "late copy", "the copy's prompt");
+  await acpmux.connect();
+  await settle();
+  await settle();
+  expect(prompt()).toBe("late copy");
+  expect(acpmux.writes).toEqual([]);
+});
+
+test("(r5) another chat's copy stands in nothing", async () => {
+  const acpmux = daemon();
+  serveCopy("relaunch-other", "not this chat's");
+  await render("relaunch-5");
+  expect(prompt()).toBe("");
+  await acpmux.connect();
+  await settle();
+  expect(prompt()).toBe("");
 });

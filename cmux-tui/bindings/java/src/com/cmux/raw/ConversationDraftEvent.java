@@ -39,7 +39,7 @@ public final class ConversationDraftEvent implements WireValue, DeltaStreamEvent
         Object rawConversation = Wire.required(object, "conversation");
         builder.conversation(Wire.string(rawConversation, "ConversationDraftEvent.conversation"));
         Object rawItem = Wire.required(object, "item");
-        builder.item(Wire.immutableJson(rawItem));
+        builder.item(Wire.immutableJson(ProtocolSupport.nonNull(rawItem, "ConversationDraftEvent.item")));
         Object rawParticipant = Wire.required(object, "participant");
         builder.participant(Wire.string(rawParticipant, "ConversationDraftEvent.participant"));
         return builder.build();

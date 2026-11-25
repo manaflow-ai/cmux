@@ -98,7 +98,7 @@ import Testing
         work.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
         let tabs = try #require(service.store.workspaces.first?.screens.first?.panes.first?.tabs)
         #expect(tabs.map(\.surface) == [1], "the echo waited for a later frame, or applied in part (\(tabs.count) tabs left)")
-        #expect(tabs.first?.title == "kept")
+        #expect(tabs.first?.titleText == "kept")
         #expect(driver.inbox.bufferedCount == 0)
     }
 

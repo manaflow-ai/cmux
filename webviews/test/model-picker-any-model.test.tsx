@@ -9,6 +9,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -83,7 +84,8 @@ afterEach(async () => {
   delete (dom.window as unknown as { cmuxAcpmuxActions?: unknown }).cmuxAcpmuxActions;
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {
@@ -313,6 +315,7 @@ test("a harness that installs signed out signs in through its login, then starts
   expect(switched).toEqual([{ harness: "gemini", model: "gemini-3.8-flash" }]);
 });
 
+// A network failure reads as plain words, never the installer's own line (first-run finding 6).
 test("a failed install says why in the menu and starts nothing", async () => {
   const { calls, switched } = await mount(async ({ method }) => {
     if (method === "shell.run") return { id: "run-1" };
@@ -322,7 +325,8 @@ test("a failed install says why in the menu and starts nothing", async () => {
   await open();
   await search("gemini 3.8 flash");
   await click(topMatch());
-  await until(() => strip()?.textContent?.includes("npm ERR! network unreachable") === true);
+  await until(() => strip()?.textContent?.includes("The network dropped. Check your connection and retry.") === true);
+  expect(strip()?.textContent).not.toContain("npm ERR!");
   expect(switched).toEqual([]);
   expect(calls.some((call) => call.method === "harness.health")).toBe(false);
 });

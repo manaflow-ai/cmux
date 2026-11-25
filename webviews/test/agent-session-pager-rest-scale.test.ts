@@ -92,3 +92,129 @@ test("a newer session_changed and a purge beat an in-flight stale page", async (
   expect(held.filter((row) => row.sessionId === "s250")).toEqual([changed]);
   expect(held.some((row) => row.sessionId === "s260")).toBe(false);
 });
+
+// Once the list is whole the pane's own list takes every change: the pager keeps none of them. Kept,
+// every chat ever closed stayed in `purged` for the pane's life (test/state-growth.test.ts, session-churn).
+test("after the list is whole, changes and purges are not kept", async () => {
+  const { pager } = daemon();
+  const first = await pager.first();
+  if (!first) throw new Error("no first page");
+  let held = first.sessions.slice();
+  const add = (fresh: Session[]) => void (held = [...held, ...fresh]);
+  expect(await pager.rest(first, () => held, add)).toBe(true);
+  pager.done(first.run);
+  for (let n = 0; n < 1_000; n++) {
+    pager.changedSession({ sessionId: `new${n}`, updatedAt: n });
+    pager.purgedSession(`new${n}`);
+  }
+  const kept = pager as unknown as { purged: Set<string>; changed: Map<string, Session> };
+  expect([kept.purged.size, kept.changed.size]).toEqual([0, 0]);
+  // A newer list keeps its own changes until it is whole, and an older list's `done` does not end them.
+  const again = await pager.first();
+  pager.purgedSession("s5");
+  pager.done(first.run);
+  expect(pager.settle(again!.sessions).some((row) => row.sessionId === "s5")).toBe(false);
+  pager.done(again!.run);
+  expect(kept.purged.size).toBe(0);
+});
+
+// The open path reads the whole list for a chat past the first page; a lagged watch's reread can start and finish
+// while that read is out. A chat closed after the reread finished must not come back with the older reply
+// (review of the pager's `done`: it stopped keeping purges, and the whole list reinstalled the chat).
+test("a whole-list read still out keeps the purges a newer, finished list stopped keeping", async () => {
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const rows = [
+    { sessionId: "a", updatedAt: 3 },
+    { sessionId: "b", updatedAt: 2 },
+  ];
+  const pager = new SessionPager<Session>(async (method, params) => {
+    if (method === "_acpmux/watch" && params.limit === undefined) await held;
+    return { sessions: rows.slice() };
+  });
+  const whole = pager.settledWhole();
+  const reread = await pager.first();
+  pager.done(reread!.run);
+  pager.purgedSession("b");
+  release();
+  expect((await whole).map((row) => row.sessionId)).toEqual(["a"]);
+  // Once it landed, nothing is kept any more.
+  pager.purgedSession("a");
+  const kept = pager as unknown as { purged: Set<string> };
+  expect(kept.purged.size).toBe(0);
+});
+
+test("a page acpmux refuses as paced is asked again from its cursor, never as the whole list", async () => {
+  // acpmux refuses a list read past its pace (`list.paced`, `retryAfterMs`). Each refused page read
+  // the whole list instead: 31 MB a read on one Mac, about seven times a minute (2026-11-11).
+  let refusals = 2;
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const pager = new SessionPager<Session>(async (method, params) => {
+    calls.push({ method, params });
+    const from = typeof params.cursor === "string" ? Number(params.cursor) : 0;
+    if (from === PAGE * 2 && refusals-- > 0)
+      throw Object.assign(new Error("session lists are paced"), {
+        data: { reason: "list.paced", retryable: true, retryAfterMs: 5 },
+      });
+    const end = Math.min(from + PAGE, COUNT);
+    return { sessions: sessions.slice(from, end), ...(end < COUNT ? { nextCursor: String(end) } : {}) };
+  });
+  const first = await pager.first();
+  if (!first) throw new Error("no first page");
+  let held = first.sessions.slice();
+  const complete = await pager.rest(
+    first,
+    () => held,
+    (fresh) => {
+      held = [...held, ...fresh];
+    },
+  );
+  expect(complete).toBe(true);
+  expect(held).toHaveLength(COUNT);
+  // No whole-list read: every request after the first page names a cursor and a limit.
+  expect(calls.filter((call) => call.method === "_acpmux/watch" && call.params.limit === undefined)).toHaveLength(0);
+  expect(calls.filter((call) => call.params.cursor === String(PAGE * 2))).toHaveLength(3);
+});
+
+test("a paced page of a whole-list read is asked again from its cursor, not from the start", async () => {
+  let refusals = 2;
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const pager = new SessionPager<Session>(async (method, params) => {
+    calls.push({ method, params });
+    const from = typeof params.cursor === "string" ? Number(params.cursor) : 0;
+    if (from === 1_000 && refusals-- > 0)
+      throw Object.assign(new Error("session lists are paced"), {
+        data: { reason: "list.paced", retryable: true, retryAfterMs: 5 },
+      });
+    const end = Math.min(from + 1_000, COUNT);
+    return { sessions: sessions.slice(from, end), ...(end < COUNT ? { nextCursor: String(end) } : {}) };
+  });
+  expect(await pager.whole()).toHaveLength(COUNT);
+  expect(calls.filter((call) => call.method === "_acpmux/watch")).toHaveLength(1);
+  expect(calls.filter((call) => call.params.cursor === "1000")).toHaveLength(3);
+});
+
+test("a page acpmux keeps pacing is asked again until it comes, never read whole", async () => {
+  let refusals = 6;
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const pager = new SessionPager<Session>(async (method, params) => {
+    calls.push({ method, params });
+    const from = typeof params.cursor === "string" ? Number(params.cursor) : 0;
+    if (from === PAGE && refusals-- > 0)
+      throw Object.assign(new Error("session lists are paced"), { data: { reason: "list.paced", retryAfterMs: 1 } });
+    const end = Math.min(from + PAGE, COUNT);
+    return { sessions: sessions.slice(from, end), ...(end < COUNT ? { nextCursor: String(end) } : {}) };
+  });
+  const first = await pager.first();
+  if (!first) throw new Error("no first page");
+  let held = first.sessions.slice();
+  expect(
+    await pager.rest(
+      first,
+      () => held,
+      (fresh) => (held = [...held, ...fresh]),
+    ),
+  ).toBe(true);
+  expect(held).toHaveLength(COUNT);
+  expect(calls.filter((call) => call.method === "_acpmux/watch" && call.params.limit === undefined)).toHaveLength(0);
+});

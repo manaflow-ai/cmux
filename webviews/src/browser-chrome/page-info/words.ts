@@ -1,4 +1,4 @@
-// Words Page Info's bubble and its Site settings window share (PageInfoStrings, PageInfoModel
+// Words of Page Info's Site settings window (as the native bubble's PageInfoStrings, PageInfoModel
 // .choiceTitle): a permission's name and the title of each of its choices, the default marked.
 import type { Strings } from "../../pages/shared/i18n";
 import { defaultSetting, type SitePermissionKind, type SitePermissionSetting } from "./model";

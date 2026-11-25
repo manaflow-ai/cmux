@@ -196,6 +196,40 @@ import Testing
         #expect(log.summary.count == 5)
         #expect(log.summary.maxDuration == .milliseconds(64))
     }
+
+    /// Every stall reads `onStall` once; the read must hand back the handler, not wrap it in
+    /// another layer. Issue #40144: each read added two reabstraction thunks around the stored
+    /// handler, so after ~37,000 stalls (4.5 h on a busy Mac) calling it recursed 74,661 frames
+    /// deep and overflowed the main thread's 8 MB stack.
+    @MainActor
+    @Test func onStallStaysOneCallDeepAcrossManyStalls() {
+        let clock = ManualUptime()
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false), uptime: clock.read)
+        let depths = StackDepths()
+        watchdog.onStall = { _ in depths.note() }
+        for _ in 0..<500 {
+            watchdog.heartbeat(.afterWaiting)
+            clock.advance(by: .milliseconds(60))
+            watchdog.heartbeat(.beforeWaiting)
+        }
+        let seen = depths.values.withLock { $0 }
+        #expect(seen.count == 500)
+        #expect(seen.last == seen.first, "stack depth grew from \(seen.first ?? 0) to \(seen.last ?? 0) frames")
+    }
+
+    /// Reading `onHang` (the watchdog thread does it once per reported hang) leaves the stored
+    /// handler as it was (#40144).
+    @Test func readingOnHangDoesNotWrapTheHandler() {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), logStalls: false))
+        let depths = StackDepths()
+        watchdog.onHang = { _ in depths.note() }
+        watchdog.onHang?(MainThreadWatchdog.Hang(duration: .seconds(2), addresses: []))
+        for _ in 0..<500 { _ = watchdog.onHang }
+        watchdog.onHang?(MainThreadWatchdog.Hang(duration: .seconds(2), addresses: []))
+        let seen = depths.values.withLock { $0 }
+        #expect(seen.count == 2)
+        #expect(seen.last == seen.first, "stack depth grew from \(seen.first ?? 0) to \(seen.last ?? 0) frames")
+    }
 }
 
 @inline(never)
@@ -241,4 +275,14 @@ final class SampleSignal: Sendable {
 /// Durations `onStall` received (a class: `Mutex` cannot be captured).
 final class StallDurations: Sendable {
     let values = Mutex<[Duration]>([])
+}
+
+/// The call-stack depth at each call of a handler.
+final class StackDepths: Sendable {
+    let values = Mutex<[Int]>([])
+    @inline(never)
+    func note() {
+        let depth = Thread.callStackReturnAddresses.count
+        values.withLock { $0.append(depth) }
+    }
 }

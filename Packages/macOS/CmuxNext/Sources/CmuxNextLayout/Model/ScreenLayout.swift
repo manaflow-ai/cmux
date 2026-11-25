@@ -192,13 +192,38 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
     public var layout: ScreenLayout
     /// The layout is one zoomed pane; the screen's other panes are hidden, not closed.
     public var zoomed: Bool
+    /// The zoom is a page that takes the whole window (its fullscreen), not a zoom the person asked for: the other
+    /// panes step aside with no dim.
+    public var presented = false
+    /// Splits whose divider draws no line (Hide Divider); they still drag and still have their menu.
+    public var hiddenDividers: Set<SplitID>
+    /// The screen's floating panes, back to front. `layout` is the tiled layout: it has none of them.
+    public var floating: [LayoutFloatingPane]
 
-    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false) {
+    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false, hiddenDividers: Set<SplitID> = [],
+                floating: [LayoutFloatingPane] = []) {
         self.id = id
         self.name = name
         self.layout = layout
         self.zoomed = zoomed
+        self.hiddenDividers = hiddenDividers
+        self.floating = floating
     }
+
+    /// Every pane of the screen: the tiled panes, then the floating panes back to front.
+    public var panes: [PaneID] { floating.isEmpty ? layout.panes : layout.panes + floating.map(\.pane) }
+
+    /// Panes in the order the user sees them (``ScreenLayout/visualPanes``), then the floating panes back to front.
+    public var visualPanes: [PaneID] { floating.isEmpty ? layout.visualPanes : layout.visualPanes + floating.map(\.pane) }
+
+    /// Whether `pane` is a pane of the screen, tiled or floating.
+    public func contains(_ pane: PaneID) -> Bool { layout.contains(pane) || floating.contains { $0.pane == pane } }
+
+    /// Whether `pane` floats on the screen.
+    public func floats(_ pane: PaneID) -> Bool { floating.contains { $0.pane == pane } }
+
+    /// The set of the screen's floating panes: a pane that comes or goes changes it, a new order of the same panes does not.
+    var floatingPanes: Set<PaneID> { Set(floating.map(\.pane)) }
 
     /// Every screen is a column strip: a screen stored as one split tree is
     /// one implicit column holding that tree, with this id.
@@ -211,6 +236,13 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
         case let .splits(root): root.contains(pane) ? LayoutColumn(id: implicitColumnID, width: 1, root: root) : nil
         case .columns: layout.column(containing: pane)
         }
+    }
+
+    /// Whether `pane` is in an agent chat dock (a docked column with the ``DockRole/agentChat`` role): the daemon refuses
+    /// every new pane there but Split Down (cmux-tui `ensure_pane_column_not_agent_chat`), so a split right of the chat
+    /// opens as a new strip column right of the dock instead (#46926).
+    public func inAgentChatDock(_ pane: PaneID) -> Bool {
+        column(containing: pane)?.dock?.role == .agentChat
     }
 
     /// The column with `id`, including the implicit one.

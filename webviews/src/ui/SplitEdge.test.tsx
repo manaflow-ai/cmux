@@ -59,6 +59,8 @@ function render(node: React.ReactNode): Document {
     matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
+  // The page reads its width from the window, which JSDOM sizes at 1024.
+  Object.defineProperty(win, "innerWidth", { configurable: true, value: 1000 });
   root ??= createRoot(win.document.getElementById("root")!);
   act(() => root!.render(node));
   return win.document;

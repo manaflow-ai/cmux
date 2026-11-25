@@ -2,7 +2,8 @@
   "title": "Installed after confirming Standup and Quick Links (Quick Links section in the sidebar)",
   "settings": {
     "labs": {
-      "previewFeatures": true
+      "previewFeatures": true,
+      "appStore": true
     }
   },
   "launch_args": [],
@@ -22,7 +23,7 @@
         "discover"
       ],
       "wait": 4,
-      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift"
+      "cite": "cmux-tui/crates/cmux-action-catalog/src/catalog/app_store.rs"
     },
     {
       "title": "cmux apps install manaflow-ai/standup",
@@ -81,7 +82,7 @@
         "installed"
       ],
       "wait": 4,
-      "cite": "Packages/macOS/CmuxNext/Sources/CmuxNextActions/Catalog/AppStoreActionCatalog.swift"
+      "cite": "cmux-tui/crates/cmux-action-catalog/src/catalog/app_store.rs"
     }
   ]
 }

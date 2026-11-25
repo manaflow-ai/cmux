@@ -1,7 +1,7 @@
 public import AppKit
 
 /// The key that presses one dialog button, as the button shows it (u2647: every
-/// dialog button says which key presses it, "Cancel ⎋", "Change ↩", "Don't Save ⌘D").
+/// dialog button says which key presses it, "Cancel esc", "Change return", "Don't Save ⌘D").
 ///
 /// A hint is derived from the same rules that answer the keys
 /// (``CmuxDialogKeys/hint(for:in:)``), so a button never shows a key that does not
@@ -15,11 +15,11 @@ public nonisolated enum CmuxDialogKeyHint: Equatable, Sendable {
     /// Command plus this lowercase character presses the button.
     case command(Character)
 
-    /// The keycap text drawn after the title, as macOS menus write keys: `↩`, `⎋`, `⌘D`.
+    /// The keycap text: `return`, `esc` (as a Mac keyboard prints them; Lawrence 2026-11-09, Leo 2026-11-22), `⌘D`.
     public var glyph: String {
         switch self {
-        case .return: "↩"
-        case .escape: "⎋"
+        case .return: "↩".keycapLegend
+        case .escape: "⎋".keycapLegend
         case .command(let character): "⌘" + character.uppercased()
         }
     }
@@ -73,5 +73,60 @@ public nonisolated enum CmuxDialogKeyHint: Equatable, Sendable {
             .font: Typography.caption,
         ]))
         return text
+    }
+}
+
+/// What a keycap prints, as a Mac keyboard labels its keys: modifiers keep their glyphs (⌘ ⌥ ⌃ ⇧), the
+/// named keys read as words ("return", "tab", "esc", "delete"), every other key as it is. Every keycap in
+/// the app (palette rows and footer, dialogs, tooltips) prints through it. Leo 2026-11-22: "this command
+/// palette's icons are really bad and not even properly depicting the keys"; a lone ↩ or ⇥ on a small cap
+/// read as an arrow, not a key (design/palette-keycaps-gallery.html).
+extension String {
+    /// The legend for one key: `"↩"` and `"\r"` print "return", `"⇥"` "tab", `"⎋"` "esc", `"⌫"` "delete".
+    public nonisolated var keycapLegend: String {
+        switch self {
+        case "↩", "⏎", "↵", "⌅", "\r": "return"
+        case "⇥", "\t": "tab"
+        case "⎋", "Esc", "ESC", "\u{1B}": "esc"
+        case "⌫", "⌦", "\u{8}", "\u{7F}": "delete"
+        default: self
+        }
+    }
+
+    /// One keycap's text for a whole shortcut as menus write it (`"⌘↩"`, `"⇧⌘P"`): each named key as its
+    /// word, a space between the modifiers and a word ("⌘ return"), the rest unchanged.
+    public nonisolated var keycapText: String {
+        guard keycapLegend == self else { return keycapLegend }
+        var out = ""
+        for character in self {
+            let word = String(character).keycapLegend
+            if word != String(character), !out.isEmpty, !out.hasSuffix(" ") { out += " " }
+            out += word
+        }
+        return out
+    }
+
+    /// Whether this is a modifier's glyph.
+    public nonisolated var isModifierKeycap: Bool {
+        ["⌃", "⌥", "⇧", "⌘", "fn"].contains(self)
+    }
+}
+
+extension Array where Element == String {
+    /// The keys split into the strokes pressed one after another: a stroke runs through its modifiers to its
+    /// first other key, so `["⌘", "J", "S"]` (the chord ⌘J then S) is `[["⌘", "J"], ["S"]]` and
+    /// `["⇧", "⌘", "P"]` one stroke.
+    public nonisolated var keycapStrokes: [[String]] {
+        var strokes: [[String]] = []
+        var current: [String] = []
+        for key in self {
+            current.append(key)
+            if !key.isModifierKeycap {
+                strokes.append(current)
+                current = []
+            }
+        }
+        if !current.isEmpty { strokes.append(current) }
+        return strokes
     }
 }

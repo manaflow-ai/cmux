@@ -226,7 +226,14 @@ pub enum Request {
         column: Option<ColumnSpec>,
         #[serde(default)]
         row: Option<RowSpec>,
+        /// `split-around-v1`: the new pane wraps this whole split, whose last pane is
+        /// `target`, instead of splitting `target` alone (Insert New at a divider).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        around: Option<u64>,
     },
+    /// Insert New at the divider of split `split` in `layout` (the tree holding it): the split
+    /// request to send and the divider's new ratio (`divider_insert`).
+    InsertAtDivider { layout: Node, split: u64 },
     /// A lone tab docked into a new leading column holding `leaf`.
     Dock { screen: Screen, leaf: u64, column: ColumnSpec, dock: Value },
     /// A pane taken out of the visible records (a creation the person closed first).
@@ -284,16 +291,26 @@ pub fn respond(request: &Request) -> Value {
         value.map_or(Value::Null, |v| serde_json::to_value(v).unwrap_or(Value::Null))
     }
     match request {
-        Request::Split { screen, target, dir, ratio, leaf, split_id, column, row } => json(split(
-            screen,
-            *target,
-            *dir,
-            *ratio,
-            *leaf,
-            split_id,
-            column.as_ref(),
-            row.as_ref(),
-        )),
+        Request::Split { screen, target, dir, ratio, leaf, split_id, column, row, around } => {
+            json(match around {
+                Some(around) => {
+                    split_around_target(screen, *around, *target, *dir, *ratio, *leaf, split_id)
+                }
+                None => split(
+                    screen,
+                    *target,
+                    *dir,
+                    *ratio,
+                    *leaf,
+                    split_id,
+                    column.as_ref(),
+                    row.as_ref(),
+                ),
+            })
+        }
+        Request::InsertAtDivider { layout, split } => {
+            json(crate::divider_insert::plan(layout, *split))
+        }
         Request::Dock { screen, leaf, column, dock } => {
             json(dock_column(screen, *leaf, column, dock))
         }
@@ -421,6 +438,44 @@ pub fn split(
         columns.push(column);
     }
     Some(Placed { layout, columns, pane_at: after_target(&screen.panes, target) })
+}
+
+/// A split of `target` around the whole split `around` (`split-around-v1`, Insert New at a
+/// divider): every tree that holds `around` (the screen's, its column's, its row's) wraps it, as
+/// cmux-tui's `split_around` does. None when no tree holds `around` with `target` as its last pane.
+fn split_around_target(
+    screen: &Screen,
+    around: u64,
+    target: u64,
+    dir: Dir,
+    ratio: f64,
+    leaf: u64,
+    split_id: &str,
+) -> Option<Placed> {
+    use crate::divider_insert::split_around;
+    let wrap = |node: &Node| split_around(node, around, target, dir, ratio, leaf, split_id);
+    let mut placed = false;
+    let layout = match wrap(&screen.layout) {
+        Some(layout) => {
+            placed = true;
+            layout
+        }
+        None => screen.layout.clone(),
+    };
+    let mut columns = screen.columns.clone();
+    for column in &mut columns {
+        if let Some(wrapped) = wrap(&column.layout) {
+            column.layout = wrapped;
+            placed = true;
+        }
+        for row in &mut column.rows {
+            if let Some(wrapped) = wrap(&row.layout) {
+                row.layout = wrapped;
+                placed = true;
+            }
+        }
+    }
+    placed.then(|| Placed { layout, columns, pane_at: after_target(&screen.panes, target) })
 }
 
 /// New Column (`new-pane-right`, cmux-tui `new_pane_right`): a column holding `leaf` right after
@@ -667,4 +722,64 @@ pub fn daemon_move_index(
 /// Whether `handle` is a stand-in's (a provisional pane, column or row the daemon has not made).
 pub fn is_provisional(handle: u64) -> bool {
     handle >= PROVISIONAL_BIT
+}
+
+/// The deepest JSON nesting an `optimistic` request may have. serde_json's default limit (128)
+/// refused every request for a screen split into a chain of about 125 panes or more (each split
+/// nests its sides one level deeper), so the app's intents there showed nothing. This bound admits
+/// a 600-pane chain inside a column's rows and still refuses input nested past any layout a person
+/// can make, before the recursive parse could exhaust the caller's stack.
+pub const MAX_NESTING: usize = 640;
+
+/// Whether `bytes` nests objects and arrays at most `limit` deep (strings skipped): a byte scan,
+/// so the parse after it can run without serde_json's fixed recursion limit.
+fn nesting_within(bytes: &[u8], limit: usize) -> bool {
+    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
+    for &byte in bytes {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match byte {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth += 1;
+                if depth > limit {
+                    return false;
+                }
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    true
+}
+
+fn parse_bounded<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> serde_json::Result<T> {
+    if !nesting_within(bytes, MAX_NESTING) {
+        return Err(serde::de::Error::custom(format!(
+            "JSON nested deeper than {MAX_NESTING} levels"
+        )));
+    }
+    let mut deserializer = serde_json::Deserializer::from_slice(bytes);
+    deserializer.disable_recursion_limit();
+    let value = T::deserialize(&mut deserializer)?;
+    deserializer.end()?;
+    Ok(value)
+}
+
+/// Reads one `optimistic` request (the JSON the app sends), nested up to [`MAX_NESTING`] deep.
+pub fn parse_request(bytes: &[u8]) -> serde_json::Result<Request> {
+    parse_bounded(bytes)
+}
+
+/// Reads any JSON value under the same rules as [`parse_request`] (an answer read back).
+pub fn parse_value(bytes: &[u8]) -> serde_json::Result<Value> {
+    parse_bounded(bytes)
 }

@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { useEscapingPopup, type PopupHost } from "../src/ui/popupHost";
 import { inspectNativePopups, type NativePresentation, type SurfaceSemantics } from "./helpers/nativePopupGuard";
+import { settleReact } from "./support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -12,6 +13,7 @@ const saved = new Map<string, unknown>();
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -51,6 +53,9 @@ test.each(["shown", "rejected"] as const)(
     };
     for (const key of Object.keys(replacements)) saved.set(key, scope[key]);
     Object.assign(scope, replacements);
+    // The popup host reads the viewport from the window, which JSDOM sizes at 1024x768.
+    Object.defineProperty(dom.window, "innerHeight", { configurable: true, value: 100 });
+    Object.defineProperty(dom.window, "innerWidth", { configurable: true, value: 500 });
     const menu = document.getElementById("menu")!;
     const shell = document.getElementById("shell")!;
     Object.defineProperty(menu, "offsetHeight", { value: 120 });

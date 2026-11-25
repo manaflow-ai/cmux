@@ -32,7 +32,7 @@ import CmuxNextActions
 
     static func item(perform: @escaping (AgentForkDestination) -> Void) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        item.image = AgentPaneContextMenu.icon("arrow.triangle.branch")
+        item.image = AgentPaneContextMenu.icon("arrow.branch")
         item.submenu = menu(perform: perform)
         return item
     }

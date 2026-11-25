@@ -4,12 +4,39 @@
 //! hold, and acts on the answer. A refusal comes back as `{"refusal": Said}`
 //! (a key into the app's localized strings, with the values it names).
 
-use cmux_cloud_handlers::{Said, answers, args, decide, fields};
+use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
+
+use cmux_cloud_handlers::{Said, answers, args, decide, fields, wake_hint};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Map, Value, json};
 
 use crate::ERR_INVALID;
+
+static WAKE_HINTS: LazyLock<Mutex<wake_hint::WakeHints>> = LazyLock::new(Mutex::default);
+static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+fn wake_hints() -> MutexGuard<'static, wake_hint::WakeHints> {
+    WAKE_HINTS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn now_ms() -> u64 {
+    u64::try_from(EPOCH.elapsed().as_millis()).unwrap_or(u64::MAX)
+}
+
+#[derive(Deserialize)]
+struct WakeResumed {
+    machine: String,
+    ok: bool,
+}
+
+#[derive(Deserialize)]
+struct WakeMachine {
+    machine: String,
+    #[serde(default)]
+    status: Option<String>,
+}
 
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
@@ -49,7 +76,7 @@ struct Arg {
     /// The machine a `machineWorkspace` refusal names.
     #[serde(default)]
     machine: String,
-    /// The refusal key of an `id` check (`networkIDRequired`, `ruleIDRequired`, `publicationRequired`).
+    /// The refusal key of an `id` check (`publicationRequired`).
     #[serde(default)]
     missing: String,
     /// The idle pause choices, in minutes (0 is `off`).
@@ -68,8 +95,6 @@ fn arg(request: &Arg) -> Result<Value, i32> {
         "machineWorkspace" => checked(args::machine_workspace(given, &request.machine)),
         "id" => {
             let missing = match request.missing.as_str() {
-                "networkIDRequired" => "networkIDRequired",
-                "ruleIDRequired" => "ruleIDRequired",
                 "publicationRequired" => "publicationRequired",
                 _ => return Err(ERR_INVALID),
             };
@@ -79,9 +104,8 @@ fn arg(request: &Arg) -> Result<Value, i32> {
         "resize" => checked(args::resize(given)),
         "provisionAPI" => checked(args::provision_api(given)),
         "applyMachineConfig" => checked(args::apply_machine_config(given, &request.home)),
-        "firewallRule" => checked(args::firewall_rule(given)),
         "newMachine" => checked(args::new_machine(given, &request.home)),
-        other => checked(args::needed(given, other)),
+        other => checked(args::needed(given, other, &request.names)),
     }
 }
 
@@ -98,10 +122,6 @@ struct Route {
     has_window: bool,
     #[serde(default)]
     is_default: bool,
-    #[serde(default)]
-    changing: bool,
-    #[serde(default)]
-    has_app_link: bool,
 }
 
 #[derive(Deserialize)]
@@ -187,7 +207,6 @@ struct Facts {
     link: Option<answers::ShareLink>,
     #[serde(default)]
     url: String,
-    action: Option<String>,
     code: Option<String>,
     #[serde(default)]
     text: String,
@@ -216,9 +235,17 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
                 Err(refusal) => json!({ "refusal": value(refusal)? }),
             }
         }
-        b"cloud_handler_attachable" => {
-            let r: Route = read(request)?;
-            json!({ "attachable": decide::attachable(r.changing, r.connected, r.has_app_link) })
+        b"cloud_handler_palette_targets" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Request {
+                #[serde(default)]
+                desktop: bool,
+                #[serde(default)]
+                machines: Vec<decide::PaletteMachine>,
+            }
+            let request: Request = read(request)?;
+            json!({ "rows": value(decide::palette_targets(request.desktop, &request.machines))? })
         }
         b"cloud_handler_new_workspace" => {
             let r: Route = read(request)?;
@@ -227,6 +254,38 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_handler_new_machine_start" => {
             let r: Route = read(request)?;
             json!({ "start": value(decide::new_machine_start(r.is_default, r.by_user, r.has_window))? })
+        }
+        b"cloud_handler_prewarm" => {
+            let facts: decide::PrewarmFacts = read(request)?;
+            match decide::prewarm(&facts) {
+                decide::Prewarm::Resume => json!({ "resume": true }),
+                decide::Prewarm::Skip(reason) => json!({ "resume": false, "reason": reason }),
+            }
+        }
+        // Wake on intent (`wake_hint`, v1): the process's one ledger, on a monotonic clock.
+        b"cloud_handler_wake_hint" => {
+            let hint: wake_hint::Hint = read(request)?;
+            let decision = wake_hints().hint(&hint, now_ms());
+            match decision {
+                wake_hint::HintDecision::Resume => {
+                    json!({ "v": wake_hint::WAKE_HINT_VERSION, "resume": true })
+                }
+                wake_hint::HintDecision::Skip(reason) => {
+                    json!({ "v": wake_hint::WAKE_HINT_VERSION, "resume": false, "reason": reason })
+                }
+            }
+        }
+        b"cloud_handler_wake_resumed" => {
+            let r: WakeResumed = read(request)?;
+            json!({ "checkAfterMs": wake_hints().resumed(&r.machine, r.ok, now_ms()) })
+        }
+        b"cloud_handler_wake_input" => {
+            let r: WakeMachine = read(request)?;
+            json!({ "outcome": value(wake_hints().input(&r.machine, now_ms()))? })
+        }
+        b"cloud_handler_wake_idle" => {
+            let r: WakeMachine = read(request)?;
+            value(wake_hints().idle(&r.machine, r.status.as_deref(), now_ms()))?
         }
         b"cloud_handler_setup_readiness" => {
             let c: CreationFacts = read(request)?;
@@ -242,13 +301,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             match decide::settled(&settled) {
                 Ok(fields) => fields_of(fields),
                 Err(failure) => json!({ "failure": value(failure)? }),
-            }
-        }
-        b"cloud_handler_desktop" => {
-            let facts: decide::DesktopFacts = read(request)?;
-            match decide::desktop(&facts) {
-                Ok(viewer) => json!({ "viewer": value(viewer)? }),
-                Err(refusal) => json!({ "refusal": value(refusal)? }),
             }
         }
         b"cloud_handler_diagnostics" => {
@@ -275,10 +327,6 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"cloud_handler_answer" => {
             let found: answers::Found = read(request)?;
             value(answers::of(&found))?
-        }
-        b"cloud_handler_previews" => {
-            let inventory: Value = read(request)?;
-            value(answers::previews(&inventory))?
         }
         b"cloud_handler_constants" => {
             let sizes: Map<String, Value> = args::CREATE_SIZES
@@ -365,9 +413,6 @@ fn facts(operation: &[u8], f: Facts) -> Result<Value, i32> {
                 f.names.said("portFailed", &["the platform returned an invalid share URL"])
             });
             json!({ "ok": ok, "refusal": value(refusal)? })
-        }
-        b"cloud_handler_confirmation" => {
-            json!({ "prompt": f.action.as_deref().and_then(decide::confirmation) })
         }
         b"cloud_handler_port_failure" => {
             json!({ "refusal": value(decide::port_failure(f.code.as_deref(), &f.text, &f.names))? })

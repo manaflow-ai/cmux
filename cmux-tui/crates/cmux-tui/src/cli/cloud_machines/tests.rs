@@ -59,7 +59,7 @@ fn cloud_machines_join_the_daemon_rows_marked_kind_cloud() {
         rows[1],
         json!({"id": "vm-brave-otter", "name": "brave-otter", "origin": "cloud", "kind": "cloud",
                "status": "running", "connectable": true, "deleted": false, "recoverable": false,
-               "target": "machine:vm-brave-otter", "daemon": "connected"})
+               "target": "vm:vm-brave-otter", "daemon": "connected"})
     );
     // An untitled machine is named by its id; a paused one is not connectable.
     assert_eq!(rows[2]["name"], "vm-calm-heron");

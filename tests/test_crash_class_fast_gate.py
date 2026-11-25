@@ -22,6 +22,13 @@ import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 ROOT = Path(__file__).resolve().parents[1]
 GATE = ROOT / "scripts/ci/crash_class_fast_gate.py"
@@ -82,9 +89,50 @@ class CrashClassFastGate(unittest.TestCase):
     def findings(self, tree: Path, name: str, *lines: str) -> None:
         (tree / f"scripts/cmux-next/findings-{name}.txt").write_text("".join(f"{line}\n" for line in lines))
 
-    def gate(self) -> subprocess.CompletedProcess:
-        return subprocess.run([sys.executable, str(GATE), "--base", str(self.base)], cwd=self.repo,
+    def gate(self, *extra: str) -> subprocess.CompletedProcess:
+        return subprocess.run([sys.executable, str(GATE), "--base", str(self.base), *extra], cwd=self.repo,
                               capture_output=True, text=True, timeout=60)
+
+    def commit_base_then(self, *changed: str) -> str:
+        """Commit the fixture as BASE, then each CHANGED path (created) as HEAD; BASE's commit."""
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", "base")
+        base = git(self.repo, "rev-parse", "HEAD")
+        for path in changed:
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_text("changed\n")
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", "merge", "--allow-empty")
+        return base
+
+    def test_a_whole_tree_check_whose_inputs_the_merge_leaves_is_skipped(self):
+        # Red on the base and the merge alike: with inputs unchanged, neither run happens and the gate is green.
+        line = "Sources/V.swift:1: super.mouseDown (mouseDown:): probe needed"
+        self.findings(self.repo, "objc-selectors", line)
+        self.findings(self.base, "objc-selectors", line)
+        base = self.commit_base_then("webviews/src/pane.tsx")
+        result = self.gate("--base-rev", base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), ["crash-class --pr"])
+        self.assertIn("crash-class rules (selectors): skipped", result.stdout)
+        self.assertIn("crash-class rules (CEF contract): skipped", result.stdout)
+
+    def test_a_change_to_a_checks_inputs_runs_that_check(self):
+        for path, runs in (("Packages/macOS/CmuxNext/Sources/A.swift", {"objc-selectors", "cef-objc-contract"}),
+                           ("scripts/cmux-next/objc-selector-table.json", {"objc-selectors"}),
+                           ("scripts/cmux-next/cef-manifest.json", {"cef-objc-contract"}),
+                           ("scripts/ci/crash_class_fast_gate.py", {"objc-selectors", "cef-objc-contract"})):
+            with self.subTest(path=path):
+                self.setUp()
+                base = self.commit_base_then(path)
+                self.gate("--base-rev", base)
+                ran = {c.split()[0] for c in self.calls() if not c.startswith("crash-class")}
+                self.assertEqual(ran, runs)
+
+    def test_an_unreadable_base_rev_runs_every_check(self):
+        self.commit_base_then()
+        self.gate("--base-rev", "0" * 40)
+        self.assertEqual(len(self.calls()), 3)
 
     def calls(self) -> list[str]:
         log = self.repo / "calls.log"

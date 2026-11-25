@@ -202,7 +202,7 @@
   height: 24px;
   padding: 0 var(--ds-space-3);
   border: 1px solid var(--plan-build-line);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
   background: none;
   color: inherit;
   font: inherit;
@@ -211,7 +211,7 @@
   cursor: default;
 }
 .acpmux-plan-builds-actions > button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+  background: var(--ds-surface-hover);
 }
 .acpmux-plan-builds-actions > button:disabled {
   opacity: 0.5;

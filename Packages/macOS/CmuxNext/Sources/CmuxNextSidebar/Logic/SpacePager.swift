@@ -50,8 +50,4 @@ nonisolated struct SpacePager: Equatable, Sendable {
         if abs(pages) >= Self.flickVelocity { return towardNeighbor ? neighbor : index }
         return abs(raw) >= 0.5 ? neighbor : index
     }
-
-    /// The side a switch from `from` to `to` slides in from: +1 the trailing
-    /// edge (a later dot), -1 the leading edge, 0 none.
-    static func direction(from: Int, to: Int) -> Int { to == from ? 0 : (to > from ? 1 : -1) }
 }

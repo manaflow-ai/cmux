@@ -33,18 +33,23 @@ public final class AddressBarView: NSView {
 
     let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
+    /// The bar's card top is drawn (tests: it goes with the card).
+    var debugCardTopShown: Bool { !backdrop.isHidden }
+    /// The card top's reach above the bar (`OmnibarStyle.cardTopOutset(bar:)`), measured at each layout from where the
+    /// bar sits in its window.
+    private lazy var backdropTop = backdrop.topAnchor.constraint(equalTo: topAnchor)
     let chip = PageInfoChipButton()
     let field = AddressField()
     private let machineBadgeView = MachineBadgeView()
-    private let profileBadgeView = ProfileBadgeView()
     let starButton = BookmarkStarButton()
-    /// The trailing badges (browser focus mode, browser profile, machine, bookmark star); hidden ones take no room.
+    /// The trailing badges (browser focus mode, machine, bookmark star); hidden ones take no room. The tab's
+    /// browser profile is the toolbar's profile button, outside the bar (`BrowserToolbarButtonsView.profileBadge`).
     let focusModeBadgeView = FocusModeBadgeView()
     private var focusModeBadgeWanted = false
-    private lazy var badges = NSStackView(views: [focusModeBadgeView, profileBadgeView, machineBadgeView, starButton])
+    private lazy var badges = NSStackView(views: [focusModeBadgeView, machineBadgeView, starButton])
     // Built on first use in init (no IUO).
     private lazy var fieldToEdge = field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.trailingPadding)
-    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.textLeading)
+    private lazy var fieldToBadge = field.trailingAnchor.constraint(equalTo: badges.leadingAnchor, constant: -OmnibarStyle.fieldTrailingGap)
     let panel = OmniboxSuggestionPanel()
     let density = DensityBinding()
 
@@ -143,8 +148,6 @@ public final class AddressBarView: NSView {
 
     /// The tab this omnibar belongs to: never offered as its own Switch to Tab row.
     public var tabKey: String?
-    /// The profile badge shown now (`setProfileBadge`).
-    private(set) var shownProfileBadge: BrowserProfileBadge?
 
     var resolver: OmniboxResolver {
         var resolver = suggestionEngine.resolver
@@ -192,33 +195,36 @@ public final class AddressBarView: NSView {
         addSubview(field)
         machineBadgeView.isHidden = true
         focusModeBadgeView.isHidden = true
-        profileBadgeView.isHidden = true
         starButton.isHidden = true
         badges.orientation = .horizontal
         badges.spacing = 4
         badges.translatesAutoresizingMaskIntoConstraints = false
         addSubview(badges)
+        let fieldCenter = field.centerYAnchor.constraint(equalTo: centerYAnchor)
         NSLayoutConstraint.activate([
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.barHeight },
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { [weak self] in OmnibarStyle.barHeight(scale: OmnibarStyle.scale(of: self)) },
             pill.leadingAnchor.constraint(equalTo: leadingAnchor),
             pill.trailingAnchor.constraint(equalTo: trailingAnchor),
             pill.topAnchor.constraint(equalTo: topAnchor),
             pill.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            backdrop.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -OmnibarStyle.cardSideOutset),
-            backdrop.trailingAnchor.constraint(equalTo: trailingAnchor, constant: OmnibarStyle.cardSideOutset),
-            backdrop.topAnchor.constraint(equalTo: topAnchor, constant: -OmnibarStyle.cardTopOutset),
+            density.bind(backdrop.leadingAnchor.constraint(equalTo: leadingAnchor)) { -OmnibarStyle.cardSideOutset },
+            density.bind(backdrop.trailingAnchor.constraint(equalTo: trailingAnchor)) { OmnibarStyle.cardSideOutset },
+            backdropTop,
             backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            chip.leadingAnchor.constraint(equalTo: leadingAnchor, constant: OmnibarStyle.chipLeading),
+            density.bind(chip.leadingAnchor.constraint(equalTo: leadingAnchor)) { OmnibarStyle.chipLeading },
             chip.centerYAnchor.constraint(equalTo: centerYAnchor),
             density.bind(chip.widthAnchor.constraint(greaterThanOrEqualToConstant: 0)) { OmnibarStyle.chipSize },
             density.bind(chip.heightAnchor.constraint(equalToConstant: 0)) { OmnibarStyle.chipSize },
 
-            field.leadingAnchor.constraint(equalTo: chip.trailingAnchor, constant: OmnibarStyle.textLeading),
+            density.bind(field.leadingAnchor.constraint(equalTo: chip.trailingAnchor)) {
+                OmnibarStyle.textLeading
+            },
             fieldToEdge,
-            field.centerYAnchor.constraint(equalTo: centerYAnchor),
-            badges.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -OmnibarStyle.chipLeading - 2),
+            fieldCenter,
+            // The star's plate sits as far from the bar's end as from its top, as Helium's does (2 pt at Compact).
+            density.bind(badges.trailingAnchor.constraint(equalTo: trailingAnchor)) { -OmnibarStyle.badgesTrailingInset },
             badges.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         panel.onPick = { [weak self] row, flags in
@@ -231,9 +237,14 @@ public final class AddressBarView: NSView {
             field.font = OmnibarStyle.font
             field.setPlaceholder(Strings.omnibarPlaceholder)
             field.restyle(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
+            // Measured after the font above: the field's own binding runs in its own loop, so a shift bound
+            // beside the other constraints could read the font the density just replaced.
+            fieldCenter.constant = OmnibarStyle.fieldBaselineShift(field: field)
             updateChrome()
         }
         density.start()
+        pill.onHoverChange = { [weak self] hovering in self?.updateQuietIcons(fade: ChromeHover.fade(showing: hovering)) }
+        pill.onLookChange = { [weak self] in self?.repaintInk() }
         followDisplay()
     }
 
@@ -266,29 +277,11 @@ public final class AddressBarView: NSView {
     /// The machine badge last applied (`setMachineBadge`), so an unchanged one returns at once.
     private var shownMachineBadge: (text: String?, help: String?)?
 
-    /// The tab's browser profile as a small avatar; nil hides it (one
-    /// profile, or an incognito tab).
-    public func setProfileBadge(_ badge: BrowserProfileBadge?) {
-        shownProfileBadge = badge
-        if let badge { profileBadgeView.show(badge) }
-        profileBadgeView.isHidden = badge == nil
-        updateBadgeSpace()
-    }
-
     /// The machine chip's menu (the host's machine actions, cx-2cob).
     public var machineBadgeMenu: (() -> NSMenu?)? {
         get { machineBadgeView.makeMenu }
         set { machineBadgeView.makeMenu = newValue }
     }
-
-    /// The browser profile badge's menu (the host's profile actions).
-    public var profileBadgeMenu: (() -> NSMenu?)? {
-        get { profileBadgeView.makeMenu }
-        set { profileBadgeView.makeMenu = newValue }
-    }
-
-    /// The badge shown now, for diagnostics (`debug.browser`).
-    public var profileBadgeName: String? { profileBadgeView.isHidden ? nil : profileBadgeView.themedToolTip }
 
     /// Browser focus mode's badge: nil hides it, else "Focus Mode" or, once
     /// the first Escape armed the exit, "Esc again to exit". It fades in and
@@ -326,7 +319,7 @@ public final class AddressBarView: NSView {
     public var focusModeBadgeText: String? { showsFocusModeBadge ? focusModeBadgeView.shownText : nil }
 
     func updateBadgeSpace() {
-        let visible = !machineBadgeView.isHidden || !profileBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
+        let visible = !machineBadgeView.isHidden || !starButton.isHidden || !focusModeBadgeView.isHidden
         guard fieldToBadge.isActive != visible else { return }
         fieldToEdge.isActive = !visible
         fieldToBadge.isActive = visible
@@ -573,8 +566,16 @@ public final class AddressBarView: NSView {
     }
 
     public override func layout() {
+        // Before the pass, so the card top's frame takes this reach in the same pass, not the next one.
+        updateBackdropReach()
         super.layout()
         if textArea != cursorTextArea, !isServedByPanePointerArea { window?.invalidateCursorRects(for: self) }
+    }
+
+    /// Keeps the card top's reach on the tab pills above the bar as the bar moves (a resize, a split, a density).
+    private func updateBackdropReach() {
+        let reach = -OmnibarStyle.cardTopOutset(bar: self)
+        if backdropTop.constant != reach { backdropTop.constant = reach }
     }
 
     // MARK: Appearance
@@ -588,11 +589,22 @@ public final class AddressBarView: NSView {
             if !isServedByPanePointerArea { window?.invalidateCursorRects(for: field) }
         }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
-        backdrop.isHidden = !state.isPopupOpen
-        if state.isPopupOpen { backdrop.opensUpward = toolbarOpensUpward }
+        // The bar's card top fades in with the card (`MotionFade.omniboxPopup`) and goes with it at once.
+        if state.isPopupOpen, backdrop.isHidden {
+            backdrop.alphaValue = 0
+            backdrop.isHidden = false
+            Motion.overlays.animate(.omniboxPopup, in: backdrop) { backdrop.animator().alphaValue = 1 }
+        } else if !state.isPopupOpen, !backdrop.isHidden {
+            backdrop.isHidden = true
+        }
+        if state.isPopupOpen {
+            backdrop.opensUpward = toolbarOpensUpward
+            updateBackdropReach()
+        }
         let site = PageInfoSite(url: state.pageURL, security: security)
         chip.indicator = PageInfoIndicator.resolve(site: site, chip: OmnibarPresentation(state).chip)
         updateStarVisibility()
+        updateQuietIcons(fade: nil)
     }
 
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
@@ -600,10 +612,30 @@ public final class AddressBarView: NSView {
         if newWindow == nil { panel.dismiss() }
     }
 
+    /// The bar was sized before it had a window, at the main screen's scale: its height snaps to this window's pixels.
+    public override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { density.reapply() }
+    }
+
+    /// A move to a screen with another scale snaps the bar's height again (Spacious's 37.5 pt: 38 at 1x, 37.5 at 2x).
+    public override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        density.reapply()
+    }
+
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         if !field.isFieldEditorActive {
             field.write(controller.state.fieldText, style: OmnibarPresentation(controller.state).style)
         }
+    }
+
+    /// Every mark on the bar takes the bar's ink again (`OmnibarStyle.ink`): the look changed (glass, transparent,
+    /// flat, its tint or coverage), which brings no appearance change and no theme repaint.
+    func repaintInk() {
+        field.repaintInk()
+        chip.repaintInk()
+        for view in [starButton, machineBadgeView] as [NSView] { view.needsDisplay = true }
     }
 }

@@ -37,7 +37,7 @@ public final class HarnessSymbolImages {
     private static func draw(_ name: String) -> String? {
         let config = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
         guard let symbol = NSImage.packOverride(forSymbol: name, pointSize: pointSize)
-            ?? NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
+            ?? NSImage.systemSymbol(name, fallback: nil)?.withSymbolConfiguration(config)
         else { return nil }
         let size = symbol.size
         let pixels = NSSize(width: ceil(size.width * 2), height: ceil(size.height * 2))

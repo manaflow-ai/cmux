@@ -10,35 +10,113 @@
 //!
 //! Only a read that found a peer token is kept: a remote with none is starting, or too old to
 //! make one, and is read again at each connect as before (`TOKEN_REREADS`).
+//!
+//! A peer of the hub keeps them on disk too (`peer_kept_tokens.rs`), so its daemon's next run
+//! starts with them and the same three cases read them again.
 
-use std::sync::Mutex;
+use crate::peer_kept_tokens::{Generation, KeptTokens};
+use crate::peer_last_good::LastGood;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// The dashboard token and the peer token.
 pub(crate) type Tokens = (String, Option<String>);
 
 #[derive(Default)]
-pub(crate) struct TokenCache(Mutex<Option<Tokens>>);
+pub(crate) struct TokenCache {
+    tokens: Mutex<Option<Tokens>>,
+    /// Where they are kept on disk, and under which peer name and URL (`back`).
+    disk: OnceLock<(Arc<LastGood>, String, String, Generation)>,
+}
 
 impl TokenCache {
     pub(crate) fn get(&self) -> Option<Tokens> {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.tokens.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Keep these on disk from now on as `name`'s, read over `url`, and start with what is kept
+    /// there for both when `usable` takes it (it agrees with the configured half).
+    pub(crate) fn back(
+        &self,
+        book: Arc<LastGood>,
+        name: &str,
+        url: &str,
+        usable: impl FnOnce(&Tokens) -> bool,
+    ) {
+        self.disk.get_or_init(|| {
+            let (generation, kept) = book.tokens.bind(name, url);
+            match kept {
+                Some(kept) if usable(&kept) => {
+                    let mut tokens = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+                    tokens.get_or_insert(kept);
+                }
+                // Registration flushes a rejected entry after claiming ownership.
+                _ => {}
+            }
+            (book, name.to_owned(), url.to_owned(), generation)
+        });
+    }
+
+    pub(crate) fn activate(&self) {
+        if let Some((_, _, _, generation)) = self.kept() {
+            generation.activate();
+        }
+    }
+
+    /// Reconcile after registration, outside the shared registry lock. An older
+    /// registration finishing this late cannot change the current owner's file.
+    pub(crate) fn persist(&self) {
+        let current = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((kept, name, url, generation)) = self.kept() {
+            match current.as_ref() {
+                Some(tokens) => kept.keep_current(name, url, generation, tokens),
+                None => kept.forget_current(name, url, generation),
+            }
+        }
+    }
+
+    fn kept(&self) -> Option<(&KeptTokens, &str, &str, &Generation)> {
+        self.disk.get().map(|(book, name, url, generation)| {
+            (&book.tokens, name.as_str(), url.as_str(), generation)
+        })
     }
 
     /// Kept only with a peer token (see the module note).
     pub(crate) fn keep(&self, tokens: &Tokens) {
         if tokens.1.is_some() {
-            *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(tokens.clone());
+            let mut current = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+            *current = Some(tokens.clone());
+            if let Some((kept, name, url, generation)) = self.kept() {
+                kept.keep_current(name, url, generation, tokens);
+            }
         }
     }
 
     pub(crate) fn forget(&self) {
-        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        let mut current = self.tokens.lock().unwrap_or_else(|e| e.into_inner());
+        *current = None;
+        if let Some((kept, name, url, generation)) = self.kept() {
+            kept.forget_current(name, url, generation);
+        }
     }
 
-    /// A replacement of the same peer (`Hub::spawn_peer`) starts with what the old one read.
+    /// A replacement of the same peer (`Hub::spawn_peer`) starts with what the old one read,
+    /// only when both read over the same URL (the caller checks that too): tokens read from one
+    /// host are never kept as another's.
     pub(crate) fn carry(&self, from: &TokenCache) {
-        if let Some(tokens) = from.get() {
+        let same_url = match (self.disk.get(), from.disk.get()) {
+            (Some((_, _, to, _)), Some((_, _, of, _))) => to == of,
+            _ => true,
+        };
+        if same_url && let Some(tokens) = from.get() {
             self.keep(&tokens);
+        }
+    }
+}
+
+impl Drop for TokenCache {
+    fn drop(&mut self) {
+        if let Some((book, name, _, generation)) = self.disk.take() {
+            book.tokens.release(&name, generation);
         }
     }
 }
@@ -54,39 +132,5 @@ fn refused_status(status: u16) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn keeps_only_a_read_with_a_peer_token() {
-        let cache = TokenCache::default();
-        cache.keep(&("dash".into(), None));
-        assert_eq!(cache.get(), None, "a remote with no peer token is read at each connect");
-        cache.keep(&("dash".into(), Some("peer".into())));
-        assert_eq!(cache.get(), Some(("dash".into(), Some("peer".into()))));
-        let next = TokenCache::default();
-        next.carry(&cache);
-        assert_eq!(next.get(), cache.get());
-        cache.forget();
-        assert_eq!(cache.get(), None);
-    }
-
-    /// Review of #38002: a token read that finished after `stop` opened a tunnel anyway.
-    #[tokio::test]
-    async fn a_stopped_peer_opens_no_tunnel_and_reads_no_tokens() {
-        let (tx, _rx) = tokio::sync::mpsc::channel(8);
-        let peer = super::super::Peer::new("p", "ssh://box.invalid:7777", None, None, tx);
-        peer.stop();
-        assert_eq!(peer.open_tunnel().await.err().as_deref(), Some("peer stopped"));
-        assert!(peer.tunnel.lock().await.is_none(), "no ssh after stop");
-        assert_eq!(peer.connect_tokens().await.err().as_deref(), Some("peer stopped"));
-    }
-
-    #[test]
-    fn a_401_or_403_upgrade_is_a_refusal_and_nothing_else_is() {
-        assert!(refused_status(401));
-        assert!(refused_status(403));
-        assert!(!refused_status(502));
-        assert!(!refused(&tokio_tungstenite::tungstenite::Error::ConnectionClosed));
-    }
-}
+#[path = "peer_tokens_tests.rs"]
+mod tests;

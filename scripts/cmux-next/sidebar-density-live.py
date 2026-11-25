@@ -29,6 +29,9 @@ Usage (nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA):
 Stop the app afterwards with "$NX_APP_STOP".
 """
 import argparse, http.server, json, os, socket, struct, subprocess, sys, tempfile, threading, time, zlib
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+from state_wait import wait_stable  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -207,7 +210,14 @@ def measure(state, pinned_ws):
 
 def capture(label, pid, pinned_ws):
     rpc("debug.mouse", {"x": 700, "y": 400, "action": "hover"})
-    time.sleep(1.5)  # hover fades and the spinner frame settle before the shot
+    # Until the list settled after the hover moved off it: its rows and items (frames, hover-driven layout) read the
+    # same several times in a row. The status glyphs are left out: a spinner animates for as long as it shows.
+    def settled():
+        st = sidebar()
+        return json.dumps({"rows": st.get("rows"), "items": st.get("items")}, sort_keys=True, default=str)
+    if wait_stable(settled, f"the sidebar rows before the {label} shot", timeout=10, interval=0.1, reads=5,
+                   raise_on_timeout=False) is None:
+        print(f"note: the sidebar rows never settled in 10 s before the {label} shot", flush=True)
     state = sidebar()
     with open(os.path.join(opts.out, f"rows-{label}.json"), "w") as f:
         json.dump(state, f, indent=1)
@@ -245,7 +255,7 @@ try:
            "CMUX_NEXT_CHIEF_HOME": os.path.join(SCRATCH, "chief"), "CMUX_NEXT_TEST_WINDOW_FRAME": "60,60,980,720"}
     log = open(os.path.join(opts.out, "app.log"), "a")
     app = subprocess.Popen([os.path.join(opts.app, "Contents/MacOS/cmux DEV")], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    print("launched pid", app.pid, flush=True)
+    safe_print("launched pid", app.pid, flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and rows("workspace"), 180):
         sys.exit("the tagged app did not come up")
     cli("workspace", "current", "rename", "shell")
@@ -282,7 +292,7 @@ try:
     default = capture("1-default", pid, pinned_ws)
     hidden = (rpc("debug.sidebar_rows", {"menu_x": 120, "menu_y": 560}) or {}).get("submenus") or {}
     options = next((v for k, v in hidden.items() if "Option" in k), None)
-    print("Options submenu:", options, flush=True)
+    safe_print("Options submenu:", options, flush=True)
     if options is None:
         check(False, f"default: the sidebar background menu has an Options folder (submenus {list(hidden)})")
     else:
@@ -299,7 +309,7 @@ try:
 
     # Comfortable: every one-line row grows by one step, and stays one line.
     steps = {t: (comfortable["workspace"].get(t) or 0) - (h or 0) for t, h in default["workspace"].items() if h}
-    print("comfortable minus default, by row:", steps, flush=True)
+    safe_print("comfortable minus default, by row:", steps, flush=True)
     step = next(iter(steps.values()), 0)
     check(step > 0 and all(s == step for s in steps.values()), f"comfortable: every workspace row is taller by the same step ({steps})")
     for role in ("group", "section"):
@@ -322,5 +332,5 @@ finally:
     summary["failures"] = failures
     with open(os.path.join(opts.out, "summary.json"), "w") as f:
         json.dump(summary, f, indent=1)
-    print(f"{len(failures)} failure(s)", flush=True)
+    safe_print(f"{len(failures)} failure(s)", flush=True)
 sys.exit(1 if failures else 0)

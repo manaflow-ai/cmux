@@ -6,6 +6,7 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { until } from "./support/until";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -50,12 +51,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 test("the project picker with no projects says none are recent until a search finds nothing", async () => {
@@ -155,4 +153,39 @@ test("a folder picked while Add folder… is open is not replaced by the panel's
   // turn, when they have run.
   await act(async () => answer("/work/late"));
   expect(picks).toEqual(["/work/relay"]);
+});
+
+// Leo, 2026-11-09: "this no folder selected should be, like, good as well." With no folder, the
+// chooser's face reads No folder, and its menu checks No folder too, also before the caller says
+// `noProject` (a fresh New Tab headline); a picked folder unchecks it (review of cmux#39940).
+test("the empty chooser reads No folder and its menu checks No folder", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+  const projects = [{ cwd: "/Users/you/src/cmux", label: "cmux" }];
+  const noneRow = () =>
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) =>
+      option.textContent?.startsWith("No folder"),
+    );
+  for (const current of [undefined, "/Users/you/src/cmux"]) {
+    act(() => root?.unmount());
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ProjectChooser
+          projects={projects}
+          {...(current ? { current, currentLabel: "cmux" } : {})}
+          icon={null}
+          onPick={() => {}}
+          onNoProject={() => {}}
+          side="bottom"
+        />,
+      ),
+    );
+    const trigger = host.querySelector<HTMLButtonElement>("button")!;
+    expect(trigger.textContent).toBe(current ? "cmux" : "No folder");
+    await act(async () => trigger.click());
+    expect(noneRow(), "the No folder row").toBeTruthy();
+    expect(noneRow()!.getAttribute("aria-current")).toBe(current ? null : "true");
+    await act(async () => trigger.click());
+  }
 });

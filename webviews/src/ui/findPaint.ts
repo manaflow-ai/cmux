@@ -9,15 +9,15 @@
 // transcript finds its current match there); their stylesheet rules are only the fallback where
 // this painter cannot run, and its groups draw over them (`priority`).
 import {
-  fitHighlight,
+  fitHighlightOn,
   highlightCss,
   HIGHLIGHT_FLOORS,
   inkOf,
   resolveCssColor,
-  surfaceUnder,
+  surfaceReader,
   type HighlightFloor,
-  type SurfaceMemo,
 } from "./highlightContrast";
+import type { RGB } from "../theme/color";
 import type { RGBA } from "../backdrop";
 
 /** The theme colors a page's Find starts from: CSS color expressions (custom properties allowed). */
@@ -154,9 +154,10 @@ export function paintAdaptiveFind(
   const matchBase = resolveCssColor(doc, colors.match);
   const currentBase = resolveCssColor(doc, colors.current);
   const currentInk = resolveCssColor(doc, colors.currentInk);
-  const memo: SurfaceMemo = new Map();
+  // Every surface under a match: one in an opaque page, the window's range in a see-through one.
+  const read = surfaceReader(doc);
   const inks = new Map<Node, ReturnType<typeof inkOf>>();
-  const inkOn = (node: Node, surface: ReturnType<typeof surfaceUnder>) => {
+  const inkOn = (node: Node, surface: RGB) => {
     const owner = node.parentNode ?? node;
     let ink = inks.get(owner);
     if (!ink) inks.set(owner, (ink = inkOf(node, surface)));
@@ -167,15 +168,15 @@ export function paintAdaptiveFind(
   const groups = new Map<string, { rule: string; ranges: Range[]; priority: number }>();
   const add = (range: Range, base: RGBA | null, active: boolean) => {
     if (!base) return;
-    const surface = surfaceUnder(range.startContainer, memo);
+    const surfaces = read(range.startContainer);
     const ink =
       active && currentInk
         ? { r: currentInk.r / 255, g: currentInk.g / 255, b: currentInk.b / 255 }
-        : inkOn(range.startContainer, surface);
-    const fitKey = `${active} ${highlightCss(surface)} ${highlightCss(ink)}`;
+        : inkOn(range.startContainer, surfaces[0]!);
+    const fitKey = `${active} ${surfaces.map(highlightCss).join(" ")} ${highlightCss(ink)}`;
     let rule = fits.get(fitKey);
     if (rule === undefined) {
-      const fit = fitHighlight(base, surface, ink, active ? floors.current : floors.match, { freeInk: active });
+      const fit = fitHighlightOn(base, surfaces, ink, active ? floors.current : floors.match, { freeInk: active });
       const fill = highlightCss(fit.fill);
       // The other matches keep their text's own color; only the current one draws its own.
       rule = active ? `background-color: ${fill}; color: ${highlightCss(fit.ink)};` : `background-color: ${fill};`;

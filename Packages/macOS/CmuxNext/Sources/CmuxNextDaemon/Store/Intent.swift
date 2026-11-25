@@ -24,6 +24,8 @@ public enum Intent: Sendable, Hashable {
     case setScreenIcon(screen: ScreenID, icon: String?)
     /// `set-screen-pinned`.
     case setScreenPinned(screen: ScreenID, pinned: Bool)
+    /// `set-divider-visible`: whether split `split`'s divider on `screen` draws its line (Hide / Show Divider).
+    case setDividerVisible(screen: ScreenID, split: SplitID, visible: Bool)
     /// `rename-workspace`.
     case renameWorkspace(key: WorkspaceKey, name: String)
     /// `workspace.update` / `set-workspace-metadata` with `color` (a palette name); nil clears it.
@@ -80,6 +82,13 @@ public enum Intent: Sendable, Hashable {
     /// public `paneID`, or the pane of Cmd-N's workspace `workspace` that holds its first tab), until the daemon's
     /// records drop it or the close fails. Leo 2026-11-03: "i should be able to just close immedeiately".
     case closeStandInPane(pane: PaneID, paneID: String?, workspace: WorkspaceKey?)
+    /// `zoom-pane` with mode `on` or `off`: `pane`'s screen shows `pane` alone (`zoomed`), or its whole layout again.
+    /// It names the state, not a toggle, so the daemon's `layout-changed` for the same zoom changes nothing more.
+    case zoomPane(pane: PaneID, zoomed: Bool)
+    /// `swap-pane` with `target`: two panes of one screen change places. It names the result, not the exchange: in the
+    /// screen's pane order `leading` comes before `trailing` (``DaemonStore/swapIntent(of:with:)``), so the daemon's
+    /// `layout-changed` for the same swap changes nothing more.
+    case swapPanes(leading: PaneID, trailing: PaneID)
 
     /// The stand-in tab a creation shows under a provisional id until the daemon's tab takes its place: a new tab, a new
     /// workspace's first tab, a conversation split's tab, a dock's fresh tab. A terminal split's tab is not one: it shows

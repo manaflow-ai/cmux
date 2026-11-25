@@ -47,12 +47,24 @@ public nonisolated struct AnimatedFrame: Hashable, Sendable {
     /// Returns true while any component is still moving. `alphaParameters`
     /// defaults to the geometry spring.
     public mutating func advance(_ dt: Double, parameters: SpringParameters, alphaParameters: SpringParameters? = nil) -> Bool {
-        let a = x.advance(dt, parameters: parameters, epsilon: 0.25)
-        let b = y.advance(dt, parameters: parameters, epsilon: 0.25)
-        let c = width.advance(dt, parameters: parameters, epsilon: 0.25)
-        let d = height.advance(dt, parameters: parameters, epsilon: 0.25)
+        admitEdgeVelocities(parameters)
+        let a = x.advanceAdmitted(dt, parameters: parameters, epsilon: 0.25)
+        let b = y.advanceAdmitted(dt, parameters: parameters, epsilon: 0.25)
+        let c = width.advanceAdmitted(dt, parameters: parameters, epsilon: 0.25)
+        let d = height.advanceAdmitted(dt, parameters: parameters, epsilon: 0.25)
         let e = alpha.advance(dt, parameters: alphaParameters ?? parameters, epsilon: 0.004)
         return a || b || c || d || e
+    }
+
+    /// No edge passes its place (`SpringParameters.admitted(velocity:distance:)`), edge by edge: a
+    /// rect's right edge is x plus width, two springs, so a limit on each of them alone lets the
+    /// edge pass when they are not in step (x moved first, the width later). Each edge is the sum of
+    /// two solutions of one linear equation, so it is a solution too, and the scalar rule holds for
+    /// it. An edge inside the limit is not touched (a spring in free flight always is), so a frame
+    /// nobody wrote a velocity into steps exactly as its four springs do.
+    private mutating func admitEdgeVelocities(_ parameters: SpringParameters) {
+        parameters.admitEdges(start: &x, extent: &width)
+        parameters.admitEdges(start: &y, extent: &height)
     }
 
     /// Advances the rect without letting it settle on its own; the alpha settles as in
@@ -67,17 +79,21 @@ public nonisolated struct AnimatedFrame: Hashable, Sendable {
     ///   - alphaParameters: The alpha's spring; defaults to `parameters`.
     /// - Returns: Whether the alpha still moves.
     public mutating func advanceUnsettled(_ dt: Double, parameters: SpringParameters, alphaParameters: SpringParameters? = nil) -> Bool {
-        _ = x.advance(dt, parameters: parameters, epsilon: 0)
-        _ = y.advance(dt, parameters: parameters, epsilon: 0)
-        _ = width.advance(dt, parameters: parameters, epsilon: 0)
-        _ = height.advance(dt, parameters: parameters, epsilon: 0)
+        admitEdgeVelocities(parameters)
+        _ = x.advanceAdmitted(dt, parameters: parameters, epsilon: 0)
+        _ = y.advanceAdmitted(dt, parameters: parameters, epsilon: 0)
+        _ = width.advanceAdmitted(dt, parameters: parameters, epsilon: 0)
+        _ = height.advanceAdmitted(dt, parameters: parameters, epsilon: 0)
         return alpha.advance(dt, parameters: alphaParameters ?? parameters, epsilon: 0.004)
     }
+
+    /// How near its target an edge lands: a quarter point.
+    public static let landingDistance: CGFloat = 0.25
 
     /// The rect is within a quarter point of its target on every edge and slower than 2 pt/s: where
     /// ``advance(_:parameters:alphaParameters:)`` would snap it.
     public var geometryNearRest: Bool {
-        [x, y, width, height].allSatisfy { abs($0.value - $0.target) <= 0.25 && abs($0.velocity) <= 2 }
+        [x, y, width, height].allSatisfy { abs($0.value - $0.target) <= Self.landingDistance && abs($0.velocity) <= 2 }
     }
 
     /// Puts the rect on its target at rest; the alpha keeps moving.

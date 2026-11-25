@@ -5,6 +5,8 @@ use std::cell::{Cell, RefCell};
 struct Fake {
     starts: RefCell<BTreeMap<String, String>>,
     effects: Cell<usize>,
+    refuse_start: Cell<bool>,
+    drop_start: Cell<bool>,
     fenced: Cell<bool>,
     allowed: RefCell<Value>,
     upstream_names: RefCell<Option<Value>>,
@@ -35,6 +37,21 @@ impl Backend for Fake {
         }
         assert_eq!(method, ACTIVITY_METHOD);
         if params["action"] == "start" {
+            if self.refuse_start.get() {
+                // As acpmux refuses: an owner RPC error with its numeric code.
+                return Err(CallFailure {
+                    kind: FailureKind::Rejected,
+                    error: json!({"code": -32602, "message": "activity refused"}),
+                    idempotency_key: None,
+                });
+            }
+            if self.drop_start.get() {
+                return Err(CallFailure::local(
+                    FailureKind::InProgress,
+                    "acpmux.transport",
+                    "connection lost after send",
+                ));
+            }
             self.effects.set(self.effects.get() + 1);
             self.starts.borrow_mut().insert(
                 params["activityId"].as_str().unwrap().into(),
@@ -195,6 +212,89 @@ fn native_workflow_host_fences_before_raw_call_and_catalog_blocks_primitives() {
 }
 
 #[test]
+fn native_workflow_host_journals_explicit_activity_refusal_for_immediate_replay() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut server = Server::new(Fake::default(), None);
+    server.backend.refuse_start.set(true);
+    let mut journal = Journal::open(directory.path(), "source", 1).unwrap();
+    let mut pending = BTreeMap::new();
+    let mut tools = None;
+    let mut images = Vec::new();
+    let request = code_mode::Request::ActivityStart {
+        kind: "agent".into(),
+        prompt: "refused".into(),
+        options: Map::new(),
+    };
+    let first =
+        handle(&mut server, &proof(), &mut journal, &mut pending, &mut tools, &mut images, request)
+            .unwrap();
+    assert_eq!(first["ok"], false);
+    journal.finish().unwrap();
+    drop(journal);
+
+    let mut resumed = Journal::open(directory.path(), "source", 0).unwrap();
+    let replay_request = code_mode::Request::ActivityStart {
+        kind: "agent".into(),
+        prompt: "refused".into(),
+        options: Map::new(),
+    };
+    let replay = handle(
+        &mut server,
+        &proof(),
+        &mut resumed,
+        &mut BTreeMap::new(),
+        &mut None,
+        &mut Vec::new(),
+        replay_request,
+    )
+    .unwrap();
+    assert_eq!(replay, first);
+    assert!(resumed.finish().is_ok());
+    assert_eq!(server.backend.effects.get(), 0, "a refusal must never dispatch twice");
+}
+
+#[test]
+fn native_workflow_host_keeps_an_uncertain_activity_start_pending_for_resume() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut server = Server::new(Fake::default(), None);
+    server.backend.drop_start.set(true);
+    let mut journal = Journal::open(directory.path(), "source", 1).unwrap();
+    let request = || code_mode::Request::ActivityStart {
+        kind: "agent".into(),
+        prompt: "uncertain".into(),
+        options: Map::new(),
+    };
+    let first = handle(
+        &mut server,
+        &proof(),
+        &mut journal,
+        &mut BTreeMap::new(),
+        &mut None,
+        &mut Vec::new(),
+        request(),
+    )
+    .unwrap();
+    assert_eq!(first["ok"], false);
+    drop(journal);
+
+    // A lost answer is not a refusal: resume sends the same start again.
+    server.backend.drop_start.set(false);
+    let mut resumed = Journal::open(directory.path(), "source", 0).unwrap();
+    let replay = handle(
+        &mut server,
+        &proof(),
+        &mut resumed,
+        &mut BTreeMap::new(),
+        &mut None,
+        &mut Vec::new(),
+        request(),
+    )
+    .unwrap();
+    assert_eq!(replay["ok"], true, "{replay}");
+    assert_eq!(server.backend.effects.get(), 1, "the uncertain start is sent again once");
+}
+
+#[test]
 fn native_workflow_host_rechecks_permissions_before_replaying_raw_tool_results() {
     let directory = tempfile::tempdir().unwrap();
     {
@@ -268,6 +368,8 @@ fn native_workflow_host_drops_a_disabled_upstream_before_another_call() {
         args: Vec::new(),
         env: Vec::new(),
         call_timeout: Duration::from_secs(1),
+        shared: None,
+        http: None,
     })));
     refresh_tools(&mut server, &json!({"allowedTools":null,"upstreamNames":[]})).unwrap();
     assert!(server.upstreams.is_empty());
@@ -291,6 +393,8 @@ fn native_workflow_host_refuses_saved_results_from_a_revoked_upstream() {
         args: Vec::new(),
         env: Vec::new(),
         call_timeout: Duration::from_secs(1),
+        shared: None,
+        http: None,
     }));
     proxied.listed.push(json!({"name":name}));
     server.upstreams.push(proxied);

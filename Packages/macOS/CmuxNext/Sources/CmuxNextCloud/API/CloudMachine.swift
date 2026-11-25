@@ -6,7 +6,7 @@ public import Foundation
 /// rule about it. The fields are its JSON (timestamps in epoch milliseconds); the app reads them
 /// and asks ``CloudMachineRules`` the rest.
 public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
-    public enum Status: String, Sendable, Hashable, Codable {
+    public enum Status: String, Sendable, Hashable, Codable, CaseIterable {
         case provisioning, running, failed, paused, destroyed, unknown
         /// A Pause Machine (or the idle auto-pause) the server accepted; not paused yet.
         case pausing
@@ -17,6 +17,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
 
         /// A machine whose daemon can be reached (or soon will be).
         public var isLive: Bool { CloudMachineRules.statuses.live.contains(self) }
+
+        /// Paused, or a pause the server accepted: nothing should dial it until a person resumes it.
+        public var isPaused: Bool { self == .paused || self == .pausing }
 
         /// A pause, resume or delete is on its way.
         public var isChanging: Bool { CloudMachineRules.statuses.changing.contains(self) }
@@ -148,6 +151,8 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
 
     public var id: String
     public var provider: String
+    /// The provider region, when the Cloud API supplies one.
+    public var region: String?
     public var status: Status
     public var displayName: String?
     public var slug: String?
@@ -181,6 +186,15 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     public var evictAt: Date?
     /// The auto-size pick a create with `autosize` answered.
     public var sizePick: CloudSizePick?
+    /// The guest's disk use as the record carries it (cmux-cloud-disk `DiskReport`, read from
+    /// `disk_health`): JSON the app passes to the Cloud rules unread; nil before the first sample.
+    public var disk: JSONValue?
+    /// ``disk`` as the Cloud rules' list and status facts take it (cmux-tui `Listed.disk`, `Status.disk`):
+    /// its JSON as it came, as Foundation values; nil without a sample.
+    public var diskFacts: Any? {
+        guard let disk, let data = try? JSONEncoder().encode(disk) else { return nil }
+        return try? JSONSerialization.jsonObject(with: data)
+    }
     /// Why the last pause, resume or resize failed; nil when it did not.
     public var lastChangeFailure: ChangeFailure?
     /// The newest unresolved Pause, Resume or Kill sent from this app (``CloudMachineChanges``).
@@ -194,9 +208,9 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
 
     /// The crate's JSON names two fields as the classic record does.
     enum CodingKeys: String, CodingKey {
-        case id, provider, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, address, size
+        case id, provider, region, status, displayName, slug, kind, image, imageVersion, createdAt, createdBy, team, address, size
         case declaredCapabilities = "capabilities"
-        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick
+        case pauseReason, idlePauseMinutes, idlePause, hourlyRateUsd, updatedAt, serverRevision, runningSince, evictAt, sizePick, disk
         case lastChangeFailure = "error"
         case pendingChange, pendingMutationID, failedMutationID, servesDesktop
     }
@@ -222,12 +236,13 @@ public struct CloudMachine: Sendable, Hashable, Identifiable, Codable {
     /// Agent infrastructure (by its shown name), not one of its owner's own machines.
     public var isAgentInfrastructure: Bool { facts.agentInfrastructure }
 
-    public init(id: String, provider: String = "freestyle", status: Status = .running, displayName: String? = nil,
+    public init(id: String, provider: String = "freestyle", region: String? = nil, status: Status = .running, displayName: String? = nil,
                 slug: String? = nil, address: Address? = nil, capabilities: Capabilities? = nil,
                 pauseReason: PauseReason? = nil, idlePauseMinutes: Int? = nil,
                 idlePause: IdlePauseDiagnostics? = nil, updatedAt: Date? = nil, lastChangeFailure: ChangeFailure? = nil) {
         self.id = id
         self.provider = provider
+        self.region = region
         self.status = status
         self.displayName = displayName
         self.slug = slug

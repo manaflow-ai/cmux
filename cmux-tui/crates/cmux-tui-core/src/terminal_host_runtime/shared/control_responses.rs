@@ -197,10 +197,11 @@ impl ControlResponses {
         self.fail_all_except(|_| false);
     }
 
-    /// Fail every waiter except blocking waiters for a response kind that
-    /// `keep` selects. The surface reader keeps those when it abandons a
-    /// stream: the connection's frame reader still delivers them and
-    /// fails them when the stream ends.
+    /// Fail every waiter except waiters for a response kind that `keep`
+    /// selects (a deferred cell-pixel waiter counts as `CellPixelSizeAck`).
+    /// The surface reader keeps those when it abandons a stream: the
+    /// connection's frame reader still delivers them and fails them when the
+    /// stream ends.
     pub(crate) fn fail_all_except(&self, keep: impl Fn(MessageKind) -> bool) {
         let deferred = {
             let mut waiters = self.waiters.lock().recover_poison();
@@ -208,7 +209,11 @@ impl ControlResponses {
                 .iter()
                 .filter(|(_, waiter)| match waiter {
                     ControlResponseWaiter::Blocking { kind, .. } => !keep(*kind),
-                    ControlResponseWaiter::DeferredCellPixel { .. } => true,
+                    // A deferred cell-pixel waiter still owns a CellPixelSizeAck
+                    // that is queued for the surface reader.
+                    ControlResponseWaiter::DeferredCellPixel { .. } => {
+                        !keep(MessageKind::CellPixelSizeAck)
+                    }
                 })
                 .map(|(request_id, _)| *request_id)
                 .collect::<Vec<_>>();

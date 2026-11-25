@@ -4,6 +4,7 @@
 // word a step above its row (diffWeight.ts).
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements"] as const;
@@ -21,7 +22,8 @@ beforeAll(() => {
   });
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, descriptor] of saved) {
     if (descriptor) Object.defineProperty(scope, key, descriptor);

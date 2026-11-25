@@ -15,6 +15,7 @@ import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { deeplinks } from "../src/agent-session/acpmux/composer/deeplinks";
 import { WEB_DEEPLINK_CLASS } from "../src/agent-session/acpmux/composer/deeplinkTokens";
 import { PromptTyped } from "../src/agent-session/acpmux/conversation/PromptText";
+import { teardownDom } from "./support/domTeardown";
 
 const WORKSPACE = "cmux-nightly://workspace/ws_cca525bafd4d2b969dad8fdb549b0c61";
 const AGENT = "cmux://agent/claude/9b2f4c1e-5d7a-4e3b-8c6f-1a2b3c4d5e6f";
@@ -86,12 +87,8 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 function Chips() {

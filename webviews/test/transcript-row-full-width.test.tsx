@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -27,12 +28,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 async function render(items: object[]) {
@@ -68,9 +66,10 @@ test("a group's command rows draw the whole command, without the setup before it
   expect(lines).toEqual([CP, CP]);
 });
 
-test("a row still marks the steps it leaves out", async () => {
+// A multi-step line reads whole, with no appended " …" (2026-11-14 change).
+test("a row draws every step of a multi-step line, with no ellipsis after it", async () => {
   await render([shell("t1", `${CP} && ls`), shell("t2", "ls")]);
-  expect(host.querySelector(".cv-command__line")?.textContent).toBe(`${CP} …`);
+  expect(host.querySelector(".cv-command__line")?.textContent).toBe(`${CP} && ls`);
 });
 
 test("toolLabel never cuts a command by length", async () => {

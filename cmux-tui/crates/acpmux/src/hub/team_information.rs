@@ -194,6 +194,10 @@ impl Hub {
         }
         let mut pending = Vec::new();
         for session in self.sessions() {
+            // A cold-archived chat waits on no receipt; a read would bring its log back.
+            if session.meta.lock().unwrap_or_else(|e| e.into_inner()).cold.is_some() {
+                continue;
+            }
             let mut cache = session.team_information.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(state) = self.team_state(&session, &mut cache) {
                 pending.extend(state.read_pending.iter().map(|id| (session.clone(), id.clone())));

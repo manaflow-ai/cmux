@@ -30,9 +30,35 @@
 //!   a signed-in user in `<COPILOT_HOME or ~/.copilot>/config.json`
 //!   (`lastLoggedInUser`, `loggedInUsers`; the token itself is in the
 //!   keychain or that file).
-//! - Grok CLI: `GROK_API_KEY`, else `~/.grok/user-settings.json` `apiKey`.
+//! - Grok CLI (xAI's Grok Build): `GROK_API_KEY` or `XAI_API_KEY`; else the
+//!   `grok login` session in `<GROK_HOME or ~/.grok>/auth.json` (a SuperGrok
+//!   or X Premium+ sign-in; xai-org/grok-build `02-authentication.md`), or
+//!   the older CLI's `~/.grok/user-settings.json` `apiKey`.
+//! - Antigravity: `GEMINI_API_KEY` (the ACP server takes it); else the ACP
+//!   server's own `<GEMINI_HOME or ~/.gemini>/antigravity-acp/acp_token.json`
+//!   or the `agy` CLI's `~/.gemini/antigravity-cli/antigravity-oauth-token`.
+//!   Both keep the login in the keychain when one works (macOS "Antigravity
+//!   Safe Storage", a Linux secret service) and write the file only without
+//!   one, so a keychain sign-in stays unknown; the two logins are separate.
 //! - Muse Code: `META_API_KEY` (Muse's docs name no login file, so a
 //!   browser sign-in stays unknown).
+//! - DeepSeek Harness (`dsh`): `DEEPSEEK_API_KEY`, set or assigned in
+//!   `<DSH_HOME or ~/.dsh>/.env`, the Harness-home layer `dsh` loads at boot
+//!   (deepseek-ai/deepseek-harness `packages/boot/app-boot` `loadLayeredEnv`,
+//!   `packages/util/home-paths` `resolveDshHome`). A project `.env` also
+//!   counts there; it depends on the chat's folder, so it is not read here.
+//! - Prime Agent: `PRIME_API_KEY` (Prime Inference); else
+//!   `<PRIME_AGENT_CODING_AGENT_DIR or ~/.prime/agent>/auth.json`, one entry
+//!   per provider; the web-search (`serper`, `eco`) and `mcp:*` entries are
+//!   not a model sign-in (prime-agent `pa-types/src/platform/dirs.rs`,
+//!   `pa-core/src/auth/types.rs`, `pa-ai/src/env_api_keys.rs`).
+//! - Hermes Agent: the provider keys its own setup check counts
+//!   (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+//!   `ANTHROPIC_TOKEN`, `OPENAI_BASE_URL`), set or assigned in
+//!   `<HERMES_HOME or ~/.hermes>/.env`; else the active provider's entry in
+//!   that home's `auth.json` (hermes-agent `hermes_cli/main.py`
+//!   `_has_any_provider_configured`, `hermes_constants.py`). A relative
+//!   `HERMES_HOME` gets no answer, as Hermes resolves it from its own folder.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -58,6 +84,10 @@ pub(super) fn file_auth(
         "copilot" => &["copilot"],
         "grok" => &["grok"],
         "muse" => &["muse", "muse-acp"],
+        "antigravity" => &["agy", "agy_acp_server.par"],
+        "deepseek" => &["dsh"],
+        "prime" => &["prime-agent"],
+        "hermes" => &["hermes"],
         _ => return None,
     };
     // Windows names them `gemini.exe`, `opencode.cmd` (an npm shim).
@@ -109,7 +139,11 @@ pub(super) fn file_auth(
                     .is_some_and(|users| !users.is_empty());
             user.then(|| signed_in(format!("{} names a signed-in user", file.display())))
         }),
-        "grok" => set(&["GROK_API_KEY"]).or_else(|| {
+        "grok" => set(&["GROK_API_KEY", "XAI_API_KEY"]).or_else(|| {
+            let session = dir("GROK_HOME", home.join(".grok")).join("auth.json");
+            if non_empty(&session) {
+                return Some(holds(session));
+            }
             let file = home.join(".grok/user-settings.json");
             let key = read_json(&file)?
                 .get("apiKey")
@@ -117,8 +151,70 @@ pub(super) fn file_auth(
                 .is_some_and(|k| !k.trim().is_empty());
             key.then(|| signed_in(format!("{} holds an API key", file.display())))
         }),
+        "antigravity" => set(&["GEMINI_API_KEY"]).or_else(|| {
+            [
+                dir("GEMINI_HOME", home.join(".gemini")).join("antigravity-acp/acp_token.json"),
+                home.join(".gemini/antigravity-cli/antigravity-oauth-token"),
+            ]
+            .into_iter()
+            .find(|file| non_empty(file))
+            .map(holds)
+        }),
+        "deepseek" => set(&["DEEPSEEK_API_KEY"]).or_else(|| {
+            dotenv_sets(&dir("DSH_HOME", home.join(".dsh")).join(".env"), &["DEEPSEEK_API_KEY"])
+        }),
+        "prime" => set(&["PRIME_API_KEY"]).or_else(|| {
+            let file =
+                dir("PRIME_AGENT_CODING_AGENT_DIR", home.join(".prime/agent")).join("auth.json");
+            // Web search and MCP servers keep their keys in the same file.
+            providers_where(&file, |id| !matches!(id, "serper" | "eco") && !id.starts_with("mcp:"))
+        }),
+        "hermes" => {
+            const KEYS: &[&str] = &[
+                "OPENROUTER_API_KEY",
+                "OPENAI_API_KEY",
+                "ANTHROPIC_API_KEY",
+                "ANTHROPIC_TOKEN",
+                "OPENAI_BASE_URL",
+            ];
+            set(KEYS).or_else(|| {
+                let suffix = env.get("HERMES_DATA_DIR_SUFFIX").map(String::as_str).unwrap_or("");
+                let folder =
+                    match env.get("HERMES_HOME").map(|v| v.trim()).filter(|v| !v.is_empty()) {
+                        Some(named) => Some(PathBuf::from(named)).filter(|p| p.is_absolute())?,
+                        None => home.join(format!(".hermes{suffix}")),
+                    };
+                dotenv_sets(&folder.join(".env"), KEYS).or_else(|| {
+                    let file = folder.join("auth.json");
+                    let store = read_json(&file)?;
+                    let active = store.get("active_provider").and_then(Value::as_str)?.trim();
+                    let entry = store.get("providers")?.get(active).is_some_and(Value::is_object);
+                    (!active.is_empty() && entry).then(|| {
+                        signed_in(format!("{} signs in its active provider", file.display()))
+                    })
+                })
+            })
+        }
         _ => set(&["META_API_KEY"]),
     }
+}
+
+/// A `.env` file that assigns one of `keys` a value (`KEY=v`, `export KEY="v"`;
+/// `#` lines skipped), as `dsh` and Hermes read theirs. Only the name is kept.
+fn dotenv_sets(file: &Path, keys: &[&str]) -> Option<(Auth, Option<String>)> {
+    let meta = std::fs::metadata(file).ok()?;
+    if !meta.is_file() || meta.len() > JSON_CAP {
+        return None;
+    }
+    let text = std::fs::read_to_string(file).ok()?;
+    let key = text.lines().find_map(|line| {
+        let line = line.trim();
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        let (key, value) = line.split_once('=').filter(|_| !line.starts_with('#'))?;
+        let value = value.trim().trim_matches(|c| c == '\'' || c == '"');
+        keys.iter().find(|k| **k == key.trim() && !value.is_empty())
+    })?;
+    Some(signed_in(format!("{} sets {key}", file.display())))
 }
 
 fn signed_in(detail: String) -> (Auth, Option<String>) {
@@ -154,7 +250,13 @@ fn read_json(file: &Path) -> Option<Value> {
 /// A login file keyed by provider id (OpenCode, Pi): signed in with at
 /// least one provider entry. Only the keys are counted.
 fn providers(file: &Path) -> Option<(Auth, Option<String>)> {
-    let count = read_json(file)?.as_object()?.values().filter(|v| v.is_object()).count();
+    providers_where(file, |_| true)
+}
+
+/// `providers`, counting only the entries whose id `counts`.
+fn providers_where(file: &Path, counts: impl Fn(&str) -> bool) -> Option<(Auth, Option<String>)> {
+    let count =
+        read_json(file)?.as_object()?.iter().filter(|(id, v)| v.is_object() && counts(id)).count();
     (count > 0).then(|| {
         let what = if count == 1 { "1 provider".to_owned() } else { format!("{count} providers") };
         signed_in(format!("{} signs in {what}", file.display()))
@@ -200,6 +302,11 @@ mod tests {
             ("copilot", "copilot"),
             ("grok", "grok"),
             ("muse", "muse-acp"),
+            ("antigravity", "agy_acp_server.par"),
+            ("antigravity", "agy"),
+            ("deepseek", "dsh"),
+            ("prime", "prime-agent"),
+            ("hermes", "hermes"),
         ] {
             assert_eq!(auth(family, program, &env), None, "{family}");
         }
@@ -214,8 +321,14 @@ mod tests {
             ("cursor", "cursor-agent", "CURSOR_API_KEY"),
             ("copilot", "copilot", "COPILOT_GITHUB_TOKEN"),
             ("grok", "grok", "GROK_API_KEY"),
+            ("grok", "grok", "XAI_API_KEY"),
             ("muse", "muse-acp", "META_API_KEY"),
+            ("antigravity", "agy_acp_server.par", "GEMINI_API_KEY"),
             ("opencode", "opencode", "OPENCODE_AUTH_CONTENT"),
+            ("deepseek", "dsh", "DEEPSEEK_API_KEY"),
+            ("prime", "prime-agent", "PRIME_API_KEY"),
+            ("hermes", "hermes", "OPENROUTER_API_KEY"),
+            ("hermes", "hermes", "ANTHROPIC_TOKEN"),
         ] {
             let found = file_auth(family, program, &env(&dir, &[(key, "sk-secret-value")]));
             let (auth, detail) = found.unwrap_or_else(|| panic!("{family}"));
@@ -259,12 +372,61 @@ mod tests {
     }
 
     #[test]
+    fn a_grok_login_session_is_a_sign_in() {
+        let dir = home("grok-login");
+        let env = env(&dir, &[]);
+        write(&dir.join(".grok/auth.json"), "{}");
+        assert_eq!(auth("grok", "grok", &env), None, "an empty file proves nothing");
+        write(&dir.join(".grok/auth.json"), r#"{"access_token":"x","refresh_token":"y"}"#);
+        let (auth, detail) = file_auth("grok", "grok", &env).unwrap();
+        assert_eq!(auth, Auth::SignedIn);
+        assert!(detail.unwrap().ends_with(".grok/auth.json holds a sign-in"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn antigravity_token_files_prove_a_sign_in() {
+        let dir = home("antigravity");
+        let acp = env(&dir, &[]);
+        write(&dir.join(".gemini/antigravity-acp/acp_token.json"), r#"{"refresh_token":"x"}"#);
+        assert_eq!(auth("antigravity", "agy_acp_server.par", &acp), Some(Auth::SignedIn));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir = home("agy-cli");
+        let cli = env(&dir, &[]);
+        write(&dir.join(".gemini/antigravity-cli/antigravity-oauth-token"), "ya29.token");
+        assert_eq!(auth("antigravity", "agy", &cli), Some(Auth::SignedIn));
+        assert_eq!(auth("antigravity", "agy-wrapper", &cli), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn folder_variables_move_the_login_files() {
         let dir = home("vars");
         let elsewhere = dir.join("elsewhere");
         write(&elsewhere.join(".gemini/oauth_creds.json"), r#"{"refresh_token":"x"}"#);
         write(&elsewhere.join("auth.json"), r#"{"anthropic":{"type":"oauth"}}"#);
+        write(&elsewhere.join("antigravity-acp/acp_token.json"), r#"{"refresh_token":"x"}"#);
+        write(&elsewhere.join(".env"), "DEEPSEEK_API_KEY=k\nANTHROPIC_API_KEY=k\n");
         let moved = elsewhere.display().to_string();
+        assert_eq!(auth("deepseek", "dsh", &env(&dir, &[])), None);
+        assert_eq!(
+            auth("deepseek", "dsh", &env(&dir, &[("DSH_HOME", &moved)])),
+            Some(Auth::SignedIn)
+        );
+        assert_eq!(
+            auth("prime", "prime-agent", &env(&dir, &[("PRIME_AGENT_CODING_AGENT_DIR", &moved)])),
+            Some(Auth::SignedIn)
+        );
+        assert_eq!(auth("hermes", "hermes", &env(&dir, &[])), None);
+        assert_eq!(
+            auth("hermes", "hermes", &env(&dir, &[("HERMES_HOME", &moved)])),
+            Some(Auth::SignedIn)
+        );
+        assert_eq!(
+            auth("hermes", "hermes", &env(&dir, &[("HERMES_HOME", "relative/home")])),
+            None,
+            "a relative home resolves from Hermes's own folder"
+        );
         assert_eq!(auth("gemini", "gemini", &env(&dir, &[])), None);
         assert_eq!(
             auth("gemini", "gemini", &env(&dir, &[("GEMINI_CLI_HOME", &moved)])),
@@ -274,6 +436,64 @@ mod tests {
             auth("pi", "pi-acp", &env(&dir, &[("PI_CODING_AGENT_DIR", &moved)])),
             Some(Auth::SignedIn)
         );
+        assert_eq!(
+            auth("grok", "grok", &env(&dir, &[("GROK_HOME", &moved)])),
+            Some(Auth::SignedIn)
+        );
+        assert_eq!(
+            auth("antigravity", "agy_acp_server.par", &env(&dir, &[("GEMINI_HOME", &moved)])),
+            Some(Auth::SignedIn)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_home_env_file_key_is_a_sign_in() {
+        let dir = home("dotenv");
+        let env = env(&dir, &[]);
+        write(&dir.join(".dsh/.env"), "# DEEPSEEK_API_KEY=sk-commented\nDEEPSEEK_API_KEY=\"\"\n");
+        assert_eq!(auth("deepseek", "dsh", &env), None, "a comment or an empty value is no key");
+        write(&dir.join(".dsh/.env"), "OTHER=1\nexport DEEPSEEK_API_KEY='sk-secret-value'\n");
+        let (auth_found, detail) = file_auth("deepseek", "dsh", &env).unwrap();
+        assert_eq!(auth_found, Auth::SignedIn);
+        let detail = detail.unwrap();
+        assert!(detail.ends_with(".dsh/.env sets DEEPSEEK_API_KEY"), "{detail}");
+        assert!(!detail.contains("sk-secret"));
+        write(&dir.join(".hermes/.env"), "OPENAI_BASE_URL=http://localhost:8000/v1\n");
+        assert_eq!(auth("hermes", "hermes", &env), Some(Auth::SignedIn));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn prime_counts_only_model_providers() {
+        let dir = home("prime");
+        let env = env(&dir, &[]);
+        let file = dir.join(".prime/agent/auth.json");
+        write(&file, r#"{"serper":{"type":"api_key"},"mcp:linear":{"type":"oauth"}}"#);
+        assert_eq!(auth("prime", "prime-agent", &env), None, "web search and MCP are no sign-in");
+        write(&file, r#"{"serper":{"type":"api_key"},"prime-inference":{"type":"api_key"}}"#);
+        let (_, detail) = file_auth("prime", "prime-agent", &env).unwrap();
+        assert!(detail.unwrap().ends_with("signs in 1 provider"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn hermes_signs_in_by_its_active_provider() {
+        let dir = home("hermes");
+        let env = env(&dir, &[]);
+        let file = dir.join(".hermes/auth.json");
+        write(&file, r#"{"version":1,"providers":{},"active_provider":"nous"}"#);
+        assert_eq!(auth("hermes", "hermes", &env), None, "an active provider with no entry");
+        write(
+            &file,
+            r#"{"version":1,"providers":{"nous":{"access_token":"x"}},"active_provider":null}"#,
+        );
+        assert_eq!(auth("hermes", "hermes", &env), None, "an entry nothing selects");
+        write(
+            &file,
+            r#"{"version":1,"providers":{"nous":{"access_token":"x"}},"active_provider":"nous"}"#,
+        );
+        assert_eq!(auth("hermes", "hermes", &env), Some(Auth::SignedIn));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

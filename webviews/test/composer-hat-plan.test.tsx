@@ -1,6 +1,8 @@
 // l10n-allow-file: test fixture todo items and commands, not shipped UI.
 import { afterAll, describe, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
+import { RUNNING_TRAY_LINE } from "../src/agent-session/acpmux/subagents/subagentSelectors";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -54,14 +56,16 @@ type AcpmuxPlanEntry = import("../src/agent-session/acpmux/model").AcpmuxPlanEnt
 // composer hat is kinda ok?"): folded, "2 of 5 · <the step at work>" before what runs; opened, the
 // checklist over the lines. Settings > Agent Chat > Pin Task List in Chat pins it in the transcript
 // instead (App.tsx `planInHat`).
-afterAll(() => {
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+afterAll(async () => {
+  await teardownDom(saved, { window: dom.window, scope });
 });
 setPaneLanguage("en");
+// The hat names the longest-running command (trayFoldHead.experiment.ts `two`; its default is now `kinds`).
+globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "subagent-tray-fold-head": "two" };
+afterAll(() => {
+  if (globalThis.cmuxExperiments)
+    delete (globalThis.cmuxExperiments as Record<string, string>)["subagent-tray-fold-head"];
+});
 
 const now = Date.now();
 const plan: AcpmuxPlanEntry[] = [
@@ -118,7 +122,7 @@ describe("the composer hat shows the running turn's plan", () => {
     }
   });
 
-  test("with three background commands: the plan leads, then the newest command and a count", async () => {
+  test("with three background commands: the plan leads, then the longest-running command and a count", async () => {
     const bar = await hat(
       [
         command("c1", "bun run dev", 90_000, "Start the dev server"),
@@ -128,10 +132,10 @@ describe("the composer hat shows the running turn's plan", () => {
       plan,
     );
     try {
-      expect(bar.title()?.startsWith("2 of 5 · Run the tray tests · Watch the tests")).toBe(true);
+      expect(bar.title()?.startsWith("2 of 5 · Run the tray tests · Start the dev server")).toBe(true);
       await act(async () => bar.button()!.click());
       expect(bar.host.querySelectorAll(".acpmux-running-tray .cv-plan__item").length).toBe(5);
-      expect(bar.host.querySelectorAll(".acpmux-running-tray .acpmux-agent-line").length).toBe(3);
+      expect(bar.host.querySelectorAll(RUNNING_TRAY_LINE).length).toBe(3);
     } finally {
       await bar.done();
     }

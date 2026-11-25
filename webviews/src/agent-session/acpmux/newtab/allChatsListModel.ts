@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { devicePushCount, subscribeDeviceChats } from "./deviceChats";
 import { chatsChangedSinceSettled, rememberChats, settledChats } from "./settledCache";
+import { recencyOnly } from "./chatQueryTerms";
 import { useT } from "../i18n";
 import { errorMessage } from "../transportErrors";
 
@@ -22,6 +23,9 @@ export type LoadChatsPage = (params: {
 }) => Promise<AllChatsPage | undefined>;
 
 const PAGE = 100;
+/// How long the search field stays still before its query is read: one read per settled query,
+/// not one per key (each read ranks every chat).
+export const SEARCH_SETTLE_MS = 150;
 /// How long a first read may go unanswered before the list says it couldn't load and offers Try
 /// again: a read that never answers (a stuck daemon) otherwise keeps the skeleton up for good.
 export const CHATS_READ_CEILING_MS = 15_000;
@@ -186,74 +190,78 @@ export function useChatPages(load: LoadChatsPage) {
   }, []);
   // A loaded list reads its first page again when the index pushes a change and puts it on top of
   // its rows, keeping the later pages and the cursor (cx-heu). One read at a time: a push during
-  // one reads once more after it. A query's list, or a new query meanwhile, is left alone.
+  // one reads once more after it. A query's list, or a new query meanwhile, is left alone; When's
+  // `since:` alone (chatQueryTerms.ts) reads its own first page.
   const refreshing = useRef<"idle" | "busy" | "again">("idle");
-  const refreshFirstPage = useCallback(() => {
-    if (refreshing.current !== "idle") {
-      refreshing.current = "again";
-      return;
-    }
-    refreshing.current = "busy";
-    const ticket = generation.current;
-    const atPush = devicePushCount();
-    void latestLoad
-      .current({ limit: PAGE })
-      .catch(() => undefined)
-      .then((page) => {
-        if (page) {
-          const fresh = rowsOf(page);
-          const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
-          rememberChats(
-            {
-              rows: fresh,
-              ready: page.ready !== false,
-              ...(nextCursor ? { nextCursor } : {}),
-              ...(design(page.design) ? { design: design(page.design) } : {}),
-            },
-            atPush,
-          );
-        }
-        if (page && ticket === generation.current) {
-          const replace = replaceSaved.current;
-          replaceSaved.current = false;
-          setState((s) => {
-            if (s.query) return s;
+  const refreshFirstPage = useCallback(
+    (query = "") => {
+      if (refreshing.current !== "idle") {
+        refreshing.current = "again";
+        return;
+      }
+      refreshing.current = "busy";
+      const ticket = generation.current;
+      const atPush = devicePushCount();
+      void latestLoad
+        .current({ ...(query ? { query } : {}), limit: PAGE })
+        .catch(() => undefined)
+        .then((page) => {
+          if (page && !query) {
             const fresh = rowsOf(page);
-            if (replace && !pagedPastSaved.current) {
-              const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
-              return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
-            }
-            // An index-ready first page without a cursor is the whole list: rows omitted from it
-            // were deleted or archived. A paged first page cannot distinguish those from rows
-            // that merely moved to a later page, so retain older fetched rows in that case.
-            const complete = page.ready !== false && !page.nextCursor;
-            const named = new Set(fresh.map((row) => row.key));
-            const rows = complete
-              ? fresh
-              : mergeFirstPage(
-                  fresh,
-                  replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
-                );
-            // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
-            const same =
-              rows.length === s.rows.length &&
-              rows.every(
-                (row, i) =>
-                  row === s.rows[i] ||
-                  (row.key === s.rows[i]?.key &&
-                    row.updatedAt === s.rows[i]?.updatedAt &&
-                    row.title === s.rows[i]?.title &&
-                    row.cwd === s.rows[i]?.cwd),
-              ) &&
-              (!complete || (s.nextCursor === undefined && s.ready));
-            return same ? s : { ...s, rows, ...(complete ? { nextCursor: undefined, ready: true } : {}) };
-          });
-        }
-        const again = refreshing.current === "again";
-        refreshing.current = "idle";
-        if (again) refreshFirstPage();
-      });
-  }, [savedKeys]);
+            const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
+            rememberChats(
+              {
+                rows: fresh,
+                ready: page.ready !== false,
+                ...(nextCursor ? { nextCursor } : {}),
+                ...(design(page.design) ? { design: design(page.design) } : {}),
+              },
+              atPush,
+            );
+          }
+          if (page && ticket === generation.current) {
+            const replace = replaceSaved.current;
+            replaceSaved.current = false;
+            setState((s) => {
+              if (s.query !== query) return s;
+              const fresh = rowsOf(page);
+              if (replace && !pagedPastSaved.current) {
+                const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
+                return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
+              }
+              // An index-ready first page without a cursor is the whole list: rows omitted from it
+              // were deleted or archived. A paged first page cannot distinguish those from rows
+              // that merely moved to a later page, so retain older fetched rows in that case.
+              const complete = page.ready !== false && !page.nextCursor;
+              const named = new Set(fresh.map((row) => row.key));
+              const rows = complete
+                ? fresh
+                : mergeFirstPage(
+                    fresh,
+                    replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
+                  );
+              // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
+              const same =
+                rows.length === s.rows.length &&
+                rows.every(
+                  (row, i) =>
+                    row === s.rows[i] ||
+                    (row.key === s.rows[i]?.key &&
+                      row.updatedAt === s.rows[i]?.updatedAt &&
+                      row.title === s.rows[i]?.title &&
+                      row.cwd === s.rows[i]?.cwd),
+                ) &&
+                (!complete || (s.nextCursor === undefined && s.ready));
+              return same ? s : { ...s, rows, ...(complete ? { nextCursor: undefined, ready: true } : {}) };
+            });
+          }
+          const again = refreshing.current === "again";
+          refreshing.current = "idle";
+          if (again) refreshFirstPage(query);
+        });
+    },
+    [savedKeys],
+  );
   // The first page when the list mounts. A list that drew the settled first page (a workspace
   // closed or opened and its page mounted again) reads it only for a change the chat index pushed
   // since; a later push reads it as on any loaded list (Leo 2026-10-18: the list emptied and refilled).
@@ -266,20 +274,44 @@ export function useChatPages(load: LoadChatsPage) {
   }, [seeded, fetchPage, refreshFirstPage]);
   // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
   // reads its first page from the start when the host pushes the index's chats (cx-ztlw: the first
-  // Cmd-T page stayed empty for good); a loaded one refreshes it. A search is left alone.
+  // Cmd-T page stayed empty for good); a loaded one refreshes it. A search is left alone; When alone is
+  // not a search.
   const latest = useRef(state);
   latest.current = state;
   useEffect(
     () =>
       subscribeDeviceChats(() => {
         const current = latest.current;
-        if (current.query) return;
-        if (!current.ready || current.rows.length === 0) fetchPage("", undefined);
-        else refreshFirstPage();
+        if (current.query && !recencyOnly(current.query)) return;
+        if (!current.ready || current.rows.length === 0) fetchPage(current.query, undefined);
+        else refreshFirstPage(current.query);
       }),
     [fetchPage, refreshFirstPage],
   );
-  return { state, fetchPage };
+  // The search field: the query shows at once and its page is read once the field stays still
+  // for SEARCH_SETTLE_MS, so a word typed is one read, not one per key. A key drops any reply still
+  // out for the query before it; clearing the field reads the list at once.
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const search = useCallback(
+    (query: string) => {
+      clearTimeout(settleTimer.current);
+      settleTimer.current = undefined;
+      if (!query) {
+        fetchPage("", undefined);
+        return;
+      }
+      generation.current++;
+      inFlight.current = undefined;
+      setState((s) => ({ ...s, query, nextCursor: undefined, loading: true, failedCursor: undefined }));
+      settleTimer.current = setTimeout(() => {
+        settleTimer.current = undefined;
+        fetchPage(query, undefined);
+      }, SEARCH_SETTLE_MS);
+    },
+    [fetchPage],
+  );
+  useEffect(() => () => clearTimeout(settleTimer.current), []);
+  return { state, fetchPage, search };
 }
 
 /** A chat-open request keeps its originating row through host acceptance or refusal.

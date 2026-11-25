@@ -40,7 +40,10 @@ fn encode(machine: &Machine) -> Value {
 
 #[test]
 fn a_catalog_record_relays_every_field_as_it_came() {
-    let source = with(record("vm-1", "7"), json!({ "pause_reason": null, "desktop": true }));
+    let source = with(
+        record("vm-1", "7"),
+        json!({ "pause_reason": null, "desktop": true, "paused_hourly_rate_usd": 0.0014 }),
+    );
     let machine = decode(source.clone());
     assert_eq!(machine.record.status, CloudMachineStatus::Running);
     let encoded = encode(&machine);
@@ -61,16 +64,29 @@ fn fields_the_catalog_lacks_reach_the_app() {
             "platform": { "os": "linux", "arch": "x86_64" },
             "capabilities": ["terminal", "agent_session"],
             "provider_operations": ["snapshot", "resize"],
+            "disk_health": {
+                "state": "healthy",
+                "free_mb": 4096, "used_mb": 12288, "total_mb": 16384,
+                "floor_mb": 1024, "top_users": [{ "path": "/home/cmux", "used_mb": 2048 }],
+                "observed_at": 1_700_000_000_000i64
+            },
             "idlePause": idle,
+            "origin": { "kind": "person", "label": "Surge" },
         }),
     );
     let machine = decode(source.clone());
     assert!(machine.has_capability("agent_session"));
     assert!(!machine.has_capability("provider_secret"));
-    let encoded = encode(&machine);
-    for key in ["platform", "capabilities", "provider_operations", "idlePause"] {
+    let mut encoded = encode(&machine);
+    // The relay adds the disk bar (disk_bar_is_computed_by_the_relay); the rest is as it came.
+    assert!(encoded["disk_health"].as_object_mut().expect("disk_health").remove("bar").is_some());
+    for key in
+        ["platform", "capabilities", "provider_operations", "disk_health", "idlePause", "origin"]
+    {
         assert_eq!(encoded[key], source[key], "{key}");
     }
+    // `origin` is a catalog field now (CloudMachine.origin): it rides the record.
+    assert_eq!(machine.record.origin.as_ref().map(|o| o.label.as_str()), Some("Surge"));
 
     // The older names read as the ones the app reads (cmux-cloud-machine `from_next`).
     let older = decode(with(
@@ -86,7 +102,9 @@ fn fields_the_catalog_lacks_reach_the_app() {
     assert_eq!(plain["platform"], Value::Null);
     assert_eq!(plain["capabilities"], json!([]));
     assert!(plain.get("provider_operations").is_none());
+    assert!(plain.get("disk_health").is_none());
     assert!(plain.get("idlePause").is_none());
+    assert!(plain.get("origin").is_none());
 }
 
 #[test]
@@ -99,6 +117,7 @@ fn the_extra_fields_never_shadow_a_catalog_field() {
         platform: Some(super::MachinePlatform::default()),
         capabilities: vec!["x".into()],
         provider_operations: vec!["x".into()],
+        disk_health: Some(json!({ "free_mb": 1 })),
         idle_pause: Some(json!({})),
     })
     .expect("extra encodes");
@@ -109,6 +128,105 @@ fn the_extra_fields_never_shadow_a_catalog_field() {
         );
     }
     assert_eq!(catalog["pause_reason"], "idle");
+}
+
+#[test]
+fn disk_health_state_is_computed_by_the_relay() {
+    let warning = decode(with(
+        record("vm-warning", "1"),
+        json!({
+            "disk_health": {
+                "free_mb": 1024, "used_mb": 15360, "total_mb": 16384,
+                "floor_mb": 1024, "top_users": [], "observed_at": 1_700_000_000_000i64
+            }
+        }),
+    ));
+    assert_eq!(encode(&warning)["disk_health"]["state"], "warning");
+
+    let invalid = decode(with(
+        record("vm-invalid", "1"),
+        json!({
+            "disk_health": {
+                "free_mb": 12000, "used_mb": 8000, "total_mb": 16384,
+                "floor_mb": 1024, "top_users": [], "observed_at": 1_700_000_000_000i64
+            }
+        }),
+    ));
+    assert_eq!(encode(&invalid)["disk_health"]["state"], "unknown");
+}
+
+#[test]
+fn disk_bar_is_computed_by_the_relay() {
+    let health = |fields: Value| {
+        with(
+            json!({ "floor_mb": 1024, "top_users": [], "observed_at": 1_700_000_000_000i64 }),
+            fields,
+        )
+    };
+    // A guest that splits its use: system, project, caches and the free rest.
+    let split = decode(with(
+        record("vm-split", "1"),
+        json!({ "disk_health": health(json!({
+            "free_mb": 6963.2, "used_mb": 13516.8, "total_mb": 20480,
+            "system_mb": 5427.2, "project_mb": 6348.8, "caches_mb": 1740.8
+        })) }),
+    ));
+    let bar = &encode(&split)["disk_health"]["bar"];
+    assert_eq!(bar["label"], "13.2 / 20 GB");
+    assert_eq!(bar["text"], "13.2 of 20 GB, 6.8 free");
+    assert_eq!(bar["state"], "ok");
+    let kinds: Vec<&str> = bar["segments"]
+        .as_array()
+        .expect("segments")
+        .iter()
+        .filter_map(|s| s["kind"].as_str())
+        .collect();
+    assert_eq!(kinds, ["system", "project", "caches", "free"]);
+
+    // Totals without a split: one used segment; under 2 GiB free is almost full.
+    let full = decode(with(
+        record("vm-full", "1"),
+        json!({ "disk_health": health(json!({ "free_mb": 1433.6, "used_mb": 19046.4, "total_mb": 20480 })) }),
+    ));
+    let bar = &encode(&full)["disk_health"]["bar"];
+    assert_eq!(bar["state"], "almost_full");
+    assert_eq!(bar["segments"][0]["kind"], "used");
+
+    // The guest's own names (acpmux `peer load`, cmux#53708): root bytes and a nested split win.
+    let gib = 1024_u64.pow(3);
+    let guest = decode(with(
+        record("vm-guest", "1"),
+        json!({ "disk_health": health(json!({
+            "free_mb": 4096, "used_mb": 20480, "total_mb": 24576,
+            "rootTotalBytes": 24 * gib, "rootUsedBytes": 20 * gib, "rootFreeBytes": 4 * gib,
+            "diskSplit": { "at": 5, "systemBytes": 5 * gib, "projectBytes": 10 * gib, "cachesBytes": 5 * gib },
+        })) }),
+    ));
+    let bar = &encode(&guest)["disk_health"]["bar"];
+    assert_eq!(bar["label"], "20 / 24 GB");
+    assert_eq!(bar["segments"][1]["kind"], "project");
+    assert_eq!(bar["segments"][1]["gb"], 10.0);
+
+    // A report the relay cannot trust: the allocation alone (the record's 16 GB).
+    let invalid = decode(with(
+        record("vm-invalid", "1"),
+        json!({ "disk_health": health(json!({ "free_mb": 12000, "used_mb": 8000, "total_mb": 16384 })) }),
+    ));
+    let bar = &encode(&invalid)["disk_health"]["bar"];
+    // What cmux-platform writes from the guest's sample (cmux-platform#2027): sizes and split,
+    // no `floor_mb` or `top_users`; the health is unknown but the bar draws.
+    let sampled = decode(with(
+        record("vm-sampled", "1"),
+        json!({ "disk_health": { "total_mb": 20480, "used_mb": 10240, "free_mb": 10240,
+            "system_mb": 4096, "project_mb": 5120, "caches_mb": 1024, "observed_at": 1 } }),
+    ));
+    let sampled = &encode(&sampled)["disk_health"];
+    assert_eq!(sampled["state"], "unknown");
+    assert_eq!(sampled["bar"]["label"], "10 / 20 GB");
+    assert_eq!(sampled["bar"]["segments"][2]["kind"], "caches");
+    assert_eq!(bar["state"], "allocated");
+    assert_eq!(bar["label"], "16 GB");
+    assert_eq!(bar["segments"], json!([]));
 }
 
 #[test]

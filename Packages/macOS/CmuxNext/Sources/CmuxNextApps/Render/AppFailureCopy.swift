@@ -13,6 +13,8 @@ struct AppFailureCopy: Equatable, Sendable {
     let title: String
     /// `main.js · Line 2, column 12: expecting ';'` for a script error that names its place; nil otherwise.
     let location: String?
+    /// The place alone, as the host wrote it (`main.js:2:12`), for a one-line marker; nil when the reason names none.
+    let place: String?
     /// The reason exactly as the supervisor sent it.
     let detail: String
 
@@ -25,6 +27,7 @@ struct AppFailureCopy: Equatable, Sendable {
         if text.hasPrefix("app.limit:") {
             title = AppsStrings.failureTooLarge
             location = nil
+            place = nil
         } else if let at {
             title = AppsStrings.failureScript
             // `named` and `at` both take the spaces between them, so an empty message ("Error: at
@@ -33,13 +36,16 @@ struct AppFailureCopy: Equatable, Sendable {
             let message = text[start..<at.range.lowerBound].trimmingCharacters(in: .whitespaces)
             let file = at.output.1 == "eval_script" ? nil : String(at.output.1)
             location = AppsStrings.failureScriptAt(file: file, line: String(at.output.2), column: String(at.output.3), message: message)
+            place = "\(at.output.1):\(at.output.2):\(at.output.3)"
         } else if let named {
             // A JS error with no place (`ReferenceError: x is not defined`): its message is the line.
             title = AppsStrings.failureScript
             location = String(text[named.range.upperBound...]).trimmingCharacters(in: .whitespaces)
+            place = nil
         } else {
             title = AppsStrings.failureGeneric
             location = nil
+            place = nil
         }
     }
 

@@ -9,8 +9,7 @@ ask whether the job needed macOS. This module asks.
 
 * `job_classes`: what kind of work a job does, and whether that kind of work
   needs macOS (`"needs": "macos"`), runs on Linux (`"needs": "linux"`), or
-  runs anywhere (`"needs": "any"`: fleet Linux first, then a free owned mini,
-  Blacksmith Linux last, through scripts/ci/portable_job_placement.py).
+  runs anywhere (`"needs": "any"`: it takes cmux-linux).
 * `macos_jobs`: every workflow job whose `runs-on:` can route to macOS,
   as `"<workflow file>#<job id>"`, mapped to its class.
 
@@ -62,6 +61,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import yaml
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
+
+sys.path.append(str(Path(__file__).resolve().parents[2] / "tests"))
+import workflow_jobs  # noqa: E402 - tests/workflow_jobs.py, the one reader of a job's runs-on
 
 ROOT = Path(__file__).resolve().parents[2]
 MAP_PATH = ROOT / ".github" / "runners.json"
@@ -76,7 +80,7 @@ MACOS_HINT = re.compile(
     r"|early_(?!(?:linux|mini)_runner)[a-z_]+_runner",
     re.IGNORECASE,
 )
-NON_MAC_HINT = re.compile(r"ubuntu|linux|windows", re.IGNORECASE)
+NON_MAC_HINT = re.compile(r"ubuntu|linux|windows|cmux-gcp-", re.IGNORECASE)  # cmux-gcp-*-x64: GCP Linux VMs
 
 NEEDS = ("macos", "linux", "any")
 
@@ -97,6 +101,7 @@ NIGHTLY_MINI = re.compile(r"needs\.(?:build-nightly-app\.outputs\.light_mini_run
 NIGHTLY_LINUX = ("needs.build-nightly-app.outputs.light_linux_runner", "needs.decide.outputs.early_linux_runner")
 NIGHTLY_SLOT = re.compile(r"vars\.CI_NIGHTLY_NEXT_BUILD_RUNNER$")
 BLACKSMITH_LINUX = re.compile(r"^'blacksmith-\d+vcpu-ubuntu-2404'$")
+ONE_LINUX_LABEL = "'cmux-linux'"
 POOL_REFERENCE = re.compile(r"^fromJSON\(vars\.RUNNER_POOLS\)\.([A-Za-z0-9_]+)$")
 
 
@@ -120,8 +125,14 @@ def blacksmith_linux_term(term: str, pools: dict[str, list[str]] | None = None,
     if match is None or (allowed_pools is not None and match.group(1) not in allowed_pools):
         return False
     members = (pool_members() if pools is None else pools).get(match.group(1), [])
-    return bool(members) and all(re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?", member)
-                                  for member in members)
+    blacksmith = [member for member in members if re.fullmatch(r"blacksmith-\d+vcpu-ubuntu-\d+(?:-arm)?", member)]
+    # Every x64 Linux pool leads with our own fleet label (#47803); the variable may name it or a Blacksmith size,
+    # and the pool's Blacksmith members are the overflow it moves to. Any other member is not this overflow.
+    return bool(blacksmith) and all(member in blacksmith or member in POOL_FLEET_MEMBERS for member in members)
+
+
+# The owned Linux label a declared x64 pool may lead with (.github/runners.json, #47803).
+POOL_FLEET_MEMBERS = ("cmux-fleet-linux-x64",)
 
 
 # Nightlies never run on Blacksmith (user, 2026-10-30): a nightly route's overflow is our own
@@ -222,6 +233,9 @@ def portable_order(runs_on: str, nightly: bool = False, pools: dict[str, list[st
         return "it takes the mini before fleet Linux"
     if nightly:
         return "" if nightly_overflow_term(terms[-1]) else "it does not end on an overflow that is never Blacksmith"
+    # The one Linux label (scripts/ci/one_linux_label.py) is the owned Linux overflow after the mini.
+    if terms[-1] == ONE_LINUX_LABEL:
+        return ""
     if not blacksmith_linux_term(terms[-1], pools) or not any(
             blacksmith_linux_term(term, pools) for term in terms[mini + 1:]):
         return "it does not end on a Blacksmith Linux label after the mini"
@@ -253,7 +267,7 @@ def _picker_value_term(term: str) -> bool:
         return False
     return PICKER_OUTPUT.search(re.sub(r"'(?:[^']|'')*'", "''", term)) is not None
 MATRIX_VALUE = re.compile(r"^matrix\.([\w-]+)$")
-EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+EXPRESSION = gh_expressions.EXPRESSION  # a tokenizer: a `}}` in a string literal does not end it
 CALL = re.compile(r"^([A-Za-z]\w*)\((.*)\)$", re.DOTALL)
 
 
@@ -377,7 +391,7 @@ def picked(job: dict[str, Any]) -> bool:
     through the matrix key it reads). Otherwise every run waits on the same label: a literal, a
     repository variable or a capability-map key."""
     strategy = job.get("strategy") if isinstance(job.get("strategy"), dict) else {}
-    return _picked_value(job.get("runs-on", ""), strategy)
+    return _picked_value(workflow_jobs.runs_on_items(job), strategy)
 
 
 class RoutingTableError(RuntimeError):
@@ -428,7 +442,7 @@ MAP_CAPABILITY = re.compile(r"outputs\.map\)\.([a-z0-9_]+)")
 
 
 def routes_to_macos(job: dict[str, Any]) -> bool:
-    runs_on = json.dumps(job.get("runs-on", ""))
+    runs_on = json.dumps(workflow_jobs.runs_on(job))
     # A job wired to the capability map names its capability key.
     capabilities = MAP_CAPABILITY.findall(runs_on)
     if capabilities and runs_on.count("${{") == 1:
@@ -449,7 +463,7 @@ def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:
             # visits in the callee's own file.
             if not isinstance(job, dict) or "uses" in job:
                 continue
-            yield Job(path.name, str(job_id), json.dumps(job.get("runs-on", "")), picked(job)), routes_to_macos(job)
+            yield Job(path.name, str(job_id), json.dumps(workflow_jobs.runs_on(job)), picked(job)), routes_to_macos(job)
 
 
 
@@ -502,10 +516,10 @@ def referenced_secrets(value: Any) -> set[str]:
 FORK_PR_BLACKSMITH = re.compile(
     r"github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.repo\.full_name != github\.repository"
     r" && 'blacksmith-\d+vcpu-ubuntu-2404'")
-# The CI_TRUSTED_RUNNER selector (scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
-# secretless declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
+# The CI_TRUSTED_RUNNER selector (main's scripts/ci/validate-cla-policy.rb), split at its top-level `||`. A
+# declared light job whose workflow cannot read RUNNER_POOLS may retry on it.
 TRUSTED_SELECTOR_TAIL = [
-    "contains(fromJSON('[\"ubuntu-24.04\",\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
+    "contains(fromJSON('[\"blacksmith-2vcpu-ubuntu-2404\",\"blacksmith-4vcpu-ubuntu-2404\"]'), "
     "vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER",
     "'blacksmith-4vcpu-ubuntu-2404'",
 ]
@@ -519,8 +533,9 @@ FORK_WRAPPED_POOL_READ = re.compile(
 
 
 def _routing_environment(environment: object) -> bool:
-    """No environment, `ci-routing-agent`, or one expression whose only values are those two."""
-    if environment in (None, "", "ci-routing-agent"):
+    """No environment, `ci-routing-agent` (plain, or as {name, deployment: false}, which logs no deployment on the
+    PR), or one expression whose only values are those two."""
+    if environment in (None, "", "ci-routing-agent", {"name": "ci-routing-agent", "deployment": False}):
         return True
     if not isinstance(environment, str):
         return False
@@ -597,8 +612,9 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                     or name != "portable-placement"):
                 problems.append(f"portable_light_jobs[{key!r}] must be a secretless read-only placement bootstrap")
                 continue
-            route = job.get("runs-on", "")
-            expressions = EXPRESSION.findall(route) if isinstance(route, str) else []
+            items = workflow_jobs.runs_on_items(job)
+            route = items[0] if len(items) == 1 and isinstance(items[0], str) else ""
+            expressions = EXPRESSION.findall(route)
             if len(expressions) != 1:
                 problems.append(f"hosted_light_jobs[{key!r}] must use an explicit attempt-aware runner expression")
                 continue
@@ -630,9 +646,11 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
             hosted_forms = (hosted, track_hosted, always_hosted) if nightly else (hosted, track_hosted)
             hosted_terms = [part for part in alternatives if part in hosted_forms]
             pool = "fromJSON(vars.RUNNER_POOLS).linux_2" if bootstrap else "fromJSON(vars.RUNNER_POOLS).linux"
-            secretless_tail = (alternatives[-1] == pool or alternatives[-2:] == TRUSTED_SELECTOR_TAIL) and not used
+            # Our own pool takes a job whether or not it holds a secret: forks never reach it (FORK_WRAPPED_POOL_READ,
+            # tests/test_ci_fork_runner_routing.py), and the rest is our own code (Leo, 2026-11-19).
+            pool_tail = alternatives[-1] == pool or alternatives[-2:] == TRUSTED_SELECTOR_TAIL
             ours = nightly and (alternatives[-1:] == [always_hosted] or alternatives[-2:] == owned_tail)
-            if len(hosted_terms) != 1 or (not ours and alternatives[-1] not in paid and not secretless_tail):
+            if len(hosted_terms) != 1 or (not ours and alternatives[-1] not in paid and not pool_tail):
                 problems.append(f"hosted_light_jobs[{key!r}] must use hosted Ubuntu on attempt 1 then measured paid retries")
                 continue
             hosted_term = hosted_terms[0]
@@ -654,11 +672,11 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                 tail = tail[1:]
             switched = (len(tail) == 2 and tail[1] in paid and tail[0].startswith("vars.CI_CLOUD_OVERFLOW_SAVED && ")
                         and tail[0].split(" && ", 1)[1] in paid)
-            # Or, for a job that holds no secret, the reconciled Linux pool's live member.
-            pooled = tail == [pool] and not used
-            # Or, for a secretless job in a reusable workflow (which must not fromJSON a variable),
-            # the reviewed CI_TRUSTED_RUNNER selector: its own allowlist, else one ephemeral label.
-            trusted = tail == TRUSTED_SELECTOR_TAIL and not used
+            # Or the reconciled Linux pool's live member.
+            pooled = tail == [pool]
+            # Or, in a reusable workflow (which must not fromJSON a variable), the reviewed CI_TRUSTED_RUNNER
+            # selector: its own allowlist, else one ephemeral label.
+            trusted = tail == TRUSTED_SELECTOR_TAIL
             owned = nightly and (tail == [] and hosted_term == always_hosted or tail == owned_tail and hosted_term != always_hosted)
             if not (len(tail) == 1 and tail[0] in paid or switched or pooled or trusted or owned
                     or tail == [measured16, "'blacksmith-32vcpu-ubuntu-2404'"]

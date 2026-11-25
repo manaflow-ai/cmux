@@ -35,6 +35,9 @@ chrome_out="$("$runner/ensure-system-chrome.sh")" || exit 0
 printf '%s\n' "$chrome_out"
 shell_line="$(printf '%s\n' "$chrome_out" | grep '^CMUX_CHROME_HEADLESS_SHELL=' | tail -1 || true)"
 [ -n "$shell_line" ] && export CMUX_CHROME_HEADLESS_SHELL="${shell_line#CMUX_CHROME_HEADLESS_SHELL=}"
+# The shards draw the UI font with one known face (pin-browser-test-font.sh); a probe of an older commit draws the
+# same one, or a font red would read as that commit's.
+"$runner/pin-browser-test-font.sh" || exit 0
 cd webviews || exit 0
 # The head shards' retry rule: a file counts red only when it also fails once more, alone.
 CMUX_NEXT_STYLE_GUARDS=warn \

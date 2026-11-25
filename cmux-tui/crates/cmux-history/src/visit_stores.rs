@@ -124,14 +124,17 @@ impl VisitStores {
         now_ms: i64,
         local_day_start_ms: i64,
     ) -> Result<Vec<HistoryEntry>, HistoryError> {
-        if !query.wants(HistoryKind::Page) {
+        let mut filter = query.filter(now_ms, local_day_start_ms);
+        if !query.wants(HistoryKind::Page) || !filter.wants(&HistoryKind::Page) {
             return Ok(Vec::new());
         }
-        let since = query.range.start(now_ms, local_day_start_ms);
+        if let Some(since) = query.range.start(now_ms, local_day_start_ms) {
+            filter.after_ms = Some(filter.after_ms.map_or(since, |after| after.max(since)));
+        }
         let limit = query.limit.unwrap_or(DEFAULT_PAGE_LIMIT);
         let mut entries = Vec::new();
         for profile in self.profiles()? {
-            entries.extend(self.store(&profile)?.entries(&profile, &query.text, since, limit)?);
+            entries.extend(self.store(&profile)?.entries(&profile, &filter, limit)?);
         }
         Ok(entries)
     }
@@ -199,10 +202,22 @@ impl VisitStores {
         since_ms: Option<i64>,
         profile: Option<&str>,
     ) -> Result<Removal, HistoryError> {
+        self.clear_between(since_ms, i64::MAX, profile)
+    }
+
+    /// Removes visits at or after `since_ms` (`None`: from the first) and at
+    /// or before `until_ms` (a queued clear's click time), in `profile` or
+    /// every profile.
+    pub fn clear_between(
+        &mut self,
+        since_ms: Option<i64>,
+        until_ms: i64,
+        profile: Option<&str>,
+    ) -> Result<Removal, HistoryError> {
         let backup = new_restore_id()?;
         let mut removed = 0;
         for profile in self.targets(profile)? {
-            removed += self.store(&profile)?.remove_since(since_ms, &backup)?;
+            removed += self.store(&profile)?.remove_between(since_ms, until_ms, &backup)?;
         }
         Ok(removal(removed, backup))
     }

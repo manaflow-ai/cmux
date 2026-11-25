@@ -41,6 +41,22 @@ public import AppKit
                       width: bounds.width, height: bounds.height - inset)
     }
 
+    /// Where the page view goes: ``contentFrame(in:)``, one point taller at the top while the page shows
+    /// in Chromium. A Chrome-style page window lays its web contents one point under its top edge and
+    /// draws Chrome's frame there, which showed as a grey hairline under the tab bar (the New Tab page,
+    /// Lucas 2026-11-10). One point higher, the web contents start where the content area does, and the
+    /// pane clips the frame's point away (the page window shows only inside the content area).
+    func pageFrame(in bounds: NSRect) -> NSRect {
+        let frame = contentFrame(in: bounds)
+        guard let pane, pane.page?.showsChromium == true else { return frame }
+        let band = Self.chromiumFrameBand
+        return NSRect(x: frame.minX, y: pane.isFlipped ? frame.minY - band : frame.minY,
+                      width: frame.width, height: frame.height + band)
+    }
+
+    /// The points of a Chrome-style page window above its web contents.
+    static let chromiumFrameBand: CGFloat = 1
+
     /// The page became a New Tab page or a chat: the bar shows or leaves, and a bar that leaves
     /// with the keyboard gives it to the page.
     func update() {

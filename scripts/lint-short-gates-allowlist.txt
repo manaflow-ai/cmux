@@ -1,0 +1,19 @@
+# Short fixed gates on the slow paths that stay, each with why (scripts/lint-short-gates.py).
+# One per line: PATH | TEXT (a part of the line) | REASON. A gate here must break a hang or bound a read that only
+# decorates an answer; one a slow-but-working path can fail on gets a deadline tied to its operation instead.
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Bootstrap/CloudAppOp.swift | attempts: Int = 3 | re-asks only an indeterminate pause/start with the same idempotency key (cloud_power_retries); a slow machine is waited for by the op itself
+Packages/macOS/CmuxNext/Sources/CmuxNextCloud/MoveCore/CloudWorkPick.swift | gitTimeout: Duration = .seconds(3) | a local git fact for the size pick; a slow one leaves the fact out, never the pick
+Packages/macOS/CmuxNext/Sources/CmuxNextControl/Routing/ControlRouter.swift | requestDeadline: Duration = .seconds(2) | control-plane methods answered off the snapshot or the work queue; network and person actions get their own limits (ActionRunLimit), terminal starts get terminalStartDeadline
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonConnection+Commands.swift | TerminalProcessInfoRequest(surface: surface), timeout: .seconds(1) | a process-name read that decorates a tab; nil on timeout
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/RetryPacer.swift | timedRetries: 1 | the link's own state machine redials until the start's deadline (CloudAppLinkRedial, cmux#35849); a timed retry here would stack dials on it
+cmux-tui/crates/acpmux/src/cli/cloud_join.rs | std::time::Duration::from_secs(2), | `cloud join status`'s daemonRunning probe of the local socket: report-only, a hang breaker
+cmux-tui/crates/acpmux/src/cli/cloud_join/leave.rs | std::time::Duration::from_secs(2), | `machine leave`'s local daemon probe: a hang breaker, the leave goes on without it
+cmux-tui/crates/acpmux/src/daemon/cloud_activity.rs | SEND_TIMEOUT: Duration = Duration::from_secs(2) | a fire-and-forget activity line to a local socket, off the start path
+cmux-tui/crates/acpmux/src/daemon/cloud_handoff.rs | NOTIFY_TIMEOUT: Duration = Duration::from_secs(2) | a fire-and-forget attention line to a local socket, off the start path
+cmux-tui/crates/cmux-cloud-api/src/machine_io/direct.rs | READ_TRIES: usize = 3 | a ranged read starting over because the file changed between chunks, not a slow answer
+cmux-tui/crates/cmux-relay/src/relay.rs | WRITER_SHUTDOWN_TIMEOUT | shutdown of a closing writer: a hang breaker
+cmux-tui/crates/cmux-tui/src/carrier/mod.rs | STDIO_SHUTDOWN_TIMEOUT | shutdown of the carrier's stdio: a hang breaker
+cmux-tui/crates/cmux-tui/src/carrier/serve.rs | DRAIN_TIMEOUT: Duration = Duration::from_secs(2) | drain at shutdown: a hang breaker
+cmux-tui/crates/cmux-tui/src/cli/app/skew.rs | IDENTIFY_TIMEOUT: Duration = Duration::from_secs(2) | the version-skew note's identify read; the command goes on without it
+cmux-tui/crates/cmux-tui/src/cli/app/version.rs | READ_TIMEOUT: Duration = Duration::from_secs(3) | `cmux version`'s app read; the CLI's own version prints without it
+cmux-tui/crates/cmux-tui/src/cli/cloud_machines.rs | CLOUD_READ_TIMEOUT: Duration = Duration::from_secs(1) | best-effort Cloud rows added to `machine list`; the daemon's rows answer without them

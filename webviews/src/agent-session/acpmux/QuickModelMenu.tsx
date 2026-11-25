@@ -3,6 +3,7 @@ import React, { Fragment, useCallback, useContext, useId, useLayoutEffect, useMe
 import { AgentMark } from "../shared/AgentMark";
 import type { ChatAccountList } from "./chatAccounts";
 import { AddAccountDialog } from "./AddAccountDialog";
+import { ClaudeConnectRow } from "./ClaudeConnectRow";
 import { isModelRouterKind } from "./routerKinds";
 import { SearchIcon } from "./ComposerPickers";
 import { reasoningChoices } from "./composerPickerModel";
@@ -14,6 +15,7 @@ import { useT } from "./i18n";
 import { useChatDisplay } from "./chatDisplay";
 import { resolveHarnessPlacement } from "../../ui/harnessPlacement";
 import { CHAT_COLUMN } from "./modelPickerLayout";
+import { HarnessUpdatesSection } from "./HarnessUpdates";
 import { useOpenSide } from "../../ui/openSide";
 import { OnNewTab } from "./newTabComposer";
 import { useScrollEdges } from "../../ui/scrollEdges";
@@ -75,7 +77,8 @@ export function QuickModelMenu({
   onOpenChange(open: boolean): void;
   /// Holds the chip (the menu's button), where the full picker anchors.
   trigger: React.RefObject<HTMLButtonElement | null>;
-  chip: { "data-menu": string; label: string; title: string };
+  /// `data-tooltip-shortcut`: Switch Model's keycaps, shown after the title (shortcuts.ts).
+  chip: { "data-menu": string; label: string; title: string; "data-tooltip-shortcut"?: string | undefined };
   menu: QuickMenu;
   /// Opens the full picker, searching for `query` when one was typed.
   onMore(query?: string): void;
@@ -130,6 +133,17 @@ export function QuickModelMenu({
       // A held pick of another harness opens on its tab: the menu shows what the next message runs.
       setTab(heldTab(families) ?? families?.current ?? families?.list.find((family) => !family.starred)?.id);
       setQuery("");
+      setMoreFor(undefined);
+      setHeldFast(undefined);
+    }
+  }
+  // The chat's harness changing under an open menu moves it to that harness's tab, as the columns
+  // menu does (QuickModelColumns.tsx, cmux#55750).
+  const [seenCurrent, setSeenCurrent] = useState(families?.current);
+  if (families?.current !== seenCurrent) {
+    setSeenCurrent(families?.current);
+    if (open && families?.current) {
+      setTab(heldTab(families) ?? families.current);
       setMoreFor(undefined);
       setHeldFast(undefined);
     }
@@ -817,6 +831,20 @@ export function QuickModelMenu({
         modelRows
       ) : (
         <>
+          {shown?.connect && (
+            // The Claude section's Connect row (ClaudeConnectRow.tsx): the whole row opens the dialog.
+            <MenuItem
+              className="acpmux-quick-item acpmux-quick-connect"
+              disabled={shown.connect.connected}
+              onSelect={() => shown.connect?.onConnect()}
+            >
+              <ClaudeConnectRow
+                name={shown.name}
+                {...(shown.mark ? { mark: shown.mark } : {})}
+                connected={shown.connect.connected}
+              />
+            </MenuItem>
+          )}
           {modelRows}
           {inlineMore && shown && shown.more.length > 0 && (
             <MenuItem
@@ -1058,6 +1086,31 @@ export function QuickModelMenu({
           {children}
         </MenuButton>
         <MenuPopup
+          // The columns menu sizes itself (QuickModelColumns: the longest name of every tab, the
+          // person's dragged width and grip). The compact menu is settled by the shared rule; its
+          // rail hold above (railRef) only raises the same floor, so the two never disagree.
+          popupSettle={families ? "own" : undefined}
+          scroll={families === undefined}
+          footer={
+            menu.updates ? (
+              <HarnessUpdatesSection updates={menu.updates} onOwnUpdate={() => onOpenChange(false)} />
+            ) : (
+              menu.update && (
+                <div className="acpmux-quick-update">
+                  <span>{menu.update.text}</span>
+                  <MenuItem
+                    className="acpmux-quick-update-action"
+                    onSelect={() => {
+                      menu.update?.run();
+                      onOpenChange(false);
+                    }}
+                  >
+                    {t("harness.update")}
+                  </MenuItem>
+                </div>
+              )
+            )
+          }
           side={side}
           flip={false}
           align="start"
@@ -1067,13 +1120,15 @@ export function QuickModelMenu({
           // A native menu panel cannot draw the harness strip or the More models scroll area.
           // Keep this combined surface inside the window in both directions.
           escapes={!families}
+          // The model menu's fallback list (no columns) resizes as the columns do (cmux#51745).
+          resize={{ id: "composer.modelList" }}
           // ui-allow: 1 to 9 pick a row in place and typing filters the list, as in Claude Code's model menu.
           onKeyDown={keyDown}
         >
           {widthProbe}
           {showField && (
             <div className="acpmux-quick-search">
-              <SearchIcon size={14} />
+              <SearchIcon size={12} />
               <input
                 ref={field}
                 type="search"
@@ -1111,9 +1166,10 @@ export function QuickModelMenu({
                       // While a search shows, no tab is the list's: the matches are every harness's.
                       aria-pressed={!query && entry === shownTab}
                       data-used={ownTab ? used : undefined}
-                      // tooltip-allow: the rail tab draws only the harness's mark (its symbol, else its
-                      // name's initial), never a machine or session initial; its accessible name and
-                      // title identify the harness and whether this chat ran it.
+                      // The rail tab draws only the harness's mark (its symbol, else its name's initial),
+                      // never a machine or session initial; its accessible name and title identify the
+                      // harness and whether this chat ran it.
+                      // tooltip-allow: the rail tab shows only the harness's mark.
                       title={[name, family.note, ownTab ? t("picker.usedHere") : undefined].filter(Boolean).join(" · ")}
                       className="acpmux-quick-rail-tab"
                       // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
@@ -1174,20 +1230,6 @@ export function QuickModelMenu({
           ) : (
             list
           )}
-          {menu.update && (
-            <div className="acpmux-quick-update">
-              <span>{menu.update.text}</span>
-              <MenuItem
-                className="acpmux-quick-update-action"
-                onSelect={() => {
-                  menu.update?.run();
-                  onOpenChange(false);
-                }}
-              >
-                {t("harness.update")}
-              </MenuItem>
-            </div>
-          )}
         </MenuPopup>
       </Menu>
       {addingAccount && account?.accounts.add && accounts.list?.family && (
@@ -1224,15 +1266,16 @@ export function StarIcon({ filled = false }: { filled?: boolean }) {
 /// What a started chat ran (Leo 2026-11-06: "you can have, like, I don't know what other symbol we
 /// want to depict, like, oh okay, you previously had this model, this model family, this model
 /// provider"): a quiet mark in secondary ink on the chat's own model row, provider row and rail tab,
-/// which stays while another harness's model is held. `glyph` (the history glyph) ships: it says
-/// "before" where a dot would read as unread or as status, and adds no word to a row. A rail tab
-/// draws `glyph` as a hairline ring (modelPicker.css), so the rail keeps one mark per tab.
+/// shown only while another harness's model is held (ModelPicker), so it never sits beside the check.
+/// `glyph` (the history glyph) ships: it says "before" where a dot would read as unread or as status,
+/// and adds no word to a row; its tooltip names it, "In this chat". A rail tab draws `glyph` as a
+/// hairline ring (modelPicker.css), so the rail keeps one mark per tab.
 export function UsedMark({ look }: { look: UsedLook }) {
   const t = useT();
   const text = t("picker.usedHere");
   if (look === "caption") return <span className="acpmux-used-caption">{text}</span>;
   return (
-    <span className={`acpmux-used-mark acpmux-used-${look}`}>
+    <span className={`acpmux-used-mark acpmux-used-${look}`} title={text}>
       {look === "glyph" && <Icon name="history" size={12} />}
       <span className="sr-only">{text}</span>
     </span>

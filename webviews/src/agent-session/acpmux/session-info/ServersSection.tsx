@@ -14,6 +14,7 @@ import { useNow } from "../subagents/subagentGroupModel";
 import { previewAddress } from "../conversation/previewChipModel";
 import { serverUrl, type SessionInfoServer } from "./processes";
 import { StopButton } from "./TasksSection";
+import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -59,9 +60,10 @@ export function ServersSection({
                 <span className="acpmux-session-info-task__command" data-detail={address ? "" : undefined}>
                   {server.command}
                 </span>
-                <span className="acpmux-session-info-task__time">
-                  {formatDuration(Math.max(0, now - server.startedAt))}
-                </span>
+                <Clock
+                  className="acpmux-session-info-task__time"
+                  text={formatDuration(Math.max(0, now - server.startedAt))}
+                />
               </button>
               {onStop && <StopButton id={server.id} name={server.command} stop={onStop} solid />}
             </li>

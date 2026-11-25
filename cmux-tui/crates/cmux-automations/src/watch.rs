@@ -36,6 +36,7 @@ use crate::gate::MAX_EVENT_BYTES;
 use crate::store::Store;
 #[cfg(unix)]
 use crate::sys::private_file;
+#[cfg(all(test, unix))]
 use crate::trigger::Trigger;
 
 /// The longest an event is held while lines keep coming, whatever the debounce.
@@ -65,8 +66,30 @@ pub struct WatchEvent {
 }
 
 enum Msg {
-    Line { id: String, generation: u64, line: String, at_ms: i64 },
-    Closed { id: String, generation: u64 },
+    Line {
+        id: String,
+        generation: u64,
+        line: String,
+        at_ms: i64,
+    },
+    Closed {
+        id: String,
+        generation: u64,
+    },
+    /// A whole event from outside a watch command (a webhook delivery).
+    Event(WatchEvent),
+}
+
+/// Hands whole events to the runner's loop from another thread (the webhook
+/// listener); one wakes [`Watches::wait`] at once.
+#[derive(Clone)]
+pub struct EventSender(SyncSender<Msg>);
+
+impl EventSender {
+    /// Queue `event`; `false` when the queue is full or the runner is gone.
+    pub fn send(&self, event: WatchEvent) -> bool {
+        self.0.try_send(Msg::Event(event)).is_ok()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,8 +143,12 @@ pub struct Watches {
     watchers: HashMap<String, Watcher>,
     dying: Vec<Dying>,
     pending: HashMap<String, Pending>,
+    /// Whole events sent through an [`EventSender`], oldest first.
+    ready: Vec<WatchEvent>,
     next_generation: u64,
     events: u64,
+    /// The `cmux` an event trigger's command runs (`cmux automation events NAME`).
+    program: String,
 }
 
 impl Watches {
@@ -136,9 +163,22 @@ impl Watches {
             watchers: HashMap::new(),
             dying: Vec::new(),
             pending: HashMap::new(),
+            ready: Vec::new(),
             next_generation: 1,
             events: 0,
+            program: "cmux".to_string(),
         }
+    }
+
+    /// A sender for whole events from another thread.
+    pub fn sender(&self) -> EventSender {
+        EventSender(self.tx.clone())
+    }
+
+    /// The `cmux` binary event triggers run (the runner passes its own).
+    pub fn with_program(mut self, program: impl Into<String>) -> Watches {
+        self.program = program.into();
+        self
     }
 
     /// Start, stop and restart watch commands to match `automations`.
@@ -146,16 +186,17 @@ impl Watches {
         let wanted: HashMap<&str, Spec> = automations
             .iter()
             .filter(|a| a.enabled && !a.fenced())
-            .filter_map(|a| match &a.trigger {
-                Trigger::Watch { command, debounce_seconds } => Some((
+            .filter_map(|a| {
+                let command = a.trigger.watch_command(&self.program)?;
+                let debounce_seconds = a.trigger.debounce_seconds()?;
+                Some((
                     a.id.as_str(),
                     Spec {
-                        command: command.clone(),
+                        command,
                         folder: a.body.folder().map(str::to_string),
-                        debounce_ms: (*debounce_seconds as i64).saturating_mul(1000),
+                        debounce_ms: (debounce_seconds as i64).saturating_mul(1000),
                     },
-                )),
-                _ => None,
+                ))
             })
             .collect();
         let gone: Vec<String> = self
@@ -270,6 +311,7 @@ impl Watches {
 
     fn take(&mut self, msg: Msg, now_ms: i64) {
         match msg {
+            Msg::Event(event) => self.ready.push(event),
             Msg::Line { id, generation, line, at_ms } => {
                 if self.watchers.get(&id).is_none_or(|w| w.generation != generation) {
                     return;
@@ -350,7 +392,9 @@ impl Watches {
             ));
         }
         out.sort_by_key(|(first, _)| *first);
-        out.into_iter().map(|(_, e)| e).collect()
+        let mut events = std::mem::take(&mut self.ready);
+        events.extend(out.into_iter().map(|(_, e)| e));
+        events
     }
 
     /// The next time something is due: a pending event, a restart, or a
@@ -363,7 +407,8 @@ impl Watches {
             .dying
             .iter()
             .map(|d| if d.killed { d.kill_at_ms.saturating_add(1_000) } else { d.kill_at_ms });
-        events.chain(restarts).chain(dying).min()
+        let ready = (!self.ready.is_empty()).then_some(0);
+        events.chain(restarts).chain(dying).chain(ready).min()
     }
 
     /// One row per watch command.

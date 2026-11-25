@@ -11,10 +11,8 @@ import {
 import { hasCompanyPlanGrant } from "../billing/companyPlan";
 import { planIncludes } from "../billing/planTier";
 import {
-  MAX_PLAN_RESOURCE_POOL,
-  PAID_MAX_ACTIVE_VMS_DEFAULT,
+  PAID_MACHINE_GUARD,
   PLAN_MACHINE_MEMORY_MB,
-  PLAN_RESOURCE_POOL,
   VM_PROVIDER_RESOURCE_BOUNDS,
   type VmComputeResources,
   type VmResourcePoolPolicy,
@@ -22,7 +20,7 @@ import {
 import { pickVmImageSizeForMemory } from "./images/sizes";
 
 export {
-  PAID_MAX_ACTIVE_VMS_DEFAULT,
+  PAID_MACHINE_GUARD,
   PLAN_MACHINE_MEMORY_MB,
   VM_DISK_MB_DEFAULT,
   VM_DISK_MB_MAX,
@@ -96,7 +94,7 @@ export function resolveVmEntitlements(
     };
   }
   if (!user.isAnonymous && isDevelopmentProAccessEnabled(env) && user.userBillingPlanId !== MAX_PLAN_ID) {
-    const maxActiveVms = maxActiveVmsForPlan(PRO_PLAN_ID, env, { seats: billing.billingSeats });
+    const maxActiveVms = maxActiveVmsForPlan(PRO_PLAN_ID, env);
     return {
       planId: PRO_PLAN_ID,
       billingCustomerType: billing.billingCustomerType,
@@ -117,11 +115,10 @@ export function resolveVmEntitlements(
   const billingPlanId = normalizedPlanId(billing.billingPlanId ?? defaultPlan);
   const teamPlanId = billing.billingCustomerType === "team" && billingPlanId === MAX_PLAN_ID
     ? TEAM_PLAN_ID : billingPlanId;
-  // Max belongs to the caller. It does not grant Max to other team members
-  // or replace the team's seat-based machine allowance.
+  // Max belongs to the caller. It does not grant Max to other team members.
   const planId = normalizedPlanId(user.userBillingPlanId ?? "") === MAX_PLAN_ID
     ? MAX_PLAN_ID : teamPlanId;
-  const maxActiveVms = maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env, { seats: billing.billingSeats });
+  const maxActiveVms = maxActiveVmsForPlan(teamPlanId === TEAM_PLAN_ID ? teamPlanId : planId, env);
   return {
     planId,
     billingCustomerType: billing.billingCustomerType,
@@ -346,53 +343,32 @@ export function defaultMemoryMbForPlan(
 }
 
 /**
- * Saved-machine ceiling for a plan, or null when there is none. Paid plans
- * get the allowance sold on /pricing (PAID_MAX_ACTIVE_VMS_DEFAULT), counted
- * per billing team; a Team subscription multiplies it by its paid seats
- * (`cmuxSeats`), so "5 per user" holds for the whole team. Free plans stay
+ * Saved-machine ceiling for a plan, or null when there is none (company
+ * grants). Paid plans have no allowance (Leo, 2026-11-10: "you can have
+ * arbitrarily many VMs and we just build based off of that kind of thing"):
+ * every machine is metered and the team's spending cap is the stop, so seats
+ * multiply nothing. They hold only PAID_MACHINE_GUARD, an abuse guard set
+ * high. Plus (`go`) is sold as one saved machine and keeps it. Free plans stay
  * capped (zero unless free provisioning is allowed).
  */
 export function maxActiveVmsForPlan(
   planId: string | null | undefined,
   env: Record<string, string | undefined> = process.env,
-  options: { readonly seats?: number | null } = {},
 ): number | null {
-  const normalized = normalizedPlanId(planId ?? "");
-  const resolved = activeVmLimitForPlan(normalized, env);
-  // An operator brake is an absolute ceiling for the whole team; only the
-  // advertised allowance scales with paid seats.
-  if (resolved.limit === null || resolved.brake || normalized !== TEAM_PLAN_ID) return resolved.limit;
-  const seats = options.seats;
-  const paidSeats = typeof seats === "number" && Number.isSafeInteger(seats) && seats > 0 ? seats : 1;
-  return resolved.limit * paidSeats;
+  return activeVmLimitForPlan(normalizedPlanId(planId ?? ""), env);
 }
 
 /**
  * The vCPUs and memory a billing scope's active machines share, or null when
- * the plan has no pool (Free, Go, or an uncapped allowance). Team multiplies
- * the per-seat pool by paid seats exactly as it multiplies the machine count,
- * so the seat count is recovered from the resolved allowance. A Max caller on
- * a large team keeps whichever pool is larger in each dimension.
+ * there is no pool. No plan has one now: Free and Plus never did, and paid
+ * plans' running compute is metered instead (the spending cap is the stop).
+ * Kept so the repository's pool check stays the one place a pool would apply.
  */
 export function resourcePoolForPlan(
-  planId: string | null | undefined,
-  maxActiveVms: number | null | undefined,
+  _planId: string | null | undefined,
+  _maxActiveVms: number | null | undefined,
 ): VmComputeResources | null {
-  const normalized = normalizedPlanId(planId ?? "");
-  if (!isPaidVmPlan(normalized) || normalized === GO_PLAN_ID) return null;
-  if (maxActiveVms === null) return null;
-  const seats = maxActiveVms !== undefined && maxActiveVms > 0
-    ? Math.max(1, Math.ceil(maxActiveVms / PAID_MAX_ACTIVE_VMS_DEFAULT))
-    : 1;
-  const seatPool = {
-    vcpus: PLAN_RESOURCE_POOL.vcpus * seats,
-    memoryMb: PLAN_RESOURCE_POOL.memoryMb * seats,
-  };
-  if (normalized !== MAX_PLAN_ID) return seatPool;
-  return {
-    vcpus: Math.max(MAX_PLAN_RESOURCE_POOL.vcpus, seatPool.vcpus),
-    memoryMb: Math.max(MAX_PLAN_RESOURCE_POOL.memoryMb, seatPool.memoryMb),
-  };
+  return null;
 }
 
 /** vCPUs on the image ladder row that boots `memoryMb`. */
@@ -556,34 +532,30 @@ function isVmFalseFlag(value: string | undefined): boolean {
   }
 }
 
-/** `brake` marks a limit that came from an operator env override (absolute). */
+/** The plan's count: free stays capped, Plus keeps its one saved machine, other paid plans hold only the guard. */
 function activeVmLimitForPlan(
   planId: string,
   env: Record<string, string | undefined>,
-): { readonly limit: number | null; readonly brake: boolean } {
+): number | null {
   const planKey = planId.replace(/[^a-zA-Z0-9]/g, "_").toUpperCase();
   if (!isPaidVmPlan(planId)) {
     // Cloud machines are a paid feature. Keep every non-paid/unknown plan at
     // zero unless the same explicit escape hatch that disables the Pro gate is
     // set; this prevents a stale `CMUX_VM_FREE_MAX_ACTIVE_VMS` (or a plan-
     // specific override) from reopening provisioning by configuration drift.
-    if (!isVmFreeProvisioningAllowed(env)) return { limit: 0, brake: false };
+    if (!isVmFreeProvisioningAllowed(env)) return 0;
     const specific = env[`CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`];
-    if (specific?.trim()) {
-      return { limit: positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`), brake: true };
-    }
-    return {
-      limit: nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS"),
-      brake: true,
-    };
+    if (specific?.trim()) return positiveInteger(specific, `CMUX_VM_PLAN_${planKey}_MAX_ACTIVE_VMS`);
+    return nonNegativeInteger(env.CMUX_VM_FREE_MAX_ACTIVE_VMS ?? "0", "CMUX_VM_FREE_MAX_ACTIVE_VMS");
   }
 
-  if (planId === GO_PLAN_ID) return { limit: 1, brake: false };
+  if (planId === GO_PLAN_ID) return 1;
 
-  // Paid allowance is product policy. Legacy deployment overrides must not
-  // silently reduce it or prevent Team seats from scaling. The existing create
-  // kill switch remains the explicit control for a provisioning incident.
-  return { limit: PAID_MAX_ACTIVE_VMS_DEFAULT, brake: false };
+  // Paid machines are metered and the team's spending cap is the stop; the
+  // guard only bounds abuse. Legacy deployment overrides must not lower it to an
+  // allowance; the create kill switch (`CMUX_VM_CREATE_ENABLED=0`) remains the
+  // control for a provisioning incident.
+  return PAID_MACHINE_GUARD;
 }
 
 function normalizedPlanId(planId: string): string {

@@ -15,6 +15,7 @@ enum BrowserHandlers {
         BrowserDeviceHandlers.bind(into: registry, context: context)
         bindSplits(into: registry, context: context)
         bindLinkHints(into: registry, context: context)
+        bindScroll(into: registry, context: context)
         BrowserEnabledToggle.bind(into: registry, context: context)
         BrowsingDataClear.bindClearHistory(registry, context: context)
         registry.bind("palette.browserToggleOmnibar", run: { invocation in try context.shownPage(invocation).chrome.toggleOmnibar() })
@@ -35,11 +36,11 @@ enum BrowserHandlers {
                 throw ActionFailure(message: MiscHandlerStrings.noBrowser)
             }
             if window.focus.state.pane != pane.paneKey { window.focus.send(.focusPane(pane.paneKey, source: .intent)) }
-            let tab = entry.tab.id.rawValue
+            let tab = window.focus.state.focusModeTab(for: entry.key)
             window.focus.send(.toggleBrowserFocusMode(tab: tab))
             // Entering puts the keyboard in the page (classic cmux parity): from the
             // address bar or find bar, focus mode would wait for a click otherwise.
-            if window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
+            if let tab = tab ?? window.focus.state.resolved.tab, window.focus.state.browserFocusMode.contains(tab) { window.focus.send(.focusTarget(.content, source: .intent)) }
         })
         // Any focused web view (WebInspectorTarget): disabled with the reason while none is.
         registry.bind("toggleBrowserDeveloperTools", unavailable: { DevToolsHandlers.noTargetReason(context) }, run: { invocation in
@@ -96,11 +97,11 @@ enum BrowserHandlers {
             entry.state.modes.colorScheme = scheme
             (entry.tab as? any BrowserColorSchemeApplying)?.applyColorScheme(scheme)
         })
-        registry.bind("browserPrint", run: { invocation in
-            guard BrowserPagePrint(try context.page(invocation).tab).run() else {
-                throw ActionFailure(message: MiscHandlerStrings.printUnavailable)
-            }
-        })
+        // Print, and Save Page As, Cast, QR code and Translate: the engine's own page panels (cmux_shim_page_command).
+        registry.bindEffect("browserPrint", requires: nil, effect: { BrowserPagePrint(try context.page($0).tab).run() ? .done : .refused(MiscHandlerStrings.printUnavailable) })
+        for (id, command) in BrowserPageCommand.Command.actions {
+            registry.bindEffect(ActionID(rawValue: id), requires: nil, effect: { try BrowserPageCommand(context.page($0).tab).run(command) ? .done : .refused(BrowserPageCommand.unavailable) })
+        }
         registry.bind("browserScreenshotPage", run: { invocation in
             let tab = try context.page(invocation).tab
             copyScreenshot(context) { try await tab.snapshot() }
@@ -219,14 +220,18 @@ enum BrowserHandlers {
         }
     }
 
-    /// `f` and `F` in a Chromium page (`LinkHintController`).
+    /// `j`, `k`, `gg`, Shift-G in either engine (``BrowserPageScroll``): from a page's unhandled letters or the palette.
+    private static func bindScroll(into registry: ActionRegistry, context: AppActionContext) {
+        for scroll in BrowserPageScroll.allCases { _ = registry.bindEffect(ActionID(rawValue: scroll.actionID), requires: nil, effect: { context.services.linkHints.scrollKeys.run(scroll, on: try context.page($0).tab); return .done }) }
+    }
+
+    /// `f` and `F` in a page of either engine (`LinkHintController`).
     private static func bindLinkHints(into registry: ActionRegistry, context: AppActionContext) {
         for (id, mode) in [("browserLinkHints", LinkHintSession.Mode.follow), ("browserLinkHintsNewSplit", .newSplit)] {
             registry.bind(ActionID(rawValue: id), run: { invocation in
                 let pane = try context.pane(invocation)
                 let entry = try context.page(invocation)
-                guard let tab = entry.tab as? CEFTab else { throw ActionFailure(message: LinkHintStrings.engine) }
-                let services = context.services
+                let tab = entry.tab, services = context.services
                 let controller = services.windowController(showing: pane)
                 let tabKey = services.cache.key(of: tab)
                 // Links stay in the page's browser profile.
@@ -242,7 +247,7 @@ enum BrowserHandlers {
                     } catch let failure as ActionFailure {
                         state.showNotice(failure.message)
                     } catch {}
-                }, noLinks: { [weak state = entry.state] in state?.showNotice(LinkHintStrings.noLinks) })
+                }, noLinks: { [weak state = entry.state] in state?.showNotice(LinkHintController.noLinksNotice) })
             })
         }
     }
