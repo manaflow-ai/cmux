@@ -71,8 +71,9 @@ use crate::panic_free::JsonFields;
 
 #[path = "agent_session_prewarm.rs"]
 mod prewarm;
-pub use prewarm::AGENT_SESSION_PREWARM_CAPABILITY;
+pub(crate) use prewarm::chat_folder_prewarm_on;
 pub(super) use prewarm::prewarm;
+pub use prewarm::{AGENT_SESSION_PREWARM_CAPABILITY, AGENT_SESSION_PREWARM_CHAT_FOLDER_CAPABILITY};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -139,13 +140,13 @@ const MAX_CREDENTIAL_BYTES: usize = 16 * 1024;
 /// A launch credential as the caller sends it. Never printed: no `Debug`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct StartCredentials {
-    pub(super) env: std::collections::BTreeMap<String, String>,
+pub(in crate::server) struct StartCredentials {
+    pub(in crate::server) env: std::collections::BTreeMap<String, String>,
 }
 
 impl StartCredentials {
     /// One known name, a token-shaped value (acpmux checks the same again).
-    pub(super) fn valid(&self) -> bool {
+    pub(in crate::server) fn valid(&self) -> bool {
         self.env.len() == 1
             && self.env.iter().all(|(name, value)| {
                 CREDENTIAL_NAMES.contains(&name.as_str())
@@ -154,7 +155,7 @@ impl StartCredentials {
             })
     }
 
-    pub(super) fn wire(&self) -> Value {
+    pub(in crate::server) fn wire(&self) -> Value {
         json!({"env": self.env})
     }
 }
@@ -163,7 +164,7 @@ impl StartCredentials {
 /// "owner"`, the Cloud API's answer for the machine's creator alone, on a VM that is not a team
 /// VM, where every member's agents run as one Unix user and could read it), never from a phone's
 /// channel, and never through a teammate's or guest's proxied link (the caller checks `author`).
-pub(super) fn credentials_admitted(
+pub(in crate::server) fn credentials_admitted(
     mux: &Mux,
     client: u64,
     vm_kind: &Option<Option<String>>,
