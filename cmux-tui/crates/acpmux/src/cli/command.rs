@@ -31,9 +31,14 @@ pub struct RebalanceArgs {
     /// The longest each move waits for a turn that started meanwhile to end, in seconds.
     #[arg(long, value_name = "SECS", default_value_t = 60)]
     pub timeout: u64,
-    /// Move a receipt's session back here (the id a pass printed, in rebalance.jsonl).
+    /// Move a receipt's session back where it came from (the id a pass printed, in
+    /// rebalance.jsonl).
     #[arg(long, value_name = "RECEIPT", conflicts_with_all = ["dry_run", "force", "max_moves"])]
     pub undo: Option<String>,
+    /// Run the pass for a peer host from this hub: its sessions read with `session info`, each
+    /// moved with `session move HOST/ID` (the registry switch is read for that host).
+    #[arg(long, value_name = "HOST", conflicts_with = "undo")]
+    pub machine: Option<String>,
 }
 
 /// `session move` (and its flat spelling `move-sessions`): which chats move, and where.
@@ -282,9 +287,10 @@ pub enum Command {
     Wait {
         /// Session names or ids. Every running session on every host when omitted.
         sessions: Vec<String>,
-        /// Give up after this many seconds.
-        #[arg(long)]
-        timeout: Option<u64>,
+        /// Give up after this many seconds (exit 3). Default an hour, as `pr-wait`'s: no wait an
+        /// agent arms sleeps forever, so a hung turn or a lost event wakes it to look again.
+        #[arg(long, default_value_t = crate::cli::orchestrate::WAIT_BOUND_S)]
+        timeout: u64,
         /// Wait for every named session, not just the first to resolve.
         #[arg(long)]
         all: bool,
@@ -378,6 +384,15 @@ pub enum Command {
     /// stdout (`placement/sub_fork_run.rs`; the parent's runner starts it over ssh).
     #[command(name = "sub-fork-job", hide = true)]
     SubForkJob,
+    /// Run a heavy build or test on a fork of this Cloud machine (RFD 0144 piece 3,
+    /// `placement/run_vm.rs`): its output streams here, its file changes come back. Runs here
+    /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
+    #[command(name = "run-vm", hide = true)]
+    RunVm {
+        /// The shell command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -535,6 +550,11 @@ pub enum Command {
         /// wait for the reply.
         #[arg(long, conflicts_with_all = ["wait", "quiet", "timeout", "tag"])]
         gather: bool,
+        /// Deliver it within this long (90s, 5m, 1h): a message the receiver's inbox holds wakes
+        /// the receiver by its deadline, at the latest 15 minutes for a result (an action) and
+        /// 60 for an FYI (a block or a question wakes it at once). This only tightens that.
+        #[arg(long, value_name = "DURATION", value_parser = crate::prompt_class::parse_within)]
+        within: Option<u64>,
     },
     /// Team-scoped durable messages. Needs a team hub (`meshRelay`); on there by default.
     #[command(aliases = aliases::INBOX)]
@@ -1046,6 +1066,14 @@ pub enum Command {
         answer: Vec<String>,
     },
     #[command(hide = true)]
+    Place {
+        session: String,
+        #[arg(long)]
+        on: String,
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    #[command(hide = true)]
     Export {
         session: String,
         #[arg(long)]
@@ -1153,7 +1181,7 @@ pub enum Command {
         /// permission mode every new chat starts in, `permissions.codex=ask` for
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
-        /// `session.cpu_class=normal`, `remote_daemon=127.0.0.1:PORT` or
+        /// `session.cpu_class=background`, `remote_daemon=127.0.0.1:PORT` or
         /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`). A value the
         /// daemon would refuse to start with is refused and config.json is left as it was:
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
@@ -1610,6 +1638,20 @@ pub enum SessionCmd {
         session: String,
         #[arg(long = "answer", value_name = "QUESTION=CHOICE")]
         answer: Vec<String>,
+    },
+    /// Move a chat between Local (this Mac), Cloud (stays in cmux Cloud) and AutoCloud (here
+    /// while the Mac is up, in the Cloud while it sleeps), through Auto mode's fenced handoff. The
+    /// person may make any move; a chat's own agent may move it off the Mac only while the
+    /// AutoCloud setting is on, and back to local never (the answer says needs_person and the
+    /// command). `cmux chat move SESSION --on PLACE` runs this.
+    Place {
+        session: String,
+        /// local, cloud or auto (autocloud).
+        #[arg(long)]
+        on: String,
+        /// Why, for the log.
+        #[arg(long)]
+        reason: Option<String>,
     },
     /// Export a session bundle.
     Export {
@@ -2143,6 +2185,7 @@ pub fn flatten(c: Command) -> Command {
             }
             SessionCmd::Deny { session } => Command::Deny { session },
             SessionCmd::Answer { session, answer } => Command::Answer { session, answer },
+            SessionCmd::Place { session, on, reason } => Command::Place { session, on, reason },
             SessionCmd::Export { session, dest } => Command::Export { session, dest },
             SessionCmd::Import { path, name } => Command::Import { path, name },
             SessionCmd::Transfer { session, to, cwd, name, interrupt, after_turn } => {
