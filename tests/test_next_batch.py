@@ -1894,8 +1894,10 @@ class WorkflowShape(unittest.TestCase):
                 path.mkdir(parents=True)
             (bin_dir / "bun").write_text(f"#!/bin/sh\n{bun}\n")
             (bin_dir / "bun").chmod(0o755)
-            # The job's earlier step puts the bounded install here (scripts/ci/bun-install.sh from github.sha).
-            shutil.copy(ROOT / "scripts/ci/bun-install.sh", temp / "bun-install.sh")
+            # The job's earlier step puts the bounded install here (scripts/ci/bun-install.sh from github.sha),
+            # with the timeout.sh it runs each attempt under.
+            for name in ("bun-install.sh", "timeout.sh"):
+                shutil.copy(ROOT / "scripts/ci" / name, temp / name)
             subprocess.run(["git", "init", "-q"], cwd=work, check=True)
             env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "KINDS": "format",
                    # A closed local port: the install's registry probe answers at once, with no network.
