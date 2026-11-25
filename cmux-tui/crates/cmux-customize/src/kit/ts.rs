@@ -267,8 +267,9 @@ fn capped(text: String) -> String {
 
 /// One `export { ... } from "spec"` or `import { ... } from "spec"`.
 struct BraceStatement {
-    /// The names it lists, each with whether it is a type-only name.
-    names: Vec<(String, bool)>,
+    /// The names it lists: (exported name, local name, type-only), where the
+    /// local name differs for `Local as Exported`.
+    names: Vec<(String, String, bool)>,
     spec: String,
 }
 
@@ -306,8 +307,9 @@ fn brace_statements(text: &str, keyword: &str) -> Vec<BraceStatement> {
                     Some(i) => (true, i.trim()),
                     None => (all_types, item),
                 };
+                let local = item.split(" as ").next()?.trim();
                 let name = item.rsplit(" as ").next()?.trim();
-                (!name.is_empty()).then(|| (name.to_owned(), is_type))
+                (!name.is_empty()).then(|| (name.to_owned(), local.to_owned(), is_type))
             })
             .collect();
         out.push(BraceStatement { names, spec });
@@ -384,7 +386,7 @@ fn lookup_order(name: &str, file: &'static str) -> Vec<&'static str> {
         for statement in
             brace_statements(text, "import").into_iter().chain(brace_statements(text, "export"))
         {
-            if statement.names.iter().any(|(n, _)| n == name)
+            if statement.names.iter().any(|(n, _, _)| n == name)
                 && let Some(target) = resolve(file, &statement.spec)
                 && !order.contains(&target)
             {
@@ -753,6 +755,9 @@ pub(super) struct Component {
     pub(super) props: Vec<Prop>,
     pub(super) extends: Vec<String>,
     pub(super) galleries: Vec<Entry>,
+    /// The name it is declared as, when the barrel exports it under another
+    /// (`AnchoredCard as Card`).
+    pub(super) alias_of: Option<String>,
 }
 
 /// A value export of the barrel that names a component: capitalized and
@@ -779,9 +784,14 @@ pub(super) fn kit_components() -> Vec<Component> {
     let mut out = Vec::new();
     for statement in brace_statements(text, "export") {
         let Some(file) = resolve(BARREL, &statement.spec) else { continue };
-        for (name, is_type) in &statement.names {
+        for (name, local, is_type) in &statement.names {
             if !is_type && is_component_name(name) {
-                out.push(component(name, file, vec![file], &entries, 0));
+                let mut found = component(local, file, vec![file], &entries, 0);
+                if name != local {
+                    found.alias_of = Some(found.name.clone());
+                    found.name = name.clone();
+                }
+                out.push(found);
             }
         }
     }
@@ -801,7 +811,7 @@ fn component(
         // Re-exported from another file (`export { Spinner } from "./Spinner"`).
         for statement in brace_statements(text, "export") {
             if depth < MAX_DEPTH
-                && statement.names.iter().any(|(n, t)| n == name && !t)
+                && statement.names.iter().any(|(n, _, t)| n == name && !t)
                 && let Some(target) = resolve(file, &statement.spec)
             {
                 via.push(target);
@@ -816,6 +826,7 @@ fn component(
             props: Vec::new(),
             extends: Vec::new(),
             galleries: Vec::new(),
+            alias_of: None,
         };
     };
     let doc = doc_before(text, line);
@@ -844,7 +855,16 @@ fn component(
         .into()
     });
     let summary = capped(doc.filter(|d| !d.is_empty()).unwrap_or_else(|| file_summary(text)));
-    Component { name: name.to_owned(), file, status, summary, props, extends, galleries }
+    Component {
+        name: name.to_owned(),
+        file,
+        status,
+        summary,
+        props,
+        extends,
+        galleries,
+        alias_of: None,
+    }
 }
 
 impl Component {
@@ -890,6 +910,9 @@ impl Component {
             .collect();
         let mut out = Map::new();
         out.insert("name".into(), json!(self.name));
+        if let Some(local) = &self.alias_of {
+            out.insert("aliasOf".into(), json!(local));
+        }
         out.insert("file".into(), json!(format!("webviews/src/{}", self.file)));
         out.insert("status".into(), json!(self.status));
         out.insert("summary".into(), json!(self.summary));
