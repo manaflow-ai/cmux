@@ -58,11 +58,11 @@ pub mod files_lister;
 pub mod goo;
 pub mod hover;
 pub mod motion;
+/// cbindgen:ignore
+pub mod settings;
 /// Its own header (include/cmux_sign_clone_sweep.h), not the motion one:
 /// cbindgen:ignore
 pub mod sign_clone_sweep;
-/// cbindgen:ignore
-pub mod settings;
 /// cbindgen:ignore
 pub mod system_calendar;
 pub mod terminal_selection;
