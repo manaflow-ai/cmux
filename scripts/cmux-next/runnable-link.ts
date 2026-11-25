@@ -156,9 +156,9 @@ export function verdict(opens: OpenRow[], baseline: BaselineRow[], meta: Record<
   };
 }
 
-/** Staging's test team sits near its machine cap; a create that hits it waits for room (up to 10 min) instead of
- * failing the row. Returns the value and the time spent waiting, which the caller leaves out of its phase timing. */
-export async function withRoom<T>(fn: () => Promise<T>, budgetMs = 600_000): Promise<[T, number]> {
+/** Staging's test team sits near its machine cap; a create that hits it waits for room instead of
+ * failing the row (25 min, or ROOM_WAIT_MS). Returns the value and the time spent waiting, which the caller leaves out of its phase timing. */
+export async function withRoom<T>(fn: () => Promise<T>, budgetMs = Number(process.env.ROOM_WAIT_MS ?? 1_500_000)): Promise<[T, number]> {
   const t0 = Date.now();
   for (;;) {
     try {
