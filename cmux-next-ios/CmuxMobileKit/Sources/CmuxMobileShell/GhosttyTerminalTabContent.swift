@@ -242,7 +242,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// Opens Connected Devices for a live terminal of a Mac (its session, its Mac).
     var showConnectedDevices: (@MainActor (DaemonTerminalSession, _ macID: String) -> Void)?
 
-    private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
+    private func host(for tab: WorkspaceTab, in workspace: Workspace, attachLive: Bool = true) -> TerminalTabHost {
         let key = frameKey(for: tab, in: workspace)
         // Another Mac's tab with the same id: its host (and its attach) goes, and
         // this tab builds its own on its own Mac.
@@ -270,7 +270,12 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             slots[id] = nil
             cardViews[id] = nil
         }
-        let live = sessionProvider?(tab, workspace.macID)
+        // Cards only need the saved frame or the Mac's short `read-screen` reply.
+        // Starting a daemon attach for every card makes opening the grid churn
+        // sessions, then immediately stop most of them as they leave the warm set.
+        // A page still asks for its live session, and `liveDataChanged()` upgrades
+        // this placeholder in place when the page becomes live.
+        let live = attachLive ? sessionProvider?(tab, workspace.macID) : nil
         if let host = hosts[tab.id], live == nil { return host }
         if live != nil { liveTabs.insert(tab.id) }
         // A placeholder replaced by the live session: its frame carries over,
@@ -533,7 +538,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
            hostMacs[tab.id] == workspace.macID { return cached.view }
         // A card shown before its tab was prepared (or after its slot was
         // cooled): its host and slot are made now, once.
-        let host = host(for: tab, in: workspace)
+        let host = host(for: tab, in: workspace, attachLive: false)
         primeScreenText(for: tab, in: workspace, model: host.model)
         let slot = slot(for: tab.id, host: host)
         // A new host (first card, or after a cool or a Mac swap) asks for the
@@ -559,7 +564,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     func prepareCard(for tab: WorkspaceTab, in workspace: Workspace) {
-        let host = host(for: tab, in: workspace)
+        let host = host(for: tab, in: workspace, attachLive: false)
         primeScreenText(for: tab, in: workspace, model: host.model)
         _ = cardView(tab.id, slot: slot(for: tab.id, host: host))
         refreshScreenText(for: tab, model: host.model)
