@@ -44,6 +44,24 @@ extension BrowserTab {
                                 world: .isolated, gesture: .cmux)
     }
 
+    /// Offers Command-Return (send the pick to the agent as a comment thread) in the comment bubble,
+    /// or takes it away: the workspace's agent chat keeps comment threads (`diff-comments-threads-v1`) or not.
+    public func setDesignModeSendAvailable(_ available: Bool) async {
+        _ = try? await evaluate("globalThis.__cmuxDesignMode?.setSendAvailable(\(available)); true", world: .isolated, gesture: .cmux)
+    }
+
+    /// Shows the comment thread of the pick at `selector` on the page, next to its pin: `state`
+    /// (`sending`, `sent`, `answered` or `failed`) and the agent's `reply`; a nil `state` takes the
+    /// thread card away.
+    public func setDesignModeThread(_ selector: String, state: String?, reply: String?) async {
+        let value: [String: Any] = state.map { ["state": $0, "reply": reply ?? ""] } ?? [:]
+        // main-actor-ok: one thread's state and one agent reply, bounded by the runtime.
+        let data = (try? JSONSerialization.data(withJSONObject: value)) ?? Data("{}".utf8)
+        let json = state == nil ? "null" : String(decoding: data, as: UTF8.self)
+        _ = try? await evaluate("globalThis.__cmuxDesignMode?.setThread(\(jsString(selector)), \(json)); true",
+                                world: .isolated, gesture: .cmux)
+    }
+
     /// Drives the open comment bubble through the runtime's own path (captures and tours): types
     /// `draft` into it when given, then adds the pick when `commit` is true.
     /// - Returns: False when the tab is closed, the page refused the script, or design mode is off.
