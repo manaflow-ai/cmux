@@ -95,7 +95,7 @@ public enum CmuxMobilePreferences {
     public static let defaultTerminalPlainScroll = false
     public static let defaultQuietCloudConnect = false
     public static let defaultTerminalZoomFullScreenApps = false
-    public static let defaultTerminalHistoryFind = false
+    public static let defaultTerminalHistoryFind = true
     public static let defaultDismissKeyboardAfterSend = true
     public static let defaultTabCardMonograms = false
     /// Off until Leo picks it up (2026-11-24: "don't unilaterally MERGE ui stuff yet ... having people be able to
