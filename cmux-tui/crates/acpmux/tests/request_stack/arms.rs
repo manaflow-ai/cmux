@@ -443,6 +443,7 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             ),
         ),
         (method::MUX_TURN_SHOTS, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
+        (method::MUX_TURN_FRAMES, Run(json!({"sessionId": "$S", "turnId": "t1"}))),
         (
             method::MUX_CUSTOMIZE_RUN,
             Any(

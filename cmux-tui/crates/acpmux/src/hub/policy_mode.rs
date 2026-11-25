@@ -766,7 +766,7 @@ pub(super) struct Refused<'a> {
 /// every start (`hold_policy_mode`), so a chat refused with a `wanted` mode is one whose agent did
 /// not take it (a mode pinned in its harness entry, an agent that reports no mode): switching the
 /// mode again (`acpmux set ID mode=...`) starts the same agent, so the fix named is the policy
-/// (`acpmux set ID policy=approve-all`, `_acpmux/set_policy`), which needs no start. A chat being
+/// (`acpmux set ID policy=approve-all`, `_acpmux/set_policy`, person-only), which needs no start. A chat being
 /// created is discarded by the refusal, so its fix is the start's `--policy`.
 pub(super) fn unenforceable(refused: &Refused, why: &str) -> RpcError {
     let Refused { policy, meta, wanted, new } = *refused;
@@ -775,7 +775,13 @@ pub(super) fn unenforceable(refused: &Refused, why: &str) -> RpcError {
         ("--policy approve-all".to_owned(), "start it with `--policy approve-all`".to_owned())
     } else {
         let fix = format!("acpmux set {} policy=approve-all", meta.id);
-        let hint = format!("set its policy to approve-all with `{fix}`");
+        // approve-all widens what runs without asking, which only the person may do
+        // (`hub/person.rs`): `acpmux set` from an agent or a script is refused, so the hint says
+        // where it is accepted. On 2026-11-25 Leo's chief chat sat dead for a day after an update
+        // while every agent that read this hint ran the command and was refused.
+        let hint = format!(
+            "only you can set its policy to approve-all, in the cmux app (`{fix}` from an agent or a script is refused)"
+        );
         (fix, hint)
     };
     let problem = match wanted {
