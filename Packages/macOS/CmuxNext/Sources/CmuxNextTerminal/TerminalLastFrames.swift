@@ -100,19 +100,21 @@ public struct TerminalLastFrames {
         for _ in insert(frame, for: key, capacity: Self.capacity(warm: capacity)) { note("dropped") }
     }
 
-    /// Pictures `session` as it is evicted: from its kept frame (pinned while it renders, so a purge cannot tear it),
-    /// else from the surface it presents now, read in this turn before it closes. Only a terminal with output.
+    /// Pictures `session` as it is evicted. First the picture its surface took as it paused (the frame it shows now, already
+    /// rendered: no render here, and safe from a purge); else a render of its kept frame (pinned while it renders) or of
+    /// the surface it presents now. Only a terminal with output.
+    ///
+    /// A dev build under memory pressure (2026-11-24): a hibernated workspace kept both frames (`kept: 2`), but they were
+    /// volatile and purged before the render, so its card drew empty tiles though the pause picture was right there.
     private func keepPicture(of session: TerminalSession, key: String, showsOutput: Bool) {
         guard showsOutput else { return }
+        if let paused = session.surfaceView.pausedPicture { return pictures.keep(key) { paused } }
         let side = TerminalEvictedPictures.side
         if let frame = frames[key] {
             pictures.keep(key) { await frame.snapshot(maxPixelSize: side) }
         } else if let surface = session.surfaceView.presentedFrame {
-            let frame = SendableSurface(surface: surface), paused = session.surfaceView.pausedPicture
-            // A purged frame renders empty: the picture taken as it paused stands in.
-            pictures.keep(key) { await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(frame, maxPixelSize: side) }.value ?? paused }
-        } else if let paused = session.surfaceView.pausedPicture {
-            pictures.keep(key) { paused }
+            let frame = SendableSurface(surface: surface)
+            pictures.keep(key) { await Task.detached(priority: .utility) { TerminalSnapshotRenderer.render(frame, maxPixelSize: side) }.value }
         }
     }
 

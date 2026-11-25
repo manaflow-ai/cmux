@@ -73,6 +73,26 @@ import Testing
         #expect(await services.cache.previewImage(for: tab, maxPixelSize: size) != nil, "the hibernated terminal lost the paused picture")
     }
 
+    /// Hibernation that keeps the frame (no pressure eviction) keeps the pause picture itself, not a render of the
+    /// volatile frame: in a dev build under memory pressure that render found the frame purged and the card's tiles
+    /// were empty (`kept: 2`, two empty tiles).
+    @Test func hibernationKeepsThePausePictureNotARenderOfThePurgeableFrame() async throws {
+        let (services, tab, session, done) = try await Self.terminal(output: "cargo build\r\n   Compiling cmux v0.1.0\r\n")
+        defer { done() }
+        session.isRenderingSuspended = true
+        let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+        while session.surfaceView.pausedPicture == nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        let paused = try #require(session.surfaceView.pausedPicture, "the pausing surface took no picture")
+
+        let removed = services.cache.terminals.removeValue(forKey: tab)
+        let entry = try #require(removed)
+        services.cache.lastFrames.evict(session, key: tab, capacity: 8, atOnce: false)
+        await services.cache.lastFrames.pictureSettled(tab)
+        entry.close()
+        #expect(services.cache.lastFrames[tab] != nil, "setup: the eviction kept no frame")
+        #expect(services.cache.lastFrames.picture(tab) === paused, "the eviction rendered the purgeable frame instead of keeping the pause picture")
+    }
+
     @Test func aNewShellsPromptStillHasNoPicture() async throws {
         let (services, tab, session, done) = try await Self.terminal(output: "Last login: Mon Oct 13 09:12:44 on ttys004\r\nyou@mac ~ % ")
         defer { done() }
