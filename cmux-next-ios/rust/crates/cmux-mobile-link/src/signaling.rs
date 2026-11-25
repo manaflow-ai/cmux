@@ -496,11 +496,15 @@ async fn open_socket(
     let host = host.trim_start_matches('[').trim_end_matches(']').to_owned();
     let port = uri.port_u16().unwrap_or(if secure { 443 } else { 80 });
     // The egress gate (docs/privacy.md) first, on the service's own host, proxy or not.
-    cmux_egress::check(&host, SIGNALING_SITE).map_err(|refused| SignalingError::Connect(refused.to_string()))?;
+    cmux_egress::check(&host, SIGNALING_SITE)
+        .map_err(|refused| SignalingError::Connect(refused.to_string()))?;
     // The capture server stands in for the wire (tests/seeded_secret.rs): the gated
     // connect sends the upgrade there.
     if cmux_egress::capturing() {
-        return crate::signal_dial::connect_gated(request).await.map(|(socket, _)| socket).map_err(connect_error);
+        return crate::signal_dial::connect_gated(request)
+            .await
+            .map(|(socket, _)| socket)
+            .map_err(connect_error);
     }
     // Direct: the base's raced, remembered dial (`signal_dial`, IPv6 and IPv4
     // racing). Through a proxy: `CONNECT` or SOCKS5 to the proxy.
