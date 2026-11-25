@@ -79,7 +79,7 @@ extension WindowRootView {
     private func startContentHold(card: NSRect) {
         guard contentHost.layer?.masksToBounds == true, contentHost.arrangeContent == nil, card.width > 0,
               let toGo = sidebar.widthStillToGo else { return }
-        let landing = card.width - toGo
+        let landing = card.width - CGFloat(toGo)
         let views = contentHost.subviews.filter { !$0.isHidden && $0.autoresizingMask.contains(.width) }
         guard !views.isEmpty else { return }
         let width = max(card.width, landing)
