@@ -445,6 +445,10 @@ fn build_activity(checkout: &Path, build: &Path) -> Option<u64> {
 
 fn clone_entries(index: usize, roots: &[PathBuf], found: &mut Vec<Entry>) {
     for root in roots {
+        // A root that is a symlink could lead out of the home folder.
+        if !real_dir(root) {
+            continue;
+        }
         let Ok(level1) = std::fs::read_dir(root) else { continue };
         let mut clones = Vec::new();
         for child in level1.flatten() {
@@ -463,6 +467,20 @@ fn clone_entries(index: usize, roots: &[PathBuf], found: &mut Vec<Entry>) {
             let last_activity_ms = clone_activity(&path);
             found.push(Entry { family: index, guard: path.clone(), path, last_activity_ms });
         }
+    }
+}
+
+/// Whether `path` resolves to the same place under the resolved home: no
+/// folder between the home and it (a clone root included) is a symlink that
+/// leads elsewhere. The home itself may be a symlink (`/tmp` on macOS).
+fn really_under_home(home: &Path, path: &Path) -> bool {
+    let (Ok(real_home), Ok(real)) = (std::fs::canonicalize(home), std::fs::canonicalize(path))
+    else {
+        return false;
+    };
+    match (path.strip_prefix(home), real.strip_prefix(&real_home)) {
+        (Ok(asked), Ok(found)) => !asked.as_os_str().is_empty() && asked == found,
+        _ => false,
     }
 }
 
@@ -740,6 +758,11 @@ fn guard_of(family: &Family, path: &Path) -> PathBuf {
 /// The checks that the path is still what the family listed.
 fn still_an_entry(options: &Options, family: &Family, path: &Path) -> Result<(), Verdict> {
     let gone = || verdict(Action::Keep, "no longer a real entry of its family");
+    // A command family's one entry is its name (`docker:images`), not a
+    // folder: there is nothing on disk to check.
+    if matches!(family.source, Source::Docker | Source::Simulators) {
+        return if path == family.root { Ok(()) } else { Err(gone()) };
+    }
     let Ok(meta) = std::fs::symlink_metadata(path) else { return Err(gone()) };
     if meta.file_type().is_symlink() {
         return Err(gone());
@@ -783,6 +806,7 @@ fn still_an_entry(options: &Options, family: &Family, path: &Path) -> Result<(),
             if !roots.iter().any(|r| path.starts_with(r))
                 || !is_plain_clone(path)
                 || !path.starts_with(options.home)
+                || !really_under_home(options.home, path)
             {
                 return Err(gone());
             }
@@ -805,6 +829,11 @@ fn remove(
     }
     still_an_entry(options, family, path)?;
     let command = matches!(family.source, Source::Docker | Source::Simulators);
+    if !command {
+        if let Some(glob) = options.never.guards_inside(options.home, path) {
+            return Err(verdict(Action::Keep, format!("never-delete: {glob}")));
+        }
+    }
     let again = if command {
         verdict(Action::Reclaim, "a command, not a folder")
     } else {
@@ -1099,5 +1128,72 @@ mod tests {
         ));
         assert!(report.items.is_empty());
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_command_family_is_still_its_entry_with_nothing_on_disk() {
+        let home = scratch("caches-command");
+        let opts = options(&home, Pressure::Critical, 1, true, &no_uses, &not_open);
+        for family in default_families(&home)
+            .into_iter()
+            .filter(|f| matches!(f.source, Source::Docker | Source::Simulators))
+        {
+            assert!(
+                still_an_entry(&opts, &family, &family.root.clone()).is_ok(),
+                "{}",
+                family.name
+            );
+            assert!(still_an_entry(&opts, &family, &home.join("x")).is_err());
+        }
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn a_folder_holding_a_never_delete_child_stays() {
+        let home = scratch("caches-never-child");
+        let idle = derived(&home, "Old-abc");
+        std::fs::create_dir_all(idle.join("Logs/keep-this")).unwrap();
+        age(&idle, 10);
+        let never = crate::never_delete::NeverDelete::from_globs(["keep-this".to_string()]);
+        let mut opts =
+            options(&home, Pressure::Normal, crate::inventory::now_ms(), true, &no_uses, &not_open);
+        opts.never = &never;
+        let report = run(&opts);
+        assert!(idle.join("Logs/keep-this").exists());
+        assert!(report.items[0].verdict.reason.contains("never-delete"), "{:?}", report.items[0]);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_clone_reached_through_a_link_out_of_home_is_not_an_entry() {
+        let home = scratch("caches-clone-link");
+        let elsewhere = scratch("caches-clone-link-target");
+        std::fs::create_dir_all(elsewhere.join("repo/.git")).unwrap();
+        let root = home.join(".wt/checkouts");
+        std::fs::create_dir_all(&root).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, root.join("linked")).unwrap();
+        let mine = root.join("mine");
+        std::fs::create_dir_all(mine.join(".git")).unwrap();
+        assert!(really_under_home(&home, &mine));
+        assert!(!really_under_home(&home, &root.join("linked/repo")));
+        assert!(!really_under_home(&home, &home));
+        // A clone root that is itself a link is skipped.
+        let mut found = Vec::new();
+        clone_entries(0, &[root.join("linked")], &mut found);
+        assert!(found.is_empty());
+        let family = Family {
+            name: "lane-clones",
+            root: root.clone(),
+            per_child: true,
+            idle_hours: [Some(1), Some(1), Some(1)],
+            kind: Kind::Unique,
+            source: Source::Clones { roots: vec![root.clone()] },
+        };
+        let opts = options(&home, Pressure::Critical, 1, true, &no_uses, &not_open);
+        assert!(still_an_entry(&opts, &family, &root.join("linked/repo")).is_err());
+        assert!(elsewhere.join("repo/.git").exists());
+        let _ = std::fs::remove_dir_all(&home);
+        let _ = std::fs::remove_dir_all(&elsewhere);
     }
 }

@@ -8,7 +8,9 @@
 //!   folder; one with no `/` matches any entry with that name; `*` is any
 //!   run of characters inside one path part, `**` any run of parts, `?` one
 //!   character. A path is kept when it matches a glob, or lies inside a
-//!   folder that does.
+//!   folder that does, or holds something that does: a path glob whose
+//!   fixed start lies inside it, or an entry within [`INSIDE_DEPTH`] levels
+//!   and the first [`INSIDE_ENTRIES`] entries that a glob or name holds.
 //!
 //! A file that cannot be read keeps nothing extra but is reported by
 //! [`NeverDelete::load`]'s second value, so a status can say so.
@@ -74,6 +76,44 @@ impl NeverDelete {
         None
     }
 
+    /// Why `path` must stay because of something inside it, if it must: a
+    /// path glob whose fixed start lies under `path`, or an entry within
+    /// [`INSIDE_DEPTH`] levels (the first [`INSIDE_ENTRIES`] read, symlinks
+    /// not followed) that [`Self::holds`] keeps.
+    pub fn guards_inside(&self, home: &Path, path: &Path) -> Option<String> {
+        let under = format!("{}/", path.to_string_lossy().trim_end_matches('/'));
+        for glob in &self.globs {
+            let absolute = expand(glob, home);
+            if !absolute.contains('/') {
+                continue;
+            }
+            let fixed = absolute.find(['*', '?']).map_or(absolute.as_str(), |at| &absolute[..at]);
+            if fixed.starts_with(&under) {
+                return Some(format!("{glob} (inside it)"));
+            }
+        }
+        let mut seen = 0usize;
+        let mut queue = vec![(path.to_path_buf(), 0usize)];
+        while let Some((dir, depth)) = queue.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                seen += 1;
+                if seen > INSIDE_ENTRIES {
+                    return None;
+                }
+                let child = entry.path();
+                if let Some(glob) = self.holds(home, &child) {
+                    return Some(format!("{glob} (inside it: {})", child.display()));
+                }
+                let real_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+                if real_dir && depth + 1 < INSIDE_DEPTH {
+                    queue.push((child, depth + 1));
+                }
+            }
+        }
+        None
+    }
+
     pub fn len(&self) -> usize {
         self.globs.len()
     }
@@ -82,6 +122,11 @@ impl NeverDelete {
         self.globs.is_empty()
     }
 }
+
+/// How deep [`NeverDelete::guards_inside`] looks inside a candidate.
+pub const INSIDE_DEPTH: usize = 4;
+/// How many entries [`NeverDelete::guards_inside`] reads inside a candidate.
+pub const INSIDE_ENTRIES: usize = 20_000;
 
 /// Nothing held but the built-in names; for tests and callers with no home.
 pub static NONE: NeverDelete = NeverDelete { globs: Vec::new() };
@@ -99,11 +144,7 @@ fn parse(text: &str) -> Vec<String> {
 
 /// Whether `glob` holds `path`: `path` or any folder above it matches.
 fn matches_glob(glob: &str, home: &Path, path: &Path) -> bool {
-    let absolute = if let Some(rest) = glob.strip_prefix("~/") {
-        home.join(rest).to_string_lossy().into_owned()
-    } else {
-        glob.to_string()
-    };
+    let absolute = expand(glob, home);
     let by_name = !absolute.contains('/');
     let mut current = Some(path);
     while let Some(candidate) = current {
@@ -118,6 +159,15 @@ fn matches_glob(glob: &str, home: &Path, path: &Path) -> bool {
         current = candidate.parent();
     }
     false
+}
+
+/// A glob with `~/` made absolute.
+fn expand(glob: &str, home: &Path) -> String {
+    if let Some(rest) = glob.strip_prefix("~/") {
+        home.join(rest).to_string_lossy().into_owned()
+    } else {
+        glob.to_string()
+    }
 }
 
 /// `*` within a part, `**` across parts, `?` one character.
@@ -182,6 +232,31 @@ mod tests {
         // Others go on as before.
         assert!(never.holds(&home, &home.join(".npm/_cacache")).is_none());
         assert!(never.holds(&home, &home.join("keep/other")).is_none());
+    }
+
+    #[test]
+    fn a_folder_holding_something_kept_is_kept() {
+        let home = scratch("never-inside");
+        let never =
+            NeverDelete::from_globs(["~/.cache/tool/precious".to_string(), "golden-*".to_string()]);
+        let cache = home.join(".cache");
+        // A path glob under the candidate: held without reading the disk.
+        let held = never.guards_inside(&home, &cache).expect("held by a path glob");
+        assert!(held.contains("precious"), "{held}");
+        assert!(never.holds(&home, &cache).is_none());
+        // A name glob found by the walk.
+        let other = home.join("other");
+        std::fs::create_dir_all(other.join("a/golden-run")).unwrap();
+        let held = never.guards_inside(&home, &other).expect("held by a name glob");
+        assert!(held.contains("golden-*"), "{held}");
+        // A fleet name found by the walk.
+        let third = home.join("third");
+        std::fs::create_dir_all(third.join("x/chromium")).unwrap();
+        assert!(never.guards_inside(&home, &third).is_some());
+        // Nothing kept inside: free to go.
+        let plain = home.join("plain");
+        std::fs::create_dir_all(plain.join("a/b")).unwrap();
+        assert!(never.guards_inside(&home, &plain).is_none());
     }
 
     #[test]
