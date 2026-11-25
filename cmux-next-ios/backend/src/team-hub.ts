@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import { primaryProject, type Caller } from "./auth.ts"
 import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
-import { MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE, MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
+import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS, MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE } from "./push.ts";
 import { userTeams } from "./stack.ts"
 import { relayRoomName } from "./link-relay.ts"
 import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
@@ -49,6 +49,8 @@ const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "n
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
+/** Which protocol mapped the Mac's endpoint (PROTOCOL.md "Mapped endpoints"). */
+const LINK_STAT_PORTMAP = new Set(["pcp", "nat-pmp", "upnp", "unknown"])
 const LINK_STAT_MARKS = new Set([
   "signaling_open",
   "signaling_reused",
@@ -113,6 +115,11 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
   const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
   if (end) line.end = end
   if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  if (typeof f.portmap === "object" && f.portmap !== null) {
+    const p = f.portmap as Record<string, unknown>
+    const by = word(p.by, LINK_STAT_PORTMAP)
+    if (by && typeof p.used === "boolean") Object.assign(line, { portmapBy: by, portmapUsed: p.used })
+  }
   // Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`, `spikes`): flattened as `rtt` is.
   for (const [field, prefix] of [["echo", "echo"], ["ack", "ack"]] as const) {
     const k = f[field]
@@ -215,6 +222,15 @@ export interface MacPresence {
  * only reports `quietMs`.
  */
 export const FRESH_MS = 18_000
+
+/**
+ * A Mac's socket the hub has not heard for this long is gone (cmux#52200): its network was cut or it slept, and
+ * no close reached the hub (a silent drop leaves the socket half open forever). Six missed 15 s pings, and past
+ * the Mac's own 40 s give-up (`KEEPALIVE_TIMEOUT` in cmux-mobile-link `signaling.rs`), so a Mac that is alive but
+ * overloaded still reads "not responding" (`quietMs`) first. The hub closes the socket and phones hear the Mac
+ * offline, last seen when it was last heard.
+ */
+export const GONE_MS = 90_000
 
 /** A device registration as the Worker hands it to the hub (POST /v1/devices). */
 export interface HubDevice {
@@ -404,12 +420,56 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    let iceUntil: number | undefined
     await this.ctx.storage.transaction(async (tx) => {
       const entry = await tx.get<CachedIce>("turn-credentials")
       if (!entry) return
-      if (Date.now() < entry.usableUntil) await tx.setAlarm(entry.usableUntil)
+      if (Date.now() < entry.usableUntil) iceUntil = entry.usableUntil
       else await tx.delete("turn-credentials")
     })
+    const reapAt = this.reapSilentMacs(Date.now())
+    const next = Math.min(iceUntil ?? Infinity, reapAt ?? Infinity)
+    if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next)
+  }
+
+  /**
+   * Closes every Mac socket not heard for ``GONE_MS`` as gone (cmux#52200), and returns when the next open Mac
+   * socket would be (undefined: none open). Only a socket of a host that pings: one that predates application
+   * pings is never heard after its connect, and stays as before.
+   */
+  private reapSilentMacs(now: number): number | undefined {
+    let next: number | undefined
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = this.attach(ws)
+      if (!att || att.kind !== "mac" || att.replaced || ws.readyState !== WebSocket.OPEN) continue
+      const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime()
+      if (pinged === undefined && this.recordedPing(att.deviceId) === null) continue
+      const heard = Math.max(att.connectedAt ?? 0, pinged ?? 0)
+      if (!heard) continue
+      if (now - heard < GONE_MS) {
+        next = Math.min(next ?? Infinity, heard + GONE_MS)
+        continue
+      }
+      this.recordPing(ws, att.deviceId)
+      // Marked replaced first, so its close event (if one ever comes) does not announce it a second time.
+      this.setAttach(ws, { ...att, replaced: true })
+      try {
+        ws.close(4002, "silent")
+      } catch {}
+      if (this.live.get(att.deviceId) === ws) this.live.delete(att.deviceId)
+      if (this.open(att.deviceId)) continue
+      this.sql.exec(`UPDATE macs SET last_seen_at = ? WHERE device_id = ?`, heard, att.deviceId)
+      const mac = this.macRow(att.deviceId)
+      console.log(JSON.stringify({ event: "mac_silent_closed", deviceId: att.deviceId, quietMs: now - heard }))
+      if (mac) this.broadcast(mac.team_id, JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), ws)
+    }
+    return next
+  }
+
+  /** Makes sure an alarm comes by `at` (a Mac socket's reap deadline), keeping an earlier one. */
+  private async armReap(at: number) {
+    const current = await this.ctx.storage.getAlarm()
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at)
   }
 
   /** Team membership through Stack, cached 60 s (15 s for a refusal) per team. Throws when Stack fails. */
@@ -952,6 +1012,7 @@ export class TeamHub extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server, [att.deviceId])
     this.setAttach(server, { ...att, connectedAt: Date.now() })
     this.live.set(att.deviceId, server)
+    if (att.kind === "mac") await this.armReap(Date.now() + GONE_MS)
     if (att.kind === "mac") {
       this.sql.exec(
         `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)

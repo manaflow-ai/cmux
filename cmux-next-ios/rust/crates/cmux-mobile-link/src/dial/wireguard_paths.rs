@@ -67,6 +67,8 @@ static APP_BACKGROUNDED: AtomicBool = AtomicBool::new(false);
 /// backgrounded).
 pub fn set_app_backgrounded(backgrounded: bool) {
     APP_BACKGROUNDED.store(backgrounded, Ordering::Relaxed);
+    // No second socket on cell while backgrounded.
+    super::apply_multipath_to_live_sessions();
 }
 
 /// The last value [`set_app_backgrounded`] stored.
