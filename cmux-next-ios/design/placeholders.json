@@ -403,5 +403,6 @@
       "text": "default: SkeletonList(rows: 3, delay: .zero, caption: caption, style: .plainList, captionPlacement: .spoken)",
       "reason": "design gallery: skeleton variants drawn for review, not in a flow"
     }
-  ]
+  ],
+  "known_layout_shifts": []
 }

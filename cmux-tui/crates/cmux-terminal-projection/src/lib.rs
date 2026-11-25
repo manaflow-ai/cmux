@@ -450,6 +450,16 @@ impl Projection {
         self.view.as_ref().map_or((0, 0), |v| (v.bytes_out, v.resets))
     }
 
+    /// On the alternate screen with rows held: the held rows and the app's
+    /// screen as one document ([`held::paint_document`]): its bytes, rows
+    /// and the row the app's screen begins at. None otherwise.
+    pub fn alt_document(&self) -> Option<(Vec<u8>, usize, usize)> {
+        if !self.term.is_alternate() || self.term.held.is_empty() {
+            return None;
+        }
+        Some(held::paint_document(&self.term, &self.term.held))
+    }
+
     pub fn terminal(&self) -> &Terminal {
         &self.term
     }
