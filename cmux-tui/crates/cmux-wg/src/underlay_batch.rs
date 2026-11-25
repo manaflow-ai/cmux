@@ -80,6 +80,8 @@ pub struct SendBatch {
 }
 
 impl SendBatch {
+    /// An unmarked datagram: only tests stage one without choosing its [`Mark`].
+    #[cfg(test)]
     pub(crate) fn push(&mut self, datagram: &[u8], target: SocketAddr) {
         self.push_marked(datagram, target, Mark::Plain);
     }

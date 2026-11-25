@@ -1293,6 +1293,7 @@ class GateWorkflowTests(unittest.TestCase):
             patterns = on[event]["paths"]
             with self.subTest(event=event):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift", "Packages/Shared/README.md"):
                     self.assertFalse(github_paths_match(patterns, path), path)
                 for path in ("cmux-next-ios/CmuxMobileApp/App.swift", "cmux-next-ios/project.yml",
@@ -1318,6 +1319,7 @@ class GateWorkflowTests(unittest.TestCase):
         for event, matches in matchers.items():
             with self.subTest(event=event):
                 for path in ("cmux-next-ios/SECURITY.md", "cmux-next-ios/verify/parity-mac.md",
+                             "cmux-next-ios/verify/parity-mac/2026-11-25-find-in-terminal.md",
                              "cmux-next-ios/verify/alignment/alignscan.swift",
                              "cmux-next-ios/CmuxMobileKit/README.md", "Packages/Shared/CmuxSpinner/README.md"):
                     self.assertFalse(matches(path), path)
