@@ -35,7 +35,9 @@ function lineDecorations(state: EditorState): DecorationSet | null {
   const line = caretLine(state);
   if (!line) return null;
   return DecorationSet.create(state.doc, [
-    Decoration.node(line.pos, line.pos + line.node.nodeSize, { class: "acpmux-md-caret-line" }),
+    Decoration.node(line.pos, line.pos + line.node.nodeSize, {
+      class: "acpmux-md-caret-line",
+    }),
   ]);
 }
 
@@ -131,6 +133,10 @@ export function inlineCaretPlugin(): Plugin {
         last = "";
       };
       caret.hidden = true;
+      // The field and every chip drawn on a caret line (`draw`); a chip gone from the editor is
+      // let go by the observer with its node.
+      let observer: ResizeObserver | undefined;
+      const observed = new WeakSet<Element>();
       // perf-hot: one caret layout read per selection change, only on a line with an attachment composer-draft-typing
       const draw = () => {
         const line = caretLine(view.state);
@@ -157,6 +163,18 @@ export function inlineCaretPlugin(): Plugin {
           }
         }
         if (!field) return hide();
+        // Each chip on the caret's line too: a chip's view draws its box after the transaction that
+        // placed it (its picture, its name), and the caret placed beside its empty box stood at the
+        // line's start until the field itself resized (Leo, 2026-11-22: "there's a breif moment where
+        // i see the caret at the beginning of the composer after the preview for the attachment has
+        // already shown up, and then it doesn't follow as fast"). The observer answers after layout
+        // and before paint, so the caret moves in the frame the chip first draws at its size.
+        if (observer)
+          for (const chip of block.querySelectorAll("[data-inline-attachment]"))
+            if (!observed.has(chip)) {
+              observed.add(chip);
+              observer.observe(chip);
+            }
         const box = field.getBoundingClientRect();
         const scale = field.offsetWidth > 0 ? box.width / field.offsetWidth || 1 : 1;
         const place = caretPlace(view, block, scale);
@@ -181,7 +199,7 @@ export function inlineCaretPlugin(): Plugin {
           blink.play();
         }
       };
-      const observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => draw()) : undefined;
+      observer = typeof ResizeObserver === "function" ? new ResizeObserver(() => draw()) : undefined;
       observer?.observe(view.dom);
       // Each attachment's node too: a chip changes its width with no transaction and, beside other
       // chips or text, without changing the field's size (its React chip portals in after the

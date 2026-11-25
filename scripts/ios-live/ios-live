@@ -57,7 +57,9 @@ else
 fi
 need_slot() { [[ -n "$host" && -n "$slot" ]] || die "you hold no slot: ios-live lease take (or IOS_LIVE_AT=HOST/SLOT to look at one; ios-live slots lists them)"; }
 quiet() { grep -v -e '^mux_client_request_session' -e '^ControlSocket .* already exists' >&2 || true; }
-on_host() { reach "$host" "$@" 2> >(quiet); }
+# REACH_AUTO_LEASE=0: a slot command needs no whole-host fleet lease (the slot lease in host.sh admits it; the lane-gh
+# broker relays the host_sh form on an ios pool host without one), so reach must never take the host to run it.
+on_host() { REACH_AUTO_LEASE=0 reach "$host" "$@" 2> >(quiet); }
 
 # host_sh [--patch FILE] ARGS...: one round trip. The host gets this checkout's host.sh (and the
 # patch) on stdin as a tar, then runs host.sh ARGS. reach does not always pass the remote exit

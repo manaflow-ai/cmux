@@ -174,9 +174,6 @@ public final class LinkController {
         self.beat = beat
         self.events = LinkConnectivityEvents(telemetry: telemetry)
         self.accessToken = accessToken
-        #if canImport(UIKit)
-        watchKeyboard()
-        #endif
     }
 
     public var target: LinkMachine.Target? { machine.target }
@@ -340,9 +337,11 @@ public final class LinkController {
             }
             endpoint.relayOnly = machine.relayOnly
             endpoint.blockUDP = machine.blockUDP
+            endpoint.proxyOnly = DeveloperOptions.proxyOnly
+            endpoint.dropWireGuard = DeveloperOptions.dropWireGuard
             endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
             endpoint.forceRelay = DeveloperOptions.forceRelay
-            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public)")
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public) proxyOnly=\(endpoint.proxyOnly, privacy: .public) dropWireGuard=\(endpoint.dropWireGuard, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
@@ -629,24 +628,12 @@ public final class LinkController {
     /// The keyboard is coming up over this link's terminal or chat: the
     /// first key follows in a few hundred ms. Waking the radio now moves
     /// the idle-to-connected promotion off that key (RFD 0142 T2). The
-    /// Rust link decides whether a datagram goes out.
+    /// coordinator calls it for the focused Mac only; the Rust link
+    /// decides whether a datagram goes out.
     public func prewake() {
         guard onScreen, !machine.isBackgrounded else { return }
         link?.prewake()
     }
-
-    #if canImport(UIKit)
-    @ObservationIgnored private var keyboardTask: Task<Void, Never>?
-
-    private func watchKeyboard() {
-        keyboardTask = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: UIResponder.keyboardWillShowNotification) {
-                guard let self else { return }
-                self.prewake()
-            }
-        }
-    }
-    #endif
 
     private func adopt(_ link: any MacLink, generation: Int) {
         ConnectTimeline.shared.mark("link_adopted")

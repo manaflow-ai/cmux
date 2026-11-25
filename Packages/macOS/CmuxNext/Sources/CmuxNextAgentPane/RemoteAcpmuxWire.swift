@@ -1,5 +1,6 @@
 public import Foundation
 import CmuxNextCompat
+import CmuxNextWakeups
 import os
 
 /// The wire of a chat whose acpmux runs on another machine: it answers the page's acpmux
@@ -58,6 +59,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// (`agent-session-start-owner-cloud-v1`). Read at each `initialize`; the page then lets a
     /// Codex or opencode chat send (`ownerCloud`, remoteEditing.ts).
     public typealias OwnerCloud = @Sendable () async -> Bool
+    /// Notes a chat's own summary (an acpmux session summary) read on machine `host` (the tab's `install:<id>`) in the
+    /// app's turn store (`AgentTurnStateStore.noteRemote(_:host:machine:)`), which this target cannot see.
+    public typealias ChatNoted = @MainActor @Sendable (_ summary: [String: Any], _ host: String) -> Void
+    /// Whether the chat's machine is the person's own right now (a Cloud VM: the Cloud API's owner answer on its link, read
+    /// at each note and never kept). A wire with none notes for any machine it attaches to (an SSH machine the person added).
+    public typealias ChatOwned = @Sendable () async -> Bool
     /// A one-shot Cloud repository request on the tab's owning daemon connection.
     public typealias CloudRepository = @Sendable (String, [String: any Sendable], Duration?) async throws -> Data
     public typealias CloudRepositoryStart = @Sendable (UInt64, String, [String: any Sendable], Duration?) async throws -> Data
@@ -93,6 +100,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         var lastPick: Task<Void, Never>?
         /// The ``Milestone``s already told, each once.
         var told: Set<String> = []
+        /// The latest ``noteChat(_:)``: an older note whose owner check answered later is dropped, never written over it.
+        var noted = 0
     }
 
     /// A new chat's first prompt out (`prompt`), its start answered (`start`) and its agent's first text
@@ -120,6 +129,8 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     private let cloudRepositoryRequest: CloudRepository?
     private let cloudRepositoryStart: CloudRepositoryStart?
     private let host: String?
+    private let chatNoted: ChatNoted?
+    private let chatOwned: ChatOwned?
     private let milestone: Milestone?
     /// The daemon's own store host (`registry:<id>`) when the tab's `host` names another (an
     /// `install:` tab of that machine): its links are noted under both, so a lookup by either finds them.
@@ -129,8 +140,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     /// The wire of the chat `session` (its store record), through `client`.
     public init(client: any AgentSessionRemoteClient, session: String, host: String? = nil, linksAlias: String? = nil,
                 trust: Trust? = nil, ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
-                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true) {
+                cloudRepositoryStart: CloudRepositoryStart? = nil, machineSignIn: Bool = true, chatNoted: ChatNoted? = nil,
+                chatOwned: ChatOwned? = nil) {
         start = nil
+        self.chatNoted = chatNoted
+        self.chatOwned = chatOwned
         milestone = nil
         servesLogin = false
         self.machineSignIn = machineSignIn
@@ -150,8 +164,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
     public init(start: @escaping Start, host: String? = nil, linksAlias: String? = nil, trust: Trust? = nil,
                 ownerCloud: OwnerCloud? = nil, cloudRepository: CloudRepository? = nil,
                 cloudRepositoryStart: CloudRepositoryStart? = nil, servesLogin: Bool = false, servesSide: Bool = false,
-                machineSignIn: Bool = true, machineLogin: MachineLogin? = nil, milestone: Milestone? = nil) {
+                machineSignIn: Bool = true, machineLogin: MachineLogin? = nil, milestone: Milestone? = nil, chatNoted: ChatNoted? = nil,
+                chatOwned: ChatOwned? = nil) {
         self.start = start
+        self.chatNoted = chatNoted
+        self.chatOwned = chatOwned
         self.milestone = milestone
         self.servesLogin = servesLogin && machineSignIn
         self.machineSignIn = machineSignIn
@@ -635,6 +652,7 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         tellFirstToken(in: object)
         let summary = object["session"] as? [String: Any]
         if let resolved = summary?["sessionId"] as? String { state.withLock { $0.resolved = resolved } }
+        if let summary { noteChat(summary) }
         guard method == "_acpmux/watch" else { return result }
         let listed = (try? await client.children()).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
         let children = (listed?["sessions"] as? [[String: Any]] ?? []).filter { child in
@@ -669,6 +687,55 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 if let remoteHost { links.noteAliases(remoteHost, alias) }
             }
         }
+    }
+
+    /// Hands this chat's own summary (the attach, then each change) to ``chatNoted`` on the main actor with the tab's host: the
+    /// app notes the chat's names, so its tab and workspace take its title as a local chat's do (cmux#55668). A wire
+    /// with no host or no ``chatNoted`` (tests, an old route) notes nothing.
+    private func noteChat(_ summary: [String: Any]) {
+        // A read-only view (a teammate's chat, observe mode) never names this Mac's tabs or workspaces.
+        // Only its name fields, each capped, cross to the main actor: never its icon bytes or any other field.
+        let names = Self.chatNames(summary)
+        guard let host, let chatNoted, !isReadOnly, JSONSerialization.isValidJSONObject(names),
+              let data = try? JSONSerialization.data(withJSONObject: names) else { return }
+        // A tab whose record holds another name of the chat (its session name) reads it under that name too, and a Cloud
+        // machine's own tab names its chat under the daemon's store host (`registry:<id>`, ``linksAlias``), as its links are noted.
+        let alias = state.withLock { $0.session }.flatMap { $0 != summary["sessionId"] as? String ? $0 : nil }
+        let hosts = [host] + (linksAlias.flatMap { $0 != host ? [$0] : nil } ?? [])
+        let note = state.withLock { state in
+            state.noted &+= 1
+            return state.noted
+        }
+        // The wire held weakly (its `Mutex` state cannot be captured by value): a closed wire's late note is dropped.
+        let deliver: @Sendable () -> Void = { [weak self] in
+            MainDelivery().run {
+                guard let self, self.state.withLock({ $0.noted }) == note,
+                      var summary = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+                for host in hosts { chatNoted(summary, host) }
+                if let alias {
+                    summary["sessionId"] = alias
+                    for host in hosts { chatNoted(summary, host) }
+                }
+            }
+        }
+        guard let chatOwned else { return deliver() }
+        // A Cloud VM names this Mac's tabs only while the Cloud API says it is the person's own (never a teammate's).
+        Task { if await chatOwned() { deliver() } }
+    }
+
+    /// The fields of a chat summary its names are read from (`AgentTurnStateStore.remoteFields`), each string capped at
+    /// 4096 characters and at most 8 former names: what ``noteChat(_:)`` hands on of another machine's summary.
+    static func chatNames(_ summary: [String: Any]) -> [String: Any] {
+        // By Unicode scalars: one `Character` may stack any number of combining marks.
+        func capped(_ text: String) -> String { String(String.UnicodeScalarView(text.unicodeScalars.prefix(4096))) }
+        var names: [String: Any] = [:]
+        for key in ["sessionId", "title", "titleSource", "lastPrompt", "name", "harness", "family", "displayName"] {
+            if let text = summary[key] as? String { names[key] = capped(text) }
+        }
+        if let former = summary["formerNames"] as? [Any] {
+            names["formerNames"] = former.suffix(8).compactMap { ($0 as? String).map(capped) }
+        }
+        return names
     }
 
     /// acpmux answers `hasMore`; the page's replay loop reads `more`, so both are set.
@@ -708,8 +775,9 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // A child's change (the daemon streams only this session's descendants): a new child
             // joins the chat's Subagents summary and the sidebar's tree.
             if let changed = change as? [String: Any], let session = changed["session"] as? [String: Any],
-               let id = changed["sessionId"] as? String, !names(id) {
-                noteLinks([session])
+               let id = changed["sessionId"] as? String {
+                // Noted under the session it was checked against, never the one its summary claims.
+                if names(id) { var session = session; session["sessionId"] = id; noteChat(session) } else { noteLinks([session]) }
             }
             notify("_acpmux/session_changed", change)
         case .presence(let data):

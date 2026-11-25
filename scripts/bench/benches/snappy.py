@@ -12,6 +12,9 @@ live app's perf watch):
   send_first_token (ms)              Enter keydown to the first reply text
   chat_switch_paint (ms)             a chat turning visible to its first frame with rows; target 16
   failed_sends (count)
+  shifts_per_transition (count, p95 = max)  one counter of layout shifts over every turn transition: each send, each
+                                     mid-turn send (a steer or a queued prompt), each /compact, each prompt sent mid-compaction; target 0
+  shifts_per_mid_turn, shifts_per_compaction, shifts_per_mid_compaction (count)  its kinds apart
 Run: `cmux-bench snappy --host fleet [--arg ref=SHA] [--arg duress=none,offline] [--arg sends=12] [--arg cpu_load=1]`.
 `--import PATH` reads a snappy.json, or the JSON line `snappy-bench.py --summarize ~/.acpmux/perf-watch.jsonl` prints
 (the passive reading of a NIGHTLY with `acpmux perf on`, local and cloud).
@@ -82,6 +85,14 @@ class Snappy(Bench):
                 ctx.row("shifts_per_send", r["shifts_per_send_mean"], "count", p50=r["shifts_per_send_mean"],
                         p95=r.get("shifts_per_send_max"), n=n, labels=labels)
             ctx.row("failed_sends", float(r.get("failed_sends") or 0), "count", n=n, labels=labels)
+            if r.get("shifts_per_transition_mean") is not None:
+                t = r.get("transitions")
+                ctx.row("shifts_per_transition", r["shifts_per_transition_mean"], "count",
+                        p50=r["shifts_per_transition_mean"], p95=r.get("shifts_per_transition_max"), n=t, labels=labels)
+                for kind in ("mid_turn", "compaction", "mid_compaction"):
+                    if r.get(f"shifts_per_{kind}_mean") is not None:
+                        ctx.row(f"shifts_per_{kind}", r[f"shifts_per_{kind}_mean"], "count", n=t, labels=labels)
+                ctx.row("failed_transitions", float(r.get("failed_transitions") or 0), "count", n=t, labels=labels)
 
 
 BENCH = Snappy()
