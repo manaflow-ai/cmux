@@ -70,7 +70,7 @@ mod launchd_standby;
 mod take_over_yield;
 use managed_unit::managed_unit_connect_with;
 mod take_over;
-use take_over::acquire_daemon_lock;
+use take_over::{acquire_daemon_lock, managed_by_acpmux_unit};
 mod token_rotation;
 pub(crate) use token_rotation::TOKEN_ROTATION;
 use token_rotation::{random_token, rotate_saved_token_once};

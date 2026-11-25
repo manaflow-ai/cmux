@@ -4,14 +4,14 @@ use super::*;
 /// This keeps `RestartPreventExitStatus=75` as a guard for detached starts without
 /// making the supervised unit inactive during the ordinary handover window.
 #[cfg(target_os = "linux")]
-fn managed_by_acpmux_unit() -> bool {
+pub(super) fn managed_by_acpmux_unit() -> bool {
     std::fs::read_to_string("/proc/self/cgroup")
         .ok()
         .is_some_and(|cgroup| cgroup.lines().any(|line| line.ends_with("/acpmux.service")))
 }
 
 #[cfg(not(target_os = "linux"))]
-fn managed_by_acpmux_unit() -> bool {
+pub(super) fn managed_by_acpmux_unit() -> bool {
     false
 }
 
