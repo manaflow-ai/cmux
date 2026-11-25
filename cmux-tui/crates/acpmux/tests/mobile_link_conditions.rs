@@ -145,9 +145,14 @@ struct Link {
     /// Every inbound frame with its arrival: `None` for a ping or pong.
     rx: mpsc::UnboundedReceiver<(Instant, Option<Value>)>,
     pending: VecDeque<(Instant, Value)>,
+    /// Replies that came before the one being waited on: acpmux may answer a later request of a
+    /// burst first, and the phone's connection matches replies by id (`AcpmuxConnection`).
+    early: std::collections::HashMap<i64, (Instant, Value)>,
     next: i64,
     last_inbound: Instant,
     capabilities: Vec<String>,
+    /// How long `open` took to dial and upgrade the WebSocket, before its first request.
+    upgraded: Duration,
     /// Every frame either way, by message type (the bytes-per-minute bench reads it).
     tap: Arc<Tap>,
 }
@@ -191,9 +196,11 @@ impl Link {
             sink,
             rx,
             pending: VecDeque::new(),
+            early: std::collections::HashMap::new(),
             next: 0,
             last_inbound: Instant::now(),
             capabilities: Vec::new(),
+            upgraded: Duration::ZERO,
             tap,
         })
     }
@@ -244,17 +251,25 @@ impl Link {
 
     /// The answer to `id` and when it came; notifications on the way wait in `pending`.
     async fn answer(&mut self, id: i64, deadline: Instant) -> Result<(Instant, Value), String> {
+        let done = |at: Instant, v: Value| match v.get("error") {
+            Some(e) => Err(format!("request {id}: {e}")),
+            None => Ok((at, v["result"].clone())),
+        };
+        if let Some((at, v)) = self.early.remove(&id) {
+            return done(at, v);
+        }
         loop {
             match self.frame(deadline).await {
                 Next::Frame(at, v) => {
-                    if v.get("id") == Some(&json!(id)) && v.get("method").is_none() {
-                        if let Some(e) = v.get("error") {
-                            return Err(format!("request {id}: {e}"));
-                        }
-                        return Ok((at, v["result"].clone()));
-                    }
                     if v.get("method").is_some() {
                         self.pending.push_back((at, v));
+                    } else if v.get("id") == Some(&json!(id)) {
+                        return done(at, v);
+                    } else if let Some(other) = v.get("id").and_then(Value::as_i64) {
+                        if std::env::var_os("NETCOND_DEBUG").is_some() {
+                            eprintln!("netcond-debug reply {other} came before {id}");
+                        }
+                        self.early.insert(other, (at, v));
                     }
                 }
                 Next::Silent => return Err(format!("no answer to request {id} in time")),
@@ -296,9 +311,11 @@ impl Link {
         if delta {
             meta["sessionChangedDelta"] = json!(true);
         }
+        let dialed = Instant::now();
         let mut link = tokio::time::timeout_at(deadline, Self::dial(addr))
             .await
             .map_err(|_| "connect timed out".to_owned())??;
+        link.upgraded = dialed.elapsed();
         let init = link
             .post(
                 "initialize",
@@ -1534,9 +1551,13 @@ async fn chat_cold_open_while_the_agent_works() {
 //   on the new link, then `_acpmux/attach {afterSeq, beforeSeq, maxBytes}` (tail-first); on a
 //   gap with `hasMore`, the `_acpmux/events` read after the newest page that tells the two Mac
 //   kinds apart, then forward pages while `hasMore`.
-// - after (the cursor form, newest page first): the same attach; the chat is current once the
-//   page reaches the host's `lastSeq` (`pageThrough`), with no confirming read.
-// `catch_up_ms` from the dial to the phone holding the host's newest record.
+// - after (the phone with this change, AcpmuxHub.pipelineAttaches and pageReachesEnd): the
+//   attach goes in the same burst as initialize and the watch, with the kinds the last
+//   connection named; the chat is current once the page says it reaches the host's `lastSeq`
+//   (`pageThrough`), with no confirming read (a reply short of it still gets the read).
+// `catch_up_ms` from the dial to the phone holding the host's newest record; `upgrade_ms` the
+// WebSocket upgrade alone (the terminal bench's connect has no such leg: its channel rides the
+// link), and `resume_ms` the rest, which is what compares with the terminal's rows.
 // Rows: surface `chat`, scale `<away>-<load>`.
 
 const BG_BUSY_TURN_EVERY_S: u64 = 2;
@@ -1585,16 +1606,61 @@ async fn bg_chat_once(
     session: &str,
     after: u64,
     phase: &str,
-) -> Result<(Duration, u64, bool), String> {
+    cached: &[String],
+) -> Result<(Duration, Duration, u64, bool), String> {
     shaper.reset_counters();
     let start = Instant::now();
     let deadline = start + BOUND;
-    let mut link = Link::open(shaper.addr(), token, deadline).await?;
-    let params = json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": link.kinds(),
+    let tail = |kinds: Value| {
+        json!({"sessionId": session, "limit": PAGE_SIZE, "kinds": kinds,
         "eventStream": true, "afterSeq": after, "beforeSeq": TAIL_BEFORE_SEQ,
-        "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES});
-    let id = link.post("_acpmux/attach", params).await?;
-    let (_, reply) = link.answer(id, deadline).await?;
+        "maxBytes": OPEN_BYTES, "toolOutputMaxBytes": TOOL_OUTPUT_MAX_BYTES,
+        // The phone holds a breakdown version from its last attach, so it asks for none
+        // (`AcpmuxHub.attachParams`).
+        "omitTimeBreakdown": true})
+    };
+    let (upgrade, mut link, reply) = if phase == "before" {
+        let mut link = Link::open(shaper.addr(), token, deadline).await?;
+        let upgrade = link.upgraded;
+        let id = link.post("_acpmux/attach", tail(link.kinds())).await?;
+        let (_, reply) = link.answer(id, deadline).await?;
+        (upgrade, link, reply)
+    } else {
+        // initialize, the watch and the attach in one burst, as #54388's early attach writes it
+        // (`AcpmuxHub+EarlyAttach.swift`): every Mac's kinds, the sudo-card kinds in `alsoKinds`.
+        let mut link = tokio::time::timeout_at(deadline, Link::dial(shaper.addr()))
+            .await
+            .map_err(|_| "connect timed out".to_owned())??;
+        let upgrade = start.elapsed();
+        let _ = cached;
+        let mut pipelined = tail(json!(CHAT_KINDS));
+        pipelined["alsoKinds"] = json!(ELEVATION_KINDS);
+        let init = link
+            .post(
+                "initialize",
+                json!({"protocolVersion": 1, "clientInfo": {"name": "cmux-ios", "version": "1"},
+                       "clientCapabilities": {}, "_meta": {"acpmux": {"localAppToken": token}}}),
+            )
+            .await?;
+        let watch =
+            link.post("_acpmux/watch", json!({"enabled": true, "limit": WATCH_LIMIT})).await?;
+        let id = link.post("_acpmux/attach", pipelined.clone()).await?;
+        let (_, init) = link.answer(init, deadline).await?;
+        link.capabilities = init
+            .pointer("/_meta/acpmux/capabilities")
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default();
+        link.answer(watch, deadline).await?;
+        let (_, mut reply) = link.answer(id, deadline).await?;
+        let has = |c: &str| link.capabilities.iter().any(|x| x == c);
+        if has(ELEVATION_CAPABILITY) && !has(ALSO_KINDS_CAPABILITY) {
+            // A Mac that serves sudo cards but does not fold `alsoKinds`: the phone asks again.
+            let id = link.post("_acpmux/attach", tail(link.kinds())).await?;
+            reply = link.answer(id, deadline).await?.1;
+        }
+        (upgrade, link, reply)
+    };
     let last = reply["lastSeq"].as_u64().ok_or(format!("attach has no lastSeq: {reply}"))?;
     let page = rows(&reply);
     bg_debug(phase, "attach", &reply);
@@ -1603,7 +1669,11 @@ async fn bg_chat_once(
     let gap = more && page.first().is_some_and(|first| *first > after + 1);
     let hit = !more;
     let mut cursor = page.last().copied();
-    if phase == "before" && gap {
+    let reaches_end = matches!(
+        (reply["pageThrough"].as_u64(), reply["lastSeq"].as_u64()),
+        (Some(through), Some(last)) if through >= last
+    );
+    if gap && (phase == "before" || !reaches_end) {
         // The read that tells a tail-first Mac from a forward-only one.
         let newest = page.last().copied().unwrap_or(after);
         let id = link
@@ -1640,10 +1710,45 @@ async fn bg_chat_once(
         cursor = events.last().copied();
     }
     let took = start.elapsed();
+    if std::env::var_os("NETCOND_DEBUG").is_some() {
+        // What came down, by message type, against the shaper's count.
+        // Each notification, with its biggest session fields, and what lands in the next 1.5 s.
+        let show = |when: &str, v: &Value| {
+            let mut fields: Vec<(String, usize)> = v["params"]["session"]
+                .as_object()
+                .map(|m| m.iter().map(|(k, x)| (k.clone(), x.to_string().len())).collect())
+                .unwrap_or_default();
+            fields.sort_by(|a, b| b.1.cmp(&a.1));
+            fields.truncate(6);
+            eprintln!(
+                "netcond-debug {phase} {when} {} kind {} recordKind {} seq {} bytes {} top {:?}",
+                v["method"],
+                v["params"]["kind"],
+                v["params"]["recordKind"],
+                v["params"]["seq"],
+                v.to_string().len(),
+                fields
+            );
+        };
+        for (_, v) in &link.pending {
+            show("held", v);
+        }
+        let tail_end = Instant::now() + Duration::from_millis(1500);
+        while let Next::Frame(_, v) = link.frame(tail_end).await {
+            show("late", &v);
+        }
+        let tapped = link.tap.take();
+        let total: u64 = tapped.down.values().map(|(_, b)| b).sum();
+        eprintln!(
+            "netcond-debug {phase} down: {total} bytes read, {} on the wire, {:?}",
+            shaper.counters().down_bytes,
+            tapped.down
+        );
+    }
     if held < last {
         return Err(format!("the phone holds {held}, the host {last}"));
     }
-    Ok((took, last.saturating_sub(after), hit))
+    Ok((took, upgrade, last.saturating_sub(after), hit))
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1696,16 +1801,19 @@ async fn chat_background_catch_up_after_time_away() {
             let span_turns = if busy { (secs / BG_BUSY_TURN_EVERY_S).min(max_turns) } else { 0 };
             for run in 0..runs {
                 let seed = seed_base + run;
-                // The phone's cursor: the newest record when it left.
-                let after = {
+                // The phone's cursor: the newest record when it left, and the capabilities its
+                // last connection to this Mac named.
+                let (after, cached) = {
                     let deadline = Instant::now() + BOUND;
                     let probe = async {
                         let mut link = Link::open(upstream, &listener.token, deadline).await?;
                         let (_, reply) = link.attach(&session, None, deadline).await?;
-                        reply["lastSeq"].as_u64().ok_or(format!("no lastSeq: {reply}"))
+                        let last =
+                            reply["lastSeq"].as_u64().ok_or(format!("no lastSeq: {reply}"))?;
+                        Ok::<_, String>((last, link.capabilities.clone()))
                     };
                     match probe.await {
-                        Ok(after) => after,
+                        Ok(found) => found,
                         Err(why) => {
                             println!("NETCOND-ERROR chat {scale} run {run}: cursor: {why}");
                             continue;
@@ -1734,10 +1842,21 @@ async fn chat_background_catch_up_after_time_away() {
                     for phase in ["before", "after"] {
                         let k = Key { profile: &name, phase, scale: &scale, run, seed };
                         emit(&k, "stale_s", Some(secs as f64));
-                        match bg_chat_once(&shaper, &listener.token, &session, after, phase).await {
-                            Ok((took, behind, hit)) => {
+                        match bg_chat_once(
+                            &shaper,
+                            &listener.token,
+                            &session,
+                            after,
+                            phase,
+                            &cached,
+                        )
+                        .await
+                        {
+                            Ok((took, upgrade, behind, hit)) => {
                                 emit(&k, "events_behind", Some(behind as f64));
                                 emit(&k, "catch_up_ms", Some(ms(took)));
+                                emit(&k, "upgrade_ms", Some(ms(upgrade)));
+                                emit(&k, "resume_ms", Some(ms(took.saturating_sub(upgrade))));
                                 emit_bytes(&k, &shaper);
                                 emit(&k, "cursor_hit", Some(f64::from(u8::from(hit))));
                             }

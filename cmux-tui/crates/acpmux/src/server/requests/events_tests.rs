@@ -609,3 +609,25 @@ fn the_newest_page_asked_past_the_end_holds_to_the_logs_last_record() {
     }
     let _ = std::fs::remove_dir_all(root);
 }
+
+/// An attach page reaches the log's end (its `pageThrough` is `lastSeq`) when it is a newest page
+/// or a forward page with nothing more to read; the phone then skips its confirming read
+/// (cmux-next-ios `AcpmuxSessionSource.pageReachesEnd`).
+#[test]
+fn a_tail_first_reattach_page_reaches_the_end() {
+    // The phone's tail-first reattach: afterSeq and beforeSeq = 2^40, more before the page.
+    assert!(reads_to_end(true, Some(1 << 40), 500, true));
+    assert!(reads_to_end(true, Some(501), 500, true));
+    // The newest page of an open, and a forward page that read to the end.
+    assert!(reads_to_end(false, None, 500, true));
+    assert!(reads_to_end(true, None, 500, false));
+}
+
+#[test]
+fn older_and_unfinished_forward_pages_do_not_reach_the_end() {
+    // An older page (beforeSeq at or inside the log) holds only to its own last record.
+    assert!(!reads_to_end(false, Some(500), 500, false));
+    assert!(!reads_to_end(true, Some(200), 500, true));
+    // A forward page with more to read.
+    assert!(!reads_to_end(true, None, 500, true));
+}
