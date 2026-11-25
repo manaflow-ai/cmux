@@ -259,7 +259,7 @@ pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<S
 /// Whether a `moving` mark names a move (its transfer id), not a mark that only freezes the
 /// chat (`MOVED_AWAY`, `LOG_UNREADABLE`, `IMPORTING`).
 pub(super) fn names_a_move(mark: &str) -> bool {
-    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING
+    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
 /// Where a move's begin token is kept, in its bundle folder.
@@ -283,6 +283,9 @@ pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
     is_begin_token(token).then(|| token.to_owned())
 }
 
+#[cfg(test)]
+#[path = "auto_startup_tests.rs"]
+mod auto_startup_tests;
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
@@ -826,6 +829,13 @@ impl Hub {
         });
         if let Some(id) = carried {
             answer.set("continues", json!(id));
+        }
+        // The chat's agent memory goes with it (`memory_follow.rs`).
+        let settings = crate::user_settings::text();
+        let memory =
+            crate::memory_follow::outgoing(settings.as_deref(), &session.meta().session_env);
+        if let Some(memory) = memory {
+            answer.set(crate::memory_follow::MANIFEST_FIELD, memory);
         }
         // The agent program its harness runs here: a receiver with no harness of that name
         // checks `--as` against it and names its own one for the same agent (`transfer_in.rs`).
