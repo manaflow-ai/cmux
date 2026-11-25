@@ -1620,6 +1620,8 @@ impl Link {
             // since the phone's ping is due before then.
             let extra = if link.inner.role == Role::Mac { interval / 4 } else { Duration::ZERO };
             let suspect_after = config.suspect_after.filter(|after| !extra.is_zero() && *after < extra);
+            // `config` is borrowed: the task takes its own copy of the timeout.
+            let timeout = config.keepalive_timeout;
             tasks.push(tokio::spawn(async move {
                 let mut closed = link.inner.closed.subscribe();
                 let mut last_ping = Instant::now();
@@ -1667,7 +1669,7 @@ impl Link {
                     loop {
                         // Wait for the pong, but count any inbound frame as
                         // life: a pong can trail a full transmit queue.
-                        let deadline = link.inner.last_received().max(credited) + config.keepalive_timeout;
+                        let deadline = link.inner.last_received().max(credited) + timeout;
                         tokio::select! {
                             result = &mut ping => {
                                 if result.is_err() {
@@ -1681,7 +1683,7 @@ impl Link {
                                     break;
                                 }
                                 let quiet_since = link.inner.last_received().max(credited);
-                                if quiet_since + config.keepalive_timeout <= Instant::now() {
+                                if quiet_since + timeout <= Instant::now() {
                                     if link.inner.reliable.is_some() {
                                         link.inner.lose_carrier("keepalive timed out");
                                         continue 'beat;
