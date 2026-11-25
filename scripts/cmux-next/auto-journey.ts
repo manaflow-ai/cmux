@@ -352,6 +352,8 @@ async function main(): Promise<number> {
     await J.step("Mac daemon (cloud.autoCloud on, this run's HOME)", async () => {
       mkdirSync(path.join(home, ".config", NEXT_DIR, "harnesses"), { recursive: true });
       const settings = path.join(home, ".config", "cmux", "cmux-next.json");
+      // The settings folder is not the profile folder on macOS (`cmux` vs `cmux-next`), so make it on its own.
+      mkdirSync(path.dirname(settings), { recursive: true });
       writeFileSync(settings, JSON.stringify({ cloud: { autoCloud: true } }, null, 2));
       const script = path.join(home, "auto-journey-agent.sh");
       writeFileSync(script, agentScript("mac"));
