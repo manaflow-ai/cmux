@@ -335,6 +335,10 @@ public final class CloudAuth {
     /// Where a sign-in opens; the App reads its Debug Settings tunable here.
     @ObservationIgnored public var signInWindow: @MainActor () -> CloudSignInWindow = { .automatic }
 
+    /// Opens the hosted sign-in page in a cmux browser tab; false when no window can take it (then the popup or
+    /// the default browser opens instead). The App installs it; nil keeps the popup-or-browser rule.
+    @ObservationIgnored public var openSignInInApp: (@MainActor (URL) -> Bool)?
+
     /// Hosted browser sign-in; returns whether the app ended signed in.
     /// Every entry point (Settings, the palette, the sidebar, the Cloud page)
     /// comes through here, so they all open the same window.
@@ -348,8 +352,17 @@ public final class CloudAuth {
     @discardableResult
     public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
         guard !captureCleanupActive else { return Task { false } }
-        let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
-        return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
+        let inApp = usesCaptureFixture ? nil : openSignInInApp
+        switch signInWindow().place(defaultBrowser: CloudSignInWindow.currentDefaultBrowser(), inApp: inApp != nil) {
+        case .inApp:
+            // The page's `<scheme>://auth-callback` comes back from the tab through the app's open-URL route
+            // (BrowserExternalApps.openOwn) to handleCallback, which still checks this attempt's state.
+            return browserSignIn.beginSignIn(selectAccount: selectAccount, openingWith: inApp)
+        case .defaultBrowser:
+            return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: true)
+        case .popup:
+            return browserSignIn.beginSignIn(selectAccount: selectAccount)
+        }
     }
 
     /// Opens the sign-in in progress in the default browser (the person's

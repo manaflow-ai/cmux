@@ -54,6 +54,51 @@ struct BrowserExternalAppConsentTests {
         #expect(routed == [back, back] && asked == 0 && closed == 1)
     }
 
+    /// Settings > Connections opens a vendor's authorize page in a cmux tab; its return to
+    /// `<scheme>://settings/integrations` goes to the app with no prompt and that tab closes. The tab
+    /// is the one the app opened (its first requested address, before any redirect), not a URL guess.
+    @Test func aFlowTabTheAppOpenedHandsItsReturnBackAndCloses() throws {
+        let (apps, cleanup) = try Self.apps()
+        defer { cleanup() }
+        var routed: [URL] = [], asked = 0, closed = 0
+        apps.openOwnURL = { routed.append($0) }
+        apps.isOwnHandoff = { _ in false }
+        apps.closesHandoffTab = { _ in false }
+        apps.isFlowReturn = { $0.host == "settings" }
+        let back = try #require(URL(string: "cmux-nightly://settings/integrations"))
+        let connect = try #require(URL(string: "https://api.cmux.dev/v1/mcp-servers/oauth/start?id=linear"))
+        let vendor = URL(string: "https://linear.app/oauth/consent")
+
+        // Not opened for a flow: the settings link asks, as any own link does.
+        apps.open(back, from: vendor, userGesture: false, firstPage: vendor, requestedPage: connect, close: { closed += 1 }) { _, _, _ in asked += 1 }
+        #expect(routed.isEmpty && asked == 1 && closed == 0)
+
+        apps.noteFlowPage(connect)
+        apps.open(back, from: vendor, userGesture: false, firstPage: vendor, requestedPage: connect, close: { closed += 1 }) { _, _, _ in asked += 1 }
+        #expect(routed == [back] && asked == 1 && closed == 1)
+
+        // The flow ended: a second return from that address is not a flow's any more.
+        apps.open(back, from: vendor, userGesture: false, firstPage: vendor, requestedPage: connect, close: { closed += 1 }) { _, _, _ in asked += 1 }
+        #expect(routed == [back] && asked == 2 && closed == 1)
+    }
+
+    /// The cmux sign-in opened in a cmux tab: its `auth-callback` (an own handoff) closes the tab the
+    /// app opened for it, though the hosted page does not look like a provider's sign-in page.
+    @Test func theCmuxSignInTabClosesOnItsCallback() throws {
+        let (apps, cleanup) = try Self.apps()
+        defer { cleanup() }
+        var routed: [URL] = [], closed = 0
+        apps.openOwnURL = { routed.append($0) }
+        apps.isOwnHandoff = { $0.host == "auth-callback" }
+        apps.closesHandoffTab = { _ in false }
+        let signIn = try #require(URL(string: "https://cmux.com/handler/native-sign-in?cmux_auth_state=s"))
+        let callback = try #require(URL(string: "cmux-nightly://auth-callback?cmux_auth_state=s"))
+        apps.noteFlowPage(signIn)
+        apps.open(callback, from: URL(string: "https://cmux.com/handler/after-sign-in"), userGesture: false,
+                  firstPage: URL(string: "https://cmux.com/handler/sign-in"), requestedPage: signIn, close: { closed += 1 }) { _, _, _ in }
+        #expect(routed == [callback] && closed == 1)
+    }
+
     /// Any other link in this app's scheme still asks, and on Allow goes to the app's own route, never Launch Services.
     @Test func otherOwnLinksAskThenRouteInProcess() throws {
         let (apps, cleanup) = try Self.apps()
