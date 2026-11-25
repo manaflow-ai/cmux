@@ -8,6 +8,7 @@
 mod common;
 
 use std::sync::Arc;
+use std::sync::mpsc::channel;
 use std::time::Duration;
 
 use common::*;
@@ -237,6 +238,36 @@ fn a_notice_turn_without_the_goal_still_reports() {
         got.len(),
         2,
         "the notice turn's result reaches the Chief: {got:?}"
+    );
+}
+
+/// A user cancel is already the outcome the person was told. A late harness
+/// failure must not become a second report or an untold outcome.
+#[test]
+fn a_cancelled_subagent_ignores_a_late_gateway_failure() {
+    let mut h = Harness::new(default_script());
+    let sid = spawn(&mut h, false);
+    let (reply, answer) = channel();
+    h.brain.step(Input::StopSubagent {
+        name: "a1".into(),
+        reply,
+    });
+    assert_eq!(answer.try_recv().unwrap()["stopped"], true);
+    assert!(h.brain.state().sub("a1").unwrap().1.cancelled);
+    let before = reports(&h);
+
+    h.agents.append_events(
+        &sid,
+        vec![
+            said("(turn failed: ECONNREFUSED)"),
+            json!({"dir": "mux", "kind": "turn_end", "msg": {"stopReason": "end_turn"}}),
+        ],
+    );
+    changed(&mut h, &sid, "idle");
+    assert_eq!(reports(&h), before, "a cancel owns the outcome");
+    assert!(
+        h.brain.untold_outcomes().is_empty(),
+        "late failure became untold"
     );
 }
 
