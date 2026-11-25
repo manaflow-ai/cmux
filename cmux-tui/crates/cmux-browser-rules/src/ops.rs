@@ -4,6 +4,9 @@
 //!
 //! | op | request | reply |
 //! | --- | --- | --- |
+//! | `browser_rules_is_top_level_domain` | `{label}` or `{labels}` | a bool, or one per label |
+//! | `browser_rules_host_typo_fix` | `{text}` | [`TypoFix`](crate::address::TypoFix) `{text, typedHost}`, or null |
+//! | `browser_rules_https_upgrade_falls_back` | `{domain, code}` | a bool |
 //! | `browser_rules_link_gesture` | `{command, shift, option, button}` | the [`Gesture`] |
 //! | `browser_rules_link_action` | `{mapping, gesture}` | the [`LinkAction`](crate::links::LinkAction) |
 //! | `browser_rules_webkit_link_click` | `{command, shift, option, button, mapping}` | [`WebKitLinkClick`] |
@@ -11,6 +14,7 @@
 //! | `browser_rules_window_placement` | `{request, links}` | [`LinkPlacement`] |
 //! | `browser_rules_window_decide` | `{request, candidates, links}` | [`WindowDecision`] |
 
+use crate::address;
 use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
@@ -26,6 +30,25 @@ pub enum OpError {
     UnknownOp(String),
     /// The request is not the JSON the op takes.
     Invalid(String),
+}
+
+#[derive(Deserialize)]
+struct TldRequest {
+    #[serde(default)]
+    label: Option<String>,
+    #[serde(default)]
+    labels: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct TextRequest {
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct LoadErrorRequest {
+    domain: String,
+    code: i64,
 }
 
 #[derive(Deserialize)]
@@ -93,6 +116,27 @@ pub fn serves(op: &str) -> bool {
 pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
     let request = if request.is_null() { json!({}) } else { request };
     match op {
+        "browser_rules_is_top_level_domain" => {
+            let TldRequest { label, labels } = parse(request)?;
+            match (label, labels) {
+                (Some(label), None) => Ok(json!(address::is_top_level_domain(&label))),
+                (None, Some(labels)) => Ok(json!(
+                    labels
+                        .iter()
+                        .map(|label| address::is_top_level_domain(label))
+                        .collect::<Vec<_>>()
+                )),
+                _ => Err(OpError::Invalid("one of label or labels".into())),
+            }
+        }
+        "browser_rules_host_typo_fix" => {
+            let TextRequest { text } = parse(request)?;
+            Ok(encode(&address::fix_host_typo(&text)))
+        }
+        "browser_rules_https_upgrade_falls_back" => {
+            let LoadErrorRequest { domain, code } = parse(request)?;
+            Ok(json!(address::https_upgrade_falls_back(&domain, code)))
+        }
         "browser_rules_link_gesture" => {
             let GestureRequest { modifiers, button } = parse(request)?;
             Ok(encode(&Gesture::of(modifiers, button)))
