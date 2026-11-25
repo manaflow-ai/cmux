@@ -19,6 +19,23 @@ impl Mux {
     /// Run one personal mutation under the registry lock. When it changed
     /// durable state, notify journal readers and subscribers.
     #[track_caller]
+    /// Gives the workspace `to_key` of this daemon the room pin of
+    /// `from_key` (`WorkspaceRegistry::inherit_workspace_pin`). Best effort:
+    /// a move already done never fails on it.
+    pub(crate) fn inherit_room_pin(&self, from_key: Option<String>, to_key: Option<String>) {
+        let (Some(from_key), Some(to_key)) = (from_key, to_key) else { return };
+        if from_key == to_key {
+            return;
+        }
+        let result = self.personal_mutation(|registry| {
+            let session = registry.session_id().as_str().to_string();
+            Ok(((), registry.inherit_workspace_pin(&session, &from_key, &to_key)?))
+        });
+        if let Err(error) = result {
+            eprintln!("cmux-tui: new workspace kept no room pin: {error:#}");
+        }
+    }
+
     pub(crate) fn personal_mutation<T>(
         &self,
         mutation: impl FnOnce(&mut WorkspaceRegistry) -> anyhow::Result<(T, bool)>,
