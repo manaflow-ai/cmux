@@ -275,7 +275,7 @@ def insert(target: dict, english: dict, parts: list[str], value: object) -> None
 
 
 def apply(repo: Path, packet: dict, answer: dict) -> dict:
-    rows = {row["id"]: row for row in packet.get("entries", [])}
+    rows = {str(row["id"]): row for row in packet.get("entries", [])}
     translations = answer.get("translations") if isinstance(answer, dict) else None
     if not isinstance(translations, list):
         raise ValueError("translator answer has no translations list")
