@@ -16,7 +16,7 @@ use std::fs::File;
 use std::io::Read as _;
 use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, mpsc};
+use std::sync::{Mutex, PoisonError, mpsc};
 
 /// A chunk's measurement id.
 pub type Key = [u8; 16];
@@ -159,9 +159,9 @@ fn chunk_file(path: &Path) -> std::io::Result<Cut> {
     Ok(Cut { chunks: out, whole: k, first })
 }
 
-/// Measure ROOTS (label, folder); a root's index is its bit, so at most 64 roots.
+/// Measure ROOTS (label, folder); a root's index is its bit, so roots past the 64th are ignored.
 pub fn measure(roots: &[(String, PathBuf)], opts: &Options) -> Report {
-    assert!(roots.len() <= 64, "at most 64 roots");
+    let roots = &roots[..roots.len().min(64)];
     let started = std::time::Instant::now();
     let state = Mutex::new(State {
         per_root: roots.iter().map(|(l, _)| Root { label: l.clone(), ..Root::default() }).collect(),
@@ -173,9 +173,13 @@ pub fn measure(roots: &[(String, PathBuf)], opts: &Options) -> Report {
         for _ in 0..opts.threads.max(1) {
             s.spawn(|| {
                 loop {
-                    let Ok((i, path, meta)) = rx.lock().unwrap().recv() else { break };
+                    let Ok((i, path, meta)) =
+                        rx.lock().unwrap_or_else(PoisonError::into_inner).recv()
+                    else {
+                        break;
+                    };
                     let got = chunk_file(&path);
-                    let mut st = state.lock().unwrap();
+                    let mut st = state.lock().unwrap_or_else(PoisonError::into_inner);
                     let Ok(Cut { chunks, whole, first }) = got else {
                         st.totals.skipped += 1;
                         continue;
@@ -227,7 +231,7 @@ pub fn measure(roots: &[(String, PathBuf)], opts: &Options) -> Report {
         }
         drop(tx);
     });
-    let mut st = state.into_inner().unwrap();
+    let mut st = state.into_inner().unwrap_or_else(PoisonError::into_inner);
     for c in st.chunks.values() {
         let len = u64::from(c.len);
         for i in 0..roots.len() {
