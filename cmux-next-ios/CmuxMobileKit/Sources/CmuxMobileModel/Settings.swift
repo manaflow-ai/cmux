@@ -185,6 +185,9 @@ public final class SettingsStore {
     public var terminalZoomFullScreenApps: Bool {
         didSet { save(terminalZoomFullScreenApps, "terminalZoomFullScreenApps") }
     }
+    /// Settings → Terminal → Find in Whole History (off by default). Read by the terminal
+    /// (`CmuxMobilePreferences.terminalHistoryFind`) at each search.
+    public var terminalHistoryFind: Bool { didSet { save(terminalHistoryFind, "terminalHistoryFind") } }
     /// Read by the terminal (`CmuxMobilePreferences.predictiveEcho`) through the same key.
     public var predictiveEcho: Bool { didSet { save(predictiveEcho, "predictiveEcho") } }
     /// Settings → Terminal → Predictive Echo in Full-Screen Apps (off by default). Read by the
@@ -194,6 +197,10 @@ public final class SettingsStore {
     }
     /// Read by the terminal (`CmuxMobilePreferences.terminalFitToPhone`) when a page opens.
     public var terminalFitToPhone: Bool { didSet { save(terminalFitToPhone, "terminalFitToPhone") } }
+    /// Settings → Cloud → AutoCloud (the Mac's `cloud.autoCloud`; off by default): Cloud chats lists the
+    /// account's Auto chats, read and sent to through the Cloud service with no Mac
+    /// (`plans/cmux-next/auto-mode/DESIGN.md`). This phone's own choice: it does not follow a Mac's.
+    public var cloudAutoMode: Bool { didSet { save(cloudAutoMode, "cloudAutoMode") } }
     /// Read at each WireGuard dial (`FFIMacLinkDialer`) through the same key. Auto by default:
     /// Rust sends repair data only after it sees loss, capped while the network is cellular.
     public var ultra: UltraConnection { didSet { save(ultra.rawValue, "ultra") } }
@@ -259,10 +266,12 @@ public final class SettingsStore {
         terminalPlainScroll = defaults.object(forKey: "cmuxMobile.settings.terminalPlainScroll") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.terminalPlainScroll")
         terminalZoomFullScreenApps = bool("terminalZoomFullScreenApps", false)
+        terminalHistoryFind = bool("terminalHistoryFind", false)
         predictiveEcho = bool("predictiveEcho", true)
         predictiveEchoFullScreen = defaults.object(forKey: "cmuxMobile.settings.predictiveEchoFullScreen") == nil
             ? false : defaults.bool(forKey: "cmuxMobile.settings.predictiveEchoFullScreen")
         terminalFitToPhone = bool("terminalFitToPhone", false)
+        cloudAutoMode = bool("cloudAutoMode", false)
         // The earlier "Ultra mode on cellular" switch: on reads as Always.
         let ultra = string("ultra").flatMap(UltraConnection.init(rawValue:))
             ?? (bool("ultraOnCellular", false) ? .always : .auto)
