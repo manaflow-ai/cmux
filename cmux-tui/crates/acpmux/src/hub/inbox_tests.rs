@@ -1885,3 +1885,20 @@ fn a_notice_repeat_folds_by_its_condition() {
     assert_eq!(at(t0 + 60_000, &msg("Runner label stalled: trusted xcode-26.6, 12 queued")), Fold);
     assert_eq!(at(t0 + 120_000, &msg("Runner label stalled: trusted linux-x64, 3 queued")), Page);
 }
+
+#[test]
+fn the_ls_row_counts_new_messages_past_their_deadline_and_names_the_soonest() {
+    let min = 60 * 1000;
+    let fyi = item("p1", "t", "a", PromptClass::Fyi, 0, "x");
+    let mut seen = item("p2", "t", "a", PromptClass::Result, 0, "x");
+    seen.noticed = true;
+    let result = item("p3", "t", "a", PromptClass::Result, 50 * min, "x");
+    let soonest = fyi.due().min(result.due());
+    let items = vec![fyi, seen, result];
+    // At 61 min: the fyi (60 min) is past due, the result sent at 50 min (15 min) is not, and
+    // the noticed one counts for neither.
+    let (overdue, due_at) = deadline_counts(&items, 61 * min);
+    assert_eq!(overdue, 1);
+    assert_eq!(due_at, Some(soonest));
+    assert_eq!(deadline_counts(&[], 61 * min), (0, None));
+}
