@@ -110,6 +110,10 @@ public actor DaemonClient {
         start()
         let id = nextRequestID()
         let line = try line(id: id, cmd: cmd, params: params)
+        // A span per round trip of the user action this runs for (PhoneTrace; off: one check).
+        let traced = PhoneTrace.trips != nil
+        let started = traced ? PhoneTrace.Recorder.now() : 0
+        defer { if traced { PhoneTrace.roundTrip(cmd, start: started) } }
         return try await perform(id: id, line: line, deadline: deadline ?? Self.defaultDeadline, clock: clock)
     }
 
@@ -134,6 +138,9 @@ public actor DaemonClient {
         let id = "r\(nextID)"
         nextID += 1
         let line = try resourceLine(id: id, operation: operation, params: params, idempotencyKey: idempotencyKey)
+        let traced = PhoneTrace.trips != nil
+        let started = traced ? PhoneTrace.Recorder.now() : 0
+        defer { if traced { PhoneTrace.roundTrip(operation, start: started) } }
         return try await perform(id: id, line: line, deadline: deadline ?? Self.defaultDeadline, clock: clock).data
     }
 
@@ -183,6 +190,12 @@ public actor DaemonClient {
                                 resources: [(operation: String, params: [String: Any])] = [],
                                 deadline: Duration = DaemonClient.defaultDeadline) async -> [Result<ReceivedLine, any Error>] {
         start()
+        let traced = PhoneTrace.trips != nil
+        let started = traced ? PhoneTrace.Recorder.now() : 0
+        defer {
+            if traced { PhoneTrace.roundTrip(batch.first?.cmd ?? resources.first?.operation ?? "batch", start: started,
+                                             args: ["requests": batch.count + resources.count]) }
+        }
         var ids: [String] = []
         var bytes = Data()
         let count = batch.count + resources.count
