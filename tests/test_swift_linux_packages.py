@@ -61,7 +61,7 @@ def check_rows(failures: list[str]) -> None:
             failures.append(f"{dir_} is listed twice")
         seen.add(dir_)
         manifest = ROOT / dir_ / "Package.swift"
-        if not re.fullmatch(r"Packages/[A-Za-z0-9_]+/[A-Za-z0-9_]+", dir_) or not manifest.is_file():
+        if not (re.fullmatch(r"Packages/[A-Za-z0-9_]+/[A-Za-z0-9_]+", dir_) or dir_ == "cmux-next-ios/CmuxMobileKit") or not manifest.is_file():
             failures.append(f"{dir_}: not a package directory under Packages/")
             continue
         text = manifest.read_text()
@@ -77,7 +77,7 @@ def check_rows(failures: list[str]) -> None:
 def check_workflow(failures: list[str]) -> None:
     wf = WORKFLOW.read_text()
     for needed in ("shell: bash", "scripts/ci/swift-linux-packages.txt", "bash scripts/ci/package-test-lane.sh suite \"$dir\" \"$targets\"",
-                   "container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:", "ubuntu-2404"):
+                   "container: public.ecr.aws/docker/library/swift:6.2-noble@sha256:", "'cmux-linux'"):
         if needed not in wf:
             failures.append(f"{WORKFLOW.name} lacks {needed!r}: it must run every listed package through the lane on Linux")
     # Pushes start it from its own trigger; feat-cmux-next pull requests through pr-router.yml, whose

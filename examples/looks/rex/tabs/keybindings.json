@@ -117,5 +117,10 @@
     "args": {
       "index": 8
     }
+  },
+  {
+    "key": "cmd+quote",
+    "command": "focusTabRecentInWorkspace",
+    "when": "terminalFocused && !paletteOpen"
   }
 ]

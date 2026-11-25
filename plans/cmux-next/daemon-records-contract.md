@@ -44,15 +44,19 @@ Still syntax, and free to change without changing anything above:
   with `CMUX_ON` and `cmux config set on` (#37431, #37472, #37485; `cmux chat --help`).
 - Whether `--on` reaches every verb (`exec`, `ssh`, `open`). That is cmuxterm-hq#7487's
   proposal, not built yet.
-- What `cloud` will mean. Today it resolves as `vm` does, and the answer names its `placement`
-  (`vm:ID`), so nothing depends on `cloud` meaning a VM.
+- What `cloud` will mean. Today it is the person's most recently used running chat VM (latest
+  `last_active_at`, else `created_at`, in `cloud list-machines`; never one made for something
+  else, such as a `lease-…`, probe or `cloud-devloop` machine, nor a teammate's when the list
+  names the signed-in user), else a new VM, and never a question. The answer names its
+  `placement` (`vm:ID`), so nothing depends on `cloud` meaning a VM.
 
 The routing selectors (`here`, `cloud`, `vm`, `vm:new`) name a rule for picking a target. A device
 id or a VM id names one concrete target. `resolve_chat_target` (`cmux-tui/bindings/rust`) and
 `chat_start.rs` take a selector to a concrete target before anything starts, and the answer
 carries the concrete target. A refusal is one of `chat_target.unknown_device`,
 `ambiguous_device`, `unknown_vm`, `which_vm`, `vm_starting`, `not_permitted`, `unavailable`,
-`signed_out` or `no_route`, and it says what to run next.
+`signed_out` or `no_route`, and it says what to run next. `which_vm` and `vm_starting` are `vm`'s
+alone: `cloud` picks a VM, or makes one, instead of asking.
 
 ## 2. What the Mac stores, and where
 

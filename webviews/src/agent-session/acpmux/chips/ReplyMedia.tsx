@@ -12,7 +12,16 @@
 // follows `agentPane.images.remote` like a web image: a placeholder with its site and Load
 // (click, the default), its link only (never), or at once (always). The host fetches it under
 // its network rules and plays a checked copy.
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { Dialog } from "../../../ui/Dialog";
 
 import { belowTabRowStyle, useTabRow } from "../header/tabRow";
@@ -27,9 +36,17 @@ import { movedFrom, slidUnderStillPointer, trackPointerRest, type PointerPlace }
 import { mediaPreviewAllowed } from "../../../ui/mediaPreviewPolicy";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
 import { mediaKind } from "./mediaKind";
-import { webURL, mediaOpenRequest, formatDuration, loadPlayableMedia, webGranted } from "./replyMediaModel";
+import {
+  webURL,
+  mediaOpenRequest,
+  formatDuration,
+  loadPlayableMedia,
+  webGranted,
+  watchPlaybackStall,
+} from "./replyMediaModel";
 import { keyedIconProps } from "../../../ui/DialogButton";
 import { useScrimClose } from "../../../ui/scrimClose";
+import { CompareViewer, PlaybackBar, onPlaybackKeyDown, type CompareItem } from "./VideoPlayback";
 /// Asks the host for the URL `source` plays by: at once when `auto`, else on `load()`.
 function useMediaLoad(source: string, auto: boolean) {
   const [src, setSrc] = useState(() => (webURL(source) ? webGranted.get(source) : undefined));
@@ -80,8 +97,10 @@ function HostReplyMedia({ path, alt, fallback }: { path: string; alt: string; fa
   const { src, state, load, fail } = useMediaLoad(path, near && loadable);
   const name = alt || pathName(path);
   if (src) return <MediaPlayer src={src} source={path} kind={kind} name={name} path={path} onError={fail} />;
+  // A video that will load holds the player's box meanwhile (chips.css), as a web one does.
+  const reserve = kind === "video" && state !== "failed" && loadable;
   return (
-    <span ref={setFrame} className={`cv-media is-${kind}`}>
+    <span ref={setFrame} className={`cv-media is-${kind}`} data-reserve={reserve || undefined}>
       {state === "failed" && fallback ? fallback : <span className="cv-media__name">{name}</span>}
       {state === "failed" && loadable && (
         <button type="button" className="cv-image-placeholder__load" onClick={load}>
@@ -110,9 +129,10 @@ function HostRemoteMedia({ url, alt, fallback }: { url: string; alt: string; fal
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
   if (policy.remoteImages === "never") return <>{fallback}</>;
   if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
-  // A video the host fetches on its own (images.remote = always) holds the player's box while it
-  // loads (chips.css), so the player takes the place it left instead of the reply growing twice.
-  const reserve = kind === "video" && policy.remoteImages === "always" && state !== "failed";
+  // A web video holds the player's box while it waits for Load or loads (chips.css), with Load in its
+  // middle, so the player takes the place it left instead of the reply growing twice (a compact
+  // player that never shifts the chat, whatever images.remote says).
+  const reserve = kind === "video" && state !== "failed";
   return (
     <span ref={setFrame} className={`cv-media is-${kind} is-remote`} data-reserve={reserve || undefined}>
       <span className="cv-media__host">{webURL(url)?.host}</span>
@@ -292,6 +312,18 @@ export function VideoViewer({
   // Below the pane's tab row, as the image viewer (header/tabRow.ts belowTabRowStyle).
   const below = belowTabRowStyle(useTabRow());
   const scrim = useScrimClose(onClose);
+  // The player's element, for the speed, frame step and loop row under it (VideoPlayback.tsx).
+  // The player re-attaches its ref on every render; only a new element is a change.
+  const [element, setElement] = useState<HTMLVideoElement | null>(null);
+  const callerRef = useRef(videoRef);
+  useLayoutEffect(() => {
+    callerRef.current = videoRef;
+  });
+  const forwardRef = useCallback((video: HTMLVideoElement | null) => {
+    callerRef.current?.(video);
+    if (video) setElement((current) => (current === video ? current : video));
+  }, []);
+  const videos = useCallback(() => (element ? [element] : []), [element]);
   return (
     <Dialog
       open
@@ -303,6 +335,7 @@ export function VideoViewer({
       backdropClassName="acpmux-image-viewer-backdrop"
       style={below}
       initialFocus={close}
+      onKeyDown={(event) => onPlaybackKeyDown(event, videos)}
     >
       <div className="acpmux-image-viewer-body">
         <div className="acpmux-image-viewer-bar">
@@ -337,9 +370,12 @@ export function VideoViewer({
             name={name}
             autoPlay={autoPlay}
             onError={onError}
-            videoRef={videoRef}
+            videoRef={forwardRef}
             onPlay={onPlay}
           />
+        </div>
+        <div className="cv-media-viewer__controls">
+          <PlaybackBar videos={videos} />
         </div>
       </div>
     </Dialog>
@@ -450,6 +486,17 @@ export function VideoThumbnail({
       void element.play()?.catch(() => {});
     });
   };
+  // A play that never gets data fails, as an error does: its owner says so (a sent tile: Quick Look,
+  // then "Can't play here"; a reply: its name and Load), never a native spinner turning forever.
+  const failRef = useRef(onError);
+  useLayoutEffect(() => {
+    failRef.current = onError;
+  });
+  useEffect(() => {
+    const element = video.current;
+    if (!started || !element) return;
+    return watchPlaybackStall(element, () => failRef.current());
+  }, [started]);
   // Mount-only: the ▶ that swapped this player in was the click.
   const autoPlayed = useRef(false);
   useEffect(() => {
@@ -524,5 +571,74 @@ export function VideoThumbnail({
         </button>
       )}
     </span>
+  );
+}
+
+/// A click on a web video's link (a chip in a sentence, a Markdown link): the video plays in the
+/// large player over the pane instead of leaving for a browser tab, where a file served as bytes
+/// (raw.githubusercontent.com sends `application/octet-stream`) only downloads (Leo, 2026-11-22: "is
+/// there a way we can just watch the .mp4s in the app? i want that. in-app video player."). The click
+/// is the gesture the host's `media.load` asks for under `images.remote = click`. A link that is no
+/// web video, a read-only transcript and `images.remote = never` keep the link's own click; a video
+/// the host will not fetch opens as the link would.
+export function useVideoLinkClick(href: string): {
+  onClick?(event: MouseEvent<HTMLElement>): void;
+  viewer: ReactNode;
+} {
+  const readOnly = useTranscriptReadOnly();
+  const policy = useReplyPolicy();
+  const [open, setOpen] = useState<{ src: string } | undefined>();
+  const url = webURL(href);
+  const video = Boolean(url) && mediaKind(url!.pathname) === "video";
+  if (!video || readOnly || policy.remoteImages === "never") return { viewer: null };
+  const name = url!.pathname.split("/").pop() || href;
+  return {
+    onClick(event) {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return;
+      event.preventDefault();
+      void loadPlayableMedia(href).then((src) => {
+        if (src) setOpen({ src });
+        else {
+          const request = mediaOpenRequest(href);
+          if (request) void callChipHost(request.method, request.params);
+        }
+      });
+    },
+    viewer: open ? (
+      <VideoViewer
+        src={open.src}
+        name={name}
+        autoPlay
+        onError={() => {
+          webGranted.delete(href);
+          setOpen(undefined);
+        }}
+        onClose={() => setOpen(undefined)}
+      />
+    ) : null,
+  };
+}
+
+/// Compare, on a row of two videos (a before/after pair): both clips side by side on one clock.
+export function CompareButton({ items }: { items: [CompareItem, CompareItem] }) {
+  const t = useT();
+  const readOnly = useTranscriptReadOnly();
+  const [open, setOpen] = useState(false);
+  if (readOnly) return null;
+  return (
+    <>
+      <button type="button" className="cv-thumbs__compare" onClick={() => setOpen(true)}>
+        {t("media.compare")}
+      </button>
+      {open && <CompareViewer items={items} onClose={() => setOpen(false)} />}
+    </>
   );
 }

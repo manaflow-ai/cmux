@@ -1,0 +1,44 @@
+// Dot grid: The living Dot Field wallpaper behind frosted glass, black and white only, block panes and Geist type.
+// Black and white only; the dots move, nothing else is colored. ANSI colors are solved in OKLCH at one lightness over the page, so
+// no hue shouts. An opt-in look: nothing here changes until you pick it.
+{
+  "name": "Dot grid",
+  "description": "The living Dot Field wallpaper behind frosted glass, black and white only, block panes and Geist type.",
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "colors": {
+    "background": "#111111",
+    "foreground": "#e8e8e8",
+    "selection": "#2c2c2c",
+    "accent": "#e8e8e8"
+  },
+  "appearance.accent": "neutral",
+  "ghostty": [
+    "background = #111111",
+    "foreground = #e8e8e8",
+    "cursor-color = #e8e8e8",
+    "cursor-text = #111111",
+    "selection-background = #2c2c2c",
+    "selection-foreground = #e8e8e8",
+    "palette = 0=#2d2d2d",
+    "palette = 1=#e18881",
+    "palette = 2=#77b779",
+    "palette = 3=#bfa14c",
+    "palette = 4=#74a7e8",
+    "palette = 5=#cc8bc5",
+    "palette = 6=#35b9c0",
+    "palette = 7=#b4b8be",
+    "palette = 8=#6e7278",
+    "palette = 9=#feaba4",
+    "palette = 10=#9cd69c",
+    "palette = 11=#ddc277",
+    "palette = 12=#98c7ff",
+    "palette = 13=#e9ade3",
+    "palette = 14=#6dd8dd",
+    "palette = 15=#e8e8e8"
+  ],
+  "appearance.background": "shader:field",
+  "appearance.backgroundBlur": "frosted",
+  "appearance.backgroundOpacity": 0.8,
+  "appearance.chromeStyle": "blocks"
+}

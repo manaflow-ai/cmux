@@ -1,10 +1,10 @@
-// Basalt Light: the same agent editor in its light theme. A barely warm #f9f7f8 page, a #eeeeee
+// Basalt Light: the same agent editor in its light theme. A barely warm #f9f7f8 page, a #f7f7f7
 // sidebar behind a 1 pt line, #141414 text with gray steps under it, a deeper steel blue (#3d6db3)
 // for Send and focus with white on it, slate-blue links, the bordered prompt box and the same
 // pills, proportions and motion as the dark theme.
 {
   "name": "Basalt Light",
-  "description": "The agent editor, light: #f9f7f8 page, #eeeeee sidebar, steel-blue Send, bordered prompt.",
+  "description": "The agent editor, light: #f9f7f8 page, #f7f7f7 sidebar, steel-blue Send, bordered prompt.",
 
   "appearance.theme": "Builtin Light",
   "appearance.appTheme": "followTerminal",
@@ -69,9 +69,9 @@
   "appearance.metrics.columnGap": 0,
   "appearance.metrics.dividerThickness": 1,
 
-  // The sidebar: a neutral #eeeeee, a step under the page, behind a 1 pt line.
+  // The sidebar: a neutral #f7f7f7, a step under the page, behind a 1 pt line.
   "appearance.sidebarSurface": "separate",
-  "appearance.surfaces.sidebar.color": "#eeeeee",
+  "appearance.surfaces.sidebar.color": "#f7f7f7",
   "appearance.surfaces.sidebar.opacity": 1,
   "sidebar.style": "standard",
   "sidebar.border": true,

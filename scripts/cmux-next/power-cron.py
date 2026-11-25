@@ -92,15 +92,28 @@ def ghostty_idle(out_dir: str, ghostty_app: str | None) -> dict:
             "--confirm-close-surface=false", "--window-save-state=never", "--auto-update=off"]
     env = dict(os.environ, XDG_CONFIG_HOME=os.path.join(scratch, "xdg"))
     with open(os.path.join(out_dir, "power-ghostty.log"), "w") as log:
+        launched = time.monotonic()
         proc = subprocess.Popen(argv, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
-            time.sleep(GHOSTTY_SETTLE_S)  # test script: let Ghostty's window and shell come up and rest
+            from state_wait import wait_until  # the script's folder is sys.path[0]
+
+            def shell_up():
+                # Ghostty's window has its shell: a child process of one of the bundle's processes.
+                if proc.poll() is not None:
+                    return True
+                table = bm.process_table()
+                ours = {pid for pid, _ppid, cmd in table if bm.in_bundle(cmd, app) is not None}
+                return any(ppid in ours and pid not in ours for pid, ppid, _cmd in table)
+            if not wait_until(shell_up, "Ghostty's window shell", timeout=GHOSTTY_SETTLE_S, raise_on_timeout=False):
+                return {"error": f"Ghostty's window shell did not start within {GHOSTTY_SETTLE_S} s"}
             if proc.poll() is not None:
                 return {"error": f"Ghostty exited {proc.returncode} before the window"}
+            # sleep-ok: the idle baseline's fixed rest, counted from launch, so each day's number rests as long as the last
+            time.sleep(max(0.0, GHOSTTY_SETTLE_S - (time.monotonic() - launched)))
             pids = [pid for pid, _ppid, cmd in bm.process_table() if bm.in_bundle(cmd, app) is not None]
             start = {pid: bp.counters(pid) for pid in pids}
             began = time.monotonic()
-            time.sleep(GHOSTTY_MEASURE_S)  # test script: the measured window
+            time.sleep(GHOSTTY_MEASURE_S)  # sleep-ok: the measured energy window
             elapsed = time.monotonic() - began
             mw = cpu = wakeups = 0.0
             for pid, first in start.items():

@@ -63,9 +63,9 @@ function problemsOf(raw: unknown): string[] {
 describe("images/cmux-vm/inputs.lock.json", () => {
   test("the checked-in lock is valid and lists every known program once", () => {
     const lock = readInputsLock();
-    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd"].sort());
+    expect(lock.programs.map((p) => p.name).sort()).toEqual([...KNOWN_PROGRAMS, "cmux-cua", "chrome-for-testing", "cmux-browser-host", "agent-desktop", "cmux-rd", "optchat-chief"].sort());
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
-    expect(lock.apt.ubuntu.snapshot).toBe("20261104T000000Z");
+    expect(lock.apt.ubuntu.snapshot).toBe("20261122T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
   });
 
@@ -79,6 +79,18 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(claude?.version).toBe(pin);
     expect(claude?.expect).toBe(pin);
     expect(claude?.url).toBe(`https://downloads.claude.ai/claude-code-releases/${pin}/linux-x64/claude`);
+  });
+
+  test("codex ships with the code-mode host it spawns next to itself, and the install refuses an entry without it", () => {
+    // Codex 0.160 runs every tool through codex-code-mode-host from its own folder. The plain musl
+    // tarball has codex alone, so Cloud chats failed every tool call: failed to spawn code-mode host
+    // /opt/cmux/store/<sha>/codex-code-mode-host. The codex-package tarball carries both.
+    const codex = readInputsLock().programs.find((p) => p.name === "codex")!;
+    expect(codex.url).toBe(`https://github.com/openai/codex/releases/download/rust-v${codex.version}/codex-package-x86_64-unknown-linux-musl.tar.gz`);
+    expect(codex.bin.codex).toBe("bin/codex");
+    const install = programInstallCommand(codex);
+    expect(install).toContain(`test -x /opt/cmux/store/${codex.sha256}.partial/bin/codex-code-mode-host`);
+    expect(install.indexOf("codex-code-mode-host")).toBeLessThan(install.indexOf("chmod -R a-w"));
   });
 
   test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
@@ -557,9 +569,10 @@ describe("cmux-rd (the cmux.rd/1 Linux host, role desktop; release cmux-rd-v<V> 
     }
   });
 
-  test("0.2.7 is pinned from release cmux-rd-v0.2.7 (#45503, run 44184934311) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
+  test("0.2.9 is pinned from release cmux-rd-v0.2.9 (#50463, run 45160613949) by URL, sha256, size and checksums.txt, baked in role desktop", () => {
     const pinned = readInputsLock().programs.find((p) => p.name === "cmux-rd")!;
-    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.7"), sha256: "92961c9ebd6b1e7370a6dc1687a3ea864da9c133720daaf51a117aad2f45553d", size: 9392448 });
+    expect(pinned).toMatchObject({ ...cmuxRdReleaseShape("0.2.9"), sha256: "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e", size: 10234313 });
+    expect(pinned.pendingRelease).toBeUndefined();
     expect(pinned.firstUse).toBeUndefined();
     expect(bakedPrograms(readInputsLock()).map((p) => p.name)).toContain("cmux-rd");
   });

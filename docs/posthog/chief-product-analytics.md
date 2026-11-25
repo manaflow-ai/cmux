@@ -27,11 +27,14 @@ this page; rename one here, in the catalog and in the dashboard script in the sa
 - A host that starts with telemetry off makes no `analytics/` folder, id or state; when consent
   turns on later it makes them and sends `chief_host_started`.
 
-## Consent (opt-out)
+## Consent (opt-in)
 
-On by default in release builds, the same rule as the cmux CLI's crash reports
-([privacy.md](../privacy.md#telemetry)). Off, and the queue deleted at once (read again every 5
-minutes), when any of these holds:
+Off until the person turns it on (Leo, 2026-11-24: "whatever we do, we need to make sure it's opt
+out by defautl i assume?"; [privacy.md](../privacy.md#telemetry)). A release build sends only when
+the app's `sendAnonymousTelemetry` preference is true (Settings > Privacy and Security > Send Crash
+Reports and Analytics) or, with no app preference (a CLI or Cloud host),
+`app.sendAnonymousTelemetry: true` is in `cmux-next.json`. Off, and the queue deleted at once (read
+again every 5 minutes), when the person never turned it on or when any of these holds:
 
 | Switch | Who sets it |
 | --- | --- |

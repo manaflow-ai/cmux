@@ -22,14 +22,18 @@ function resolveLook(): { arm: ComposerV2Look; armed: boolean } {
 /// The composer refresh's arm while it is on (Settings > Advanced > Experiments > Composer Refresh, `experiments.composerV2`, or a
 /// gallery stage that arms composer-v2-look), else undefined. ComposerBox.tsx writes it as
 /// `data-composer-v2` on `.acpmux-composer-box`; composerV2.css draws each look.
+/// Studio's look (Settings' `agentPane.composerLook` "studio", composerLook.ts) is the person's own
+/// pick, so it stands over the refresh: the refresh draws nothing while it is the look.
 export function useComposerV2(): ComposerV2Look | undefined {
   const on = useExperimentSwitch("composerV2");
+  const studio = useComposerLook() === "studio";
   const look = resolveLook();
-  return on || look.armed ? look.arm : undefined;
+  return (on || look.armed) && !studio ? look.arm : undefined;
 }
 
 /// The composer's look with the refresh on: Codex's in-box row, which holds the chip row and the
-/// footer composerV2.css lays out (model left, + and Send right). New Tab keeps its own look.
+/// footer composerV2.css lays out (model left, + and Send right). New Tab keeps its own look, and
+/// Studio's stays Studio's (useComposerV2 is off under it).
 export function useComposerLookWithV2(): ComposerLook {
   const look = useComposerLook();
   const onNewTab = useContext(OnNewTab);

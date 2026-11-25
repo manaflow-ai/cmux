@@ -395,10 +395,12 @@ impl Mux {
     }
 
     /// Whether the roster may still show states older than the journal: its start's replay
-    /// runs in the background, or the projection reconcile that replay owes has not run yet.
+    /// runs in the background, or the projection reconcile that replay owes has not run yet, or it
+    /// is stale (a reducer bump) and waits for its rebuild: a guarded send stays refused then.
     pub(crate) fn agent_roster_settling(&self) -> bool {
         self.agent_roster_replaying()
             || self.agent_roster_worker.reconcile_pending.load(Ordering::Acquire)
+            || self.agent_roster_stale()
     }
 
     /// Whether the start's roster replay is still running in the background.

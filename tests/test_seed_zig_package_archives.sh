@@ -220,7 +220,11 @@ for _ in $(seq 1 100); do [[ -e "$TMP/started" ]] && break; sleep 0.1; done
 [[ -e "$TMP/started" ]] || fail "no seed download reached the server"
 kill -TERM "$seed_pid"
 wait "$seed_pid" 2>/dev/null || true
-sleep 2
+# Until its downloads have stopped too, 10 s at most.
+for _ in $(seq 1 100); do
+  pgrep -f "seed-zig-package-archives.sh --one $TMP/slow-cache" >/dev/null || break
+  sleep 0.1
+done
 left="$(pgrep -f "seed-zig-package-archives.sh --one $TMP/slow-cache" || true)"
 [[ -z "$left" ]] || { kill $left 2>/dev/null; fail "cancelling the seed left downloads running: $left"; }
 kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null || true; server_pid=""

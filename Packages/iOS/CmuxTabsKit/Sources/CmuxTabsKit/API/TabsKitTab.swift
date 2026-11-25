@@ -146,16 +146,20 @@ public struct TabsKitMenuItem: Identifiable {
     public var id: String
     public var title: String
     public var systemImage: String
+    /// Nil: `systemImage` is an SF Symbol. Set: `systemImage` names a custom symbol in this
+    /// bundle's asset catalog (a drawing of the app's own, e.g. its fork glyph).
+    public var symbolBundle: Bundle?
     public var isEnabled: Bool
     public var isDestructive: Bool
     /// Runs after the menu starts closing.
     public var action: @MainActor () -> Void
 
-    public init(id: String? = nil, title: String, systemImage: String, isEnabled: Bool = true, isDestructive: Bool = false,
-                action: @escaping @MainActor () -> Void) {
+    public init(id: String? = nil, title: String, systemImage: String, symbolBundle: Bundle? = nil, isEnabled: Bool = true,
+                isDestructive: Bool = false, action: @escaping @MainActor () -> Void) {
         self.id = id ?? title
         self.title = title
         self.systemImage = systemImage
+        self.symbolBundle = symbolBundle
         self.isEnabled = isEnabled
         self.isDestructive = isDestructive
         self.action = action

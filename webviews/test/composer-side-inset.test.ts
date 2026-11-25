@@ -106,8 +106,18 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
         edge = probe.getBoundingClientRect().width;
         probe.remove();
       }
+      // A chip's wrapper can stand past its button: New Tab's model chip ends its pill short of the box,
+      // so its text ends on Send's ink while its pill stays as wide on each side, and its wrapper's end
+      // padding takes the rest (newtab/screen.css, Lucas 2026-11-23). The wrapper ends on the box's edge.
+      const chipRight = Math.max(
+        ...[...document.querySelectorAll(".acpmux-composer-foot .acpmux-chips > *")]
+          .map((chip) => chip.getBoundingClientRect())
+          .filter((rect) => rect.width > 0)
+          .map((rect) => rect.right),
+      );
       return {
         box: { left: card.left, right: card.right },
+        outerRight: Math.max(Math.max(...controls.map((rect) => rect.right)), chipRight),
         first: Math.min(...controls.map((rect) => rect.left)),
         last: Math.max(...controls.map((rect) => rect.right)),
         column: rows.length
@@ -168,8 +178,8 @@ await requireBrowserLane("composer-side-inset.test.ts", async () => {
           // footer bar (#26551, 2026-10-28), so it ends on that bar's inner edge, not the box's.
           if (Number.isFinite(at.last))
             expect(
-              Math.abs(at.box.right - at.footPad - at.last),
-              "the row's last control on the box's right edge (or its footer bar's)",
+              Math.abs(at.box.right - at.footPad - at.outerRight),
+              "the row's last control (or its chip's wrapper) on the box's right edge (or its footer bar's)",
             ).toBeLessThanOrEqual(0.5);
         });
   }

@@ -40,6 +40,9 @@ package final class DesktopNotifier: NSObject {
         package var category: String?
         /// An incognito window's banner: the lists name nothing of the window, its surface included.
         package var incognito = false
+        /// When the app asked for the banner (wall clock), stamped where it is posted so a reader times the
+        /// app's hop from the daemon notification's `created_at_ms` without polling (`posted_at_ms`).
+        package var postedAt = Date()
     }
 
     /// The id prefix of a daemon notification's banner, whose click shows its tab: the only banners a

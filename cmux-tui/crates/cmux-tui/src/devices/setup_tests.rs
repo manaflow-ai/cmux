@@ -593,6 +593,7 @@ fn device(id: &str, name: &str, kind: Kind, os: Option<&str>, via: Via) -> Devic
         detail: None,
         full_access: None,
         screen: None,
+        hub_device: None,
     }
 }
 
