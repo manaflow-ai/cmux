@@ -78,7 +78,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn(".github/workflows/backend.yml", mod.INPUTS)
         self.assertIn(f'bun-version: "{mod.BUN_VERSION}"', self.job("api-workerd"))
         self.assertIn(f'node-version: "{mod.NODE_VERSION}"', self.job("api-workerd"))
-        self.assertIn(f"--shard=${{{{ matrix.shard }}}}/{mod.SHARDS}", self.job("api-workerd"))
+        self.assertIn(f'api-workerd-shard.sh" ${{{{ matrix.shard }}}} {mod.SHARDS}', self.job("api-workerd"))
+        self.assertIn("scripts/ci/api-workerd-shard.sh", mod.INPUTS)
 
     def test_scope_only_on_pull_request_without_full_ci(self):
         scope = self.job("api-workerd-scope")

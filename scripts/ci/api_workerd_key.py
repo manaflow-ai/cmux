@@ -36,6 +36,7 @@ INPUTS = [
     "Native/OptChat/optchat-chief/evals/cases",
     "cmux-next-ios/backend/src",
     "scripts/ci/api_call_log",
+    "scripts/ci/api-workerd-shard.sh",
     "scripts/cmux-next/release/bun.lock",
     "scripts/cmux-next/release/mint-link-keyset.mjs",
     "scripts/cmux-next/check-acpmux-guest-commands.ts",
