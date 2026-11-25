@@ -805,6 +805,9 @@ concurrency:
 jobs:
   # Why: 2026-11-24-workflow-1.md
   pure-checks-coalesce:
+    # actions: read: base-coalesce lists this workflow's runs to re-run a window whose run failed (#55503 missed this caller).
+    permissions:
+      actions: read
     uses: ./.github/workflows/base-coalesce.yml
     with:
       key: cmux-next-pure-checks
@@ -1661,6 +1664,7 @@ jobs:
             bash scripts/cmux-next/tests/check-dialog-key-hints.test.sh
             bash scripts/cmux-next/tests/check-switch-fetches.test.sh
             bash scripts/cmux-next/tests/check-xcstrings-keys.test.sh
+            python3 -I scripts/cmux-next/tests/test_string_catalogs.py
             python3 -I scripts/cmux-next/tests/test_check_ui_text_budget.py
             bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
             python3 scripts/cmux-next/tests/count-swift-code-lines.test.py
@@ -2045,6 +2049,7 @@ jobs:
           python3 -I scripts/cmux-next/tests/test_settings_section_type_budget.py
           python3 -I scripts/cmux-next/tests/test_settings_swift_out.py
           python3 -I scripts/cmux-next/tests/test_settings_agent_policy_files.py
+          bash scripts/cmux-next/tests/export-settings-linux.test.sh
 
       # Why: 2026-11-24-checks-40.md, note-151
       - name: Phone lane field allowlist
@@ -5009,7 +5014,7 @@ jobs:
   # Why: note-59
   generated-files-linux:
     needs: [path_route, push-head-preflight, generated-files-base-red]
-    if: ${{ !cancelled() && format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' && needs.generated-files-base-red.outputs.base_red != 'true' && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ !cancelled() && format('{0}', vars.CI_GENERATED_FILES_LINUX) != '0' && needs.generated-files-base-red.outputs.base_red != 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next generated files
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
     container:
@@ -5029,7 +5034,7 @@ jobs:
         run: |
           home="$RUNNER_TEMP/acpmux-home"
           rm -rf "$home" && mkdir -m 700 "$home"
-          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+          echo "ACPMUX_HOME=$home" >> "$GITHUB_ENV"
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
       - name: Install checkout tools
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
@@ -5049,7 +5054,7 @@ jobs:
             /cmux-tui/
             /Packages/macOS/CmuxNext/
             /web/data/next-docs/
-      - name: Trust the workspace
+      - name: Trust workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -5131,7 +5136,7 @@ jobs:
         run: bash scripts/ci/cmux-next-steps/generated-files-linux.sh verdict
       # Why: note-263
       - name: Stop this job's acpmux daemons and remove its home
-        if: ${{ always() }}
+        if: always()
         continue-on-error: true
         timeout-minutes: 3
         run: |
@@ -5144,7 +5149,7 @@ jobs:
   generated-files:
     needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red, generated-files-linux]
     # Why: note-265
-    if: ${{ !cancelled() && needs.generated-files-linux.outputs.verdict == '' && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.path_route.outputs.generated == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    if: ${{ !cancelled() && needs.generated-files-linux.outputs.verdict == '' && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next generated files (Mac fallback)
     # Why: note-266
     concurrency:
