@@ -3096,6 +3096,10 @@ use requests::handle_notification;
 mod mirror_relay_tests;
 
 #[cfg(test)]
+#[path = "session_patch_peer_tests.rs"]
+mod session_patch_peer_tests;
+
+#[cfg(test)]
 mod request_admission_tests;
 
 #[cfg(test)]
@@ -3154,6 +3158,10 @@ mod outbound_queue_tests;
 /// Owner-only TLS ingress from the embedded tailnet node.
 #[cfg(all(unix, feature = "tailnet"))]
 pub mod tailnet_ingress;
+
+/// The stable tailnet node's front on the embedded node (`tailnet.stableNode.enabled`).
+#[cfg(all(unix, feature = "tailnet"))]
+pub(crate) mod tailnet_front;
 
 /// The embedded tailnet listener's lifecycle, a server module (it serves the hub through
 /// `tailnet_ingress`; it was `tailnet::embedded_service`). Its file stays where it was: the
