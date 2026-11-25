@@ -20,12 +20,35 @@ if [[ "${HELPER_CACHE_HIT:-false}" != true && "${CMUX_ZIG_SEED:-1}" != 0 ]]; the
     bash scripts/ci/seed-zig-package-archives.sh "$zig_cache" ghostty || echo "::warning title=Ghostty CLI helper::seeding Zig's package cache from the mirror failed; Zig fetches what is missing"
   fi
 fi
+# A package the seed could not place is fetched by Zig itself, once, with no retry: one TLS or connection failure
+# ended the whole nightly (run 45594076083). Retry the build, bounded with backoff, only when its output names a
+# network failure in Zig's fetch; Zig keeps every package it already unpacked, so a retry fetches only the rest.
+# A compile error, or anything else, fails at once as before.
+helper_attempts="${CMUX_HELPER_FETCH_ATTEMPTS:-3}"
+helper_delay="${CMUX_HELPER_FETCH_RETRY_DELAY:-15}"
+helper_net_re='TlsInitializationFailed|unable to connect to server|ConnectionRefused|ConnectionResetByPeer|ConnectionTimedOut|NetworkUnreachable|TemporaryNameServerFailure|NameServerFailure|UnknownHostName|HttpConnectionClosing|EndOfStream|unable to (download|fetch)|bad HTTP response code'
 if [[ "$NIGHTLY_COMPILE_ARCHS" == "arm64" ]]; then
-  ./scripts/build-ghostty-cli-helper.sh --target aarch64-macos --output nightly-helper/ghostty
-  lipo nightly-helper/ghostty -verify_arch arm64
+  helper_args=(--target aarch64-macos --output nightly-helper/ghostty)
+  helper_archs=(arm64)
 else
-  ./scripts/build-ghostty-cli-helper.sh --universal --output nightly-helper/ghostty
-  lipo nightly-helper/ghostty -verify_arch arm64 x86_64
+  helper_args=(--universal --output nightly-helper/ghostty)
+  helper_archs=(arm64 x86_64)
 fi
+helper_log="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/helper-build.XXXXXX")"
+attempt=1
+while :; do
+  status=0
+  ./scripts/build-ghostty-cli-helper.sh "${helper_args[@]}" 2>&1 | tee "$helper_log" || status=$?
+  (( status == 0 )) && break
+  if (( attempt >= helper_attempts )) || ! grep -Eq "$helper_net_re" "$helper_log"; then
+    exit "$status"
+  fi
+  wait_s=$((helper_delay * attempt * attempt))
+  echo "::warning title=Ghostty CLI helper::attempt $attempt of $helper_attempts failed fetching a Zig package ($(grep -Eo "$helper_net_re" "$helper_log" | head -1)); retrying in ${wait_s}s"
+  sleep "$wait_s"
+  attempt=$((attempt + 1))
+done
+rm -f "$helper_log"
+lipo nightly-helper/ghostty -verify_arch "${helper_archs[@]}"
 # The provenance line resolve-nightly-ghostty-cli-helper reads later.
 echo "ghostty-cli-helper-build=$(git rev-parse HEAD)"
