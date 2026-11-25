@@ -159,6 +159,7 @@
     "method:_acpmux/connections/claude_token.add",
     "method:_acpmux/connections/credential",
     "method:_acpmux/connections/key.add",
+    "method:_acpmux/connections/key.check",
     "method:_acpmux/connections/order.set",
     "method:_acpmux/connections/remove",
     "method:_acpmux/connections/spread.set",
@@ -791,6 +792,9 @@
     ],
     "cancel-request-v1": [
       "method:$/cancel_request"
+    ],
+    "chat-pin-v1": [
+      "method:_acpmux/pin"
     ],
     "chat-presence-v1": [
       "method:_acpmux/typing",
