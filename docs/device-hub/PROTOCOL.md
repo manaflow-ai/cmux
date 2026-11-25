@@ -287,7 +287,8 @@ that held the answer is gone is back to `ask`.
    `stale_timestamp`, 401 `replay` (used `jti`), 409 `role_taken`, 404
    `session_not_active` (ended or unknown session).
 5. Signaling messages are relayed verbatim between the two roles:
-   `{type:'offer'|'answer', sdp, fpSig}`, `{type:'candidate', …}`, `{type:'bye'}`.
+   `{type:'offer'|'answer', sdp, fpSig}`, `{type:'candidate', …}`, `{type:'bye'}`,
+   and from the host only `{type:'transport', transport}` (below).
    Text frames up to 64 KiB; other types are dropped. Frames sent before the
    peer connects are queued (up to 256) and delivered when it does. Either
    device may send `{type:'path', path:'direct'|'relay'}` once the media path
