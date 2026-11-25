@@ -251,12 +251,43 @@ pub struct ForkBefore {
     pub ready: bool,
 }
 
-/// Reserved before creating a child; retained even if the child is purged.
+/// Reserved before creating a child; retained even if the child is purged. A plain fork's
+/// (`session/fork` with a `requestId` and no boundary, `hub/fork_request.rs`) has no `prompt_id`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ForkRequest {
+    #[serde(default)]
     pub prompt_id: String,
     pub child_id: String,
+}
+
+/// How a fork's agent gets its chat's conversation at its first start, kept until that start (or
+/// its first prompt) took it, so a daemon restart in between resumes it (`hub/fork_start.rs`):
+/// it was in memory only, and a fork restarted before its agent started began a fresh
+/// conversation under the copied turns (cmux#50096).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkStart {
+    /// The fork is whole: its history and `forked` record are in. A fork a restart cut off
+    /// before then is closed at the next start, never shown as a copy.
+    #[serde(default)]
+    pub made: bool,
+    /// Claude's `--resume <this> --fork-session`: the chat's agent session it forks from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_from: Option<String>,
+    /// Its first prompt carries the chat's transcript (a fork onto another harness, or one its
+    /// agent could not fork mid-turn), under `note` when set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rehydrate: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+impl ForkStart {
+    /// Nothing left to keep: a whole fork whose agent took its conversation.
+    pub fn settled(&self) -> bool {
+        self.made && self.resume_from.is_none() && !self.rehydrate
+    }
 }
 
 /// A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when
@@ -283,6 +314,15 @@ pub struct AwayRecap {
     /// The person pressed its ×: a recap with no new fact stays unwritten.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub dismissed: bool,
+}
+
+/// A chat's model switch for a sustained overload (`SessionMeta::capacity_fallback`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapacityFallback {
+    /// The chat's own model, as it named it.
+    pub from: String,
+    /// The smaller model it runs meanwhile.
+    pub to: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -339,6 +379,11 @@ pub struct SessionMeta {
     /// effort wins after that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort_request: Option<String>,
+    /// The chat runs a smaller model because its own stayed overloaded
+    /// (`hub/auto_resume/capacity_failover.rs`): `from` comes back once a turn on `to` ends well.
+    /// Saved with the meta, so a daemon restart still puts it back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_fallback: Option<CapacityFallback>,
     pub cwd: PathBuf,
     /// Folders the chat sees beside `cwd` (ACP `session/new` `additionalDirectories`, its
     /// Sources): every start of its harness gets them (`hub/additional_dirs.rs`). Absolute,
@@ -414,6 +459,9 @@ pub struct SessionMeta {
     pub history_kept_through: Option<u64>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub fork_requests: std::collections::BTreeMap<String, ForkRequest>,
+    /// A fork whose agent has not taken the chat's conversation yet ([`ForkStart`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_start: Option<ForkStart>,
     /// Whether this daemon verified the local parent link when the fork was made. Imported
     /// metadata is explicitly unverified, even when an old bundle happened to carry parent ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -797,6 +845,10 @@ pub struct SessionMeta {
     /// chat list shows of it without opening the archive. Cleared when the log comes back.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cold: Option<ColdPreview>,
+    /// The chat's Auto mode (`auto_session/record.rs`): whether it is on, whether this machine
+    /// held the chat last, and changes kept aside. Never copied to a fork.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_session: Option<crate::auto_session::record::AutoRecord>,
     /// The subagent of chat `parent_id` this fork holds the conversation of, not the chat's own
     /// (`hub/fork_subagent.rs`). The info view's `forkOf`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

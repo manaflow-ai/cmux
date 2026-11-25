@@ -126,7 +126,7 @@ public struct WorkspacesList: View {
         self.open = open
     }
 
-    /// The listed Macs: one per computer, whatever builds run on it (`MacRoster`).
+    /// The listed Macs: every cmux build as its own Mac (`MacRoster`).
     private var macs: [MacDevice] { macText.roster(store.activeTeam).visible }
     /// A remembered Mac that is no longer listed reads as All Macs.
     var scope: MacScope { MacFilter.resolve(filter.scope(in: store.activeTeam), macs: macs) }
@@ -356,6 +356,9 @@ public struct WorkspacesList: View {
     /// (`AppStore.openingTab`). Clears its "Done".
     func openWorkspace(_ ws: Workspace, status: WorkspaceStatus, tab: WorkspaceTab? = nil) {
         LaunchMarks.shared.mark("workspace_row_tap")
+        #if DEBUG
+        OpenMarks.shared?.begin("workspace_row_tap")
+        #endif
         if status == .offline {
             theme.haptics.warning()
             unavailable = ws
@@ -374,17 +377,16 @@ public struct WorkspacesList: View {
     /// lists load (`listShowsPlaceholder`). Both phases draw this one view in one place, so the
     /// hand-off between them keeps it: two copies were two views, and the second started
     /// hidden for its show delay, so the rows blinked out for a quarter second mid-load.
+    /// Never over rows the phone has listed before: a launch and a team switch draw the team's
+    /// cached rows (`LiveSnapshotStore`), so these show only on an install that never listed it.
     private var showsSkeleton: Bool {
-        switch launchState {
-        case .firstLoad: true
-        case .noMacs, .content: !macs.isEmpty && listShowsPlaceholder
-        case .failed: false
-        }
+        launchState.showsPlaceholderRows(hasMacs: !macs.isEmpty, listLoading: inbox.isLoading, hasMacLines: !inbox.folds.isEmpty)
     }
 
     private var content: some View {
         ZStack {
             launchContent
+            // placeholder-ok: nothing cached for this team (no list ever loaded); cached rows draw instead.
             if showsSkeleton { skeleton(store.isOffline ? "Waiting for a connection…" : "Loading workspaces…") }
         }
     }
@@ -418,11 +420,13 @@ public struct WorkspacesList: View {
 
     /// The first load's placeholder rows, captioned with what they wait for.
     private func skeleton(_ caption: LocalizedStringKey) -> some View {
-        // The rows sit where the list's rows will (no caption line pushing them down); what they
-        // wait for is their spoken label, and offline is the title's subtitle.
+        // placeholder-ok: only when `showsSkeleton`, a team this phone never listed. The rows sit
+        // where the list's rows will (no caption line pushing them down); what they wait for is
+        // their spoken label, and offline is the title's subtitle.
         ScrollView { SkeletonList(rows: 6, leadingSquare: nil, caption: caption, style: .plainList, captionPlacement: .spoken) }
             .scrollDisabled(true)
             .accessibilityIdentifier("workspaces.loading")
+            .loadProbePlaceholder()
             .placeholderBound("workspaces.skeleton", .milliseconds(2000))
     }
 
@@ -607,6 +611,7 @@ public struct WorkspacesList: View {
         }
         // Loading with Mac lines shown: the placeholder rows go below them, never over
         // them (full verify D7, D11: an overlay drew over the lines and took their Connect taps).
+        // Only with no row at all (`isLoading`): a Mac whose rows are cached draws them, not this.
         if inbox.isLoading, !inbox.folds.isEmpty { add("loading", [("loading", .loading)]) }
         return model
     }
@@ -644,11 +649,13 @@ public struct WorkspacesList: View {
         case .loading:
             // Its show delay keeps a quick load from flashing rows. Taking over from the page's
             // rows, already on screen, it waited with nothing shown: the rows blinked out.
+            // placeholder-ok: no row of any Mac on screen was ever listed (cached rows replace it).
             AnyView(SkeletonList(rows: 4, leadingSquare: nil,
                                  delay: placeholdersShown ? .zero : theme.motion.skeletonDelay,
                                  style: .plainList, captionPlacement: .spoken)
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("workspaces.loading")
+                .loadProbePlaceholder()
                 .placeholderBound("workspaces.page.skeleton", .milliseconds(2000)))
         }
     }
@@ -1211,6 +1218,8 @@ struct WorkspaceListRow: View, Equatable {
         // Not the List's cell highlight: it stuck on as a gray pill while a
         // swipe was under way. A press fill that ends when the touch moves.
         .buttonStyle(RowPressStyle())
+        // The layout-shift count (ios-placeholder-bounds suite): this row must not move once drawn.
+        .layoutShiftTracked("workspace.\(ws.id)")
         // Last-known rows (live mode) draw at full strength and open while the Mac answers on this link:
         // no dim while the phone reattaches (Leo, 2026-11-24: "the entire thing is somehow grayed out").
         .accessibilityAddTraits(model.isRemembered ? .isSelected : [])
@@ -1661,7 +1670,7 @@ struct WorkspaceRow: View {
                 .frame(width: gutter)
                 .alignmentGuide(.firstTextBaseline) { d in d[VerticalAlignment.center] + needsYouDisc / 2 }
                 .animation(theme.motion.snap.animation.unlessReduceMotion, value: status)
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: CmuxMobileListRowMetrics.lineSpacing) {
                 // The time stays trailing on line 1, beside a name that wraps
                 // to two lines at accessibility sizes (no line of its own).
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1675,7 +1684,7 @@ struct WorkspaceRow: View {
                 }
             }
         }
-        .frame(minHeight: showsStatusLine ? 40 : 32, alignment: .center)
+        .frame(minHeight: showsStatusLine ? CmuxMobileListRowMetrics.minHeight : CmuxMobileListRowMetrics.compactMinHeight, alignment: .center)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background { needsYouGlow }
         .contentShape(.rect)

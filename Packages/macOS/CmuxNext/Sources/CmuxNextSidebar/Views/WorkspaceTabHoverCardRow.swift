@@ -103,7 +103,8 @@ final class WorkspaceTabHoverCardRow: NSView {
             ?? tab.pageIcon.map { NSImage.icon($0, size: side) }
             // A site with no favicon (yet): the workspace rows' placeholder globe (`WorkspaceIcon.pagePlaceholder`).
             ?? (tab.host != nil ? NSImage.icon(symbol: WorkspaceIcon.pagePlaceholderSymbol, size: side) : nil)
-            ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
+            // A terminal's agent on its rounded square, a chat's bare (`TabIcon.terminalAgentMark`).
+            ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side, terminal: tab.kind.isTerminal && DesignSettings.shared.terminalAgentMarks) }
             ?? NSImage.icon(tab.kind.icon, size: side)
         let line = WorkspaceTabHoverCardLine(tab, style: style, now: now, machine: machine)
         self.line = line
