@@ -282,7 +282,7 @@ fn trace() -> bool {
 
 fn clip(line: &str) -> String {
     match line.char_indices().nth(400) {
-        Some((at, _)) => format!("{}…", &line[..at]),
+        Some((at, _)) => format!("{}…", line.split_at(at).0),
         None => line.to_owned(),
     }
 }

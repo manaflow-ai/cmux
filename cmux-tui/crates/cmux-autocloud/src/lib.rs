@@ -700,10 +700,13 @@ async fn new_session(link: &Link, args: &ChatArgs, name: &str) -> Result<String>
         meta.insert("harness".to_owned(), json!(m));
     }
     let meta = Value::Object(meta);
-    let mut params = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
+    let mut params = serde_json::Map::new();
+    params.insert("mcpServers".to_owned(), json!([]));
+    params.insert("_meta".to_owned(), json!({"acpmux": meta}));
     if let Some(cwd) = new_chat_cwd(args) {
-        params["cwd"] = json!(cwd);
+        params.insert("cwd".to_owned(), json!(cwd));
     }
+    let params = Value::Object(params);
     let r = tokio::time::timeout(deadline, link.request("session/new", params)).await??;
     match r.get("sessionId").and_then(Value::as_str) {
         Some(s) => Ok(s.to_owned()),
