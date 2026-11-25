@@ -35,11 +35,11 @@ const settle = async (done: () => boolean, ms = 2_000) => {
 
 type Hooks = { answer: (method: string, params: any) => Promise<unknown> };
 
-async function slowSend(acpmuxAhead: { ageMs: number } | undefined) {
+async function slowSend(acpmuxAhead: { ageMs: number } | undefined, stallCheckMs = 20) {
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const timing = { ...deliveryTiming };
-  Object.assign(deliveryTiming, { slowMs: 20 });
+  Object.assign(deliveryTiming, { slowMs: 20, stallCheckMs });
   const errors: string[] = [];
   const error = console.error;
   console.error = (...args: unknown[]) => void errors.push(args.map(String).join(" "));
@@ -99,6 +99,14 @@ test("a slow send in a chat whose events stopped reaching the pane logs the stal
   expect(line).toMatch(/pane at seq \d+, acpmux at seq \d+/);
 });
 
+// Leo, 2026-11-25: acpmux on a loaded Mac took up to 13.1 s to acknowledge a prompt; at 10 s the
+// pane read that as a stalled connection, reconnected, and the send said "Not sent". The Sending
+// marker still shows at `slowMs`; the stall check waits for `stallCheckMs`.
+test("a send that is only slow to be acknowledged draws Sending but asks nothing of the connection before stallCheckMs", async () => {
+  const { errors } = await slowSend({ ageMs: 60_000 }, 60_000);
+  expect(errors.filter((entry) => entry.includes("agent pane stall"))).toEqual([]);
+});
+
 test("a slow send with nothing missing, or with an event only just written, logs no stall", async () => {
   expect((await slowSend(undefined)).errors.filter((entry) => entry.includes("agent pane stall"))).toEqual([]);
   expect((await slowSend({ ageMs: 100 })).errors.filter((entry) => entry.includes("agent pane stall"))).toEqual([]);
@@ -122,7 +130,7 @@ async function stalledStream(options: {
     ((await import("./stallLog")) as { stallTiming?: { stopMs: number } }).stallTiming ?? {};
   const timing = { ...deliveryTiming };
   const stopTiming = { ...stallTiming };
-  Object.assign(deliveryTiming, { slowMs: 20 });
+  Object.assign(deliveryTiming, { slowMs: 20, stallCheckMs: 20 });
   Object.assign(stallTiming, { stopMs: 30 });
   const errors: string[] = [];
   const error = console.error;

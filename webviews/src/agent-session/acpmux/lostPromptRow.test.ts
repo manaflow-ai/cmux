@@ -166,13 +166,24 @@ test("a steer lost while its turn runs: one row, on its way, then sent once its 
   }
 });
 
-test("a lost prompt that never shows fails on its own row, and Retry sends it under the same prompt id", async () => {
+// Leo, 2026-11-25 (session 01a18a35, send 1e2ecc8b): a send to a busy coordinator said "Not sent
+// ... (native.timed_out)" 11 s after Enter, then ran anyway once the app relaunched and the host's
+// journal replayed it. A lost prompt whose record never shows is sent again by the next connection
+// itself, under the same prompt id (acpmux runs an id once), and its row never fails.
+test("a lost prompt that never shows is sent again under the same prompt id, and its row never fails", async () => {
   const { clientWaiter, keepLostPrompt } = await import("./lostPrompt");
-  const { translate } = await import("./i18n");
   const { error, promptId, sessionId, one } = await loseSteer("ship it");
   const asked: string[] = [];
-  const { two, view } = await nextConnection(sessionId, (params) => asked.push(params?._meta?.acpmux?.promptId));
+  const { two, daemon, view } = await nextConnection(sessionId, (params) => {
+    asked.push(params?._meta?.acpmux?.promptId);
+    // acpmux takes it as it queues it.
+    queueMicrotask(() =>
+      daemon.deliver({ jsonrpc: "2.0", method: "_acpmux/prompt_accepted", params: { sessionId, promptId } }),
+    );
+  });
   const clients = clientWaiter<typeof two>();
+  const seen: Row[] = [];
+  const watch = setInterval(() => seen.push(...view.rows.filter((row) => row.text === "ship it")), 0);
   try {
     clients.connected(two);
     const outcome = await keepLostPrompt(
@@ -183,12 +194,48 @@ test("a lost prompt that never shows fails on its own row, and Retry sends it un
       1_000,
       50,
     );
+    expect(outcome).toBe("shown");
+    expect(asked).toEqual([promptId]);
+    const rows = view.rows.filter((candidate) => candidate.kind === "user" && candidate.text === "ship it");
+    expect(rows.length).toBe(1);
+    expect(rows[0]!.failed).toBeFalsy();
+    expect(rows[0]!.delivery?.state).not.toBe("sending");
+    // Never drawn failed on the way.
+    expect(seen.some((row) => row.failed)).toBe(false);
+    expect(view.rows.some((candidate) => candidate.kind === "notice")).toBe(false);
+  } finally {
+    clearInterval(watch);
+    two.close?.();
+  }
+});
+
+test("a lost prompt that is never resent fails on its own row in one plain sentence, and Retry sends it under the same prompt id", async () => {
+  const { clientWaiter, keepLostPrompt } = await import("./lostPrompt");
+  const { translate } = await import("./i18n");
+  const { error, promptId, sessionId, one } = await loseSteer("ship it too");
+  const asked: string[] = [];
+  const { two, view } = await nextConnection(sessionId, (params) => asked.push(params?._meta?.acpmux?.promptId));
+  const clients = clientWaiter<typeof two>();
+  try {
+    clients.connected(two);
+    const outcome = await keepLostPrompt(
+      error,
+      clients,
+      one as unknown as typeof two,
+      { input: "ship it too", attachments: [] },
+      1_000,
+      50,
+      0,
+    );
     expect(outcome).toBe("failed");
-    const row = view.rows.find((candidate) => candidate.kind === "user" && candidate.text === "ship it");
+    const row = view.rows.find((candidate) => candidate.kind === "user" && candidate.text === "ship it too");
     expect(row?.failed).toBe(true);
     expect(row?.error).toBe(translate("prompt.failure.hostAway"));
+    expect(row?.error).not.toContain("Not sent");
     // The mock chat holds prompts of its own: this prompt draws once.
-    expect(view.rows.filter((candidate) => candidate.kind === "user" && candidate.text === "ship it").length).toBe(1);
+    expect(view.rows.filter((candidate) => candidate.kind === "user" && candidate.text === "ship it too").length).toBe(
+      1,
+    );
     expect(view.rows.some((candidate) => candidate.kind === "notice")).toBe(false);
     void two.retryPrompt(row!.id).catch(() => undefined);
     await settle(() => asked.length > 0);
@@ -246,6 +293,7 @@ for (const late of ["queued", "user_message"] as const)
         { input: "late one", attachments: [] },
         1_000,
         50,
+        0,
       );
       expect(outcome).toBe("failed");
       const seq = Number((two as unknown as { lastSeq: number }).lastSeq) + 1;

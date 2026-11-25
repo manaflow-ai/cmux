@@ -12845,13 +12845,19 @@ export class AcpmuxDirectClient {
       timers.push(
         setTimeout(() => {
           const state = this.deliveries.get(promptId)?.delivery.state;
-          if (state === "sending" && this.setDelivery(promptId, { slow: true })) {
-            this.emit();
-            this.checkStall(sessionId);
-          }
+          if (state === "sending" && this.setDelivery(promptId, { slow: true })) this.emit();
           // Taken, but its echo never came: the pane may have stopped getting the chat's events.
           else if (state === "delivered" && this.optimisticPromptRows.has(promptId)) this.checkStall(sessionId);
         }, deliveryTiming.slowMs),
+        // Still unacknowledged well past acpmux's slowest measured acknowledgement under load
+        // (`stallCheckMs`): only now ask whether the connection stalled. A slow acknowledgement on
+        // a live connection is not a stall, and reconnecting over it lost the send (Leo, 2026-11-25).
+        setTimeout(
+          () => {
+            if (this.deliveries.get(promptId)?.delivery.state === "sending") this.checkStall(sessionId);
+          },
+          Math.max(deliveryTiming.stallCheckMs, deliveryTiming.slowMs),
+        ),
       );
       const failUnanswered = () => {
         if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
@@ -15692,6 +15698,40 @@ export class AcpmuxDirectClient {
     });
     this.emit();
     return true;
+  }
+  /// The lost prompt drawn by `drawLostPrompt` did not show in acpmux's record in time: this
+  /// connection sends it again itself, under the same prompt id, so its row stays on its way instead
+  /// of saying "Not sent" (Leo, 2026-11-25: a send to a busy coordinator said "Not sent ...
+  /// (native.timed_out)" 11 s after Enter, then ran anyway once the app relaunched and the host's
+  /// journal replayed it). acpmux runs a prompt id at most once (its ledger answers a copy as
+  /// `duplicate`), and the host marks a promptId it sent before as a resend, so a copy that did land
+  /// never runs twice. Settles `taken` once acpmux takes it, `lost` when this connection went too
+  /// (the caller waits for the next one), and `failed` when acpmux refused it: the send's own
+  /// failure path then drew its row failed, with Retry. False at once when there is no such row.
+  retryLostPrompt(promptId: string, _error: unknown): Promise<"taken" | "lost" | "failed"> | false {
+    // The row stays drawn on its way: the send below takes it over under the same id, and only a
+    // refusal draws it failed (with Retry), from the send's own failure path.
+    const entry = this.deliveries.get(promptId);
+    const row = entry ? this.rows.get(entry.rowId) : undefined;
+    if (!entry || !row || entry.delivery.state !== "sending") return false;
+    const input = this.optimisticPromptInputs.get(promptId) ?? row.text ?? "";
+    const attachments = this.optimisticPromptAttachments.get(promptId) ?? [];
+    this.retriedPrompts.add(promptId);
+    return new Promise((resolve) => {
+      let taken = false;
+      this.send(input, attachments, promptId, undefined, undefined, false, () => {
+        taken = true;
+        resolve("taken");
+      })
+        .then(
+          (sent) => resolve(sent === undefined ? "failed" : "taken"),
+          (sendError: unknown) => {
+            if (taken) return;
+            resolve(lostPrompt(sendError) || isLostConnection(sendError) ? "lost" : "failed");
+          },
+        )
+        .finally(() => this.retriedPrompts.delete(promptId));
+    });
   }
   /// Whether the host's prompt journal keeps a prompt of these blocks that this connection lost
   /// (Swift `AgentPanePromptRelay`): only on a connection to this Mac's acpmux.

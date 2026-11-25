@@ -82,6 +82,10 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
   const fix = trust ? sends?.trustFolder : undefined;
   const act = (name: string) => void window.cmuxAcpmuxActions?.[name]?.({ rowId: row.id, rowIds });
   const codes = [...new Set([delivery?.reason, delivery?.code].filter(Boolean))];
+  // A dropped connection's own words only repeat its hop line ("The connection to the agent
+  // dropped..." under "The connection dropped before it was sent."): Details says it once, with its
+  // code (Leo, 2026-11-25: "why is it displayed like that and not rewritten to be a pleasant thing").
+  const wordsRepeat = delivery?.hop === "connection";
   const since = (ms: number | undefined) =>
     ms === undefined ? undefined : t("prompt.delivery.after", { ms: Math.max(0, ms - (delivery?.sentAt ?? ms)) });
   return (
@@ -139,8 +143,13 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
       </div>
       {open && delivery && (
         <div className="cv-user__delivery-details selectable">
-          {delivery.hop && <div>{t(HOP_LABEL[delivery.hop])}</div>}
-          {delivery.error && (
+          {delivery.hop && (
+            <div>
+              {t(HOP_LABEL[delivery.hop])}
+              {wordsRepeat && codes.length ? ` (${codes.join(", ")})` : ""}
+            </div>
+          )}
+          {delivery.error && !wordsRepeat && (
             <div>
               {delivery.error}
               {codes.length ? ` (${codes.join(", ")})` : ""}

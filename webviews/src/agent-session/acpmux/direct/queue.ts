@@ -259,8 +259,15 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// sends again on it before its row says "Not sent" again (direct.ts `awaitResent`): a quiet
 /// window each outbox word (`_cmux/prompt_resend`) opens again, never a deadline on a send that
 /// progresses; one on the wire waits up to `localFailMs`.
+/// `stallCheckMs`: how long a send waits unacknowledged before the pane asks whether its connection
+/// stalled (direct.ts `checkStall`, which reconnects on a stale one). acpmux acknowledges a prompt
+/// as it queues it, but a loaded Mac makes that slow: on one (load 17, 70 queued prompts,
+/// 2026-11-25) `prompt_send_to_ack` measured p50 29 ms, p90 164 ms, max 13.1 s. At 10 s the check
+/// tore down a connection still on its way and the row said "Not sent" (Leo: "PLEASE FIX THIS"), so
+/// it waits about twice the worst measured acknowledgement. `slowMs` only draws the Sending marker.
 export const deliveryTiming = {
   slowMs: 10_000,
+  stallCheckMs: 30_000,
   failMs: 60_000,
   localFailMs: 300_000,
   hostWaitMs: Number.POSITIVE_INFINITY,
