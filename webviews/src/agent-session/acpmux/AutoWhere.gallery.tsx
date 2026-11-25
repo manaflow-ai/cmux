@@ -2,7 +2,7 @@
 //
 // Auto as where a new chat runs (autoWhereModel.ts), in each look, every state drawn by the shipped
 // components: the Where chip (EnvironmentPicker with Auto picked, and with This Mac picked), its menu
-// (open it: Auto heads the list), and the arrival line (AutoArrival) while deciding, after it kept the
+// (open it: This Mac, Auto, Cloud, Other devices), and the arrival line (AutoArrival) while deciding, after it kept the
 // chat here, after it put it on Cloud, and when no Cloud machine was there to take it. Leo, 2026-11-22:
 // "MAKE IT FUCKING LOOK SPECIAL. BUT CONSSITENT TEXT-WISE." The words are the same in every look; the
 // look is the icon, its colour and a little motion, which holds still under reduced motion.
