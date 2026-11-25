@@ -59,6 +59,7 @@ work: `acpmux host` (and `hosts`, `peer`), `host place`, `host vm-host` and the 
 | Turn off a paired machine's Full access | `acpmux machine ticket full-access mini-2 off` |
 | Whether a machine is dedicated: agents run with no per-session sandbox, the VM is the boundary | `acpmux machine dedicated [NAME] [on\|off]` |
 | This machine's load now, one JSON object (cmux Cloud sizes its machines from it) | `acpmux machine load --json` |
+| Watch this machine once a second; one JSON line when memory available falls under 25% (`warn`) or 10% (`grow`), an OOM kill lands, CPU is 90% busy with a run queue over the vCPUs for 5 minutes, or disk is under 10% or 2 GiB, and again when it clears (lines move with `--mem-warn`, `--mem-grow`, `--cpu-busy`, `--cpu-hold-secs`, `--disk-fraction`, `--disk-bytes`, `--interval-ms`) | `acpmux machine load --watch` |
 | The shadow admission verdict for host readings given as JSON on stdin; defers nothing (inputs: `cmux-host-budget/testdata/shadow-verdict-v2.json`) | `acpmux machine verdict --json` |
 | Add one muted line to every live chat here | `acpmux machine notice --text TEXT` |
 

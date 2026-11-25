@@ -9,13 +9,12 @@ import type { Subagent } from "./subagentFold";
 import type { BackgroundCommand } from "../session-info/processes";
 import type { StartedSession } from "../started/startedSessions";
 
-const t = (key: string, values?: Record<string, unknown>) =>
-  key === "tools.runningCommand" ? `Running ${String(values?.command)}` : key;
+const t = (key: string) => key;
 
 test("a command line keeps its whole step: the row's CSS ellipsis cuts it, not a 40-character cap", () => {
   const command = "gh run watch 19283746 --repo acme/app --exit-status --interval 30 --compact";
   const detail = toolDetail(t as never, command, true);
-  expect(detail).toBe(`Running ${command}`);
+  expect(detail).toBe(command);
   expect(detail?.includes("…")).toBe(false);
 });
 
