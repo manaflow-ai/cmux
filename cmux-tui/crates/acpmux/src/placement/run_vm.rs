@@ -135,11 +135,18 @@ pub fn on_in(doc: Option<&serde_json::Value>, env: Option<&str>) -> bool {
 
 /// Whether a heavy `command` goes to a run VM now: run VMs `on`, a Cloud `machine`, a heavy class.
 pub fn goes(on: bool, machine: Option<&str>, command: &str) -> Option<&'static str> {
-    machine.map(str::trim).filter(|m| !m.is_empty())?;
-    if !on {
-        return None;
+    super::exec_router::route(on, machine, command, super::exec_router::Force::Auto)
+}
+
+/// The programs the heavy table names, each once (the exec router's shims, `exec_router.rs`).
+pub fn heavy_programs() -> Vec<&'static str> {
+    let mut all: Vec<&'static str> = Vec::new();
+    for (program, _, _) in HEAVY {
+        if !all.contains(program) {
+            all.push(program);
+        }
     }
-    heavy_class(command)
+    all
 }
 
 /// The shell text that runs `command` through `acpmux run-vm` with this binary (`exe` and its
@@ -164,6 +171,9 @@ impl Harness for ShellHarness {
         if let Some(path) = job.path.as_deref().filter(|p| !p.is_empty()) {
             cmd.env("PATH", path);
         }
+        // Decided: a shim under it (a build script's `cc`, `make`'s `cargo`) runs the real
+        // program here, on the run VM, never routes again (`exec_router.rs`).
+        cmd.env(super::exec_router::ROUTED_ENV, "fork");
         // Its own group: dropped mid-run (the stream gone), the child ends the whole command.
         cmd.process_group(0)
             .stdin(cmux_process::Stdio::null())
@@ -210,6 +220,18 @@ pub struct Row {
     pub class: String,
     /// `fork` when it ran on a run VM, `here` when it fell back.
     pub ran: &'static str,
+    /// What sent it: `hook` (Claude Code's Bash call), `shim` (a PATH shim, any process), `cli`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<&'static str>,
+    /// The program it ran (its first word's file name, never its arguments).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    /// Bytes of file changes the run VM sent back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patch_bytes: Option<usize>,
+    /// Bytes of output the run VM streamed back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub out_bytes: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fork: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -257,6 +279,10 @@ pub async fn on_fork<M: Machines, L: ForkLink>(
     let mut row = Row {
         class: class.to_owned(),
         ran: "here",
+        via: None,
+        program: program_of(command),
+        patch_bytes: None,
+        out_bytes: None,
         fork: None,
         fork_ms: None,
         start_ms: None,
@@ -358,6 +384,7 @@ async fn stream<L: ForkLink>(
                 }
             }
             Frame::Out(text) => {
+                *row.out_bytes.get_or_insert(0) += text.len() + 1;
                 if !started {
                     started = true;
                     row.first_output_ms = Some(began.elapsed().as_millis() as u64);
@@ -369,6 +396,7 @@ async fn stream<L: ForkLink>(
                 let patch = base64::engine::general_purpose::STANDARD
                     .decode(patch.as_bytes())
                     .map_err(|e| (true, format!("the fork's patch: {e}")))?;
+                row.patch_bytes = Some(patch.len());
                 match sub_fork::apply(checkout, &patch) {
                     Ok(files) => row.files = Some(files),
                     Err(e) => {
@@ -411,22 +439,100 @@ fn write_row(row: &Row) {
     if let Some(dir) = path.parent() {
         let _ = std::fs::create_dir_all(dir);
     }
+    bound_rows(&path, ROWS_MAX_BYTES);
     if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
         let _ = std::io::Write::write_all(&mut f, format!("{v}\n").as_bytes());
     }
 }
 
+/// The rows file's bound: past it the older half is dropped before the next row.
+pub const ROWS_MAX_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Keep `path` under `max` bytes: past it, keep its newer half (whole lines).
+pub fn bound_rows(path: &Path, max: u64) {
+    if std::fs::metadata(path).map(|m| m.len()).unwrap_or(0) <= max {
+        return;
+    }
+    let Ok(text) = std::fs::read_to_string(path) else { return };
+    let cut = text.len() / 2;
+    let start = text[cut..].find('\n').map(|i| cut + i + 1).unwrap_or(text.len());
+    let tmp = path.with_extension(format!("jsonl.{}", std::process::id()));
+    if std::fs::write(&tmp, &text[start..]).is_ok() {
+        let _ = std::fs::rename(&tmp, path);
+    }
+}
+
+/// The program `command` runs, file name only, never a `VAR=value` or an argument: the first
+/// heavy-table program among its commands, else its first command's.
+pub fn program_of(command: &str) -> Option<String> {
+    let heavy = heavy_programs();
+    let (mut first, mut listed) = (None, None);
+    crate::host_load::for_each_command(command, &mut |argv: &[&str]| {
+        let Some(name) =
+            argv.iter().find(|w| !w.contains('=')).map(|w| w.rsplit('/').next().unwrap_or(w))
+        else {
+            return;
+        };
+        first.get_or_insert_with(|| name.to_owned());
+        if listed.is_none() && heavy.contains(&name) {
+            listed = Some(name.to_owned());
+        }
+    });
+    listed.or(first)
+}
+
+/// A row for a command the conformance switch kept here (`CMUX_EXEC_ROUTE=local`).
+pub fn write_forced_here(command: &str, via: &'static str) {
+    write_row(&Row {
+        class: heavy_class(command).unwrap_or("a command").to_owned(),
+        ran: "here",
+        via: Some(via),
+        program: program_of(command),
+        patch_bytes: None,
+        out_bytes: None,
+        fork: None,
+        fork_ms: None,
+        start_ms: None,
+        first_output_ms: None,
+        wall_ms: None,
+        files: None,
+        exit: None,
+        fork_deleted: None,
+        cause: Some(format!("{}=local", super::exec_router::FORCE_ENV)),
+    });
+}
+
 /// `acpmux run-vm -- CMD`: run `CMD` on a run VM when it goes there, else here, and exit with
 /// its exit code.
 pub async fn main(command: &str) -> anyhow::Result<i32> {
+    use super::exec_router::{Force, route};
     let machine = sub_fork::this_machine();
-    let class = goes(run_vms_on(), machine.as_deref(), command);
-    let (Some(machine), Some(class)) = (machine, class) else { return run_here(command).await };
+    let force = Force::from_env();
+    let class = route(run_vms_on(), machine.as_deref(), command, force);
+    if let (Some(machine), Some(class)) = (machine, class)
+        && let Some(exit) = fork_or_here(&machine, class, command, "hook").await?
+    {
+        return Ok(exit);
+    }
+    if force == Force::Local {
+        write_forced_here(command, "hook");
+    }
+    run_here(command).await
+}
+
+/// Run `command` (a `class`) on a fork of `machine`, its output on this stdout: `Some(exit)` when
+/// it ran there, None when it must run here (the row says why). `via` names what sent it.
+pub async fn fork_or_here(
+    machine: &str,
+    class: &'static str,
+    command: &str,
+    via: &'static str,
+) -> anyhow::Result<Option<i32>> {
     let machines = match sub_fork::CloudMachines::from_env(|k| std::env::var(k).ok()) {
         Ok(m) => Arc::new(m),
         Err(e) => {
             eprintln!("[run-vm] ran here: {e}");
-            return run_here(command).await;
+            return Ok(None);
         }
     };
     let link = super::sub_fork_run::CloudLink::new(machines.request.clone());
@@ -440,7 +546,7 @@ pub async fn main(command: &str) -> anyhow::Result<i32> {
     let run = on_fork(
         machines,
         &link,
-        &machine,
+        machine,
         class,
         command,
         &cwd,
@@ -463,19 +569,21 @@ pub async fn main(command: &str) -> anyhow::Result<i32> {
     }
     stdout.flush().await?;
     match ran {
-        Ran::Done { exit, row } => {
+        Ran::Done { exit, mut row } => {
+            row.via = Some(via);
             write_row(&row);
             eprintln!(
                 "[run-vm] ran on a run VM: exit {exit}, {} file(s) back, {} s",
                 row.files.unwrap_or(0),
                 row.wall_ms.unwrap_or(0) / 1000
             );
-            Ok(exit)
+            Ok(Some(exit))
         }
-        Ran::Here { row } => {
+        Ran::Here { mut row } => {
+            row.via = Some(via);
             eprintln!("[run-vm] ran here: {}", row.cause.as_deref().unwrap_or("no run VM"));
             write_row(&row);
-            run_here(command).await
+            Ok(None)
         }
     }
 }
@@ -485,7 +593,12 @@ async fn run_here(command: &str) -> anyhow::Result<i32> {
     let command = command.to_owned();
     // The command's own terminal streams: it runs here exactly as the agent asked.
     let status = tokio::task::spawn_blocking(move || {
-        cmux_process::Command::new("/bin/sh").arg("-c").arg(command).status()
+        cmux_process::Command::new("/bin/sh")
+            .arg("-c")
+            .arg(command)
+            // Decided: a shim under it runs the real program here (`exec_router.rs`).
+            .env(super::exec_router::ROUTED_ENV, "here")
+            .status()
     })
     .await??;
     Ok(exit_code(status))

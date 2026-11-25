@@ -665,10 +665,21 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             Ok(())
         }
         // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
-        Some(Command::RunVm { command }) => {
-            match crate::placement::run_vm::main(&command.join(" ")).await {
+        Some(Command::RunVm { shim, command }) => {
+            let ran = match shim {
+                Some(program) => crate::placement::exec_router::shim_main(&program, &command).await,
+                None if command.is_empty() => Err(anyhow::anyhow!("run-vm: no command after --")),
+                None => crate::placement::run_vm::main(&command.join(" ")).await,
+            };
+            match ran {
                 // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
                 Ok(code) => std::process::exit(code),
+                Err(e) => errors::exit_with(&e, cli.json),
+            }
+        }
+        Some(Command::Exec(crate::cli::command::ExecCmd::Trace { last })) => {
+            match crate::placement::exec_router::trace_main(last, cli.json) {
+                Ok(()) => Ok(()),
                 Err(e) => errors::exit_with(&e, cli.json),
             }
         }

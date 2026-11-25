@@ -389,10 +389,18 @@ pub enum Command {
     /// when AutoCloud is off, this is no Cloud machine, or the command is not a heavy class.
     #[command(name = "run-vm", hide = true)]
     RunVm {
-        /// The shell command, after `--`.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        /// The program an exec router shim stands in for (`placement/exec_router.rs`): the
+        /// words after `--` are then its arguments, not a shell command.
+        #[arg(long, value_name = "PROGRAM")]
+        shim: Option<String>,
+        /// The shell command (or, with `--shim`, the program's arguments), after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         command: Vec<String>,
     },
+    /// The exec router (`placement/exec_router.rs`): where each heavy command an agent, a
+    /// helper or their subprocesses ran went, and why.
+    #[command(subcommand)]
+    Exec(ExecCmd),
     /// Execute one authenticated Cloud trigger operation from a JSON stdin envelope.
     #[command(name = "trigger-chat", hide = true)]
     TriggerChat {
@@ -2378,4 +2386,16 @@ mod deadline_defaults_tests {
             assert!(parse(&["acpmux", "send", "c", "hi", "--gather", clash]).is_err(), "{clash}");
         }
     }
+}
+
+/// `acpmux exec ...`.
+#[derive(Debug, clap::Subcommand)]
+pub enum ExecCmd {
+    /// Each routing decision, newest last: where it ran (fork or here), what sent it (hook,
+    /// shim), the program, wall time, exit, bytes back, and the cause when it ran here.
+    Trace {
+        /// How many of the newest decisions.
+        #[arg(long, default_value_t = 20)]
+        last: usize,
+    },
 }
