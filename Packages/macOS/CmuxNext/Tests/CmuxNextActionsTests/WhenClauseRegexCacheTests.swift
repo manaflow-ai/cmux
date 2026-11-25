@@ -4,23 +4,22 @@ import Testing
 /// `=~` compiled its pattern on every evaluation (once per candidate binding per key event). The cache
 /// compiles each distinct pattern once; results are unchanged.
 @Suite struct WhenClauseRegexCacheTests {
-    @Test func repeatedEvaluationCompilesOnce() {
-        let clause = WhenClause.matches("cacheTestKey", pattern: "^term(inal)?-[0-9]+$")
+    @Test func repeatedEvaluationReusesOneCompiledRegex() {
+        let pattern = "^term(inal)?-[0-9]+$"
+        let first = WhenRegexCache.regex(pattern)
+        #expect(first != nil)
+        let clause = WhenClause.matches("cacheTestKey", pattern: pattern)
         let hit = KeyContext(["cacheTestKey": .string("terminal-42")])
         let miss = KeyContext(["cacheTestKey": .string("page")])
-        let before = WhenRegexCache.shared.compiled
         for _ in 0..<1000 {
             #expect(clause.evaluate(hit))
             #expect(!clause.evaluate(miss))
         }
-        #expect(WhenRegexCache.shared.compiled - before == 1)
+        #expect(WhenRegexCache.regex(pattern) === first)
     }
 
-    @Test func invalidPatternNeverMatchesAndCompilesOnce() {
+    @Test func invalidPatternNeverMatches() {
         let clause = WhenClause.matches("cacheTestKey", pattern: "([unclosed")
-        let context = KeyContext(["cacheTestKey": .string("([unclosed")])
-        let before = WhenRegexCache.shared.compiled
-        for _ in 0..<50 { #expect(!clause.evaluate(context)) }
-        #expect(WhenRegexCache.shared.compiled - before == 1)
+        #expect(!clause.evaluate(KeyContext(["cacheTestKey": .string("([unclosed")])))
     }
 }
