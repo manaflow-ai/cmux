@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4598f32b128b81cfaf58c88fba04ccf3fb6e8ae61a0aad9f78a6c6ceb353cb8a.
+// cmux-tui mux protocol 12, IR 36fe635f2c55569c9d782ff3f9c35ae5599a821271591bb850330f411755a8ae.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -25,7 +25,13 @@ pub type TabRef = serde_json::Value;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActivitySnapshot {
     pub attached_clients: u32,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub echo_at_ms: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub echo_input_at_ms: Optional<u64>,
     pub last_agent_action_at_ms: Nullable<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub last_person_attach_at_ms: Optional<u64>,
     pub last_user_input_at_ms: Nullable<u64>,
     pub live_agents: u32,
 }
