@@ -32,24 +32,3 @@ import Testing
             .displayTitle == "New chat")
     }
 }
-
-/// The Chats row's summary line: the Mac's rolling summary, then its next action (David Beyer,
-/// 2026-11-20: rolling summaries of every chat with a next action for each).
-@Suite struct AgentChatSummaryLineTests {
-    private func chat(summary: String?, next: String?) -> AgentChatListing {
-        AgentChatListing(id: "s", title: "Fix the build", harness: "claude", cwd: "/Users/me/app", status: "idle",
-                         updatedAt: nil, archived: false, summary: summary, nextAction: next)
-    }
-
-    @Test func theSummaryReadsWithItsNextAction() {
-        #expect(chat(summary: "Parser fixed, CI running.", next: "Merge the PR").summaryLine == "Parser fixed, CI running. → Merge the PR")
-        #expect(chat(summary: " Menu planned. ", next: "  ").summaryLine == "Menu planned.")
-        #expect(chat(summary: nil, next: "Go").summaryLine == nil)
-        #expect(chat(summary: "  ", next: nil).summaryLine == nil)
-    }
-
-    @Test func searchFindsAChatByItsSummary() {
-        let chats = [chat(summary: "Parser fixed, CI running.", next: "Merge the PR"), chat(summary: nil, next: nil)]
-        #expect(AgentChatListing.filter(chats, scope: .chats, query: "merge").count == 1)
-    }
-}

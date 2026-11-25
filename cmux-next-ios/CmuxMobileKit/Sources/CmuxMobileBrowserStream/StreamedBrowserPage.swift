@@ -70,6 +70,7 @@ public struct StreamedBrowserPage: View {
                     .accessibilityHidden(true)
                 }
                 status(String(localized: "Loading browser session…"))
+                    .placeholderBound("browser.stream.loading", .milliseconds(2000))
             } else if let notice = model.notice {
                 refusal(notice)
             }
@@ -215,6 +216,7 @@ public struct StreamedBrowserPage: View {
             .padding(.top, 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .accessibilityIdentifier("browser.reconnecting")
+            .placeholderBound("browser.connection.chip", .milliseconds(0))
     }
 }
 
@@ -314,6 +316,7 @@ public struct StreamedBrowserCard: View {
                     .font(.system(size: 72, weight: .light))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .placeholderBound("tabgrid.stream.icon", .milliseconds(1000))
             }
         }
     }
