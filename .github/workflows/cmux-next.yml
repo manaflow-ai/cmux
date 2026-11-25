@@ -159,6 +159,7 @@ on:
       - scripts/cmux-next/quarantine.json
       - scripts/cmux-next/tests/fast-tier.test.sh
       - scripts/cmux-next/fast-tier-cache-key.sh
+      - scripts/ci/fast_tier_current_base.py
       - scripts/ci/e2e_warm_derived_data.py
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
@@ -536,6 +537,7 @@ on:
       - scripts/cmux-next/quarantine.json
       - scripts/cmux-next/tests/fast-tier.test.sh
       - scripts/cmux-next/fast-tier-cache-key.sh
+      - scripts/ci/fast_tier_current_base.py
       - scripts/ci/e2e_warm_derived_data.py
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
@@ -805,7 +807,8 @@ jobs:
       hold_minutes: 30
       no_coalesce: ${{ format('{0}', vars.CMUX_NEXT_PURE_CHECKS_COALESCE) == '0' }}
 
-  # Why: note-568, note-11, note-569
+  # Why: note-568, note-11
+  # Why: docs/ci/cmux-next-workflow-notes.md#note-pr-control-pool
   push-head-preflight:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-87
     if: ${{ !cancelled() && (inputs.same_tree_sha == '') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
@@ -871,7 +874,7 @@ jobs:
       ffi_repin: ${{ steps.route.outputs.ffi_repin }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-502
       fast_tier_cargo: ${{ steps.route.outputs.fast_tier_cargo }}
-      # Why: note-570
+      # Why: note-569
       base_red_jobs: ${{ steps.base-red.outputs.red_jobs || '[]' }}
       scheme: ${{ steps.route.outputs.scheme }}
       generated: ${{ steps.route.outputs.generated }}
@@ -951,10 +954,10 @@ jobs:
           CI_IDLE_BASE_MERGE_SKIP: ${{ vars.CI_IDLE_BASE_MERGE_SKIP || '1' }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-557
           PR_FAST_ONLY: ${{ format('{0}', vars.CI_PR_FAST_ONLY) != '0' }}
-          # Why: note-571
+          # Why: note-570
           CI_GREEN_BASE_MERGE_SKIP: ${{ vars.CI_GREEN_BASE_MERGE_SKIP || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
-      # Why: note-572
+      # Why: note-571
       - name: Jobs red on the base right now
         id: base-red
         if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci')
@@ -1072,7 +1075,7 @@ jobs:
             echo "::notice title=same-tree cmux-tui deferred::$REASON"
           fi
 
-  # Why: note-573, note-14
+  # Why: note-572, note-14
   dev-daily-tree-wait:
     needs: path_route
     if: ${{ !cancelled() && (inputs.dev_daily == true && inputs.same_tree_sha == '' && needs.path_route.outputs.tree_state == 'deferred') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
@@ -1107,7 +1110,7 @@ jobs:
     if: ${{ !cancelled() && (((inputs.same_tree_sha == '' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.macos == 'true') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready')) && github.repository_owner == 'manaflow-ai' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
     name: cmux-next macOS placement
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && 'cmux-linux' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.run_attempt == 1 && 'cmux-linux' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-16vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_16) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_4) }}
-    # Why: note-108, note-574
+    # Why: note-108, note-573
     timeout-minutes: 19
     # Why: docs/ci/cmux-next-workflow-notes.md#note-16
     env:
@@ -1166,7 +1169,7 @@ jobs:
       free_session_runner: ${{ steps.place.outputs.free_session_runner }}
       nightly_runner_ready: ${{ steps.place.outputs.nightly_runner_ready }}
     steps:
-      # Why: note-575
+      # Why: note-574
       - name: Wait until the pull request has had no push for the quiet period
         if: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 && !contains(github.event.pull_request.labels.*.name, 'leo-named-fix') && format('{0}', vars.CI_PR_QUIET_PERIOD_SECONDS) != '0' }}
         # Why: docs/ci/cmux-next-workflow-notes.md#note-86
@@ -1177,7 +1180,7 @@ jobs:
           QUIET_SECONDS: ${{ vars.CI_PR_QUIET_PERIOD_SECONDS || '300' }}
         run: |
           set -euo pipefail
-          # Why: note-576
+          # Why: note-575
           [[ "$QUIET_SECONDS" =~ ^[0-9]+$ ]] || QUIET_SECONDS=300
           (( QUIET_SECONDS <= 600 )) || QUIET_SECONDS=600
           now="$(date -u +%s)"
@@ -1362,7 +1365,7 @@ jobs:
           path: ${{ runner.temp }}/cmux-pool-snapshot
           key: cmux-pool-snapshot-${{ steps.pool-snapshot-fetched.outputs.fetched }}
 
-      # Why: note-577, note-124
+      # Why: note-576, note-124
       - name: Mark a run on the minis
         id: marker
         if: startsWith(env.CMUX_NEXT_SIDE_ROUTE, 'glaeda-') && github.event_name != 'push' && github.run_attempt == 1
@@ -1373,7 +1376,7 @@ jobs:
           echo '{}' > "$marker"
           echo "path=$marker" >> "$GITHUB_OUTPUT"
 
-      # Why: note-578, note-125
+      # Why: note-577, note-125
       - name: Upload the owned-pool watch marker
         timeout-minutes: 1
         if: ${{ steps.marker.outputs.path != '' }}
@@ -1458,26 +1461,26 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-27
       - name: Start the slow checks in the background
         env:
-          # Why: note-579
+          # Why: note-578
           JOB_TIMEOUT_MINUTES: 15
-          # Why: note-580
+          # Why: note-579
           AFFECTED_BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
         run: |
           # Why: docs/ci/cmux-next-workflow-notes.md#note-27c
-          # Why: note-581
+          # Why: note-580
           POOL_TAIL_SECONDS=300
           job_start="$(python3 -c 'import os, sys; print(int(os.path.getmtime(sys.argv[1])))' "$GITHUB_EVENT_PATH" 2>/dev/null \
             || date +%s)"
           now="$(date +%s)"
-          # Why: note-582
+          # Why: note-581
           (( job_start <= now && now - job_start < JOB_TIMEOUT_MINUTES * 60 )) || job_start="$now"
           deadline=$(( job_start + JOB_TIMEOUT_MINUTES * 60 - POOL_TAIL_SECONDS ))
-          # Why: note-583
+          # Why: note-582
           scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" \
             --deadline-at "$deadline" --affected "$AFFECTED_BASE" <<'CHECKS'
             # Why: docs/ci/cmux-next-workflow-notes.md#note-474
             [script-tests]
-            # Why: note-584
+            # Why: note-583
             python3 tests/test_cmux_next_prepush_gate.py --shard 1/4
             python3 tests/test_cmux_next_prepush_gate.py --shard 2/4
             python3 tests/test_cmux_next_prepush_gate.py --shard 3/4
@@ -1541,30 +1544,30 @@ jobs:
             python3 tests/test_ci_launch_budget_gate.py
             python3 tests/test_strings_output_encoding.py
             bash tests/test_strip_release_bundle.sh
-            # Why: note-585
+            # Why: note-584
             python3 tests/test_ui_font.py
-            # Why: note-586
+            # Why: note-585
             python3 tests/test_cmux_next_perf_gate_unlit.py
-            # Why: note-587
+            # Why: note-586
             python3 tests/test_base_merge_warning.py
-            # Why: note-588
+            # Why: note-587
             python3 tests/test_job_input_fingerprint.py
-            # Why: note-589
+            # Why: note-588
             python3 tests/test_job_reuse.py
             python3 tests/test_rebuild_mirror.py
-            # Why: note-590
+            # Why: note-589
             python3 tests/test_dev_release_product_key.py
-            # Why: note-591
+            # Why: note-590
             python3 tests/test_dev_release_product_reuse.py
-            # Why: note-592
+            # Why: note-591
             python3 tests/test_nightly_release_product_key.py
-            # Why: note-593
+            # Why: note-592
             python3 tests/test_nightly_release_product_reuse.py
-            # Why: note-594
+            # Why: note-593
             python3 tests/test_ci_compile_test_plan.py
-            # Why: note-595
+            # Why: note-594
             python3 tests/test_guard_hooks_from_base.py
-            # Why: note-596
+            # Why: note-595
             python3 tests/test_feat_ci_guard_group.py
             python3 tests/test_guards_new_reds.py
             python3 tests/test_unittest_results.py
@@ -1585,7 +1588,7 @@ jobs:
             python3 tests/test_cmux_tui_tree_takeover.py
             python3 tests/test_cmux_next_same_tree_failed.py
             python3 tests/test_idea_ledger.py
-            # Why: note-597
+            # Why: note-596
             python3 tests/test_ios_internal_builder.py
             python3 tests/test_ios_internal_notes.py
             python3 tests/test_ios_internal_yolo.py
@@ -1624,7 +1627,7 @@ jobs:
             bash scripts/cmux-next/tests/check-fleet-only.test.sh
             node --test scripts/lib/reload-shim.test.mjs
             node --test cmux-tui/crates/acpmux/skills/cmux-rich-output/tests/deck.test.mjs
-            # Why: note-598
+            # Why: note-597
             bash scripts/cmux-next/tests/capability-text.test.sh
             bash scripts/cmux-next/tests/release-compile-derived-data.test.sh
             bash scripts/cmux-next/tests/release-compile-fleet-cas.test.sh
@@ -1657,9 +1660,9 @@ jobs:
             bash scripts/cmux-next/tests/check-app-size.test.sh
             python3 -I scripts/cmux-next/tests/test_bundle_size.py
             python3 -I scripts/cmux-next/tests/test_bundle_size_pr.py
-            # Why: note-599
+            # Why: note-598
             python3 -I scripts/cmux-next/tests/test_bench_launch_console.py
-            # Why: note-600
+            # Why: note-599
             python3 -I scripts/cmux-next/tests/test_typing_bench_launch_arm.py
             python3 -I scripts/cmux-next/tests/test_fetch_nightly_dmg.py
             python3 -I scripts/cmux-next/tests/test_cef_pak_drop.py
@@ -1689,26 +1692,26 @@ jobs:
             bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
             bash scripts/cmux-next/tests/build-cmux-tui-client.test.sh
             bash scripts/cmux-next/tests/cef-manifest-r2.test.sh
-            # Why: note-601
+            # Why: note-600
             python3 -I tests/test_chromium_staleness.py
             # Why: docs/ci/cmux-next-workflow-notes.md#note-476
             python3 -I tests/test_payload_advisories.py
-            # Why: note-602
+            # Why: note-601
             python3 -I scripts/cmux-next/herdr-sync.py check
             python3 -I scripts/cmux-next/tests/test_herdr_sync.py
-            # Why: note-603
+            # Why: note-602
             python3 -I scripts/cmux-next/tests/test_build_names.py
             # Why: docs/ci/cmux-next-workflow-notes.md#note-507
             python3 -I scripts/cmux-next/tests/test_hot_verify_ci.py
-            # Why: note-604
+            # Why: note-603
             python3 -I scripts/cmux-next/tests/test_rj_rows.py
-            # Why: note-605
+            # Why: note-604
             python3 -I scripts/cmux-next/tests/test_rj_update.py
-            # Why: note-606
+            # Why: note-605
             python3 -I scripts/cmux-next/tests/test_renderer_rest.py
-            # Why: note-607
+            # Why: note-606
             python3 -I scripts/cmux-next/tests/test_check_v2_app_callers.py
-            # Why: note-608
+            # Why: note-607
             python3 -I scripts/cmux-next/tests/test_sidebar_perf_validate.py
             # Why: docs/ci/cmux-next-workflow-notes.md#note-508
             python3 -I tests/test_git_history.py
@@ -1721,7 +1724,7 @@ jobs:
             bash tests/test_web_bundle_key_inputs.sh
           CHECKS
 
-      # Why: note-609, note-134
+      # Why: note-608, note-134
       - name: God files and types (Swift)
         id: godfiles-swift
         continue-on-error: true
@@ -1734,7 +1737,7 @@ jobs:
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/ratchet-debt"
-          # Why: note-610
+          # Why: note-609
           rc=0
           scripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-swift.log" || rc=$?
           if (( rc == 1 )); then
@@ -1755,7 +1758,7 @@ jobs:
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/ratchet-debt"
-          # Why: note-610
+          # Why: note-609
           rc=0
           scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-rust.log" || rc=$?
           if (( rc == 1 )); then
@@ -1764,7 +1767,7 @@ jobs:
             exit "$rc"
           fi
 
-      # Why: note-611, note-137
+      # Why: note-610, note-137
       - name: CmuxNextApp size cap
         id: app-size
         continue-on-error: true
@@ -1889,7 +1892,7 @@ jobs:
           fi
           scripts/cmux-next/check-crash-safety.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
-      # Why: note-612, note-141
+      # Why: note-611, note-141
       - name: Tests inject their notification center
         id: test-notification-centers
         continue-on-error: true
@@ -1939,7 +1942,7 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-pressed-state.py "$GITHUB_WORKSPACE"
 
-      # Why: note-613, note-143
+      # Why: note-612, note-143
       - name: Motion tokens
         id: motion
         continue-on-error: true
@@ -1969,7 +1972,7 @@ jobs:
         continue-on-error: true
         run: python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
 
-      # Why: note-614
+      # Why: note-613
       - name: Instrument tokens
         id: instrument-tokens
         continue-on-error: true
@@ -1989,7 +1992,7 @@ jobs:
             python3 -I scripts/cmux-next/check-ui-font.py --rev HEAD
           fi
 
-      # Why: note-615, note-145
+      # Why: note-614, note-145
       - name: Motion scale
         id: motion-scale
         continue-on-error: true
@@ -2005,7 +2008,7 @@ jobs:
           python3 -I scripts/cmux-next/motion-coverage.py > "$RUNNER_TEMP/motion-coverage.json"
           python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); print("motion coverage", d["coverage"], {k: v["coverage"] for k, v in d["surfaces"].items()})' "$RUNNER_TEMP/motion-coverage.json"
 
-      # Why: note-616, note-147
+      # Why: note-615, note-147
       - name: Surface roles
         id: surface-roles
         continue-on-error: true
@@ -2019,7 +2022,7 @@ jobs:
           python3 -I scripts/cmux-next/gen-menu-metrics.py --check
           python3 -I scripts/cmux-next/check-menu-metrics.py "$GITHUB_WORKSPACE"
 
-      # Why: note-617, note-149
+      # Why: note-616, note-149
       - name: Protected-folder copies
         id: protected-folders
         continue-on-error: true
@@ -2035,7 +2038,7 @@ jobs:
           python3 -I scripts/cmux-next/tests/test_settings_section_type_budget.py
           python3 -I scripts/cmux-next/tests/test_settings_swift_out.py
 
-      # Why: note-618, note-151
+      # Why: note-617, note-151
       - name: Phone lane field allowlist
         id: phone-lane-fields
         continue-on-error: true
@@ -2065,10 +2068,10 @@ jobs:
         run: |
           bash scripts/ci/init-submodule.sh ghostty-next
           bash scripts/cmux-next/tests/bundle-ghostty-resources.test.sh
-          # Why: note-619
+          # Why: note-618
           bash scripts/cmux-next/tests/bundle-resources-layout.test.sh
 
-      # Why: note-620, note-153
+      # Why: note-619, note-153
       - name: Bundled terminfo
         id: bundled-terminfo
         continue-on-error: true
@@ -2089,13 +2092,14 @@ jobs:
           python3 scripts/icons/build_pack.py --check
           python3 scripts/cmux-next/lint-browser-chrome-icons.py
 
-      # Why: note-621, note-156
+      # Why: note-620, note-156
       - name: App Store review rules (cmux-next-ios intents, Info.plist)
         id: app-store-rules
         continue-on-error: true
         run: |
           python3 tests/test_app_store_rules.py
           python3 tests/test_cmux_next_ios_test_notes_retry.py
+          python3 tests/test_testflight_build_checkers.py
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-435
@@ -2106,7 +2110,7 @@ jobs:
           python3 tests/test_cmux_next_perf_source_guard.py
           python3 -I scripts/cmux-next/check-perf-source-guard.py
 
-      # Why: note-622, note-157
+      # Why: note-621, note-157
       - name: No fleet host names in gallery fixtures
         id: fixture-host-names
         continue-on-error: true
@@ -2114,7 +2118,7 @@ jobs:
           python3 tests/test_cmux_next_fixture_host_names.py
           python3 -I scripts/cmux-next/check-fixture-host-names.py
 
-      # Why: note-623, note-158
+      # Why: note-622, note-158
       - name: Kill switches are declared, tied to a PR and unexpired
         id: kill-switches
         continue-on-error: true
@@ -2178,7 +2182,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-450
           python3 scripts/ci/github_token_budget_lint.py
 
-      # Why: note-624, note-163
+      # Why: note-623, note-163
       - name: Base-red classifier (per test)
         id: base-red-classifier
         continue-on-error: true
@@ -2187,7 +2191,7 @@ jobs:
           python3 tests/test_base_red_excuse.py
           python3 tests/test_web_coalesce.py
 
-      # Why: note-625, note-164
+      # Why: note-624, note-164
       - name: DEV update and classic import scripts
         id: dev-update-classic-import
         continue-on-error: true
@@ -2195,7 +2199,7 @@ jobs:
           python3 tests/test_cmux_next_update_dev_daily.py
           python3 tests/test_cmux_next_classic_to_next.py
 
-      # Why: note-626, note-165
+      # Why: note-625, note-165
       - name: Routing replay (router changes)
         id: routing-replay
         continue-on-error: true
@@ -2238,12 +2242,12 @@ jobs:
             base="$(git cat-file commit "$MERGE" | awk "\$1 == \"parent\" && !found { print \$2; found = 1 }")"
             base="$(git rev-parse --verify "$base^{commit}")"
             code="$CODE"
-            # Why: note-627
+            # Why: note-626
             mkdir -p "$code/scripts/cmux-next" "$code/scripts/ci"
             git cat-file blob "$base:scripts/cmux-next/check-app-ffi-pin.sh" >"$code/scripts/cmux-next/check-app-ffi-pin.sh"
             git cat-file blob "$base:scripts/ci/app_ffi_pin.py" >"$code/scripts/ci/app_ffi_pin.py"
             if ! grep -q -e "--tree)" "$code/scripts/cmux-next/check-app-ffi-pin.sh"; then
-              # Why: note-628
+              # Why: note-627
               echo "note: the base check has no --tree; the checkout copy runs"
               exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --base "$base"
             fi
@@ -2255,7 +2259,7 @@ jobs:
             exit "$status"
           '
 
-      # Why: note-629, note-166
+      # Why: note-628, note-166
       - name: Daemon capabilities export is fresh
         id: daemon-capabilities-fresh
         continue-on-error: true
@@ -2281,7 +2285,7 @@ jobs:
           BEFORE: ${{ steps.prev.outputs.before || github.event.before }}
         run: bash -e scripts/ci/cmux-next-steps/pushed-commits-add-no-violations.sh
 
-      # Why: note-630, note-31
+      # Why: note-629, note-31
       - name: Fail on any red check
         if: always()
         env:
@@ -2380,65 +2384,9 @@ jobs:
             ${{ steps.daemon-capabilities-fresh.outcome }}|Daemon capabilities export is fresh
             ${{ steps.app-capability-references.outcome }}|App capability references are listed
             ${{ steps.pushed-commits.outcome }}|Pushed commits add no violations
-        run: |
-          failed=()
-          warned=()
-          # Why: note-631
-          while IFS='|' read -r outcome name; do
-            [[ -n "$outcome$name" ]] || continue
-            [[ "$outcome" == success ]] && continue
-            if [[ "$outcome" == failure && "${CMUX_NEXT_STYLE_GUARDS:-}" == warn ]] \
-              && grep -qxF -- "$name" <<<"${STYLE_CHECKS:-}"; then
-              warned+=("$name")
-              continue
-            fi
-            failed+=("$name (${outcome:-not run})")
-          done <<<"$OUTCOMES"
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-397
-          if [[ "$EVENT_NAME" == push && "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ && ${#failed[@]} -gt 0 ]]; then
-            current="$RUNNER_TEMP/cmux-next-red-checks.txt"
-            printf '%s\n' "${failed[@]}" | sed -E 's/ \((failure|timed_out|cancelled|not run)\)$//' >"$current"
-            base_out="$RUNNER_TEMP/cmux-next-base-red.out"
-            if python3 scripts/ci/base_red_checks.py --repo "$GITHUB_REPOSITORY" --before "$BEFORE" --current "$current" >"$base_out"; then
-              while read -r kind name; do
-                [[ -n "$kind$name" ]] || continue
-                if [[ "$kind" == BASE_RED ]]; then
-                  echo "::notice title=cmux-next base red::$name was already red on $BEFORE (or that tip had not finished)"
-                else
-                  echo "::error title=cmux-next new red::$name is new since $BEFORE (green there): fix it first, every open pull request inherits it"
-                fi
-              done <"$base_out"
-            else
-              echo "::warning title=cmux-next base-red::could not read the previous tip to tell new reds from inherited ones"
-            fi
-          fi
-          for name in "${warned[@]+"${warned[@]}"}"; do
-            echo "::warning title=cmux-next style guard (warn-only)::$name found issues; see that step's log"
-          done
-          if (( ${#warned[@]} > 0 )); then
-            {
-              echo "### ${#warned[@]} style guard(s) reported findings (warn-only)"
-              echo
-              printf -- '- %s\n' "${warned[@]}"
-              echo
-            } | tee -a "$GITHUB_STEP_SUMMARY"
-          fi
-          if (( ${#failed[@]} == 0 )); then
-            echo "All blocking cmux-next checks passed." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          # Why: note-632
-          for name in "${failed[@]}"; do echo "::error title=cmux-next check::red check: ${name% (*}"; done
-          {
-            echo "### ${#failed[@]} cmux-next check(s) failed"
-            echo
-            printf -- '- %s\n' "${failed[@]}"
-            echo
-            echo "Each check's own step log has the details."
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-          exit 1
+        run: bash scripts/ci/cmux_next_checks_verdict.sh
 
-  # Why: note-633, note-32
+  # Why: note-630, note-32
   web-bundles:
     needs: path_route
     if: ${{ !cancelled() && (needs.path_route.result == 'success' && (inputs.dev_daily == true || inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.path_route.outputs.swift == 'true' || needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.generated == 'true'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
@@ -2632,7 +2580,7 @@ jobs:
           retention-days: 3
           overwrite: true
 
-  # Why: note-634, note-33
+  # Why: note-631, note-33
   swift-canary-fleet:
     needs: [path_route, push-head-preflight, macos-placement]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-canary-linux-read
@@ -2651,7 +2599,7 @@ jobs:
       verdict: ${{ steps.check.outputs.verdict }}
     steps:
       # Why: one compile per head. The tip check already compiles this canary head on the fleet; read its verdict
-      # Why: note-635
+      # Why: note-632
       - name: Check out the fleet compile reader
         timeout-minutes: 1
         continue-on-error: true
@@ -2680,7 +2628,7 @@ jobs:
                 exit 0 ;;
             esac
           done
-          # Why: note-636
+          # Why: note-633
           if [[ -n "${PR:-}" ]]; then
             word=none
             reader=scripts/ci/fleet_compile_result.py
@@ -2696,7 +2644,7 @@ jobs:
             echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Why: note-637
+          # Why: note-634
           word=none
           if [[ -f scripts/ci/fleet_compile_result.py ]] && command -v python3 >/dev/null; then
             word="$(python3 scripts/ci/fleet_compile_result.py --sha "$REF" --repo "$GITHUB_REPOSITORY" --wait 2400 --no-record 600)" || word=none
@@ -2720,7 +2668,7 @@ jobs:
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
-  # Why: note-638, note-35
+  # Why: note-635, note-35
   app-compile-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     needs: [path_route, push-head-preflight]
@@ -2804,7 +2752,7 @@ jobs:
     outputs:
       verdict: ${{ steps.check.outputs.verdict }}
     steps:
-      # Why: note-639
+      # Why: note-636
       - name: Check out the fleet compile reader
         timeout-minutes: 1
         continue-on-error: true
@@ -2833,12 +2781,12 @@ jobs:
             echo "::error title=Build fleet compile: no verdict::$summary"
             exit 1
           }
-          # Why: note-640
+          # Why: note-637
           reader=scripts/ci/fleet_compile_result.py
           if ! [[ -f "$reader" ]] || ! grep -q '"app-debug"' "$reader"; then
             no_verdict "the trusted compile result reader predates the app compile's own check"
           fi
-          # Why: note-641
+          # Why: note-638
           word="$(python3 "$reader" --sha "$REF" --repo "$GITHUB_REPOSITORY" --pr "$PR" --phase app-debug \
             --wait 2400 --no-record 300 2>"$RUNNER_TEMP/fleet-result.err")" || word=none
           why=""
@@ -2850,7 +2798,7 @@ jobs:
           case "$word" in
             pass) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` ($how). The Release compile runs at land." ;;
             fail) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`: ${why:-no reason given}" ;;
-            # Why: note-642
+            # Why: note-639
             pending) verdict=unavailable; summary="The build fleet kept the compile of \`$REF\` queued past the wait, so nothing compiled this head here; the Release compile at land compiles it."
               echo "::warning title=Build fleet compile: still queued::no verdict for $REF; the Release compile at land compiles it" ;;
             *) no_verdict "the build fleet posted no result for this head (reader said ${word:-nothing})" ;;
@@ -2862,7 +2810,7 @@ jobs:
             exit 1
           fi
 
-  # Why: note-643, note-36
+  # Why: note-640, note-36
   swift-canary:
     needs: [path_route, macos-placement, push-head-preflight, swift-canary-fleet]
     # Why: note-182, note-556
@@ -3117,7 +3065,7 @@ jobs:
           if ! [[ -x "$client" ]]; then
             reasons+=("$client is not installed on runner $RUNNER_NAME")
             finish unavailable
-            # Why: note-644
+            # Why: note-641
             # shellcheck disable=SC2317
             exit 1
           fi
@@ -3145,14 +3093,14 @@ jobs:
           digest_re='"source_digest": *"([^"]*)"'
           state_re='"state": *"([a-z_]*)"'
           code_re='"exit_code": *(-?[0-9]+)'
-          # Why: note-645
+          # Why: note-642
           step_re='^cmux-ci: step ([0-9a-f]{6,64}) '
           judge() {
             local line id="" status="" json="" rest refs=0 state="" code="" step=unavailable why=""
             echo "::group::$2 on the build fleet"
             while IFS= read -r line || [[ -n "$line" ]]; do
               printf '%s\n' "$line"
-              # Why: note-646
+              # Why: note-643
               if [[ -z "$id" && "$line" =~ $step_re ]]; then id="${BASH_REMATCH[1]}"; fi
             done < "$RUNNER_TEMP/fast-tier-fleet-$1.log"
             echo "::endgroup::"
@@ -3200,7 +3148,7 @@ jobs:
           judge 2 Packages/macOS/CmuxNext
           finish "$verdict"
 
-  # Why: note-647, note-37
+  # Why: note-644, note-37
   fast-tier-handback-placement:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     needs: [fast-tier-fleet]
@@ -3306,7 +3254,7 @@ jobs:
           path: ${{ runner.temp }}/cmux-pool-snapshot
           key: cmux-pool-snapshot-${{ steps.pool-snapshot-fetched.outputs.fetched }}
 
-  # Why: note-648, note-38
+  # Why: note-645, note-38
   fast-tier:
     needs: [macos-placement, path_route, push-head-preflight, fast-tier-fleet, fast-tier-handback-placement, pure-checks-coalesce]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-556
@@ -3320,7 +3268,7 @@ jobs:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-5
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.fast_runner != '' && github.run_attempt == 1 && needs.macos-placement.outputs.fast_runner || contains(fromJSON('["success","failure","cancelled"]'), needs.fast-tier-fleet.result) && needs.fast-tier-fleet.outputs.verdict != 'queued' && 'cmux-linux' || needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || needs.fast-tier-fleet.outputs.verdict == 'queued' && (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.light_jobs, ' fast-tier ') && needs.macos-placement.outputs.light_runner || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' fast-tier ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26_large) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' fast-tier ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || fromJSON(vars.RUNNER_POOLS).macos_26) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' fast-tier ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' fast-tier ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || ((github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || (vars.CI_BLACKSMITH_MACOS != 'on' && (vars.CI_SIDE_LANE_LABELS != '' && fromJSON(vars.CI_SIDE_LANE_LABELS) || vars.CI_SIDE_LANE_RUNNER) || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
     permissions:
-      # Why: note-649
+      # Why: note-646
       actions: read
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-39
@@ -3359,14 +3307,14 @@ jobs:
           echo "::error::no verdict: fast tier: fleet $RESULT, verdict ${VERDICT:-none}; re-run"
           exit 3
 
-      # Why: note-650, note-199
+      # Why: note-647, note-199
       - name: Give this job its own acpmux home
         if: env.CMUX_FAST_TIER_FLEET != 'report'
         run: |
           home="$RUNNER_TEMP/acpmux-home"
           rm -rf "$home" && mkdir -m 700 "$home"
           echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
-          # Why: note-651
+          # Why: note-648
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
 
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -3401,6 +3349,14 @@ jobs:
           submodules: false
           clean: false
           fetch-depth: 2
+
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-fast-tier-current-base
+      - name: Build on the base's current tip
+        if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && github.event_name == 'pull_request' && (vars.CI_FAST_TIER_CURRENT_BASE || '1') != '0' }}
+        continue-on-error: true
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: python3 -I scripts/ci/fast_tier_current_base.py --base-ref "$BASE_REF" --summary "$GITHUB_STEP_SUMMARY"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-202
       - name: Drop stale submodule checkouts (self-hosted reused workspace)
@@ -3449,7 +3405,7 @@ jobs:
           echo "::notice title=cmux-next fast tier reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # Why: note-652, note-41, note-385
+      # Why: note-649, note-41, note-385
       - name: Keep Swift package builds on this owned Mac
         id: spm-root
         if: ${{ env.CMUX_FAST_TIER_FLEET != 'report' && ((contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true') }}
@@ -3583,7 +3539,7 @@ jobs:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-206
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     permissions:
-      # Why: note-649
+      # Why: note-646
       actions: read
       contents: read
     timeout-minutes: 20
@@ -3667,7 +3623,7 @@ jobs:
           echo "::notice title=cmux-next fast tier (cargo) reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # Why: note-653, note-44
+      # Why: note-650, note-44
       - name: Verify planner promotion evidence
         id: planner-evidence
         if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == 'enforce' && steps.reuse.outputs.hit != 'true' && inputs.no_reuse != true }}
@@ -3679,7 +3635,7 @@ jobs:
             --root . --rev "$GITHUB_SHA" --job fast-tier-cargo \
             --evidence-json "$CI_REBUILD_MIRROR_EVIDENCE" >> "$GITHUB_OUTPUT"
 
-      # Why: note-654, note-209
+      # Why: note-651, note-209
       - name: Look for a trusted planner pass
         id: planner-reuse
         if: ${{ format('{0}', vars.CI_REBUILD_MIRROR) == 'enforce' && steps.planner-evidence.outputs.eligible == 'true' && steps.reuse.outputs.hit != 'true' && steps.reuse-key.outputs.candidate_key != '' && inputs.no_reuse != true }}
@@ -3702,12 +3658,12 @@ jobs:
           echo "::notice title=cmux-next fast tier (cargo) planner reuse::$RUN_URL passed on the trusted feat-cmux-next push (${SHA:0:12})"
           echo "Planner reused $RUN_URL: it passed on \`${SHA:0:12}\` with the measured input closure (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # Why: note-655
+      # Why: note-652
       - name: Test the warm cargo target
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         run: bash scripts/ci/tests/pool-warm-target.test.sh
 
-      # Why: note-656
+      # Why: note-653
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
         id: warm-next
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && startsWith(runner.name, 'blacksmith') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -3728,7 +3684,7 @@ jobs:
           path: /home/runner/cmux-next-fast-tier-cargo-warm
           commit: "false"
 
-      # Why: note-657
+      # Why: note-654
       - name: Link this runner's warm cargo target
         id: warm
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
@@ -3749,7 +3705,7 @@ jobs:
           fi
           bash scripts/ci/pool-warm-target.sh restore fast-tier-cargo "${disk[@]}"
 
-      # Why: note-658, note-210
+      # Why: note-655, note-210
       - name: Cache cargo build
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked != 'true' }}
         id: cargo-cache
@@ -3762,7 +3718,7 @@ jobs:
           add-rust-environment-hash-key: false
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
-      # Why: note-659
+      # Why: note-656
       - name: Key the cargo build in R2
         id: r2-cargo-key
         if: ${{ github.repository == 'manaflow-ai/cmux' && !startsWith(runner.name, 'blacksmith-') && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked != 'true' }}
@@ -3820,13 +3776,13 @@ jobs:
           python3 -I scripts/cmux-next/fast-tier.py --kind cargo --kind script \
             ${PATHS_FILE:+--changed-files "$PATHS_FILE"} --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
 
-      # Why: note-660
+      # Why: note-657
       - name: Record this runner's warm cargo target
         if: ${{ !cancelled() && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' && steps.warm.outputs.linked == 'true' }}
         continue-on-error: true
         run: bash scripts/ci/pool-warm-target.sh record fast-tier-cargo /home/runner/cmux-next-fast-tier-cargo-warm
 
-      # Why: note-661
+      # Why: note-658
       - name: Strip the workspace's own output before the R2 save
         id: r2-cargo-strip
         if: ${{ success() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
@@ -3838,7 +3794,7 @@ jobs:
           mapfile -t crates < <(cargo metadata --no-deps --format-version 1 --manifest-path cmux-tui/Cargo.toml \
             | python3 -I -c 'import json,sys; m=json.load(sys.stdin); print("\n".join(sorted({p["name"] for p in m["packages"]} | {t["name"] for p in m["packages"] for t in p["targets"]})))')
           python3 -I scripts/ci/cargo_target_strip.py cmux-tui/target --workspace-crates "${crates[@]}"
-          # Why: note-662
+          # Why: note-659
           rm -rf "$REGISTRY/src"
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
@@ -3959,7 +3915,7 @@ jobs:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' swift-test ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' swift-test ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' swift-test ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' swift-test ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26))) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     permissions:
-      # Why: note-649
+      # Why: note-646
       actions: read
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-47
@@ -3985,7 +3941,7 @@ jobs:
           home="$RUNNER_TEMP/acpmux-home"
           rm -rf "$home" && mkdir -m 700 "$home"
           echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
-          # Why: note-651
+          # Why: note-648
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
 
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -4000,7 +3956,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Why: note-663
+          # Why: note-660
           submodules: false
           fetch-depth: 2
 
@@ -4014,7 +3970,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Why: note-663
+          # Why: note-660
           submodules: false
           fetch-depth: 2
 
@@ -4052,7 +4008,7 @@ jobs:
             --extra "generated_base=$([[ "$CMUX_NEXT_FOLD_GENERATED" != true ]] || git rev-parse HEAD^1)" \
             --extra "web_bundles=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
-      # Why: note-664, note-222
+      # Why: note-661, note-222
       - name: Mint the cmux-bot artifact read token
         id: reuse-token
         if: ${{ steps.reuse-key.outputs.key != '' && inputs.no_reuse != true && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next' && vars.CMUX_BOT_APP_ID != '' }}
@@ -4085,7 +4041,7 @@ jobs:
           echo "::notice title=cmux-next swift test reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # Why: note-665, note-223, note-385
+      # Why: note-662, note-223, note-385
       - name: Keep Swift package builds on this owned Mac
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
@@ -4122,7 +4078,7 @@ jobs:
           python3 scripts/ci/owned_spm_scratch.py drop-bundles Packages/macOS/CmuxNext/.build
           python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
 
-      # Why: note-666, note-224
+      # Why: note-663, note-224
       - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
         if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next') && steps.reuse.outputs.hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -4145,7 +4101,7 @@ jobs:
           bash scripts/cmux-next/tests/sign-cmux-bundle-helpers.test.sh
           bash tests/test_check_app_personalities.sh
 
-      # Why: note-667, note-225
+      # Why: note-664, note-225
       - name: Setup Bun
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -4264,7 +4220,7 @@ jobs:
           echo "CMUX_NEXT_MAIN_THREAD_HEAVY_SUITES=${suites//$'\n'/ }" >> "$GITHUB_ENV"
           while read -r suite; do [[ -z "$suite" ]] || echo "main-thread heavy: $suite"; done <<< "$suites"
 
-      # Why: note-668, note-231
+      # Why: note-665, note-231
       - name: Run package tests (changed suites first, then selected targets)
         id: broad-tests
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
@@ -4278,9 +4234,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "Test targets: $SWIFT_TARGETS"
-          # Why: note-669
+          # Why: note-666
           deadline=$(( $(date +%s) + 2280 ))
-          # Why: note-670
+          # Why: note-667
           heavy_skip=()
           [[ -z "$CMUX_NEXT_MAIN_THREAD_HEAVY" ]] || heavy_skip=(--skip "$CMUX_NEXT_MAIN_THREAD_HEAVY")
           priority_skip=()
@@ -4329,7 +4285,7 @@ jobs:
           python3 ../../../scripts/cmux-next/swift-test-shards.py spilled --from "$RUNNER_TEMP/cmux-next-spilled-shards.json" \
             --wrapper ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --deadline "$deadline"
 
-      # Why: note-671, note-232
+      # Why: note-668, note-232
       - name: Run CloudBringBack cases in fresh processes
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 40
@@ -4364,7 +4320,7 @@ jobs:
           done
           exit "$status"
 
-      # Why: note-672, note-233
+      # Why: note-669, note-233
       - name: Run the commit-boundary audit in its own process
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 10
@@ -4394,7 +4350,7 @@ jobs:
           done <<< "$runs"
           exit "$status"
 
-      # Why: note-673, note-53
+      # Why: note-670, note-53
       - name: Run control package tests and callback regressions
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextControlTests') || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 20
@@ -4411,7 +4367,7 @@ jobs:
           ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$MAIN_THREAD_HOLDERS" || held=$?
           (( status == 0 && held == 0 ))
 
-      # Why: note-674, note-234
+      # Why: note-671, note-234
       - name: Run CLI parity tests
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextControlTests') || contains(env.SWIFT_TARGETS, 'CmuxNextAppTests'))) && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 10
@@ -4439,7 +4395,7 @@ jobs:
           fi
           # Why: docs/ci/cmux-next-workflow-notes.md#note-454
           python3 scripts/ci/defaults_guard.py snapshot
-          # Why: note-675
+          # Why: note-672
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
@@ -4507,7 +4463,7 @@ jobs:
           fi
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
-      # Why: note-676, note-238
+      # Why: note-673, note-238
       - name: Stop this job's acpmux daemons and remove its home
         if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
@@ -4519,7 +4475,7 @@ jobs:
           [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
           rm -rf "$home"
 
-      # Why: note-677, note-239
+      # Why: note-674, note-239
       - name: Upload the test helper's crash reports
         if: ${{ (failure()) && steps.reuse.outputs.hit != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -4580,7 +4536,7 @@ jobs:
           home="$RUNNER_TEMP/acpmux-home"
           rm -rf "$home" && mkdir -m 700 "$home"
           echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
-          # Why: note-651
+          # Why: note-648
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
 
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -4597,7 +4553,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-247
           ref: ${{ inputs.same_tree_sha || '' }}
           persist-credentials: false
-          # Why: note-663
+          # Why: note-660
           submodules: false
           fetch-depth: 2
 
@@ -4613,7 +4569,7 @@ jobs:
           # Why: docs/ci/cmux-next-workflow-notes.md#note-249
           ref: ${{ inputs.same_tree_sha || '' }}
           persist-credentials: false
-          # Why: note-663
+          # Why: note-660
           submodules: false
           fetch-depth: 2
 
@@ -4778,7 +4734,7 @@ jobs:
           CMUX_NEXT_JOB_BUILT: plain
         run: |
           set -euo pipefail
-          # Why: note-678
+          # Why: note-675
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && [[ "$(python3 -I -c 'import json, os; print(str((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("inputs") or {}).get("base_tier", "")).lower())')" != true ]]; then
             echo "not a base tier dispatch: no pack"
             exit 0
@@ -4851,7 +4807,7 @@ jobs:
           fi
           # Why: docs/ci/cmux-next-workflow-notes.md#note-454
           python3 scripts/ci/defaults_guard.py snapshot
-          # Why: note-675
+          # Why: note-672
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
@@ -4919,7 +4875,7 @@ jobs:
           fi
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
-      # Why: note-676, note-263
+      # Why: note-673, note-263
       - name: Stop this job's acpmux daemons and remove its home
         if: ${{ always() }}
         continue-on-error: true
@@ -4940,7 +4896,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
-  # Why: note-679, note-556
+  # Why: note-676, note-556
   generated-files-base-red:
     needs: [path_route]
     if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.path_route.outputs.generated_host == 'generated-files' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(github.event.pull_request.labels.*.name, 'full-ci') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
@@ -4955,7 +4911,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Why: note-680
+          # Why: note-677
           path: .base-red-src
           sparse-checkout: scripts/ci
       - name: Red on the base right now?
@@ -4978,7 +4934,7 @@ jobs:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.grant_jobs, ' generated-files ') && fromJSON(needs.macos-placement.outputs.grant_runner) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.light_jobs, ' generated-files ') && needs.macos-placement.outputs.light_runner || github.event_name == 'pull_request' && ((github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' generated-files ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' generated-files ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' generated-files ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' generated-files ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.session_jobs, ' generated-files ') && needs.macos-placement.outputs.session_spill_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26))) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_gui_runner || vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.session_lane_runner != '' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && vars.CI_SESSION_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     permissions:
-      # Why: note-649
+      # Why: note-646
       actions: read
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-445
@@ -4996,7 +4952,7 @@ jobs:
           home="$RUNNER_TEMP/acpmux-home"
           rm -rf "$home" && mkdir -m 700 "$home"
           echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
-          # Why: note-651
+          # Why: note-648
           echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
 
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -5011,7 +4967,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Why: note-663
+          # Why: note-660
           submodules: false
           fetch-depth: 2
 
@@ -5025,7 +4981,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          # Why: note-663
+          # Why: note-660
           submodules: false
           fetch-depth: 2
 
@@ -5059,7 +5015,7 @@ jobs:
             --extra "xcode_app=$CMUX_CI_XCODE_APP" \
             --extra "web_bundles=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
-      # Why: note-664, note-270
+      # Why: note-661, note-270
       - name: Mint the cmux-bot artifact read token
         id: reuse-token
         if: ${{ steps.reuse-key.outputs.key != '' && inputs.no_reuse != true && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next' && vars.CMUX_BOT_APP_ID != '' }}
@@ -5092,7 +5048,7 @@ jobs:
           echo "::notice title=cmux-next generated files reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # Why: note-665, note-271, note-385, note-410
+      # Why: note-662, note-271, note-385, note-410
       - name: Keep Swift package builds on this owned Mac
         id: spm-root
         if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.hit != 'true' }}
@@ -5264,7 +5220,7 @@ jobs:
         working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: |
           set -euo pipefail
-          # Why: note-678
+          # Why: note-675
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]] && [[ "$(python3 -I -c 'import json, os; print(str((json.load(open(os.environ["GITHUB_EVENT_PATH"])).get("inputs") or {}).get("base_tier", "")).lower())')" != true ]]; then
             echo "not a base tier dispatch: no pack"
             exit 0
@@ -5330,7 +5286,7 @@ jobs:
           fi
           # Why: docs/ci/cmux-next-workflow-notes.md#note-454
           python3 scripts/ci/defaults_guard.py snapshot
-          # Why: note-675
+          # Why: note-672
           out="$RUNNER_TEMP/generated/files"
           mkdir -p "$out"
           generated=('plans/cmux-next/*.json' 'plans/cmux-next/*.md'
@@ -5393,7 +5349,7 @@ jobs:
           echo "::error::Generated cmux-next files are stale. Regenerate them as the step summary says."
           exit 1
 
-      # Why: note-676, note-278
+      # Why: note-673, note-278
       - name: Stop this job's acpmux daemons and remove its home
         if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
@@ -5405,7 +5361,7 @@ jobs:
           [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
           rm -rf "$home"
 
-      # Why: note-681, note-279
+      # Why: note-678, note-279
       - name: Record this pass for the same inputs
         if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.hit != 'true' && steps.stale.outputs.autofixed != 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         run: |
@@ -5465,7 +5421,7 @@ jobs:
               exit 1 ;;
           esac
 
-  # Why: note-682, note-280
+  # Why: note-679, note-280
   release-compile-fast:
     needs: [path_route, push-head-preflight, macos-placement, compile-status, pure-checks-coalesce]
     # Why: docs/ci/cmux-next-workflow-notes.md#note-64
@@ -5482,7 +5438,7 @@ jobs:
       verdict: ${{ steps.compile.outputs.verdict }}
     steps:
       # Why: one compile per head. The tip check already compiles this head on the fleet; read its verdict
-      # Why: note-635
+      # Why: note-632
       - name: Check out the fleet compile reader
         timeout-minutes: 1
         continue-on-error: true
@@ -5602,7 +5558,7 @@ jobs:
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           [[ "$verdict" != fail ]]
 
-  # Why: note-683, note-65
+  # Why: note-680, note-65
   release-compile-fast-admission:
     needs: release-compile-fast
     if: ${{ (always() && !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result != 'skipped' && needs.release-compile-fast.result != 'cancelled' && needs.release-compile-fast.outputs.verdict != 'unavailable' && needs.release-compile-fast.outputs.verdict != '' && needs.release-compile-fast.outputs.verdict != 'superseded') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
@@ -5652,7 +5608,7 @@ jobs:
     # Why: docs/ci/cmux-next-workflow-notes.md#note-381
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && contains(needs.macos-placement.outputs.fresh_jobs, ' release-compile ') && needs.macos-placement.outputs.fresh_runner != '' && needs.macos-placement.outputs.fresh_runner || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.release-compile-fast.result == 'failure' && needs.release-compile-fast.outputs.verdict == '' && (needs.macos-placement.outputs.placed_attempt != format('{0}', github.run_attempt) || !contains(needs.macos-placement.outputs.fresh_stalled, ' blacksmith-6vcpu-macos-26 ')) && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' release-compile ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' release-compile ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && needs.macos-placement.outputs.runner != '' && needs.macos-placement.outputs.runner || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && (needs.macos-placement.outputs.placed_attempt != format('{0}', github.run_attempt) || !contains(needs.macos-placement.outputs.fresh_stalled, ' blacksmith-6vcpu-macos-26 ')) && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.borrow_jobs, ' release-compile ') && needs.macos-placement.outputs.borrow_runner || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' release-compile ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' release-compile ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && vars.CI_SIDE_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' release-compile ') && needs.macos-placement.outputs.retry_runner || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && vars.CI_SIDE_LANE_RUNNER || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26)) }}
     permissions:
-      # Why: note-649
+      # Why: note-646
       actions: write
       contents: read
     # Why: docs/ci/cmux-next-workflow-notes.md#note-285
@@ -5714,7 +5670,7 @@ jobs:
             --extra "mini=${{ startsWith(env.CMUX_NEXT_RUNNER, 'glaeda-') }}" \
             --extra "xcode_app=$CMUX_CI_XCODE_APP" >> "$GITHUB_OUTPUT"
 
-      # Why: note-664, note-289
+      # Why: note-661, note-289
       - name: Mint the cmux-bot artifact read token
         id: reuse-token
         if: ${{ steps.reuse-key.outputs.key != '' && inputs.no_reuse != true && github.event_name != 'pull_request' && github.ref == 'refs/heads/feat-cmux-next' && vars.CMUX_BOT_APP_ID != '' }}
@@ -5747,7 +5703,7 @@ jobs:
           echo "::notice title=cmux-next Release compile (Xcode 26) reused::$RUN_URL passed on the same inputs (${SHA:0:12})"
           echo "Reused $RUN_URL: it passed on \`${SHA:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
 
-      # Why: note-684, note-67
+      # Why: note-681, note-67
       - name: Release compile
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
@@ -5760,7 +5716,7 @@ jobs:
           [[ "$CMUX_NEXT_RUNNER" == glaeda-* ]] || export CMUX_NEXT_RELEASE_FLEET_CAS=off
           scripts/cmux-next/release-compile-fleet-cas.sh "$derived_data"
 
-      # Why: note-685, note-290
+      # Why: note-682, note-290
       - name: Warn on missing Release bundle notices
         if: ${{ always() && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
@@ -5973,7 +5929,7 @@ jobs:
             "$GAP_REMOTE" "$SHA" || echo "::warning::no history for the cache distances"
           python3 -I scripts/ci/dev_landing_place.py >> "$GITHUB_OUTPUT"
 
-  # Why: note-686
+  # Why: note-683
   # Why: docs/ci/cmux-next-workflow-notes.md#note-scheme-fleet
   cmux-scheme-compile-fleet:
     needs: [path_route, push-head-preflight, dev-daily-tree-wait]
@@ -5999,7 +5955,7 @@ jobs:
             scripts/cmux-next
           persist-credentials: false
 
-      # Why: note-687
+      # Why: note-684
       - name: Read the build fleet's app build
         id: read
         env:
@@ -6029,7 +5985,7 @@ jobs:
     outputs:
       crash_gate: ${{ steps.crash-gate.outcome }}
     env:
-      # Why: note-688
+      # Why: note-685
       CMUX_SCHEME_FLEET_JOB: ${{ inputs.dev_daily != true && needs.cmux-scheme-compile-fleet.outputs.verdict == 'pass' && needs.cmux-scheme-compile-fleet.outputs.job_id || '' }}
       # Why: docs/ci/cmux-next-workflow-notes.md#note-297
       BASH_ENV: ""
@@ -6135,7 +6091,7 @@ jobs:
           printf 'key=%s\ncapture=true\ncompile=true\n' "$key" >> "$GITHUB_OUTPUT"
           echo "::error title=REF capture lookup failed::the capture artifact lookup for REF key $key failed (log above); compiling and capturing anyway"
           exit 1
-      # Why: note-689, note-74
+      # Why: note-686, note-74
       - name: Look up the DEV Release app compiled on the same inputs
         id: dev-product
         if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.push-head-preflight.outputs.current == 'true' && (format('{0}', vars.CMUX_NEXT_DEV_LANDING_COMPILE) == '0' || github.repository != 'manaflow-ai/cmux')) || (github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.ref == 'refs/heads/feat-cmux-next' && ((inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha && needs.push-head-preflight.outputs.current == 'true') || (inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha && inputs.same_tree_state == 'ready')))
@@ -6168,7 +6124,7 @@ jobs:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           PARITY: ${{ vars.CI_SCHEME_FLEET_PARITY == 'always' || endsWith(github.event.pull_request.head.sha || github.sha, '0') }}
         run: scripts/cmux-next/scheme-fleet.sh take
-      # Why: note-690, note-310
+      # Why: note-687, note-310
       - name: Fetch the same-tree cmux-tui
         if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.fleet-app.outputs.ok != 'true' }}
         timeout-minutes: 50
@@ -6210,7 +6166,7 @@ jobs:
           fi
           echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
 
-      # Why: note-691, note-75
+      # Why: note-688, note-75
       - name: Source key of the web bundles
         id: web-bundle-key
         if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.fleet-app.outputs.ok != 'true' }}
@@ -6219,7 +6175,7 @@ jobs:
           rm -rf web-bundles-out
           echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
 
-      # Why: note-692, note-314
+      # Why: note-689, note-314
       - name: Restore the web bundles from R2
         id: web-bundle-r2
         if: ${{ steps.web-bundle-key.outputs.key != '' }}
@@ -6449,7 +6405,7 @@ jobs:
           name: cmux-next-dev-release-product-${{ steps.dev-product.outputs.key }}
           path: ${{ runner.temp }}/cmux-next-dev-product-record/manifest.json
           if-no-files-found: error
-          # Why: note-693
+          # Why: note-690
           retention-days: 2
           overwrite: true
 
@@ -6600,7 +6556,7 @@ jobs:
               echo "crash gate: not run, the scheme compile ended $COMPILE before it" ;;
           esac
 
-  # Why: note-694, note-80
+  # Why: note-691, note-80
 
   # Why: docs/ci/cmux-next-workflow-notes.md#note-352
   same-tree-status-daemon:
@@ -6763,7 +6719,7 @@ jobs:
           GAP_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
           set -uo pipefail
-          # Why: note-695
+          # Why: note-692
           git init -q --bare "$GAP_REPO"
           timeout 60 git -C "$GAP_REPO" fetch -q --no-tags --filter=tree:0 --depth=300 \
             "$GAP_REMOTE" "$SHA" || echo "::warning::no history for the cache distances"
@@ -6915,7 +6871,7 @@ jobs:
             scripts/cmux-next/compile-dev-release.sh "$archive"
           fi
           echo "archive=$archive" >> "$GITHUB_OUTPUT"
-      # Why: note-696, note-333
+      # Why: note-693, note-333
       - name: Publish the compile cache seed
         id: cas-seed
         if: ${{ steps.compile.outcome == 'success' && vars.CMUX_NEXT_DEV_CAS_URL != '' && steps.dev-product.outputs.hit != 'true' }}
@@ -7108,7 +7064,7 @@ jobs:
           gh workflow run cmux-next-dev-daily.yml --repo "$GH_REPO" --ref main -f "source_run_id=$SOURCE_RUN_ID"
           echo "Requested cmux NEXT DEV publication for source run $SOURCE_RUN_ID (manaflow-glaeda-route token)"
 
-      # Why: note-697, note-339
+      # Why: note-694, note-339
       - name: Dispatch with GITHUB_TOKEN, waiting through a rate limit
         if: steps.app-dispatch.outcome != 'success'
         env:
@@ -7139,7 +7095,7 @@ jobs:
           done
           exit 1
 
-  # Why: note-698, note-340
+  # Why: note-695, note-340
   pr-red-checks:
     needs: [checks]
     if: ${{ (always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
@@ -7406,7 +7362,7 @@ jobs:
           }
           reply="$RUNNER_TEMP/compile-check.json"
           url="$RESULTS/$SHA?repo=${REPO/\//%2F}${PR:+&pr=$PR}"
-          # Why: note-699
+          # Why: note-696
           if [[ -n "${PR:-}" ]]; then
             tip_code="$(timeout 30 curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 --max-time 20 "$url&phase=tip" 2>/dev/null)" || tip_code=000
             if [[ "$tip_code" == 200 ]] && jq -e --arg sha "$SHA" --arg repo "$REPO" '
@@ -7522,7 +7478,7 @@ jobs:
           echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (${state:-no result})"
           exit 1
 
-  # Why: note-700, note-83
+  # Why: note-697, note-83
   compile-status-handoff:
     needs: [compile-status, release-compile-fast, release-compile]
     if: ${{ (always() && !cancelled() && needs.compile-status.outputs.handoff != '') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
