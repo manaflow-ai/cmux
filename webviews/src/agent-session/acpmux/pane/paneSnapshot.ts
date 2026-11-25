@@ -51,6 +51,7 @@ import type { CloudTypingPrewarm } from "../cloudTypingPrewarm";
 import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
+import { setComputerUsePreviewControls } from "../computerUse/computerUsePreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
 import { preparedMockTransport } from "../mockTransport";
 import { BridgeSocket } from "../bridgeSocket";
@@ -59,6 +60,7 @@ import { type AutomationCompose, pageAction } from "../automation";
 import { acpWire } from "../wire";
 import { chatPerfCapture } from "../chatPerfCapture";
 import { acpmuxPerf } from "../perf";
+import { actionTrace } from "../actionTrace";
 import { perfReporter } from "../perfReporter";
 import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
@@ -714,6 +716,7 @@ export function paneSnapshotEffect({
       // pick; nothing creates a paid VM without one.
       setPromptSurfaces(on === true);
       setStartRecoveryPreview(on === true);
+      setComputerUsePreviewControls(on === true);
       // Workflows no longer follow Advanced > Labs; only applyWorkflowLabs switches them.
     },
     applyLiveTree(on) {
@@ -1311,6 +1314,8 @@ export function paneSnapshotEffect({
         client.close();
         return;
       }
+      // One trace per user action, to the daemon's trace file when it writes one (actionTrace.ts).
+      actionTrace.install();
       acpmuxPerf.markLaunch("connected");
       connectingClient = client;
       directClient.current = client;
