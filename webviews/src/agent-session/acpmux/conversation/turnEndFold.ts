@@ -35,7 +35,7 @@ import { boxOf, clippedBottom, clippedBottomOf, coverClip, ghostOf, type CoverPa
 import { LIVE_THINKING, WORKED, NEXT_STEP, WORKING } from "./turns";
 import { isLineRow, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
 import { experimentArm } from "../../../experiments/experiment";
-import { turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook, turnEndCrossLook } from "./turnEndFoldLook.experiment";
+import { turnEndCrossLook, turnEndFoldLook, turnEndRecapLook, turnEndSubagentLook } from "./turnEndFoldLook.experiment";
 
 /// How the rows the fold takes away go. `fade` (shipped): each copy fades out where it was while the
 /// rows that stay slide over it. `tuck`: the copies slide up under the folded line as they fade, as

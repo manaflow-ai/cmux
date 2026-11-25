@@ -466,12 +466,6 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head {
   flex: none;
 }
-.acpmux-running-tray[data-column="glyph"] {
-  --acpmux-tray-inset-start: calc(
-    var(--acpmux-tray-inset) +
-      (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2
-  );
-}
 
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
    the stack never scrolls the transcript. Every line is in it, what ended too: no View all under it

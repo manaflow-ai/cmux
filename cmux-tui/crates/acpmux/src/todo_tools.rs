@@ -36,9 +36,14 @@ fn plain(name: &str) -> String {
 
 /// Whether a `tool_call` update starts a to-do call.
 fn is_todo_call(update: &Value) -> bool {
-    let named = ["title", "name"]
-        .iter()
-        .filter_map(|key| update.get(*key).and_then(Value::as_str))
+    // A shell call's title is its command (`todo-read` is a script), never a tool's name.
+    let shell = update.get("kind").and_then(Value::as_str) == Some("execute");
+    let names = |keys: &'static [&'static str]| {
+        keys.iter()
+            .filter(move |key| !(shell && **key == "title"))
+            .filter_map(move |key| update.get(*key).and_then(Value::as_str))
+    };
+    let named = names(&["title", "name"])
         .chain(
             ["/_meta/claude/tool", "/_meta/claudeCode/toolName"]
                 .iter()
@@ -57,22 +62,30 @@ fn is_todo_call(update: &Value) -> bool {
             && todos.iter().all(|todo| todo.get("status").is_some_and(Value::is_string))
     });
     // The input alone names no tool: only a call whose own name says "todo" counts by it.
-    let says_todo = ["title", "name"]
-        .iter()
-        .filter_map(|key| update.get(*key).and_then(Value::as_str))
-        .any(|name| plain(name).contains("todo"));
+    let says_todo = names(&["title", "name"]).any(|name| plain(name).contains("todo"));
     named || claude_todo || (todos && says_todo && !plan_ask)
 }
 
+/// The chats' held to-do call ids, each with when it last held one: past [`MAX_CHATS`] the chat that
+/// held one longest ago goes, never one with a to-do call in flight now.
+#[derive(Default)]
+struct Held {
+    tick: u64,
+    chats: HashMap<String, (u64, Vec<String>)>,
+}
+
 /// Holds to-do call `id` for chat `session`: at most [`MAX_HELD`] ids a chat, [`MAX_CHATS`] chats.
-fn hold(held: &mut HashMap<String, Vec<String>>, session: &str, id: &str) {
-    if !held.contains_key(session)
-        && held.len() >= MAX_CHATS
-        && let Some(gone) = held.keys().next().cloned()
+fn hold(held: &mut Held, session: &str, id: &str) {
+    held.tick += 1;
+    if !held.chats.contains_key(session)
+        && held.chats.len() >= MAX_CHATS
+        && let Some(gone) =
+            held.chats.iter().min_by_key(|(_, (at, _))| *at).map(|(chat, _)| chat.clone())
     {
-        held.remove(&gone);
+        held.chats.remove(&gone);
     }
-    let ids = held.entry(session.to_owned()).or_default();
+    let (at, ids) = held.chats.entry(session.to_owned()).or_default();
+    *at = held.tick;
     if !ids.iter().any(|held| held == id) {
         if ids.len() >= MAX_HELD {
             ids.remove(0);
@@ -81,7 +94,7 @@ fn hold(held: &mut HashMap<String, Vec<String>>, session: &str, id: &str) {
     }
 }
 
-static HELD: LazyLock<Mutex<HashMap<String, Vec<String>>>> = LazyLock::new(Default::default);
+static HELD: LazyLock<Mutex<Held>> = LazyLock::new(Default::default);
 
 /// Whether chat `session`'s `update` (a `session/update`'s `update`) is part of an agent to-do
 /// list, which is never logged, shown or applied: a `plan`, a to-do tool call, or an update of
@@ -99,14 +112,14 @@ pub fn drops(session: &str, update: &Value) -> bool {
                 hold(&mut held, session, id);
                 return true;
             }
-            let Some(ids) = held.get_mut(session) else { return false };
+            let Some((_, ids)) = held.chats.get_mut(session) else { return false };
             let at = ids.iter().position(|held| held == id);
             match (kind, at) {
                 // A new call under a held id is another tool's: an adapter may number calls per run.
                 (Some("tool_call"), Some(at)) => {
                     ids.remove(at);
                     if ids.is_empty() {
-                        held.remove(session);
+                        held.chats.remove(session);
                     }
                     false
                 }
@@ -119,7 +132,7 @@ pub fn drops(session: &str, update: &Value) -> bool {
 
 /// Lets go of chat `session`'s to-do call ids when its turn ends, however it ends (`hub/turns.rs`).
 pub fn forget(session: &str) {
-    HELD.lock().unwrap_or_else(|e| e.into_inner()).remove(session);
+    HELD.lock().unwrap_or_else(|e| e.into_inner()).chats.remove(session);
 }
 
 #[cfg(test)]
@@ -171,6 +184,9 @@ mod tests {
                               "kind": "switch_mode", "rawInput": {"plan": "1. x",
                               "todos": [{"content": "x", "status": "pending"}]}});
         assert!(!drops(s, &plan_ask), "plan mode's approval stays");
+        let script = json!({"sessionUpdate": "tool_call", "toolCallId": "x", "title": "todo-read",
+                            "kind": "execute", "rawInput": {"command": "todo-read"}});
+        assert!(!drops(s, &script), "a shell command named like a to-do tool runs as a command");
         for (id, title) in [("f", "Bash"), ("g", "Task"), ("h", "Read todo.md")] {
             let call = json!({"sessionUpdate": "tool_call", "toolCallId": id, "title": title});
             assert!(!drops(s, &call), "{title}");
@@ -200,17 +216,23 @@ mod tests {
     }
 
     #[test]
-    fn held_ids_and_chats_are_bounded() {
-        let mut held = HashMap::new();
+    fn held_ids_and_chats_are_bounded_and_the_oldest_chat_goes() {
+        let mut held = Held::default();
+        hold(&mut held, "in-flight", "c");
         for chat in 0..MAX_CHATS + 10 {
             hold(&mut held, &format!("chat-{chat}"), "c");
+            if chat % 10 == 0 {
+                hold(&mut held, "in-flight", "c");
+            }
         }
-        assert_eq!(held.len(), MAX_CHATS);
+        assert_eq!(held.chats.len(), MAX_CHATS);
+        assert!(held.chats.contains_key("in-flight"), "a chat that keeps holding ids stays");
+        assert!(!held.chats.contains_key("chat-0"), "the chat that held one longest ago goes");
         for id in 0..MAX_HELD + 5 {
             hold(&mut held, "busy", &id.to_string());
         }
-        assert_eq!(held["busy"].len(), MAX_HELD);
-        assert_eq!(held.len(), MAX_CHATS);
+        assert_eq!(held.chats["busy"].1.len(), MAX_HELD);
+        assert_eq!(held.chats.len(), MAX_CHATS);
     }
 
     #[test]

@@ -22,7 +22,7 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
+import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
