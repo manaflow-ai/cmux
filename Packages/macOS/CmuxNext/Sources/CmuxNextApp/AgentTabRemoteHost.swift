@@ -117,8 +117,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     let client = AgentSessionAttachClient(surface: started.surface, reconnect: reconnect, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client, mode: .attach), started.session, started.surface)
                 }, host: hostID, linksAlias: linksHost, trust: servesTrust ? ask : nil, ownerCloud: ownerCloud, cloudRepositoryStart: AgentSessionAttachClient.forwardingStartedCloudRepository(reconnect: reconnect, endpoint: endpoint),
-                servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil,
-                machineLogin: servesMachineLogin ? machineLogin : nil, milestone: cloudSendMark.map { mark -> RemoteAcpmuxWire.Milestone in { step in mark(step, nil) } }, chatNoted: chatNoted)
+                servesLogin: servesLogin, servesSide: servesSide, machineSignIn: cloudMachineID == nil, machineLogin: servesMachineLogin ? machineLogin : nil, milestone: cloudSendMark.map { mark -> RemoteAcpmuxWire.Milestone in { step in mark(step, nil) } }, chatNoted: chatNoted)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
