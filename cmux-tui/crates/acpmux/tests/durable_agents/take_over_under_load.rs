@@ -9,7 +9,8 @@
 //! Each install starts two take-overs: the replaced daemon's own swap starts one
 //! (`daemon/exe_swap.rs`) and the installer starts the other. Before, the start that lost the race
 //! asked only the first holder and then waited forever on the one that won: the fourth install of
-//! a fleet run hung here with three daemons up (2026-11-20).
+//! a fleet run hung here with three daemons up (2026-11-20). Then the loser asked the winner to
+//! hand over as well, a second dark socket per install; now it yields to a winner of its own build.
 //!
 //! Leo: "BRO CANT YOU JUST LIKE SUSPEND SHIT AFTER A TOOL CALL/TURN THEN JUST GO AND AUTOUPDATE".
 
@@ -316,6 +317,19 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
     let prompts = read.iter().filter(|l| l["method"] == "session/prompt").count();
     assert_eq!(prompts, CHATS * (1 + INSTALLS), "the agents read {prompts} prompts");
 
+    // Each install handed the home over once: of its two take-over starts, the one that lost the
+    // race found a daemon of its own build serving and yielded (`daemon/take_over_yield.rs`). It
+    // asked that new daemon to hand over too before, and every chat went dark twice per install
+    // (Leo's NIGHTLY, 2026-11-22 21:38Z: 20 s).
+    let stops = std::fs::read_to_string(daemon.home.join("daemon.stops.json")).unwrap();
+    let stops: Value = serde_json::from_str(&stops).unwrap();
+    let handovers = stops["recent"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|s| s["cause"]["detail"] == "handover: another daemon of this home starts")
+        .count();
+    assert_eq!(handovers, INSTALLS, "handovers per install: {stops:#}");
     // The daemon that serves now may be one the replaced daemon's own swap started, not the
     // test's child: end it as the harness ends its own.
     let holder = std::fs::read_to_string(daemon.home.join("daemon.lock"))
@@ -331,4 +345,52 @@ async fn nightly_take_overs_mid_tool_call_keep_agents_and_run_each_queued_prompt
             "the serving daemon outlived its stop"
         );
     }
+}
+
+/// The handovers `home`'s daemons counted (`daemon.stops.json`).
+fn handovers(home: &Path) -> usize {
+    let stops = std::fs::read_to_string(home.join("daemon.stops.json")).unwrap_or_default();
+    let stops: Value = serde_json::from_str(&stops).unwrap_or_default();
+    stops["recent"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|s| s["cause"]["detail"] == "handover: another daemon of this home starts")
+        .count()
+}
+
+/// An install's two take-over starts at once (the replaced daemon's own swap and the installer's):
+/// the home is handed over once. The start that lost the race asked the winner, a daemon of its own
+/// build that had served for under a second, to hand over too, and every chat's socket went dark a
+/// second time (Leo's NIGHTLY, 2026-11-22 21:38Z: 11.5 s, then 7.3 s more). Now it finds that
+/// daemon serving, yields, and answers its launcher with that daemon's endpoint
+/// (`daemon/take_over_yield.rs`). Leo, 2026-11-22: "you guys shouldn't be showing that
+/// message/shouldn't have that issue in the first place".
+#[test]
+fn two_take_overs_at_once_hand_the_home_over_once() {
+    let mut daemon = Daemon::new("tvtwice", "approve-all");
+    let mut old = daemon.child.take().expect("a daemon runs");
+    let starts: Vec<_> = (0..2)
+        .map(|_| {
+            let mut child = daemon.spawn_daemon(&["--take-over"]);
+            std::thread::spawn(move || {
+                let ready = ready_line(&mut child);
+                (child, ready)
+            })
+        })
+        .collect();
+    let mut started: Vec<(Child, Value)> = starts
+        .into_iter()
+        .map(|t| t.join().unwrap())
+        .map(|(c, r)| (c, serde_json::from_str(&r).unwrap_or_default()))
+        .collect();
+    assert!(old.wait().unwrap().success(), "the daemon taken over exited badly");
+    // Both answer with the one daemon that serves: the winner its own pid, the loser the winner's.
+    let serving = started[0].1["pid"].as_u64().expect("a ready line with a pid");
+    assert_eq!(started[1].1["pid"].as_u64(), Some(serving), "{:?}", started[1].1);
+    let winner = started.iter().position(|(c, _)| c.id() as u64 == serving).expect("a winner");
+    let (mut loser, _) = started.remove(1 - winner);
+    assert!(loser.wait().unwrap().success(), "the start that yielded exited badly");
+    daemon.child = Some(started.remove(0).0);
+    assert_eq!(handovers(&daemon.home), 1, "the home was handed over more than once");
 }

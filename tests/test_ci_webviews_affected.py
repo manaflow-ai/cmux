@@ -709,6 +709,36 @@ class PushClassTest(unittest.TestCase):
         self.commit({".github/workflows/ci-web.yml": "on: push\n"})
         self.assertEqual(self.classify({".github/workflows/ci-web.yml": "# why\non: push\n"})[0], "fast")
 
+    def test_a_package_json_scripts_only_edit_is_sampled(self) -> None:
+        import json  # noqa: PLC0415
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        pkg = {"name": "w", "scripts": {"gallery:build": "vite build", "check:pieces": "a"},
+               "devDependencies": {"react": "19.0.0"}}
+        dump = lambda value: json.dumps(value, indent=2) + "\n"  # noqa: E731
+        self.commit({"webviews/package.json": dump(pkg),
+                     "scripts/ci/run-webviews-tests.sh": "bun run gallery:build\n"})
+        # A new check:NAME and its check:pieces line: no pin moves, the test run calls neither.
+        added = {**pkg, "scripts": {**pkg["scripts"], "check:foo": "b", "check:pieces": "a && b"}}
+        cls, shards, why, _ = self.classify({"webviews/package.json": dump(added)})
+        self.assertEqual(cls, "sampled", why)
+        self.assertTrue(set(shards) >= {1, *ps.sampled_shards(self.head(), 12)} and len(shards) <= 4, shards)
+        # A script the runner calls is a runner input: FULL.
+        self.commit({"webviews/package.json": dump(pkg)})
+        called = {**pkg, "scripts": {**pkg["scripts"], "gallery:build": "vite build --mode x"}}
+        self.assertEqual(self.classify({"webviews/package.json": dump(called)})[0], "full")
+        # So is one a test calls by name.
+        self.commit({"webviews/package.json": dump(pkg),
+                     "webviews/test/leaf.test.ts": 'spawn(["bun", "run", "check:pieces"]);\n'})
+        piece = {**pkg, "scripts": {**pkg["scripts"], "check:pieces": "a && c"}}
+        self.assertEqual(self.classify({"webviews/package.json": dump(piece)})[0], "full")
+        # A pin, and a scripts edit riding with one, stay FULL.
+        self.commit({"webviews/package.json": dump(pkg)})
+        pin = {**pkg, "devDependencies": {"react": "19.1.0"}}
+        self.assertEqual(self.classify({"webviews/package.json": dump(pin)})[0], "full")
+        self.commit({"webviews/package.json": dump(pkg)})
+        both = {**pin, "scripts": {**pkg["scripts"], "check:foo": "b"}}
+        self.assertEqual(self.classify({"webviews/package.json": dump(both)})[0], "full")
+
     def test_full_paths_run_every_shard(self) -> None:
         import webviews_pr_shards as ps  # noqa: PLC0415
         for path in ("scripts/ci/run-webviews-tests.sh", "scripts/ci/webviews_test_shards.py",
@@ -718,6 +748,30 @@ class PushClassTest(unittest.TestCase):
             self.assertEqual((cls, shards, own), ("full", list(range(1, 13)), {}), path)
             self.assertIn(path, why)
         self.assertLessEqual(len(ps.FULL), 6)  # the list stays short
+
+    def test_full_paths_into_the_batched_base_are_sampled(self) -> None:
+        import webviews_pr_shards as ps  # noqa: PLC0415
+        saved = {k: os.environ.get(k) for k in ("CI_WEBVIEWS_PR_BASE", "CI_WEBVIEWS_FULL_TO_BATCH")}
+        try:
+            os.environ["CI_WEBVIEWS_PR_BASE"] = "feat-cmux-next"
+            for i, path in enumerate(("scripts/ci/run-webviews-tests.sh", "webviews/bun.lock", "webviews/test/preload.ts")):
+                cls, shards, why, _ = self.classify({path: f"changed {path} {i}\n"})
+                self.assertEqual(cls, "sampled", path)
+                self.assertEqual(shards[0], 1)
+                self.assertEqual(len(shards), 1 + ps.SAMPLE_COUNT, (path, shards))
+                self.assertIn(path, why)
+                self.assertIn(ps.BATCHED_WHY, why)
+            os.environ["CI_WEBVIEWS_FULL_TO_BATCH"] = "0"
+            self.assertEqual(self.classify({"webviews/bun.lock": "switched off\n"})[0], "full")
+            os.environ["CI_WEBVIEWS_FULL_TO_BATCH"] = "1"
+            os.environ["CI_WEBVIEWS_PR_BASE"] = "main"
+            self.assertEqual(self.classify({"webviews/bun.lock": "another base\n"})[0], "full")
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
     def run_cli(self, *args: str, classes: str = "1") -> tuple[list, str, str]:
         import json  # noqa: PLC0415
