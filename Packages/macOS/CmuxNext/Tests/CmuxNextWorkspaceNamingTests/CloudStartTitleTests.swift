@@ -12,8 +12,9 @@ struct CloudStartTitleTests {
     private static let host = "install:cloud-start-title"
 
     /// Workspace "workspace-6" whose one tab is an agent tab with no chat yet (the New Tab page, or a Cloud chat just opened).
-    private static func workspace(_ store: DaemonStore, surface: UInt64 = 1) throws -> (WorkspaceModel, TabModel) {
+    private static func workspace(_ store: DaemonStore, surface: UInt64 = 1, resource: String? = nil) throws -> (WorkspaceModel, TabModel) {
         var page = TabSnapshot(surface: SurfaceID(rawValue: surface), kind: .conversation, title: "about:blank", url: "about:blank")
+        page.tabResourceID = resource.map { ResourceID(rawValue: $0) }
         page.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: host, session: nil, harness: "claude"))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [page])])
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 6, key: nil, name: "workspace-6", screens: [screen])]))
@@ -60,6 +61,9 @@ struct CloudStartTitleTests {
         let (cloudWorkspace, chat) = try Self.workspace(cloudStore, surface: 20)
         titles.begin(page, task: "Title: Cloud row names\nmore", untitled: "Agent")
         titles.hand(from: page, to: chat)
+        #expect(titles.title(of: page) == "Cloud row names" && titles.title(of: chat) == "Cloud row names",
+                "the page keeps the title until its start ends (cmux#55540)")
+        titles.end(page)
         #expect(titles.title(of: page) == nil && titles.title(of: chat) == "Cloud row names")
         #expect(Self.reader(titles, page: false).label(cloudWorkspace, front: chat, work: nil) == "Cloud row names")
     }
@@ -75,31 +79,38 @@ struct CloudStartTitleTests {
     }
 
     /// cmux#55540: a New Tab chat sent in Cloud mode turns its Mac tab into the Cloud chat in place (`CloudFrontedChats`).
-    /// The tab then read "New Tab" and the row "workspace-NNN": the handed title was held by the chat tab's record, and
-    /// the Cloud machine's store makes a new record for the same tab when it rebuilds the pane. The title is the chat's
-    /// by its tab id, and the Mac tab's row reads as the chat it shows, not as its own New Tab page.
-    @Test func aMacTabShowingItsCloudChatInPlaceKeepsTheStartsTitle() throws {
-        let titles = AgentCloudStartTitles()
+    /// The tab read "New Tab" and the row "workspace-NNN" through the switch: the hand-off ended the Mac tab's title before
+    /// it showed the chat (the chat's page paints first), and a rebuilt record of the chat's tab lost the title it was handed.
+    @Test func aMacTabKeepsTheStartsTitleThroughTheSwitchToItsCloudChat() throws {
+        let titles = AgentCloudStartTitles(), prompt = "what's in this folder?"
         let (macWorkspace, mac) = try Self.workspace(DaemonStore(), surface: 1)
-        let (_, opened) = try Self.workspace(DaemonStore(), surface: 2)
-        titles.begin(mac, task: "what's in this folder?", untitled: "Agent")
-        titles.hand(from: mac, to: opened)
-        titles.end(mac)
-        #expect(titles.title(of: mac) == nil, "the Mac tab's own page no longer reads as the start")
-
-        // The Cloud machine's store rebuilt the chat's pane (a relink): the same tab, a new record.
-        let (_, rebuilt) = try Self.workspace(DaemonStore(), surface: 2)
-        #expect(rebuilt !== opened && rebuilt.id == opened.id, "fixture: one tab, two records")
-        #expect(titles.title(of: rebuilt) == "what's in this folder?", "the tab read New Tab")
-
+        let (_, opened) = try Self.workspace(DaemonStore(), surface: 2, resource: "tab_0123456789abcdef0123456789abcdef")
+        var shown: TabModel?
         let reader = WorkspaceAutoNameReader(
-            enabled: { true }, isNewTabPage: { $0 === mac }, livePage: { _ in nil }, incognitoTitle: { _ in nil },
+            enabled: { true }, isNewTabPage: { $0 === mac && shown == nil }, livePage: { _ in nil }, incognitoTitle: { _ in nil },
             terminal: { _ in .init(kind: .terminal, userName: nil, title: nil, pageTitle: nil, url: nil, cwd: nil) },
             turns: AgentTurnStateStore(), hold: WorkspaceAutoNameHold(), cloudStarts: titles,
-            shown: { $0 === mac ? rebuilt : nil })
-        #expect(reader.label(macWorkspace, front: mac, work: nil) == "what's in this folder?", "the row read workspace-6")
+            shown: { $0 === mac ? shown : nil })
+        titles.begin(mac, task: prompt, untitled: "Agent")
+        titles.hand(from: mac, to: opened)
+        // The chat's page paints before the Mac tab shows it: the Mac tab still reads as the start.
+        #expect(titles.title(of: mac) == prompt, "the tab read New Tab while the chat's page painted")
+        #expect(reader.label(macWorkspace, front: mac, work: nil) == prompt, "the row read workspace-NNN while the chat's page painted")
 
-        titles.gone(tabID: opened.id)
-        #expect(titles.title(of: rebuilt) == nil, "a closed chat's title names nothing")
+        // The Mac tab shows the chat in place, and the start ends.
+        shown = opened
+        titles.end(mac)
+        #expect(reader.label(macWorkspace, front: mac, work: nil) == prompt, "the row read workspace-NNN")
+
+        // The chat's machine rebuilt its pane: the same tab, a new record.
+        let (_, rebuilt) = try Self.workspace(DaemonStore(), surface: 2, resource: "tab_0123456789abcdef0123456789abcdef")
+        #expect(rebuilt !== opened && rebuilt.resourceID == opened.resourceID, "fixture: one tab, two records")
+        shown = rebuilt
+        #expect(titles.title(of: rebuilt) == prompt, "the tab read New Tab")
+        #expect(reader.label(macWorkspace, front: mac, work: nil) == prompt, "the row read workspace-NNN")
+
+        // Another machine's tab with the same surface number and no resource id never reads it.
+        let (_, stranger) = try Self.workspace(DaemonStore(), surface: 2)
+        #expect(stranger.id == "surface:2" && titles.title(of: stranger) == nil)
     }
 }
