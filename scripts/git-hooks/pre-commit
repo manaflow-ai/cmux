@@ -453,6 +453,19 @@ if (( ! IN_MERGE )) && "$TOOL_GIT" diff --cached --name-only --diff-filter=ACMRT
     fi
 fi
 
+# A staged string catalog only adds, removes or edits entries: no moved keys, no entry rewritten without a value
+# change (cmux#55547: #51769's merges rewrote 281k lines of one to add 3 keys). A conflicted merge finished with
+# `git commit` is judged against MERGE_HEAD's copy; a clean merge runs no pre-commit, and the pre-push gate judges it.
+# The checker is the installed checks copy's (it refreshes from feat-cmux-next); an install without it skips this.
+XCSTRINGS_CHECK="$HOOK_DIR/cmux-next-checks/check-xcstrings-diff.py"
+if "$TOOL_GIT" diff --cached --name-only --diff-filter=M -- '*.xcstrings' | "$TOOL_GREP" -q .; then
+    if [[ -f "$XCSTRINGS_CHECK" ]]; then
+        "$PYTHON3_BIN" -I "$XCSTRINGS_CHECK" staged || exit 1
+    else
+        echo "pre-commit: the checks copy has no check-xcstrings-diff.py yet; CI checks the string catalogs" >&2
+    fi
+fi
+
 # A merge commit combines base-owned files with the staged result. Do not
 # reformat that result while Git is resolving the merge; formatters run on the
 # authored files in the follow-up commit instead.

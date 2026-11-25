@@ -548,6 +548,75 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Succeed { session, names } => {
+            let client = connect(true).await?;
+            let id = crate::cli::resolve::control_id(&client, &session).await?;
+            let v = client
+                .request(method::MUX_SUCCEED, json!({"sessionId": id, "names": names}))
+                .await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let added: Vec<&str> =
+                    v["added"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                println!("{id} answers to {}", added.join(", "));
+            }
+            Ok(())
+        }
+        Command::Role { cmd } => {
+            let client = connect(true).await?;
+            let (op, params) = match cmd {
+                RoleCmd::Ls => ("ls", json!({"op": "ls"})),
+                RoleCmd::Claim { address, session } => {
+                    let id = crate::cli::resolve::control_id(&client, &session).await?;
+                    ("claim", json!({"op": "claim", "sessionId": id, "address": address}))
+                }
+                RoleCmd::Release { address, session } => {
+                    let id = crate::cli::resolve::control_id(&client, &session).await?;
+                    ("release", json!({"op": "release", "sessionId": id, "address": address}))
+                }
+            };
+            let v = client.request(method::MUX_ROLE, params).await?;
+            if json_out {
+                print_json(&v);
+                return Ok(());
+            }
+            match op {
+                "ls" => {
+                    for row in v["sessions"].as_array().into_iter().flatten() {
+                        let roles: Vec<&str> = row["roles"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|r| r["address"].as_str())
+                            .collect();
+                        let succeeds: Vec<&str> = row["succeeds"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(Value::as_str)
+                            .collect();
+                        println!(
+                            "{}\troles: {}\tsucceeds: {}",
+                            row["name"].as_str().unwrap_or_default(),
+                            if roles.is_empty() { "-".into() } else { roles.join(", ") },
+                            if succeeds.is_empty() { "-".into() } else { succeeds.join(", ") },
+                        );
+                    }
+                }
+                "claim" => println!(
+                    "{} holds {}",
+                    v["sessionId"].as_str().unwrap_or_default(),
+                    v["address"].as_str().unwrap_or_default()
+                ),
+                _ => println!(
+                    "{} gave up {}",
+                    v["sessionId"].as_str().unwrap_or_default(),
+                    v["address"].as_str().unwrap_or_default()
+                ),
+            }
+            Ok(())
+        }
         Command::Icon { session, icon } => {
             let client = connect(true).await?;
             let id = crate::cli::resolve::control_id(&client, &session).await?;
@@ -723,6 +792,30 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             answer_permission(&session, None, Answer::Deny, json_out).await
         }
         Command::Answer { session, answer } => answer_question(&session, &answer, json_out).await,
+        Command::Place { session, on, reason } => {
+            let client = connect(true).await?;
+            let id = resolve_id(&client, &session).await?;
+            let mut p = json!({"sessionId": id, "on": on});
+            if let Some(r) = reason {
+                p["reason"] = json!(r);
+            }
+            let v = client.request(method::MUX_CHAT_MOVE, p).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                let to = v["to"].as_str().unwrap_or("?");
+                match v["status"].as_str() {
+                    Some("moved") => println!("moved {id} to {to}"),
+                    Some("already") => println!("{id} already runs {to}"),
+                    _ => println!(
+                        "not moved: {}\nthe person runs: {}",
+                        v["why"].as_str().unwrap_or_default(),
+                        v["command"].as_str().unwrap_or_default()
+                    ),
+                }
+            }
+            Ok(())
+        }
         Command::Export { session, dest } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -791,9 +884,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             max_moves,
             timeout,
             undo,
+            machine,
         }) => {
             super::rebalance::run(
-                super::rebalance::Args { dry_run, force, max_moves, timeout, undo },
+                super::rebalance::Args { dry_run, force, max_moves, timeout, undo, machine },
                 json_out,
             )
             .await
@@ -987,6 +1081,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     println!("web:      {}", web_line(url, show_token));
                     if let Some(line) = host_pressure_line(&v["host_pressure"]) {
                         println!("host:     {line}");
+                    }
+                    if let Some(line) = crate::gauges::carrier::status_line(&v["gauges"]["carrier"])
+                    {
+                        println!("carrier:  {line}");
                     }
                     if let Some(fleet) = v.get("fleetHold").filter(|f| !f.is_null())
                         && let Ok(hold) = serde_json::from_value::<
@@ -1192,8 +1290,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::Key { create }) => crate::cli::host_ssh_key::run(create, json_out),
         // Its own socket, a fresh daemon connection per client: none held here.
         #[cfg(unix)]
-        Command::Host(PeerCmd::BrokerForward { owner, socket }) => {
-            crate::cli::host_broker_forward::run(owner, socket).await
+        Command::Host(PeerCmd::BrokerForward { owners, socket }) => {
+            crate::cli::host_broker_forward::run(owners, socket).await
         }
         #[cfg(not(unix))]
         Command::Host(PeerCmd::BrokerForward { .. }) => {
@@ -1422,6 +1520,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         // Reads the home directory and writes one file; no daemon (`disk_usage.rs`).
         Command::Host(PeerCmd::DiskWalk) => crate::disk_usage::walk_and_store(),
+        // Reads the fleet listing and the registry; changes nothing (`cell_report.rs`).
+        Command::Host(PeerCmd::Cells) => super::ls::cells(json_out).await,
         // Pure: judges the readings on stdin, no daemon (`cli/host_budget.rs`).
         Command::Host(PeerCmd::Verdict) => crate::cli::host_budget::verdict_stdin(),
         // Only a running daemon's chats: no daemon, no chats to tell.
@@ -1565,11 +1665,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return Ok(());
                 }
                 PeerCmd::Load { .. }
+                | PeerCmd::Cells
                 | PeerCmd::DiskWalk
                 | PeerCmd::Verdict
                 | PeerCmd::Notice { .. } => {
                     return Err(anyhow!(
-                        "machine load, disk-walk, verdict and notice are handled before connecting"
+                        "machine load, cells, disk-walk, verdict and notice are handled before connecting"
                     ));
                 }
                 PeerCmd::Rm { name } => {
