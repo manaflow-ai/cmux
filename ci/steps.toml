@@ -1347,6 +1347,70 @@ done
 exit "$status"
 '''
 
+# Leo, 2026-11-25: "layout shifts and awkward looking animations". The chat's send, thinking, compaction and
+# reload flows, each held to a layout-shift budget in Chromium and WebKit (the gallery's box tracker judges every
+# frame), with a planted 24 px jump per flow that must break it. The pane runs on the papercut stand-in daemon, so
+# no acpmux build. Alone: its WebKit install takes apt's lock, as agent-pane-real-acpmux's does.
+[step.chat-flow-shift-budget]
+job = "web-browser"
+timeout = 900
+alone = true
+title = "Chat flow layout-shift budget"
+about = "the chat's send, thinking, compaction and reload flows held to a layout-shift budget (test/chat-flow-shift-budget-browser.test.ts)"
+needs = ["bun", "node"]
+inputs = [
+  "webviews/**",
+  "Resources/markdown-viewer/**",
+  "config/vite-plus/**",
+  "cmux-tui/**",
+  "schemas/**",
+  "release-notes/next/highlights/*.md",
+  "web/data/**",
+  "Packages/macOS/CmuxNext/Sources/**/*.xcstrings",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/Resources/agent-activity/**",
+  "scripts/build-webviews-app.sh",
+  "scripts/check-webviews-bun-version.sh",
+  "scripts/check-webviews-react-compiler.mjs",
+  "scripts/webviews_bun_version.py",
+  "scripts/cmux-next/build-*-web.sh",
+  "scripts/cmux-next/build-web-bundles.sh",
+  "scripts/cmux-next/regenerate-web-bundles.sh",
+  "scripts/cmux-next/web-bundle-key.py",
+  "scripts/ci/run-webviews-tests.sh",
+  "scripts/ci/webviews_test_shards.py",
+  "scripts/ci/webviews-tests-new-reds.sh",
+  "scripts/ci/webviews_test_results.py",
+  "scripts/ci/guards_new_reds.py",
+  "scripts/ci/webviews_test_history.py",
+  "scripts/ci/ensure-system-chrome.sh",
+  "scripts/ci/playwright-apt-deps.sh*",
+  "scripts/ci/web_subareas.py",
+  "scripts/ci/cmux-tui-test-target.sh",
+  "scripts/ci/r2-cache.sh",
+  "scripts/blacksmith-testbox-source-mtimes.py",
+  "scripts/tests/test_pr_scoped_webviews_checks.py",
+  "scripts/install-git-hooks.sh",
+  "tests/test_install_git_hooks.py",
+  ".gitattributes",
+  ".github/actions/setup-cmux-tui-rust/**",
+  ".github/actions/playwright-apt-cache/**",
+  ".github/workflows/ci-web.yml",
+]
+run = '''
+python3 -I scripts/ci/web_subareas.py has agent_pane || exit 0
+root="$PWD"
+cd webviews
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+./node_modules/.bin/playwright install --with-deps webkit
+log="$(mktemp)"
+bash "$root/scripts/ci/ensure-system-chrome.sh" | tee "$log"
+chrome="$(tail -n 1 "$log")"
+case "$chrome" in CMUX_CHROME_HEADLESS_SHELL=*) export "$chrome" ;; esac
+export CMUX_BROWSER_TESTS=1 FAST_CHECKS_OUT="${RUNNER_TEMP:-$root/.ci-tmp}/chat-flow-shift-budget"
+bun test test/chat-flow-shift-budget-browser.test.ts
+'''
+
 # cmux-next-web-lint.yml's `webviews typecheck (whole tree)` job and its hook tests, which ran on every
 # feat-cmux-next push only. Leo's ask for it: "Every push to main gets a webview type check, so a break shows up on
 # the status board within minutes." A pull request now runs it on the merge commit, so the break shows before the
