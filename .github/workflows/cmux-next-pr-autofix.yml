@@ -1015,7 +1015,7 @@ jobs:
           add-rust-environment-hash-key: false
           cache-bin: false
           workspaces: cmux-tui -> target
-          shared-key: cmux-pr-autofix-clippy
+          shared-key: cmux-pr-autofix-clippy-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
 
       # Before the other repairs, so their cargo fmt sees clippy's edits.
       - name: cargo clippy --fix
@@ -1083,6 +1083,7 @@ jobs:
           GHOSTTY: ${{ steps.areas.outputs.ghostty }}
           FMT: ${{ steps.areas.outputs.fmt }}
           JOB_INPUTS: ${{ steps.areas.outputs.jobinputs }}
+          IOSFFI: ${{ steps.areas.outputs.iosffi }}
           CLIPPY: ${{ steps.areas.outputs.clippy }}
           WEBVIEWS: ${{ steps.areas.outputs.webviews }}
           RUST_SETUP: ${{ steps.rust.outcome }}
@@ -1132,6 +1133,10 @@ jobs:
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           # A workflow job no router declares is recorded as runs-always (scripts/ci/job_inputs.py fix), never refused.
+          # The iPhone app's uniffi Swift bindings (scripts/ios-ffi-bindings.sh), once the base's script takes --ios-ffi.
+          if [[ "${IOSFFI:-}" == true ]] && grep -q -- '--ios-ffi)' "$AUTOFIX/base-autofix.sh"; then
+            if [[ "${RUST_SETUP:-}" == failure ]]; then left "the iPhone app's uniffi Swift bindings" Rust; else args+=(--ios-ffi); fi
+          fi
           [[ "${JOB_INPUTS:-}" == true ]] && grep -q -- '--job-inputs)' "$AUTOFIX/base-autofix.sh" && args+=(--job-inputs)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
           [[ "$FMT" == true ]] || args+=(--no-fmt)
