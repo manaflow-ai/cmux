@@ -6923,6 +6923,13 @@ jobs:
       published_sha: ${{ steps.notes.outputs.published_sha }}
       feed_written: ${{ steps.upload_next_appcasts.outputs.feed_written }}
       feed_check: ${{ steps.feedcheck.outcome }}
+      # nightly-next-deltas' inputs: the deltas follow the feed in their own job.
+      deltas: ${{ steps.deltas-inputs.outcome == 'success' }}
+      deltas_build: ${{ steps.deltas-inputs.outputs.build }}
+      deltas_dmg: ${{ steps.deltas-inputs.outputs.dmg }}
+      deltas_dmg_release: ${{ steps.deltas-inputs.outputs.dmg_release }}
+      deltas_appcast: ${{ steps.deltas-inputs.outputs.appcast }}
+      deltas_min_system: ${{ steps.deltas-inputs.outputs.min_system }}
       left: ${{ steps.one-leave.outputs.superseded }}
       # Left before nightly-next moved: wake-nightly-next-tick retries this commit unless it moves.
       left_pending: ${{ steps.one-leave.outputs.pending }}
@@ -7384,39 +7391,108 @@ jobs:
       - *x41
       - *x50
       - *x72
-      # The deltas follow the feed in this job, off the critical path to it (the item above was written full-only),
-      # and never fail the build: every step here continues on error, and each one's `if` names what it needs.
-      # The two that hold the signing key carry no `!cancelled()`, so a failed claim skips them
-      # (tests/test_ci_signing_owned_mac.py).
-      # The delta build signs what the keyless prebuild made when it finished beside the checks, else builds them.
-      # The signing key reaches only the delta build, after a third stray-process check; nothing from the bundle runs
-      # in these steps (tests/test_nightly_next_one_job.py). Why: docs/ci/nightly-workflow-notes.md#note-31
-      - name: Refuse stray processes before secrets (deltas)
-        id: deltas-stray
+      # The deltas follow the feed in their own job (nightly-next-deltas), so published-build and the GitHub release
+      # no longer wait the ~5 min they took here (run 45575194160: 283 s build, 17 s upload; ask-c0123d25e8). This
+      # step only hands it the names and the floor it reads from the signed app; no secret, no bundle code.
+      - name: Hand the deltas job its inputs
+        id: deltas-inputs
         if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT"
         continue-on-error: true
+        run: |
+          set -euo pipefail
+          floor="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
+          {
+            echo "build=$NIGHTLY_BUILD"
+            echo "dmg=$NIGHTLY_DMG_IMMUTABLE"
+            echo "dmg_release=$NIGHTLY_DMG_RELEASE"
+            echo "appcast=$NIGHTLY_APPCAST"
+            echo "min_system=$floor"
+          } | tee -a "$GITHUB_OUTPUT"
+      # The workspace stays (the next build fetches into it); this job's tokens and temp files do not.
+      - name: Wipe this job's credentials and temp files
+        if: always()
+        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
+
+  # The nightly-next deltas after the feed, in their own job that needs it: published-build and the GitHub release
+  # start when nightly-next-one ends, not ~5 min later (run 45575194160: the delta build took 283 s and the upload
+  # 17 s after the feed; ask-c0123d25e8). The same steps as before, so hq#13299 stays satisfied: the deltas follow
+  # the feed minutes later, only while this build is still the feed's newest. Optional: a missing delta never fails
+  # the run, and a Mac without one downloads the full DMG. Never cancelled (no concurrency group).
+  # The signer label, a literal, as nightly-next-one takes it (the release-next Sparkle and R2 keys). Nothing from
+  # the bundle runs here: the delta build mounts DMGs and runs Sparkle's tools, behind its own stray-process check
+  # (tests/test_nightly_next_one_job.py). It checks out under .nightly-next-deltas, so the kept build workspace
+  # stays as nightly-next-one left it. Why: docs/ci/nightly-workflow-notes.md#note-31
+  nightly-next-deltas:
+    needs: [decide, nightly-next-one]
+    if: "!cancelled() && needs.nightly-next-one.outputs.deltas == 'true' && needs.nightly-next-one.outputs.feed_written == 'true' && needs.nightly-next-one.outputs.left != 'true'"
+    continue-on-error: true
+    environment: ${{ needs.decide.outputs.environment }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'glaeda-trusted-next-signing' }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CHANNEL: ${{ needs.decide.outputs.channel }}
+      TRACK: ${{ needs.decide.outputs.track }}
+      CHANNEL_DMG_PREFIX: ${{ needs.decide.outputs.dmg_prefix }}
+      CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
+      CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
+      NIGHTLY_VARIANT: arm64
+      NIGHTLY_BUILD: ${{ needs.nightly-next-one.outputs.deltas_build }}
+      NIGHTLY_DMG_IMMUTABLE: ${{ needs.nightly-next-one.outputs.deltas_dmg }}
+      NIGHTLY_DMG_RELEASE: ${{ needs.nightly-next-one.outputs.deltas_dmg_release }}
+      NIGHTLY_APPCAST: ${{ needs.nightly-next-one.outputs.deltas_appcast }}
+      SPARKLE_MINIMUM_SYSTEM_VERSION: ${{ needs.nightly-next-one.outputs.deltas_min_system }}
+      PUBLISH_TOOLING: ${{ github.workspace }}/.nightly-next-deltas/.publish-tooling/scripts
+    steps:
+      - *hold-the-whole-mac
+      - name: Checkout the build ref's scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ needs.nightly-next-one.outputs.build_sha }}
+          path: .nightly-next-deltas
+          filter: blob:none
+          sparse-checkout: |
+            scripts
+      - name: Checkout publication tooling at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .nightly-next-deltas/.publish-tooling
+          sparse-checkout: scripts
+      - name: Claim the whole Mac for signing
+        run: bash "$PUBLISH_TOOLING/ci/signing-runner-claim.sh"
+      # nightly-next-one's own upload: the build's DMG as published.
+      - name: Download the build's DMG
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: cmux-nightly-variant-arm64
+          path: .nightly-next-deltas
+      - name: Refuse stray processes before secrets (deltas)
+        id: deltas-stray
         run: python3 "$PUBLISH_TOOLING/ci/refuse_stray_processes.py"
+      # The rolling name's copy too, as final-dmg/ had it in nightly-next-one, and the prebuild's deltas when kept.
       - name: Build the nightly-next deltas after the feed
         id: deltas-build
-        if: "steps.deltas-stray.outcome == 'success' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT"
-        continue-on-error: true
         timeout-minutes: 20
+        working-directory: .nightly-next-deltas
         env:
           NIGHTLY_SPARKLE_KEY: ${{ vars.NIGHTLY_SPARKLE_KEY }}
-          CHANNEL: ${{ needs.decide.outputs.channel }}
-          TRACK: ${{ needs.decide.outputs.track }}
           NEXT_SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_NEXT_PRIVATE_KEY }}
           SPARKLE_CHANNEL: ${{ vars.NIGHTLY_NEXT_DEV_RING == 'on' && 'cmux-next-dev' || 'cmux-next' }}
         run: |
           set -euo pipefail
-          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
-          export SPARKLE_MINIMUM_SYSTEM_VERSION
+          [ -e "$NIGHTLY_DMG_RELEASE" ] || ln "$NIGHTLY_DMG_IMMUTABLE" "$NIGHTLY_DMG_RELEASE"
+          # nightly-next-one's keyless prebuild, when this is the Mac that built it (one-job.sh paths).
+          export NIGHTLY_NEXT_PREBUILT="$HOME/.cmux-nightly-next-prebuilt"
           bash scripts/ci/nightly-steps/appcast-with-nearest-deltas.sh after-feed
       - name: Upload the deltas and give the live item its deltas
         id: deltas-upload
-        if: "steps.deltas-build.outcome == 'success' && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT"
-        continue-on-error: true
         timeout-minutes: 10
+        working-directory: .nightly-next-deltas
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
@@ -7432,10 +7508,10 @@ jobs:
           # The tail's own revise (R2 upload, merge into the live item, prune, guard, then write-feed
           # --same-build: only while the live feed still serves this build).
           bash .publish-tooling/scripts/ci/nightly-steps/republish-deltas-upload-next-appcasts.sh
-      # The workspace stays (the next build fetches into it); this job's tokens and temp files do not.
-      - name: Wipe this job's credentials and temp files
+      # Only this job's own directory: the kept build workspace beside it stays.
+      - name: Remove this job's checkout, DMG and deltas
         if: always()
-        run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" wipe
+        run: rm -rf "$GITHUB_WORKSPACE/.nightly-next-deltas"
 
   # nightly-next-one's end asks main's tick at once. Why: docs/ci/nightly-workflow-notes.md#note-19
   wake-nightly-next-tick:

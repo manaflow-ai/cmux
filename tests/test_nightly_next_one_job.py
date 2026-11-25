@@ -257,29 +257,21 @@ class NightlyNextOneJobTests(unittest.TestCase):
         self.assertTrue(signing and publication)
         self.assertLess(first, min(signing), "the first check precedes the first signing secret")
         self.assertEqual(min(publication), second + 1, "the second check sits right before the publication secrets")
-        # The post-feed delta build is the one exception: it signs the deltas with the Sparkle key after the
-        # feed (docs/ci/nightly-workflow-notes.md#note-31), behind a third stray-process check of its own, and
-        # runs no bundle code (it mounts DMGs and runs Sparkle's tools). Every such step is continue-on-error.
-        deltas_check = names.index("Refuse stray processes before secrets (deltas)")
+        # The post-feed deltas are their own job now (nightly-next-deltas, ask-c0123d25e8): past the publication
+        # check this job holds no signing secret, and the release no longer waits for the deltas.
         late = [i for i in signing if i > second]
-        self.assertEqual([names[i] for i in late], ["Build the nightly-next deltas after the feed"])
-        self.assertTrue(all(i > deltas_check for i in late), "the deltas' stray check precedes the signing key")
-        self.assertLess(names.index("Build the nightly-next deltas after the feed"),
-                        names.index("Upload the deltas and give the live item its deltas"))
-        for name in ("Refuse stray processes before secrets (deltas)", "Build the nightly-next deltas after the feed",
-                     "Upload the deltas and give the live item its deltas"):
-            step = steps[names.index(name)]
-            self.assertIs(step.get("continue-on-error"), True, name)
-            self.assertIn("!env.LEFT_SLOT", one_line(step.get("if")), name)
-            self.assertIn("steps.upload_next_appcasts.outputs.feed_written == 'true'", one_line(step.get("if")), name)
-        self.assertIn("steps.deltas-stray.outcome == 'success'",
-                      one_line(steps[names.index("Build the nightly-next deltas after the feed")].get("if")))
+        self.assertEqual([names[i] for i in late], [])
+        hand = steps[names.index("Hand the deltas job its inputs")]
+        self.assertIs(hand.get("continue-on-error"), True)
+        self.assertNotIn("secrets.", yaml.safe_dump(hand))
+        self.assertIn("steps.upload_next_appcasts.outputs.feed_written == 'true'", one_line(hand.get("if")))
+        self.assertIn("!env.LEFT_SLOT", one_line(hand.get("if")))
 
         runners = [names.index(n) for n in self.BUNDLE_RUNNERS]
         before = [i for i in signing if i < sparkle]
         after = [i for i in signing if i > sparkle]
         # Past the Sparkle check only the Sparkle key: the one secret whose step follows the bundle's checks
-        # (the pre-feed appcast and, after its own check, the post-feed delta build).
+        # (the pre-feed appcast).
         self.assertTrue(after)
         for index in after:
             self.assertRegex(blobs[index], self.SPARKLE_SECRET, names[index])
@@ -295,6 +287,41 @@ class NightlyNextOneJobTests(unittest.TestCase):
             self.assertGreater(index, max(before), names[index])
             self.assertLess(index, sparkle, names[index])
             self.assertLess(index, second, names[index])
+
+    def test_the_deltas_follow_the_feed_in_their_own_job(self) -> None:
+        # Leo (ask-c0123d25e8): "why so long that they didnt publish either tho cuz it's been 5h". The ~5 min of
+        # deltas after the feed (run 45575194160: 283 s build, 17 s upload) no longer hold nightly-next-one, so
+        # published-build and the GitHub release start when it ends. The job needs the feed, signs the deltas with
+        # the Sparkle key behind its own stray-process check, runs no bundle code, and never fails the run.
+        jobs = workflow()["jobs"]
+        job = jobs["nightly-next-deltas"]
+        self.assertIn("nightly-next-one", job.get("needs") or [])
+        self.assertIn("needs.nightly-next-one.outputs.feed_written == 'true'", one_line(job.get("if")))
+        self.assertIn("needs.nightly-next-one.outputs.left != 'true'", one_line(job.get("if")))
+        self.assertIs(job.get("continue-on-error"), True)
+        self.assertNotIn("concurrency", job, "never cancelled")
+        self.assertIn("'glaeda-trusted-next-signing'", str(job.get("runs-on")))
+        self.assertNotIn("nightly-next-deltas", str(jobs["published-build"].get("needs")))
+        steps = job.get("steps") or []
+        names = [s.get("name") for s in steps]
+        blobs = [yaml.safe_dump(s) for s in steps]
+        stray = names.index("Refuse stray processes before secrets (deltas)")
+        build = names.index("Build the nightly-next deltas after the feed")
+        upload = names.index("Upload the deltas and give the live item its deltas")
+        self.assertEqual(names[0], "Hold the whole Mac before any credential")
+        self.assertIn("refuse_stray_processes.py", steps[stray].get("run", ""))
+        secrets = [i for i, b in enumerate(blobs) if "secrets." in b]
+        self.assertEqual(secrets, [build, upload])
+        self.assertRegex(blobs[build], self.SPARKLE_SECRET)
+        self.assertIsNone(re.search(r"secrets\.(APPLE_|ASC_API_)", blobs[build]))
+        self.assertIn("appcast-with-nearest-deltas.sh after-feed", steps[build].get("run", ""))
+        self.assertIn("republish-deltas-upload-next-appcasts.sh", steps[upload].get("run", ""))
+        self.assertEqual((steps[upload].get("env") or {}).get("DELTAS_ONLY_WHILE_NEWEST"), "1")
+        # Its own directory only: the kept build workspace beside it stays as nightly-next-one left it.
+        for step in steps:
+            path = (step.get("with") or {}).get("path")
+            if path:
+                self.assertTrue(str(path).startswith(".nightly-next-deltas"), step.get("name"))
 
     def test_the_feed_waits_on_no_delta_when_the_deltas_follow_it(self) -> None:
         # The item is written full-only then, so the wait before the Sparkle key stops an unfinished prebuild
