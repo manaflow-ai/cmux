@@ -293,6 +293,19 @@ PARTS = [
     # (0). A mode whose run is not complete, or that the native bench cannot fully load (its mode_missing), has no
     # row: its number would read as the whole mode. The rows behind cmuxterm-hq NOW's typing-under-load rows.
     # run_seconds: step 3b72dd7b ran all six modes in about 3200 s with its queue and build (cmux20-bench, 2026-11-20).
+    # The power-user input stress harness's native half (scripts/perf-bench/power_user_native.py; Leo, 2026-11-22:
+    # "you guys also need to be testing flicks of extremely fast input for scrolling and resizing/mouse movement and
+    # typing/pasting/switching workspaces around. we need to test like power users more often."): a random seed's
+    # bursts of window resize flicks (live drags and setFrame jumps), workspace switches (Ctrl+digit, steps,
+    # goToWorkspace), tab switches and all three mixed, 0-33 ms apart, in the bench app at 120 Hz. Rows
+    # power_user.native.<class>.*: frame p95 and p99 against 1.5 and 2.5 refresh periods, and long frames, blank
+    # frames, flashes, unprovoked layout shift, lost switches, tab reloads and bursts not measured (a hang) against 0.
+    # --report-only: the step exits 0 on a breach so its rows are stored and judged here; each breach line carries its
+    # replay. run_seconds: the harness's own deadline (1500 s) plus a cold bench build (about 2100 s, the power part).
+    {"name": "power-user-native", "args": [*MEASURE, "--config=bench", "--suite=power-user",
+                                           "--report-only"],
+     "artifact": "artifacts/split-spring/report.json", "kind": "budgets", "needs": "power-user-native",
+     "run_seconds": 3600},
     {"name": "typing-load", "args": [*MEASURE, "--suite=typing-frame", "--modes=all", "--surfaces=agentpane",
                                      "--chat-agent=real", "--rounds=1", "--samples=200"],
      "artifact": "artifacts/split-spring/report.json", "kind": "typing_frame", "needs": "typing-load", "run_seconds": 3600},
@@ -434,7 +447,7 @@ ROW_PARTS = [
     (r"^launch\.relaunch\.", "relaunch"), (r"^launch\.wake_proxy\.", "wake"), (r"^launch\.", "launch"),
     (r"^terminal\.throughput\.", "throughput"), (r"^typing\.", "typing-load"),
     (r"^terminal\.throughput\.", "throughput"), (r"^cef_resize\.", "cef-resize"), (r"^terminal\.scroll\.", "terminal-scroll"),
-    (r"^power\.", "power"),
+    (r"^power_user\.native\.", "power-user-native"), (r"^power\.", "power"),
     (r"^chat_size\.", "chat-size"), (r"^chat_snappy\.", "chat-snappy"),
     (r"^terminal\.key_to_echo\.", "typing"),
     (r"^diff\.", "diff-viewer"), (r"^webui\.update_one\.", "web-ui-scale"),
@@ -2544,6 +2557,8 @@ def supported_parts_at(sha):
             ok = has_path(sha, f"{ORCHESTRATOR_BENCH}")
         elif need == "web-ui-typing":
             ok = has_path(sha, f"{COMPOSER_TYPING_ROWS}")
+        elif need == "power-user-native":
+            ok = has_path(sha, f"{POWER_USER_NATIVE}")
         elif need == "web-ui-power-user":
             ok = has_path(sha, f"{POWER_USER_BENCH}")
         elif need == "web-ui-settled":
@@ -2655,6 +2670,7 @@ CHAT_FAST_SCROLL_BENCH = "webviews/bench/chat-fast-scroll.bench.ts"
 ORCHESTRATOR_BENCH = "webviews/bench/orchestrator-16.bench.ts"
 # The web-ui-power-user part's adapter around the power-user input stress harness.
 POWER_USER_BENCH = "webviews/bench/power-user-bursts.bench.ts"
+POWER_USER_NATIVE = "scripts/perf-bench/power_user_native.py"
 SETTLED_PAGE_BENCH = "webviews/bench/settled-page.bench.ts"
 INFINITE_ITEMS = "scripts/measure/infinite-items-linux.sh"
 CHAT_DISK = "scripts/measure/chat-disk-growth-linux.sh"

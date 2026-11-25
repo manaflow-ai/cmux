@@ -596,11 +596,18 @@
   grid-template-rows: 1fr auto;
   align-content: center;
   gap: 2px 6px;
-  padding: 7px 24px 7px 8px;
+  /* No room kept for the hover-only ×: it lies over the name's end (Leo, 2026-11-24: "if the buttons
+     show on hover, then we should show the whole line before ellipsis-ing. and when the area is
+     hovered over, there's that whatever some amount of good fading that makes it all feel like one
+     motion"; "you're early ellipsis-ing because of a button that doesnt even always show"). The name
+     is a .ui-reveal-text (ui/motion/motion.css) of a data-reveal-overlap host: it fades under the ×
+     while the × shows, and fades at its end instead of an ellipsis only where it is cut. */
+  padding: 7px 8px;
   color: var(--agent-text);
 }
 .acpmux-attachment-document-meta > svg { grid-row: 1 / span 2; align-self: center; }
 .acpmux-attachment-document-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acpmux-attachment-document-name.ui-reveal-text { text-overflow: clip; }
 .acpmux-attachment-document-pages { color: var(--agent-muted); font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
 .acpmux-attachment-document .acpmux-attachment-remove { top: 20px; }
 /* The chat composer's and the New Tab card's (.nt-box): without it the New Tab badge drew as a
@@ -1188,7 +1195,13 @@ button.acpmux-attachment-pasted-open:hover {
   color: var(--agent-text);
   vertical-align: middle;
 }
-.acpmux-file-chip--removable { padding-right: 32px; }
+/* A removable chip keeps no room for its × (hover only): the × lies over the end of the chip's text
+   (.acpmux-file-chip__text, a .ui-reveal-text of a data-reveal-overlap host, ui/motion/motion.css),
+   which fades under it (Leo, 2026-11-24, as above). A failed chip's × is always shown, so its text
+   always gives way. */
+.acpmux-file-chip__text { display: flex; align-items: center; gap: var(--acpmux-file-chip-gap); flex: 0 1 auto; min-width: 0; }
+.acpmux-attachment-file .acpmux-file-chip__text { text-overflow: clip; }
+.acpmux-md-inline-chip > .acpmux-attachment-failed .ui-reveal-text { --ui-reveal-cover: var(--ui-reveal-controls-w, 0px); }
 .acpmux-file-chip > svg { flex: none; color: var(--agent-muted); }
 .acpmux-file-chip > .acpmux-file-chip__status {
   display: grid;
