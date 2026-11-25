@@ -244,7 +244,7 @@ fn measure(o: &Opts, params: &Params, quiet: bool) -> Vec<Row> {
                     };
                     if !quiet {
                         println!(
-                            "{:12} {:4} {:15} {:5} raw {:9.2}MB wire {:9.2}MB ({:6.1}%) ttft p50 {:8.3}s p95 {:8.3}s synced p50 {:8.3}s p95 {:8.3}s cpu {:.2}/{:.2}s",
+                            "{:12} {:4} {:15} {:5} raw {:9.2}MB wire {:9.2}MB ({:>6}) ttft p50 {:8.3}s p95 {:8.3}s synced p50 {:8.3}s p95 {:8.3}s cpu {:.2}/{:.2}s",
                             row.folder,
                             sc.name(),
                             p.name,
@@ -268,8 +268,9 @@ fn measure(o: &Opts, params: &Params, quiet: bool) -> Vec<Row> {
     rows
 }
 
-fn pct_of(a: u64, b: u64) -> f64 {
-    100.0 * a as f64 / b.max(1) as f64
+/// Wire as a percentage of raw, or "-" when there is no raw content (an empty folder).
+fn pct_of(a: u64, b: u64) -> String {
+    if b == 0 { "-".into() } else { format!("{:.1}%", 100.0 * a as f64 / b as f64) }
 }
 
 /// The `now-bytes/v1` document: NOW's bytes-path section reads it (leo-workspace
@@ -319,15 +320,11 @@ fn table_of(rows: &[Row]) -> String {
     for new in rows.iter().filter(|r| r.strategy == Strategy::New) {
         let today = rows.iter().find(|r| r.strategy == Strategy::Today && r.key() == new.key());
         let (tw, tt, ts) = today.map_or(("-".into(), "-".into(), "-".into()), |t| {
-            (
-                format!("{} ({:.0}%)", mb(t.wire), pct_of(t.wire, t.raw)),
-                secs(t.ttft),
-                secs(t.synced),
-            )
+            (format!("{} ({})", mb(t.wire), pct_of(t.wire, t.raw)), secs(t.ttft), secs(t.synced))
         });
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {tw} | {} ({:.0}%) | {tt} | {} | {ts} | {} | {:.2} / {:.2} s |",
+            "| {} | {} | {} | {tw} | {} ({}) | {tt} | {} | {ts} | {} | {:.2} / {:.2} s |",
             new.folder,
             new.scenario.name(),
             new.profile,
@@ -403,6 +400,8 @@ fn neighbors(p: &Params) -> Vec<(&'static str, String)> {
         ("dict_max_chunk", (p.dict_max_chunk / 2).max(1024).to_string()),
         ("dict_bytes", (p.dict_bytes * 2).min(1 << 20).to_string()),
         ("dict_bytes", (p.dict_bytes / 2).max(8192).to_string()),
+        ("dict_max_bandwidth", f(p.dict_max_bandwidth * 2.0)),
+        ("dict_max_bandwidth", f(p.dict_max_bandwidth / 2.0)),
         ("max_level", (p.max_level - 3).max(p.min_level).to_string()),
         ("max_level", (p.max_level + 3).min(19).to_string()),
         ("min_level", (p.min_level + 1).min(p.max_level).to_string()),

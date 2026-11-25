@@ -131,6 +131,10 @@ pub struct Item {
     pub round_trip: bool,
     /// Needed for the first agent turn (manifest, instructions).
     pub first_turn: bool,
+    /// Trains the dictionaries: chunks that use one wait for it to finish.
+    pub trains_dicts: bool,
+    /// Holds a chunk compressed with a dictionary.
+    pub needs_dicts: bool,
 }
 
 /// A scenario over a folder.
@@ -342,6 +346,7 @@ pub fn encode_today(
                 cpu_recv,
                 round_trip: true,
                 first_turn: false,
+                ..Item::default()
             };
             batch_files = 1;
             batch_bytes = bytes.len() as u64;
@@ -356,6 +361,7 @@ pub fn encode_today(
                     cpu_recv: cpu_recv / n as f64,
                     round_trip: true,
                     first_turn: false,
+                    ..Item::default()
                 });
                 let _ = i;
             }
@@ -393,7 +399,7 @@ pub fn encode_new(
     let t = Clock::start();
     // On an edit the remote already holds the dictionaries (trained on the cold copy): reuse them,
     // and send neither them nor their training again.
-    let dicts = if params.dictionaries {
+    let dicts = if params.dictionaries && link.bytes_per_sec <= params.dict_max_bandwidth {
         let mut samples: Vec<(Kind, Vec<u8>)> = Vec::new();
         for e in entries
             .iter()
@@ -413,8 +419,9 @@ pub fn encode_new(
     let dict_cpu = if scenario == Scenario::Edit { 0.0 } else { t.secs() };
     out.dict_bytes = if scenario == Scenario::Edit { 0 } else { dicts.wire_bytes() };
 
-    // The manifest: per file a path, size, mode and mtime; zstd-19 compressed (it is small and
-    // goes first, so its size is all that matters).
+    // The manifest: per file a path, size, mode and mtime. It gates the first turn, so it takes the
+    // link's level like any chunk: zstd-19 on a 46,784-file manifest cost 1.5 s of CPU, longer than a
+    // LAN takes to send the whole folder.
     let t = Clock::start();
     let mut manifest = Vec::new();
     // An edit's manifest holds only the changed entries (the remote has the rest).
@@ -425,7 +432,7 @@ pub fn encode_new(
         manifest.extend_from_slice(&e.size.to_le_bytes());
         manifest.extend_from_slice(&[0; 8]);
     }
-    let (mframe, _) = frame::encode(&manifest, Encoding::Zstd(19), params.keep_ratio, &());
+    let (mframe, _) = frame::encode(&manifest, Encoding::Zstd(level), params.keep_ratio, &());
     let mcpu = t.secs();
     out.items.push(Item {
         wire_up: mframe.len() as u64 + 64,
@@ -434,6 +441,7 @@ pub fn encode_new(
         cpu_recv: 0.0,
         round_trip: false,
         first_turn: true,
+        ..Item::default()
     });
     // Dictionaries train beside the first-turn files (which go without one) and ride the fill.
     if out.dict_bytes > 0 {
@@ -441,6 +449,7 @@ pub fn encode_new(
             wire_up: out.dict_bytes,
             wire_down: 16,
             cpu_send: dict_cpu,
+            trains_dicts: true,
             ..Item::default()
         });
     }
@@ -488,6 +497,9 @@ pub fn encode_new(
             );
             let (f, used) = frame::encode(raw, plan.encoding, params.keep_ratio, &dicts);
             item.cpu_send += t.secs();
+            // On an edit the remote has the dictionaries already: nothing to wait for.
+            item.needs_dicts |=
+                scenario == Scenario::Cold && matches!(used, Encoding::ZstdDict(..));
             let reason = match (plan.reason, used) {
                 (policy::Reason::Have, _) => "have",
                 (_, Encoding::Store) => match plan.reason {
@@ -589,6 +601,7 @@ pub fn simulate(
         let mut wire = 0u64;
         let mut cs = 0.0;
         let mut cr = 0.0;
+        let mut dicts_ready = 0.0f64;
         for it in items {
             let w = it.wire_up as f64 / per;
             let i = least(&load);
@@ -596,7 +609,11 @@ pub fn simulate(
                 load[i] += it.cpu_send + w + p.rtt + it.cpu_recv;
             } else {
                 let c = least(&pool);
-                pool[c] += it.cpu_send;
+                let start = if it.needs_dicts { pool[c].max(dicts_ready) } else { pool[c] };
+                pool[c] = start + it.cpu_send;
+                if it.trains_dicts {
+                    dicts_ready = pool[c];
+                }
                 load[i] = load[i].max(pool[c]) + w;
             }
             wire += it.wire_up + it.wire_down;

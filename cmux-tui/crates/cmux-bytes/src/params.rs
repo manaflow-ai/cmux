@@ -32,6 +32,9 @@ pub struct Params {
     pub dict_max_chunk: usize,
     /// Dictionary size in bytes.
     pub dict_bytes: usize,
+    /// Dictionaries train only on links at or under this many bytes per second: training is
+    /// seconds of one core before any dictionary chunk can go, which a fast link never earns back.
+    pub dict_max_bandwidth: f64,
     /// The bulk lanes ride a paced, loss-tolerant carrier (Braid RFD 0164 class 3, BBR-style)
     /// instead of TCP streams. Off: the same TCP the copy uses today, so a before/after compares
     /// codec and ordering alone. The hill-climb never flips it (the model would always pick it).
@@ -54,6 +57,7 @@ impl Default for Params {
             dictionaries: true,
             dict_max_chunk: 16 * 1024,
             dict_bytes: 64 * 1024,
+            dict_max_bandwidth: 50e6,
             paced: false,
         }
     }
@@ -79,6 +83,7 @@ impl Params {
             "dictionaries" => self.dictionaries = p(value)?,
             "dict_max_chunk" => self.dict_max_chunk = p(value)?,
             "dict_bytes" => self.dict_bytes = p(value)?,
+            "dict_max_bandwidth" => self.dict_max_bandwidth = p(value)?,
             "paced" => self.paced = p(value)?,
             _ => return Err(format!("unknown param {key}")),
         }
@@ -101,6 +106,7 @@ impl Params {
             ("dictionaries", self.dictionaries.to_string()),
             ("dict_max_chunk", self.dict_max_chunk.to_string()),
             ("dict_bytes", self.dict_bytes.to_string()),
+            ("dict_max_bandwidth", self.dict_max_bandwidth.to_string()),
             ("paced", self.paced.to_string()),
         ]
     }

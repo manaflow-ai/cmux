@@ -3,6 +3,7 @@
 //! stream behind the background fill, never behind a whole file.
 
 use std::collections::VecDeque;
+use std::io;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Lane {
@@ -13,6 +14,24 @@ pub enum Lane {
 }
 
 pub const LANES: [Lane; 4] = [Lane::Manifest, Lane::Fault, Lane::Hot, Lane::Fill];
+
+/// Where a lane's frames go. Today's carrier is the daemon's mux (manifest, fault and hot as
+/// interactive traffic, fill as `frame::Lane::Bulk`); Braid's paced bulk class (RFD 0164 class 3)
+/// implements this when it lands, with no change to the scheduler.
+pub trait LaneSink<T> {
+    fn send(&mut self, lane: Lane, item: T) -> io::Result<()>;
+}
+
+/// Sends everything queued, in scheduler order, stopping at the first carrier error (the
+/// item that failed is the caller's to resume from its manifest).
+pub fn drain<T>(s: &mut Scheduler<T>, sink: &mut impl LaneSink<T>) -> io::Result<usize> {
+    let mut sent = 0;
+    while let Some((lane, item)) = s.pop() {
+        sink.send(lane, item)?;
+        sent += 1;
+    }
+    Ok(sent)
+}
 
 /// Strict priority, except the fill keeps one frame in `fill_every` so a
 /// stream of faults cannot starve it forever.
@@ -79,5 +98,23 @@ mod tests {
         assert!(first.iter().any(|(l, _)| *l == Lane::Fill));
         assert!(s.promote(Lane::Fill, |i| *i == 50));
         assert_eq!(s.pop().unwrap(), (Lane::Fault, 1008));
+    }
+
+    #[test]
+    fn drain_sends_in_lane_order() {
+        struct Rec(Vec<(Lane, u32)>);
+        impl LaneSink<u32> for Rec {
+            fn send(&mut self, lane: Lane, item: u32) -> io::Result<()> {
+                self.0.push((lane, item));
+                Ok(())
+            }
+        }
+        let mut s = Scheduler::new(100);
+        s.push(Lane::Fill, 3);
+        s.push(Lane::Hot, 2);
+        s.push(Lane::Manifest, 0);
+        let mut rec = Rec(Vec::new());
+        assert_eq!(drain(&mut s, &mut rec).ok(), Some(3));
+        assert_eq!(rec.0, vec![(Lane::Manifest, 0), (Lane::Hot, 2), (Lane::Fill, 3)]);
     }
 }
