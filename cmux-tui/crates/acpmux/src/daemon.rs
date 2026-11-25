@@ -51,6 +51,8 @@ mod cloud_handoff;
 #[cfg(unix)]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 mod cloud_activity;
+#[cfg(all(test, unix))]
+pub(crate) use cloud_activity::probe as cloud_activity_probe;
 // Connect to the daemon, or start one and connect (the client side).
 mod connect;
 use connect::*;
@@ -745,6 +747,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
             }
         }
         let pending = hub.outbox.open(&home().join("outbox.json"));
+        // A delivery that ends failed bounces to its sender (`hub/dead_letters.rs`).
+        hub.start_bounces();
         crate::hub::register::load_registered();
         // Whatever the rename did: a rename that failed leaves the copied outbox in place, and
         // none of it is this machine's to deliver.
@@ -938,6 +942,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let carrier_file = crate::server::carrier::start(&hub, &home()).await;
+    // A fleet host takes a new channel build within a minute (`cli/host_update_watch.rs`), only
+    // from the daemon `acpmux.service` runs: one in another home (a test's, a second daemon's) leaves it.
+    if home() == crate::config::default_home() {
+        hub.scope.spawn_until_cancelled("channel watch", crate::cli::hosts::watch_channel());
+    }
     let ws_shutdown = hub.ws_shutdown.clone();
     // Opt-in (`CMUX_TAILNET_CARRIER`): peers of this person's tailnet may also reach the same
     // port on this machine's tailnet address, whois-admitted (`tailnet_carrier.rs`).
@@ -1216,8 +1225,10 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         });
     }
     // Opt-in team usage sharing's uploads (`server/chats/team_audit.rs`); idle while it is off.
-    let _usage_upload =
-        hub.scope.spawn_until_cancelled("usage-share-upload", crate::server::usage_upload_loop());
+    let _usage_upload = hub.scope.spawn_until_cancelled(
+        "usage-share-upload",
+        crate::server::usage_upload_loop(hub.settings_changes.subscribe()),
+    );
     #[cfg(target_os = "linux")]
     {
         let hub = hub.clone();

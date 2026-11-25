@@ -415,7 +415,7 @@ fn parse_key(text: &str) -> Result<[u8; 32], DialError> {
 const UDP_BUFFER: usize = 2 * 1024 * 1024;
 
 /// A UDP socket for the tunnel, on any port, with [`UDP_BUFFER`] buffers.
-pub(super) fn bind_udp() -> io::Result<UdpSocket> {
+pub(crate) fn bind_udp() -> io::Result<UdpSocket> {
     let socket =
         socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, Some(socket2::Protocol::UDP))?;
     let _ = socket.set_recv_buffer_size(UDP_BUFFER);
@@ -533,7 +533,7 @@ const MAX_HOST_IPS: usize = 8;
 
 /// The IPv4 addresses of this machine's interfaces (the tunnel's socket is
 /// IPv4), as WebRTC gathers its host candidates.
-fn interface_ips() -> Vec<IpAddr> {
+pub(crate) fn interface_ips() -> Vec<IpAddr> {
     webrtc::util::ifaces::ifaces()
         .unwrap_or_default()
         .into_iter()
@@ -1030,6 +1030,10 @@ struct HybridUnderlay {
     /// held until their delivery time, and the timer for the first.
     delayed: std::collections::VecDeque<(Instant, Vec<u8>, Origin)>,
     delay_timer: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
+    /// Asks the session to send the peer its endpoints again through
+    /// signaling (`Session::nudge_peer`): our route to the peer's TURN
+    /// relayed address went quiet.
+    nudge: Option<mpsc::UnboundedSender<()>>,
     /// The second interface: the phone's socket on cell, or the Mac's view
     /// of the phone's metered addresses (`wireguard_multipath.rs`).
     assist: multipath::Assist,
@@ -1136,6 +1140,7 @@ impl HybridUnderlay {
             answering: false,
             delayed: std::collections::VecDeque::new(),
             delay_timer: None,
+            nudge: None,
             assist: multipath::Assist::default(),
         };
         underlay.set_peer_endpoints(spec.peer_endpoints.to_vec());
@@ -2272,7 +2277,27 @@ impl Underlay for HybridUnderlay {
 
     fn poll_probes(&mut self, now: Instant) -> DueProbes {
         self.drain_control();
-        self.paths.poll(now)
+        let due = self.paths.poll(now);
+        if let Some(route) = self.paths.take_chosen_quiet()
+            && self.labels.peer_relayed.contains(&route.addr)
+            && let Some(nudge) = &self.nudge
+        {
+            // We reach the peer through its TURN server and that route went
+            // quiet: the server may be gone, and a peer with nothing to send
+            // (idle) would not find out until its next probe, seconds away.
+            // Signaling still reaches it; the announcement it answers inside
+            // the tunnel starts its own silence watch on that route, and
+            // with it its TURN server check.
+            let _ = nudge.send(());
+        }
+        if let Some(rtt_us) = self.paths.take_turn_quiet()
+            && let Some(turn) = self.turn.as_ref()
+        {
+            // Two silence windows of the quiet route's smoothed RTT
+            // (max(8 x srtt, 200 ms)): the server's leg is part of that round trip.
+            turn.check_server(cmux_wg::silence_window(rtt_us) * 2);
+        }
+        due
     }
 
     fn on_pong(&mut self, path: PathId, id: u64, now: Instant) {
@@ -2524,8 +2549,9 @@ fn start_tunnel(
     let (reach_tx, reach_rx) = mpsc::unbounded_channel();
     let (relayed, relayed_tls) = relayed_of(spec.turn.as_ref());
     let turn_dead = spec.turn.as_ref().map(TurnCarrier::dead);
+    let (nudge_tx, mut nudge_rx) = mpsc::unbounded_channel();
     let relay_shared = Arc::new(roam::RelayShared::default());
-    let underlay = HybridUnderlay::new(
+    let mut underlay = HybridUnderlay::new(
         UnderlaySpec {
             socket: spec.socket,
             peer_endpoints: spec.peer_endpoints,
@@ -2541,6 +2567,7 @@ fn start_tunnel(
         },
         options,
     );
+    underlay.nudge = Some(nudge_tx);
     let host = |ip: Ipv4Addr| IpNetwork::new(IpAddr::V4(ip), 32).expect("host prefix");
     let config = WgConfig {
         private_key: spec.private_key,
@@ -2591,6 +2618,13 @@ fn start_tunnel(
         peer_version: spec.peer_version,
         relay: spec.relay,
         relay_shared,
+    });
+    let weak = Arc::downgrade(&session);
+    tokio::spawn(async move {
+        while nudge_rx.recv().await.is_some() {
+            let Some(session) = weak.upgrade() else { return };
+            session.nudge_peer();
+        }
     });
     Ok(Tunnel { session, path: path_rx, peer })
 }

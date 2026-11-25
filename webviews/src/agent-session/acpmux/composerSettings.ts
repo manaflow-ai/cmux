@@ -5,12 +5,11 @@
 // composer's button row offers Show. The page sets the value at once and asks the host to write it
 // (`pane.showContextUsage`, `pane.showDictation`), which pushes it back, also on the next launch.
 // `agentPane.attachmentView` rides the same event as `attachmentView`: how pictures and files show
-// in every composer and in sent messages, "inline" (in the text where each was added, the default),
-// "strip" (in a row) or "both" (in the text and in the row, so every attachment shows in one place
-// with its remove; Leo 2026-10-24: "ALSO show the top displayed attachments alongside the inline
-// attachments ... so you can see it all and close aka delete"). Sent messages draw "both" as
-// "inline". It is only a look: a draft's text, its attachment marks and their order are the same
-// in every view, so switching never changes what is sent. Anything else reads as "inline".
+// in every composer and in sent messages, "strip" (in a row over the text, the default: one place for
+// an attachment, Leo 2026-11-25) or "inline" (in the text where each was added, chosen from the
+// composer's right-click). "both" (text and row, which showed each attachment twice) reads as "strip".
+// It is only a look: a draft's text, its attachment marks and their order are the same in every
+// view, so switching never changes what is sent. Anything else reads as "strip".
 // `agentPane.composerVimKeys` (`composerVimKeys`) is off by default: on, the chat's prompt takes the minimal
 // modal vim of composer/vimKeys.ts (Esc for normal mode); off, the composer never reads those keys.
 // `agentPane.scrollToBottomOnSend` is on by default and preserves the existing send-to-latest
@@ -54,6 +53,9 @@
 // environment; no cmux.json key): on, picking Cloud in a new chat's strip adds the Environment chip
 // (CloudEnvironmentChip.tsx), on Auto. On by default, as the host's flag is: only the host's `false`
 // (CLOUD_ENVIRONMENTS_ENABLED=0 or false) hides it.
+// `cloudLeaseOnOpen` is the launch flag CLOUD_LEASE_ON_OPEN (Swift AgentPaneCloudLeaseOnOpenFlag): on, a
+// composer that opens with Cloud already its target leases its machine at open (cloudComposeReservation.ts
+// `opened`). On by default, as the host's flag is: only the host's `false` (CLOUD_LEASE_ON_OPEN=0) turns it off.
 import { useSyncExternalStore } from "react";
 
 // `symbols`: one row of harness symbols at the top of the model picker, each name on hover (Leo
@@ -91,6 +93,7 @@ export type ComposerSettings = {
   emptyChatComposerPosition: EmptyChatComposerPosition;
   followUpMode: FollowUpMode;
   cloudEnvironments: boolean;
+  cloudLeaseOnOpen: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -100,7 +103,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   dictationShortcut: "",
   spellChecking: false,
   composerVimKeys: false,
-  attachmentView: "inline",
+  attachmentView: "strip",
   scrollToBottomOnSend: true,
   reasoningSlider: false,
   reasoningSliderStyle: "accent",
@@ -114,6 +117,7 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   emptyChatComposerPosition: "bottom",
   followUpMode: "steer",
   cloudEnvironments: true,
+  cloudLeaseOnOpen: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
@@ -126,15 +130,17 @@ type ComposerFlag =
   | "harnessSwitch"
   | "scrollToBottomOnSend"
   | "showMachineLoadWarnings"
-  | "cloudEnvironments";
+  | "cloudEnvironments"
+  | "cloudLeaseOnOpen";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
   const raw = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
   const flag = (key: ComposerFlag) => (typeof raw[key] === "boolean" ? raw[key] : DEFAULT_COMPOSER[key]);
   const reasoningSliderStyle: ReasoningSliderStyle = raw.reasoningSliderStyle === "minimal" ? "minimal" : "accent";
-  const attachmentView: AttachmentView =
-    raw.attachmentView === "strip" || raw.attachmentView === "both" ? raw.attachmentView : "inline";
+  // "both" drew every attachment twice, in the text and in the tray (Leo, 2026-11-25: "why are there
+  // both"): it reads as the tray.
+  const attachmentView: AttachmentView = raw.attachmentView === "inline" ? "inline" : "strip";
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
@@ -161,6 +167,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     emptyChatComposerPosition: raw.emptyChatComposerPosition === "center" ? "center" : "bottom",
     followUpMode: readFollowUpMode(raw.followUpMode),
     cloudEnvironments: flag("cloudEnvironments"),
+    cloudLeaseOnOpen: flag("cloudLeaseOnOpen"),
   };
 }
 
