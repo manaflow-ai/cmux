@@ -241,24 +241,6 @@ fn bounded_child_stdout_reader_rejects_oversized_output() {
 }
 
 #[test]
-fn plugin_registry_rejects_an_unbounded_entry_count() {
-    let root = std::env::temp_dir().join(format!(
-        "cmux-plugin-registry-entry-limit-{}-{}",
-        std::process::id(),
-        now_nanos()
-    ));
-    fs::create_dir_all(&root).unwrap();
-    for index in 0..=MAX_INSTALLED_PLUGIN_ENTRIES {
-        fs::create_dir(root.join(format!("plugin-{index}"))).unwrap();
-    }
-
-    let error = bounded_plugin_registry_entries(&root).unwrap_err().to_string();
-    assert!(error.contains("plugin registry") && error.contains("entry limit"), "{error}");
-
-    fs::remove_dir_all(root).unwrap();
-}
-
-#[test]
 fn artifact_digest_handles_multiple_read_chunks() {
     let root = std::env::temp_dir().join(format!(
         "cmux-plugin-artifact-digest-{}-{}",
@@ -593,4 +575,22 @@ fn plugin_build_command_terminates_after_timeout() {
         .expect_err("a busy build must time out");
     assert!(started.elapsed() < Duration::from_secs(2));
     assert!(error.to_string().contains("timed out"));
+}
+
+#[test]
+fn plugin_registry_lists_past_the_old_entry_cap() {
+    // The registry once refused a root with more than 256 entries.
+    let root = std::env::temp_dir().join(format!(
+        "cmux-plugin-registry-entries-{}-{}",
+        std::process::id(),
+        now_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    for index in 0..300 {
+        fs::create_dir(root.join(format!("plugin-{index}"))).unwrap();
+    }
+
+    assert_eq!(plugin_registry_entries(&root).unwrap().len(), 300);
+
+    fs::remove_dir_all(root).unwrap();
 }
