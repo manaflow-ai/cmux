@@ -79,20 +79,12 @@ final class NotificationsPanelView: NSView {
         glass.samplesBehindWindow = true
         addSubview(glass)
         addSubview(background)
-        NSLayoutConstraint.activate([
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            background.leadingAnchor.constraint(equalTo: leadingAnchor),
-            background.trailingAnchor.constraint(equalTo: trailingAnchor),
-            background.topAnchor.constraint(equalTo: topAnchor),
-            background.bottomAnchor.constraint(equalTo: bottomAnchor),
-            body.leadingAnchor.constraint(equalTo: background.leadingAnchor),
-            body.trailingAnchor.constraint(equalTo: background.trailingAnchor),
-            body.topAnchor.constraint(equalTo: background.topAnchor),
-            body.bottomAnchor.constraint(equalTo: background.bottomAnchor),
-        ])
+        // The glass and the background fill the view, and the body fills the background.
+        let fills: [(NSView, NSView)] = [(glass, self), (background, self), (body, background)]
+        NSLayoutConstraint.activate(fills.flatMap { view, host in
+            [view.leadingAnchor.constraint(equalTo: host.leadingAnchor), view.trailingAnchor.constraint(equalTo: host.trailingAnchor),
+             view.topAnchor.constraint(equalTo: host.topAnchor), view.bottomAnchor.constraint(equalTo: host.bottomAnchor)]
+        })
         build()
     }
 

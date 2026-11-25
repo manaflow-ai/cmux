@@ -282,14 +282,14 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       await page.close();
     });
 
-    test("a signed-out fresh chat shows Log In before send and keeps its draft", async () => {
+    test("a signed-out fresh chat names the agent to sign in to before send and keeps its draft", async () => {
       const page = await newChat();
       const prompt = page.locator(".acpmux-composer-prompt .ProseMirror");
       const notice = page.locator('[data-harness-notice="signedOut"]');
       await notice.waitFor();
       expect(await notice.count()).toBe(1);
       expect(await page.locator(".acpmux-composer-trust-note").count()).toBe(0);
-      expect(await notice.innerText()).toContain("Log In");
+      expect(await notice.innerText()).toContain("Sign in to Claude Code");
       await expectBlockedDraft(page, "set up the retry policy");
       await page.locator('[data-harness-notice="signedOut"] [data-notice-action="login"]').click();
       expect((await prompt.innerText()).trim()).toBe("set up the retry policy");
@@ -329,8 +329,8 @@ await requireBrowserLane("agent-pane-unsent-draft.test.ts", async () => {
       const line = page.locator(".acpmux-composer-trust-note");
       await line.waitFor();
       expect(await line.count()).toBe(1);
-      // A route that needs its sign-in again reads Sign in again, as the picker does (#31689).
-      expect(await line.innerText()).toContain("Sign in again");
+      // A route that needs its sign-in again names that account, as the picker does (#31689).
+      expect(await line.innerText()).toContain("Your team-route account needs a new sign-in.");
       await expectBlockedDraft(page, "route draft");
       await page.close();
     });

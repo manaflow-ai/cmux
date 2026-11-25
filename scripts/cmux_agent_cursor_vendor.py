@@ -11,7 +11,6 @@ the copy by hand, change cmux-cua first and re-sync (plans/cmux-next/agent-curso
 """
 import hashlib
 import os
-import re
 import subprocess
 import sys
 import tarfile
@@ -24,7 +23,7 @@ UPSTREAM_URL = "https://github.com/manaflow-ai/cmux-cua.git"
 UPSTREAM_PATH = "libs/cmux-cua/swift/CmuxAgentCursor"
 SOURCE_NAME = "SOURCE"
 # cmux-side patches applied, in order, to the package at the pin, as
-# build-cmux-cua.sh does for the helper. Each one is the exact diff (under
+# the retired helper build did. Each one is the exact diff (under
 # UPSTREAM_PATH) of a merged cmux-cua PR the pin does not carry yet; the pin bump
 # to a release that includes it deletes the patch here.
 #   linux: manaflow-ai/cmux-cua#80 (merged as 97def85c7f49), CoreAnimation and
@@ -39,12 +38,15 @@ PATCHES = [
 ]
 
 
+# The manaflow-ai/cmux-cua commit this copy was taken from. cmux no longer
+# builds or ships cmux-cua (cmux Computer Use is cmux-tui/crates/cmux-computer-use,
+# docs/computer-use/README.md), so the pin no longer moves with a helper build;
+# it lives here and changes only when this copy is re-synced on purpose.
+CMUX_CUA_PINNED_SHA = "e8a8dbfd45a5d050058e7340f97ffe6f157c3128"
+
+
 def pinned_sha() -> str:
-    text = (REPO / "scripts" / "build-cmux-cua.sh").read_text()
-    m = re.search(r'^CMUX_CUA_PINNED_SHA="([0-9a-f]{40})"$', text, re.M)
-    if not m:
-        sys.exit("CMUX_CUA_PINNED_SHA not found in scripts/build-cmux-cua.sh")
-    return m.group(1)
+    return CMUX_CUA_PINNED_SHA
 
 
 def git_tree_hash(directory: Path, skip: frozenset = frozenset()) -> str:

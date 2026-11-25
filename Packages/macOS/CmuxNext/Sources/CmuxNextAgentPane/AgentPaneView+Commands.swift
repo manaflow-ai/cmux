@@ -1,3 +1,4 @@
+public import AppKit
 import CmuxNextSettings
 import Foundation
 
@@ -32,6 +33,19 @@ extension AgentPaneView {
     /// then opens its model picker, or the composer's file search (a pick mentions the file).
     public func showModelPicker() { showWithKeyboard("openModelPicker") }
     public func showFileSearch() { showWithKeyboard("searchFiles") }
+    /// One of the composer bar's controls from its shortcut: the page takes the keyboard, then
+    /// opens the control as a click does. `byPerson` and `event`: whether the run is the person's
+    /// own, and the input event in dispatch (the App's `InputDispatchContext`, never
+    /// `NSApp.currentEvent`, which keeps an old key). Toggle Plan Mode switches the mode at once, with
+    /// no click in the page, and the key router takes its key before the pane's gesture monitor sees
+    /// it, so the person's own key is recorded here as the gesture the page's session/set_mode spends.
+    /// The other controls only open a menu: the person's pick there is the gesture.
+    public func showComposerControl(_ control: AgentComposerControl, byPerson: Bool = false, event: NSEvent? = nil) {
+        if control == .togglePlan {
+            AgentPanePersonInput.record(model.transport.gestures, sources: eventSources, if: byPerson, event: event)
+        }
+        showWithKeyboard(control.pageCommand)
+    }
     /// Ask a Side Question… focuses this chat's composer and prefills `/btw `.
     /// The session id travels with the event so a palette run cannot land in a replacement chat.
     public func askSideQuestion() {

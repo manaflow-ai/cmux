@@ -29,6 +29,27 @@ import UIKit
         }
     }
 
+    #if os(iOS)
+    /// Leo, 2026-11-23: "adding attachments shouldn then expand the fucking composer EVEN
+    /// TALLER... simply have it within the top part of the composer." The strip's height comes
+    /// out of the field's, so the tallest card holds the same height with a file attached.
+    @Test func anAttachmentStripTakesItsHeightOutOfTheField() {
+        let line: CGFloat = 22
+        let strip = ComposerCardMetrics.attachmentStripHeight
+        let shared = ComposerFieldHeight.maxLines(6, sharing: strip, lineHeight: line)
+        #expect(shared == 3)
+        // The card at its tallest: field plus strip within a line of the field alone.
+        let alone = CGFloat(6) * line
+        #expect(abs(CGFloat(shared) * line + strip - alone) <= line / 2)
+        #expect(ComposerFieldHeight.maxLines(6, sharing: 0, lineHeight: line) == 6)
+        // Never under two lines, nor over the field's own limit.
+        #expect(ComposerFieldHeight.maxLines(6, sharing: 500, lineHeight: line) == ComposerFieldHeight.minSharedLines)
+        #expect(ComposerFieldHeight.maxLines(1, sharing: strip, lineHeight: line) == 1)
+        // A larger text size gives up fewer lines for the same strip.
+        #expect(ComposerFieldHeight.maxLines(6, sharing: strip, lineHeight: 40) == 4)
+    }
+    #endif
+
     @Test func theSameLineCountKeepsTheSameHeight() {
         // A measured height that wobbles below a point (glyph metrics,
         // trailing spaces) is still the same field.

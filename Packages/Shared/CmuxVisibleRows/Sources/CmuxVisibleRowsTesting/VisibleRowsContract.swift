@@ -19,6 +19,7 @@ public import Testing
 /// (one file, so the count of known failures is one number): `check` then runs it inside `withKnownIssue`. When its
 /// fix lands the known issue stops happening, the test fails, and the fix takes the list out of the baseline. The
 /// baseline only shrinks. scripts/cmux-next/lint (`visible-only-*` rules) finds lists not registered here.
+// lint:allow namespace-type: the contract is a test helper with no receiver; every list's fixture calls the one check.
 @MainActor public enum VisibleRowsContract {
     /// The sizes every list is measured at.
     public static let sizes = [100, 10_000]
@@ -49,16 +50,34 @@ public import Testing
         guard let known = VisibleRowsBaseline.knownFailures[F.name] else {
             return try await run(fixture, sizes: sizes, sourceLocation: sourceLocation)
         }
-        var measured: [Measurement] = []
-        await withKnownIssue(Comment(rawValue: "\(F.name) is in VisibleRowsBaseline: \(known.why)"), sourceLocation: sourceLocation) {
+        let only = known.only
+        let measured = await knownIssue(Comment(rawValue: "\(F.name) is in VisibleRowsBaseline: \(known.why)"),
+                                        sourceLocation: sourceLocation) {
             // A list that cannot be built is a known issue too; the body throws nothing, so no overload rethrows.
-            do { measured = try await run(fixture, sizes: sizes, sourceLocation: sourceLocation) } catch {
-                Issue.record(error, sourceLocation: sourceLocation)
-            }
+            await runRecordingErrors(fixture, sizes: sizes, sourceLocation: sourceLocation)
         } matching: { issue in
-            known.only.map { only in issue.comments.contains { $0.rawValue.contains(only) } } ?? true
+            only.map { only in issue.comments.contains { $0.rawValue.contains(only) } } ?? true
         }
-        return measured
+        return measured ?? []
+    }
+
+    static func runRecordingErrors<F: VisibleRowsFixture>(_ fixture: F.Type, sizes: [Int],
+                                                          sourceLocation: SourceLocation) async -> [Measurement] {
+        do { return try await run(fixture, sizes: sizes, sourceLocation: sourceLocation) } catch {
+            Issue.record(error, sourceLocation: sourceLocation)
+            return []
+        }
+    }
+
+    /// `withKnownIssue(_:sourceLocation:_:matching:)` run from no actor, returning the body's value. Called from a
+    /// main-actor function, the async `matching:` overload (it takes `isolation: #isolation`) stops the Swift 6.2 Linux
+    /// compiler's region isolation checker ("pattern ... does not understand how to check"); off the actor it compiles.
+    nonisolated static func knownIssue<T: Sendable>(_ comment: Comment, sourceLocation: SourceLocation,
+                                                    _ body: @Sendable () async -> T,
+                                                    matching: @escaping KnownIssueMatcher) async -> T? {
+        var result: T?
+        await withKnownIssue(comment, sourceLocation: sourceLocation, { result = await body() }, matching: matching)
+        return result
     }
 
     static func run<F: VisibleRowsFixture>(_ fixture: F.Type, sizes: [Int], sourceLocation: SourceLocation) async throws -> [Measurement] {

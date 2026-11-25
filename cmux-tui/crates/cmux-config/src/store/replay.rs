@@ -94,6 +94,9 @@ pub(super) fn fingerprint(op: &Op) -> String {
         }
         Op::Reset { target, meta } => ("reset", meta, Some(target.path()), None),
         Op::ResetAll { meta } => ("reset_all", meta, None, None),
+        Op::Undo { meta } => ("undo", meta, None, None),
+        Op::Restore { revision, meta } => ("restore", meta, None, Some(json!(revision))),
+        Op::ResetGroup { group, meta } => ("reset_group", meta, None, Some(json!(group))),
         Op::Edit { .. } | Op::DomainsPublish { .. } | Op::TeamPolicySet { .. } => {
             return String::new();
         }

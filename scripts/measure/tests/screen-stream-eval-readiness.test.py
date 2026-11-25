@@ -40,7 +40,10 @@ class AppleReadinessTests(unittest.TestCase):
         self.script = prefix + '''
 connect() { window_id=42; viewer_pid=7; return "${PROFILE_STATUS:-0}"; }
 ''' + 'case "$verb" in' + dispatch
+        # The platform fake: a stand-in Screen Sharing.app path (as test_apple_bytes.py), so the view verb's
+        # begin_view arms its trap and watchdog off a Mac. Nothing runs that path: connect() is faked.
         self.env = {**os.environ, "EVAL_STATE": str(self.root), "EVAL_BIN": str(self.root),
+                    "EVAL_SCREEN_SHARING_APP": str(self.root / "Screen Sharing.app"),
                     "EVAL_PEER": "192.0.2.1", "EVAL_SCENE_NONCE": NONCE,
                     "EVAL_PRESENTED_OBSERVER_BIN": str(observer),
                     "EVAL_PRESENTED_OBSERVER_PID": "7", "EVAL_PRESENTED_OBSERVER_WINDOW": "42",
@@ -114,6 +117,9 @@ class PeerNonceTests(unittest.TestCase):
             target = root / "scripts/measure/screen-stream-eval/targets/apple-high.sh"
             target.parent.mkdir(parents=True)
             target.write_text('printf \'{"nonce":"%s"}\' "$EVAL_SCENE_NONCE" >"$5"\ntouch "$4"\n')
+            # A stand-in person guard that allows the target: the real one (person_guard.py) refuses
+            # apple-high on any Mac it cannot prove is a dedicated fleet Mac, and this checks the nonce path.
+            (target.parent.parent / "person_guard.py").write_text("import sys\nsys.exit(0)\n")
             commands = iter([
                 {"id": 1, "target": "apple-high", "verb": "window-view", "args": ["0"], "env": {"EVAL_SCENE_NONCE": NONCE}},
                 {"id": 2, "target": "apple-high", "verb": "window-view", "args": ["0"], "env": {}},

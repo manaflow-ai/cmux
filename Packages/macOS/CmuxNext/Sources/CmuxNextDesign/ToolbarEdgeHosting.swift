@@ -14,6 +14,10 @@ public protocol ToolbarEdgeHosting: AnyObject {
     /// a page with no bar. The pane leaves the tab row's divider out over a shown row at its top
     /// (`TabStripView.meetsToolbar`).
     var showsToolbarRow: Bool { get }
+    /// Whether the pane shows its tab strip right above this view's omnibar row (where it leaves the tab row's divider
+    /// out, `TabStripView.meetsToolbar`); the pane sets it at each layout. The row then takes the density's own room
+    /// above and below its bar (Default's Chrome 6 pt, `omnibarRowGap`); with no strip right above it keeps the strip's gap.
+    var meetsTabStrip: Bool { get set }
 }
 
 extension ToolbarEdgeHosting {
