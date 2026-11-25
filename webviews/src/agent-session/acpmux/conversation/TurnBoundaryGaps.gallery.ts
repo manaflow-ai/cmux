@@ -5,6 +5,11 @@
 // this" / "in the periods here"). The chat Leo came back to: the "New since you looked" line sits
 // at the turn boundary and is read, a turn that two messages opened runs, the agent reads them (an
 // inbox notice, then each message on its own line) and loads a tool's schema (a hidden call).
+// The `woken-*` variants are Leo's 2026-11-22 screenshot: a reply's footer, ~40px of nothing, then
+// "Received 2 messages" and "Working for 29s" ("sometimes you get these way-too-big gaps"). The
+// notice came in while the turn before ran and opened the next one (`turn_started.carried`); acpmux
+// said that turn runs before its record landed, so the client's typing placeholder sorted into the
+// ended turn, under its footer (direct.ts). They hold that placeholder where the reducer left it.
 // test/transcript-turn-boundary-gaps.test.ts measures every variant.
 import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
@@ -53,15 +58,15 @@ const divider = (): AcpmuxRow =>
     since: { key: BOUNDARY_SINCE_KEY, seq: 41, turns: 1 },
   });
 
-/// The inbox notice that opened the turn: both messages, whole.
-const notice = (minutes: number): AcpmuxRow =>
+/// The inbox notice that opened the turn: both messages (or the ones named), whole.
+const notice = (minutes: number, messages = [COORD, ARCH]): AcpmuxRow =>
   user("", minutes, {
     id: "gap-inbox",
     untyped: true,
     incoming: {
       kind: "inbox",
       notice: {
-        threads: [COORD, ARCH].map((message) => ({
+        threads: messages.map((message) => ({
           threadId: `from:${message.name}`,
           label: "",
           from: [message.name],
@@ -135,6 +140,28 @@ export const linesTurn = (withDivider: boolean): AcpmuxRow[] => [
   received("gap-arch", minutesAgo(0.99), ARCH),
 ];
 
+/// The client's typing placeholder (direct.ts) where the live reducer left it when acpmux said the
+/// next turn runs before that turn's `turn_started` landed: after the ended turn's footer, before the
+/// notice the record carried in.
+const placeholder = (minutes: number): AcpmuxRow => row("typing", minutes, { id: "typing" });
+
+/// Leo's 2026-11-22 screenshot: the notice the turn before did not read opens the next turn, with
+/// the placeholder left under the footer, then the agent thinks and runs a command.
+export const wokenTurn = (messages = [COORD, ARCH]): AcpmuxRow[] => [
+  ...finished,
+  placeholder(1.01),
+  notice(1, messages),
+  toolSearch(0.9, "gap-search"),
+  running(0.5),
+];
+
+/// The same with the messages on their own lines, the turn still thinking.
+export const wokenLines = (): AcpmuxRow[] => [
+  ...finished,
+  placeholder(1.01),
+  ...linesTurn(false).slice(finished.length),
+];
+
 /// Leo's 2026-11-22 screenshot: the reader came back while a turn ran, and all it wrote since was a
 /// subagent's "started working" line (acpmux counts a running turn's write as unread). Nothing new to
 /// read: no line (sinceNews.ts).
@@ -186,9 +213,15 @@ export const BOUNDARY_VARIANTS = [
   "inbox",
   "lines",
   "inbox-unread",
+  "woken-inbox",
+  "woken-one",
+  "woken-lines",
   "status-unread",
   "status",
 ] as const;
+
+/// How many of BOUNDARY_MESSAGES a variant names: all but `woken-one`, whose notice holds one.
+export const boundaryNamed = (variant: string) => (variant === "woken-one" ? 1 : BOUNDARY_MESSAGES.length);
 
 export default agentPaneEntry({
   id: "agent-pane.turn-boundary-gaps",
@@ -224,6 +257,12 @@ export default agentPaneEntry({
       "The first, the divider not read yet: its line shows, over the gap, taking no height.",
       inboxTurn(true),
     ),
+    "woken-inbox": variant(
+      "Leo's 2026-11-22 screenshot: a notice the turn before never read opens the next turn; the typing placeholder sits under the footer.",
+      wokenTurn(),
+    ),
+    "woken-one": variant("The same with one message.", wokenTurn([COORD])),
+    "woken-lines": variant("The same with the messages on their own lines, the turn thinking.", wokenLines()),
     "status-unread": variant(
       "Leo's 2026-11-22 screenshot: unread, but all that came is a subagent's \"started working\" line: no line.",
       statusTurn(true),

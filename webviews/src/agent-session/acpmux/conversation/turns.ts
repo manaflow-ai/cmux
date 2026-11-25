@@ -2148,7 +2148,7 @@ function shapeTurn(
           expanded.has(`${WORKED}-${user.id}`),
         )
       : last
-        ? planLast(turn.flatMap(withoutDrafts).map(endedPlan))
+        ? planLast(turn.filter(drawsRow).flatMap(withoutDrafts).map(endedPlan))
         : settledWithoutSummary(turn);
   const summary = turn[end]!;
   // The agent's own wrap-up call (wrapUp.ts) is the card, not a row of its work.
@@ -2684,13 +2684,22 @@ function shapeTurn(
   const footer = settled.at(-1);
   if (live && settledEnd === answered.length && footer?.kind === "turnSummary" && footer.status === "completed")
     settled.pop();
-  shaped.push(...settled);
+  shaped.push(...settled.filter(drawsRow));
   const rest = settledEnd === 0 ? answered : answered.slice(settledEnd);
   if (live && (tail.some((row) => row.kind === "activity") || tail.slice(lastSummary + 1).some(isReply)))
     shaped.push(...liveTurn({ ...summary, at: since }, rest, clockOffset, sessionStatus, trayAgents, turnStartedAtMs));
-  else shaped.push(...(live ? rest : endedTail(rest)));
+  else shaped.push(...(live ? rest : endedTail(rest)).filter(drawsRow));
   return shaped;
 }
+
+/// Whether a row the client holds draws one of its own once its turn is shaped. The client's "typing"
+/// rows (the turn's placeholder, its `TURN_RETRY` row, direct.ts) never do: only the running turn's live
+/// line reads them (`liveTurn`, `withRetry`). Left in a turn that ended they drew a 22px row of nothing
+/// a block gap under its footer: the placeholder a turn's start makes when acpmux says it runs before
+/// its `turn_started` record lands sorts before the prompt that record carries in, so into the turn
+/// before (Leo, 2026-11-22, on ~40px of nothing between a reply's footer and "Received 2 messages":
+/// "sometimes you get these way-too-big gaps").
+const drawsRow = (row: AcpmuxRow) => row.kind !== "typing";
 
 /// The fold key of the "Worked for" over an ended turn the agent ran on its own (`foldTailTurns`): its
 /// background line's id, under the turn fold's prefix.
@@ -3171,7 +3180,7 @@ const endedPlan = (row: AcpmuxRow): AcpmuxRow =>
 /// messages").
 /// Its edits still close it as one card, which offers Undo.
 function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
-  const rows = turn.filter((row) => row.kind !== "typing");
+  const rows = turn.filter(drawsRow);
   return [
     ...planLast(
       rows

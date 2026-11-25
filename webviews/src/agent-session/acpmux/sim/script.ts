@@ -184,6 +184,45 @@ export class SimBuilder {
     return this.started(300);
   }
 
+  /** acpmux's inbox notice (provenance `inbox_notice`, hub/inbox.rs): other agents' messages delivered
+   *  as one prompt, a "Received N messages" row. `turn: true` starts a turn with it (the agent was
+   *  idle); otherwise it comes into the running turn. */
+  inbox(messages: { from: string; text: string }[], { turn = true, after = 1_000 } = {}): this {
+    if (turn) this.newTurn();
+    const notice = `inbox-notice-${this.seq + 1}`;
+    const threads = messages.map((message, index) => {
+      const promptId = `${notice}-p${index}`;
+      return {
+        blocker: false,
+        from: [message.from],
+        label: "messages",
+        threadId: `from:${message.from}`,
+        count: 1,
+        preview: message.text.split("\n")[0],
+        promptIds: [promptId],
+        messages: [{ at: this.now + after, from: message.from, promptId, text: message.text }],
+      };
+    });
+    const value = [
+      `[inbox] New messages from other agents in ${threads.length} thread${threads.length === 1 ? "" : "s"}.`,
+      ...threads.map((thread) => `- 1 new from ${thread.from[0]}: ${thread.preview} (thread ${thread.threadId})`),
+    ].join("\n");
+    this.record(
+      "mux",
+      "user_message",
+      {
+        text: value,
+        promptId: turn ? this.promptId : notice,
+        ...(turn ? { turnId: this.turnId } : {}),
+        client: "acpmux",
+        _meta: { provenance: { kind: "inbox_notice", noticeId: notice, threads } },
+      },
+      after,
+      `inbox: ${messages.length} message(s)`,
+    );
+    return turn ? this.started(300) : this;
+  }
+
   /** Another agent's message steered into the running turn (acpmux `steer`): no turn of its own. */
   steerIncoming(value: string, options: IncomingOptions = {}, after = 600): this {
     const fromName = options.fromName ?? "other-lane";

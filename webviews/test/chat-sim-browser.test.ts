@@ -13,7 +13,7 @@ import { writeFileSync } from "node:fs";
 import type { Browser, Page } from "playwright";
 import type { ViteDevServer } from "vite";
 import { summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
-import { SCENARIOS, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
+import { scenarioNames, SCENARIOS } from "../src/agent-session/acpmux/sim/scenarios";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { CHAT_SIM_PAGE, startChatSimServer } from "./support/chatSimServer";
 
@@ -46,7 +46,10 @@ await requireBrowserLane("chat-sim-browser.test.ts", async () => {
     result.violations.filter((violation) => violation.rule.startsWith(prefix)).map((v) => `${v.rowId}: ${v.detail}`);
 
   // `CHAT_SIM_DUMP=scenario:step`: prints the drawn rows' boxes at that step (where each gap lives).
-  const dumpAt = process.env.CHAT_SIM_DUMP?.split(":");
+  const dumpSpec = process.env.CHAT_SIM_DUMP;
+  const dumpAt = dumpSpec
+    ? [dumpSpec.slice(0, dumpSpec.lastIndexOf(":")), dumpSpec.slice(dumpSpec.lastIndexOf(":") + 1)]
+    : undefined;
   if (dumpAt)
     test(`chat simulator in Chrome: the drawn rows of ${dumpAt[0]} at step ${dumpAt[1]}`, async () => {
       const rows = await page!.evaluate(
@@ -60,7 +63,18 @@ await requireBrowserLane("chat-sim-browser.test.ts", async () => {
       console.log(JSON.stringify(rows, null, 1));
     });
 
-  for (const name of dumpAt ? [] : names)
+  // `CHAT_SIM_SCAN=scenario[,scenario]`: prints the blank bands over one-line rows (harness `scan`).
+  const scan = process.env.CHAT_SIM_SCAN?.split(",");
+  for (const name of scan ?? [])
+    test(`chat simulator in Chrome: blank bands over one-line rows in ${name}`, async () => {
+      const found = await page!.evaluate(
+        (name) => (window as unknown as { __chatSim: { scan(name: string): Promise<unknown> } }).__chatSim.scan(name),
+        name,
+      );
+      console.log(JSON.stringify(found, null, 1));
+    });
+
+  for (const name of dumpAt || scan ? [] : names)
     test(`chat simulator in Chrome: ${name} keeps rules a and b`, async () => {
       const result = (await page!.evaluate(
         (name) => (window as unknown as { __chatSim: { run(name: string): Promise<unknown> } }).__chatSim.run(name),

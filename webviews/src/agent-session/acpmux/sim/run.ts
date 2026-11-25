@@ -10,6 +10,7 @@
 // No DOM is needed: this runs under plain `bun` and scales to 10k+ rows (a long run's trace holds
 // the probes, not every row, past `rowsInTraceUpTo`).
 import { AcpmuxDirectClient, type EventRecord } from "../direct";
+import { projectInboxRows } from "../conversation/laneNoticeBatches";
 import { preserveScrollAnchorTop } from "../conversation/scrollAnchor";
 import { turnViewFrom, type TurnView } from "../conversation/turns";
 import { layoutConversation, type AcpmuxRow, type AcpmuxSnapshot, type ConversationLayout } from "../model";
@@ -328,8 +329,10 @@ export function createSimulation(scenario: SimScenario, options: SimOptions = {}
       last,
     );
     shaped = view === last ? 0 : view.rows.length - (view.reusedRows ?? 0);
+    // The display projection App.tsx draws after the turn view: an inbox notice's messages as one
+    // "Received N messages" row, received lines next to each other gathered into it.
+    const rows = projectInboxRows(view.rows, last?.rows, view.reusedRows);
     last = view;
-    const rows = view.rows;
     const layout = layoutConversation(rows, width, cache, LINE, undefined, previous);
     previous = { rows, layout };
     current = { rows, layout };
