@@ -2009,6 +2009,10 @@
       "scope": "theme:read",
       "class": "read"
     },
+    "theme.slots.resolve": {
+      "scope": "theme:read",
+      "class": "read"
+    },
     "thread.update": {
       "scope": "thread:write",
       "class": "mutation"
