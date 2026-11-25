@@ -259,7 +259,7 @@ pub(super) fn restored_moving(scanned: bool, moving: Option<String>) -> Option<S
 /// Whether a `moving` mark names a move (its transfer id), not a mark that only freezes the
 /// chat (`MOVED_AWAY`, `LOG_UNREADABLE`, `IMPORTING`).
 pub(super) fn names_a_move(mark: &str) -> bool {
-    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING
+    mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
 /// Where a move's begin token is kept, in its bundle folder.
@@ -283,6 +283,9 @@ pub(super) fn moving_begin_token(transfer_id: &str) -> Option<String> {
     is_begin_token(token).then(|| token.to_owned())
 }
 
+#[cfg(test)]
+#[path = "auto_startup_tests.rs"]
+mod auto_startup_tests;
 #[cfg(test)]
 #[path = "restore_freeze_tests.rs"]
 mod restore_freeze_tests;
