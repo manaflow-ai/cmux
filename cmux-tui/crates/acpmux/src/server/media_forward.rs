@@ -5,15 +5,15 @@
 //!
 //! - an open answers a handle of this connection that stands for the peer's, so another
 //!   connection, even for the same chat, cannot read through it (`media.handle`);
-//! - a connection holds at most [`MAX_HANDLES`] of them, counting the opens still waiting on the
-//!   peer and only the handles used within [`IDLE`] (the peer closes the others), so one client
-//!   cannot fill the link's table, even with many opens at once;
+//! - a connection holds any number of them, up to the peer's own [`MAX_OPEN`], counting the
+//!   opens still waiting on the peer and only the handles used within [`IDLE`] (the peer closes
+//!   the others);
 //! - a handle's entry goes with its final range, or with a refused one once it is closed on the
 //!   peer too (a refusal may come from the peer's guard, before its reader closed it), and
 //!   when the connection ends every handle still held is closed on the peer: a range of length
 //!   0, which the peer refuses and so closes.
 
-use crate::hub::media_handles::{IDLE, MAX_HANDLES};
+use crate::hub::media_handles::{IDLE, MAX_OPEN};
 use crate::peer::Peer;
 use crate::rpc::{RpcError, method};
 use serde_json::{Value, json};
@@ -117,7 +117,8 @@ impl RemoteMedia {
             for remote in idle.iter().filter_map(|mine| table.held.remove(mine)) {
                 release(remote.peer, remote.session, remote.handle);
             }
-            let room = table.held.len() + table.opening < MAX_HANDLES;
+            // The peer refuses past its MAX_OPEN anyway (`media.busy`).
+            let room = table.held.len() + table.opening < MAX_OPEN;
             table.opening += usize::from(room);
             room
         })

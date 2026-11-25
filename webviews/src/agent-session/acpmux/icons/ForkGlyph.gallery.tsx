@@ -10,9 +10,21 @@ export default componentEntry<ForkGlyphGalleryProps>({
   covers: ["agent-session/acpmux/icons/ForkGlyphGallery.tsx", "agent-session/acpmux/icons/forkIcon.ts"],
   load: async () => ForkGlyphGallery,
   variants: {
+    "split-arrow": {
+      props: { fork: "split-arrow" },
+      note: "Chosen: the split arrow Claude and Codex draw for branching a chat (Leo 2026-11-22: \"dont get cute about it; let's just do claude and codex's symbol for branching/forking chats\"). A stem from the left runs on up and right; a detached arm peels off down and right. Our own drawing on the pack grid, corner heads 5 long.",
+    },
+    "soft-knee": {
+      props: { fork: "soft-knee" },
+      note: "Hill-climb candidate: the same split arrow, the stem bending into the upper arm on a small curve. Softer, a touch less crisp at 12 pt.",
+    },
+    "joined-split": {
+      props: { fork: "joined-split" },
+      note: "Hill-climb candidate: both arms leave the stem's end, a symmetric turned Y with corner heads. Reads as split or route more than continue-and-branch.",
+    },
     "branch-mark": {
       props: { fork: "branch-mark" },
-      note: "Chosen: the branch mark. A stem between two nodes on the left, a curve from the top-right node joining it. As tall as Pin, and apart from git.branch (two nodes, the stem runs out the top) and the pull request mark (an arrow, no curve).",
+      note: 'Before: the branch mark, a stem between two nodes, a curve from the top-right node joining it (Leo 2026-11-22: "i think this is too cute for a fork chat button. it\'s reminiscent of github stuff").',
     },
     "fork-mark": {
       props: { fork: "fork-mark" },

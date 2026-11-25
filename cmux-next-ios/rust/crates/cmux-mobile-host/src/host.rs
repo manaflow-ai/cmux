@@ -234,13 +234,36 @@ fn registration_lookup(
     })
 }
 
-/// Run until the process is stopped, reconnecting with backoff. Returns `Ok` only when
-/// the owner removed this Mac (`removed`): registering again would undo that.
-pub async fn run(config: HostConfig) -> Result<()> {
+/// Why [`run`] returned: hostd stops for good and exits with the matching status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stopped {
+    /// The owner removed this Mac (`removed`): registering again would undo that ([`EXIT_REMOVED`]).
+    Removed,
+    /// The service refused this Mac's device id: another account registered it (`403 not_owner`).
+    /// Retrying with the same id never helps; the app makes a new id ([`EXIT_NOT_OWNED`]).
+    DeviceNotOwned,
+}
+
+impl Stopped {
+    /// The process exit status a supervisor reads.
+    pub fn exit_status(self) -> i32 {
+        match self {
+            Self::Removed => EXIT_REMOVED,
+            Self::DeviceNotOwned => EXIT_NOT_OWNED,
+        }
+    }
+}
+
+/// Run until the process is stopped, reconnecting with backoff. Returns only when
+/// retrying cannot help ([`Stopped`]).
+pub async fn run(config: HostConfig) -> Result<Stopped> {
     run_with_changes(config, crate::netwatch::changes()).await
 }
 
-async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::Receiver<u64>) -> Result<()> {
+async fn run_with_changes(
+    config: HostConfig,
+    mut changes: tokio::sync::watch::Receiver<u64>,
+) -> Result<Stopped> {
     let tokens = Arc::new(Tokens::new(config.tokens.clone()));
     let mut services = config.services.clone();
     if let Some(pairing) = services.pairing.as_mut() {
@@ -309,6 +332,11 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
     let _traffic = AbortTask(tokio::spawn(crate::traffic::run_sampler()));
     // Phones keep their WireGuard sessions when the Mac changes networks.
     let _network_watch = AbortTask(tokio::spawn(crate::netwatch::run()));
+    // NAT port mapping (portmap.rs): sessions answered from now on ask the
+    // home router for a public port, in the background; off with
+    // CMUX_MOBILE_PORTMAP=0. A network change roams each session, which maps
+    // its new socket and deletes the old mapping.
+    crate::portmap::install();
     // Live tunnels can roam even while signaling is unreachable. Rehome resends
     // their latest endpoint announcements once the replacement socket connects.
     let _endpoint_refresh = AbortTask(tokio::spawn(crate::netwatch::refresh_endpoints(changes.clone())));
@@ -337,7 +365,7 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
                 // Registering again would undo the owner's removal: stop for good.
                 tracing::warn!(reason, "this Mac was removed from the account's devices; stopping");
                 control::emit(&Event::Removed);
-                return Ok(());
+                return Ok(Stopped::Removed);
             }
             Ok(reason) => {
                 tracing::warn!(reason, "signaling ended; reconnecting");
@@ -347,6 +375,13 @@ async fn run_with_changes(config: HostConfig, mut changes: tokio::sync::watch::R
                 backoff =
                     if started.elapsed() > LONG_LIVED { QUICK_RECONNECT } else { Duration::from_secs(1) };
                 reason
+            }
+            Err(error) if not_owner(&error) => {
+                // Another account registered this device id (an id an older build kept for
+                // whoever signed in first, say): the same id is refused every time.
+                tracing::warn!("the service says another account owns this Mac's device id; stopping");
+                control::emit(&Event::DeviceNotOwned);
+                return Ok(Stopped::DeviceNotOwned);
             }
             Err(error) => {
                 tracing::warn!("connection attempt failed: {error:#}");
@@ -461,10 +496,25 @@ impl Drop for ConnectionLifetime {
 /// hostd's exit status after the owner removed this Mac (`removed`): a supervisor must not restart it.
 pub const EXIT_REMOVED: i32 = 78;
 
+/// hostd's exit status after the service refused this Mac's device id (`not_owner`): the app
+/// forgets that id for the account and starts hostd with a new one.
+pub const EXIT_NOT_OWNED: i32 = 79;
+
 /// Whether the signaling socket closed because the owner removed this device
 /// (`DELETE /v1/devices/:id` closes it with 4002 `removed`, PROTOCOL.md).
 pub fn removed(reason: &str) -> bool {
     reason.starts_with("signaling closed by server: 4002 ")
+}
+
+/// Whether registering this device was refused because another account owns its id
+/// (`POST /v1/devices` answered `403 not_owner`, PROTOCOL.md).
+pub fn not_owner(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<cmux_mobile_link::api::ApiError>(),
+            Some(cmux_mobile_link::api::ApiError::Status { status: 403, body }) if body.contains("\"not_owner\"")
+        )
+    })
 }
 
 /// Whether `error` is the backend refusing the access token (HTTP 401 from the API or
@@ -499,6 +549,8 @@ fn mailbox_for(
         trust: pairing.trust.clone(),
         identity: pairing.identity.clone(),
         spent: Arc::clone(&pairing.spent_replies),
+        cursor: Arc::clone(&pairing.mailbox_cursor),
+        order: Default::default(),
         key_wait: crate::pairing::TRUST_WAIT,
         applier: Arc::new(crate::mailbox_apply::LiveApplier {
             acpmux: services.acpmux.clone(),
@@ -670,6 +722,7 @@ async fn answer_session(
         session_exposure: context.session_exposure.clone(),
         route: None,
         path: None,
+        viewport: None,
     };
     let session_id = first.session_id.clone();
     let timeline = Timeline::new();
@@ -696,6 +749,11 @@ async fn answer_session(
         // video while it works (media_session.rs; CMUX_MOBILE_WEBRTC_MEDIA=0 turns
         // it off).
         webrtc_media: std::env::var("CMUX_MOBILE_WEBRTC_MEDIA").map_or(true, |v| v != "0"),
+        // The reliable link (per-channel seq/ack/replay; a dropped carrier
+        // resumes): off unless CMUX_MOBILE_RELIABLE=1, and on only when the
+        // phone offers it too.
+        reliable: reliable_link(),
+        resume_registry: reliable_link().then(|| resume_registry(&peer.device_id)),
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {
@@ -705,6 +763,12 @@ async fn answer_session(
             return;
         }
     };
+    if connected.resumed {
+        // A new carrier under a link this phone already has: its channels
+        // and services run on, served where it was first answered.
+        tracing::info!(session_id, ?kind, phone = peer.device_id, timings = %timeline.summary(), "link resumed");
+        return;
+    }
     let path = *connected.path.borrow();
     peer.route =
         Some(crate::services::LinkRoute { path: connected.path.clone(), peer: connected.peer.clone() });
@@ -712,6 +776,9 @@ async fn answer_session(
     if let Some(cmux_mobile_link::media::MediaLane::Out(video)) = connected.link.media() {
         peer.video = Some(video);
     }
+    // The overlay's viewport sync port, bound on the first channel that syncs.
+    peer.viewport =
+        connected.overlay.clone().map(|overlay| Arc::new(crate::viewport_link::LinkHub::new(overlay)));
     tracing::info!(session_id, ?kind, ?path, phone = peer.device_id, video = peer.video.is_some(), timings = %timeline.summary(), "link up");
     control::emit(&Event::PhoneUp {
         session_id: session_id.clone(),
@@ -825,6 +892,26 @@ mod tests {
     }
 
     #[test]
+    fn only_a_not_owner_refusal_of_the_registration_stops_hostd() {
+        let refused = anyhow::Error::new(cmux_mobile_link::api::ApiError::Status {
+            status: 403,
+            body: r#"{"error":{"code":"not_owner","message":"this deviceId belongs to another user"}}"#
+                .into(),
+        })
+        .context("POST /v1/devices");
+        assert!(not_owner(&refused));
+        let member = anyhow::Error::new(cmux_mobile_link::api::ApiError::Status {
+            status: 403,
+            body: r#"{"error":{"code":"not_member","message":"not a member"}}"#.into(),
+        })
+        .context("POST /v1/devices");
+        assert!(!not_owner(&member));
+        assert!(!not_owner(&anyhow::anyhow!("signaling connect")));
+        assert_eq!(Stopped::DeviceNotOwned.exit_status(), 79);
+        assert_eq!(Stopped::Removed.exit_status(), 78);
+    }
+
+    #[test]
     fn only_a_401_marks_the_token_refused() {
         let refused =
             anyhow::Error::new(cmux_mobile_link::api::ApiError::Status { status: 401, body: String::new() })
@@ -855,3 +942,18 @@ impl Drop for AbortTask {
 #[cfg(test)]
 #[path = "host_recovery_tests.rs"]
 mod recovery_tests;
+
+/// Whether this Mac accepts the reliable link (CMUX_MOBILE_RELIABLE=1).
+fn reliable_link() -> bool {
+    std::env::var("CMUX_MOBILE_RELIABLE").is_ok_and(|v| v == "1")
+}
+
+/// The resume registry of one paired phone: its links wait there for its
+/// resume, and no other device's carrier can resume them.
+fn resume_registry(device_id: &str) -> Arc<cmux_mobile_link::ResumeRegistry> {
+    static REGISTRIES: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, Arc<cmux_mobile_link::ResumeRegistry>>>,
+    > = std::sync::LazyLock::new(Default::default);
+    let mut registries = REGISTRIES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    Arc::clone(registries.entry(device_id.to_lowercase()).or_default())
+}
