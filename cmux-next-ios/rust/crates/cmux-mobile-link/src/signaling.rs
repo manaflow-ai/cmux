@@ -140,6 +140,15 @@ pub enum SignalPayload {
         relayed: Vec<String>,
         #[serde(rename = "relayedTls", default, skip_serializing_if = "Vec::is_empty")]
         relayed_tls: Vec<String>,
+        /// Which of `endpoints` are public addresses the sender's router
+        /// mapped for it (PCP, NAT-PMP or UPnP-IGD; PROTOCOL.md "Mapped
+        /// endpoints"); absent from older peers, which offer none, and older
+        /// peers ignore it (the address is still one of `endpoints`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        mapped: Vec<String>,
+        /// Which protocol mapped them: `pcp`, `nat-pmp` or `upnp`.
+        #[serde(rename = "mappedBy", default, skip_serializing_if = "Option::is_none")]
+        mapped_by: Option<String>,
     },
     /// This side joined cmux's WebSocket relay for the session (PROTOCOL.md
     /// "WebSocket relay"): its datagrams no longer reach the peer any other
@@ -182,6 +191,10 @@ pub struct MailboxItem {
     pub sealed: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
+    /// Its place in the sender phone's queue for this Mac: 1, 2, 3, ... in post order
+    /// (PROTOCOL.md "Store and forward", API 0.18.0). An older hub sends none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
 }
 
 /// The Mac's answer for one mailbox item.
@@ -994,15 +1007,22 @@ mod tests {
     #[test]
     fn mailbox_frames_match_the_contract() {
         let frame: SignalMessage = serde_json::from_str(
-            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"}]}"#,
+            r#"{"type":"mailbox","items":[{"id":"r1","from":"p","sealed":"AQ","at":5},{"id":"r2","from":"p","sealed":"AQ"},{"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7}]}"#,
         )
         .unwrap();
         let SignalMessage::Mailbox { items } = frame else { panic!("{frame:?}") };
         assert_eq!(
             items[0],
-            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5) }
+            MailboxItem { id: "r1".into(), from: "p".into(), sealed: "AQ".into(), at: Some(5), seq: None }
         );
         assert_eq!(items[1].at, None);
+        // A store-and-forward hub (API 0.18.0) adds each item's `seq`; an older one sends none.
+        assert_eq!((items[1].seq, items[2].seq), (None, Some(7)));
+        assert_eq!(
+            serde_json::to_value(&items[2]).unwrap(),
+            serde_json::json!({"id":"r3","from":"p","sealed":"AQ","at":6,"seq":7})
+        );
+        assert!(serde_json::to_value(&items[0]).unwrap().get("seq").is_none());
         let ack = SignalMessage::MailboxAck {
             results: vec![
                 MailboxResult { id: "r1".into(), applied: true, reason: None, sig: Some("ab".into()) },
@@ -1052,6 +1072,34 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(hello, SignalMessage::Hello { .. }));
+    }
+
+    #[test]
+    fn wg_endpoints_mapped_label_old_and_new() {
+        // A new Mac's announcement: the mapped address is a plain endpoint
+        // plus the label, which an older phone (unknown fields) skips.
+        let new = SignalPayload::WgEndpoints {
+            generation: 5,
+            endpoints: vec!["192.168.1.9:4000".into(), "203.0.113.7:4000".into()],
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+            mapped: vec!["203.0.113.7:4000".into()],
+            mapped_by: Some("upnp".into()),
+        };
+        let value = serde_json::to_value(&new).unwrap();
+        assert_eq!(value["mapped"], serde_json::json!(["203.0.113.7:4000"]));
+        assert_eq!(value["mappedBy"], "upnp");
+        assert_eq!(value["endpoints"][1], "203.0.113.7:4000");
+        assert_eq!(serde_json::from_value::<SignalPayload>(value).unwrap(), new);
+        // An older Mac's: nothing mapped, and nothing new written back.
+        let old: SignalPayload = serde_json::from_value(serde_json::json!(
+            {"kind":"wg-endpoints","generation":1,"endpoints":["203.0.113.7:4000"]}))
+        .unwrap();
+        assert!(
+            matches!(&old, SignalPayload::WgEndpoints { mapped, mapped_by: None, .. } if mapped.is_empty())
+        );
+        let text = serde_json::to_string(&old).unwrap();
+        assert!(!text.contains("mapped"), "{text}");
     }
 
     #[test]
