@@ -98,11 +98,18 @@ public final class SidebarView: NSView {
     /// omnipresent... say the bottom left of the sidebar area"): a click runs ``onLiveToggle``, a right-click lists who
     /// is live (SidebarView+Live). `sidebar.showLiveToggle` hides it.
     let liveButton = SidebarIconButton(symbol: "dot.radiowaves.left.and.right", pointSize: { Metrics.iconSize }, label: Strings.live)
+    /// The footer's Spaces visibility button, beside Live. It stays available while Spaces are hidden by default,
+    /// so the switcher never depends on a right-click menu for discovery (SidebarView+Spaces).
+    let spacesButton = SidebarIconButton(symbol: "square.grid.2x2", pointSize: { Metrics.iconSize }, label: Strings.spacesToggle)
     let liveMenuTarget = SidebarLiveMenuTarget()
     /// What the Live button shows and its menu lists; the App sets it from `presence.live` and the team.
     public var live = SidebarLiveState() { didSet { if live != oldValue { applyLive() } } }
+    /// Whether the Spaces strip is enabled in settings; the App binds this from `sidebar.showSpaces`.
+    public var spacesShown = true { didSet { if spacesShown != oldValue { applySpaces(); needsLayout = true } } }
     /// The Live button was pressed (or its menu's Turn Live On/Off): the App flips `presence.live`.
     public var onLiveToggle: (() -> Void)?
+    /// The Spaces visibility button was pressed; the App writes `sidebar.showSpaces` through the registry.
+    public var onSpacesToggle: (() -> Void)?
     /// A teammate was picked in the Live menu: the App opens their direct message.
     public var onLiveOpenPerson: ((String) -> Void)?
     /// The Priority view, its titlebar bell and the bell's dot (SidebarView+Priority); nil `priority` hides all three.
@@ -376,6 +383,11 @@ public final class SidebarView: NSView {
         liveButton.onPress = { [weak self] in self?.onLiveToggle?() }
         liveButton.menuProvider = { [weak self] in self?.liveMenu() }
         addSubview(liveButton)
+        spacesButton.setAccessibilityIdentifier("cmux.sidebar.spacesToggle")
+        spacesButton.showsLabelToolTip = false
+        spacesButton.onPress = { [weak self] in self?.onSpacesToggle?() }
+        addSubview(spacesButton)
+        applySpaces()
         applyLive()
         profileBar.alphaValue = spacesAlpha(revealed: isChromeRevealed)
         cardSlot.install(in: self)
@@ -474,6 +486,7 @@ public final class SidebarView: NSView {
         SidebarHiddenState.apply(noFade, to: footerRegion)
         SidebarHiddenState.apply(noFade, to: searchButton)
         SidebarHiddenState.apply(noFade || !design.sidebarSections.showLiveToggle, to: liveButton)
+        SidebarHiddenState.apply(noFade, to: spacesButton)
         if let liveModeBadge { SidebarHiddenState.apply(noFade, to: liveModeBadge) }
         for fade in [edgeFade, aboveFade, belowFade] { fade.fades = !noFade }
         // R109: the dots under the titlebar row, or in the footer.
