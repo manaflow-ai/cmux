@@ -270,6 +270,30 @@ fn undo_of_pinning_a_member_of_a_pinned_group_restores_its_place() {
     assert!(doc.item(&item_id("w2")).unwrap().extra.get(UNPIN_TO_KEY).is_none());
 }
 
+#[test]
+fn unpin_falls_back_when_a_remembered_pinned_group_changes_machine() {
+    let mut doc = fixture();
+    run(&mut doc, vec![Op::Pin { items: vec!["g1".into()] }]);
+    run(&mut doc, vec![Op::Pin { items: ["w1", "w2", "w3"].map(item_id).to_vec() }]);
+    let remote = WorkspaceRef::new("s2", "remote");
+    run(
+        &mut doc,
+        vec![Op::Adopt {
+            refs: vec![remote.clone()],
+            to: Some(Target {
+                section: PINNED_SECTION_ID.into(),
+                parent: Some("g1".into()),
+                ..Target::default()
+            }),
+        }],
+    );
+    run(&mut doc, vec![Op::Unpin { items: vec![item_id("w1")] }]);
+    let item = doc.item(&item_id("w1")).unwrap();
+    assert_eq!((item.section.clone(), item.parent.clone()), (machine(), None));
+    assert_eq!(list(&doc, PINNED_SECTION_ID, Some("g1")), ["remote"]);
+    assert_eq!(doc.item(&workspace_item_id(&remote)).unwrap().parent.as_deref(), Some("g1"));
+}
+
 /// An empty group (a saved group kept when its workspaces closed) has no
 /// workspace to name its machine: Unpin was refused (`no_machine`), so an
 /// empty pinned group stayed in Pinned for good (#22259).
