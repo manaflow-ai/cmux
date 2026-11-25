@@ -112,13 +112,13 @@ def census_runners(raw: str | None, now: dt.datetime) -> list[Mapping[str, Any]]
         stamp = dt.datetime.fromisoformat(str(state.get("generated_at")).replace("Z", "+00:00"))
         if stamp.tzinfo is None or not -dt.timedelta(seconds=5) <= now - stamp <= CENSUS_MAX_AGE:
             return None
+        rows = list(state.get("repository_runners") or [])
+        groups = state.get("runner_groups")
+        for group in (groups.values() if isinstance(groups, Mapping) else ()):
+            rows += list(group or [])
     except Exception:  # noqa: BLE001 - an unreadable census keeps the old behaviour
         return None
-    rows = list(state.get("repository_runners") or [])
-    groups = state.get("runner_groups")
-    for group in (groups.values() if isinstance(groups, Mapping) else ()):
-        rows += list(group or [])
-    return [row for row in rows if isinstance(row, Mapping)]
+    return [row for row in rows if isinstance(row, Mapping) and isinstance(row.get("labels") or [], list)]
 
 
 def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[str, Any]] | None],

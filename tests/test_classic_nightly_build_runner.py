@@ -373,7 +373,7 @@ class Main(unittest.TestCase):
 
 def census(rows=(), groups=None, *, at=NOW, schema="runner-state/v1", complete=True) -> str:
     state = {"schema": schema, "generated_at": at.isoformat(), "complete": complete,
-             "repository_runners": list(rows), "runner_groups": groups or {}}
+             "repository_runners": rows if isinstance(rows, int) else list(rows), "runner_groups": groups or {}}
     return base64.b64encode(gzip.compress(json.dumps(state).encode())).decode()
 
 
@@ -409,6 +409,14 @@ class Census(unittest.TestCase):
             with self.subTest(name):
                 self.assertIsNone(picker.census_runners(raw, NOW))
         self.assertIsNone(picker.census_runners(None, NOW))
+
+    def test_a_census_of_the_wrong_shape_never_fails_the_job(self) -> None:
+        for name, raw in {"int rows": census(5), "int group": census(groups={"7": 5})}.items():
+            with self.subTest(name):
+                self.assertIsNone(picker.census_runners(raw, NOW))
+        rows = picker.census_runners(census([{"status": "online", "labels": 5}, runner(POOL, RUNNER)]), NOW)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(self.refused(census([{"status": "online", "labels": 5}]))[0], "false")
 
     def test_a_refused_list_with_no_carrier_in_the_census_takes_the_cloud_at_once(self) -> None:
         nobody = census([runner(POOL, "glaeda-runner-cmux7s"), runner(POOL, RUNNER, status="offline")])
