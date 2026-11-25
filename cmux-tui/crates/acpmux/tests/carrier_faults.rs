@@ -1293,8 +1293,12 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
                 s.acks.iter().map(|(m, a)| format!("{m}:{a:?}")).collect::<Vec<_>>()
             )
         };
+        let events = on_b
+            .call(method::MUX_EVENTS, json!({"sessionId": session, "afterSeq": 0, "limit": 1000}))
+            .await
+            .map_or_else(|e| e.to_string(), |v| v.to_string());
         panic!(
-            "{turns} messages ran {} turns (outage send {outage_send}); A's status {status}; hub {hub}; B {info}",
+            "{turns} messages ran {} turns (outage send {outage_send}); A's status {status}; hub {hub}; B's events {events}; B {info}",
             info["turnCount"]
         );
     }
