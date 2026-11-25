@@ -103,6 +103,7 @@ impl Hub {
                 hold_agent_starts_to_starter,
                 auto_resume_delays_ms,
                 auto_resume_disk_free_bytes,
+                capacity_fallback_after,
                 login_env_allow,
                 coderouter_claude_route,
                 machine_wake,
@@ -205,6 +206,7 @@ impl Hub {
             current.auto_resume_delays_ms = auto_resume_delays_ms;
             // The disk waiter reads it at each re-check (`auto_resume/disk_wait.rs`).
             current.auto_resume_disk_free_bytes = auto_resume_disk_free_bytes;
+            current.capacity_fallback_after = capacity_fallback_after;
             current.coderouter_claude_route = coderouter_claude_route;
             current.machine_wake = machine_wake;
             // The next wake of any peer runs the new command (`Peer::wake`).
@@ -413,6 +415,7 @@ mod tests {
         changed.agent_inbox = Some(false);
         changed.hold_agent_starts_to_starter = true;
         changed.auto_resume_delays_ms = Some(vec![]);
+        changed.capacity_fallback_after = Some(0);
         changed.login_env_allow = vec!["RELOAD_TEST_*".into()];
         changed.coderouter_claude_route = Some("claude".into());
         changed.btw.model.insert("claude".into(), "claude-haiku".into());
@@ -428,6 +431,7 @@ mod tests {
         assert_eq!(current.agent_inbox, Some(false));
         assert!(current.hold_agent_starts_to_starter);
         assert_eq!(current.auto_resume_delays_ms, Some(vec![]));
+        assert_eq!(current.capacity_fallback_after, Some(0));
         assert_eq!(current.login_env_allow, expected.login_env_allow);
         assert_eq!(current.coderouter_claude_route, expected.coderouter_claude_route);
         assert_eq!(current.btw, expected.btw);

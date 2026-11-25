@@ -1695,6 +1695,12 @@ pub struct Config {
     /// it goes on (`hub/auto_resume/disk_wait.rs`). Default 16 MiB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_resume_disk_free_bytes: Option<u64>,
+    /// `capacityFallbackAfter`: after this many capacity attempts on one cut prompt (HTTP 529,
+    /// "overloaded"), the next runs on a smaller model of the same harness, and the chat's own
+    /// model comes back once a turn there ends well (`hub/auto_resume/capacity_failover.rs`).
+    /// 0 never switches. Unset: Settings' `agents.autoRetry.capacityFallbackAfter`, default 1.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capacity_fallback_after: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
