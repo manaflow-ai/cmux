@@ -154,7 +154,7 @@ struct ChatCopyChoicesSheet: View {
                     Button("Done", systemImage: "checkmark") { dismiss() }
                 }
             }
-            .sensoryFeedback(.success, trigger: copied)
+            .cmuxMobileSensoryFeedback(.success, trigger: copied)
         }
         .presentationDetents([.medium, .large])
     }
