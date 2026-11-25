@@ -108,10 +108,64 @@ export type SidebarSection = { id: string; title: LocalizedText | null; collapse
 /** The sidebar's sections, as the Swift layout exports them. */
 export const sidebarSections: readonly SidebarSection[] = schema.page.sidebar_sections;
 
-/** The sections this build shows, each with its shown categories; a section left empty is dropped. */
-export function shownSidebarSections(devBuild: boolean): Array<{ section: SidebarSection; categories: Category[] }> {
+/** The seven pages Seven Settings Pages draws (`appearance.settingsPages`, Settings > Customize, off
+ * by default; findings G6, Leo 2026-11-22: "ay, fuck it we ball"; design court dp-d5c2e44ba3 keeps
+ * Tools): each page's categories, its first the one its link opens. The categories are the export's;
+ * one no page names (a category added since) joins Advanced, so every category stays reachable. */
+const SETTINGS_PAGES: ReadonlyArray<{ id: string; title: LocalizedText; categories: readonly string[] }> = [
+  {
+    id: "general",
+    title: { key: "settings.section.general", text: "General" },
+    categories: ["general", "customize", "notifications", "updates", "newTab", "menus"],
+  },
+  {
+    id: "appearance",
+    title: { key: "settings.section.appearance", text: "Appearance" },
+    categories: ["appearance", "sidebar", "tabs"],
+  },
+  {
+    id: "ai",
+    title: { key: "settings.sidebarSection.ai", text: "AI" },
+    categories: ["chat", "agents", "chief", "models", "automations", "computerUse", "mcpServers", "integrations"],
+  },
+  {
+    id: "devices",
+    title: { key: "settings.sidebarSection.devices", text: "Accounts and Devices" },
+    categories: ["accounts", "mobile", "devices", "cloud", "keys", "import", "privacy"],
+  },
+  { id: "keyboard", title: { key: "settings.section.keyboard", text: "Keyboard" }, categories: ["keyboard"] },
+  {
+    id: "tools",
+    title: { key: "settings.sidebarSection.tools", text: "Tools" },
+    categories: ["terminal", "browser", "editor"],
+  },
+  {
+    id: "advanced",
+    title: { key: "settings.section.advanced", text: "Advanced" },
+    categories: ["advanced", "extensions", "experimental", "development"],
+  },
+];
+
+/** The seven pages as sidebar sections, over the export's categories (see SETTINGS_PAGES). */
+export const settingsPageSections: readonly SidebarSection[] = (() => {
+  const known = new Set(sidebarSections.flatMap((section) => section.categories));
+  const named = new Set(SETTINGS_PAGES.flatMap((page) => page.categories));
+  const rest = [...known].filter((id) => !named.has(id));
+  return SETTINGS_PAGES.map((page) => ({
+    id: page.id,
+    title: page.title,
+    categories: [...page.categories.filter((id) => known.has(id)), ...(page.id === "advanced" ? rest : [])],
+  }));
+})();
+
+/** The sections this build shows, each with its shown categories; a section left empty is dropped.
+ * `pages` picks the seven pages (Seven Settings Pages) over the export's sections. */
+export function shownSidebarSections(
+  devBuild: boolean,
+  pages = false,
+): Array<{ section: SidebarSection; categories: Category[] }> {
   const shown = new Map(shownCategories(devBuild).map((category) => [category.id, category]));
-  return sidebarSections.flatMap((section) => {
+  return (pages ? settingsPageSections : sidebarSections).flatMap((section) => {
     const members = section.categories.flatMap((id) => shown.get(id) ?? []);
     return members.length === 0 ? [] : [{ section, categories: members }];
   });

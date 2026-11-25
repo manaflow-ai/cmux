@@ -1189,6 +1189,32 @@
           ]
         },
         {
+          "key": "appearance.settingsPages",
+          "note": "Opt-in Settings layout (one settings area, findings G6; Leo 2026-11-22: \"ay, fuck it we ball\"; design court dp-d5c2e44ba3 keeps Tools): the sidebar draws seven pages (General, Appearance, AI, Accounts and Devices, Keyboard, Tools, Advanced; webviews/src/pages/settings/categories.ts settingsPageSections) instead of the titled runs and More, search results carry their page as a crumb, and the Theme card has one Match System Appearance switch for both themes (webviews/src/pages/settings/settingsPages.ts). Off by default: the page is unchanged.",
+          "title": {
+            "key": "settings.appearance.settingsPages",
+            "text": "Seven Settings Pages"
+          },
+          "help": {
+            "key": "settings.appearance.settingsPages.help",
+            "text": "Groups Settings into seven pages."
+          },
+          "kind": "toggle",
+          "swift_owner": {
+            "type": "AppearanceSettingsSchema",
+            "prefixed": true
+          },
+          "default": false,
+          "keywords": [
+            "settings",
+            "pages",
+            "sidebar",
+            "layout",
+            "navigation",
+            "experimental"
+          ]
+        },
+        {
           "key": "appearance.glassControls",
           "title": {
             "key": "settings.appearance.glassControls",
