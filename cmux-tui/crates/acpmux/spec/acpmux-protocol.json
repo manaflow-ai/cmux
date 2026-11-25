@@ -1830,6 +1830,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/chat_transcript_page",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/chat_transcript_find",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/chats_search",
       "params": true,
       "result": true

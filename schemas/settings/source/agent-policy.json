@@ -533,7 +533,8 @@
         "experiments.menuRowStates",
         "experiments.toastsV2",
         "experiments.cloudDiskBar",
-        "experiments.terminalHistoryFind"
+        "experiments.terminalHistoryFind",
+        "experiments.terminalHistory"
       ]
     },
     {
@@ -1550,6 +1551,13 @@
       "why": "Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.",
       "keys": [
         "diagnostics.hangReports"
+      ]
+    },
+    {
+      "agent": "privacy",
+      "why": "Whether this Mac sends crash reports and anonymous analytics: the person's choice only.",
+      "keys": [
+        "app.sendAnonymousTelemetry"
       ]
     },
     {
