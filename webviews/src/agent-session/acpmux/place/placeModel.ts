@@ -4,6 +4,7 @@
 import type { HybridBlocked, HybridBlockedWhy, SlotHolder } from "../hybrid/hybridModel";
 import type { StringKey } from "../i18n";
 import { hybridStartOf, type HybridStart } from "../hybrid/hybridModel";
+import { RUNS_ON_ORDER } from "../runsOnOrder";
 
 export type PlaceMode = "local" | "cloud" | "auto";
 export type PlaceAt = "local" | "cloud";
@@ -98,7 +99,7 @@ export interface EvacuateState {
   readonly elapsedMs?: number;
 }
 
-const MODES: readonly PlaceMode[] = ["local", "cloud", "auto"];
+const MODES: readonly PlaceMode[] = RUNS_ON_ORDER;
 const AUTO_REASONS: readonly AutoReason[] = ["sleep", "lowBattery", "memory", "disk", "away", "longTurn"];
 const CARRY_KINDS: readonly CarryKind[] = ["history", "turn", "queue", "draft", "branch", "changes"];
 const CARRY_HOWS: readonly CarryHow[] = ["carried", "continues", "interrupted"];

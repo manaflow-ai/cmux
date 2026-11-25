@@ -277,14 +277,14 @@ test("every look draws the move and its state", async () => {
   }
 });
 
-test("the control offers Local, Cloud and Auto, marks the choice, and a pick calls onMode", async () => {
+test("the control offers Local, Auto and Cloud, marks the choice, and a pick calls onMode", async () => {
   const picks: string[] = [];
   const container = await draw(
     <PlaceControl place={PLACES.autoLocal} look="segmented" onMode={(mode) => picks.push(mode)} />,
   );
   const radios = [...container.querySelectorAll<HTMLElement>('[role="radio"]')];
-  expect(radios.map((radio) => radio.textContent)).toEqual(["Local", "Cloud", "Auto"]);
-  expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["false", "false", "true"]);
+  expect(radios.map((radio) => radio.textContent)).toEqual(["Local", "Auto", "Cloud"]);
+  expect(radios.map((radio) => radio.getAttribute("aria-checked"))).toEqual(["false", "true", "false"]);
   expect(text(container)).toContain(translate("placeAuto.rule"));
   await act(async () => container.querySelector<HTMLElement>('[data-testid="place-cloud"]')!.click());
   expect(picks).toEqual(["cloud"]);

@@ -16,9 +16,10 @@ import type {
   HybridStart,
   HybridStartState,
 } from "./hybridModel";
+import { RUNS_ON_ORDER } from "../runsOnOrder";
 import "./cloudToggle.css";
 
-const ORDER = ["auto", "cloud", "local"] as const;
+const ORDER = RUNS_ON_ORDER;
 const NAMES = { auto: "hybrid.mode.hybrid", cloud: "hybrid.pin.cloud", local: "hybrid.pin.local" } as const;
 const HELP = {
   auto: "hybrid.mode.hybrid.help",

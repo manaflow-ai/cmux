@@ -40,6 +40,7 @@ import {
 } from "./environmentPickerModel";
 import { WithFacts } from "./chips/FactsHoverCard";
 import { AutoIcon } from "./AutoWhere";
+import { inRunsOnOrder } from "./runsOnOrder";
 import { autoPlaceForDigit } from "./autoCloud";
 
 /// The Cloud row's value (cloudRun.ts): not a machine id, and not an action of the list.
@@ -614,12 +615,13 @@ export function EnvironmentPicker({
     checkedRow?.startsWith(SAVED) === true &&
     saved?.environments.find((environment) => SAVED + environment.id === checkedRow)?.kind === "local";
   const anotherPicked = checkedRow !== undefined && !isLocalId(checkedRow) && !cloudChecked && !savedLocal;
-  const where = [
-    ...ordered.filter(isLocal).map((environment) => environment.id),
-    ...autoRows,
-    ...(cloudRow ? [cloudRow] : []),
-    ...(devicesMenu ? [devicesMenu.value] : []),
-  ];
+  // This Mac, Auto and Cloud in the one Runs On order (runsOnOrder.ts), then Other devices.
+  const runsOnRows = inRunsOnOrder({
+    local: ordered.filter(isLocal).map((environment) => environment.id),
+    auto: autoRows,
+    cloud: cloudRow ? [cloudRow] : [],
+  });
+  const where = [...runsOnRows, ...(devicesMenu ? [devicesMenu.value] : [])];
   // Which machine: the connected ones first, then those still dialing (a pick, drawn the same), then
   // the rest greyed; no Cloud row; Add Machine… last. Saved environments stay behind Machines….
   const readyFirst = (items: Environment[]) => [
@@ -664,11 +666,7 @@ export function EnvironmentPicker({
               ? machines
               : listRows === "where" || listRows === "run"
                 ? listRows === "run"
-                  ? [
-                      ...ordered.filter(isLocal).map((environment) => environment.id),
-                      ...autoRows,
-                      ...(cloudRow ? [cloudRow] : []),
-                    ]
+                  ? runsOnRows
                   : where
                 : main;
   // The rows as they settle while the list is open (rowPresence.ts): it opens with its final rows,

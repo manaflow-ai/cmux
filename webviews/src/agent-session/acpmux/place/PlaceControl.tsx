@@ -4,13 +4,14 @@ import { EnvironmentIcon } from "../EnvironmentPicker";
 import { useT, type Translate } from "../i18n";
 import type { PlaceMode, PlaceState } from "./placeModel";
 import "./place.css";
+import { RUNS_ON_ORDER } from "../runsOnOrder";
 
 /// How the control draws (PlaceControl.gallery.tsx compares them): `segmented`, Local, Cloud and Auto
 /// side by side with the rule of Auto under it; `menu`, one chip with the choice in a menu; `rows`,
 /// three stacked rows with where each runs under its name.
 export type PlaceControlLook = "segmented" | "menu" | "rows";
 
-const MODES: readonly PlaceMode[] = ["local", "cloud", "auto"];
+const MODES: readonly PlaceMode[] = RUNS_ON_ORDER;
 
 /// The place's name: the chat's own VM when known.
 export function cloudLabel(place: PlaceState, t: Translate): string {
