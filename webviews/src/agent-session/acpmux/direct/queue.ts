@@ -229,14 +229,16 @@ function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromp
 /// (sendWhenReady.ts): with no end, as long as its chat is shown and its client open. A machine
 /// that rebooted comes back in minutes, and the prompt goes then by itself, never "Not sent" and
 /// Retry (Leo, 2026-11-12: "try what? no, it should just automatically do stuff"). Tests shorten it.
-/// `resendShowMs`: how long a connection waits for a prompt the host's journal sends again on it
-/// to show, before its row says "Not sent" again (direct.ts `awaitHostResend`).
+/// `resendShowMs`: how long a connection waits with no word at all of a prompt the host's outbox
+/// sends again on it before its row says "Not sent" again (direct.ts `awaitResent`): a quiet
+/// window each outbox word (`_cmux/prompt_resend`) opens again, never a deadline on a send that
+/// progresses; one on the wire waits up to `localFailMs`.
 export const deliveryTiming = {
   slowMs: 10_000,
   failMs: 60_000,
   localFailMs: 300_000,
   hostWaitMs: Number.POSITIVE_INFINITY,
-  resendShowMs: 10_000,
+  resendShowMs: 30_000,
 };
 
 export const DELIVERY_RANK: Record<PromptDelivery["state"], number> = {
@@ -263,17 +265,6 @@ const oneLine = (text: string) => text.split(/\s+/).filter(Boolean).join(" ");
 /// one acpmux lists, else the one its newest `queued` or `queue_updated` record named (`authors`, by
 /// prompt id: null when that record named none), else the one the pane had: an attach's page can
 /// hold a teammate's edit without the `queued` record before it.
-/// A chat's `rollingSummary` (acpmux `RollingSummary`) as the pane's summary field: nothing
-/// before its first summary or for a blank one.
-export function rollingSummaryOf(raw: unknown): { rollingSummary?: { text: string; next?: string } } {
-  if (!raw || typeof raw !== "object") return {};
-  const { text: rawText, next: rawNext } = raw as Record<string, unknown>;
-  const text = typeof rawText === "string" ? rawText.trim() : "";
-  if (!text) return {};
-  const next = typeof rawNext === "string" ? rawNext.trim() : "";
-  return { rollingSummary: next ? { text, next } : { text } };
-}
-
 /// A queue list's `subagentRetry` (acpmux `QueuedSubagentRetry`) as a row's resume.
 function listedRetry(raw: unknown): SubagentRetryNotice | undefined {
   if (!raw || typeof raw !== "object") return undefined;

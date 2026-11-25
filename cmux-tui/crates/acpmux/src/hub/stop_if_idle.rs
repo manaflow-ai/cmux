@@ -128,6 +128,7 @@ impl Hub {
     }
 
     /// Stop the session as `kill` does, or refuse when the condition does not hold.
+    #[cfg(test)]
     pub(crate) async fn stop(
         &self,
         session: &Arc<Session>,

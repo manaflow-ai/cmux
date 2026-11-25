@@ -353,7 +353,7 @@ for (const [fontSize, room] of [
   [20, 300],
   [13, 300],
 ] as const) {
-  test(`a width drag stops at 270px within ${room}px of room at ${fontSize}px type`, async () => {
+  test(`a width drag stops at 318px within ${room}px of room at ${fontSize}px type`, async () => {
     fakeLayout = (window) => {
       const column = window.document.getElementById("root")!;
       column.classList.add("acpmux-main");
@@ -364,21 +364,29 @@ for (const [fontSize, room] of [
     const menu = popup();
     menu.style.fontSize = `${fontSize}px`;
     menu.style.setProperty("--acpmux-cols-min-width", "28.5em");
-    menu.getBoundingClientRect = () => ({ left: 5, right: 705, width: 700 }) as DOMRect;
+    // The menu opens no wider than its room.
+    const open = Math.min(700, room);
+    menu.getBoundingClientRect = () => ({ left: 5, right: 5 + open, width: open }) as DOMRect;
     menu.parentElement!.getBoundingClientRect = () => ({ left: 5 }) as DOMRect;
     const grip = menu.querySelector<HTMLElement>(".acpmux-cols-resize")!;
     const direction = grip.dataset.edge === "start" ? -1 : 1;
     // The chip-aligned edge stays pinned; only the opposite edge moves.
     if (direction === -1)
-      menu.getBoundingClientRect = () => ({ left: room - 695, right: room + 5, width: 700 }) as DOMRect;
+      menu.getBoundingClientRect = () => ({ left: room + 5 - open, right: room + 5, width: open }) as DOMRect;
     await act(async () => {
       grip.dispatchEvent(new dom!.window.MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500 }));
       grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 500 - direction * 1000 }));
       grip.dispatchEvent(new dom!.window.MouseEvent("pointerup", { clientX: 500 - direction * 1000 }));
     });
-    const minimum = Math.min(room, 270);
-    expect(menu.style.width).toContain(`${minimum}px`);
-    expect(modelMenuWidth()).toBe(minimum);
+    // A pane narrower than the floor has no narrower width to keep: the menu stays as it opened,
+    // as wide as its room, and the person's kept width is left alone.
+    if (room < 318) {
+      expect(menu.style.width).toBe("");
+      expect(modelMenuWidth()).toBeUndefined();
+    } else {
+      expect(menu.style.width).toContain("318px");
+      expect(modelMenuWidth()).toBe(318);
+    }
     expect(modelMenuHeight()).toBeUndefined();
     expect(menu.style.minWidth).toContain(`${room}px`);
     await click(document.querySelector<HTMLButtonElement>("button[data-menu='model']")!);
@@ -468,12 +476,12 @@ for (const fromEnd of [false, true]) {
       expect(modelMenuHeight()).toBe(360);
       expect(grip.hasAttribute("data-dragging")).toBe(false);
       await drag(-1000, "pointercancel");
-      expect(modelMenuWidth()).toBe(270);
+      expect(modelMenuWidth()).toBe(318);
       expect(modelMenuHeight()).toBe(160);
       await act(async () =>
         grip.dispatchEvent(new dom!.window.MouseEvent("pointermove", { clientX: 2000, clientY: 2000 })),
       );
-      expect(modelMenuWidth()).toBe(270);
+      expect(modelMenuWidth()).toBe(318);
       expect(modelMenuHeight()).toBe(160);
       await act(async () => grip.dispatchEvent(new dom!.window.MouseEvent("dblclick", { bubbles: true })));
       expect(modelMenuWidth()).toBeUndefined();

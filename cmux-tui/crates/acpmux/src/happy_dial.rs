@@ -92,6 +92,70 @@ pub async fn connect_tcp(host: &str, port: u16) -> io::Result<TcpStream> {
     Ok(stream)
 }
 
+/// At most this many attempts run at once in [`again`]; at the cap a fresh attempt replaces
+/// the oldest, whose next SYN is the furthest off.
+pub const AGAIN_AT_MOST: usize = 4;
+
+/// `dial` now, again every `every` and at once on each `kick`, keeping at most `at_most`
+/// attempts (the oldest is dropped to make room), until one succeeds or one fails with no
+/// other running. The attempts are polled here, not spawned, so `dial` may borrow its caller
+/// (a whole link open: connect, TLS and the WebSocket upgrade); returning drops every attempt
+/// still running, closing its socket.
+pub async fn again<T, E, F, Fut, K, KFut>(
+    every: Duration,
+    at_most: usize,
+    mut kick: K,
+    mut dial: F,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    K: FnMut() -> KFut,
+    KFut: Future<Output = ()>,
+{
+    let at_most = at_most.max(1);
+    let mut running: std::collections::VecDeque<std::pin::Pin<Box<Fut>>> =
+        std::collections::VecDeque::new();
+    let mut start = |running: &mut std::collections::VecDeque<std::pin::Pin<Box<Fut>>>| {
+        if running.len() >= at_most {
+            running.pop_front();
+        }
+        running.push_back(Box::pin(dial()));
+    };
+    start(&mut running);
+    let mut next = tokio::time::Instant::now() + every;
+    let mut kicked = Box::pin(kick());
+    loop {
+        let settled = std::future::poll_fn(|cx| {
+            for (index, attempt) in running.iter_mut().enumerate() {
+                if let std::task::Poll::Ready(result) = attempt.as_mut().poll(cx) {
+                    return std::task::Poll::Ready((index, result));
+                }
+            }
+            std::task::Poll::Pending
+        });
+        tokio::select! {
+            (index, result) = settled => {
+                drop(running.remove(index));
+                match result {
+                    Ok(opened) => return Ok(opened),
+                    Err(error) if running.is_empty() => return Err(error),
+                    Err(_) => {}
+                }
+            }
+            () = tokio::time::sleep_until(next) => {
+                start(&mut running);
+                next += every;
+            }
+            () = &mut kicked => {
+                start(&mut running);
+                next = tokio::time::Instant::now() + every;
+                kicked = Box::pin(kick());
+            }
+        }
+    }
+}
+
 /// `connect_async` over [`connect_tcp`]: the same TLS and handshake, without waiting out a
 /// stalled first address. The caller bounds the whole call.
 pub async fn connect_ws(request: impl IntoClientRequest) -> Result<(Socket, Response), WsError> {

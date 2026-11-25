@@ -52,6 +52,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
     var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
+    var terminalHistoryButton: TerminalHistoryButton?
     /// A zoomed pane's Exit Zoom button at the content's top-right (`PaneContentView+AgentTag`), made at its first zoom.
     var zoomIndicator: PaneZoomIndicatorView?
     private var agentTagObservation: Task<Void, Never>?

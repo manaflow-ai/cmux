@@ -140,6 +140,9 @@ public struct WindowRegistry: Equatable, Sendable {
 
     public var openWindows: [Window] { windows.filter(\.isOpen) }
 
+    /// The open windows' ids, front first.
+    public var openRecency: [String] { recency.filter { window($0)?.isOpen == true } }
+
     /// The front open window `shows` accepts (a saved window that can show a workspace now).
     public func frontOpen(where shows: (Window) -> Bool) -> String? {
         recency.first { id in window(id).map { $0.isOpen && shows($0) } == true }
