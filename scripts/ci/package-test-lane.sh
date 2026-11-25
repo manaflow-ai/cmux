@@ -292,9 +292,10 @@ PY
 # target no pull request check runs is listed with its reason in the swift-test-targets.json
 # registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
 # passed `suite` on an owned Mac at ccc9958672bf before they joined (CmuxChiefList at 777eb5a7d77f).
+# Mac-only: a package whose tests pass on Linux runs in swift-linux-packages.yml (the list or a whole-package
+# matrix group), never here as well.
 select_packages() {
   PACKAGES=(
-    CMUXAuthCore
     CmuxAuthRuntime
     CmuxChiefList
     CmuxIrohTransport
@@ -304,14 +305,9 @@ select_packages() {
     CmuxConnectivityTelemetry
     CmuxDeviceHub
     CmuxEgress
-    CmuxHomeCore
     CmuxHomeRender
-    CmuxMobileBilling
-    CmuxMobileSupport
-    CmuxMobileTunnel
     CmuxRemote
     CmuxScreenKit
-    CmuxTabsKit
     CmuxVNCWebRTC
     CmuxVisibleRows
     GlassHost

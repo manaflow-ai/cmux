@@ -67,7 +67,6 @@
     "Packages/Shared/**",
     "Packages/iOS/**",
     "Packages/macOS/CmuxUpdater/**",
-    "Packages/macOS/CmuxRemote/**",
     "Packages/macOS/CmuxPhonePush/**",
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "cmux-next-ios/CmuxMobileKit/**",

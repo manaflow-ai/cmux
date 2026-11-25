@@ -92,28 +92,16 @@ jobs:
             packages: Packages/Shared/CmuxDeviceHub
           - group: CmuxEgress
             packages: Packages/Shared/CmuxEgress
-          - group: CmuxHomeRender
-            packages: Packages/Shared/CmuxHomeRender
           - group: CmuxIrohTransport
             packages: Packages/Shared/CmuxIrohTransport
           - group: CmuxIrxTransport
             packages: Packages/Shared/CmuxIrxTransport
-          - group: CmuxMessagesLab
-            packages: Packages/Shared/CmuxMessagesLab
-          - group: CmuxScreenKit
-            packages: Packages/Shared/CmuxScreenKit
-          - group: CmuxSpinner
-            packages: Packages/Shared/CmuxSpinner
           - group: CmuxVNC
             packages: Packages/Shared/CmuxVNC
           - group: CmuxVisibleRows
             packages: Packages/Shared/CmuxVisibleRows
-          - group: GlassHost
-            packages: Packages/Shared/GlassHost
           - group: CmuxPhonePush
             packages: Packages/macOS/CmuxPhonePush
-          - group: CmuxRemote
-            packages: Packages/macOS/CmuxRemote
           - group: CmuxUpdater
             packages: Packages/macOS/CmuxUpdater
     steps:
