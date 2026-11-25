@@ -1,0 +1,14 @@
+apiVersion: v2
+name: cmux-agent-host
+description: >-
+  The cmux agent host on a Kubernetes cluster: one acpmux host agent that joins the cluster to cmux as one
+  host and creates an agent pod (plain or Kata through a RuntimeClass) per agent slot. No operator, no CRDs,
+  no state of its own in the cluster.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+keywords: [cmux, acpmux, agents, kata]
+home: https://github.com/manaflow-ai/cmux
+sources:
+  - https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/deploy/helm/cmux-agent-host

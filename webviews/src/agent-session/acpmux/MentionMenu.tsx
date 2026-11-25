@@ -69,10 +69,21 @@ export function MentionMenu({
         renderItem={(item) => (
           <>
             <span className="acpmux-mention-icon" data-mention-icon={item.kind}>
-              <Icon
-                name={item.kind === "harness" ? "agent.chat" : item.kind === "tool" ? item.icon : item.kind}
-                size={14}
-              />
+              {item.kind === "tool" && toolImage(item.toolId) ? (
+                <img
+                  className="acpmux-tool-image"
+                  src={toolImage(item.toolId)}
+                  width={14}
+                  height={14}
+                  alt=""
+                  draggable={false}
+                />
+              ) : (
+                <Icon
+                  name={item.kind === "harness" ? "agent.chat" : item.kind === "tool" ? item.icon : item.kind}
+                  size={14}
+                />
+              )}
             </span>
             <span className="acpmux-slash-name">{runs(item.name)}</span>
             {item.kind === "extension" ? (
@@ -96,3 +107,4 @@ function runs(parts: readonly Run[]) {
 }
 
 const toolHint = (id: ToolMentionId) => TOOL_MENTIONS.find((tool) => tool.id === id)!.hint;
+const toolImage = (id: ToolMentionId) => TOOL_MENTIONS.find((tool) => tool.id === id)?.image;
