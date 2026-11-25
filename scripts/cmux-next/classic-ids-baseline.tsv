@@ -21,7 +21,7 @@ Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity+AppNames.swift	.loc
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity+AppNames.swift	/tmp/cmux-\($0).sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity+AppNames.swift	/tmp/cmux-\(word)--\(keyHash).sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity+AppNames.swift	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity.swift	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildIdentity.swift	com.cmuxterm.app"	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildStatePaths.swift	.config/cmux"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildStatePaths.swift	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 Packages/macOS/CmuxNext/Sources/CmuxNextCompat/BuildStatePaths.swift	appendingPathComponent("cmux",	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -127,7 +127,8 @@ cmux-tui/crates/cmux-config/src/schema/json_schema.rs	.config/cmux/	2	move	lane 
 cmux-tui/crates/cmux-customize-recipes/src/lib.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-customize/src/library/doctor/stray.rs	com.cmuxterm.app"	1	keep	doctor finds Classic's stray files to report them
 cmux-tui/crates/cmux-customize/src/library/doctor/stray.rs	com.cmuxterm.app/	1	keep	doctor finds Classic's stray files to report them
-cmux-tui/crates/cmux-customize/src/paths.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-customize/src/paths.rs	.config/cmux"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-customize/src/paths.rs	.config/cmux/	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-customize/src/paths.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-host-budget/src/lib.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-host/src/cloud/daemon_noise_key.rs	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -152,6 +153,7 @@ cmux-tui/crates/cmux-tui-core/src/computer_use_host/config.rs	join("cmux")	1	mov
 cmux-tui/crates/cmux-tui-core/src/computer_use_host/macos.rs	com.cmuxterm.app"	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/computer_use_host/macos.rs	com.cmuxterm.appx	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/mux/unowned_hosts.rs	join("cmux")	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-tui-core/src/remote_host/linux_screen.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/state/agent_start.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/tool_packs.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/workspace_registry/synth.rs	/tmp/cmux-synth-{session}.sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
