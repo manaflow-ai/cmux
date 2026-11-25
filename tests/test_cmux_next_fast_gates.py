@@ -1950,5 +1950,39 @@ class WebviewsChecksGate(unittest.TestCase):
         self.assertEqual(len(git(self.repo, "worktree", "list").splitlines()), 1)
 
 
+class DeepenFallbackTests(unittest.TestCase):
+    """GitHub's pack-objects aborted a tree:0 deepen on #52583 twice (jobs 138890366419, 138894346038)."""
+
+    def run_deepen_fetch(self, failures: dict[str, str]):
+        module = load(SCRIPT)
+        calls = []
+
+        def fake_git(repo, *args, check=True):
+            calls.append(args)
+            stderr = next((err for flag, err in failures.items() if flag in args), "")
+            code = 128 if stderr else 0
+            if check and code:
+                raise SystemExit(f"fast-gates: git {' '.join(args)} failed: {stderr}")
+            return subprocess.CompletedProcess(args, code, "", stderr)
+
+        module.git = fake_git
+        module.log = lambda message: None
+        module.deepen_fetch(Path("."), "origin", "--deepen=32", ["a", "b"])
+        return calls
+
+    def test_a_pack_objects_abort_retries_with_blob_none(self):
+        bug = "BUG: builtin/pack-objects.c:5098: should_include_obj\nerror: pack-objects died of signal 6"
+        calls = self.run_deepen_fetch({"--filter=tree:0": bug})
+        self.assertEqual([c[3] for c in calls], ["--filter=tree:0", "--filter=blob:none"])
+        self.assertTrue(all("--deepen=32" in c for c in calls))
+
+    def test_a_clean_deepen_fetches_once(self):
+        self.assertEqual(len(self.run_deepen_fetch({})), 1)
+
+    def test_any_other_failure_still_fails(self):
+        with self.assertRaises(SystemExit):
+            self.run_deepen_fetch({"--filter=tree:0": "fatal: could not read from remote repository"})
+
+
 if __name__ == "__main__":
     unittest.main()
