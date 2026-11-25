@@ -339,6 +339,15 @@ struct TerminalPage: View {
                 Text("On a slow connection, what you type shows at once, underlined until the remote confirms it.")
             }
             Section {
+                Toggle(isOn: $settings.predictiveEchoFullScreen) {
+                    SettingsLabel("Predictive Echo in Full-Screen Apps", symbol: "bolt.horizontal.circle")
+                }
+                .accessibilityIdentifier("settings.predictiveEchoFullScreen")
+                .disabled(!settings.predictiveEcho)
+            } footer: {
+                Text("Also predicts typing into full-screen apps such as Claude Code and Codex. A key shows only after the app printed the two before it where they were typed.")
+            }
+            Section {
                 Toggle(isOn: $settings.terminalJumpToBottom) {
                     SettingsLabel("Jump to Bottom Button", symbol: "arrow.down.to.line")
                 }
@@ -361,6 +370,14 @@ struct TerminalPage: View {
                 .accessibilityIdentifier("settings.terminalChatToggle")
             } footer: {
                 Text("Adds Show Chat and Show Terminal to a Claude Code or Codex tab's menu when both views can open.")
+            }
+            Section {
+                Toggle(isOn: $settings.terminalZoomFullScreenApps) {
+                    SettingsLabel("Zoom Full-Screen Apps", symbol: "plus.magnifyingglass")
+                }
+                .accessibilityIdentifier("settings.terminalZoomFullScreenApps")
+            } footer: {
+                Text("Shows vim, htop or Codex at the Mac's size: pinch to zoom, drag to pan, and the Mac pane keeps its size. Typing into one fits it to the phone, which remembers that program. Applies to terminals opened next.")
             }
             Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }

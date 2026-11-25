@@ -70,6 +70,13 @@ public final class SidebarPlaceholderGrace {
     /// redials on its own and most drops end inside the wait. The wait spans every such state in a
     /// row (reconnecting, then unreachable) and starts again once the link is up. A state a person
     /// must act on (sign-in, install, update) is never held.
+    ///
+    /// A link coming up or redialing is held for good, however long it lasts: the header keeps its last
+    /// look, with no spinner and no "Connecting…" or "Reconnecting…" (Leo, 2026-11-24: "all the
+    /// connecting... indicators and the graying out of workspaces, nah let's not do that. let's just keep
+    /// optimistically connecting and reinforcing the connection and sync-ups can be satisfying instead of
+    /// making the user think they're constsntly suspended in a state of connection limbo"). Only a link
+    /// that settled out of reach (unreachable, offline) says so once it lasts the wait.
     public func holdingConnectingLabels(_ sections: [SidebarSection]) -> [SidebarSection] {
         keep(Set(sections.map(\.id)))
         return sections.map { section in
@@ -78,12 +85,17 @@ public final class SidebarPlaceholderGrace {
                 reset(section.id)
                 return section
             }
-            guard !allows(section.id) else { return section }
+            guard Self.isOnItsWay(machine.status) || !allows(section.id) else { return section }
             machine.holdsStatusLabel = true
             var held = section
             held.kind = .machine(machine)
             return held
         }
+    }
+
+    /// A link coming up or redialing: never said, at any age.
+    public nonisolated static func isOnItsWay(_ status: SidebarMachine.Status) -> Bool {
+        status == .connecting || status == .reconnecting
     }
 
     /// A link state that ends without anyone acting: coming up, redialing after a drop, out of
