@@ -1195,11 +1195,11 @@ jobs:
       linux_runner: >-
         ${{ vars.X || 'ubuntu-24.04' }}
   h:
-    # A placement script's label inputs become runs-on: a fork pull
-    # request's hosted ubuntu-24.04 hid here until 2026-11-19 (Leo: "Fuck GitHub").
+    # A placement script's label inputs become runs-on: a hosted ubuntu-24.04
+    # hid here until 2026-11-19 (Leo: "Fuck GitHub"). A fork's literal is the fork branch, not this.
     env:
-      SIDE_LABEL: ${{ github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.X }}
-      FLEET_LINUX: ${{ github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.X }}
+      SIDE_LABEL: ${{ github.event_name == 'push' && 'ubuntu-24.04' || vars.X }}
+      FLEET_LINUX: ${{ github.event_name == 'push' && 'ubuntu-24.04' || vars.X }}
 YAML
   cat > "$fixture/clean-nightly.yml" <<'YAML'
 jobs:
