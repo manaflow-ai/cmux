@@ -1331,9 +1331,14 @@ try {
     preloads.add(chunk.file);
     for (const next of chunk.imports ?? []) reach(next);
   };
-  for (const key of manifest["dev.tsx"]?.dynamicImports ?? [])
-    if (key === "main.tsx" || key.endsWith("strings.json") || key === "chatDisplay.ts") reach(key);
-  if (!preloads.size) throw new Error("the pane build's manifest names no main.tsx chunk to preload");
+  // Keyed by path from the build's root; the entry is index.html (its module script, dev.tsx, is in it).
+  const entries = Object.values(manifest).filter((chunk) => (chunk as { isEntry?: boolean }).isEntry);
+  for (const entry of entries)
+    for (const key of entry.dynamicImports ?? [])
+      if (/(^|\/)(main\.tsx|chatDisplay\.ts|strings\.json)$/.test(key)) reach(key);
+  console.log(
+    `pane preload: ${[...preloads].join(", ") || `none (manifest entries: ${Object.keys(manifest).slice(0, 12).join(", ")})`}`,
+  );
   const modulePreloads = [...preloads]
     .map((file) => `<link rel="modulepreload" crossorigin href="/${file}">`)
     .join("\n");
