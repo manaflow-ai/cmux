@@ -61,8 +61,5 @@ public nonisolated enum BookmarkURL {
 
 /// Size limits shared with the daemon (bookmarks.md section 1).
 public nonisolated enum BookmarkLimits {
-    public static let titleBytes = 4096
     public static let urlBytes = 65_536
-    public static let nodesPerProfile = 100_000
-    public static let depth = 64
 }
