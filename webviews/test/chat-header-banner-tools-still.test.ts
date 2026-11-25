@@ -48,7 +48,16 @@ await requireBrowserLane("chat-header-banner-tools-still.test.ts", async () => {
   /// Each header button's place, the "..."'s warning dot, and the need last reported to the App.
   const measure = (page: Page) =>
     page.evaluate(async () => {
-      for (let frame = 0; frame < 3; frame++) await new Promise((done) => requestAnimationFrame(done));
+      // After three painted frames: the tools report their need in a layout effect and the tab row
+      // answers with the accessories' room, so the buttons sit where they rest.
+      await new Promise<void>((done) => {
+        let count = 0;
+        window.cmuxAfterPaint(() => {
+          if (++count < 3) return true;
+          done();
+          return false;
+        });
+      });
       const tools = document.querySelector<HTMLElement>(".acpmux-handoff-header-tools")!;
       const buttons = [...tools.querySelectorAll<HTMLElement>("button")].map((button) => {
         const box = button.getBoundingClientRect();

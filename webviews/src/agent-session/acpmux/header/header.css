@@ -511,15 +511,17 @@
 /* The connection warning is an accessory too (ChatHeaderStatus.tsx): with no room for it, the "..." carries it as a
    dot, so a disconnected chat in a narrow pane still says so without moving a button. */
 .acpmux-handoff-header-tools[data-tab-row-accessories="hidden"]:has(.acpmux-status--inline) .acpmux-header-more {
+  --acpmux-header-more-dot-inset: 3px;
+  --acpmux-status-dot: 6px;
   position: relative;
 }
 .acpmux-handoff-header-tools[data-tab-row-accessories="hidden"]:has(.acpmux-status--inline) .acpmux-header-more::after {
   content: "";
   position: absolute;
-  top: 3px;
-  right: 3px;
-  width: 6px;
-  height: 6px;
+  top: var(--acpmux-header-more-dot-inset);
+  right: var(--acpmux-header-more-dot-inset);
+  width: var(--acpmux-status-dot);
+  height: var(--acpmux-status-dot);
   border-radius: 50%;
   background: var(--agent-status-warning);
   pointer-events: none;
