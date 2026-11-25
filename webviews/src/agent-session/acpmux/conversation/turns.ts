@@ -1329,7 +1329,10 @@ function shapedTurn(
   );
   // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
   // a quiet one, or one still running, as its one line (backgroundTurns.ts).
-  const turn = foldBackgroundTurns(answeringPerson(user, kept), expanded);
+  const answering = foldBackgroundTurns(answeringPerson(user, kept), expanded);
+  // Ended (its summary in, even before the session reads ready), a steer the agent was finishing
+  // when it came draws over the answer (`lateSteersLast`); running, every row draws as it came.
+  const turn = lateSteersLast(answering, live);
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row) && !sentHere(row));
   const visibleTurn =
     !isVisiblyEmptyMessage(user) || turn.some((row) => row.kind !== "turnSummary" && !isVisiblyEmptyMessage(row));
@@ -1624,6 +1627,52 @@ function answerAt(rows: readonly AcpmuxRow[]): number {
   }
   return -1;
 }
+
+/// An ended turn's rows with the person's late steers and then its answer at its end: a steer the
+/// agent started no new call after (it came while the agent was finishing: its reply, a call already
+/// running) draws under all the turn's work and over the answer, which is the turn's last word (Leo,
+/// 2026-11-25: "there are situations in which i steer RIGHT before you finish a turn but your
+/// completed sent message goes above mine bc your turn started before and there's some folding
+/// shit... worked for above my message and then yours and then boom that's it"). The work after it
+/// folds up into the Worked for above it at the turn's end, as the one fold takes it all (Leo, ~09:20Z:
+/// "the final ultra fold simply... takes it all away"); the steer and the answer never fold. A steer
+/// the agent went on working after keeps its place (RFD 0085, in order). While the turn runs rows draw
+/// as they came. Only the turn's own rows up to its summary move; `rows` itself when none do.
+export function lateSteersLast(rows: AcpmuxRow[], live = false): AcpmuxRow[] {
+  let end = rows.findIndex((row) => row.kind === "turnSummary" && row.inBackground === undefined);
+  if (end < 0 && live) return rows;
+  if (end < 0) end = rows.length;
+  // The earliest late steer: from the end back, while no call below a steer started after it (a
+  // call already running at the send started before it).
+  let late = -1;
+  let lastCall = -Infinity;
+  for (let at = end - 1; at >= 0; at -= 1) {
+    const row = rows[at]!;
+    if (isLateSteer(row)) {
+      if (lastCall >= row.at) break;
+      late = at;
+    } else if (row.kind === "activity" && row.inBackground === undefined)
+      for (const item of row.items ?? []) if (item.tool) lastCall = Math.max(lastCall, item.tool.startedAt ?? row.at);
+  }
+  if (late < 0) return rows;
+  // The agent's text just over the first late steer moves with the answer: the reply it was writing
+  // when the steer came (acpmux cuts it there into two rows, one each side of the steer).
+  let from = late;
+  while (from > 0 && isOwnText(rows[from - 1]!)) from -= 1;
+  const region = rows.slice(from, end);
+  const steers = region.filter(isLateSteer);
+  const said = region.filter(isOwnText);
+  // Nothing to move without an answer among what moves, or where it already reads in this order.
+  const answer = rows[answerAt(rows.slice(0, end))];
+  if (!answer || !said.includes(answer)) return rows;
+  const work = region.filter((row) => !isLateSteer(row) && !isOwnText(row));
+  const reordered = [...work, ...steers, ...said];
+  if (reordered.every((row, at) => row === region[at])) return rows;
+  return [...rows.slice(0, from), ...reordered, ...rows.slice(end)];
+}
+
+const isLateSteer = (row: AcpmuxRow) => row.kind === "user" && continuesTurn(row) && sentByPerson(row);
+const isOwnText = (row: AcpmuxRow) => row.kind === "assistant" && row.inBackground === undefined;
 
 /// A reply with something to read: an empty segment of the agent's text is never a takeaway.
 const isReply = (row: AcpmuxRow) => isAnswer(row) && !isVisiblyEmptyText(row.text);
