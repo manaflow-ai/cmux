@@ -161,6 +161,10 @@ await requireBrowserLane("agent-pane-picks-hold.test.ts", async () => {
           // A New Tab opens on the default harness, Claude Code: move it to Codex on its own default
           // model (Astra) first, so the picks below each change one chip from Codex's starting values.
           await pickModel(page, "Codex", "GPT-6 Astra");
+          // The page draws a start before it has connected to acpmux (its own catalog's first
+          // harness, Claude Code); the New Tab under test is the one acpmux names: its default
+          // harness (Codex) on Codex's default model.
+          await page.locator(MODEL_PICKER).filter({ hasText: "GPT-6 Astra" }).first().waitFor({ timeout: 90_000 });
           const start = await settled(page);
           note(`on Codex: ${JSON.stringify(start)}`);
           await startValueSampler(page);
