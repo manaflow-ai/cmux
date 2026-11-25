@@ -441,7 +441,7 @@
   });
   var kept = {
     seed: {},
-    values: {},
+    values: Object.create(null),
     signals: new Map,
     dirty: false
   };
@@ -449,9 +449,15 @@
     const seed = values && typeof values === "object" && !Array.isArray(values) ? values : {};
     kept.seed = { ...seed };
     kept.values = { ...kept.values, ...seed };
-    for (const [name, entry] of kept.signals)
-      if (Object.prototype.hasOwnProperty.call(seed, name))
+    let restored = false;
+    for (const [name, entry] of kept.signals) {
+      if (Object.prototype.hasOwnProperty.call(seed, name)) {
         entry.set(seed[name]);
+        restored = true;
+      }
+    }
+    if (restored)
+      kept.dirty = true;
   }
   onAfterFlush(() => {
     if (!kept.dirty)
@@ -481,7 +487,7 @@
       const value = read.peek();
       if (Object.prototype.hasOwnProperty.call(kept.values, name) && Object.is(kept.values[name], value))
         return;
-      kept.values[name] = value;
+      Object.defineProperty(kept.values, name, { value, writable: true, enumerable: true, configurable: true });
       kept.dirty = true;
       batch(() => {});
     };
