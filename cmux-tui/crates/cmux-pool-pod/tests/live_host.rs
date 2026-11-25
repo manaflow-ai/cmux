@@ -102,3 +102,64 @@ async fn pod_lifecycle_on_this_host() {
     assert_eq!(meter.len(), 3);
     let _ = std::fs::remove_dir(&dir);
 }
+
+#[test]
+#[ignore = "touches this machine's systemd user manager"]
+fn slot_lifecycle_on_this_host() {
+    use cmux_pool_pod::slots::{PauseMode, PodSlots, ProcessRunner, Slot, SlotSize, SlotState};
+    if std::env::var("CMUX_POOL_POD_LIVE").as_deref() != Ok("1") {
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("cmux-pool-slot-live-{}", std::process::id()));
+    // The init proves it runs in the pod: it writes its boot count under $HOME, then waits.
+    let init = "echo boot >> \"$HOME/boots\"; echo \"$CMUX_POD_ROOT\" > \"$HOME/root\"; exec sleep infinity";
+    let pods = PodSlots::new(ProcessRunner, dir.to_string_lossy()).with_init(
+        "sh",
+        vec!["-c".into(), init.into()],
+        vec![],
+    );
+    let slot = Slot::parse("live-slot").unwrap();
+    let slice = "cmux_pod_live_slot.slice";
+    let _cleanup = StopOnDrop(slice);
+    let root = dir.join("live-slot");
+    let wait_boots = |n: usize| {
+        for _ in 0..50 {
+            let boots = std::fs::read_to_string(root.join("boots")).unwrap_or_default();
+            if boots.lines().count() == n {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        panic!("init did not boot {n} times");
+    };
+
+    let size = SlotSize { vcpus: 1, memory_mib: 768 };
+    assert_eq!(pods.create(&slot, size).unwrap(), SlotState::Running);
+    wait_boots(1);
+    assert_eq!(std::fs::read_to_string(root.join("root")).unwrap().trim(), root.to_string_lossy());
+    assert_eq!(show(slice, "MemoryMax"), (768u64 << 20).to_string());
+    assert_eq!(pods.create(&slot, size).unwrap(), SlotState::Running);
+
+    assert_eq!(pods.pause(&slot, PauseMode::Memory).unwrap(), SlotState::Paused);
+    assert_eq!(show(slice, "FreezerState"), "frozen");
+    assert_eq!(pods.list().unwrap(), vec![(slot.clone(), SlotState::Paused)]);
+    assert_eq!(pods.resume(&slot).unwrap(), SlotState::Running);
+    assert_eq!(show(slice, "FreezerState"), "running");
+
+    // Disk pause from frozen: no processes left, the root stays, resume boots again at its size.
+    pods.pause(&slot, PauseMode::Memory).unwrap();
+    assert_eq!(pods.pause(&slot, PauseMode::Disk).unwrap(), SlotState::Stopped);
+    assert_ne!(show(slice, "ActiveState"), "active");
+    assert!(root.join("boots").exists());
+    assert_eq!(pods.list().unwrap(), vec![(slot.clone(), SlotState::Stopped)]);
+    assert_eq!(pods.resume(&slot).unwrap(), SlotState::Running);
+    wait_boots(2);
+    assert_eq!(show(slice, "MemoryMax"), (768u64 << 20).to_string());
+
+    pods.destroy(&slot).unwrap();
+    pods.destroy(&slot).unwrap();
+    assert_ne!(show(slice, "ActiveState"), "active");
+    assert!(!root.exists());
+    assert_eq!(pods.list().unwrap(), vec![]);
+    let _ = std::fs::remove_dir_all(&dir);
+}

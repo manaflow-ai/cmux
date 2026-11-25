@@ -25,28 +25,18 @@ pub struct LocalRunner {
 #[async_trait]
 impl CommandRunner for LocalRunner {
     async fn run(&self, host: &str, argv: &[String], stdin: &[u8]) -> Result<ExecOutput, String> {
-        use tokio::io::AsyncWriteExt as _;
+        use crate::slots::HostRunner as _;
         if host != self.host {
             return Err(format!("{host} is not this machine ({})", self.host));
         }
-        let (program, args) = argv.split_first().ok_or("empty argv")?;
-        let mut child = tokio::process::Command::new(program)
-            .args(args)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|e| format!("{program}: {e}"))?;
-        if let Some(mut input) = child.stdin.take() {
-            input.write_all(stdin).await.map_err(|e| format!("{program} stdin: {e}"))?;
-        }
-        let out = child.wait_with_output().await.map_err(|e| format!("{program}: {e}"))?;
-        Ok(ExecOutput {
-            exit_code: out.status.code().unwrap_or(-1),
-            stdout: out.stdout,
-            stderr: out.stderr,
-        })
+        // One process path for both drivers: `ProcessRunner` owns each child
+        // (`cmux_process`), on the blocking pool so the runtime keeps running.
+        let (argv, stdin) = (argv.to_vec(), stdin.to_vec());
+        let out =
+            tokio::task::spawn_blocking(move || crate::slots::ProcessRunner.run(&argv, &stdin))
+                .await
+                .map_err(|e| format!("runner task: {e}"))??;
+        Ok(ExecOutput { exit_code: out.code, stdout: out.stdout, stderr: out.stderr })
     }
 }
 
@@ -135,39 +125,14 @@ impl<X: CommandRunner> SystemdPodRuntime<X> {
         for (key, value) in &request.env {
             out.push(format!("--setenv={key}={value}"));
         }
-        out.extend(argv(&[
-            "--",
-            "bwrap",
-            "--die-with-parent",
-            "--unshare-pid",
-            "--unshare-ipc",
-            "--ro-bind",
-            "/",
-            "/",
-            "--dev",
-            "/dev",
-            "--proc",
-            "/proc",
-            "--tmpfs",
-            "/tmp",
-            // Hide every other pod: an empty tmpfs over the pods dir, then
-            // this pod's root alone on top of it.
-            "--tmpfs",
+        out.push("--".to_owned());
+        out.extend(bwrap_argv(
             &self.pods_dir,
-            // Same path inside and out: the root is read-only, so a new
-            // mount point like /pod cannot be made, and files and exec agree.
-            "--bind",
             &root,
-            &root,
-            "--setenv",
-            "CMUX_POD_ROOT",
-            &root,
-            "--chdir",
             request.cwd.as_deref().unwrap_or(&root),
-            "--",
             &request.program,
-        ]));
-        out.extend(request.args.iter().cloned());
+            &request.args,
+        ));
         out
     }
 
@@ -195,7 +160,51 @@ impl<X: CommandRunner> SystemdPodRuntime<X> {
     }
 }
 
-fn argv(parts: &[&str]) -> Vec<String> {
+/// `bwrap` around one program, the pod's whole view of its host: everything read-only,
+/// its own pid and IPC namespaces, a private `/tmp`, and of the pods dir only its own root.
+pub fn bwrap_argv(
+    pods_dir: &str,
+    root: &str,
+    cwd: &str,
+    program: &str,
+    args: &[String],
+) -> Vec<String> {
+    let mut out = argv(&[
+        "bwrap",
+        "--die-with-parent",
+        "--unshare-pid",
+        "--unshare-ipc",
+        "--ro-bind",
+        "/",
+        "/",
+        "--dev",
+        "/dev",
+        "--proc",
+        "/proc",
+        "--tmpfs",
+        "/tmp",
+        // Hide every other pod: an empty tmpfs over the pods dir, then
+        // this pod's root alone on top of it.
+        "--tmpfs",
+        pods_dir,
+        // Same path inside and out: the root is read-only, so a new
+        // mount point like /pod cannot be made, and files and exec agree.
+        "--bind",
+        root,
+        root,
+        "--setenv",
+        "CMUX_POD_ROOT",
+        root,
+        "--chdir",
+        cwd,
+        "--",
+        program,
+    ]);
+    out.extend(args.iter().cloned());
+    out
+}
+
+pub(crate) fn argv(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| (*s).to_owned()).collect()
 }
 

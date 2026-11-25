@@ -12,10 +12,11 @@ workspace = true
 
 [dependencies]
 async-trait.workspace = true
+cmux-process.workspace = true
 cmux-tui-machine-protocol.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
 tokio.workspace = true

@@ -34,8 +34,9 @@ use cmux_tui_machine_protocol::{
 };
 use serde::{Deserialize, Serialize};
 
+pub mod slots;
 mod systemd;
-pub use systemd::{CommandRunner, LocalRunner, SystemdPodRuntime};
+pub use systemd::{CommandRunner, LocalRunner, SystemdPodRuntime, bwrap_argv};
 
 /// Label that pins a pod to one pool host.
 pub const LABEL_HOST: &str = "cmux.pool.host";
