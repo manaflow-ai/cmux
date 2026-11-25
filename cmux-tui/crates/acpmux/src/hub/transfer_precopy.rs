@@ -148,10 +148,13 @@ impl Hub {
         if session.moving().is_some() {
             return Err(transfer_error("moving", "this chat is being moved"));
         }
+        let mut steps = super::transfer_live::MoveSteps::new("prepare");
         self.sweep();
+        steps.step("sweep");
         // The log's kind index made now, not under the freeze: the begin reads its held prompts
         // and its ownership epoch from it.
         let warmed = self.store.scan_kinds(&session.id, &["queued"], &mut |_| true);
+        steps.step("kind_index");
         if let Err(error) = warmed {
             tracing::debug!(session = %session.id, "kind index not made before a move: {error:#}");
         }
@@ -171,6 +174,7 @@ impl Hub {
             Some(later) => Ok((later, true)),
             None => Ok((self.write_prefix(session, &events, base.as_ref())?, false)),
         });
+        steps.step("prefix");
         let ((after_seq, digest, stamp), history_later) = match made {
             Ok(made) => made,
             Err(error) => {
@@ -200,6 +204,7 @@ impl Hub {
                 }
             }
         }
+        steps.step("native");
         if history_later {
             self.write_prefix_fold(session, &root, after_seq, Value::Object(native));
             self.prepack_history(session, after_seq);
@@ -248,7 +253,7 @@ impl Hub {
                 return;
             }
         };
-        let fold = json!({"afterSeq": after_seq, "held": held.to_json(), "epoch": epoch,
+        let fold = json!({"afterSeq": after_seq, "held": held.into_json(), "epoch": epoch,
                           "native": native});
         if let Err(error) = crate::home_fs::write(root.join(FOLD_FILE), fold.to_string()) {
             tracing::debug!(session = %session.id, "prefix fold not written: {error}");
@@ -317,7 +322,7 @@ impl Hub {
 
     /// The move this daemon's moved-away copy of chat `id` was shipped by, while unrewritten.
     fn shipped_base(&self, id: &str) -> Option<String> {
-        let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned()?;
+        let session = self.session_get(id)?;
         if !self.moved_away(&session) {
             return None;
         }
@@ -535,10 +540,28 @@ impl Hub {
                                  "resumed": true, "have": have}));
             }
         }
+        // `control`: the guard a guarded receive will take this stage under (a cmux daemon's
+        // `agent-transfer-stage`), so its records are rewritten for it as a hub move's are.
+        let control = match params.get("control") {
+            None | Some(Value::Null) => None,
+            Some(control) => Some(
+                ["peer", "web"]
+                    .into_iter()
+                    .find(|known| control.as_str() == Some(known))
+                    .ok_or_else(|| RpcError::invalid_params("transfer: control is peer or web"))?,
+            ),
+        };
         let stage_id = uuid::Uuid::now_v7().to_string();
         let dir = transfers_dir().join(format!("in-{stage_id}"));
         crate::home_fs::create_dirs(dir.join("bundle"))
             .and_then(|()| crate::home_fs::write(dir.join("manifest.json"), manifest.to_string()))
+            .and_then(|()| match control {
+                Some(control) => crate::home_fs::write(
+                    dir.join(super::super::transfer_hub_precopy::CONTROL_FILE),
+                    control,
+                ),
+                None => Ok(()),
+            })
             .map_err(|e| RpcError::internal(format!("transfer: {e}")))?;
         super::super::transfer_watch::note_activity(&dir, None);
         Ok(json!({"receiveId": stage_id, "stageId": stage_id, "sessionId": id}))
@@ -548,6 +571,7 @@ impl Hub {
     /// written, as the store writes them, to a synced segment `000000`, and indexed. Answers `{stageId, afterSeq,
     /// records}`.
     pub(in crate::hub) fn transfer_stage_finish(&self, params: &Value) -> Result<Value, RpcError> {
+        let mut steps = super::transfer_live::MoveSteps::new("stage_finish");
         let stage_id = params.get("stageId").and_then(Value::as_str).unwrap_or("");
         let dir = inside(&transfers_dir(), &format!("in-{stage_id}"))?;
         let manifest = read_json(&dir.join("manifest.json"))
@@ -591,6 +615,7 @@ impl Hub {
             self.write_staged(&bundle.join("events"), &segment, chat, base, control)
         });
         let (records, last) = written.map_err(|e| transfer_error("stage", format!("{e:#}")))?;
+        steps.step("write_staged");
         if last != after_seq {
             let _ = crate::home_fs::remove_dir_all(dir.join("store"));
             return Err(transfer_error(
@@ -599,6 +624,7 @@ impl Hub {
             ));
         }
         index_staged(&dir.join("store"), chat);
+        steps.step("index");
         // The native files stay for the move's receive, with what each holds: the freeze pages
         // only what they grew by since (`transfer_live.rs`).
         let native = super::transfer_live::keep_staged_native(&dir);
@@ -706,6 +732,13 @@ impl Hub {
             }
         }
         files.sort();
+        // A whole move into a chat with no log here yet: its records go in as segment `000000`,
+        // one buffered write synced and renamed once, as a staged prefix's do, not one locked
+        // write each (a 1 GB chat's history was a million of them under the freeze, cmux#54461).
+        let mut whole = match staged {
+            None => self.whole_history_writer(id)?,
+            Some(_) => None,
+        };
         for f in files {
             use std::io::BufRead as _;
             let file = std::fs::File::open(&f)
@@ -730,10 +763,40 @@ impl Hub {
                     rec.seq
                 );
                 last = last.max(rec.seq);
-                self.store.append(id, &rec)?;
+                match whole.as_mut() {
+                    Some(writer) => writer.write(&rec)?,
+                    None => self.store.append(id, &rec)?,
+                }
+            }
+        }
+        if let Some(writer) = whole {
+            writer.commit()?;
+            // Its kind index, in one pass from the page cache: the finish's queue and inbox reads
+            // take it, not a parse of the whole log under the freeze (`index_staged`).
+            if let Err(error) = self.store.scan_kinds(id, &["queued"], &mut |_| true) {
+                tracing::debug!(session = %id, "moved history not indexed: {error:#}");
             }
         }
         Ok(last)
+    }
+
+    /// The store's writer of chat `id`'s segment `000000`, when the store writes one into a folder
+    /// and the chat has no segment there yet (a failed import's retry may have some: it appends).
+    fn whole_history_writer(
+        &self,
+        id: &str,
+    ) -> anyhow::Result<Option<Box<dyn crate::store::HistoryWriter + '_>>> {
+        if !self.store.writes_history() {
+            return Ok(None);
+        }
+        let Some(dir) = self.store.session_dir(id) else { return Ok(None) };
+        let has_segment = std::fs::read_dir(dir.join("events")).is_ok_and(|entries| {
+            entries.flatten().any(|e| e.path().extension().is_some_and(|x| x == "ndjson"))
+        });
+        if has_segment {
+            return Ok(None);
+        }
+        self.store.history_writer(id)
     }
 
     /// The staged prefix as chat `id`'s segment `000000`, which the store never appends to and

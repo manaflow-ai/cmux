@@ -7,6 +7,7 @@
 //   bun scripts/chat-sim.ts --list
 //   bun scripts/chat-sim.ts incoming-notice-turn --trace /tmp/sim.jsonl
 //   bun scripts/chat-sim.ts --all
+//   bun scripts/chat-sim.ts churn --churn   (layout shifts and sub-second rows per minute)
 //   bun scripts/chat-sim.ts --map   (every mapped case, what is expected of it, and whether it holds)
 //   bun scripts/chat-sim.ts --long 1000 --trace /tmp/long.jsonl
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> [--from SEQ --to SEQ --last N --limit N]
@@ -20,6 +21,7 @@
 //   bun scripts/chat-sim.ts --drift ~/.acpmux/sessions [--days 7 --json]   (record kinds live chats write that no fixture or scenario plays)
 //   bun scripts/chat-sim.ts --replay ~/.acpmux/sessions/<id> --integrity   (bubble-integrity checker only)
 //   bun scripts/chat-sim.ts --stream-map [ID...]                           (the stream scenario map, model cases)
+//   ... --start-at S | --seek-to-event SEQ [--lead S]   (apply the steps before at once; trace from there)
 //
 // Exit status: 0 with no violations, 1 with any (2: bad arguments).
 import { appendFileSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -41,11 +43,12 @@ import {
 } from "../src/agent-session/acpmux/sim/capture";
 import { readRecords, readReplayRange } from "../src/agent-session/acpmux/sim/records";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
-import { runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
+import { churnSummary, runSimulation, summarize, type SimResult } from "../src/agent-session/acpmux/sim/run";
 import { DROPPED, sanitizeRecords } from "../src/agent-session/acpmux/sim/sanitize";
 import { replayScenario, type SimScenario } from "../src/agent-session/acpmux/sim/script";
 import { replayReported, ruleCounts } from "../src/agent-session/acpmux/sim/reported";
 import { EVERYWHERE, MAP } from "../src/agent-session/acpmux/sim/map";
+import { seekFromArgs, seekPlan } from "../src/agent-session/acpmux/sim/seek";
 import { SCENARIOS, longRun, scenarioNames } from "../src/agent-session/acpmux/sim/scenarios";
 import { integrityScan, runMapScenario } from "../src/agent-session/acpmux/sim/mapRun";
 import { STREAM_SCENARIOS } from "../src/agent-session/acpmux/sim/streamScenarios";
@@ -583,7 +586,7 @@ if (replay) {
 } else if (flag("--all")) {
   for (const name of scenarioNames()) scenarios.push(SCENARIOS[name]!());
 } else {
-  const name = args.find((arg) => !arg.startsWith("--"));
+  const name = args.find((arg, at) => !arg.startsWith("--") && !args[at - 1]?.startsWith("--"));
   if (!name || !SCENARIOS[name]) usage(2);
   scenarios.push(SCENARIOS[name]!());
 }
@@ -606,13 +609,24 @@ if (flag("--integrity")) {
 const tracePath = value("--trace");
 if (tracePath) writeFileSync(tracePath, "");
 const results: SimResult[] = [];
+const seek = seekFromArgs(value);
 for (const scenario of scenarios) {
-  const result = runSimulation(scenario, {
+  // A seek still runs every step (the state at the start is exact); the trace and the violations start there.
+  const start = seek ? seekPlan(scenario.steps, seek).start : 0;
+  if (seek)
+    console.log(
+      `seek: ${start} steps applied at once, from step ${start} (+${(((scenario.steps[start]?.at ?? 0) - (scenario.steps[0]?.at ?? 0)) / 1000).toFixed(1)} s)`,
+    );
+  const ran = runSimulation(scenario, {
     rowsInTraceUpTo: number("--rows-up-to"),
     onStep: tracePath
-      ? (trace) => appendFileSync(tracePath, JSON.stringify({ scenario: scenario.name, ...trace }) + "\n")
+      ? (trace) => {
+          if (trace.step >= start)
+            appendFileSync(tracePath, JSON.stringify({ scenario: scenario.name, ...trace }) + "\n");
+        }
       : undefined,
   });
+  const result = start ? { ...ran, violations: ran.violations.filter((violation) => violation.step >= start) } : ran;
   results.push(result);
   if (flag("--violations-json")) {
     // One row per rule it broke (its first step), for `--sweep`.
@@ -625,6 +639,19 @@ for (const scenario of scenarios) {
     continue;
   }
   console.log(summarize(result));
+  if (flag("--churn")) {
+    // Layout shifts and sub-second rows per minute of churn, and each one (`--show N` at most).
+    console.log(`  churn ${churnSummary(result)}`);
+    const show = Number(value("--show") ?? 20);
+    for (const shift of result.shifts.slice(0, show))
+      console.log(
+        `  shift ${shift.phase.padEnd(8)} step ${shift.step} (+${(shift.at / 1000).toFixed(1)} s, ${shift.label}) moved ${shift.moved} rows up to ${shift.px}px, back ${shift.back}px; cause ${shift.cause}`,
+      );
+    for (const flash of result.flashes.slice(0, show))
+      console.log(
+        `  flash ${flash.phase.padEnd(8)} step ${flash.step} (+${(flash.at / 1000).toFixed(1)} s, ${flash.label}) ${flash.kind} ${flash.id} shown ${flash.shownMs} ms`,
+      );
+  }
   // One line per distinct violation (the same row breaking the same rule at many steps prints once).
   const seen = new Set<string>();
   for (const violation of result.violations) {

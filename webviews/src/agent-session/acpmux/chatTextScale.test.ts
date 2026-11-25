@@ -5,6 +5,7 @@
 // transcript measures read the chat's.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -18,11 +19,18 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
-  for (const key of ["window", "document"] as const)
-    if (saved[key]) scope[key] = saved.values[key];
-    else delete scope[key];
-});
+afterAll(() =>
+  teardownDom(
+    (["window", "document"] as const).map((key) => [key, saved[key], saved.values[key]] as const),
+    { scope },
+  ),
+);
+
+// chatDisplay binds its cmux-ui-scale-change listener to the window it loads under. Another test file in the same bun
+// process (typing-load-control.test.ts) can load it first under its own DOM, whose events these tests never send, so
+// they load their own instance (the query makes it a separate module).
+const displaySpec = "./chatDisplay.ts?chatTextScale";
+const loadDisplay = () => import(displaySpec) as Promise<typeof import("./chatDisplay")>;
 
 /// Writes the host's two scales as its scale script does, then tells the page.
 const hostScales = (density: string, chat: string) => {
@@ -33,7 +41,7 @@ const hostScales = (density: string, chat: string) => {
 };
 
 test("at Compact the chat's text is Default's size", async () => {
-  const { chatDensityTextScale, chatMetrics, drawnFontSize, DEFAULT_CHAT_DISPLAY } = await import("./chatDisplay");
+  const { chatDensityTextScale, chatMetrics, drawnFontSize, DEFAULT_CHAT_DISPLAY } = await loadDisplay();
   hostScales("1", "1");
   const atDefault = chatMetrics(DEFAULT_CHAT_DISPLAY, chatDensityTextScale());
   hostScales("0.9", "1");
@@ -43,7 +51,7 @@ test("at Compact the chat's text is Default's size", async () => {
 });
 
 test("Text Size still grows the chat at Compact", async () => {
-  const { chatDensityTextScale, drawnFontSize, DEFAULT_CHAT_DISPLAY } = await import("./chatDisplay");
+  const { chatDensityTextScale, drawnFontSize, DEFAULT_CHAT_DISPLAY } = await loadDisplay();
   hostScales("1.08", "1.2");
   expect(chatDensityTextScale()).toBe(1.2);
   expect(drawnFontSize(DEFAULT_CHAT_DISPLAY)).toBe(Math.round(DEFAULT_CHAT_DISPLAY.fontSize * 1.2 * 4) / 4);
