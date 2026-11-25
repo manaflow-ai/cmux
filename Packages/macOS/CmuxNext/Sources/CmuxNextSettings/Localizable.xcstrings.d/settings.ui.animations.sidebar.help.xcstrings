@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.ui.animations.sidebar.help" : {
+      "comment" : "Settings > Appearance > Motion: the help text under a motion switch (ui.animations.*).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تنزلق الصفوف والمجموعات والشريط الجانبي نفسه عند تغيّرها."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Redovi, grupe i sama bočna traka klize dok se mijenjaju."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rækker, grupper og selve sidepanelet glider, når de ændres."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeilen, Gruppen und die Seitenleiste selbst gleiten, wenn sie sich ändern."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rows, groups and the sidebar itself slide as they change."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Las filas, los grupos y la propia barra lateral se deslizan al cambiar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Les lignes, les groupes et la barre latérale elle-même glissent quand ils changent."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Righe, gruppi e la barra laterale stessa scorrono quando cambiano."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "行、グループ、サイドバー自体が変化するときにスライドします。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ជួរ ក្រុម និងរបារចំហៀងខ្លួនឯង រំកិលនៅពេលផ្លាស់ប្ដូរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "행, 그룹, 사이드바가 바뀔 때 미끄러지듯 움직입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Rader, grupper og selve sidefeltet glir når de endres."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wiersze, grupy i sam pasek boczny przesuwają się przy zmianach."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Linhas, grupos e a própria barra lateral deslizam ao mudar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Строки, группы и сама боковая панель скользят при изменении."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แถว กลุ่ม และแถบด้านข้างจะเลื่อนเมื่อเปลี่ยนแปลง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Satırlar, gruplar ve kenar çubuğunun kendisi değişirken kayar."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Рядки, групи й сама бічна панель ковзають під час змін."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Hàng, nhóm và chính thanh bên trượt khi thay đổi."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "行、分组和侧边栏本身在变化时滑动。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "列、群組與側邊欄本身在變化時滑動。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
