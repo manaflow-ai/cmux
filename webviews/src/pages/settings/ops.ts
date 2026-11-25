@@ -1167,8 +1167,6 @@ export type LibraryEntry = {
   added_ms: number | null;
   /** Keys and files a higher entry that is on sets too, so this one's value is not in use. */
   overridden: string[];
-  /** Code not merged into this build (a PR, a branch, a commit, a folder, a fork); absent otherwise. */
-  code?: { kind?: string; pr?: number; repo: string; title?: string; source?: string; note?: string };
   /** The unmerged pull request a `pr-N` entry is (`cmux customize use pr:N`; cmux-customize
    * `library/code.rs` `CodeLayer`). Absent on every other entry. */
   code?: LibraryCode;
