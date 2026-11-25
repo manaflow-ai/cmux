@@ -1092,7 +1092,7 @@ pub(super) fn url_of(platform: &str, request: &Request, team: Option<&str>) -> S
     url
 }
 
-pub(super) fn percent(value: &str) -> String {
+fn percent(value: &str) -> String {
     value
         .bytes()
         .map(|b| match b {

@@ -53,7 +53,7 @@ afterEach(async () => {
 });
 
 /** The decorative branch of Thinking.tsx before the slot, verbatim: what the default must still draw. */
-function PreSlotDecorative({ label, verbs }: { label: string; verbs: string[] }) {
+function PreSlotDecorative({ label, verbs, elapsed }: { label: string; verbs: string[]; elapsed?: string }) {
   const verbSizes = verbs.map((word, index) => (
     <span key={index} className="cv-status-verb__size" data-text={word} aria-hidden="true" inert />
   ));
@@ -68,11 +68,12 @@ function PreSlotDecorative({ label, verbs }: { label: string; verbs: string[] })
         </span>
       }
       lit={
-        // No lit copy of the time: the band stays in the words' box (Leo, 2026-11-25: "and the overlap
-        // when the glimmer goes to the end").
-        <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
-          {decorative && verbSizes}
-        </span>
+        <>
+          <span className={`cv-shimmer__lit-label${decorative ? " cv-status-verb" : ""}`} data-text={label}>
+            {decorative && verbSizes}
+          </span>
+          {elapsed && <span className="cv-shimmer__lit-time" data-text={elapsed} />}
+        </>
       }
     />
   );
@@ -85,7 +86,7 @@ test("the default variant draws the pre-slot live line's markup exactly", () => 
   expect(elapsed).toBeTruthy();
   const expected = dom!.window.document.getElementById("expected")!;
   const other = createRoot(expected);
-  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking"]} />));
+  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking"]} elapsed={elapsed} />));
   expect(output.innerHTML).toBe(expected.innerHTML);
   act(() => other.unmount());
 });
@@ -119,7 +120,7 @@ test("the default variant's own component draws the pre-slot markup too", () => 
   );
   const expected = dom!.window.document.getElementById("expected")!;
   const other = createRoot(expected);
-  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking", "Pondering"]} />));
+  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking", "Pondering"]} elapsed="2s" />));
   expect(container.innerHTML).toBe(expected.innerHTML);
   act(() => other.unmount());
 });

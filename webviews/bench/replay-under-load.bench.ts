@@ -25,7 +25,7 @@
 //   renderer_main_busy_pct  the renderer main thread's task time over the window's wall time (CDP TaskDuration), %
 //   long_tasks              tasks of 50 ms or more in the window, and longest_task_ms
 //   records                 the records sent in the window
-//   bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile]
+//   bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE]
 // Exit 0 with a reading (even a null frame p95, which says why), 1 when the page never attached or the run failed.
 /// <reference types="bun" />
 import fs from "node:fs";
@@ -35,7 +35,6 @@ import { chromium } from "./browsers";
 import type { CDPSession } from "playwright";
 import type { EventRecord } from "../src/agent-session/acpmux/direct";
 import { parseLog, type ReplayLog } from "./replayLogs";
-import { printProfile, type CpuProfile } from "./support/profile";
 
 const argv = process.argv.slice(2);
 const flag = (name: string) => {
@@ -49,7 +48,6 @@ const RATE = Number(flag("--rate") ?? 40);
 const SECONDS = Number(flag("--seconds") ?? 60);
 const WARM = Number(flag("--warm") ?? 5);
 const OUT = flag("--out");
-const PROFILE = argv.includes("--profile");
 /// Fewer gaps than this in the window is no frame p95 (the goal's sensor holds the same floor, perf_sensor.py).
 const MIN_FRAMES = 60;
 /// frameTally.ts BUCKET_MS and BUCKETS: bucket i holds gaps in [i * 0.1, (i + 1) * 0.1) ms; BUCKETS holds 100 ms+.
@@ -59,7 +57,7 @@ const BUCKETS = 1000;
 const FLUSH_WAIT_MS = 6_000;
 if (![RATE, SECONDS, WARM].every((n) => Number.isFinite(n) && n > 0)) {
   console.error(
-    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile]",
+    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE]",
   );
   process.exit(2);
 }
@@ -181,7 +179,7 @@ async function run(): Promise<Reading> {
     const { build } = await import("vite");
     await build({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+      build: { outDir: out, emptyOutDir: true },
       logLevel: "error",
     });
     const statics = Bun.serve({
@@ -206,17 +204,9 @@ async function run(): Promise<Reading> {
     });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
-    if (PROFILE) {
-      await cdp.send("Profiler.enable");
-      await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
-      await cdp.send("Profiler.start");
-    }
     const url =
       `http://127.0.0.1:${statics.port}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}` +
-      `&token=t&session=${encodeURIComponent(log.sessionId)}` +
-      // A shipped build's scheme, as Leo's NIGHTLY names: the dev host's default `cmux-dev` turns on the dev-only
-      // layout-motion audit (devMotionAudit.ts), which sampled every box each frame and was ~8% of this reading.
-      `&scheme=cmux`;
+      `&token=t&session=${encodeURIComponent(log.sessionId)}`;
     const consoleTail: string[] = [];
     page.on("console", (m) => consoleTail.push(`${m.type()}: ${m.text()}`.slice(0, 300)));
     page.on("pageerror", (e) => consoleTail.push(`pageerror: ${e.message}`.slice(0, 300)));
@@ -255,7 +245,6 @@ async function run(): Promise<Reading> {
     await page.waitForTimeout(SECONDS * 1000);
     const taskAfter = await taskSeconds(cdp);
     const wallMs = performance.now() - wallBefore;
-    if (PROFILE) printProfile(((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile, "replay", wallMs);
     const pageEnd = await page.evaluate(() => performance.now());
     clearInterval(timer);
     // The tally's last flush (at most FLUSH_MS after the window's last frames) still counts.

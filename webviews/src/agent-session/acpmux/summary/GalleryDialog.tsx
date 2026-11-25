@@ -46,7 +46,7 @@ export function GalleryDialog({
         if (!open) onClose();
       }}
       label={t("gallery.title")}
-      className="acpmux-chat-gallery ui-glass"
+      className="acpmux-chat-gallery"
       backdropClassName="acpmux-image-viewer-backdrop"
       style={below}
       initialFocus={close}

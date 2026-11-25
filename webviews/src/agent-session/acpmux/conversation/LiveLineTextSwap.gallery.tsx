@@ -2,20 +2,13 @@
 // The Working line and the activity line under a todo list change their words as Claude desktop's
 // do (Leo, 2026-11-05: "this is quite good too how it animates the changing text!!! we need to have
 // that!!! for changing tool calls at the bottom"): the old call rises out, the new one rises in, and
-// the clock slides to its end while it ticks, on the one text roll every live label shares
-// (ui/motion/TextRoll.tsx): the old words roll out and the new roll in through the line's faded top
-// and bottom edges (Leo, 2026-11-25: "the animation when it changes text at least in teh former is
-// still quite jarring bc it doesn't fade at the top/bottom when switching"). The Codex-style live line
-// (Thinking.tsx) rolls its own words (`useRoll`) under the same edge and clock. Three arms
-// (ui/motion/textRoll.experiment.ts; view Compare arms) vary the fade's depth and the pace. The
-// mid-change variants hold every finite animation at one moment so the still shows the motion; the
-// live page (Replay) plays it.
+// the clock slides to its end while it ticks (ui/motion/useTextSwap.ts). The Codex-style live line
+// (Thinking.tsx) rolls its own words (`useRoll`). The mid-change variants hold every finite animation at one
+// moment so the still shows the motion; the live page (Replay) plays it.
 import { useLayoutEffect, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { textRollLook } from "../../../ui/motion/textRoll.experiment";
 import type { AcpmuxRow } from "../model";
-import { Tick } from "../subagents/trayMotion";
 import { ActivityLine } from "./ActivityLine";
 import { WorkingFor } from "./WorkingFor";
 
@@ -70,10 +63,6 @@ function Fixture({ variant }: { variant: Variant }) {
           } as AcpmuxRow
         }
       />
-      {/* A subagent activity row's latest line (AgentLine.tsx's Tick). */}
-      <div style={{ marginTop: 12, fontSize: 12, opacity: 0.8 }}>
-        <Tick className="acpmux-agent-line__latest-inline" text={call} slide />
-      </div>
     </div>
   );
 }
@@ -98,32 +87,14 @@ export default componentEntry<{ variant: Variant }>({
   title: "Working and activity lines: the call's words change in place",
   area: "Agent pane",
   pane: true,
-  height: 170,
+  height: 140,
   widths: { narrow: 360, normal: 560 },
-  styles: () =>
-    Promise.all([import("../styles.css"), import("./conversation.css"), import("../subagents/subagents.css")]),
+  styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
   covers: [
     "agent-session/acpmux/conversation/WorkingFor.tsx#WorkingFor",
     "agent-session/acpmux/conversation/ActivityLine.tsx#ActivityLine",
-    "agent-session/acpmux/subagents/trayMotion.tsx#Tick",
-    "ui/motion/TextRoll.tsx#TextRoll",
-    "ui/motion/textRoll.experiment.ts",
+    "ui/motion/useTextSwap.ts#useTextSwap",
   ],
-  experiment: {
-    definition: textRollLook,
-    script: [
-      { name: "a shorter call", run: next },
-      { name: "a longer call", run: next },
-      {
-        name: "three calls faster than the roll",
-        run: async (ctx) => {
-          await next(ctx);
-          await next(ctx);
-          await next(ctx);
-        },
-      },
-    ],
-  },
   variants: {
     "at-rest": {
       props: { variant: "at-rest" },
@@ -155,7 +126,7 @@ export default componentEntry<{ variant: Variant }>({
     },
     "fast-calls": {
       props: { variant: "fast-calls" },
-      note: "Three calls faster than the motion: the roll lands, then rolls once to the latest call; one old copy at most.",
+      note: "Three calls faster than the motion: each starts from where the line is; at most two old copies.",
       play: async (ctx) => {
         await next(ctx);
         await next(ctx);
@@ -169,7 +140,7 @@ export default componentEntry<{ variant: Variant }>({
       play: async (ctx) => {
         await next(ctx);
         await ctx.waitFor(
-          () => swapAnimations(ctx.document).length === 0 && !ctx.document.querySelector(".ui-text-roll__out"),
+          () => swapAnimations(ctx.document).length === 0 && !ctx.document.querySelector(".ui-text-swap__ghost"),
         );
       },
     },

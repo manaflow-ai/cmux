@@ -38,7 +38,7 @@ TIMEOUT = 20
 def oidc_token(env=os.environ) -> str:
     url = env["ACTIONS_ID_TOKEN_REQUEST_URL"] + "&" + urllib.parse.urlencode({"audience": AUDIENCE})
     request = urllib.request.Request(url, headers={"Authorization": f"Bearer {env['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}"})
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:  # user-agent: GitHub's OIDC token URL, no CDN of ours
+    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
         return json.load(response)["value"]
 
 

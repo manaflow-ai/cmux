@@ -1,4 +1,0 @@
-{
-  "agent": "userOnly",
-  "why": "The apps that open your folders and files: an agent must not pick what runs them."
-}

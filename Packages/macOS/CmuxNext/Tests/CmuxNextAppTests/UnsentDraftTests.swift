@@ -118,30 +118,6 @@ struct UnsentDraftTests {
         withExtendedLifetime(sender) {}
     }
 
-    /// Leo, 2026-11-25 ("playable vs fully installed... or just go"): Return during a Cloud start queues
-    /// what was typed (`chat.cloudStartQueue`), and the started chat's first prompt carries it after the
-    /// start's own, under the one gesture ticket; the composer's unsent text stays a draft. A start
-    /// that fails hands off none, and a session clears the queue.
-    @Test func returnDuringACloudStartJoinsTheStartedChatsFirstPrompt() async throws {
-        let drafts = AgentUnsentDrafts(file: nil, files: AgentPaneStateFiles()) { "this-mac" }
-        let sender = AgentPaneModel(host: MockAgentPaneHost())
-        drafts.wire(sender) { "tab-1" }
-        _ = await sender.respond(to: Self.request("chat.cloudStartQueue", ["text": "and run the tests"]))
-        _ = await sender.respond(to: Self.request("chat.unsentDraft", ["text": "half typed"]))
-        let (source, handOff) = AgentPaneSeedSource.handingOffDraft(AgentPaneSeed(prompt: "fix the build", promptBy: .person)) {
-            drafts.draft(forTab: "tab-1", machine: "this-mac")
-        } queued: {
-            drafts.queued(forTab: "tab-1", machine: "this-mac")
-        }
-        handOff(true)
-        let seed = await source.take()
-        #expect(seed?.prompt == "fix the build\n\nand run the tests")
-        #expect(seed?.draft == "half typed")
-        _ = await sender.respond(to: Self.request("chat.cloudStartQueue", ["text": ""]))
-        #expect(drafts.queued(forTab: "tab-1", machine: "this-mac") == nil)
-        withExtendedLifetime(sender) {}
-    }
-
     /// cmux#32276: a new chat whose tab opens another chat leaves its text (typed, and prompts held
     /// for a trust answer) in its window's one slot, on disk: a second leftover adds to it, the
     /// window's next new chat takes it once, and nothing sends it.

@@ -7,18 +7,13 @@ extension Glass {
     /// shadow (``TooltipSurface/shadow``). The App draws it under a web tooltip that asks for host
     /// glass (`data-host-glass="chip"`, ``makeHostSurface(level:role:)``) and as the native tooltip of
     /// the Liquid Glass Parity playground, so the web tooltip lays only its text on the native surface.
-    ///
-    /// `look` is the shared hover surface it draws (``HoverSurfaceLook``); nil takes the setting's.
     @MainActor
-    public static func makeTooltipGlass(cornerRadius: CGFloat? = nil, interactive: Bool = false,
-                                        look: HoverSurfaceLook? = nil) -> OverlaySurfaceView {
-        let look = look ?? HoverSurfaceLook.current
+    public static func makeTooltipGlass(cornerRadius: CGFloat? = nil, interactive: Bool = false) -> OverlaySurfaceView {
         let surface = makeSurface(.tooltip, cornerRadius: cornerRadius ?? SurfaceRole.tooltip.cornerRadius, interactive: interactive)
-        look.apply(to: surface)
         let veil = TooltipLegibilityView(frame: surface.contentView.bounds)
         veil.autoresizingMask = [.width, .height]
         surface.contentView.addSubview(veil, positioned: .below, relativeTo: nil)
-        surface.castShadow = look.shadow(default: TooltipSurface.shadow)
+        surface.castShadow = TooltipSurface.shadow
         return surface
     }
 }

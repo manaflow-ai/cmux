@@ -9,7 +9,7 @@
 //
 // A switch that picks an arm: its row in schemas/settings/source/experiments.json and one entry in
 // SETTING_ARMS.
-import { experimentSwitchOn, setExperimentSwitches, experimentSwitchOff } from "./switches";
+import { experimentSwitchOff, experimentSwitchOn, setExperimentSwitches } from "./switches";
 
 type SettingArm = { experiment: string; arm: string };
 type SettingArmEntry = SettingArm | readonly SettingArm[];
@@ -18,18 +18,23 @@ type SettingArmEntry = SettingArm | readonly SettingArm[];
 export const SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = {
   menuStyleV2: { experiment: "menu-style-v2", arm: "v2" },
   menuRowStates: { experiment: "menu-row-states", arm: "on" },
-  toastGlass: { experiment: "toast-glass", arm: "host" },
-  composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "groups" },
+  composerHatGroups: [
+    { experiment: "subagent-tray-fold-head", arm: "groups" },
+    { experiment: "subagent-tray-column", arm: "glyph" },
+  ],
 };
 
 /**
  * The arm(s) a switch that is on by default runs when the person turns it off. Its on arms are the
  * experiments' defaults, so a page with no host (the gallery, tests) draws the shipped look.
  * composerHatGroups: on by default since Leo, 2026-11-25 ("did u guys fix the composer hat yet :( let's
- * go ahead on those"); off keeps the earlier tally header.
+ * go ahead on those"); off keeps the earlier tally header and the + chip's column.
  */
 export const SETTING_OFF_ARMS: Readonly<Record<string, SettingArmEntry>> = {
-  composerHatGroups: { experiment: "subagent-tray-fold-head", arm: "tally" },
+  composerHatGroups: [
+    { experiment: "subagent-tray-fold-head", arm: "tally" },
+    { experiment: "subagent-tray-column", arm: "chip" },
+  ],
 };
 
 function armsFor(entry: SettingArmEntry): readonly SettingArm[] {

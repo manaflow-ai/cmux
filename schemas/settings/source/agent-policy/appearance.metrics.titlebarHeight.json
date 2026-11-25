@@ -1,4 +1,0 @@
-{
-  "agent": "settable",
-  "why": "Sizes and cmux-browser's own keys: cmux-browser writes them from its UI as `script` (a separate process is never `user`), for example the sidebar width after a resize."
-}

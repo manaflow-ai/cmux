@@ -22,7 +22,7 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
+import { rememberStartedProject } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
 import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
@@ -31,7 +31,7 @@ import { openPicker } from "../pickerOpeners";
 import { startRefusalRoute } from "../startRefusal";
 import { paneKnowsNewChat } from "../locationRow";
 import { translate, type Translate } from "../i18n";
-import { inThisVisit, type useFolderTrustAsk, composerTrustBlock } from "../useFolderTrustAsk";
+import { inThisVisit, type useFolderTrustAsk } from "../useFolderTrustAsk";
 import { bindsHeldSendNow } from "../heldSendBinding";
 import { TrayPullTab } from "../subagents/TrayPullTab";
 import { pullTabCounts } from "../subagents/trayPullTabModel";
@@ -99,7 +99,7 @@ import type { ManagedBy } from "../managedBy";
 import type { SubagentTrayPlacement } from "../subagents/subagentTrayPlacement";
 import type { TrayItem } from "../subagents/runningTray";
 import type { TrayHandleSide } from "../chatDisplay";
-import { hatPillInMiddle, hatPillQuiet, type HatPillPlace } from "../hatPillPlace.experiment";
+import type { HatPillPlace } from "../hatPillPlace.experiment";
 import type { SwitchView, HarnessSwitch } from "../harnessSwitch";
 import type { CloudMachine } from "../cloudMachines";
 import type { ComposerAttachment, DroppedKind, KnownPaths } from "../attachments";
@@ -141,8 +141,6 @@ export type PaneComposerDeps = {
   subagentDraftKey: string;
   /// A message to the subagent did not reach the chat: its note shows over the box.
   subagentFailed: boolean;
-  /// acpmux's queue for the composer's queued cards, the same list while it holds the same prompts.
-  composerTurnQueue: AcpmuxSnapshot["queue"];
   t: Translate;
   reviewing: boolean;
   snapshot: AcpmuxSnapshot;
@@ -267,8 +265,6 @@ export type PaneComposerDeps = {
   setStatusCardOpen: React.Dispatch<React.SetStateAction<boolean>>;
   openImage: (src: string, alt: string, path?: string) => void;
   cloudStarting: boolean;
-  /// Return during a Cloud start queues the message for the started chat ("just go"); false: it waits.
-  onCloudStartQueue?: (text: string) => boolean;
   composerDrawn: AcpmuxSnapshot;
   guestsHere: boolean;
   composerSnapshot: AcpmuxSnapshot;
@@ -279,8 +275,6 @@ export type PaneComposerDeps = {
   ComposerChips: React.ComponentType<{ snapshot: AcpmuxSnapshot }> | typeof DefaultComposerChips;
   reconnectPeer: (peer: string) => Promise<unknown>;
   sessionInfo: ReturnType<typeof useSessionInfo>;
-  /// The agent's /compact for this chat (App.tsx `compactChat`): the context card's Compact conversation row.
-  compactChat: (() => void) | undefined;
   draft: string | undefined;
   setDraftSettled: React.Dispatch<React.SetStateAction<string | undefined>>;
   onNewChatDraft: (text: string) => Promise<unknown>;
@@ -428,7 +422,6 @@ export type PaneComposerDeps = {
 export function drawPaneComposer({
   hostOverload,
   markDockEdge,
-  composerTurnQueue,
   readOnlySubagent,
   subagentRelay,
   subagentDraftKey,
@@ -527,7 +520,6 @@ export function drawPaneComposer({
   changesPillNode,
   openImage,
   cloudStarting,
-  onCloudStartQueue,
   composerDrawn,
   guestsHere,
   composerSnapshot,
@@ -538,7 +530,6 @@ export function drawPaneComposer({
   ComposerChips,
   reconnectPeer,
   sessionInfo,
-  compactChat,
   draft,
   setDraftSettled,
   onNewChatDraft,
@@ -980,7 +971,7 @@ export function drawPaneComposer({
               {...pullTabCounts(trayList, waitingAgents)}
               working={hatPlan !== undefined && hatPlan.length > 0 && !hatKept}
               side={hatHandle}
-              quiet={hatPillQuiet(hatPillArm) && (hatHandle !== trayHandle || hatPillInMiddle(hatPillArm))}
+              quiet={hatPillArm === "quiet" && hatHandle !== trayHandle}
             />
           ) : (
             trayNode
@@ -999,11 +990,10 @@ export function drawPaneComposer({
             relay={subagentRelay}
             onFocusEdge={markDockEdge}
             cloudStarting={cloudStarting}
-            {...(onCloudStartQueue ? { onCloudStartQueue } : {})}
             snapshot={composerDrawn}
             guestHarnesses={guestsHere ? composerSnapshot.catalog : undefined}
             headerCwd={snapshot.summary?.cwd ?? ""}
-            turnQueue={composerTurnQueue}
+            turnQueue={snapshot.queue}
             sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
             placeholder={isSideSession ? t("sideSession.placeholder") : undefined}
             switching={Boolean(switchView.intent)}
@@ -1023,8 +1013,6 @@ export function drawPaneComposer({
             onReconnectMachine={(link) => reconnectPeer(link.machine)}
             // The context card's Details opens Session Info on Context, unfolded and lit (main's).
             onOpenContext={sessionInfo.reveal ? () => sessionInfo.reveal?.("context") : undefined}
-            // The card's Compact conversation row sends the agent's /compact, as Session Info's Compact does.
-            onCompact={compactChat}
             draft={draft}
             onDraftSettled={setDraftSettled}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
@@ -1145,11 +1133,6 @@ export function drawPaneComposer({
                   directClient.current?.notice(started);
                   return false;
                 }
-                // The folder the person picked (here or by an earlier Cloud start) is Cloud's next default, kept
-                // apart from This Mac's (newtab/startedProject.ts, cmux#53226); the tab folder's GitHub origin no
-                // one picked never is.
-                if (started === true && "cwd" in folder && folder.cwd === pickedProject.current)
-                  rememberCloudPick(folder.cwd, callNative);
                 return started;
               }
               if (sandboxPickedNotOffered) {
@@ -1676,7 +1659,7 @@ export function drawPaneComposer({
             // The folder's trust question holds Send only for a remote chat and Start Agent
             // (trustSendOff): a prompt sent under it waits in the pane (trustHeld.ts), or goes now to
             // a chat whose agent already runs (trustPasses). A read in flight (`{}`) holds nothing.
-            blocked={composerTrustBlock(trustSendOff, trustAsk.blocked)}
+            blocked={trustSendOff || !trustAsk.blocked?.reason ? trustAsk.blocked : undefined}
             // A new chat on another machine holds Send while its agent is not set up there.
             blockSend={
               blockSend ||

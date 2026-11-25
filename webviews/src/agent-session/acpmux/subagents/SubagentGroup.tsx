@@ -14,7 +14,6 @@ import { AgentIdentity } from "./AgentIdentity";
 import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "./agentIdentityModel";
 import { useSenderIconLook } from "./senderIconLook";
 import { subagentProgress } from "./subagentProgress";
-import { orderedCountWords } from "../session-info/subagentsSectionModel";
 import { subagentDisplayName } from "./subsessions";
 import { namedAction } from "./trayDetail";
 import { waveProps } from "../../../ui/wave";
@@ -71,8 +70,11 @@ function groupLabel(t: Translate, language: PaneLanguage, agents: readonly Subag
   const stopped = count("cancelled") + count("disconnected");
   if (n > 0 && done === n) return t("subagents.allDone", { n });
   if (n > 0 && failed === n) return t("subagents.allFailed", { n });
-  // Running is the default the mark carries; only the states that differ are worded, in the shared order.
-  const states = orderedCountWords({ failed, stopped, done: runningCount === 0 ? done : 0 }, t);
+  const states = [
+    failed > 0 && t("summary.subagents.failed", { n: failed }),
+    stopped > 0 && t("summary.subagents.stopped", { n: stopped }),
+    runningCount === 0 && done > 0 && t("summary.subagents.done", { n: done }),
+  ].filter((part): part is string => typeof part === "string");
   const total = t("subagents.count", { n });
   if (states.length === 0) return total;
   const list = intl.ListFormat(language, { type: "unit", style: "short" }).format(states);

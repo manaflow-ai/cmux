@@ -34,7 +34,7 @@ pub(super) enum OperationOwner {
     PaletteRank,
     /// `chat.*` (resource_router/chats.rs): acpmux's chats as the daemon keeps them.
     Chat,
-    /// `theme.scheme.*` and `theme.slots.resolve` (resource_router/theme_scheme.rs): stateless.
+    /// `theme.scheme.*` (resource_router/theme_scheme.rs): stateless converters.
     ThemeScheme,
     /// `browser_import.read` (resource_router/browser_import.rs): stateless.
     BrowserImport,
@@ -204,8 +204,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChatPin => OperationOwner::Chat,
         ResourceOperation::ThemeSchemeConvert
         | ResourceOperation::ThemeSchemeExport
-        | ResourceOperation::ThemeSchemeFromImage
-        | ResourceOperation::ThemeSlotsResolve => OperationOwner::ThemeScheme,
+        | ResourceOperation::ThemeSchemeFromImage => OperationOwner::ThemeScheme,
         ResourceOperation::BrowserImportRead => OperationOwner::BrowserImport,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet

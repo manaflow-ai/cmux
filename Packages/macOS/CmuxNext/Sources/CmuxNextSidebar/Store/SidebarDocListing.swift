@@ -74,7 +74,7 @@ extension SidebarDocProjection {
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
         arranged.insert(contentsOf: before, at: at)
         arranged += after
-        let marked = Self.markingDocMarks(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
+        let marked = Self.markingArchived(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
         return Self.sortingGroups(marked, projection, drag: drag)
     }
 
@@ -99,18 +99,14 @@ extension SidebarDocProjection {
         }
     }
 
-    /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md); and each member
-    /// pinned in its group marked (`isPinnedInGroup`): it draws its pin mark (#56146).
-    @MainActor private static func markingDocMarks(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
+    /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md).
+    @MainActor private static func markingArchived(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
                                                    drag: SidebarDocDrag) -> [SidebarSection] {
         // Every row, also with none archived: a list arranged before (a fold) may carry an old mark.
-        let archived = projection.archived, pinned = projection.pinnedInGroup
-        func mark(_ workspace: SidebarWorkspace, inGroup: Bool) -> SidebarWorkspace {
+        let archived = projection.archived
+        func mark(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
             var workspace = workspace
-            let item = drag.item(.workspace(workspace.id))
-            workspace.isArchived = item.map { archived.contains($0) } ?? false
-            // Only a member: a stale mark on a loose row is not a pin (`SidebarDocRecords.isPinned(item:)`).
-            workspace.isPinnedInGroup = inGroup && item.map { pinned.contains($0) } ?? false
+            workspace.isArchived = drag.item(.workspace(workspace.id)).map { archived.contains($0) } ?? false
             return workspace
         }
         func mark(_ item: SidebarListItem) -> SidebarListItem {
@@ -122,11 +118,11 @@ extension SidebarDocProjection {
             var section = section
             section.nodes = section.nodes.map { node in
                 switch node {
-                case .workspace(let workspace): return .workspace(mark(workspace, inGroup: false))
+                case .workspace(let workspace): return .workspace(mark(workspace))
                 case .item(let item): return .item(mark(item))
                 case .group(var group):
                     group.isArchived = archived.contains(group.id.rawValue)
-                    group.workspaces = group.workspaces.map { mark($0, inGroup: true) }
+                    group.workspaces = group.workspaces.map(mark)
                     group.items = group.items.map { SidebarGroupItem(item: mark($0.item), after: $0.after) }
                     return .group(group)
                 }

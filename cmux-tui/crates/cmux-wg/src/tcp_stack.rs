@@ -283,7 +283,7 @@ impl TcpStack {
             next_port: random_ephemeral_port(),
             syn_origins: tagged.then(HashMap::new),
             closing: false,
-            congestion: crate::ultra::congestion_from_env(),
+            congestion: tcp::CongestionControl::Cubic,
             stream_window: stream_window_from_env(),
             hold: None,
             release_at: None,

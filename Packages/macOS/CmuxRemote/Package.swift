@@ -31,7 +31,6 @@ let package = Package(
     dependencies: [
         .package(path: "../../Shared/CmuxAgentCursor"),
         .package(path: "../../Shared/CmuxDeviceHub"),
-        .package(path: "../../Shared/CmuxTheme"),
         .package(path: "../../Shared/CmuxVNCWebRTC"),
     ],
     targets: [
@@ -45,8 +44,7 @@ let package = Package(
         .target(name: "CCmuxComputerUse"),
         .target(
             name: "CmuxRemoteComputerUse",
-            dependencies: ["CmuxRemoteWire", "CCmuxComputerUse", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor"),
-                           .product(name: "CmuxTheme", package: "CmuxTheme")],
+            dependencies: ["CmuxRemoteWire", "CCmuxComputerUse", .product(name: "CmuxAgentCursor", package: "CmuxAgentCursor")],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings,
             linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("ApplicationServices"),
@@ -58,7 +56,6 @@ let package = Package(
                 "CmuxRemoteWire",
                 .product(name: "CmuxDeviceHub", package: "CmuxDeviceHub"),
                 .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC"),
-                .product(name: "CmuxTheme", package: "CmuxTheme"),
             ],
             resources: [.process("Resources")],
             swiftSettings: swiftSettings,

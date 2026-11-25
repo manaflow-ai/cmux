@@ -39,13 +39,10 @@ extension WebKitTab: WKNavigationDelegate {
 
         if !Self.isWebScheme(url) {
             decisionHandler(.cancel, preferences)
-            // The shared opener prompts for every non-gesture navigation
-            // before handing it to another app; a return to this app (its
-            // own scheme) goes to the app itself, and the flow's tab closes.
+            // The shared opener prompts for every non-gesture navigation,
+            // including sign-in returns, before handing it to another app.
             if navigationAction.targetFrame?.isMainFrame ?? true {
-                let history = webView.backForwardList, first = (history.backList.first ?? history.currentItem)?.initialURL
-                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, firstPage: first,
-                                                close: { [weak self] in self?.emit(.close) }, ask: enqueuePrompt)
+                BrowserExternalApps.shared.open(url, from: navigationAction.sourcePage, userGesture: isUserLinkClick, ask: enqueuePrompt)
             }
             return
         }

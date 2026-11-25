@@ -110,7 +110,7 @@ try {
     const drawn = host.querySelector<HTMLImageElement>(".cv-user__images img");
     expect(drawn?.getAttribute("src")).toBe(image.src);
     expect(host.querySelector(".cv-user__image-placeholder")).toBeNull();
-    // Its own 3:2 shape, SENT_IMAGE_HEIGHT (160px) tall: 240 wide (userBubbleModel.ts sentImageSize).
+    // 160px tall at 3:2.
     expect(drawn?.style.width).toBe("240px");
   });
 

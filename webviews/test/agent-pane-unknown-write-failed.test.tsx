@@ -27,12 +27,16 @@ import {
 const dom = useDom();
 
 /// Each row's path and what sits at its right edge: its counts, or "failed".
-const rows = () => dom.rows();
+const rows = () =>
+  [...dom.host().querySelectorAll(".acpmux-edited-file")].map((entry) => [
+    entry.querySelector(".acpmux-edited-path")?.getAttribute("data-path"),
+    entry.querySelector(".acpmux-diff-counts, .acpmux-edited-failed")?.textContent,
+  ]);
 
 test("a failed Write with no content stays on the card, marked failed", async () => {
   await dom.render(await editedCard(activity("turn-f1", [await translatorWrite("write-1", NOTES, "failed")])));
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 1 file");
-  expect(await rows()).toEqual([[NOTES, "failed"]]);
+  expect(rows()).toEqual([[NOTES, "failed"]]);
   expect(dom.host().querySelector(".acpmux-edited .acpmux-diff-add")).toBeNull();
   expect(dom.host().querySelector(".acpmux-edited-undo")).toBeNull();
 });
@@ -45,7 +49,7 @@ test("beside a counted edit, the failed Write lists as failed", async () => {
   await dom.render(await editedCard(row));
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 2 files");
   expect(dom.text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+1-1");
-  expect(await rows()).toEqual([
+  expect(rows()).toEqual([
     [PLAN, "+1-1"],
     [NOTES, "failed"],
   ]);
@@ -68,7 +72,7 @@ test("a retried Write of unknown old contents lists the file once, not failed", 
     await translatorWrite("write-5", NOTES, "updated"),
   ]);
   await dom.render(await editedCard(row));
-  expect(await rows()).toEqual([[NOTES, undefined]]);
+  expect(rows()).toEqual([[NOTES, undefined]]);
 });
 
 test("a failed edit that carried no diff lists as failed too", async () => {
@@ -77,14 +81,14 @@ test("a failed edit that carried no diff lists as failed too", async () => {
     { status: "failed", content: [{ type: "content", content: { type: "text", text: "No such file" } }] },
   ]);
   await dom.render(await editedCard(activity("turn-f5", [failedMove])));
-  expect(await rows()).toEqual([[NOTES, "failed"]]);
+  expect(rows()).toEqual([[NOTES, "failed"]]);
 });
 
 test("once the checkpoint loads, a failed Write in the repository stays on the card", async () => {
   const row = activity("turn-f6", [await translatorWrite("write-6", NOTES, "failed")]);
   await dom.render(await editedCard(row, checkpoint()));
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 1 file");
-  expect(await rows()).toEqual([[NOTES, "failed"]]);
+  expect(rows()).toEqual([[NOTES, "failed"]]);
 });
 
 test("once the checkpoint loads, a failed Write lists after the repository's counted files", async () => {
@@ -99,7 +103,7 @@ test("once the checkpoint loads, a failed Write lists after the repository's cou
     ),
   );
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 2 files");
-  expect(await rows()).toEqual([
+  expect(rows()).toEqual([
     [PLAN, "+1-1"],
     [NOTES, "failed"],
   ]);
@@ -119,7 +123,7 @@ test("once the checkpoint loads, a failed Write under a path alias of the reposi
   await dom.render(await editedCard(row, load));
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
   expect(dom.text(".acpmux-edited-sub .acpmux-diff-counts")).toBe("+1-1");
-  expect(await rows()).toEqual([["/private/tmp/repo/notes.txt", "+1-1"]]);
+  expect(rows()).toEqual([]);
   expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
 });
 
@@ -137,7 +141,7 @@ test("once the checkpoint loads, a failed Write deeper in the repository stays b
     ),
   );
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 2 files");
-  expect(await rows()).toEqual([
+  expect(rows()).toEqual([
     [NOTES, "+1-1"],
     [nested, "failed"],
   ]);
@@ -156,7 +160,7 @@ test("once the checkpoint loads, a failed Write outside the repository stays bes
     ),
   );
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited 2 files");
-  expect(await rows()).toEqual([
+  expect(rows()).toEqual([
     [NOTES, "+1-1"],
     [elsewhere, "failed"],
   ]);
@@ -175,7 +179,7 @@ test("once the checkpoint loads, a failed Write the agent named from ~ lists no 
     ),
   );
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
-  expect(await rows()).toEqual([[NOTES, "+1-1"]]);
+  expect(rows()).toEqual([]);
   expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
 });
 
@@ -194,7 +198,7 @@ test("once the checkpoint loads, a failed Write retried through a folder link th
     ),
   );
   expect(dom.text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
-  expect(await rows()).toEqual([[NOTES, "+1-1"]]);
+  expect(rows()).toEqual([]);
   expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
 });
 
@@ -211,5 +215,5 @@ test("once the checkpoint loads, a failed Write in the repository stays beside a
       checkpoint([{ path: "plan.md", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b\n" }]),
     ),
   );
-  expect(await rows()).toContainEqual([NOTES, "failed"]);
+  expect(rows()).toContainEqual([NOTES, "failed"]);
 });

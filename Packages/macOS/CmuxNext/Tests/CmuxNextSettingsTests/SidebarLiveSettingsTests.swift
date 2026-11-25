@@ -9,18 +9,18 @@ struct SidebarLiveSettingsTests {
         CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
     }
 
-    @Test func liveIsOffAndTheButtonIsHiddenByDefault() {
+    @Test func liveIsOffAndTheButtonShowsByDefault() {
         let snapshot = Self.parse(.object([:]))
         #expect(snapshot.sidebarSections.presenceLive == false)
-        #expect(snapshot.sidebarSections.showLiveToggle == false)
+        #expect(snapshot.sidebarSections.showLiveToggle)
         #expect(snapshot.diagnostics.isEmpty, "\(snapshot.diagnostics)")
     }
 
-    @Test func theUserCanTurnLiveOnAndShowTheButton() {
+    @Test func theUserCanTurnLiveOnAndHideTheButton() {
         let snapshot = Self.parse(.object(["presence": .object(["live": .bool(true)]),
-                                           "sidebar": .object(["showLiveToggle": .bool(true)])]))
+                                           "sidebar": .object(["showLiveToggle": .bool(false)])]))
         #expect(snapshot.sidebarSections.presenceLive)
-        #expect(snapshot.sidebarSections.showLiveToggle)
+        #expect(snapshot.sidebarSections.showLiveToggle == false)
     }
 
     @Test func aBadValueKeepsTheDefaultWithADiagnostic() {
@@ -31,6 +31,6 @@ struct SidebarLiveSettingsTests {
 
     @Test func theSchemaListsBoth() throws {
         #expect(try #require(SettingsSchema.descriptor(for: ["presence", "live"])).defaultValue == .bool(false))
-        #expect(try #require(SettingsSchema.descriptor(for: ["sidebar", "showLiveToggle"])).defaultValue == .bool(false))
+        #expect(try #require(SettingsSchema.descriptor(for: ["sidebar", "showLiveToggle"])).defaultValue == .bool(true))
     }
 }

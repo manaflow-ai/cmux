@@ -153,7 +153,7 @@ public final class MockAgentSession: AgentSessionSource {
             emit(.dequeued(promptId: promptID))
         case .resumeQueue:
             emit(.queuePaused(false, reason: nil))
-        case .cancelSend, .deleteSend, .retrySend:
+        case .cancelSend:
             break
         case .answerElevation(let ask, _):
             emit(.elevationDecision(id: ask.id))

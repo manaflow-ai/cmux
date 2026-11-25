@@ -2112,12 +2112,6 @@ public protocol ChatPromptOutboxProtocol: AnyObject, Sendable {
     func pending()  -> UInt32
     
     /**
-     * Every prompt still on its way at `now_ms`, in tap order, with the actions each has: the
-     * chat's pending rows (no pending send is ever without an exit).
-     */
-    func pendingSends(nowMs: UInt64)  -> [ChatPendingSend]
-    
-    /**
      * The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
      * taken): prompts waiting their turn keep going; the hold bounds a stall, not a send.
      */
@@ -2447,19 +2441,6 @@ open func pending() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_pending(
             self.uniffiCloneHandle(),$0
-    )
-})
-}
-    
-    /**
-     * Every prompt still on its way at `now_ms`, in tap order, with the actions each has: the
-     * chat's pending rows (no pending send is ever without an exit).
-     */
-open func pendingSends(nowMs: UInt64) -> [ChatPendingSend]  {
-    return try!  FfiConverterSequenceTypeChatPendingSend.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_chatpromptoutbox_pending_sends(
-            self.uniffiCloneHandle(),
-        FfiConverterUInt64.lower(nowMs),$0
     )
 })
 }
@@ -3719,11 +3700,7 @@ public protocol LinkHandleProtocol: AnyObject, Sendable {
      * it was parked and its hold has not passed. The tunnel then moves onto
      * a fresh socket (as on a network change) and the caller probes; the
      * first frame back ends the park on both sides.
-     * This link's relay-held send route (RFD 0142 R8), or `None` while [`relay_hold::set_relay_hold_enabled`]
-     * is off or the link is not a WireGuard session. One per link: keep it while the link lives.
      */
-    func relayHold()  -> RelayHoldRoute?
-    
     func resume()  -> Bool
     
     /**
@@ -4164,17 +4141,7 @@ open func receivedAgoMs() -> UInt64  {
      * it was parked and its hold has not passed. The tunnel then moves onto
      * a fresh socket (as on a network change) and the caller probes; the
      * first frame back ends the park on both sides.
-     * This link's relay-held send route (RFD 0142 R8), or `None` while [`relay_hold::set_relay_hold_enabled`]
-     * is off or the link is not a WireGuard session. One per link: keep it while the link lives.
      */
-open func relayHold() -> RelayHoldRoute?  {
-    return try!  FfiConverterOptionTypeRelayHoldRoute.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_relay_hold(
-            self.uniffiCloneHandle(),$0
-    )
-})
-}
-    
 open func resume() -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_linkhandle_resume(
@@ -6347,144 +6314,6 @@ public func FfiConverterTypePhoneReadStore_lift(_ handle: UInt64) throws -> Phon
 #endif
 public func FfiConverterTypePhoneReadStore_lower(_ value: PhoneReadStore) -> UInt64 {
     return FfiConverterTypePhoneReadStore.lower(value)
-}
-
-
-
-
-
-
-/**
- * One link's relay-held send route.
- */
-public protocol RelayHoldRouteProtocol: AnyObject, Sendable {
-    
-    /**
-     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
-     */
-    func send(id: String, sealed: String, waitMs: UInt32) async  -> RelayHoldOutcome
-    
-}
-/**
- * One link's relay-held send route.
- */
-open class RelayHoldRoute: RelayHoldRouteProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relayholdroute(self.handle, $0) }
-    }
-    // No primary constructor declared for this class.
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relayholdroute(handle, $0) }
-    }
-
-    
-
-    
-    /**
-     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
-     */
-open func send(id: String, sealed: String, waitMs: UInt32)async  -> RelayHoldOutcome  {
-    return
-        try!  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_cmux_mobile_link_ffi_fn_method_relayholdroute_send(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(id),FfiConverterString.lower(sealed),FfiConverterUInt32.lower(waitMs)
-                )
-            },
-            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
-            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
-            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeRelayHoldOutcome_lift,
-            errorHandler: nil
-            
-        )
-}
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeRelayHoldRoute: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = RelayHoldRoute
-
-    public static func lift(_ handle: UInt64) throws -> RelayHoldRoute {
-        return RelayHoldRoute(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: RelayHoldRoute) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldRoute {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: RelayHoldRoute, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldRoute_lift(_ handle: UInt64) throws -> RelayHoldRoute {
-    return try FfiConverterTypeRelayHoldRoute.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldRoute_lower(_ value: RelayHoldRoute) -> UInt64 {
-    return FfiConverterTypeRelayHoldRoute.lower(value)
 }
 
 
@@ -8815,118 +8644,6 @@ public func FfiConverterTypeChatAttachment_lower(_ value: ChatAttachment) -> Rus
 
 
 /**
- * A prompt still on its way, as the chat draws its row, with the actions it has: Stop (its
- * text back in the composer to edit and send again) and Delete always, Send now when offered.
- */
-public struct ChatPendingSend: Equatable, Hashable {
-    public var promptId: String
-    public var text: String
-    /**
-     * Its attachments' upload ids.
-     */
-    public var uploadIds: [String]
-    public var look: ChatPromptLook
-    /**
-     * Until it goes again after a "not now", when it waits on one.
-     */
-    public var retryInMs: UInt64?
-    /**
-     * The chat shows its row (attachments, waiting, or being stopped).
-     */
-    public var shown: Bool
-    /**
-     * Send now is offered (link up, unwritten, waiting).
-     */
-    public var canSendNow: Bool
-    /**
-     * Stopped after it may have reached the Mac: the Mac's removal is awaited.
-     */
-    public var stopping: Bool
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(promptId: String, text: String, 
-        /**
-         * Its attachments' upload ids.
-         */uploadIds: [String], look: ChatPromptLook, 
-        /**
-         * Until it goes again after a "not now", when it waits on one.
-         */retryInMs: UInt64?, 
-        /**
-         * The chat shows its row (attachments, waiting, or being stopped).
-         */shown: Bool, 
-        /**
-         * Send now is offered (link up, unwritten, waiting).
-         */canSendNow: Bool, 
-        /**
-         * Stopped after it may have reached the Mac: the Mac's removal is awaited.
-         */stopping: Bool) {
-        self.promptId = promptId
-        self.text = text
-        self.uploadIds = uploadIds
-        self.look = look
-        self.retryInMs = retryInMs
-        self.shown = shown
-        self.canSendNow = canSendNow
-        self.stopping = stopping
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension ChatPendingSend: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeChatPendingSend: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ChatPendingSend {
-        return
-            try ChatPendingSend(
-                promptId: FfiConverterString.read(from: &buf), 
-                text: FfiConverterString.read(from: &buf), 
-                uploadIds: FfiConverterSequenceString.read(from: &buf), 
-                look: FfiConverterTypeChatPromptLook.read(from: &buf), 
-                retryInMs: FfiConverterOptionUInt64.read(from: &buf), 
-                shown: FfiConverterBool.read(from: &buf), 
-                canSendNow: FfiConverterBool.read(from: &buf), 
-                stopping: FfiConverterBool.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: ChatPendingSend, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.promptId, into: &buf)
-        FfiConverterString.write(value.text, into: &buf)
-        FfiConverterSequenceString.write(value.uploadIds, into: &buf)
-        FfiConverterTypeChatPromptLook.write(value.look, into: &buf)
-        FfiConverterOptionUInt64.write(value.retryInMs, into: &buf)
-        FfiConverterBool.write(value.shown, into: &buf)
-        FfiConverterBool.write(value.canSendNow, into: &buf)
-        FfiConverterBool.write(value.stopping, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeChatPendingSend_lift(_ buf: RustBuffer) throws -> ChatPendingSend {
-    return try FfiConverterTypeChatPendingSend.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeChatPendingSend_lower(_ value: ChatPendingSend) -> RustBuffer {
-    return FfiConverterTypeChatPendingSend.lower(value)
-}
-
-
-/**
  * A prompt that ended, with what the composer may get back.
  */
 public struct ChatPromptDone: Equatable, Hashable {
@@ -9272,228 +8989,6 @@ public func FfiConverterTypeClassicCleanupPlan_lower(_ value: ClassicCleanupPlan
 }
 
 
-/**
- * What a hint does: resume the machine now, or skip it for `reason`.
- */
-public struct CloudWakeAnswer: Equatable, Hashable {
-    public var resume: Bool
-    public var reason: String?
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(resume: Bool, reason: String?) {
-        self.resume = resume
-        self.reason = reason
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension CloudWakeAnswer: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeCloudWakeAnswer: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeAnswer {
-        return
-            try CloudWakeAnswer(
-                resume: FfiConverterBool.read(from: &buf), 
-                reason: FfiConverterOptionString.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: CloudWakeAnswer, into buf: inout [UInt8]) {
-        FfiConverterBool.write(value.resume, into: &buf)
-        FfiConverterOptionString.write(value.reason, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCloudWakeAnswer_lift(_ buf: RustBuffer) throws -> CloudWakeAnswer {
-    return try FfiConverterTypeCloudWakeAnswer.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCloudWakeAnswer_lower(_ value: CloudWakeAnswer) -> RustBuffer {
-    return FfiConverterTypeCloudWakeAnswer.lower(value)
-}
-
-
-/**
- * A hint as the phone forwards it: the raw signal (`focus`, `terminal`, `unlock`) and the
- * facts its models hold.
- */
-public struct CloudWakeHint: Equatable, Hashable {
-    public var v: UInt32
-    public var machine: String
-    public var signal: String
-    /**
-     * The hidden setting (default off).
-     */
-    public var enabled: Bool
-    /**
-     * The phone may call Cloud (signed in).
-     */
-    public var allowed: Bool
-    /**
-     * The machine's status was read.
-     */
-    public var loaded: Bool
-    public var status: String?
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(v: UInt32, machine: String, signal: String, 
-        /**
-         * The hidden setting (default off).
-         */enabled: Bool, 
-        /**
-         * The phone may call Cloud (signed in).
-         */allowed: Bool, 
-        /**
-         * The machine's status was read.
-         */loaded: Bool, status: String?) {
-        self.v = v
-        self.machine = machine
-        self.signal = signal
-        self.enabled = enabled
-        self.allowed = allowed
-        self.loaded = loaded
-        self.status = status
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension CloudWakeHint: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeCloudWakeHint: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeHint {
-        return
-            try CloudWakeHint(
-                v: FfiConverterUInt32.read(from: &buf), 
-                machine: FfiConverterString.read(from: &buf), 
-                signal: FfiConverterString.read(from: &buf), 
-                enabled: FfiConverterBool.read(from: &buf), 
-                allowed: FfiConverterBool.read(from: &buf), 
-                loaded: FfiConverterBool.read(from: &buf), 
-                status: FfiConverterOptionString.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: CloudWakeHint, into buf: inout [UInt8]) {
-        FfiConverterUInt32.write(value.v, into: &buf)
-        FfiConverterString.write(value.machine, into: &buf)
-        FfiConverterString.write(value.signal, into: &buf)
-        FfiConverterBool.write(value.enabled, into: &buf)
-        FfiConverterBool.write(value.allowed, into: &buf)
-        FfiConverterBool.write(value.loaded, into: &buf)
-        FfiConverterOptionString.write(value.status, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCloudWakeHint_lift(_ buf: RustBuffer) throws -> CloudWakeHint {
-    return try FfiConverterTypeCloudWakeHint.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCloudWakeHint_lower(_ value: CloudWakeHint) -> RustBuffer {
-    return FfiConverterTypeCloudWakeHint.lower(value)
-}
-
-
-/**
- * How a hint wake ended, for the wake log.
- */
-public struct CloudWakeOutcome: Equatable, Hashable {
-    /**
-     * `used` (input followed; `ms` from the resume's answer to it) or `false` (no input within
-     * the bound; `ms` awake).
-     */
-    public var tag: String
-    public var signal: String
-    public var ms: UInt64
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(
-        /**
-         * `used` (input followed; `ms` from the resume's answer to it) or `false` (no input within
-         * the bound; `ms` awake).
-         */tag: String, signal: String, ms: UInt64) {
-        self.tag = tag
-        self.signal = signal
-        self.ms = ms
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension CloudWakeOutcome: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeCloudWakeOutcome: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeOutcome {
-        return
-            try CloudWakeOutcome(
-                tag: FfiConverterString.read(from: &buf), 
-                signal: FfiConverterString.read(from: &buf), 
-                ms: FfiConverterUInt64.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: CloudWakeOutcome, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.tag, into: &buf)
-        FfiConverterString.write(value.signal, into: &buf)
-        FfiConverterUInt64.write(value.ms, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCloudWakeOutcome_lift(_ buf: RustBuffer) throws -> CloudWakeOutcome {
-    return try FfiConverterTypeCloudWakeOutcome.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCloudWakeOutcome_lower(_ value: CloudWakeOutcome) -> RustBuffer {
-    return FfiConverterTypeCloudWakeOutcome.lower(value)
-}
-
-
 public struct ComposerSendDone: Equatable, Hashable {
     public var seq: UInt64
     public var outcome: ComposerSendOutcome
@@ -9624,20 +9119,6 @@ public struct ConnectOptions: Equatable, Hashable {
      */
     public var blockUdp: Bool
     /**
-     * Debug "simulate a network whose only way out is its proxy": like
-     * `block_udp`, and TURN over TLS must leave through the system's proxy
-     * (Settings > Wi-Fi > HTTP Proxy, PAC, an MDM profile); with none for the
-     * TURN server the dial fails at once and says so. WebRTC ignores it.
-     */
-    public var proxyOnly: Bool
-    /**
-     * Debug "simulate a firewall that drops WireGuard": STUN and TURN's own
-     * requests pass, every UDP datagram carrying WireGuard (plain, or inside
-     * TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
-     * over TLS (path `TurnTls`). WebRTC ignores it.
-     */
-    public var dropWireguard: Bool
-    /**
      * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
      * takes no TURN allocation; it joins cmux's WebSocket relay at once and
      * rides it (path `HttpsRelay`). WebRTC ignores it.
@@ -9677,18 +9158,6 @@ public struct ConnectOptions: Equatable, Hashable {
          * TLS on 443 (path `TurnTls`). WebRTC ignores it.
          */blockUdp: Bool = false, 
         /**
-         * Debug "simulate a network whose only way out is its proxy": like
-         * `block_udp`, and TURN over TLS must leave through the system's proxy
-         * (Settings > Wi-Fi > HTTP Proxy, PAC, an MDM profile); with none for the
-         * TURN server the dial fails at once and says so. WebRTC ignores it.
-         */proxyOnly: Bool = false, 
-        /**
-         * Debug "simulate a firewall that drops WireGuard": STUN and TURN's own
-         * requests pass, every UDP datagram carrying WireGuard (plain, or inside
-         * TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
-         * over TLS (path `TurnTls`). WebRTC ignores it.
-         */dropWireguard: Bool = false, 
-        /**
          * Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
          * takes no TURN allocation; it joins cmux's WebSocket relay at once and
          * rides it (path `HttpsRelay`). WebRTC ignores it.
@@ -9710,8 +9179,6 @@ public struct ConnectOptions: Equatable, Hashable {
          */ultra: String = "auto") {
         self.relayOnly = relayOnly
         self.blockUdp = blockUdp
-        self.proxyOnly = proxyOnly
-        self.dropWireguard = dropWireguard
         self.forceRelay = forceRelay
         self.noVideoLane = noVideoLane
         self.noWebrtcMedia = noWebrtcMedia
@@ -9736,8 +9203,6 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
             try ConnectOptions(
                 relayOnly: FfiConverterBool.read(from: &buf), 
                 blockUdp: FfiConverterBool.read(from: &buf), 
-                proxyOnly: FfiConverterBool.read(from: &buf), 
-                dropWireguard: FfiConverterBool.read(from: &buf), 
                 forceRelay: FfiConverterBool.read(from: &buf), 
                 noVideoLane: FfiConverterBool.read(from: &buf), 
                 noWebrtcMedia: FfiConverterBool.read(from: &buf), 
@@ -9748,8 +9213,6 @@ public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
     public static func write(_ value: ConnectOptions, into buf: inout [UInt8]) {
         FfiConverterBool.write(value.relayOnly, into: &buf)
         FfiConverterBool.write(value.blockUdp, into: &buf)
-        FfiConverterBool.write(value.proxyOnly, into: &buf)
-        FfiConverterBool.write(value.dropWireguard, into: &buf)
         FfiConverterBool.write(value.forceRelay, into: &buf)
         FfiConverterBool.write(value.noVideoLane, into: &buf)
         FfiConverterBool.write(value.noWebrtcMedia, into: &buf)
@@ -13589,98 +13052,6 @@ public func FfiConverterTypeChatUploadState_lower(_ value: ChatUploadState) -> R
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
-/**
- * What to do about a machine a hint woke when its idle check comes due.
- */
-
-public enum CloudWakeIdle: Equatable, Hashable {
-    
-    /**
-     * Ask again this much later.
-     */
-    case wait(checkAfterMs: UInt64
-    )
-    /**
-     * Pause it (script-originated); the wake was false.
-     */
-    case pause(outcome: CloudWakeOutcome
-    )
-    /**
-     * Nothing more to do.
-     */
-    case done
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension CloudWakeIdle: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeCloudWakeIdle: FfiConverterRustBuffer {
-    typealias SwiftType = CloudWakeIdle
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CloudWakeIdle {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .wait(checkAfterMs: try FfiConverterUInt64.read(from: &buf)
-        )
-        
-        case 2: return .pause(outcome: try FfiConverterTypeCloudWakeOutcome.read(from: &buf)
-        )
-        
-        case 3: return .done
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: CloudWakeIdle, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case let .wait(checkAfterMs):
-            writeInt(&buf, Int32(1))
-            FfiConverterUInt64.write(checkAfterMs, into: &buf)
-            
-        
-        case let .pause(outcome):
-            writeInt(&buf, Int32(2))
-            FfiConverterTypeCloudWakeOutcome.write(outcome, into: &buf)
-            
-        
-        case .done:
-            writeInt(&buf, Int32(3))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCloudWakeIdle_lift(_ buf: RustBuffer) throws -> CloudWakeIdle {
-    return try FfiConverterTypeCloudWakeIdle.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeCloudWakeIdle_lower(_ value: CloudWakeIdle) -> RustBuffer {
-    return FfiConverterTypeCloudWakeIdle.lower(value)
-}
-
-
 
 public enum CmuxMobileError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -15587,105 +14958,6 @@ public func FfiConverterTypeProjectionSegment_lower(_ value: ProjectionSegment) 
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
-
-public enum RelayHoldOutcome: Equatable, Hashable {
-    
-    /**
-     * The relay holds it; `ms` after the first write.
-     */
-    case accepted(ms: UInt64
-    )
-    /**
-     * The Mac has it already.
-     */
-    case delivered
-    /**
-     * The relay will not hold it (`off`, `bad`, `full`): route the same item another way.
-     */
-    case refused(code: String
-    )
-    /**
-     * No relay socket now, or no answer in time: route the same item another way.
-     */
-    case unanswered
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension RelayHoldOutcome: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeRelayHoldOutcome: FfiConverterRustBuffer {
-    typealias SwiftType = RelayHoldOutcome
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldOutcome {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .accepted(ms: try FfiConverterUInt64.read(from: &buf)
-        )
-        
-        case 2: return .delivered
-        
-        case 3: return .refused(code: try FfiConverterString.read(from: &buf)
-        )
-        
-        case 4: return .unanswered
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: RelayHoldOutcome, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case let .accepted(ms):
-            writeInt(&buf, Int32(1))
-            FfiConverterUInt64.write(ms, into: &buf)
-            
-        
-        case .delivered:
-            writeInt(&buf, Int32(2))
-        
-        
-        case let .refused(code):
-            writeInt(&buf, Int32(3))
-            FfiConverterString.write(code, into: &buf)
-            
-        
-        case .unanswered:
-            writeInt(&buf, Int32(4))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldOutcome_lift(_ buf: RustBuffer) throws -> RelayHoldOutcome {
-    return try FfiConverterTypeRelayHoldOutcome.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldOutcome_lower(_ value: RelayHoldOutcome) -> RustBuffer {
-    return FfiConverterTypeRelayHoldOutcome.lower(value)
-}
-
-
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * A row against the heights kept for it.
  */
@@ -16433,30 +15705,6 @@ fileprivate struct FfiConverterOptionTypeLinkObserver: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionTypeRelayHoldRoute: FfiConverterRustBuffer {
-    typealias SwiftType = RelayHoldRoute?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterTypeRelayHoldRoute.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterTypeRelayHoldRoute.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterOptionTypeChatPromptDone: FfiConverterRustBuffer {
     typealias SwiftType = ChatPromptDone?
 
@@ -16497,30 +15745,6 @@ fileprivate struct FfiConverterOptionTypeChatPromptRequest: FfiConverterRustBuff
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeChatPromptRequest.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterOptionTypeCloudWakeOutcome: FfiConverterRustBuffer {
-    typealias SwiftType = CloudWakeOutcome?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterTypeCloudWakeOutcome.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterTypeCloudWakeOutcome.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -17080,31 +16304,6 @@ fileprivate struct FfiConverterSequenceTypeChatAttachment: FfiConverterRustBuffe
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeChatAttachment.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterSequenceTypeChatPendingSend: FfiConverterRustBuffer {
-    typealias SwiftType = [ChatPendingSend]
-
-    public static func write(_ value: [ChatPendingSend], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeChatPendingSend.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ChatPendingSend] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [ChatPendingSend]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeChatPendingSend.read(from: &buf))
         }
         return seq
     }
@@ -17807,17 +17006,6 @@ public func keepaliveBeatDelayMs(periodMs: UInt64) -> UInt64  {
 })
 }
 /**
- * The key-to-paint histogram as JSON: per network and route p50/p95/p99,
- * max and bucket counts; the newest spikes, the gaps between them and the
- * period they share, if any (named by the link timer it matches).
- */
-public func keyPaintSnapshot() -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_key_paint_snapshot($0
-    )
-})
-}
-/**
  * The device's network changed or came back (iOS `NWPathMonitor`): every
  * WireGuard link moves onto the new network at once without a redial, and
  * the signaling socket is checked (and replaced when dead) so signaling
@@ -17883,25 +17071,6 @@ public func recordKeyEcho(echoMs: UInt32, ackMs: UInt32?)  {try! rustCall() {
 }
 }
 /**
- * A typed key's echo was painted `paint_ms` after its tap (the terminal's
- * first frame showing the Mac's echo of it, `TerminalViewController`).
- * Counted in the key-to-paint histogram under the current network and route.
- */
-public func recordKeyPaint(paintMs: UInt32)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_record_key_paint(
-        FfiConverterUInt32.lower(paintMs),$0
-    )
-}
-}
-/**
- * Empty the key-to-paint histogram.
- */
-public func resetKeyPaint()  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_reset_key_paint($0
-    )
-}
-}
-/**
  * Forget every warm socket and cached ICE server (sign-out, account switch).
  */
 public func resetWarmState()async   {
@@ -17955,16 +17124,6 @@ public func setCellularPath(cellular: Bool)  {try! rustCall() {
 public func setKeepaliveAlignment(on: Bool)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_set_keepalive_alignment(
         FfiConverterBool.lower(on),$0
-    )
-}
-}
-/**
- * The device's network now, `wifi`, `lte` (any cellular), `wired` or
- * `other` (iOS `NWPathMonitor`, every path update): the key-to-paint tag.
- */
-public func setNetworkKind(kind: String)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_set_network_kind(
-        FfiConverterString.lower(kind),$0
     )
 }
 }
@@ -18049,57 +17208,6 @@ public func classicCleanupPlan(bundleId: String, keychain: [KeychainLeftover]?, 
 public func classicCleanupVersion() -> Int64  {
     return try!  FfiConverterInt64.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_classic_cleanup_version($0
-    )
-})
-}
-/**
- * Decides one hint. On `resume`, run the resume and tell [`cloud_wake_resumed`].
- */
-public func cloudWakeHint(hint: CloudWakeHint) -> CloudWakeAnswer  {
-    return try!  FfiConverterTypeCloudWakeAnswer_lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_hint(
-        FfiConverterTypeCloudWakeHint_lower(hint),$0
-    )
-})
-}
-/**
- * The idle check of a machine a hint woke, with its status now.
- */
-public func cloudWakeIdle(machine: String, status: String?) -> CloudWakeIdle  {
-    return try!  FfiConverterTypeCloudWakeIdle_lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_idle(
-        FfiConverterString.lower(machine),
-        FfiConverterOptionString.lower(status),$0
-    )
-})
-}
-/**
- * The person used `machine` (sent a prompt in its chat): a hint wake it had is `used`, once.
- */
-public func cloudWakeInput(machine: String) -> CloudWakeOutcome?  {
-    return try!  FfiConverterOptionTypeCloudWakeOutcome.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_input(
-        FfiConverterString.lower(machine),$0
-    )
-})
-}
-/**
- * The hint's resume answered; accepted: the idle check is due in the returned ms.
- */
-public func cloudWakeResumed(machine: String, ok: Bool) -> UInt64?  {
-    return try!  FfiConverterOptionUInt64.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_resumed(
-        FfiConverterString.lower(machine),
-        FfiConverterBool.lower(ok),$0
-    )
-})
-}
-/**
- * The wake hint's protocol version the phone sends (`WAKE_HINT_VERSION`).
- */
-public func cloudWakeVersion() -> UInt32  {
-    return try!  FfiConverterUInt32.lift(try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_version($0
     )
 })
 }
@@ -18370,15 +17478,6 @@ public func pairRequestsSupported(capabilities: [String]) -> Bool  {
 })
 }
 /**
- * Turn relay-held sends on or off for links made from now on (default off).
- */
-public func setRelayHoldEnabled(on: Bool)  {try! rustCall() {
-    uniffi_cmux_mobile_link_ffi_fn_func_set_relay_hold_enabled(
-        FfiConverterBool.lower(on),$0
-    )
-}
-}
-/**
  * A stable 64-bit FNV-1a fingerprint of `text`: the same on every launch, so a kept
  * height is found again after the app opens again.
  */
@@ -18623,9 +17722,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_keepalive_beat_delay_ms() != 42732) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_key_paint_snapshot() != 27731) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_network_changed() != 41080) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18638,12 +17734,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_record_key_echo() != 59925) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_record_key_paint() != 63665) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_key_paint() != 7589) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_reset_warm_state() != 25219) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18654,9 +17744,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_keepalive_alignment() != 23404) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_network_kind() != 35548) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
@@ -18681,21 +17768,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_classic_cleanup_version() != 33020) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_hint() != 36428) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_idle() != 47657) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_input() != 1920) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_resumed() != 44344) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_version() != 59133) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_lan_memory_dir() != 45946) {
@@ -18762,9 +17834,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pair_requests_supported() != 49678) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_relay_hold_enabled() != 23892) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_row_layout_fingerprint() != 59393) {
@@ -18893,10 +17962,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_received_ago_ms() != 55134) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_relay_hold() != 44510) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume() != 26847) {
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume() != 43166) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_linkhandle_resume_hedge_ms() != 7041) {
@@ -19044,9 +18110,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_pending() != 54210) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_pending_sends() != 15921) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_chatpromptoutbox_progressed() != 31423) {
@@ -19299,9 +18362,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_phonereadstore_remove_all() != 47779) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_cmux_mobile_link_ffi_checksum_method_relayholdroute_send() != 31091) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_rowlayoutmemory_diff() != 485) {

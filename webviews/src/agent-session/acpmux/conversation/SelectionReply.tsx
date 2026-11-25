@@ -176,7 +176,7 @@ export function SelectionReplyChip({ doc = document }: { doc?: Document }) {
     <button
       ref={chip}
       type="button"
-      className="cv-selection-reply ui-glass"
+      className="cv-selection-reply"
       data-look={current}
       data-hidden={hidden ? "true" : undefined}
       aria-hidden={hidden ? true : undefined}

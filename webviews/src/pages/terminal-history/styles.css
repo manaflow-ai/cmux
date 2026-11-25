@@ -113,6 +113,7 @@
 }
 
 .terminal-history-tools summary {
+  cursor: pointer;
   padding: var(--ds-space-1) 0;
 }
 
@@ -166,6 +167,7 @@
   padding: var(--ds-space-1) var(--ds-space-2);
   color: var(--page-text);
   background: transparent;
+  cursor: pointer;
 }
 
 .terminal-history-older:disabled {
@@ -198,6 +200,7 @@
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .terminal-history-results button:hover,
@@ -213,6 +216,7 @@
   color: var(--cmux-accent, var(--page-text));
   background: none;
   font-size: var(--text-caption); line-height: var(--text-caption--line-height); letter-spacing: var(--text-caption--letter-spacing);
+  cursor: pointer;
 }
 
 @media (max-width: 650px) {

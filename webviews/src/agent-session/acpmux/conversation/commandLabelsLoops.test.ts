@@ -73,7 +73,8 @@ test("a compound command or a loop with a description reads as the description",
   expect(
     label(tool("git fetch origin && git rebase origin/main && git push", { description: "Rebase and push" })),
   ).toBe("Rebase and push");
-  expect(label(tool("git status", { description: "Look around" }))).toBe("Look around");
+  // A single known command still reads as the table names it (#36940).
+  expect(label(tool("git status", { description: "Look around" }))).toBe("Checked git status");
 });
 
 test("a harness title that kept a shell variable reads as its command", () => {

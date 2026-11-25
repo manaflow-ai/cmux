@@ -10,7 +10,7 @@ import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { ApprovedMark } from "./ApprovedMark";
-import { CodeBrackets, ToolGroup } from "./icons";
+import { ChevronRight, CodeBrackets, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
 import {
   cleanText,
@@ -51,7 +51,6 @@ import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord } from "./toolFailureCauseModel";
 import { RunningTime } from "./RunningTime";
-import { DisclosureChevron } from "./DisclosureChevron";
 
 export function McpCallRows({ items, disclosureKey }: { items: readonly AcpmuxActivity[]; disclosureKey: string }) {
   return items.length === 1 ? (
@@ -102,7 +101,7 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
           <ToolLabel text={label} />
           {failures > 0 && <span className="cv-tool__failed"> {t("tools.failedCount", { n: failures })}</span>}
         </span>
-        <DisclosureChevron open={open} />
+        <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
       </button>
       {fold.present && (
         <div {...fold.bodyProps}>
@@ -146,10 +145,9 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
   // A described call is titled with its description, as a shell call is (mcpDescription).
   const label = useMemo(
     () =>
-      mcpDescription(call) ??
-      (video
+      video
         ? t("tools.videoFrames", { n: video.count })
-        : (cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names, running))),
+        : (mcpDescription(call) ?? cmuxTitle(t, [call], [tool], names) ?? mcpLabel(t, [call], names, running)),
     [t, video, call, tool, names, running],
   );
   // A condensed tool's one-line outcome trails its words, muted; its own "failed" reads as a
@@ -225,7 +223,9 @@ export const McpCallRow = memo(function McpCallRow({ item }: { item: AcpmuxActiv
               {running && <RunningTime startedAt={tool.startedAt} />}
             </span>
           )}
-          {expandable && <DisclosureChevron open={open} />}
+          {expandable && (
+            <ChevronRight size={14} className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`} />
+          )}
         </Row>
       </ToolVisualRow>
       <ToolFailureCause failure={failure} />

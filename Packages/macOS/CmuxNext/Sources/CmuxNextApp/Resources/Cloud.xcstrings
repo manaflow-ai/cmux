@@ -3093,127 +3093,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud is creating the VM."
+            "value": "cmux Cloud is creating the VM. A new machine usually takes under a minute."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud が VM を作成しています。"
+            "value": "cmux Cloud が VM を作成しています。新しいマシンは通常 1 分以内に作成されます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يُنشئ cmux Cloud الجهاز الافتراضي."
+            "value": "يُنشئ cmux Cloud الجهاز الافتراضي. يستغرق الجهاز الجديد عادةً أقل من دقيقة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud kreira VM."
+            "value": "cmux Cloud kreira VM. Nova mašina obično traje manje od minute."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud opretter VM’en."
+            "value": "cmux Cloud opretter VM’en. En ny maskine tager normalt under et minut."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud erstellt die VM."
+            "value": "cmux Cloud erstellt die VM. Eine neue Maschine dauert meist weniger als eine Minute."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud está creando la VM."
+            "value": "cmux Cloud está creando la VM. Una máquina nueva suele tardar menos de un minuto."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud crée la VM."
+            "value": "cmux Cloud crée la VM. Une nouvelle machine prend en général moins d’une minute."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud sta creando la VM."
+            "value": "cmux Cloud sta creando la VM. Una nuova macchina di solito richiede meno di un minuto."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud កំពុងបង្កើត VM។"
+            "value": "cmux Cloud កំពុងបង្កើត VM។ ម៉ាស៊ីនថ្មីជាធម្មតាចំណាយពេលតិចជាងមួយនាទី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud가 VM을 만드는 중입니다."
+            "value": "cmux Cloud가 VM을 만드는 중입니다. 새 머신은 보통 1분 이내에 준비됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud oppretter VM-en."
+            "value": "cmux Cloud oppretter VM-en. En ny maskin tar vanligvis under ett minutt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud tworzy maszynę wirtualną."
+            "value": "cmux Cloud tworzy maszynę wirtualną. Nowa maszyna zwykle zajmuje mniej niż minutę."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O cmux Cloud está criando a VM."
+            "value": "O cmux Cloud está criando a VM. Uma máquina nova costuma levar menos de um minuto."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud создаёт ВМ."
+            "value": "cmux Cloud создаёт ВМ. Новая машина обычно готова меньше чем за минуту."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud กำลังสร้าง VM"
+            "value": "cmux Cloud กำลังสร้าง VM โดยปกติเครื่องใหม่ใช้เวลาไม่ถึงหนึ่งนาที"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud VM’yi oluşturuyor."
+            "value": "cmux Cloud VM’yi oluşturuyor. Yeni bir makine genellikle bir dakikadan kısa sürer."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud створює ВМ."
+            "value": "cmux Cloud створює ВМ. Нова машина зазвичай готова менш ніж за хвилину."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud đang tạo VM."
+            "value": "cmux Cloud đang tạo VM. Máy mới thường mất chưa đến một phút."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud 正在创建虚拟机。"
+            "value": "cmux Cloud 正在创建虚拟机。新机器通常不到一分钟。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud 正在建立虛擬機器。"
+            "value": "cmux Cloud 正在建立虛擬機器。新機器通常不到一分鐘。"
           }
         }
       }

@@ -8,7 +8,7 @@ import CmuxNextDesign
 extension TabCell {
     func layoutCornerFeet() {
         let radius = CornerFlush.current.feetRadius
-        guard runsIntoCard, radius > 0, gooFill == nil else {
+        guard runsIntoCard, radius > 0 else {
             cornerFeetLayer?.path = nil
             return
         }

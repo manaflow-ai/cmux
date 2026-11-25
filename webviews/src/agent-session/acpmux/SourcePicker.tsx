@@ -7,7 +7,7 @@ import { Input } from "../../ui/Input";
 import { Popover } from "../../ui/Popover";
 import { MenuFolderIcon, PlusIcon, SearchIcon } from "./ComposerPickers";
 import { GitHubGlyph, LockIcon } from "./GitHubIcons";
-import { githubFolder, githubFolderRepo, githubFullName, matchingRepos, type GitHubPicker } from "./githubRepos";
+import { githubFolder, matchingRepos, type GitHubPicker } from "./githubRepos";
 import { useT, type StringKey } from "./i18n";
 import { useProjectPaletteHost, type SourceIcon, type SourcePage } from "./projectPaletteHost";
 import { githubSource, matchesSourceQuery, type CloudFolder } from "./sourcePickerModel";
@@ -39,11 +39,8 @@ export function SourcePicker({
   onPick,
   onCloning,
   returnFocus,
-  startPage,
 }: {
   open: boolean;
-  /// The page it opens on (the GitHub page, opened again after Connect to GitHub); none: the sources.
-  startPage?: SourcePage;
   options: SourcePickerOptions;
   current?: string;
   currentPeer?: string;
@@ -55,7 +52,7 @@ export function SourcePicker({
 }) {
   const t = useT();
   const { github, cloudFolders, onCloudFolder, onClone, onEmpty } = options;
-  const [page, setPage] = useState<SourcePage>(startPage ?? "add");
+  const [page, setPage] = useState<SourcePage>("add");
   const [query, setQuery] = useState("");
   const [machine, setMachine] = useState<CloudFolder>();
   const clone = useGitURLClone(onClone, onCloning, pick);
@@ -490,20 +487,14 @@ function githubRows(
         : t("composer.githubRateLimited")
       : state.error;
   } else if (ready && !repos.length && typed && !state.loading) {
-    // A typed owner/name the app can't see: say how to add it, not only that nothing matched.
-    const name = githubFullName(typed);
-    message = name ? t("source.github.notShared", { repo: name }) : t("composer.githubNoMatches");
-  } else if (ready && state.missing && !state.loading) {
-    message = t("source.github.notShared", { repo: state.missing });
+    message = t("composer.githubNoMatches");
   }
-  // The repository the person is after rides along with Connect, so it is picked once GitHub hands back.
-  const connectFor = () => github.onConnect(githubFullName(typed) ?? githubFolderRepo(current) ?? state.missing);
 
   if (ready && !state.error && typed && !repos.length && state.truncated)
     repos.push({ id: "\0search", label: t("composer.githubSearchOnReturn"), onAction: () => github.onSearch(typed) });
   const chooseMore =
     ready && !state.error && !state.connecting && !state.status?.connecting
-      ? { id: "\0more", label: t("composer.githubChooseMore"), onAction: connectFor }
+      ? { id: "\0more", label: t("composer.githubChooseMore"), onAction: github.onConnect }
       : undefined;
   if (action) {
     const connect = action === "connect";
@@ -511,7 +502,7 @@ function githubRows(
       id: "\0connection",
       label: t(connect ? (status === "source.github.signIn" ? status : "composer.githubConnect") : "project.retry"),
       icon: "github",
-      onAction: connect ? connectFor : action === "refresh" ? github.onOpen : github.onRetry,
+      onAction: connect ? github.onConnect : action === "refresh" ? github.onOpen : github.onRetry,
     });
   }
   return { rows: repos, action: chooseMore, message: state.connectError ?? state.status?.message ?? message };

@@ -96,7 +96,7 @@ export function FloatingRoles() {
           </div>
         </Card>
         <Card specimen="tooltip">
-          <div className="ui-tooltip ui-glass" role="tooltip" data-host-glass="chip">
+          <div className="ui-tooltip ui-glass" role="tooltip">
             <span className="ui-tooltip-hint">⌘W</span>
             <span className="ui-tooltip-text">Close tab</span>
           </div>
@@ -110,7 +110,7 @@ export function FloatingRoles() {
           />
         </Card>
         <Card specimen="dialog">
-          <div className="ui-dialog ui-glass" style={{ position: "static" }} data-host-glass="popover">
+          <div className="ui-dialog ui-glass" style={{ position: "static" }}>
             <h2 className="ui-dialog-title">Delete this chat?</h2>
             <p className="ui-dialog-description">Its transcript stays in History.</p>
             <div className="ui-dialog-actions">

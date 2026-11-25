@@ -127,7 +127,7 @@ struct SubagentGroupCard: View {
             }
             .padding(.horizontal, 16)
             .frame(height: 44)
-            Divider().overlay(Color.cmuxMobileContentLine(.card)).padding(.leading, 16)
+            Divider().padding(.leading, 16)
             ForEach(agents) { agent in
                 Button { open(agent.id) } label: {
                     HStack(spacing: 10) {
@@ -151,9 +151,7 @@ struct SubagentGroupCard: View {
                 .accessibilityHint("Opens its transcript")
             }
         }
-        // A content card in the page (the design system's card level): the theme's ink over the
-        // Mac's picture, never an opaque slab.
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
         .animation(.cmuxMobileSnap.unlessReduceMotion, value: agents.map(\.state))
     }
 }
@@ -255,7 +253,7 @@ struct SubagentTranscriptScreen: View {
                             .font(.body)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 10)
-                            .background(Color.cmuxMobileChatBubble, in: .rect(cornerRadius: 20, style: .continuous))
+                            .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))
                             .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     ForEach(rows) { row in
@@ -274,8 +272,7 @@ struct SubagentTranscriptScreen: View {
                 .padding(.vertical, 16)
             }
             .defaultScrollAnchor(.top)
-            .background { CmuxMobileChatBackdrop() }
-            .cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
+            .background(Color.cmuxMobileBackground)
             .chatDemoReceiver(store: store, surface: surface)
             .navigationTitle(agent.name)
             .navigationBarTitleDisplayMode(.inline)

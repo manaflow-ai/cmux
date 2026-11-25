@@ -430,7 +430,7 @@ struct DiffSnippet: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 16)
         .frame(height: 44)
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+        .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
     }
 
     /// Opens the diff once the turn's changes are ready (the cache has them, or computes
@@ -508,7 +508,10 @@ struct DiffSnippet: View {
                 .padding(.bottom, 2)
             }
         }
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+        .background(Color.cmuxMobileCodeBackground, in: .rect(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(Color(uiColor: .separator).opacity(0.5), lineWidth: 0.5)
+        }
     }
 
     private func color(_ line: DiffLine) -> Color {
@@ -598,7 +601,7 @@ struct EditedFilesCard: View {
                 .buttonStyle(.cmuxPressFill)
             }
         }
-        .cmuxMobileContentSurface(.card, in: .rect(cornerRadius: 20, style: .continuous))
+        .background(Color.cmuxMobileCard, in: .rect(cornerRadius: 20, style: .continuous))
     }
 }
 #endif

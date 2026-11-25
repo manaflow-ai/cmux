@@ -124,9 +124,7 @@ fn persistent_ids_a_reset_counter_skips_names_acpmux_holds() {
     let answer = spawn_tasks(&mut h, vec!["first task".into(), "second task".into()]);
     assert!(answer.contains("a18") && answer.contains("a19"), "{answer}");
     assert!(!answer.contains("is taken"), "{answer}");
-    // Several tasks start their sessions on their own threads, so the mock
-    // records them in thread order: compare the set, not the order.
-    let mut names: Vec<String> = h
+    let names: Vec<String> = h
         .agents
         .inner
         .lock()
@@ -136,7 +134,6 @@ fn persistent_ids_a_reset_counter_skips_names_acpmux_holds() {
         .map(|s| s.name.clone())
         .filter(|n| n.starts_with("optchat-sub-h0me-"))
         .collect();
-    names.sort();
     assert_eq!(
         names,
         [

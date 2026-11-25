@@ -15,10 +15,10 @@ const ICON = `data:image/svg+xml,${encodeURIComponent(
 )}`;
 
 const chrome: CookieImportCardModel = {
-  title: "Import sign-ins from Google Chrome",
+  title: "Import cookies from Google Chrome",
   importTitle: "Import…",
-  notNowTitle: "Not now",
-  neverTitle: "Never for Chrome",
+  notNowTitle: "Not Now",
+  neverTitle: "Don't Show Again",
   icon: ICON,
 };
 
@@ -64,7 +64,7 @@ export default componentEntry<Props>({
   height: 160,
   widths: { narrow: 360, normal: 520, wide: 640 },
   covers: ["browser-chrome/cookie-import/CookieImportCard.tsx"],
-  keywords: ["import cookies", "toast", "chrome", "sign in", "never for chrome", "not now"],
+  keywords: ["import cookies", "toast", "chrome", "sign in", "don't show again", "not now"],
   load: async () => CookieImportFixture,
   options: [
     {
@@ -82,7 +82,7 @@ export default componentEntry<Props>({
   variants: {
     toast: {
       props: { model: chrome, look: "toast" },
-      note: "Picked. The dialog card's grammar: the line in the title weight, Never for Chrome quiet, Not now, Import primary.",
+      note: "Picked. The dialog card's grammar: the line in the title weight, Don't Show Again quiet, Not Now, Import primary.",
     },
     buttons: {
       props: { model: chrome, look: "buttons", width: 640 },
@@ -104,10 +104,10 @@ export default componentEntry<Props>({
       props: {
         model: {
           ...chrome,
-          title: "Anmeldungen aus Google Chrome importieren",
+          title: "Cookies aus Google Chrome importieren",
           importTitle: "Importieren …",
           notNowTitle: "Jetzt nicht",
-          neverTitle: "Nie für Chrome",
+          neverTitle: "Nicht mehr anzeigen",
         },
         look: "toast",
         width: 184,
@@ -116,7 +116,7 @@ export default componentEntry<Props>({
     },
     "toast-no-never": {
       props: { model: { ...chrome, neverTitle: null }, look: "toast" },
-      note: "No Never for Chrome: Import and the Not now button.",
+      note: "No Don't Show Again: Import and the close button.",
     },
     "toast-no-icon": {
       props: { model: { ...chrome, icon: null }, look: "toast" },
@@ -125,10 +125,10 @@ export default componentEntry<Props>({
       props: {
         model: {
           ...chrome,
-          title: "Anmeldungen aus Google Chrome importieren",
+          title: "Cookies aus Google Chrome importieren",
           importTitle: "Importieren …",
           notNowTitle: "Jetzt nicht",
-          neverTitle: "Nie für Chrome",
+          neverTitle: "Nicht mehr anzeigen",
         },
         look: "toast",
       },

@@ -189,7 +189,7 @@ import {
   noteUnreadNews,
   noteUnreadCount,
 } from "./conversation/unreadState";
-import { type HeldSpan, SinceTurnHold, sinceNews, sinceCount } from "./conversation/sinceNews";
+import { sinceNews, sinceCount } from "./conversation/sinceNews";
 import {
   jumpUpShown,
   jumpUpTarget,
@@ -250,9 +250,9 @@ import {
   ARRIVAL_PASS_MS,
   arrivedAtTail,
   TokenRows,
+  newestPromptId,
   noReplyCame,
   broughtSentPrompt,
-  newestPromptIndex,
 } from "./transcript/arrivals";
 import {
   scrollRangeIn,
@@ -275,7 +275,6 @@ import { jumpToLatestWith, placeViewWith, pressUpWith } from "./transcript/jumpW
 import { indexOfRow, mountedIndexOf } from "./transcript/rowIndex";
 import { type TranscriptReferences, LIST_PROPS, sameList } from "./transcript/references";
 import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEstimate";
-import { SNAPSHOT_HOST_TAG } from "./chatSnapshot/shared";
 export { RowContent } from "./transcript/RowFrame";
 export { broughtSentPrompt } from "./transcript/arrivals";
 export { heldReaderPlace } from "./transcript/scrollAnchors";
@@ -324,8 +323,6 @@ function writeFlow(
   else node.style.setProperty(FLOW_VARS[name], value);
 }
 
-/// No turn held back from the unread line (sinceNews.ts `HeldSpan`).
-const NO_HELD: readonly HeldSpan[] = [];
 /// A store subscription that hears nothing (Jump up off: the unread state is not read).
 const NO_SUBSCRIPTION = () => () => {};
 /// With Jump up off, the unread view it would read: one constant, so a scroll reads no unread state.
@@ -333,19 +330,6 @@ const NO_UNREAD = () => undefined;
 
 /// The last measured transcript box on this page: a transcript mounting again starts from it.
 const lastTranscriptBox = { height: 600, width: 760 };
-/// The page's first transcript starts from the box of the chat's copy (chatSnapshot/paint.ts), when one
-/// is up: the copy is the same transcript, already laid out in this window. From the 760 x 600 guess,
-/// a relaunched chat laid out every row at that width, then again at the real one once it measured
-/// (~100 ms of text layout on a 120-turn chat, before the copy could swap).
-let seededFromCopy = false;
-function transcriptBoxFromCopy(): void {
-  if (seededFromCopy || typeof document === "undefined") return;
-  seededFromCopy = true;
-  const scroller = document.querySelector(SNAPSHOT_HOST_TAG)?.shadowRoot?.querySelector<HTMLElement>(".acpmux-scroll");
-  if (!scroller || scroller.clientHeight <= 0 || scroller.clientWidth <= 0) return;
-  lastTranscriptBox.height = scroller.clientHeight;
-  lastTranscriptBox.width = scroller.offsetWidth;
-}
 
 /// Whether any of `rows` is drawn inside the scroller's view (a row that grew there would draw over
 /// the rows under it until the transcript places them again). One rect read per row the observer
@@ -758,7 +742,6 @@ function TranscriptView({
   inViewNow,
   onSeenRows,
   heldWorkedClosing,
-  rowsAreCopy = false,
   onLoadOlder,
   sends = 0,
   onFollowingChange,
@@ -818,9 +801,6 @@ function TranscriptView({
   /// That close folds in the turn's end motion (conversation/turnEndFold.ts). Only read here: the
   /// pane lets the flag go once the render that reads it has committed.
   heldWorkedClosing?: React.MutableRefObject<boolean>;
-  /// The rows are a copy drawn before acpmux's attach of the chat answered (turnEndFold.ts
-  /// `drawsCopy`): a turn they show running that the attach shows ended draws ended in place.
-  rowsAreCopy?: boolean;
   /// A reply is streaming: Jump to latest remains static while the shared transcript spinner carries
   /// the working state.
   working?: boolean;
@@ -1077,8 +1057,6 @@ function TranscriptView({
     current: { length: 0 },
   }));
   const [jumpUpHint] = useState(() => ({ current: -1 }));
-  /// The turns the unread line holds back (sinceNews.ts `SinceTurnHold`).
-  const [sinceHold] = useState(() => new SinceTurnHold());
   /// The offset Jump up just set, so its scroll event is not taken for the reader's stop.
   const placedTop = useRef<number | undefined>(undefined);
   /// Jump up's glide is in flight (`placeView`): its steps are its own, not the reader's stops.
@@ -1488,10 +1466,7 @@ function TranscriptView({
   /// The chat of the last commit, for a flow that starts from the box's observer.
   const sessionIdRef = useRef(sessionId);
   // The last transcript box on this page until this one is measured (before its first paint, below).
-  const [height, setHeight] = useState(() => {
-    transcriptBoxFromCopy();
-    return lastTranscriptBox.height;
-  });
+  const [height, setHeight] = useState(() => lastTranscriptBox.height);
   // The native pane's width, distinct from the transcript scroller's width when Push always reserves
   // a Session Info column. The pane-pinned rail uses this so its inset never follows that column.
   const [paneWidth, setPaneWidth] = useState(() => lastTranscriptBox.width);
@@ -1656,17 +1631,11 @@ function TranscriptView({
         ? (dock.querySelector(`:scope > .acpmux-running-tray:not(.${TRAY_GHOST})`)?.getBoundingClientRect().height ?? 0)
         : 0;
     // The stack's notices (the host's line, an app notice, Retrying…: noticeSlotModel.ts DOCK_NOTICE),
-    // while the stack reaches over the view: each one's box and its vertical margins, the room it takes.
+    // while the stack reaches over the view.
     const notice = (space: number) => {
       if (space <= 0) return 0;
       let height = 0;
-      for (const line of dock.querySelectorAll(DOCK_NOTICE)) {
-        const style = getComputedStyle(line);
-        height +=
-          line.getBoundingClientRect().height +
-          (parseFloat(style.marginTop) || 0) +
-          (parseFloat(style.marginBottom) || 0);
-      }
+      for (const line of dock.querySelectorAll(DOCK_NOTICE)) height += line.getBoundingClientRect().height;
       return height;
     };
     // A click on one of its disclosures (the header, View all, a command's line) is the reader's.
@@ -2012,11 +1981,6 @@ function TranscriptView({
   /// The rows the render before this one drew, and its chat, for a turn's end (turnEndFold.ts).
   const rowsBefore = rowsRef.current;
   rowsRef.current = rows;
-  /// Whether the rows the render before drew were a copy (`rowsAreCopy`), read when they were handed
-  /// over: an attach that answers with the copy's own rows still leaves them the copy's.
-  const copyRef = useRef(rowsAreCopy);
-  const rowsBeforeCopy = copyRef.current;
-  if (rows !== rowsBefore) copyRef.current = rowsAreCopy;
   /// Whether these rows are the last ones with only a streamed token in them (the same rows, a reply
   /// or the live thinking row at a new version: `arrivedAtTail`), which `queueDrawn` leaves to the
   /// rows' observer. Anything else (a row that came or left, a tool row's new state, the turn's
@@ -3275,9 +3239,7 @@ function TranscriptView({
   // after tool calls get folded"): it folds in the turn's end motion instead, the rows over it
   // coming down together as the work leaves.
   const closingHeld = heldWorkedClosing?.current === true && rows !== rowsBefore;
-  // A turn whose running rows were a copy (a restored tab, a kept tail) ended before this page's
-  // attach heard of it: the reader saw those messages before the relaunch, so its end draws in place.
-  const turnEnds = !rowsBeforeCopy && endsTurn(rowsBefore, rows);
+  const turnEnds = endsTurn(rowsBefore, rows);
   if (sameChat && (turnEnds || closingHeld) && !pageAway())
     turnEndCapture.current = captureTurnEnd(thread.current, ref.current, rows, sessionId, !turnEnds);
   else if (!sameChat) turnEndCapture.current = undefined;
@@ -4023,7 +3985,6 @@ function TranscriptView({
   // (https://github.com/manaflow-ai/cmux/pull/47801) scrolled the whole history out of view on send.
   // The last pass's rows (its layout effect writes them), read once for this pass.
   const placedRows = previousRows.current;
-  const keptAt = following && !sessionSwitched ? newestPromptIndex(rows) : -1;
   const under = roomUnder({
     following,
     sessionSwitched,
@@ -4044,10 +4005,7 @@ function TranscriptView({
     liftedBefore: liftedBefore.current,
     deadband: FOLLOW_BOTTOM_DEADBAND_PX,
     held: heldRoom.current,
-    prompt: keptAt >= 0 ? rows[keptAt]!.id : undefined,
-    // From the prompt's top, so a page of older history landing above it takes none of the room.
-    promptTail: () =>
-      measured.layout.totalHeight - (keptAt >= 0 ? layoutGeometry(measured.layout).topAt(keptAt) : 0) + tailGap,
+    prompt: following && !sessionSwitched ? newestPromptId(rows) : undefined,
     foldRoom,
     newerRoom,
     dragged: draggedHeight,
@@ -7191,20 +7149,12 @@ function TranscriptView({
   const sinceRow = sinceIndex >= 0 ? rows[sinceIndex] : undefined;
   // Whether anything new to read is under the line (sinceNews.ts): a quiet one draws no line, no
   // banner and no Jump up target. Stops at the first news row, so a chat that answered reads one.
-  // A running turn's own rows are not news, nor a turn that ended with the reader at its bottom
-  // (sinceNews.ts `SinceTurnHold`; Leo, 2026-11-25: "dont mark it as new if it's still going").
-  const sinceHeld =
-    sinceRow !== undefined
-      ? sinceHold.spans(rows, sinceIndex, sinceKey, working, renderFollowing && !sessionSwitched)
-      : NO_HELD;
-  const sinceHasNews = sinceRow !== undefined && sinceNews(rows, sinceIndex, sinceHeld);
+  const sinceHasNews = sinceRow !== undefined && sinceNews(rows, sinceIndex);
   // "157 new messages" (sinceNews.ts `sinceCount`): the news under the line, read from the end back
   // to it, bounded; only when the rows change, never per scroll frame.
-  const sinceHeldKey = sinceHeld.map((span) => `${span.from}-${span.to}${span.seen ? "s" : ""}`).join(",");
   const sinceMessages = useMemo(
-    () => (sinceHasNews ? sinceCount(rows, sinceIndex, undefined, sinceHeld) : undefined),
-    // oxlint-disable-next-line react-hooks/exhaustive-deps -- the spans are new each render; their key is what changes
-    [rows, sinceIndex, sinceHasNews, sinceHeldKey],
+    () => (sinceHasNews ? sinceCount(rows, sinceIndex) : undefined),
+    [rows, sinceIndex, sinceHasNews],
   );
   useLayoutEffect(() => {
     if (sinceKey === undefined || sinceRow === undefined) return;
@@ -7419,6 +7369,7 @@ function TranscriptView({
     sinceKey,
     onJumpToSince,
     sinceRow,
+    sinceHasNews,
     clearTop,
     sinceIndex,
     jumpUp,

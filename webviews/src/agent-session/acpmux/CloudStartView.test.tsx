@@ -98,13 +98,11 @@ test("a start on its way reads as a local first turn: the message and the Thinki
   }
 });
 
-test("the quiet line names the stage and counts its seconds, never a usual wait, and keeps Thinking as an arm", () => {
+test("the quiet line names the stage, why it waits and about how long, and keeps Thinking as an arm", () => {
   const html = renderToStaticMarkup(<CloudStartView start={{ ...start, step: "machine" }} />);
   expect(html).toContain('data-stage="machine"');
   expect(html).toContain("Starting your Cloud machine");
-  // No host start time: the clock still shows, counting from when the line first drew the stage.
-  expect(html).toMatch(/<time class="cv-worked__time" data-stage-clock="true">0s<\/time>/);
-  expect(html).not.toContain("usually");
+  expect(html).toContain("usually under a minute");
   expect(html).not.toContain('data-step-id="machine"');
   // The copy stage, the hint arm's segments (machine done, copy current, agent next), and the arm
   // that keeps the line as it was.
@@ -116,8 +114,7 @@ test("the quiet line names the stage and counts its seconds, never a usual wait,
     'data-step="next"',
   ]);
   const stacked = renderToStaticMarkup(<CloudStartView start={start} quietLook="stacked" />);
-  expect(stacked).toContain("data-stage-clock");
-  expect(stacked).not.toContain("usually");
+  expect(stacked).toContain('class="acpmux-cloud-start__eta-line"');
   const thinking = renderToStaticMarkup(<CloudStartView start={start} quietLook="thinking" />);
   expect(thinking).toContain("cv-thinking");
   expect(thinking).not.toContain("acpmux-cloud-start__stage");
@@ -545,7 +542,7 @@ test("initialized sessions collapse to one quiet line", () => {
 
 test("startup durations use the supplied clock", () => {
   const rows = startupChecklist({ key: "k", task: "hi", state: "starting", machineStartedAt: 1_000 }, undefined, 3_500);
-  expect(rows[0]?.duration).toBe("2s");
+  expect(rows[0]?.duration).toBe("2.5s");
 });
 
 test("setup hint becomes a link when an environment callback is provided", () => {

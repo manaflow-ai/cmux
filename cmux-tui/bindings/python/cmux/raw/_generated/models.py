@@ -3777,7 +3777,6 @@ class CreateWorkspaceRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     first_tab: Union[WorkspaceFirstTab, None, MissingType] = field(default=MISSING)
-    name_source: Union[NameSource, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3933,18 +3932,6 @@ class FloatPaneRequest:
     w: Union[float, None, MissingType] = field(default=MISSING)
     x: Union[float, None, MissingType] = field(default=MISSING)
     y: Union[float, None, MissingType] = field(default=MISSING)
-
-
-@dataclass(frozen=True)
-class FlushLaunchSnapshotRequest:
-    __cmux_schema_path__: ClassVar[str] = 'commands/flush-launch-snapshot/request'
-    pass
-
-
-@dataclass(frozen=True)
-class FlushLaunchSnapshotResult:
-    __cmux_schema_path__: ClassVar[str] = 'commands/flush-launch-snapshot/result'
-    flushed: bool
 
 
 @dataclass(frozen=True)
@@ -7234,8 +7221,6 @@ __all__ = [
     'FeedLocalListRequest',
     'FeedLocalReadRequest',
     'FloatPaneRequest',
-    'FlushLaunchSnapshotRequest',
-    'FlushLaunchSnapshotResult',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',

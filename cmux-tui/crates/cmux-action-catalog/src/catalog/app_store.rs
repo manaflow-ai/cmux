@@ -17,7 +17,7 @@ pub static ACTIONS: &[Action] = &[
         category: "settings",
         symbol: "bag",
         surfaces: PALETTE | KEYBOARD | CONTEXT_MENU,
-        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menus: &[Placement::at("sidebarBackground", "view", 301)], ..SurfacePlan::DEFAULT },
         arguments: &[args::APP_2.optional(), args::TAB.optional(), args::CATEGORY.optional()],
         cli_name: "app store",
         ..Action::DEFAULT

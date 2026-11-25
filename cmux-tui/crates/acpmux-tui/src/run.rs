@@ -134,10 +134,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                 }
                 let animated = app.draft().map(|d| d.creating).unwrap_or(false)
                     || app.selected_id().and_then(|id| app.transcripts.get(&id)).map(|t| t.status == "running").unwrap_or(false);
-                // A capacity wait's countdown moves once a second (every 12th 80 ms tick).
-                let waiting = app.tick % 12 == 0
-                    && app.selected_id().and_then(|id| app.transcripts.get(&id)).is_some_and(|t| t.capacity_wait.is_some());
-                if animated || waiting { frames.request(); }
+                if animated { frames.request(); }
                 if app.tick % 50 == 0 {
                     let c = client.clone();
                     let tx = tx.clone();
@@ -365,7 +362,6 @@ pub(super) fn make_app(
         perm_rows: Vec::new(),
         dialog_rect: Rect::default(),
         answering: None,
-        find: None,
     })
 }
 

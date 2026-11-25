@@ -430,7 +430,7 @@ struct ChatTurnBar: View {
         .font(.body)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .cmuxMobileFloatingGlass(in: .capsule)
+        .glassEffect(.regular, in: .capsule)
         .padding(.horizontal, 12)
     }
 

@@ -42,9 +42,8 @@ nonisolated public struct BuildSwitchProgress: Equatable, Sendable {
 
 nonisolated extension UpdaterStrings {
     static var switchDownloading: String { text("updater.channels.progress.downloading", "Downloading…") }
-    /// The percent padded to "100"'s width: the running button keeps its width while it counts (its label is tabular-nums).
     static func switchDownloadingPercent(_ percent: Int) -> String {
-        format("updater.channels.progress.downloadingPercent", "Downloading… %@%%", UpdateTransfer.paddedWholePercent(percent))
+        format("updater.channels.progress.downloadingPercent", "Downloading… %@%%", String(percent))
     }
     static var switchVerifying: String { text("updater.channels.progress.verifying", "Checking the download…") }
     static var switchCheckingStores: String {

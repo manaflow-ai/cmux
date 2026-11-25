@@ -90,12 +90,10 @@ open class CmuxFloatingDialogPanel: NSPanel {
 
     /// Shows `spec` in the card (replacing the one shown), sized to it at the top right of the main screen, and
     /// orders the panel in over every app without activating cmux. `onPress` gets each press by click or key; a
-    /// ``CmuxDialogButton/personOnly`` button's press is its host's to ignore. A card with no ``anchor`` floats over
-    /// every app, so it draws the ``SurfaceRole/prompt`` glass; one over its anchor window draws the spec's.
+    /// ``CmuxDialogButton/personOnly`` button's press is its host's to ignore.
     @discardableResult
     public func show(_ spec: CmuxDialogSpec, onPress: @escaping (String) -> Void) -> CmuxDialogView {
-        let view = CmuxDialogView(dialog: .standalone(spec, activeLook: Self.appActiveLook, floatsOverApps: true, onPress: onPress),
-                                  overApps: anchor == nil)
+        let view = CmuxDialogView(dialog: .standalone(spec, activeLook: Self.appActiveLook, floatsOverApps: true, onPress: onPress))
         present(view)
         return view
     }
@@ -271,8 +269,7 @@ private final class FloatingDialogRoot: NSView {
 
 /// A view that holds one cmux dialog card and draws it again from a new spec (a consent whose state changed: a write
 /// in flight, an error): the floating consents' content (``CmuxFloatingDialogPanel/present(_:)``). It is the card's
-/// size; the card brings the glass, the corners, the buttons and their keys. The consents float over every app, so
-/// the card draws the ``SurfaceRole/prompt`` glass.
+/// size; the card brings the glass, the corners, the buttons and their keys.
 @MainActor
 open class CmuxDialogHostView: NSView {
     /// The card drawn now.
@@ -292,8 +289,7 @@ open class CmuxDialogHostView: NSView {
         let hadKeyboard = card?.containsKeyboard == true
         card?.removeFromSuperview()
         let view = CmuxDialogView(dialog: .standalone(spec, activeLook: CmuxFloatingDialogPanel.appActiveLook, floatsOverApps: true,
-                                                      onPress: onPress),
-                                  overApps: true)
+                                                      onPress: onPress))
         addSubview(view)
         NSLayoutConstraint.activate([
             view.leadingAnchor.constraint(equalTo: leadingAnchor),

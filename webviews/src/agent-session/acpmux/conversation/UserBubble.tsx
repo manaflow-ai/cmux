@@ -57,8 +57,15 @@ import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalo
 import { SkillWordsContext } from "./skillWords";
 import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
-import { sentVideoOf, sentVideosOf, type SentVideo, sentVideoFor, withoutRepeatedVideos } from "./sentVideos";
-import { recordedFiles, isImageOriginal, sentImageSize, linkedImagePath } from "./userBubbleModel";
+import { sentVideoFor, sentVideoOf, sentVideosOf, withoutRepeatedVideos, type SentVideo } from "./sentVideos";
+import {
+  recordedFiles,
+  isImageOriginal,
+  linkedImagePath,
+  SENT_IMAGE_HEIGHT,
+  sentImageWidth,
+  sentImageSize,
+} from "./userBubbleModel";
 import { readLinkedImage } from "../chips/host";
 import { useMessageScope } from "../chips/messageScope";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -132,12 +139,13 @@ export function UserBubble({
     return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
   }, [row]);
   // A prompt whose attachments the composer placed draws in its recorded order, each attachment
-  // where it was put, the last part included (Leo, 2026-11-22: "there should be no problem doing so
-  // for inline attachments after send"; each at its final size from the first frame, sentImageSize
-  // and sentVideoSize, which the row's estimate reads too). Placed: the pane marked it so (`placed`, acpmux
+  // where it was put, the last part included. Placed: the pane marked it so (`placed`, acpmux
   // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
   // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
-  // to read beside its attachments, keep the legacy bands above the bubble.
+  // to read beside its attachments, keep the legacy bands above the bubble. Each attachment's box
+  // is its sent size from its first frame (SentImage, SentVideoTile), and the row's estimate flows
+  // the same boxes (model.ts `inlinePromptHeight`), so nothing on its line moves when it loads
+  // (Leo, 2026-11-22: "there should be no problem doing so for inline attachments after send").
   const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
   // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
   const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
@@ -173,7 +181,7 @@ export function UserBubble({
       if (video)
         return (
           <span className="cv-user__inline-image">
-            <SentVideoTile video={video} />
+            <SentVideoTile video={video} width={sentImageWidth(video)} height={SENT_IMAGE_HEIGHT} />
           </span>
         );
       // An image that went as its file's link is its thumbnail (userBubbleModel.ts `linkedImagePath`).
@@ -385,9 +393,16 @@ export const SentImages = memo(function SentImages({
   );
 });
 
-/// A prompt's videos, each in its own shape under a sent image's rule (userBubbleModel.ts `sentVideoSize`).
+/// A prompt's videos, each at a sent image's height in its own shape.
 export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
-  return videos.map((video) => <SentVideoTile key={`${video.name}\n${video.path}`} video={video} />);
+  return videos.map((video) => (
+    <SentVideoTile
+      key={`${video.name}\n${video.path}`}
+      video={video}
+      width={sentImageWidth(video)}
+      height={SENT_IMAGE_HEIGHT}
+    />
+  ));
 }
 
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
