@@ -39,7 +39,7 @@ final class HandoffNotices {
         let owner = CloudOwnerAPIClient(
             baseURL: FeedService.apiBaseURL(auth: auth),
             accessToken: { try await auth.tokens().access },
-            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, buildSpace: auth.configuration.buildSpace
+            teamID: { (try? await identity.installToken()).flatMap(MacInstallIdentity.team(ofToken:)) }, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO
         )
         self.follower = follower ?? SandboxRunFollower(source: .handoffs(wait: { id, after in try await owner.handoffWait(id, after: after) }))
         self.list = list ?? { try await owner.handoffs() }
@@ -180,12 +180,12 @@ final class HandoffNotices {
         let summary = summary(end.snapshot) ?? end.record.task
         let firstLine = summary.split(whereSeparator: \.isNewline).lazy.map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
         let named = chat.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.flatMap { $0.isEmpty ? nil : $0 } ?? firstLine
-        let line = named ?? String(localized: "handoffs.notification.untitled", defaultValue: "Cloud task", table: "Handoffs", bundle: .module)
+        let line = named ?? String(localized: "handoffs.notification.untitled", defaultValue: "Cloud task", table: "Handoffs", bundle: .module.inAppLanguage)
         let title = line.count > 120 ? String(line.prefix(119)) + "…" : line
         let state = switch end.outcome {
-        case .needsYou: String(localized: "handoffs.notification.needsYou", defaultValue: "Needs you", table: "Handoffs", bundle: .module)
-        case .succeeded: String(localized: "handoffs.notification.done", defaultValue: "Done", table: "Handoffs", bundle: .module)
-        case .failed, .timedOut, .cancelled: String(localized: "handoffs.notification.failed", defaultValue: "Failed", table: "Handoffs", bundle: .module)
+        case .needsYou: String(localized: "handoffs.notification.needsYou", defaultValue: "Needs you", table: "Handoffs", bundle: .module.inAppLanguage)
+        case .succeeded: String(localized: "handoffs.notification.done", defaultValue: "Done", table: "Handoffs", bundle: .module.inAppLanguage)
+        case .failed, .timedOut, .cancelled: String(localized: "handoffs.notification.failed", defaultValue: "Failed", table: "Handoffs", bundle: .module.inAppLanguage)
         }
         let detail = summary.trimmingCharacters(in: .whitespacesAndNewlines)
         let body = end.outcome == .needsYou || detail.isEmpty || named == firstLine ? state : state + "\n" + String(detail.prefix(240))

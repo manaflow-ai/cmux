@@ -281,6 +281,18 @@ fn each_verb_carries_its_arguments() {
         ]
     );
     assert_eq!(agent_move_flags(&[], false, None, None), ["--interrupt"]);
+    // The hybrid start's move never stops a turn; the app's answer without the field still does.
+    assert!(agent_move_flags_at_boundary(&[], false, None, None).is_empty());
+    let hybrid = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner", "interrupt": false}));
+    assert_eq!(hybrid.args[11..], ["--vm-kind", "owner"]);
+    let today = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner"}));
+    assert_eq!(today.args[11..], ["--interrupt", "--vm-kind", "owner"]);
+    // The owner's login: a flag that says it is on stdin, never the value in argv.
+    let login = call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b",
+        "cwd": "/w", "vmKind": "owner", "login": true}));
+    assert_eq!(login.args[11..], ["--interrupt", "--vm-kind", "owner", "--login-stdin"]);
     // Move to Another Machine: a pull from the old machine, then a seed of the new one, in that order.
     let relay =
         call(json!({"verb": "agent-move", "from": "/a", "surface": 3, "to": "/b", "cwd": "/w",
@@ -347,6 +359,21 @@ fn each_verb_carries_its_arguments() {
         ["link", "machine", "update", "--socket", "/s"]
     );
     assert_eq!(call(json!({"verb": "machine-pin"})).timeout_seconds, Some(150));
+    let gateway = call(json!({"verb": "inference-gateway-status"}));
+    assert_eq!(
+        (gateway.args, gateway.timeout_seconds),
+        (
+            vec!["inference".to_owned(), "gateway".into(), "status".into(), "--json".into()],
+            Some(10)
+        )
+    );
+    // The start gate names the team its machines are made in (the install's own): the active team's gateway serves
+    // only that team's machines, so reading it waved a start through that no gateway served (start matrix, 13:10Z
+    // 2026-11-22: the active team's gateway off, the machines' team's on).
+    assert_eq!(
+        call(json!({"verb": "inference-gateway-status", "team": "team_0123456789abcdef0123"})).args,
+        ["inference", "gateway", "status", "--json", "--team", "team_0123456789abcdef0123"]
+    );
     let release = call(json!({"verb": "start-chat-reservation", "release": true, "request": "{}"}));
     assert_eq!((release.args[2].as_str(), release.timeout_seconds), ("release", Some(15)));
     assert_eq!(
@@ -433,6 +460,27 @@ fn each_verb_carries_its_arguments() {
         ["link", "start-chat", "preflight", "--local", "/Users/me/Projects"]
     );
     assert_eq!(preflight.timeout_seconds, Some(START_CHAT_PREFLIGHT_TIMEOUT_SECONDS));
+    // `cloud new-machine --environment`: the workspace ensure in that environment, keyed by the create's own key.
+    let ensure = call(
+        json!({"verb": "start-chat-ensure", "key": "k", "environment": "env_0123456789abcdef01234567", "platform": "https://p"}),
+    );
+    assert_eq!(
+        ensure.args,
+        [
+            "link",
+            "start-chat",
+            "ensure",
+            "--workspace",
+            "k",
+            "--key",
+            "k",
+            "--environment",
+            "env_0123456789abcdef01234567",
+            "--platform",
+            "https://p"
+        ]
+    );
+    assert_eq!(ensure.timeout_seconds, Some(150));
     // A plan reaches the platform and a copy moves the folder: they keep the default.
     assert_eq!(call(json!({"verb": "start-chat-plan", "request": "{}"})).timeout_seconds, None);
     assert_eq!(

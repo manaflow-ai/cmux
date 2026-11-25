@@ -10,7 +10,7 @@ import Testing
 /// A workspace with no icon of its own takes its shown tab's favicon as its row icon (the GitHub mark of a pull request
 /// page), and the pinned row drew that favicon in the pin's place as if it were the workspace's own icon
 /// (`SidebarPinnedRowLeading.ownIcon`). The favicon belongs to the tab, not the workspace: a pinned row shows its pin
-/// whatever its shown tab is, and only an icon or color the user chose takes the pin's place.
+/// whatever its shown tab is. An icon or color the user chose draws after the pin (`pinThenIcon`, #42431, #56146).
 @MainActor @Suite(.serialized, .closesItsWindows) struct PinnedRowShownTabIconTests {
     static let home = LayoutItem(id: LayoutItemID("itm_tabicon_home"), ref: .builtIn(.home))
     static let page = LayoutItem(id: LayoutItemID("itm_tabicon_page"), ref: .workspace("local:ws-tabicon-page"))
@@ -67,7 +67,7 @@ import Testing
         return (list, window)
     }
 
-    /// Runs `body` with `sidebar.pinnedRowLeading` at its default (`ownIcon`).
+    /// Runs `body` with `sidebar.pinnedRowLeading` at its default (`pinThenIcon`).
     static func atDefaultLook(_ body: () throws -> Void) throws {
         try autoreleasepool {
             Motion.reduceMotionOverride = true
@@ -75,7 +75,7 @@ import Testing
             TunableStore.shared.activate(file: nil)
             TunableStore.shared.register(SidebarTunables.all)
             TunableStore.shared.set(SidebarPinnedRowLeading.tunable.key, nil)
-            try #require(SidebarPinnedRowLeading.tunable.value == .ownIcon, "the default look is ownIcon")
+            try #require(SidebarPinnedRowLeading.tunable.value == .pinThenIcon, "the default look is pinThenIcon")
             try body()
         }
     }
@@ -99,14 +99,15 @@ import Testing
         }
     }
 
-    /// An icon the user chose still takes the pin's place (#38061): only a shown tab's favicon gives way to the pin.
-    @Test func aPinnedRowWithItsOwnIconKeepsIt() throws {
+    /// An icon the user chose draws after the pin (#42431, #56146): the row keeps both its pin and its own icon; only a
+    /// shown tab's favicon is dropped.
+    @Test func aPinnedRowWithItsOwnIconKeepsItAndItsPin() throws {
         try Self.atDefaultLook {
             let (list, window) = Self.list(try Self.pageRow())
             defer { window.close() }
             let emoji = try HomePinnedRowAlignmentTests.item(list, Self.emoji.id)
-            #expect(emoji.pinSquareFrame == nil, "the emoji workspace draws a pin before its own icon")
-            #expect(emoji.glyphInkFrame != nil, "the emoji workspace lost its own icon")
+            #expect(emoji.pinSquareFrame != nil, "the emoji workspace draws no pin")
+            #expect(emoji.ownIconInkFrame != nil, "the emoji workspace lost its own icon")
         }
     }
 }

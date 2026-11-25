@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { userObjectName } from "./buildSpace";
 import { checkDeviceSignature, readDeviceHeaders } from "./deviceAuth";
 import type { Env } from "./env";
 import { ApiError, errorResponse, json } from "./errors";
@@ -8,6 +9,8 @@ import { type Role, readTicket } from "./tickets";
 interface Meta {
   sid: string;
   userId: string;
+  /** The User DO's build space ("" or absent: the default space, as every session from before spaces). */
+  space?: string;
   scope: string;
   viewer: { id: string; key: string };
   host: { id: string; key: string };
@@ -15,6 +18,10 @@ interface Meta {
 }
 
 const RELAYED = new Set(["offer", "answer", "candidate", "bye"]);
+// Relayed from the host only: the protocol it serves instead of the one the viewer offered
+// (`{type:'transport', transport:'cmux.rd/1'}` from a Mac whose app is closed, or a Linux
+// desktop), so the viewer reattaches and offers that one (cmuxterm-hq#18912).
+const RELAYED_FROM_HOST = new Set(["transport"]);
 const MAX_MESSAGE = 64 * 1024;
 const MAX_QUEUE = 256;
 
@@ -64,7 +71,7 @@ export class SessionDO extends DurableObject<Env> {
   }
 
   private userStub(m: Meta) {
-    return this.env.USER_DO.get(this.env.USER_DO.idFromName(m.userId));
+    return this.env.USER_DO.get(this.env.USER_DO.idFromName(userObjectName(m.space ?? "", m.userId)));
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -74,7 +81,7 @@ export class SessionDO extends DurableObject<Env> {
         const body = (await request.json()) as Meta;
         if (this.meta() || this.closed()) return json({ ok: false }, 409);
         this.sql.exec(SCHEMA);
-        this.saveMeta({ sid: body.sid, userId: body.userId, scope: body.scope, viewer: body.viewer, host: body.host });
+        this.saveMeta({ sid: body.sid, userId: body.userId, space: body.space ?? "", scope: body.scope, viewer: body.viewer, host: body.host });
         return json({ ok: true });
       }
       if (url.pathname === "/internal/close" && request.method === "POST") {
@@ -158,7 +165,7 @@ export class SessionDO extends DurableObject<Env> {
       }
       return;
     }
-    if (typeof type !== "string" || !RELAYED.has(type)) return;
+    if (typeof type !== "string" || !(RELAYED.has(type) || (role === "host" && RELAYED_FROM_HOST.has(type)))) return;
     const peers = this.ctx.getWebSockets(other(role));
     if (peers.length > 0) {
       for (const p of peers) p.send(message);

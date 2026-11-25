@@ -41,6 +41,10 @@ final class TerminalSurfaceView: UIView {
     /// write delivered while that is clear goes as a reply, never as keys
     /// that were "not sent".
     var isPerformingInput = false
+    /// Input went out that the keyboard did not type itself (the key bar, a paste, the
+    /// composer, a hardware key command): the keyboard's context no longer matches the
+    /// prompt, so its next insert re-announces the document (`insertText`).
+    var keyboardContextStale = true
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
@@ -78,6 +82,19 @@ final class TerminalSurfaceView: UIView {
     private(set) var hostTheme: CmuxMobileTerminalTheme?
     /// The theme given to Ghostty last (the surface may not exist when ``hostTheme`` changes).
     private var surfaceTheme: CmuxMobileTerminalTheme?
+    /// Whether ``surfaceTheme`` went to Ghostty see-through.
+    private var surfaceSeeThrough = false
+    /// Whether the page under the terminal shows its Mac's wallpaper (``CmuxMobileMacTheme/wallpaper``):
+    /// the default background is then transparent, so the picture and its tint show behind the
+    /// cells, as on the Mac. The page paints the ground (`TerminalGroundView`); the cells keep their colors.
+    var seeThrough = false {
+        didSet {
+            guard seeThrough != oldValue else { return }
+            isOpaque = !seeThrough
+            if let hostTheme { backgroundColor = seeThrough ? .clear : hostTheme.backgroundColor }
+            applyHostTheme()
+        }
+    }
     /// The shown theme changed: the page around the surface repaints with it.
     var onHostTheme: ((CmuxMobileTerminalTheme) -> Void)?
     private var themeObserver: (any NSObjectProtocol)?
@@ -217,7 +234,12 @@ final class TerminalSurfaceView: UIView {
         ghostty_surface_set_focus(surface, visible)
         // Seen again: a frame of what was parsed while hidden (no batch asks
         // for one then, `setNeedsTerminalDraw`).
-        if visible { ghostty_surface_refresh(surface) }
+        if visible {
+            ghostty_surface_refresh(surface)
+            #if DEBUG
+            ResumeMarks.shared?.note("surface_shown")
+            #endif
+        }
     }
 
     private func observeAppState() {
@@ -251,7 +273,8 @@ final class TerminalSurfaceView: UIView {
         ) { [weak self] note in
             let macID = note.userInfo?[CmuxMobileTerminalThemes.macIDKey] as? String
             MainActor.assumeIsolated {
-                guard let self, macID == self.themeMacID || self.themeMacID == nil else { return }
+                // No Mac id: Match Mac theme flipped, so every terminal recolors.
+                guard let self, macID == nil || macID == self.themeMacID || self.themeMacID == nil else { return }
                 self.applyHostTheme()
             }
         }
@@ -264,13 +287,14 @@ final class TerminalSurfaceView: UIView {
         guard let theme = CmuxMobileTerminalThemes.shared.theme(for: themeMacID) else { return }
         if theme != hostTheme {
             hostTheme = theme
-            backgroundColor = theme.backgroundColor
+            backgroundColor = seeThrough ? .clear : theme.backgroundColor
             prediction?.setColors(background: theme.backgroundColor, foreground: theme.foregroundColor)
             onHostTheme?(theme)
         }
-        guard theme != surfaceTheme, let surface, let app,
-              let config = app.themedConfig(theme, fontSize: Double(fontSize)) else { return }
+        guard theme != surfaceTheme || seeThrough != surfaceSeeThrough, let surface, let app,
+              let config = app.themedConfig(theme, fontSize: Double(fontSize), seeThrough: seeThrough) else { return }
         surfaceTheme = theme
+        surfaceSeeThrough = seeThrough
         let ref = SurfaceRef(surface)
         let themed = ConfigRef(config)
         outputQueue.async {
@@ -753,7 +777,13 @@ final class TerminalSurfaceView: UIView {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.presents += 1
+                #if DEBUG
+                TerminalModel.debugPresentsTotal += 1
+                #endif
                 self.presentPending = true
+                #if DEBUG
+                ResumeMarks.shared?.note("terminal_contents")
+                #endif
                 self.observeCommits()
             }
         }

@@ -6,7 +6,10 @@ import { MOTION_MS } from "../../../motion/scale.generated";
 /// Leo, 2026-11-07: "When it comes to sending messages, I feel like the jump, the jolt is a bit too
 /// jarring ... what is satisfying at 120 hertz? That's what we want to aim at." Then, 2026-11-09:
 /// "these animations all slosh around and it's not cohesive / i previously sent the claude code one,
-/// just look at how they do it" and "we need to slim down": `send` ships. To try another arm,
+/// just look at how they do it" and "we need to slim down": `send` shipped. Then, 2026-11-22: "it's
+/// just not great design to have the jolts. esp in tandem with how aggressively we're folding claude
+/// code chats. it's not smooth": `steady` ships, measured at 60 Hz in test/stream-follow-smooth.test.ts
+/// (the newest reply text: no frame past half a line, where `send` stepped up to 90 px). To try another arm,
 /// set `cmux.experiments` to `{"follow-motion":"chunk"}` in the pane's web inspector and reload.
 export const followMotion = defineExperiment({
   id: "follow-motion",
@@ -18,6 +21,11 @@ export const followMotion = defineExperiment({
       label: "Send only (slim)",
       description:
         "Only a send moves on a curve: the sent prompt and its thinking row rise into the room they open in one motion (the send step). A reply streaming, a row arriving and the turn ending move the rows in the frame they land, as Claude Code's transcript only appends.",
+    },
+    steady: {
+      label: "Steady drift",
+      description:
+        "A send rises as in the slim arm; a reply streaming, a row arriving and the turn ending move the rows at the stream's own pace: a short reserve of the newest text waits under the reply's foot, the view drifts at the rate the text comes in, and its speed bends rather than jumps when a chunk, a tool call or a fold lands.",
     },
     spring: {
       label: "Spring chase",
@@ -43,7 +51,7 @@ export const followMotion = defineExperiment({
     },
     instant: { label: "At once", description: "Every move lands in the frame it happens, as with motion off." },
   },
-  defaultArm: "send",
+  defaultArm: "steady",
 });
 
 export type FollowMotionArm = keyof typeof followMotion.arms;

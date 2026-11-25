@@ -229,6 +229,14 @@ class TransitionTests(unittest.TestCase):
         self.assertEqual(row["first_frame_ms"], 0)
         self.assertEqual(row["pane_width_change"], -400.0)
 
+    def test_a_static_round_the_trace_missed_is_timed_by_its_pixels(self):
+        t, sent = self.aligned([1000, 1000, 1000, 1000, 1000, 1000])
+        frames = [frame(10, ob=0.2, of=0.1, cb=0.3, cf=0.4)] + [frame(40 + i * 8, ob=0.2, cb=0.3) for i in range(8)]
+        row = ssm.transition(self.strip(sent, frames), t, static=True)
+        self.assertNotIn("error", row)
+        self.assertIsNotNone(row["first_frame_ms"])
+        self.assertEqual(row["settled_ms"], row["pixel_settled_ms"])
+
     def test_a_failed_strip_fails_the_round(self):
         t, sent = self.aligned([1000, 1000, 800, 700, 700])
         row = ssm.transition({"error": "no frames"}, t, static=True)
@@ -269,6 +277,16 @@ class SummaryTests(unittest.TestCase):
         head = ssm.headline({"s9-browser-w1": {"divider_drag": s}, "s1-chat-w1": {"bottom_close": failed}}, {},
                             unsettled_ms=900)
         self.assertEqual((head["cell"], head["settled_ms"]), ("s1-chat-w1", None))
+
+    def test_a_cell_with_no_settled_time_is_a_failed_cell(self):
+        # The b2dab851a nightly: s1-empty-w1 side_open had no settled time and no round error, so the report said
+        # 0 failed cells beside a None headline and the goal check read unknown.
+        cells = {"s1-empty-w1": {"side_open": {"settled_ms": None}, "split_right": self.summary(100)},
+                 "s9-browser-w1": {"divider_drag": ssm.summarize([{"settled_ms": None}, {"settled_ms": 400}])},
+                 "s2-chat-w1": {"split_right": self.summary(140)}}
+        self.assertEqual(ssm.unmeasured(cells, unsettled_ms=900), ["s1-empty-w1"])
+        self.assertEqual(ssm.unmeasured(cells), ["s1-empty-w1", "s9-browser-w1"])
+        self.assertIsNone(ssm.headline(cells, {}, unsettled_ms=900)["settled_ms"])
 
     def test_verdict_and_p95_target_by_refresh(self):
         self.assertTrue(ssm.verdict(self.summary(100))["pass"])

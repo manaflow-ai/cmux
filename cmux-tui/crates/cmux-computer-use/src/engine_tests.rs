@@ -52,7 +52,7 @@ fn ctx(call: Option<&str>) -> CallContext {
 fn engine(desktop: Arc<FakeDesktop>, config: PolicyConfig) -> Engine {
     let mut parts = EngineParts::new(desktop);
     instant_time(&mut parts);
-    parts.config = config;
+    parts.config = PolicyConfig { settle: SettleMode::Adaptive, ..config };
     instant_time(&mut parts);
     Engine::new(parts)
 }
@@ -173,7 +173,8 @@ fn takeover_never_holds_background_input_to_a_window_the_person_is_not_using() {
 
 struct Slept(Mutex<Vec<Duration>>);
 
-fn settling_engine(d: Arc<FakeDesktop>) -> (Engine, Arc<Slept>) {
+/// The default settings (no wait), sleeps recorded.
+fn default_settling_engine(d: Arc<FakeDesktop>) -> (Engine, Arc<Slept>) {
     let slept = Arc::new(Slept(Mutex::new(vec![])));
     let mut parts = EngineParts::new(d);
     let now = instant_time(&mut parts);
@@ -183,6 +184,15 @@ fn settling_engine(d: Arc<FakeDesktop>) -> (Engine, Arc<Slept>) {
         rec.0.lock().unwrap().push(t);
     });
     (Engine::new(parts), slept)
+}
+
+/// Sleeps recorded, with the adaptive settle the older tests were written for.
+fn settling_engine(d: Arc<FakeDesktop>) -> (Engine, Arc<Slept>) {
+    let (e, slept) = default_settling_engine(d);
+    let mut config = e.config();
+    config.settle = SettleMode::Adaptive;
+    e.set_config(config);
+    (e, slept)
 }
 
 #[test]
@@ -239,6 +249,43 @@ fn the_settle_wait_never_passes_the_ceiling() {
     assert_eq!(*d.captures.lock().unwrap(), 1 + 10);
 }
 
+/// Leo (ask-cdfac12eab): "why do we ever even wait for screen frames? we
+/// shouldnt bother most of the time i think". An app whose accessibility
+/// signals are watched and that sent none, with its window unchanged after
+/// the floor, returns at the floor after one capture: no frame-by-frame wait
+/// to the ceiling.
+#[test]
+fn a_silent_app_is_not_watched_frame_by_frame() {
+    let d = Arc::new(FakeDesktop::standard());
+    *d.signals.lock().unwrap() = Some(crate::desktop::Signals::default());
+    let (e, slept) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "x"}));
+    let state = &out.body["state"];
+    assert_eq!(state["unchanged"], true, "{state}");
+    assert_eq!(state["waited_ms"], 120, "{state}");
+    assert_eq!(*d.captures.lock().unwrap(), 1 + 1);
+    assert_eq!(*slept.0.lock().unwrap(), vec![Duration::from_millis(120)]);
+}
+
+/// An app that signalled a change its window does not show yet is still
+/// watched until the change shows (within the ceiling), a signal it sent
+/// while the action ran included: the watch counts from before the action.
+#[test]
+fn a_signalled_change_is_waited_for_until_it_shows() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, _) = settling_engine(d.clone());
+    assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+    // One signal since the watch started (sent while the key went in); the
+    // app redraws on the third capture after the agent's screenshot.
+    *d.signals.lock().unwrap() =
+        Some(crate::desktop::Signals { in_window: 1, ..Default::default() });
+    *d.repaint_from.lock().unwrap() = Some((4, 77));
+    let out = e.call(&ctx(None), "press_key", &json!({"window_id": "1", "keys": "Return"}));
+    assert_eq!(out.body["state"]["unchanged"], false, "{}", out.body);
+    assert_eq!(*d.captures.lock().unwrap(), 1 + 3);
+}
+
 /// Bug 5 and the verified results: input the route only delivered, whose
 /// effect must show in the window (`shows`), after which nothing changed
 /// through a real settle wait (pixels, elements, windows of any process,
@@ -265,7 +312,9 @@ fn a_delivered_action_with_no_visible_change_says_so() {
     assert_eq!(out.body["evidence"], "no_visible_change", "{}", out.body);
     assert!(out.body.get("shows").is_none(), "{}", out.body);
     let note = out.body["note"].as_str().unwrap();
-    assert!(note.contains("no visible change within 1000 ms"), "{}", out.body);
+    // The app signalled nothing and its window held at the first look: the
+    // settle ends there (ask-cdfac12eab), not at the 1 s ceiling.
+    assert!(note.contains("no visible change within 120 ms"), "{}", out.body);
     assert!(note.contains("take a screenshot before retrying"), "{}", out.body);
 }
 
@@ -1058,6 +1107,7 @@ fn the_state_is_withheld_when_the_app_is_denied_during_the_wait() {
             e.set_config(c);
         }
     });
+    parts.config.settle = SettleMode::Adaptive;
     parts.clock = Arc::new(|| Duration::ZERO);
     let e = Arc::new(Engine::new(parts));
     engine.set(Arc::downgrade(&e)).ok();
@@ -1390,4 +1440,155 @@ fn request_permission_obeys_the_mode_and_never_comes_from_another_machine() {
         on.call(&remote, "request_permission", &args).code.as_deref(),
         Some("remote_not_allowed")
     );
+}
+
+/// Leo, 2026-11-20: "why do we ever even wait for screen frames? we shouldnt
+/// bother most of the time i think". An acting call with default options
+/// chooses the capture-at-once mode: no floor, no ceiling, one capture.
+#[test]
+fn a_default_acting_call_does_not_wait_for_the_screen() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = default_settling_engine(d);
+    assert_eq!(PolicyConfig::default().settle, SettleMode::Openai);
+    let out = e.call(&ctx(None), "click", &json!({"window_id": "1", "element_id": "e1"}));
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["state"]["settle"], "openai");
+    assert!(slept.0.lock().unwrap().is_empty(), "no floor, no step");
+    // An action that changes nothing no longer pays the 1 s ceiling either.
+    let out = e.call(&ctx(None), "type_text", &json!({"window_id": "1", "text": "x"}));
+    assert_eq!(out.body["state"]["settle"], "openai");
+    assert!(slept.0.lock().unwrap().is_empty());
+    // Adaptive stays one argument away.
+    let out = e.call(
+        &ctx(None),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "settle": "adaptive"}),
+    );
+    assert_eq!(out.body["state"]["settle"], "adaptive");
+    assert!(!slept.0.lock().unwrap().is_empty());
+}
+
+/// The batch's own state at its end is no second settle after the last
+/// step's: each acting step settles once (adaptive, asked for), then the
+/// final state is captured at once.
+#[test]
+fn a_batch_does_no_final_duplicate_settle() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = settling_engine(d);
+    let out = e.call(
+        &ctx(Some("b1")),
+        "batch",
+        &json!({"window_id": "1", "settle": "adaptive", "actions": [
+            {"action": "click", "element_id": "e1"},
+            {"action": "press_key", "keys": "Return"}
+        ]}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["state"]["settle"], "openai", "{}", out.body["state"]);
+    // Each of the two steps floors once; the end adds nothing.
+    let floors =
+        slept.0.lock().unwrap().iter().filter(|d| **d == Duration::from_millis(120)).count();
+    assert_eq!(floors, 2);
+}
+
+/// A step settles only when its outcome needs it: `require` confirmed or
+/// not_no_effect read the window and the app after a real settle.
+#[test]
+fn a_batch_step_settles_only_when_its_outcome_is_required() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = default_settling_engine(d);
+    let out = e.call(
+        &ctx(Some("b1")),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "click", "element_id": "e1"},
+            {"action": "press_key", "keys": "Return"}
+        ]}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    assert!(slept.0.lock().unwrap().is_empty(), "nothing asked for a settle");
+    let out = e.call(
+        &ctx(Some("b2")),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "click", "element_id": "e1"},
+            {"action": "press_key", "keys": "Return", "require": "not_no_effect"}
+        ]}),
+    );
+    assert!(out.body.get("results").is_some(), "{:?}", out.body);
+    assert_eq!(slept.0.lock().unwrap().first(), Some(&Duration::from_millis(120)));
+}
+
+/// A batch's `settle: "anthropic"` (on the call or a step) keeps the
+/// reference mode's fixed delay on every step, not the default's no wait.
+#[test]
+fn a_batch_step_keeps_an_asked_for_anthropic_settle() {
+    let d = Arc::new(FakeDesktop::standard());
+    let (e, slept) = default_settling_engine(d);
+    let out = e.call(
+        &ctx(Some("b1")),
+        "batch",
+        &json!({"window_id": "1", "settle": "anthropic", "actions": [
+            {"action": "click", "element_id": "e1"},
+            {"action": "press_key", "keys": "Return"}
+        ]}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    let delays =
+        slept.0.lock().unwrap().iter().filter(|d| **d == ANTHROPIC_SCREENSHOT_DELAY).count();
+    // One a step, and the batch's end state keeps the reference delay too.
+    assert_eq!(delays, 3, "{:?}", slept.0.lock().unwrap());
+    slept.0.lock().unwrap().clear();
+    let out = e.call(
+        &ctx(Some("b2")),
+        "batch",
+        &json!({"window_id": "1", "actions": [
+            {"action": "click", "element_id": "e1", "settle": "anthropic"},
+            {"action": "press_key", "keys": "Return"}
+        ]}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(*slept.0.lock().unwrap(), vec![ANTHROPIC_SCREENSHOT_DELAY]);
+}
+
+/// Before/after for the default acting call, one harness: 50 calls on the
+/// fake desktop with a virtual clock (time moves only when the engine
+/// sleeps), a no-op action (nothing repaints: the old path pays the 1 s
+/// ceiling) and an action whose window repaints on its third capture. Run
+/// with `--nocapture` for the numbers.
+#[test]
+#[ignore = "bench, about a minute: run with --ignored --nocapture"]
+fn default_acting_calls_wait_no_virtual_time() {
+    fn pct(v: &mut [u64], p: usize) -> u64 {
+        v.sort_unstable();
+        v[(v.len() * p / 100).min(v.len() - 1)]
+    }
+    for (label, repaint) in [("no-op action", false), ("repaints on 3rd capture", true)] {
+        let mut rows = vec![];
+        for (name, mode) in
+            [("before (adaptive)", SettleMode::Adaptive), ("after (default)", SettleMode::Openai)]
+        {
+            let mut waited = vec![];
+            for _ in 0..50 {
+                let d = Arc::new(FakeDesktop::standard());
+                let (e, _) = default_settling_engine(d.clone());
+                let mut config = e.config();
+                config.settle = mode;
+                e.set_config(config);
+                assert!(!e.call(&ctx(None), "screenshot", &json!({"window_id": "1"})).is_error);
+                if repaint {
+                    let seen = *d.captures.lock().unwrap();
+                    *d.repaint_from.lock().unwrap() = Some((seen + 3, 77));
+                }
+                let out =
+                    e.call(&ctx(None), "click", &json!({"window_id": "1", "element_id": "e1"}));
+                waited.push(out.body["state"]["waited_ms"].as_u64().unwrap());
+            }
+            let (p50, p95) = (pct(&mut waited.clone(), 50), pct(&mut waited, 95));
+            println!("BENCH {label} {name}: n=50 p50={p50} ms p95={p95} ms (virtual)");
+            rows.push(p95);
+        }
+        assert_eq!(rows[1], 0, "the default no longer waits");
+        assert!(rows[0] >= 120);
+    }
 }

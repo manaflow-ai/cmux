@@ -262,8 +262,12 @@ test("a mounted agent identity takes a late profile icon without a parent render
 
 // Leo, 2026-10-28 (ask-4e32bae782): "when you hover over the button, it should be able to tell you,
 // like, a bit more metadata. Like, at the very least tell you what model did it, what effort level."
-// The name's tooltip and the mark's name the sender's harness, model and effort: a listed chat's own,
-// else the ones its message names (`fromHarness`, `fromModel`, `fromEffort`).
+// The name's facts card (its accessible description) and the mark's tooltip name the sender's harness,
+// model and effort: a listed chat's own, else the ones its message names (`fromHarness`, `fromModel`,
+// `fromEffort`). The name shows its own text, so it has no tooltip (c0ecbb88).
+const described = (element: Element) =>
+  element.ownerDocument.getElementById(element.getAttribute("aria-describedby") ?? "")?.textContent ?? null;
+
 test("a listed sender's hover names its harness, model and effort", async () => {
   const listed = entry({
     sessionId: "mux-lane",
@@ -289,7 +293,8 @@ test("a listed sender's hover names its harness, model and effort", async () => 
     ),
   );
   const open = host.querySelector<HTMLButtonElement>("button.cv-received__from--open")!;
-  expect(open.getAttribute("title")).toBe(`${t("subagents.open", { name: "gcp-lane" })}\nCodex · gpt-6.1-sol high`);
+  expect(open.getAttribute("title")).toBeNull();
+  expect(described(open)).toBe("Codex · gpt-6.1-sol high");
   expect(open.getAttribute("aria-label")).toBe(t("subagents.open", { name: "gcp-lane" }));
   expect(host.querySelector(".cv-received__mark")?.getAttribute("title")).toBe("Codex · gpt-6.1-sol high");
 });
@@ -311,7 +316,8 @@ test("an unlisted sender's hover reads the harness, model and effort its message
   expect(message).toMatchObject({ harness: "codex", model: "gpt-6-astra", effort: "xhigh" });
   await line({ ...message!, sessionId: undefined });
   const from = host.querySelector<HTMLElement>(".cv-received__from")!;
-  expect(from.getAttribute("title")).toBe("Codex · gpt-6-astra xhigh");
+  expect(from.getAttribute("title")).toBeNull();
+  expect(described(from)).toBe("Codex · gpt-6-astra xhigh");
 });
 
 test("a sender nothing describes keeps no tooltip", async () => {

@@ -10,18 +10,18 @@ import Testing
 @Suite struct BackdropAgentGlowTests {
     private static let red = ThemeRGB(hex: 0xFF0000)
     private static let blue = ThemeRGB(hex: 0x0000FF)
-    private static func color(_ machine: String) -> ThemeRGB { machine == "big-red" ? red : blue }
+    private static func color(_ machine: String) -> ThemeRGB { machine == "my-vm" ? red : blue }
 
     @Test func noAgentsOrIdleOnesAreCalm() {
         #expect(BackdropAgentGlow(agents: [], color: Self.color) == .calm)
-        #expect(BackdropAgentGlow(agents: [.init(machine: "big-red", level: .calm)], color: Self.color) == .calm)
+        #expect(BackdropAgentGlow(agents: [.init(machine: "my-vm", level: .calm)], color: Self.color) == .calm)
         #expect(BackdropAgentGlow.calm.opacity == 0)
         #expect(BackdropAgentGlow.calm.color == nil)
     }
 
     @Test func aWaitingAgentOutranksWorkingOnesAndTakesItsMachinesColor() {
         let glow = BackdropAgentGlow(agents: [.init(machine: "huge-blue", level: .working),
-                                              .init(machine: "big-red", level: .needsYou)], color: Self.color)
+                                              .init(machine: "my-vm", level: .needsYou)], color: Self.color)
         #expect(glow.level == .needsYou)
         #expect(glow.color == Self.red)
         #expect(glow.opacity == 1)
@@ -36,7 +36,7 @@ import Testing
 
     /// The hue holds still while the same agents wait, whatever order the stores list them in.
     @Test func theHueDoesNotDependOnOrder() {
-        let agents: [BackdropAgentGlow.Agent] = [.init(machine: "huge-blue", level: .needsYou), .init(machine: "big-red", level: .needsYou)]
+        let agents: [BackdropAgentGlow.Agent] = [.init(machine: "huge-blue", level: .needsYou), .init(machine: "my-vm", level: .needsYou)]
         let glow = BackdropAgentGlow(agents: agents, color: Self.color)
         #expect(glow == BackdropAgentGlow(agents: agents.reversed(), color: Self.color))
         #expect(glow.color == Self.red)

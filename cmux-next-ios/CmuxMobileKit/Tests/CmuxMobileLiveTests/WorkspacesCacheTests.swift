@@ -8,7 +8,7 @@ import Testing
 // before any link, reading only each Mac's first screen, so a 5,000-workspace cache costs what a
 // 100-workspace one does; a cache of another version or a corrupt one falls back to none, never a
 // crash; the rest joins below the first screen without moving it; sign-out deletes it all.
-// Leo, 2026-11-10: "your recent shit, like, should be fucking showing. And it should just be like,
+// Leo, 2026-11-10: "your recent s***, like, should be f***ing showing. And it should just be like,
 // okay, we load, like, nigh instantly."
 
 enum CacheFixture {
@@ -115,12 +115,12 @@ enum CacheFixture {
         // Another version of the format, otherwise well formed.
         store.save(CacheFixture.snapshot(CacheFixture.rows(10)), accountID: "user")
         store.flush()
-        let head = account.appending(path: "head.json")
+        let head = account.appending(path: "team-t1/head.json")
         var object = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: head)) as? [String: Any])
         object["format"] = LiveSnapshotStore.formatVersion + 1
         try JSONSerialization.data(withJSONObject: object).write(to: head)
         #expect(store.loadFirstScreen(accountID: "user") == nil)
-        #expect(!FileManager.default.fileExists(atPath: account.path))
+        #expect(!FileManager.default.fileExists(atPath: account.appending(path: "team-t1").path))
 
         // The format-1 file (one JSON of the whole list) is not read, and goes.
         let legacy = directory.appending(path: "snapshot-user.json")
@@ -132,7 +132,7 @@ enum CacheFixture {
     @Test func aCorruptTailKeepsTheFirstScreen() async throws {
         let (store, directory) = CacheFixture.saved(500)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let tail = directory.appending(path: "account-user/tail-m1.json")
+        let tail = directory.appending(path: "account-user/team-t1/tail-m1.json")
         #expect(FileManager.default.fileExists(atPath: tail.path))
         try Data("not json".utf8).write(to: tail)
         let first = try #require(store.loadFirstScreen(accountID: "user"))
@@ -170,6 +170,43 @@ enum CacheFixture {
         let whole = try #require(store.load(accountID: "user")?.workspaces["m1"]?.workspaces)
         #expect(whole.count == 600)
         #expect(whole.contains { $0.title == "saved by B" })
+    }
+
+    @Test func eachTeamKeepsItsOwnRowsAndTheLaunchDrawsTheLastOne() async throws {
+        // A switch to a team shown before draws its rows (Leo, 2026-11-24: "wer need to chase all
+        // these placeholders doen and prevent them"): saving team two keeps team one's rows.
+        // Rows are listed most recently focused first (LiveSnapshotStore sorts by focusOrder, high
+        // first), so w2-0 gets the highest order and the list comes back in `rows` order.
+        let (store, directory) = CacheFixture.saved(500)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let other = MacDevice(id: "m2", name: "Laptop", isOnline: false)
+        let rows = (0..<5).map { Workspace(id: "w2-\($0)", macID: other.id, title: "two \($0)", directory: "/", tabs: [],
+                                                         lastActivityAt: CacheFixture.savedAt, focusOrder: 4 - $0) }
+        store.save(LiveSnapshot(teamID: "t2", teamName: "Two", macs: [other], linkedMacID: nil,
+                                workspaces: [other.id: .init(workspaces: rows, savedAt: CacheFixture.savedAt)]), accountID: "user")
+        store.flush()
+        #expect(store.loadFirstScreen(accountID: "user")?.teamID == "t2")
+        let one = try #require(store.loadFirstScreen(accountID: "user", teamID: "t1"))
+        let rest = await store.loadRest(one, accountID: "user")
+        #expect(rest["m1"]?.workspaces.count == 500)
+        #expect(store.loadFirstScreen(accountID: "user", teamID: "t2")?.workspaces["m2"]?.workspaces.map(\Workspace.id) == rows.map(\Workspace.id))
+        #expect(store.loadFirstScreen(accountID: "user", teamID: "t3") == nil)
+    }
+
+    @Test func aCacheFromBeforeTeamFoldersMovesIntoItsTeam() throws {
+        // An update's first launch keeps the rows saved before teams had folders.
+        let (store, directory) = CacheFixture.saved(500)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let account = directory.appending(path: "account-user", directoryHint: .isDirectory)
+        let fileManager = FileManager.default
+        for name in try fileManager.contentsOfDirectory(atPath: account.appending(path: "team-t1").path) {
+            try fileManager.moveItem(at: account.appending(path: "team-t1/\(name)"), to: account.appending(path: name))
+        }
+        try fileManager.removeItem(at: account.appending(path: "team-t1"))
+        try fileManager.removeItem(at: account.appending(path: "last-team"))
+        #expect(store.load(accountID: "user")?.workspaces["m1"]?.workspaces.count == 500)
+        #expect(!fileManager.fileExists(atPath: account.appending(path: "head.json").path))
+        #expect(fileManager.fileExists(atPath: account.appending(path: "team-t1/head.json").path))
     }
 
     @Test func signOutDeletesTheCache() throws {
