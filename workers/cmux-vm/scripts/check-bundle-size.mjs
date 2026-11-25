@@ -21,7 +21,9 @@ import { gzipSync } from "node:zlib";
 // before); no dependency was added.
 // An image's large snapshot and a create with no provider read first add about 1.6 KiB on top of that (456.0 KiB
 // over 454.4 KiB when measured alone in CI); no dependency was added.
-const BUDGET_GZIP_BYTES = 459 * 1024; // 298 KiB at S1
+// Dated API versions (src/api-version.ts, the Cmux-Api-Version pin) measured 460.6 KiB in CI; no dependency was
+// added.
+const BUDGET_GZIP_BYTES = 463 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })
